@@ -21,7 +21,7 @@ namespace WSGM.Overlay;
 ///     navigation stack, the shared row/label builders, and text entry. Each navigation
 ///     level rebuilds <see cref="ContentControl.Content" /> with actions and explicit value editors.
 ///     <para>
-///         <see cref="_navigationGeneration" /> is also the invalidation token for
+///         <see cref="NavigationGeneration" /> is also the invalidation token for
 ///         asynchronous work: leaving a level bumps it, so a load that completes afterwards
 ///         discards its result instead of drawing over the level the user moved to.
 ///     </para>
@@ -29,12 +29,12 @@ namespace WSGM.Overlay;
 public abstract partial class OverlaySubView : UserControl
 {
     // Navigation: a stack of render thunks. Push goes deeper; Back pops.
-    private protected readonly Stack<Action> _stack = new();
-    private protected Action? _current;
-    private protected int _navigationGeneration;
+    private protected readonly Stack<Action> NavigationStack = new();
+    private protected Action? CurrentLevel;
+    private protected int NavigationGeneration;
 
     // One-shot message shown at the top of the next rendered level, then consumed.
-    private protected string? _notice;
+    private string? _notice;
 
     /// <summary>Short name used to prefix log lines from this sub-view.</summary>
     protected abstract string LogScope { get; }
@@ -45,7 +45,7 @@ public abstract partial class OverlaySubView : UserControl
     /// </summary>
     internal SteamClient? Steam { get; set; }
 
-    internal bool HasNestedLevel => _stack.Count > 0;
+    internal bool HasNestedLevel => NavigationStack.Count > 0;
 
     /// <summary>
     ///     Raised when the user backs out of the top level (the overlay then
@@ -57,9 +57,9 @@ public abstract partial class OverlaySubView : UserControl
 
     internal virtual void Leave()
     {
-        _navigationGeneration++;
-        _stack.Clear();
-        _current = null;
+        NavigationGeneration++;
+        NavigationStack.Clear();
+        CurrentLevel = null;
         Content = null;
     }
 
@@ -78,44 +78,44 @@ public abstract partial class OverlaySubView : UserControl
     /// </summary>
     public bool Back()
     {
-        _navigationGeneration++;
+        NavigationGeneration++;
         LevelChanged?.Invoke();
-        if (_stack.Count == 0)
+        if (NavigationStack.Count == 0)
         {
             CloseRequested?.Invoke();
             return true;
         }
 
-        _current = _stack.Pop();
-        _current();
+        CurrentLevel = NavigationStack.Pop();
+        CurrentLevel();
         return true;
     }
 
     private protected void Navigate(Action render)
     {
-        _navigationGeneration++;
-        if (_current is not null)
+        NavigationGeneration++;
+        if (CurrentLevel is not null)
         {
-            _stack.Push(_current);
+            NavigationStack.Push(CurrentLevel);
         }
 
-        _current = render;
+        CurrentLevel = render;
         LevelChanged?.Invoke();
         render();
     }
 
     private protected void Replace(Action render)
     {
-        _current = render;
+        CurrentLevel = render;
         LevelChanged?.Invoke();
         render();
     }
 
     private protected void PopIfAny()
     {
-        if (_stack.Count > 0)
+        if (NavigationStack.Count > 0)
         {
-            _stack.Pop();
+            NavigationStack.Pop();
         }
     }
 
@@ -157,7 +157,7 @@ public abstract partial class OverlaySubView : UserControl
     {
         Log.Info($"{LogScope}: {message}");
         _notice = message;
-        _current?.Invoke();
+        CurrentLevel?.Invoke();
     }
 
     // ---- Shared builders ----
@@ -287,7 +287,7 @@ public abstract partial class OverlaySubView : UserControl
         if (TopLevel.GetTopLevel(this) is OverlayWindow window && window.RequestText(title, current, maxLen, v =>
             {
                 onAccept(v);
-                _current?.Invoke();
+                CurrentLevel?.Invoke();
             }))
         {
             return;

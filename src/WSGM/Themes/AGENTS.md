@@ -5,6 +5,8 @@ Themes owns shared Avalonia resources and control presentation.
 - App.axaml includes theme resources; it does not become a second theme file.
 - Put colors, brushes, typography, spacing, radii, sizing, and focus treatment behind shared semantic tokens.
 - Use DynamicResource for user- or system-changing accent resources. Use StaticResource for stable application tokens.
+- `Palette.axaml` holds the shared `Hc*` vocabulary. `CommandDeck.axaml` owns the overlay command deck's own `Deck*`
+  palette (glass tint, surfaces and deck text); overlay deck tokens go there, never into a page.
 - Keep one visible 2-pixel focus border. Disable the framework focus adorner where the themed control supplies that
   border so focus is not drawn twice.
 - Prefer selectors and control themes over per-page copies. A feature-specific token must have a semantic name and a

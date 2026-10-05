@@ -18,8 +18,8 @@ public sealed class DisplayLayoutDiagnosticsTests
     public void RejectedLayoutKeepsTheNativeCodeRequestAndReadbackInTheTrace()
     {
         List<string> info = [], warnings = [];
-        DisplayLayoutResult rejected = new(DisplayLayoutOutcome.Rejected, [], 87, false, false, [],
-            "Invalid parameter");
+        DisplayLayoutResult rejected = new(DisplayLayoutOutcome.Rejected, [], 87, false, 0, [],
+            DisplayLayoutProblem.ValidationRejected);
         var result = DisplayLayoutDiagnostics.Apply(Layout(), _ => rejected,
             () => new DisplayArrangement([], "desktop-unchanged", DateTimeOffset.UnixEpoch), info.Add, warnings.Add);
 
@@ -36,7 +36,7 @@ public sealed class DisplayLayoutDiagnosticsTests
     {
         var writes = 0;
         List<string> warnings = [];
-        DisplayLayoutResult rolledBack = new(DisplayLayoutOutcome.Unconfirmed, [], 31, true, true, [], "Rolled back");
+        DisplayLayoutResult rolledBack = new(DisplayLayoutOutcome.Refused, [], 31, true, 0, []);
         var result = DisplayLayoutDiagnostics.Apply(Layout(), _ =>
             {
                 writes++;

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using WSGM.Core;
 using WSGM.Settings;
+using WSGM.Testing;
 
 namespace WSGM.Tests.Settings;
 
@@ -11,7 +12,7 @@ public sealed class SettingsViewModelSplashTests
     [Fact]
     public void OverlayBlurSliderIsSavedAndIncludedInTheTestSheetSnapshot()
     {
-        var viewModel = new SettingsViewModel(new AppConfig { OverlayBlurRadius = 8 });
+        var viewModel = SettingsTestServices.Model(new AppConfig { OverlayBlurRadius = 8 });
         Assert.Equal("8 px", viewModel.OverlayBlurLabel);
 
         viewModel.OverlayBlurRadius = 21;
@@ -19,7 +20,7 @@ public sealed class SettingsViewModelSplashTests
         Assert.Equal("21 px", viewModel.OverlayBlurLabel);
         Assert.Equal(21, viewModel.SnapshotForPreview().OverlayBlurRadius);
         var request = viewModel.CaptureSaveRequest();
-        var merged = SettingsSaveMerge.Apply(new AppConfig(), request, request.Splash);
+        var (merged, _) = SettingsSaveMerge.Apply(new AppConfig(), request, request.Splash);
         Assert.Equal(21, merged.OverlayBlurRadius);
     }
 
@@ -40,7 +41,7 @@ public sealed class SettingsViewModelSplashTests
             Profiles = { Global = { ControllerTarget = ManagedControllerTarget.DualShock4 } }
         };
 
-        SettingsViewModel viewModel = new(config);
+        var viewModel = SettingsTestServices.Model(config);
 
         Assert.True(viewModel.DeviceAutoTdpEnabled);
         Assert.Equal((int)ManagedControllerTarget.DualShock4, viewModel.DeviceControllerTargetIndex);
@@ -51,10 +52,8 @@ public sealed class SettingsViewModelSplashTests
     [Fact]
     public void ChangingOneRuntimeOwnedDeviceValueMarksOnlyThatOne()
     {
-        SettingsViewModel viewModel = new(new AppConfig())
-        {
-            DeviceGlyphSelectionIndex = (int)DeviceGlyphSelection.ManualReviewedProfile
-        };
+        var viewModel = SettingsTestServices.Model(new AppConfig());
+        viewModel.DeviceGlyphSelectionIndex = (int)DeviceGlyphSelection.ManualReviewedProfile;
 
         Assert.Equal((false, false, true), viewModel.DeviceEditsMade);
     }
@@ -114,7 +113,7 @@ public sealed class SettingsViewModelSplashTests
             }
         };
 
-        var viewModel = new SettingsViewModel(new AppConfig());
+        var viewModel = SettingsTestServices.Model(new AppConfig());
         viewModel.LoadSplash(source);
         var rebuilt = viewModel.BuildSplashConfig();
 
@@ -124,7 +123,7 @@ public sealed class SettingsViewModelSplashTests
     [Fact]
     public void EveryPresetSurvivesTheViewModelRoundTripUnchanged()
     {
-        var viewModel = new SettingsViewModel(new AppConfig());
+        var viewModel = SettingsTestServices.Model(new AppConfig());
         foreach (var preset in SplashPresets.All)
         {
             var source = SplashPresets.Create(preset);
@@ -139,7 +138,7 @@ public sealed class SettingsViewModelSplashTests
     [Fact]
     public void WithTextOnTheTextPlacementIsCoercedToAnchorOnBuild()
     {
-        var viewModel = new SettingsViewModel(new AppConfig());
+        var viewModel = SettingsTestServices.Model(new AppConfig());
         viewModel.LoadSplash(new SplashConfig
         {
             TextPlacement = new SplashElementPlacement { Mode = SplashPlacementMode.WithText },
@@ -156,11 +155,9 @@ public sealed class SettingsViewModelSplashTests
     [Fact]
     public void SelectorValueListsCoverEveryEnumMember()
     {
-        Assert.Equal((int)SplashSpinnerStyle.Off + 1, SettingsViewModel.SpinnerStyleValues.Length);
-        Assert.Equal((int)SplashPlacementMode.WithText + 1, SettingsViewModel.PlacementModeValues.Length);
-        Assert.Equal(
-            (int)SplashPlacementAnchor.BottomRight + 1,
-            SettingsViewModel.PlacementAnchorValues.Length);
+        Assert.Equal(Enum.GetValues<SplashSpinnerStyle>().Order(), SettingsViewModel.SpinnerStyleValues.Order());
+        Assert.Equal(Enum.GetValues<SplashPlacementMode>().Order(), SettingsViewModel.PlacementModeValues.Order());
+        Assert.Equal(Enum.GetValues<SplashPlacementAnchor>().Order(), SettingsViewModel.PlacementAnchorValues.Order());
         // The text selector deliberately omits "with text" — see the coercion above.
         Assert.DoesNotContain(SplashPlacementMode.WithText, SettingsViewModel.TextPlacementModeValues);
     }
@@ -277,11 +274,9 @@ public sealed class SettingsViewModelSplashTests
         // the persisted path goes back to the previous copy while the EDITOR keeps the
         // user's pick, so pressing Save again retries that image.
         const string picked = @"D:\Downloads\pick.png";
-        var viewModel = new SettingsViewModel(new AppConfig())
-        {
-            SplashLogoPath = picked,
-            SplashBackgroundImagePath = @"D:\Downloads\bg.png"
-        };
+        var viewModel = SettingsTestServices.Model(new AppConfig());
+        viewModel.SplashLogoPath = picked;
+        viewModel.SplashBackgroundImagePath = @"D:\Downloads\bg.png";
         // What the save just persisted: the failed slot still names the picked file,
         // the healthy one already names its materialized copy.
         var config = ConfigWith(picked, @"C:\splash\background.png");
@@ -308,11 +303,9 @@ public sealed class SettingsViewModelSplashTests
     [Fact]
     public void EverySlotThatWentLiveAdoptsItsMaterializedPath()
     {
-        var viewModel = new SettingsViewModel(new AppConfig())
-        {
-            SplashLogoPath = @"D:\Downloads\pick.png",
-            SplashBackgroundImagePath = @"E:\usb\bg.png"
-        };
+        var viewModel = SettingsTestServices.Model(new AppConfig());
+        viewModel.SplashLogoPath = @"D:\Downloads\pick.png";
+        viewModel.SplashBackgroundImagePath = @"E:\usb\bg.png";
 
         viewModel.AdoptMaterializedPaths(
             new SplashConfig
@@ -329,16 +322,11 @@ public sealed class SettingsViewModelSplashTests
     [Fact]
     public void SnapshotForPreviewCarriesSplashAndAccentAndStaysIsolatedFromLaterEdits()
     {
-        var viewModel = new SettingsViewModel(new AppConfig())
-        {
-            AccentColorHex = "#112233",
-            Splash =
-            {
-                Text = "Snapshot title",
-                SpinnerStyle = SplashSpinnerStyle.SweepLine
-            },
-            SplashBackgroundColorHex = "#101010"
-        };
+        var viewModel = SettingsTestServices.Model(new AppConfig());
+        viewModel.AccentColorHex = "#112233";
+        viewModel.Splash.Text = "Snapshot title";
+        viewModel.Splash.SpinnerStyle = SplashSpinnerStyle.SweepLine;
+        viewModel.SplashBackgroundColorHex = "#101010";
 
         var snapshot = viewModel.SnapshotForPreview();
 

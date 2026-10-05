@@ -2,10 +2,14 @@ using System;
 using System.Diagnostics;
 using System.Text.Json;
 using WindowsDeviceControl;
+using WSGM.Core;
 
 namespace WSGM.Shell;
 
-/// <summary>Keeps the requested layout, native result and readback together in normal diagnostics.</summary>
+/// <summary>
+///     Keeps the requested layout, the native result and the desktop observed afterwards together in normal
+///     diagnostics. The observation is logged for diagnosis only; nothing is decided from it.
+/// </summary>
 internal static class DisplayLayoutDiagnostics
 {
     internal static DisplayLayoutResult Apply(DisplayLayout layout,
@@ -30,7 +34,8 @@ internal static class DisplayLayoutDiagnostics
         var outcome = $"{prefix} result after {elapsed.ElapsedMilliseconds} ms: "
                       + $"outcome={result.Outcome}, nativeStatus={result.NativeStatus}, "
                       + $"rollbackAttempted={result.RollbackAttempted}, rollbackSucceeded={result.RollbackSucceeded}, "
-                      + $"detail={result.Detail}, warnings={JsonSerializer.Serialize(result.Warnings)}";
+                      + $"detail={DisplayText.Layout(result)}, "
+                      + $"warnings={JsonSerializer.Serialize(DisplayText.Warnings(result))}";
         if (result is { Applied: true, Warnings.Count: 0 })
         {
             info(outcome);

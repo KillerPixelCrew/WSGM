@@ -220,6 +220,16 @@ internal sealed class FakeThemesSource : IThemeBrowseSession
         return Command("SetSettingAsync");
     }
 
+    public Task<SteamUiCommandResult> SetThemesEnabledAsync(bool enabled, CancellationToken cancellationToken)
+    {
+        return Command("SetThemesEnabledAsync");
+    }
+
+    public Task<SteamUiCommandResult> SetTranslationsBranchAsync(string branch, CancellationToken cancellationToken)
+    {
+        return Command("SetTranslationsBranchAsync");
+    }
+
     public Task<SteamUiCommandResult> DismissAsync(CancellationToken cancellationToken)
     {
         return Command("DismissAsync");
@@ -511,6 +521,17 @@ internal sealed class FakeLibrarySource : IGameLibraryOverlaySource
         return Command("SelectAsync");
     }
 
+    public Task<SteamUiCommandResult> SetSelectedAsync(IReadOnlyList<string> ids, bool selected,
+        CancellationToken cancellationToken)
+    {
+        State = State with
+        {
+            Entries = State.Entries
+                .Select(entry => ids.Contains(entry.Id) ? entry with { Selected = selected } : entry).ToArray()
+        };
+        return Command("SetSelectedAsync");
+    }
+
     public Task<SteamUiCommandResult> SetModeAsync(string id, string mode, bool acknowledged,
         CancellationToken cancellationToken)
     {
@@ -521,9 +542,9 @@ internal sealed class FakeLibrarySource : IGameLibraryOverlaySource
         return Command("SetModeAsync");
     }
 
-    public Task<SteamUiCommandResult> CycleLaunchAsync(string id, CancellationToken cancellationToken)
+    public async Task<GameLibraryLaunchCycle> CycleLaunchAsync(string id, CancellationToken cancellationToken)
     {
-        return Command("CycleLaunchAsync");
+        return new GameLibraryLaunchCycle(await Command("CycleLaunchAsync"));
     }
 
     public Task<SteamUiCommandResult> ExcludeAsync(string id, CancellationToken cancellationToken)
@@ -611,9 +632,10 @@ internal sealed class FakeLibrarySource : IGameLibraryOverlaySource
         return Command("ArtworkOptionsAsync");
     }
 
-    public Task<SteamUiCommandResult> SearchMatchAsync(string id, string query, CancellationToken cancellationToken)
+    public async Task<GameLibraryMatchSearch> SearchMatchAsync(string id, string query,
+        CancellationToken cancellationToken)
     {
-        return Command("SearchMatchAsync");
+        return new GameLibraryMatchSearch(await Command("SearchMatchAsync"), new GameLibraryMatchesAnswer([]));
     }
 
     public Task<SteamUiCommandResult> SetMatchAsync(string id, string provider, string gameId, string name,

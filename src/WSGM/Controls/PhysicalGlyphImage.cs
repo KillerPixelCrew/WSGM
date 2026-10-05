@@ -15,7 +15,7 @@ namespace WSGM.Controls;
 /// <remarks>
 ///     A drawing rather than an image control, because there is nothing to load. The SDK's package
 ///     loader has already turned the plugin's SVG into a normalized path model, and
-///     <see cref="PhysicalGlyphService" /> has already turned that into Avalonia geometry — so rendering
+///     <see cref="WSGM.Shell.PhysicalGlyphPlans" /> has already turned that into Avalonia geometry — so rendering
 ///     is a transform and a fill, with no parser, decoder, or external SVG library in the resident
 ///     application.
 ///     <para>

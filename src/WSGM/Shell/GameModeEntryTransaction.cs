@@ -235,7 +235,7 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
                 // than tearing everything down again.
                 if (!applied.Applied)
                 {
-                    layoutWarning = "Game Mode display layout: " + applied.Detail;
+                    layoutWarning = "Game Mode display layout: " + DisplayText.Layout(applied);
                 }
             }
             else

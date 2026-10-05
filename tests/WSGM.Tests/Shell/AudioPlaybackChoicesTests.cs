@@ -1,5 +1,4 @@
 using WindowsDeviceControl;
-using WSGM.Settings;
 using WSGM.Shell;
 
 namespace WSGM.Tests.Shell;
@@ -38,6 +37,6 @@ public sealed class AudioPlaybackChoicesTests
     [Fact]
     public void SpatialOffHasAReadableLabel()
     {
-        Assert.Equal("Off", AudioProfileEditor.SpatialName(CoreAudio.SpatialAudioFormats.Off));
+        Assert.Equal("Off", SpatialAudioNames.For(CoreAudio.SpatialAudioFormats.Off));
     }
 }

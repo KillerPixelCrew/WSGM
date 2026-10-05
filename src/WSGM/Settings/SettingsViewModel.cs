@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
-using System.Runtime.Versioning;
+using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using WindowsDeviceControl;
 using WSGM.Core;
+using WSGM.Install;
+using WSGM.Shell;
 
 namespace WSGM.Settings;
 
@@ -13,30 +16,29 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly AppConfig _config;
     private readonly SettingsServices _services;
     private readonly ConfigStore? _store;
-
-    // The process's shim whose deployment the Steam page describes. A model built without one
-    // (design time, tests) describes a fresh instance, which has seen no Steam.
-    private readonly SteamInputShim _steamInputShim;
     internal ConfigStore Store => _store ?? throw new InvalidOperationException("Configuration persistence was not supplied.");
 
-    /// <summary>Creates design-time defaults without reading persisted user configuration.</summary>
-    public SettingsViewModel()
-        : this(new AppConfig(), null, false)
-    {
-    }
+    /// <summary>Whether configuration persistence was supplied; a test model has none.</summary>
+    internal bool HasStore => _store is not null;
 
+    /// <summary>Builds the view model over an already loaded configuration and explicit services.</summary>
+    /// <param name="config">
+    ///     The configuration this view model edits. It is taken over, not copied: the save path loads
+    ///     fresh configuration and merges before persisting anyway.
+    /// </param>
+    /// <param name="installedPluginId">Installed package ID, or null when the slot is empty or invalid.</param>
+    /// <param name="filterToInstalledPlugin">Whether the Plugin page shows only the installed package's settings.</param>
+    /// <param name="services">Every machine read and write the window uses; a test supplies inert ones.</param>
+    /// <param name="store">The persistence owner, for the log folder and the update check; null in tests.</param>
     internal SettingsViewModel(
         AppConfig config,
         string? installedPluginId,
         bool filterToInstalledPlugin,
-        SettingsServices? services = null,
-        ConfigStore? store = null,
-        SteamInputShim? steamInputShim = null)
+        SettingsServices services,
+        ConfigStore? store = null)
     {
         _store = store;
-        _steamInputShim = steamInputShim ?? new SteamInputShim();
-        _services = services ?? SettingsServices.Windows(store, _steamInputShim);
-        _queryDisplaysOnWorker = services is null;
+        _services = services ?? throw new ArgumentNullException(nameof(services));
         InstalledPackages.CollectionChanged += (_, _) => Raise(nameof(HasInstalledPackages));
         AvailablePackages.CollectionChanged += (_, _) => Raise(nameof(HasAvailablePackages));
         UnavailablePackages.CollectionChanged += (_, _) => Raise(nameof(HasUnavailablePackages));
@@ -84,6 +86,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             Log.Warn(diagnostic);
         }
+
+        SavedAccentColor = _config.AccentColor;
         RecordSharedBaseline(_config);
         LoadPluginSettings(_config, installedPluginId, filterToInstalledPlugin);
 
@@ -191,16 +195,40 @@ public sealed partial class SettingsViewModel : ObservableObject
         set => SetField(ref field, value, nameof(StatusText));
     } = "";
 
-    /// <summary>Builds the production settings model over configuration already loaded at startup.</summary>
-    /// <param name="config">The configuration this view model edits.</param>
+    /// <summary>Builds the production settings model over configuration already read off the UI thread.</summary>
+    /// <param name="read">
+    ///     The configuration read this view model edits. A corrupt or unreadable file opens on the defaults
+    ///     with the problem in the status strip, and a save then refuses through the store's strict write.
+    /// </param>
     /// <param name="store">The persistence owner supplied by the process or resident session.</param>
     /// <param name="steamInputShim">The process's Steam Input shim, applied after a save and described on the Steam page.</param>
-    internal static SettingsViewModel FromLoadedConfig(AppConfig config, ConfigStore store, SteamInputShim steamInputShim)
+    /// <param name="readPluginActions">
+    ///     The actions the running plugins declare: the resident session's own source, or an empty list for a
+    ///     standalone Settings process, which then shows saved steps read-only.
+    /// </param>
+    internal static SettingsViewModel FromLoadedConfig(ConfigReadResult read, ConfigStore store,
+        SteamInputShim steamInputShim, Func<IReadOnlyList<PluginActionOption>> readPluginActions)
     {
-        var viewModel = new SettingsViewModel(config, ReadInstalledPluginId(), true, store: store,
-            steamInputShim: steamInputShim);
+        var viewModel = new SettingsViewModel(read.Config ?? new AppConfig(), ReadInstalledPluginId(), true,
+            SettingsServices.Windows(store, steamInputShim, readPluginActions), store);
         viewModel.LoadCommonPlugins(PluginPackageCatalog.DiscoverInstalled());
+        viewModel.ShowConfigReadProblem(read);
         return viewModel;
+    }
+
+    /// <summary>Puts a failed configuration read in the status strip, so defaults are never shown as saved values.</summary>
+    /// <param name="read">The read the window opened on.</param>
+    internal void ShowConfigReadProblem(ConfigReadResult read)
+    {
+        var reason = read.Error?.Message is { Length: > 0 } message ? $" ({message})" : "";
+        StatusText = read.Outcome switch
+        {
+            ConfigReadOutcome.Corrupt =>
+                $"config.json is damaged{reason}, so these are the defaults. Saving is refused until the file is repaired or removed.",
+            ConfigReadOutcome.Unreadable =>
+                $"config.json could not be read{reason}, so these are the defaults. Saving is refused until it can be read; reopen Settings to try again.",
+            _ => StatusText
+        };
     }
 
     internal sealed record SettingsServices(
@@ -211,30 +239,42 @@ public sealed partial class SettingsViewModel : ObservableObject
         Action BeginImportSession,
         Action EndImportSession,
         Func<SaveRequest, Task<SaveResult>> Persist,
-        Func<AppConfig, Task> ApplySteamInput,
+        Action<AppConfig> ReconcileSteamInputShim,
+        Func<string> DescribeSteamInputShim,
         Action<string, Exception?> Report,
         Func<ModernStandbyReport> ReadStandby,
         Func<IReadOnlyList<SteamAutostartSource>> ScanSteamAutostart,
         Func<IReadOnlyList<SteamAutostartSource>, SteamAutostartTakeoverResult> ApplySteamAutostart,
-        Func<string?, AudioDiscovery>? ReadAudio = null,
-        Func<UpdateState>? ReadUpdates = null,
-        Func<IReadOnlyList<DetectedManager>>? DetectOtherManagers = null,
-        Func<IReadOnlyList<DetectedManager>, OtherManagersResult>? ApplyOtherManagers = null,
-        Func<AppConfig>? LoadPersisted = null)
+        Func<CancellationToken, Task<UpdateState>> CheckUpdates,
+        Func<UpdateRelease, IProgress<double>, CancellationToken, Task<string>> DownloadUpdate,
+        Action<string> RunSetup,
+        Func<string?> ReadUpdateFailure,
+        Func<PluginPackageCatalog, PluginPackagePage> ReadPackages,
+        Func<PluginPackageRowState, BundleManifest?, Task<string>> ActOnPackage,
+        Func<bool> RepairAvailable,
+        Action StartRepair,
+        Func<string?, AudioDiscovery> ReadAudio,
+        Func<UpdateState> ReadUpdates,
+        Func<IReadOnlyList<DetectedManager>> DetectOtherManagers,
+        Func<IReadOnlyList<DetectedManager>, OtherManagersResult> ApplyOtherManagers,
+        Func<AppConfig> LoadPersisted)
     {
-        internal static SettingsServices Windows(ConfigStore? store, SteamInputShim steamInputShim)
+        internal static SettingsServices Windows(ConfigStore store, SteamInputShim steamInputShim,
+            Func<IReadOnlyList<PluginActionOption>> readPluginActions)
         {
             return new SettingsServices(
                 () => OperatingSystem.IsWindows()
                     ? DisplayLayouts.Observe()
                     : new DisplayArrangement([], "", DateTimeOffset.UtcNow),
-                static target => OperatingSystem.IsWindows() ? ReadWindowsDisplayFacts(target) : null,
-                SettingsPluginActions.Read,
+                static target => OperatingSystem.IsWindows() ? DisplayCatalogFacts.Read(target) : null,
+                readPluginActions,
                 KnownStartupApps.Detected,
                 SplashTheme.BeginImportSession, SplashTheme.EndImportSession,
-                request => Task.Run(() => PersistSave(request, RequireStore(store))),
-                config => Task.Run(() =>
-                    ApplySteamInputManagementAfterSave(steamInputShim, config, RequireStore(store))),
+                request => Task.Run(() => PersistSave(request, store)),
+                // Follows persisted intent, on the post-save worker and outside the writer transaction,
+                // whose timeout is sized for one small JSON write, not for file copies into Program Files.
+                config => SteamInputManagement.Apply(steamInputShim, config, "settings-save"),
+                () => SteamInputManagement.Describe(steamInputShim),
                 (message, error) =>
                 {
                     if (error is null)
@@ -250,57 +290,35 @@ public sealed partial class SettingsViewModel : ObservableObject
                 // report instead of whatever this machine did last night.
                 ModernStandbyDiagnostics.Read,
                 () => SteamAutostartService.Scan(),
-                sources => SteamAutostartService.Apply(RequireStore(store), sources, true),
+                sources => SteamAutostartService.Apply(store, sources, true),
+                // The update check and download own their client and run off the dispatcher. The
+                // window's token stops them when Settings closes.
+                cancellationToken => Task.Run(async () =>
+                {
+                    using var http = UpdateChecker.CreateHttpClient();
+                    return await UpdateChecker.CheckAsync(http, store.Context, cancellationToken)
+                        .ConfigureAwait(false);
+                }, cancellationToken),
+                (release, progress, cancellationToken) => Task.Run(async () =>
+                {
+                    using var http = UpdateChecker.CreateHttpClient();
+                    return await UpdateChecker.DownloadAsync(http, release, progress, cancellationToken)
+                        .ConfigureAwait(false);
+                }, cancellationToken),
+                UpdateChecker.RunSetup,
+                UpdateFailure.Read,
+                ReadPluginPackagePage,
+                ActOnPluginPackageAsync,
+                static () => File.Exists(InstallLayout.SetupExe),
+                StartSetupRepair,
                 // Core Audio, off the dispatcher. A test supplies its own so it reads a fixture
                 // rather than whatever this machine has plugged in.
                 AudioDiscovery.Read,
-                // The last update check, from the user's profile; a test that omits it sees none.
-                () => store is null ? new UpdateState() : UpdateChecker.ReadState(UpdateChecker.StatePath(store.Context)),
+                // The last update check, from the user's profile.
+                () => UpdateChecker.ReadState(UpdateChecker.StatePath(store.Context)),
                 () => OtherManagers.Detect(),
-                detected => OtherManagers.Apply(RequireStore(store), detected, true));
-        }
-
-        private static ConfigStore RequireStore(ConfigStore? store)
-        {
-            return store ?? throw new InvalidOperationException("Persistence was not supplied to Windows settings services.");
-        }
-
-        /// <summary>
-        ///     Asks one connected display what it advertises, so the answers can be remembered and
-        ///     offered again after it is unplugged. Every query is optional: a display that refuses one
-        ///     of them still contributes the rest.
-        /// </summary>
-        [SupportedOSPlatform("windows")]
-        private static DisplayCatalogFacts ReadWindowsDisplayFacts(DisplayTargetIdentity target)
-        {
-            var modes = DisplayModes.Read(target)?.Supported ?? DisplayEdid.ReadModes(target);
-            var hdr = DisplayColor.TryReadHdr(target, out _, out var supported) && supported;
-            var maximum = DisplayScaling.TryReadRange(target, out _, out _, out var highest) ? highest : 0;
-            return new DisplayCatalogFacts(modes, hdr, maximum);
+                detected => OtherManagers.Apply(store, detected, true),
+                () => store.Read().RequireConfig());
         }
     }
-
-    /// <summary>
-    ///     Builds the view model over an ALREADY LOADED configuration instead of
-    ///     reading <c>%LOCALAPPDATA%\WSGM\config.json</c>. Tests must use this overload: the
-    ///     loaded production factory receives its persistence explicitly; the designer uses defaults.
-    /// </summary>
-    /// <param name="config">
-    ///     The configuration this view model edits. It is taken over,
-    ///     not copied — the save path re-loads and merges before persisting anyway.
-    /// </param>
-    // ReSharper disable IntroduceOptionalParameters.Global
-    internal SettingsViewModel(AppConfig config)
-        : this(config, null, false)
-    {
-    }
-
-    /// <summary>Builds a testable settings model while selecting the named installed plugin.</summary>
-    /// <param name="config">The configuration this view model edits.</param>
-    /// <param name="installedPluginId">Installed package ID, or null when the slot is empty or invalid.</param>
-    internal SettingsViewModel(AppConfig config, string? installedPluginId)
-        : this(config, installedPluginId, true)
-    {
-    }
-    // ReSharper restore IntroduceOptionalParameters.Global
 }

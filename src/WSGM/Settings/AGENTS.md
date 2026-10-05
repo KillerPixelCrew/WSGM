@@ -25,7 +25,9 @@ state is not.
 - The UPDATES section shows what the daily check recorded, read through the injected services. Applying an update is
   the user's explicit, confirmed action, because setup closes Steam; never start it from a check.
 - Steam Input reconciliation happens after configuration is saved and outside the config lock, with the existing
-  elevation and pending-update behavior.
+  elevation and pending-update behavior. A save applies outside the configuration only what it changed: the shim when
+  Steam Input management changed, a takeover when this save accepted it. The "Check and take over" buttons re-check.
+- Closing Settings while a save runs waits for the save; OS and application shutdown are never held up.
 - Device and Plugin tabs remain available when integration is disabled so users can enable it and manage target, glyph,
   package, and offline profile policy. Only live controller-management and AutoTDP controls become unavailable. A view
   model must not probe hardware simply to decide how to render.
@@ -36,12 +38,16 @@ state is not.
   activates, before the sheet's deferred close ends the sheet's claim.
 - Desktop Settings launches reuse the resident session's Settings window when it is available, so Settings and the
   overlay acquire through the same process owner and integrity level. Only a launch with no resident receiver creates a
-  standalone Settings runtime.
+  standalone Settings runtime. In the resident process `Shell/SettingsSurface` is the only creator of the window: the
+  tray, the overlay and a desktop launch open or activate the same one, listed as switchable in game mode.
 - Required text credentials need a controller-accessible OnScreenKeyboard path; gamepad navigation deliberately skips
   ordinary TextBox controls.
-- The parameterless SettingsViewModel is design-time only and reads nothing. The production model is built from the
-  configuration loaded at startup and the session's ConfigStore. Tests and injected constructors use explicit stores,
-  paths, and services and never fall back to the real profile.
+- SettingsViewModel takes every machine read and write through a required `SettingsServices`; nothing falls back to
+  production. The production model is built by `FromLoadedConfig` from a configuration read made off the UI thread
+  (the startup read, or `SettingsSurface`'s worker read), the session's ConfigStore and its plugin action source. A
+  corrupt or unreadable config.json opens on defaults with the problem in the status strip; Save stays enabled and the
+  store's strict write refuses it. Tests use `SettingsTestServices` and never touch the real profile.
+  Displays are read on a worker once the window opens, in every composition.
 
 Add focused view-model and persistence tests for every changed page, including stale state, partial failure, repeated
 save, and integration-disabled cases.

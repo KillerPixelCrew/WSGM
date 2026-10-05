@@ -60,8 +60,11 @@ public sealed partial class SettingsViewModel
         get;
         set
         {
-            field = value;
-            Raise(nameof(StartAtSignIn));
+            if (!SetFieldIfChanged(ref field, value, nameof(StartAtSignIn)))
+            {
+                return;
+            }
+
             Raise(nameof(ServiceStateText));
             Raise(nameof(ShellStatusText));
         }
@@ -98,8 +101,11 @@ public sealed partial class SettingsViewModel
         get;
         set
         {
-            field = value;
-            Raise(nameof(StartModeIndex));
+            if (!SetFieldIfChanged(ref field, value, nameof(StartModeIndex)))
+            {
+                return;
+            }
+
             Raise(nameof(ServiceStateText));
             Raise(nameof(ShellStatusText));
         }
@@ -184,7 +190,7 @@ public sealed partial class SettingsViewModel
 
             // The saved policy decides, not the switch on screen: a second press before saving must
             // still wait for the save it asked for, rather than acting on a choice nothing recorded.
-            if (!(await Task.Run(_services.LoadPersisted ?? (() => Store.Read().RequireConfig()))).SteamAutostartTakeoverAccepted)
+            if (!(await Task.Run(_services.LoadPersisted)).SteamAutostartTakeoverAccepted)
             {
                 SteamAutostartStatusText = $"Windows starts Steam from {enabled.Length} place(s). "
                                            + "Turn this on and save to let WSGM own that start.";
@@ -212,11 +218,11 @@ public sealed partial class SettingsViewModel
         {
             OtherManagersStatusText = "Looking for other handheld managers…";
             // On a worker: detection reads the task scheduler through schtasks.
-            var detected = await Task.Run(_services.DetectOtherManagers ?? (() => OtherManagers.Detect()));
+            var detected = await Task.Run(_services.DetectOtherManagers);
             if (detected.Count == 0)
             {
                 OtherManagersStatusText = "Nothing else manages this device. "
-                                          + DescribeOtherManagers(Store.Read().RequireConfig());
+                                          + DescribeOtherManagers(await Task.Run(_services.LoadPersisted));
                 return;
             }
 
@@ -225,15 +231,14 @@ public sealed partial class SettingsViewModel
             // The saved policy decides, not the switch on screen: a second press before saving must
             // still wait for the save it promised, rather than turning services off with nothing
             // recorded to restore them from.
-            if (!(await Task.Run(_services.LoadPersisted ?? (() => Store.Read().RequireConfig()))).OtherManagersTakeoverAccepted)
+            if (!(await Task.Run(_services.LoadPersisted)).OtherManagersTakeoverAccepted)
             {
                 OtherManagersStatusText = $"Found {found}. Save to let WSGM turn them off.";
                 OtherManagersTakeoverAccepted = true;
                 return;
             }
 
-            var result = await Task.Run(() =>
-                (_services.ApplyOtherManagers ?? (managers => OtherManagers.Apply(Store, managers, true)))(detected));
+            var result = await Task.Run(() => _services.ApplyOtherManagers(detected));
             OtherManagersStatusText = result.Failed.Count == 0
                 ? $"Turned off {result.Disabled.Count} service(s) and task(s)."
                   + (result.StillRunning.Count == 0

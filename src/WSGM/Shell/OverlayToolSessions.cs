@@ -10,6 +10,8 @@ internal interface IThemeBrowseSession : ISteamThemesBackend, IChangeSource, IDi
     string Tab { get; set; }
     SteamThemesState ReadState();
     void CancelQueries();
+    Task<SteamUiCommandResult> SetThemesEnabledAsync(bool enabled, CancellationToken cancellationToken);
+    Task<SteamUiCommandResult> SetTranslationsBranchAsync(string branch, CancellationToken cancellationToken);
 }
 
 internal interface IAnimationBrowseSession : ISteamAnimationsBackend, IChangeSource, IDisposable

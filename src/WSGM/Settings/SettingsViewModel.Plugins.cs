@@ -11,6 +11,7 @@ using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
 using WSGM.Install;
 using WSGM.Shell;
+using WSGM.Themes;
 
 namespace WSGM.Settings;
 
@@ -28,6 +29,7 @@ public sealed partial class SettingsViewModel
     private bool _deviceProfilesEdited;
 
     private string _pluginSettingsDevice = string.Empty;
+    private bool? _repairAvailable;
     private string _pluginSettingsPlugin = string.Empty;
     private DeviceProfileRowViewModel? _selectedDeviceProfile;
 
@@ -56,10 +58,11 @@ public sealed partial class SettingsViewModel
     public bool HasUnavailablePackages => UnavailablePackages.Count > 0;
 
     /// <summary>Whether the installed setup is present to run Repair.</summary>
-    public bool CanRepair => File.Exists(InstallLayout.SetupExe);
+    /// <remarks>Read once: setup does not appear or vanish while the window is open.</remarks>
+    public bool CanRepair => _repairAvailable ??= _services.RepairAvailable();
 
     /// <summary>Runs the installed setup's repair, which installs what the plugins need.</summary>
-    public RelayCommand RepairCommand => field ??= new RelayCommand(StartRepair);
+    public RelayCommand RepairCommand => field ??= new RelayCommand(() => _services.StartRepair());
 
     /// <summary>Sections the installed plugin declares, in render order.</summary>
     public ObservableCollection<PluginSettingSectionViewModel> PluginSettingSections { get; } = [];
@@ -113,7 +116,8 @@ public sealed partial class SettingsViewModel
         set => SetField(ref field, value, nameof(PluginSettingsEmptyReason));
     } = "No device plugin is installed, so there are no plugin settings to show.";
 
-    private void StartRepair()
+    /// <summary>Starts the installed setup's repair, which installs what the plugins need.</summary>
+    internal static void StartSetupRepair()
     {
         try
         {
@@ -125,9 +129,30 @@ public sealed partial class SettingsViewModel
         }
     }
 
-    /// <summary>Reads the Plugins page: installed files, and what the installed release bundles.</summary>
+    /// <summary>Fills the Plugins page: installed files, and what the installed release bundles.</summary>
     /// <param name="catalog">The installed packages.</param>
     private void LoadPluginPackages(PluginPackageCatalog catalog)
+    {
+        var page = _services.ReadPackages(catalog);
+        InstalledPackages.Clear();
+        AvailablePackages.Clear();
+        UnavailablePackages.Clear();
+        foreach (var state in page.Rows)
+        {
+            PluginPackageRow row = new(state, action => _services.ActOnPackage(action, page.Bundle));
+            (state.Section switch
+            {
+                PluginPackageSection.Installed => InstalledPackages,
+                PluginPackageSection.Available => AvailablePackages,
+                _ => UnavailablePackages
+            }).Add(row);
+        }
+    }
+
+    /// <summary>Reads the installed packages and what the installed release bundles for this machine.</summary>
+    /// <param name="catalog">The installed packages.</param>
+    /// <returns>The bundle, when it could be read, and the page's rows.</returns>
+    internal static PluginPackagePage ReadPluginPackagePage(PluginPackageCatalog catalog)
     {
         BundleManifest? bundle = null;
         PluginOffers? offers = null;
@@ -150,22 +175,15 @@ public sealed partial class SettingsViewModel
             Log.Warn("Plugins: the installed bundle could not be read: " + ex.Message);
         }
 
-        InstalledPackages.Clear();
-        AvailablePackages.Clear();
-        UnavailablePackages.Clear();
-        foreach (var state in PluginPackageManager.Rows(catalog, bundle, InstallLayout.SetupPackages, offers))
-        {
-            PluginPackageRow row = new(state, action => ActOnPackageAsync(action, bundle));
-            (state.Section switch
-            {
-                PluginPackageSection.Installed => InstalledPackages,
-                PluginPackageSection.Available => AvailablePackages,
-                _ => UnavailablePackages
-            }).Add(row);
-        }
+        return new PluginPackagePage(bundle,
+            PluginPackageManager.Rows(catalog, bundle, InstallLayout.SetupPackages, offers));
     }
 
-    private static Task<string> ActOnPackageAsync(PluginPackageRowState row, BundleManifest? bundle)
+    /// <summary>Installs or removes one package on a worker and returns the row's notice.</summary>
+    /// <param name="row">The row whose action runs.</param>
+    /// <param name="bundle">The installed release's bundle, which an install verifies against.</param>
+    /// <returns>What the action did, or why it did not.</returns>
+    internal static Task<string> ActOnPluginPackageAsync(PluginPackageRowState row, BundleManifest? bundle)
     {
         return Task.Run(() =>
         {
@@ -253,7 +271,7 @@ public sealed partial class SettingsViewModel
                     new AuthoredCurvePoint { Input = 0, Output = 0 },
                     new AuthoredCurvePoint { Input = 100, Output = 100 }
                 ],
-            Color = color ? 0xFF9D3D : null
+            Color = color ? (int)(AccentPalette.Parse(AppConfig.DefaultAccentColor).ToUInt32() & 0xFFFFFF) : null
         });
         DeviceProfiles.Add(row);
         SelectedDeviceProfile = row;

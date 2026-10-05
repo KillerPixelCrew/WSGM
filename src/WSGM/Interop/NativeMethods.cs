@@ -281,6 +281,11 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll")]
     internal static partial uint GetDpiForWindow(nint hWnd);
 
+    /// <summary>Reads a monitor's rectangles and GDI device name (<see cref="MonitorInfoExW" />).</summary>
+    [LibraryImport("user32.dll", EntryPoint = "GetMonitorInfoW")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool GetMonitorInfoW(nint hMonitor, ref MonitorInfoExW lpmi);
+
     // ---- Input-desktop readiness (Core\InputDesktop) ----
     [LibraryImport("user32.dll", SetLastError = true)]
     internal static partial nint OpenInputDesktop(uint dwFlags, [MarshalAs(UnmanagedType.Bool)] bool fInherit,
@@ -813,6 +818,21 @@ internal static partial class NativeMethods
         internal int Top;
         internal int Right;
         internal int Bottom;
+    }
+
+    /// <summary>
+    ///     MONITORINFOEXW: <see cref="CbSize" /> must be set to the structure's size before the call.
+    ///     <see cref="Device" /> holds the GDI source name, such as <c>\\.\DISPLAY1</c>, as 32 UTF-16
+    ///     units ending in a null, declared as <c>ushort</c> so the structure stays blittable.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe struct MonitorInfoExW
+    {
+        internal uint CbSize;
+        internal NativeRect Monitor;
+        internal NativeRect Work;
+        internal uint Flags;
+        internal fixed ushort Device[32];
     }
 
     // ---- Update-exit event with explicit security (signalable from unelevated) ----

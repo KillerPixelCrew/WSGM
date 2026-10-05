@@ -69,15 +69,12 @@ public partial class OverlayWindow
         Control Create()
         {
             return new ManualTdpModeView(() => coordinator.ManualTdpMode, coordinator.SetManualTdpModeAsync,
-                () => CapabilityProjection.OverrideId(coordinator.Profiles.Current.Layers,
-                    new ProfileSettingKey(ProfileField.TdpUnified)),
-                id => coordinator.Profiles.ClearGameOverrideAsync(new ProfileSettingKey(ProfileField.TdpUnified),
-                    null));
+                () => coordinator.ManualTdpOverrideId, _ => coordinator.UseGlobalManualTdpAsync());
         }
     }
 
     internal void AttachBrightness(NativeQamBrightnessService service,
-        Func<Task<DisplayModeSnapshot?>>? readMode = null)
+        Func<string?, Task<DisplayModeSnapshot?>>? readMode = null)
     {
         AttachBrightnessSurface(service);
         DisplayBrightnessHost.Tag = "section.display";

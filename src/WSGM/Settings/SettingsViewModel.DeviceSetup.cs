@@ -12,22 +12,14 @@ public sealed partial class SettingsViewModel
     public bool DeviceIntegrationEnabled
     {
         get;
-        set
-        {
-            field = value;
-            Raise(nameof(DeviceIntegrationEnabled));
-        }
+        set => SetFieldIfChanged(ref field, value, nameof(DeviceIntegrationEnabled));
     }
 
     /// <summary>Gets or sets the remembered controller-management child preference.</summary>
     public bool DeviceControllerManagementEnabled
     {
         get;
-        set
-        {
-            field = value;
-            Raise(nameof(DeviceControllerManagementEnabled));
-        }
+        set => SetFieldIfChanged(ref field, value, nameof(DeviceControllerManagementEnabled));
     }
 
     /// <summary>Gets or sets whether guide button chord edits are kept for a Steam Deck target.</summary>
@@ -35,11 +27,7 @@ public sealed partial class SettingsViewModel
     public bool DeviceKeepGuideChordEdits
     {
         get;
-        set
-        {
-            field = value;
-            Raise(nameof(DeviceKeepGuideChordEdits));
-        }
+        set => SetFieldIfChanged(ref field, value, nameof(DeviceKeepGuideChordEdits));
     }
 
     /// <summary>Gets or sets whether AutoTDP controls the primary power limit.</summary>
@@ -52,33 +40,21 @@ public sealed partial class SettingsViewModel
     public bool DeviceAutoTdpEnabled
     {
         get;
-        set
-        {
-            field = value;
-            Raise(nameof(DeviceAutoTdpEnabled));
-        }
+        set => SetFieldIfChanged(ref field, value, nameof(DeviceAutoTdpEnabled));
     }
 
     /// <summary>Selected global managed-controller target index.</summary>
     public int DeviceControllerTargetIndex
     {
         get;
-        set
-        {
-            field = value;
-            Raise(nameof(DeviceControllerTargetIndex));
-        }
+        set => SetFieldIfChanged(ref field, value, nameof(DeviceControllerTargetIndex));
     }
 
     /// <summary>Selected physical glyph-policy index.</summary>
     public int DeviceGlyphSelectionIndex
     {
         get;
-        set
-        {
-            field = value;
-            Raise(nameof(DeviceGlyphSelectionIndex));
-        }
+        set => SetFieldIfChanged(ref field, value, nameof(DeviceGlyphSelectionIndex));
     }
 
     /// <summary>Which runtime-owned device settings this window actually edited.</summary>

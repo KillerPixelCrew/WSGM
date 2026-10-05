@@ -12,7 +12,7 @@ public sealed class BluetoothDeviceCatalogTests
     {
         BluetoothDeviceCatalog catalog = new();
         Add(catalog, "classic", true, false, false, Container);
-        var row = Assert.Single(Add(catalog, "le", false, true, true, "{" + Container.ToUpperInvariant() + "}"));
+        var row = Assert.Single(Add(catalog, "le", false, true, true, Container));
         Assert.True(row.Paired);
         Assert.True(row.Connected);
         Assert.Equal("classic", row.EndpointId);
@@ -26,7 +26,7 @@ public sealed class BluetoothDeviceCatalogTests
     {
         BluetoothDeviceCatalog catalog = new();
         Add(catalog, "one", false, true, false, "");
-        var rows = Add(catalog, "two", false, true, false, Guid.Empty.ToString());
+        var rows = Add(catalog, "two", false, true, false, "");
         Assert.Equal(2, rows.Count);
         Assert.All(rows, row => Assert.Equal("Controller", row.Name));
     }

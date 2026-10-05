@@ -243,6 +243,16 @@ public sealed class PowerSchemeSelectionTests
         internal bool ReadFailure { get; set; }
         internal Action? BeforeRead { get; set; }
 
+        public uint ReadSetting(Guid scheme, Guid subgroup, Guid setting, bool onBattery)
+        {
+            throw new InvalidOperationException("Unexpected power setting read");
+        }
+
+        public void WriteSetting(Guid scheme, Guid subgroup, Guid setting, bool onBattery, uint value)
+        {
+            throw new InvalidOperationException("Unexpected power setting write");
+        }
+
         public Guid? Enumerate(uint index)
         {
             if (index == 0)

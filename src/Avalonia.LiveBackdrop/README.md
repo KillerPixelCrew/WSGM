@@ -28,7 +28,7 @@ var window = new Window
     Topmost = true
 };
 var backdrop = LiveBackdrop.Attach(window); // default: 8 px
-backdrop.BlurRadius = 12;                    // live adjustment, valid range: 0..60
+backdrop.BlurRadius = 12;                    // live adjustment, 0..LiveBackdrop.MaximumBlurRadius (60)
 backdrop.StateChanged += (_, _) =>
     Console.WriteLine(backdrop.IsActive ? "Glass active" : backdrop.FailureReason);
 window.Show();
@@ -38,7 +38,9 @@ Keep the attachment in your window/controller. Closing the window disposes it au
 `Dispose()` also allows earlier detachment. All calls and events belong on Avalonia's UI thread.
 Attaching twice to one window throws. Hide/minimize releases the session; show/restore creates it
 again. `IsEnabled = false` releases it and displays the fallback fill. `Retry()` explicitly retries
-a failed session. There is no automatic retry loop after a device/API failure.
+a failed session. There is no automatic retry loop after a device/API failure. `StateChanged` is
+raised only when `IsActive`, `FailureReason` or `IsEnabled` actually changed, and a native failure
+that arrives after its session was stopped, hidden or disposed is ignored.
 
 The attachment owns the window's background while attached: its original fill when active, opaque
 dark gray when unavailable or disabled, and the original fill again on disposal. Supply a custom
@@ -81,9 +83,7 @@ are not supported claims. No Windows or Steam setting is changed.
 The maintainer confirmed the **native probe** on the Claw's ReviOS Windows 11 build 26200 with
 Transparency Effects off: live Steam and game content, tool-window occlusion fix, and 8 px preferred
 blur. The maintainer also confirmed that the standalone Avalonia sample shows live blur over Steam
-or a game without black content or misplaced windows. The integrated WSGM Overlay was then confirmed
-over Steam and a game, with readable bright/dark content and no noticeable frame-time change. WSGM
-exposes the radius in Settings > Quick Access, from 0 to 60 physical pixels.
+or a game without black content or misplaced windows.
 
 Run the separate sample:
 

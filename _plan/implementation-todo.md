@@ -95,6 +95,32 @@ lets the toolkit add the label instead of host-built status text, with the same 
 B136 placed Steam admission closing and deadline-bounded joins in shutdown; B140 must keep them.
 M01-53 now covers `--restore-steam-content` and setup's boot movie and themes restore step.
 
+Batch 3 was committed as c62cdb33. Batch 4 (interrupted once, resumed from its run cache) changed
+Windows Device Control (B046, B063 to B067, B069 to B071; local child edits), Windows services
+(B090, B096), Settings (B117 to B121, B123, B133 to B135), the overlay (B122, B125 to B132) and
+finished the bridge command vocabulary with dynamic plugin Steam UI modules (B054, B086). All are
+source applied. WDC now builds on its own and tests both frameworks; its AGENTS.md changes were
+applied under D4 and go with the child commit.
+
+Reopened after verification of B073 to B113:
+
+- B074: controller status is still three unsynchronized properties (INPUT-014);
+  `ReportTargetFault` still produces Faulted, Idle, Faulted (INPUT-031).
+- B078: `_steamDeckTargetActive` is still written off the UI thread (INPUT-013); the chord mirror
+  keeps its SHA-256 overflow comparison (INPUT-023).
+- B082: `ObserveLateCommandAsync` is fire-and-forget and not joined at disposal (DEVICE-006/031);
+  `ManualTdpMode` snapshots every capability per read (DEVICE-021).
+- B098: stale `TryApplyTransientRefreshRate` remark and the `DisplayProfiles` rename (CONFIG-028,
+  WINSVC-027).
+- B102: artwork types stay public without outside consumers (LIBRARY-039).
+
+Other batch 4 notes: `NativeQamNetworkService` still caps the access point list at 24; a stale glyph
+remark in `OverlayWindow.Device.cs`; `AttachBrightness` may replace a folded section header.
+For the maintainer: B121 now cancels an update download when Settings closes, which SETTINGS-018's
+checker advised against; B130 leaves DisplayModeView's own WDC read/apply defaults and separate
+select-and-persist code in the overlay picker and the Quick Access service. Profile editor UI
+baselines changed on purpose (B129) and need a refresh and review.
+
 - [x] Simplify the active plan: remove prescribed owner/port proliferation, serial dependency chains,
   per-item review/validation ceremonies and duplicated architecture prose. Keep all 188 item IDs,
   statuses and finding dispositions. Findings remain evidence; their proposed designs are optional.

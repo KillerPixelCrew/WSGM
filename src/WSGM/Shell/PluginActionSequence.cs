@@ -106,7 +106,8 @@ internal sealed class PluginActionSequence(IPluginActionInvoker invoker, Action<
         PluginActionStep step, CancellationToken cancellationToken)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        var timeout = TimeSpan.FromSeconds(Math.Clamp(step.TimeoutSeconds, 1, 120));
+        var timeout = TimeSpan.FromSeconds(Math.Clamp(step.TimeoutSeconds, PluginActionStep.MinimumTimeoutSeconds,
+            PluginActionStep.MaximumTimeoutSeconds));
         deadline.CancelAfter(timeout);
         try
         {

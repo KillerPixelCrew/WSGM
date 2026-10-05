@@ -152,7 +152,7 @@ internal static class DisplayScale
             }
             else
             {
-                remaining.Add(entry); // transient set failure — retry on the next restore path
+                remaining.Add(entry); // nothing was written; the next restore path tries again
             }
         }
 
@@ -256,15 +256,19 @@ internal static class DisplayScale
             string.Equals(entry.DeviceName, deviceName, StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <summary>
+    ///     Writes one scaling value. A write Windows accepted, or a display already at that value, counts
+    ///     as done without reading it back; only a write that did not happen keeps its restore entry.
+    /// </summary>
     private static bool TrySetScale(DisplayTargetIdentity target, int percent)
     {
-        var ok = DisplayScaling.TrySet(target, percent, out var detail);
-        if (!ok)
+        var result = DisplayScaling.Set(target, percent);
+        if (!result.Succeeded)
         {
-            Log.Warn($"Display scale: set {percent}% failed: {detail}.");
+            Log.Warn($"Display scale: set {percent}% failed: {DisplayText.Scaling(result.Outcome, result.NativeStatus)}.");
         }
 
-        return ok;
+        return result.Succeeded;
     }
 
     private static List<ActiveDisplayPath> GetActiveSources()

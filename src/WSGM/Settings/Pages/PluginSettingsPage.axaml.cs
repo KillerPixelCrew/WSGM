@@ -17,6 +17,9 @@ namespace WSGM.Settings.Pages;
 /// </remarks>
 public partial class PluginSettingsPage : UserControl
 {
+    // #AARRGGBB, the longest colour text the keyboard accepts.
+    private const int ColorTextLength = 9;
+
     /// <summary>Loads the compiled page XAML.</summary>
     public PluginSettingsPage()
     {
@@ -126,7 +129,7 @@ public partial class PluginSettingsPage : UserControl
         string title,
         Action<string> apply)
     {
-        window.ShowOnScreenKeyboard(initial, 9, title, value =>
+        window.ShowOnScreenKeyboard(initial, ColorTextLength, title, value =>
         {
             if (!Color.TryParse(value, out _))
             {

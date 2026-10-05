@@ -20,7 +20,6 @@ public partial class OverlayWindow
     private static bool SameDeviceLayout(DeviceOverlaySnapshot? previous, DeviceOverlaySnapshot current)
     {
         if (previous is null || previous.Visible != current.Visible
-                             || previous.Capabilities.Count != current.Capabilities.Count
                              || previous.PluginSections.Count != current.PluginSections.Count
                              || previous.HostSelections.Count != current.HostSelections.Count
                              || previous.GlyphPreview?.ProfileName != current.GlyphPreview?.ProfileName
@@ -30,27 +29,10 @@ public partial class OverlayWindow
                              || previous.Controller is null != current.Controller is null
                              || previous.AutoTdp is null != current.AutoTdp is null
                              || previous.AuthoredProfile is null != current.AuthoredProfile is null
-                             || previous.Recovery is null != current.Recovery is null)
+                             || previous.Recovery is null != current.Recovery is null
+                             || !CapabilityRowRenderer.SameRowLayouts(previous.Capabilities, current.Capabilities))
         {
             return false;
-        }
-
-        for (var index = 0; index < current.Capabilities.Count; index++)
-        {
-            var before = previous.Capabilities[index];
-            var after = current.Capabilities[index];
-            if (before.CapabilityId != after.CapabilityId || before.InstanceId != after.InstanceId
-                                                          || before.CycleGeneration != after.CycleGeneration ||
-                                                          before.DescriptorGeneration != after.DescriptorGeneration
-                                                          || before.ValueKind != after.ValueKind ||
-                                                          before.Writable != after.Writable
-                                                          || before.SupportsAction != after.SupportsAction ||
-                                                          before.Title != after.Title
-                                                          || before.PluginSectionId != after.PluginSectionId ||
-                                                          before.CategoryId != after.CategoryId)
-            {
-                return false;
-            }
         }
 
         for (var index = 0; index < current.PluginSections.Count; index++)
@@ -82,17 +64,7 @@ public partial class OverlayWindow
         var marker = snapshot.Capabilities.FirstOrDefault(capability =>
                 capability.Role == CapabilityRole.Telemetry && capability.Unit == CapabilityUnit.Celsius)?.CurrentValue
             ?.IntegerValue;
-        foreach (var view in root.GetLogicalDescendants().OfType<DeviceCapabilityControl>())
-        {
-            foreach (var capability in snapshot.Capabilities)
-            {
-                if (view.CapabilityId == capability.CapabilityId && view.InstanceId == capability.InstanceId)
-                {
-                    view.Refresh(PresentDeviceCapability(capability), marker);
-                    break;
-                }
-            }
-        }
+        CapabilityRowRenderer.RefreshValues(root, snapshot.Capabilities, marker);
 
         foreach (var row in root.GetLogicalDescendants().OfType<DeviceSettingRow>())
         {
@@ -130,7 +102,8 @@ public partial class OverlayWindow
 
     private Task UseGlobalOnDevice(string overrideId)
     {
-        return RunDeviceCommandAsync("Use global", (source, token) => source.UseGlobalAsync(overrideId, token));
+        return RunCommandAsync(_deviceBridge, "Use global",
+            (source, token) => source.UseGlobalAsync(overrideId, token));
     }
 
     private static string UnpinnedKey(object? tag)
@@ -151,30 +124,24 @@ public partial class OverlayWindow
         };
     }
 
-    private static DeviceOverlayCapability PresentDeviceCapability(DeviceOverlayCapability capability)
-    {
-        return capability.Role == CapabilityRole.ScenarioMode
-            ? capability with { Title = "Firmware power mode" }
-            : capability;
-    }
-
     private Control CreateHostDeviceRow(DeviceOverlaySnapshot snapshot, DescriptorRow descriptor)
     {
         if (snapshot.HostSelections.TryGetValue(descriptor.Id, out var selection))
         {
             var choice = DeviceControlRows.Choice(descriptor.Id, descriptor.Title, descriptor.Description,
-                selection.Choices, selection.Value, descriptor.CanInvoke, value => _ = RunDeviceCommandAsync(
-                    descriptor.Title, (source, token) => source.SetHostSelectionAsync(descriptor.Id, value, token)));
+                selection.Choices, selection.Value, descriptor.CanInvoke, value => _ = RunCommandAsync(
+                    _deviceBridge, descriptor.Title,
+                    (source, token) => source.SetHostSelectionAsync(descriptor.Id, value, token)));
             var marker = new ProfileOverrideMarker(choice, UseGlobalOnDevice);
             marker.Refresh(descriptor.OverrideId);
             return marker;
         }
 
-        return new DescriptorControlView(descriptor, descriptor.Id, async current =>
+        return new DescriptorControlView(descriptor, descriptor.Id, async _ =>
         {
             if (descriptor.Id == DeviceHostRowIds.Retry)
             {
-                await RunDeviceCommandAsync("Device integration retry",
+                await RunCommandAsync(_deviceBridge, "Device integration retry",
                     (source, token) => source.RetryDeviceCycleAsync(token));
             }
         });

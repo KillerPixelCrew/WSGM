@@ -3,6 +3,7 @@ using WSGM.Device.Sdk.Capabilities;
 using WSGM.Interop;
 using WSGM.Overlay;
 using WSGM.Shell;
+using WSGM.Tests.Fakes;
 
 namespace WSGM.Tests.Shell;
 
@@ -565,7 +566,8 @@ public sealed class DevicePowerPresetsTests
                 };
                 AfterDeviceWrite?.Invoke(id);
                 return Completed(CommandOutcome.AppliedVerified);
-            }, new WindowsPowerModes(Api), () => OnAc, automaticPowerOwner: automaticPowerOwner);
+            }, new WindowsPowerModes(new PowerSchemes(new UnusedPowerSchemeApi()), Api), () => OnAc,
+                automaticPowerOwner: automaticPowerOwner);
         }
 
         private static CapabilityCommandResult Completed(CommandOutcome outcome)

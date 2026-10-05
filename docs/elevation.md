@@ -54,12 +54,16 @@ one absolute deadline. Cancellation or a process-wait fault stops an active `sch
 `/Run` began, a timeout or fault is an unknown dispatch rather than a proven failure, so shell
 recovery keeps game-mode surfaces retired while a late Explorer may still appear.
 
-### Settings pages open through a medium one-shot
+### Links open through a medium one-shot
 
-Modern Settings activation uses the same task to run a narrow WSGM one-shot at medium integrity
-before opening `ms-settings:`. From the elevated shell a direct `ShellExecute` only works while an
-unelevated Explorer happens to broker it. Do not start Explorer just to open the Bluetooth or Wi-Fi
-page.
+From the elevated resident process a direct `ShellExecute` of a web address only works while an
+unelevated Explorer happens to broker it; in Game Mode it fails or starts an elevated browser. The
+About page's links therefore use the same task to run `WSGM.exe --open-link=<https address>` at the
+user's integrity level. That one-shot accepts only an `https://` address, opens it through the shell
+and exits 0 or 1 without taking the instance mutex or starting Avalonia. The task call is
+synchronous with a 30-second budget, so the page makes it on a worker. When WSGM is not elevated, or
+the task was not dispatched, the link opens directly as before; a dispatch whose outcome is unknown
+is not opened a second time. Do not start Explorer just to open a link.
 
 ## The launch wrapper: WSGM.Launch
 

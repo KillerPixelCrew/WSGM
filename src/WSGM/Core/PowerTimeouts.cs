@@ -30,11 +30,12 @@ public enum PowerTimeoutKind
 ///     the Settings app does, so Windows may later replace them (updates, OEM tools);
 ///     this is a convenience surface, not managed state WSGM must restore.
 /// </summary>
-internal static class PowerTimeouts
+/// <remarks>Writes take the scheme owner's mutation lock with every other machine-wide power change.</remarks>
+/// <param name="schemes">The session's scheme owner, whose lock and active scheme every write uses.</param>
+internal sealed class PowerTimeouts(PowerSchemes schemes)
 {
     private static readonly Guid SubVideo = new("7516b95f-f776-4464-8c53-06167f40cc99");
     private static readonly Guid VideoIdle = new("3c0bc021-c8a8-4e07-a973-6b14cbcb2b7e");
-    private static readonly Guid SubSleep = new("238c9fa8-0aad-41ed-83f4-97be242c8f20");
     private static readonly Guid StandbyIdle = new("29f6c1db-86da-48c5-9fdb-f2b67b1f44da");
 
     /// <summary>
@@ -43,12 +44,15 @@ internal static class PowerTimeouts
     /// </summary>
     internal static readonly int[] PresetsSeconds = [60, 180, 300, 600, 900, 1800, 3600, 0];
 
+    /// <summary>The scheme owner whose mutation lock these writes take.</summary>
+    internal PowerSchemes Schemes => schemes;
+
     /// <summary>
     ///     Reads the timeout in seconds (0 = Never); null when the power API
     ///     fails (reported once by the caller's UI, never thrown).
     /// </summary>
     /// <param name="kind">Which timeout to read.</param>
-    public static int? Read(PowerTimeoutKind kind)
+    public int? Read(PowerTimeoutKind kind)
     {
         if (!TryGetActiveScheme(out var scheme))
         {
@@ -61,7 +65,7 @@ internal static class PowerTimeouts
     /// <summary>
     ///     Reads all four timeout values after resolving the active power scheme once.
     /// </summary>
-    internal static (int? DisplayDc, int? DisplayAc, int? SleepDc, int? SleepAc) ReadAll()
+    internal (int? DisplayDc, int? DisplayAc, int? SleepDc, int? SleepAc) ReadAll()
     {
         if (!TryGetActiveScheme(out var scheme))
         {
@@ -75,12 +79,12 @@ internal static class PowerTimeouts
             Read(scheme, PowerTimeoutKind.SleepAc));
     }
 
-    private static int? Read(Guid scheme, PowerTimeoutKind kind)
+    private int? Read(Guid scheme, PowerTimeoutKind kind)
     {
         var (subgroup, setting, dc) = Locate(kind);
         try
         {
-            var value = WindowsPower.ReadSetting(scheme, subgroup, setting, dc);
+            var value = schemes.ReadSetting(scheme, subgroup, setting, dc);
             return value <= int.MaxValue ? (int)value : null;
         }
         catch (Win32Exception ex)
@@ -96,37 +100,28 @@ internal static class PowerTimeouts
     /// </summary>
     /// <param name="kind">Which timeout to write.</param>
     /// <param name="seconds">The new value.</param>
-    public static bool Write(PowerTimeoutKind kind, int seconds)
+    /// <returns>Whether Windows accepted the write.</returns>
+    public bool Write(PowerTimeoutKind kind, int seconds)
     {
-        return Write(kind, seconds, WriteCore);
-    }
+        using (schemes.EnterMutation())
+        {
+            if (seconds < 0 || !TryGetActiveScheme(out var scheme))
+            {
+                return false;
+            }
 
-    internal static bool Write(PowerTimeoutKind kind, int seconds,
-        Func<PowerTimeoutKind, int, bool> writeNative)
-    {
-        lock (PowerSchemes.MutationGate)
-        {
-            return writeNative(kind, seconds);
-        }
-    }
-
-    private static bool WriteCore(PowerTimeoutKind kind, int seconds)
-    {
-        if (seconds < 0 || !TryGetActiveScheme(out var scheme))
-        {
-            return false;
-        }
-
-        var (subgroup, setting, dc) = Locate(kind);
-        try
-        {
-            WindowsPower.WriteSetting(scheme, subgroup, setting, dc, (uint)seconds);
-            WindowsPower.SetActiveScheme(scheme);
-        }
-        catch (Win32Exception ex)
-        {
-            Log.Warn($"Power timeout write failed ({kind} = {seconds} s, status {ex.NativeErrorCode}).");
-            return false;
+            var (subgroup, setting, dc) = Locate(kind);
+            try
+            {
+                schemes.WriteSetting(scheme, subgroup, setting, dc, (uint)seconds);
+                // Re-activating the scheme the value went to applies it at once.
+                schemes.Select(scheme);
+            }
+            catch (Win32Exception ex)
+            {
+                Log.Warn($"Power timeout write failed ({kind} = {seconds} s, status {ex.NativeErrorCode}).");
+                return false;
+            }
         }
 
         Log.Info($"Power timeout set: {kind} = {Describe(seconds)}.");
@@ -181,16 +176,16 @@ internal static class PowerTimeouts
         {
             PowerTimeoutKind.DisplayDc => (SubVideo, VideoIdle, true),
             PowerTimeoutKind.DisplayAc => (SubVideo, VideoIdle, false),
-            PowerTimeoutKind.SleepDc => (SubSleep, StandbyIdle, true),
-            _ => (SubSleep, StandbyIdle, false)
+            PowerTimeoutKind.SleepDc => (ModernStandby.SubgroupSleep, StandbyIdle, true),
+            _ => (ModernStandby.SubgroupSleep, StandbyIdle, false)
         };
     }
 
-    private static bool TryGetActiveScheme(out Guid scheme)
+    private bool TryGetActiveScheme(out Guid scheme)
     {
         try
         {
-            scheme = PowerSchemes.Windows.ReadActive();
+            scheme = schemes.ReadActive();
             return true;
         }
         catch (Win32Exception ex)

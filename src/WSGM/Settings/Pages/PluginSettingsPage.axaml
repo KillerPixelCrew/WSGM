@@ -24,7 +24,7 @@
       <Setter Property="Width" Value="44" />
       <Setter Property="Height" Value="44" />
       <Setter Property="CornerRadius" Value="8" />
-      <Setter Property="Background" Value="#14FFFFFF" />
+      <Setter Property="Background" Value="{StaticResource HcPluginIconBrush}" />
     </Style>
     <Style Selector="Border.plugin-icon > Path">
       <Setter Property="HorizontalAlignment" Value="Center" />
@@ -42,8 +42,8 @@
       <Setter Property="CornerRadius" Value="10" />
       <Setter Property="Padding" Value="8,2" />
       <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="Background" Value="#14FFFFFF" />
-      <Setter Property="BorderBrush" Value="#2EFFFFFF" />
+      <Setter Property="Background" Value="{StaticResource HcBadgeBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource HcBadgeBorderBrush}" />
     </Style>
     <Style Selector="Border.badge > TextBlock">
       <Setter Property="FontSize" Value="11.5" />
@@ -51,43 +51,43 @@
       <Setter Property="Foreground" Value="{StaticResource HcTextMutedBrush}" />
     </Style>
     <Style Selector="Border.badge.accent">
-      <Setter Property="Background" Value="#26FF9D3D" />
-      <Setter Property="BorderBrush" Value="#73FF9D3D" />
+      <Setter Property="Background" Value="{StaticResource HcBadgeAccentBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource HcBadgeAccentBorderBrush}" />
     </Style>
     <Style Selector="Border.badge.accent > TextBlock">
-      <Setter Property="Foreground" Value="#FFFFB870" />
+      <Setter Property="Foreground" Value="{StaticResource HcBadgeAccentTextBrush}" />
     </Style>
     <Style Selector="Border.badge.community">
-      <Setter Property="Background" Value="#26B79CFF" />
-      <Setter Property="BorderBrush" Value="#73B79CFF" />
+      <Setter Property="Background" Value="{StaticResource HcBadgeCommunityBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource HcBadgeCommunityBorderBrush}" />
     </Style>
     <Style Selector="Border.badge.community > TextBlock">
-      <Setter Property="Foreground" Value="#FFCDB9FF" />
+      <Setter Property="Foreground" Value="{StaticResource HcBadgeCommunityTextBrush}" />
     </Style>
     <Style Selector="Border.badge.info">
-      <Setter Property="Background" Value="#268AB4F8" />
-      <Setter Property="BorderBrush" Value="#738AB4F8" />
+      <Setter Property="Background" Value="{StaticResource HcBadgeInfoBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource HcBadgeInfoBorderBrush}" />
     </Style>
     <Style Selector="Border.badge.info > TextBlock">
-      <Setter Property="Foreground" Value="#FFA8C7FA" />
+      <Setter Property="Foreground" Value="{StaticResource HcBadgeInfoTextBrush}" />
     </Style>
     <Style Selector="Border.badge.good">
-      <Setter Property="Background" Value="#26A3DCA3" />
-      <Setter Property="BorderBrush" Value="#73A3DCA3" />
+      <Setter Property="Background" Value="{StaticResource HcBadgeGoodBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource HcBadgeGoodBorderBrush}" />
     </Style>
     <Style Selector="Border.badge.good > TextBlock">
       <Setter Property="Foreground" Value="{StaticResource HcSuccessBrush}" />
     </Style>
     <Style Selector="Border.badge.warn">
-      <Setter Property="Background" Value="#26FFC66D" />
-      <Setter Property="BorderBrush" Value="#73FFC66D" />
+      <Setter Property="Background" Value="{StaticResource HcBadgeWarnBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource HcBadgeWarnBorderBrush}" />
     </Style>
     <Style Selector="Border.badge.warn > TextBlock">
       <Setter Property="Foreground" Value="{StaticResource HcWarningBrush}" />
     </Style>
     <Style Selector="Border.badge.bad">
-      <Setter Property="Background" Value="#26FFA0A0" />
-      <Setter Property="BorderBrush" Value="#73FFA0A0" />
+      <Setter Property="Background" Value="{StaticResource HcBadgeBadBrush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource HcBadgeBadBorderBrush}" />
     </Style>
     <Style Selector="Border.badge.bad > TextBlock">
       <Setter Property="Foreground" Value="{StaticResource HcDangerBrush}" />

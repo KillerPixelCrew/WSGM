@@ -3,10 +3,10 @@ using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Media;
-using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Controls;
 using WSGM.Settings;
+using WSGM.Testing;
 using WSGM.Themes;
 using WSGM.UiTests.Infrastructure;
 
@@ -74,8 +74,11 @@ public sealed class SettingsInteractionTests
         Assert.False(UiFixture.Named<Control>(window, "SettingsRoot").IsEnabled);
         Assert.NotNull(captured);
         Assert.Equal(!before, captured.Values.StartAtSignIn);
-        completion.SetResult(new SettingsViewModel.SaveResult(captured.Values, [], null));
-        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+        // As if Steam Input management changed with this save, so the post-save reconcile runs.
+        completion.SetResult(new SettingsViewModel.SaveResult(captured.Values, [], null,
+            new SaveChanges(true, false, false)));
+        // The reconcile runs on a worker after the commit.
+        await AsyncConditions.WaitForAsync(() => !model.IsSaving);
         Assert.False(model.IsSaving);
         Assert.True(UiFixture.Named<Control>(window, "SettingsRoot").IsEnabled);
         Assert.StartsWith("Saved", model.StatusText);

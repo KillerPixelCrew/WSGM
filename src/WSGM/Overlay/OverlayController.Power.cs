@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
 using WindowsDeviceControl;
@@ -10,6 +11,11 @@ namespace WSGM.Overlay;
 
 public sealed partial class OverlayController
 {
+    // Idle-timeout and policy reads queue behind each other on a worker, so opening the sheet never waits
+    // on the power or registry APIs. Each read posts its result, and chained reads post in request order,
+    // so an older answer never replaces a newer one. The values fill in a frame later.
+    private Task _windowsReads = Task.CompletedTask;
+
     /// <summary>
     ///     Reads the four idle timeouts from the active power scheme into the
     ///     Power tab's badges ("—" when the power API gives no answer), and says when Steam's
@@ -17,7 +23,31 @@ public sealed partial class OverlayController
     /// </summary>
     private void RefreshPowerTimeouts(OverlayViewModel vm)
     {
-        var timeouts = PowerTimeouts.ReadAll();
+        QueueWindowsRead(() =>
+        {
+            (int? DisplayDc, int? DisplayAc, int? SleepDc, int? SleepAc) timeouts;
+            try
+            {
+                timeouts = _power.Timeouts.ReadAll();
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Could not read the idle timeouts", ex);
+                timeouts = (null, null, null, null);
+            }
+
+            return () => ApplyPowerTimeouts(vm, timeouts);
+        });
+    }
+
+    private void ApplyPowerTimeouts(OverlayViewModel vm,
+        (int? DisplayDc, int? DisplayAc, int? SleepDc, int? SleepAc) timeouts)
+    {
+        if (_disposed || !ReferenceEquals(_overlayViewModel, vm))
+        {
+            return;
+        }
+
         vm.DisplayDcTimeout = Format(timeouts.DisplayDc);
         vm.DisplayAcTimeout = Format(timeouts.DisplayAc);
         vm.DisplayDcDescription = DisplayTimeoutDescription(PowerTimeoutKind.DisplayDc);
@@ -44,12 +74,47 @@ public sealed partial class OverlayController
 
     /// <summary>
     ///     Shows the UAC prompt and wake sign-in policies as Windows reports them. A preview
-    ///     surface shows them read-only: it must not change the machine.
+    ///     surface shows them read-only: it must not change the machine. Until the first answer
+    ///     lands the switches stay disabled, as the window creates them.
     /// </summary>
     private void RefreshWindowsPolicies(OverlayWindow overlay)
     {
-        overlay.RefreshWindowsPolicies(UacSettings.Read().PromptsDisabled,
-            LockScreenSettings.SignInOnWakeDisabled(), !_previewOnly);
+        QueueWindowsRead(() =>
+        {
+            bool uacPromptsDisabled;
+            bool lockOnWakeDisabled;
+            try
+            {
+                uacPromptsDisabled = UacSettings.Read().PromptsDisabled;
+                lockOnWakeDisabled = LockScreenSettings.SignInOnWakeDisabled();
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Could not read the Windows sign-in policies", ex);
+                return null;
+            }
+
+            return () =>
+            {
+                if (!_disposed && ReferenceEquals(_overlay, overlay))
+                {
+                    overlay.RefreshWindowsPolicies(uacPromptsDisabled, lockOnWakeDisabled, !_previewOnly);
+                }
+            };
+        });
+    }
+
+    /// <summary>Runs a read behind the previous one on a worker and posts its result to the UI thread.</summary>
+    /// <param name="read">The worker step; it returns the UI step, or null when there is nothing to show.</param>
+    private void QueueWindowsRead(Func<Action?> read)
+    {
+        _windowsReads = _windowsReads.ContinueWith(_ =>
+        {
+            if (read() is { } apply)
+            {
+                Dispatcher.UIThread.Post(apply);
+            }
+        }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
     }
 
     /// <summary>
@@ -101,11 +166,12 @@ public sealed partial class OverlayController
             }
         }
 
-        vm.PowerTimeoutValues = values;
         vm.DisplayDcDescription = DisplayTimeoutDescription(PowerTimeoutKind.DisplayDc);
         vm.DisplayAcDescription = DisplayTimeoutDescription(PowerTimeoutKind.DisplayAc);
+        // The minimums do not notify: they are set first, and the values' change refreshes the editors.
         vm.PowerTimeoutMinimums = Enum.GetValues<PowerTimeoutKind>().ToDictionary(kind => kind,
             kind => _displayTimeouts?.Minimum(kind));
+        vm.PowerTimeoutValues = values;
     }
 
     /// <summary>The display row's description: the plain one, or the bound Steam's screensaver sets.</summary>
@@ -166,7 +232,8 @@ public sealed partial class OverlayController
         _wakeLockQueryRunning = true;
         try
         {
-            var (entries, error) = await Task.Run(PowerRequestList.Query);
+            var (entries, status, nativeStatus) = await Task.Run(PowerRequestList.Query);
+            var error = WakeLockStatus.DescribeQueryStatus(status, nativeStatus);
             if (_disposed || _overlay is not { } overlay || _overlayViewModel is not { } viewModel)
             {
                 return;

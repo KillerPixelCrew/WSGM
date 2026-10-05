@@ -230,7 +230,7 @@ public sealed partial class NativeQamSemanticServicesTests
         PerformanceCommandState command = new(
             7,
             "native-qam",
-            "native-qam:4:5:6:7",
+            "steam-ui:4:5:6:7",
             PerformanceControl.FrameLimit,
             60,
             PerformanceCommandPhase.Failed,

@@ -102,35 +102,48 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
     /// <param name="indicatorEnabled">Whether the connected AP joins the scanned list.</param>
     internal async ValueTask<SteamNetworkState?> ReadStateAsync(bool indicatorEnabled)
     {
+        // The connected network is merged in from the live status rather than the scan list, which
+        // is what makes the header Wi-Fi indicator show a signal on Windows at all. The radio
+        // manager reads it, so the sheet and Steam never disagree about which network is joined.
+        if (indicatorEnabled)
+        {
+            await _radios.RefreshWifiStatusAsync().ConfigureAwait(false);
+        }
+
+        List<WindowsRadio.WifiNetworkKey> keys = [];
         List<SteamNetworkAccessPoint> networks = [];
+        WindowsRadio.WifiNetworkKey? connected = null;
+        var connectedSignal = 0;
         await NativeQamUi.RunAsync(() =>
         {
-            networks.AddRange(_radios.Networks
-                .Where(entry => !string.IsNullOrWhiteSpace(entry.Ssid))
-                .Select(entry => new SteamNetworkAccessPoint(
+            foreach (var entry in _radios.Networks.Where(entry => !string.IsNullOrWhiteSpace(entry.Ssid)))
+            {
+                keys.Add(entry.Key);
+                networks.Add(new SteamNetworkAccessPoint(
                     entry.Ssid,
                     SteamNetworkSurface.StrengthFromPercent(entry.Signal),
                     entry.Secured,
-                    entry.Connected)));
+                    entry.Connected));
+            }
+
+            if (_radios.WifiConnected)
+            {
+                connected = _radios.ConnectedNetwork;
+                connectedSignal = _radios.WifiSignal;
+            }
         }).ConfigureAwait(false);
 
-        // The connected network is merged in from the live status rather than the scan list, which
-        // is what makes the header Wi-Fi indicator show a signal on Windows at all.
-        var connected = indicatorEnabled
-            ? WindowsRadio.GetWifiStatus()
-            : default;
         if (!indicatorEnabled
-            || connected.State != 0
-            || string.IsNullOrWhiteSpace(connected.Ssid))
+            || connected is not { } network
+            || string.IsNullOrWhiteSpace(network.DisplayText))
         {
             return new SteamNetworkState(networks);
         }
 
-        var existing = networks.FindIndex(network =>
-            string.Equals(network.Ssid, connected.Ssid, StringComparison.Ordinal));
+        var existing = keys.IndexOf(network);
         var joined = new SteamNetworkAccessPoint(
-            connected.Ssid,
-            SteamNetworkSurface.StrengthFromPercent(connected.Signal),
+            network.DisplayText,
+            SteamNetworkSurface.StrengthFromPercent(connectedSignal),
             existing < 0 || networks[existing].Secured,
             true);
         if (existing >= 0)

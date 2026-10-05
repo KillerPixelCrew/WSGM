@@ -559,15 +559,10 @@ internal sealed class CardVolumeMonitor : IDisposable
     private static List<(string LibraryPath, string? ContentId, string Label)>
         ScanCardLibraryPaths()
     {
-        var systemDisks = RemovableDriveManager.ResolveSystemDisks();
         var found = new List<(string, string?, string)>();
-        foreach (var volume in NativeStorage.MountedVolumes())
+        foreach (var volume in StorageInventory.Read().ReadyExternalVolumes())
         {
-            if (volume.DriveType != DriveType.Removable || !volume.Ready
-                                                        || volume.DeviceType != NativeStorage.FileDeviceDisk ||
-                                                        volume.Disk < 0
-                                                        || RemovableDriveManager.ClassifyDisk(volume.Disk, systemDisks)
-                                                            is null)
+            if (volume.DriveType != DriveType.Removable)
             {
                 continue;
             }

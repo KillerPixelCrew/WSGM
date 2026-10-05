@@ -23,13 +23,15 @@ internal sealed class ManualTdpModeView : StackPanel
         Children.Add(marker);
         Children.Add(status);
         bool rendering = false, writing = false, closed = false;
-        choice.SelectionChanged += async (_, _) =>
-        {
-            if (rendering || writing || closed || choice.SelectedIndex < 0)
-            {
-                return;
-            }
+        // Browsing an open dropdown must not save every mode it passes.
+        ComboCommit.Attach<string>(choice, () => rendering || writing || closed, selected => _ = SaveAsync());
+        AttachedToVisualTree += (_, _) => closed = false;
+        DetachedFromVisualTree += (_, _) => closed = true;
+        VisiblePoll.Attach(this, TimeSpan.FromMilliseconds(500), Refresh);
+        return;
 
+        async Task SaveAsync()
+        {
             writing = true;
             choice.IsEnabled = false;
             try
@@ -46,11 +48,7 @@ internal sealed class ManualTdpModeView : StackPanel
                 writing = false;
                 Refresh();
             }
-        };
-        AttachedToVisualTree += (_, _) => closed = false;
-        DetachedFromVisualTree += (_, _) => closed = true;
-        VisiblePoll.Attach(this, TimeSpan.FromMilliseconds(500), Refresh);
-        return;
+        }
 
         void Refresh()
         {
@@ -63,7 +61,12 @@ internal sealed class ManualTdpModeView : StackPanel
             rendering = true;
             IsVisible = state.Available;
             choice.IsEnabled = state.Available;
-            choice.SelectedIndex = state.Unified ? 1 : 0;
+            // The poll must not move the selection the user is browsing.
+            if (!choice.IsDropDownOpen)
+            {
+                choice.SelectedIndex = state.Unified ? 1 : 0;
+            }
+
             marker.Refresh(overrideId?.Invoke());
             rendering = false;
         }

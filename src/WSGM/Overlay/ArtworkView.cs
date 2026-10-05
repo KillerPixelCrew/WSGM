@@ -90,7 +90,7 @@ public sealed class ArtworkView : ServiceSubView
         }
 
         body.Children.Add(Tagged(Row("Search games", _query, Icons.ListLines,
-            () => EditText("Search your Steam library", _query, 128, query =>
+            () => EditText("Search your Steam library", _query, 0, query =>
             {
                 _query = query;
                 _shown = 48;
@@ -119,10 +119,12 @@ public sealed class ArtworkView : ServiceSubView
 
         if (games.Length > _shown)
         {
+            var added = "game:" + games[_shown].AppId;
             body.Children.Add(Tagged(Row("Load more", $"{_shown} of {games.Length}", Icons.ArrowDown, () =>
             {
                 _shown += 48;
                 RenderHome();
+                PagedRows.FocusAdded(this, added);
             }), "games.more"));
         }
 
@@ -146,19 +148,19 @@ public sealed class ArtworkView : ServiceSubView
 
     private async Task ReadGamesAsync()
     {
-        var generation = _navigationGeneration;
+        var generation = NavigationGeneration;
         _readingGames = true;
         var result = await _source!.ReadGamesAsync();
         _readingGames = false;
         _gamesRead = true;
-        if (generation != _navigationGeneration)
+        if (generation != NavigationGeneration)
         {
             return;
         }
 
         _games = result.Games;
         _gamesError = result.Error;
-        _current?.Invoke();
+        CurrentLevel?.Invoke();
     }
 
     private void RenderArtwork()
@@ -173,7 +175,7 @@ public sealed class ArtworkView : ServiceSubView
         body.Children.Add(ToolTabs(state.ActiveTab, state.Tabs.Select(tab =>
             (tab.Id, tab.Label, (Action)(() => Run(token => _source.SelectTabAsync(tab.Id, token))))).ToArray()));
         AddStatus(body, state.Loading, state.Error, state.Notice);
-        if (state.ActiveTab == "manage")
+        if (state.ActiveTab == SteamArtworkBrowserSource.ManageTab)
         {
             RenderManage(body, state);
         }
@@ -292,10 +294,10 @@ public sealed class ArtworkView : ServiceSubView
 
     private async Task ApplyLocalAsync(string slot)
     {
-        var generation = _navigationGeneration;
+        var generation = NavigationGeneration;
         var source = _source;
         var path = await PickPathAsync(false, ".png", ".jpg", ".jpeg", ".webp", ".ico", ".gif");
-        if (path is not null && generation == _navigationGeneration && source is not null)
+        if (path is not null && generation == NavigationGeneration && source is not null)
         {
             Run(token => source.ApplyLocalAsync(slot, path, token));
         }
@@ -339,7 +341,7 @@ public sealed class ArtworkView : ServiceSubView
         var filter = state.Filter;
         var body = NewStack("Artwork filters");
         body.Children.Add(Tagged(Row("Search game match", state.SelectedGame ?? "Use Steam game", Icons.ListLines,
-            () => EditText("Find a game", state.AppName, 128,
+            () => EditText("Find a game", state.AppName, 0,
                 term => Run(token => _source.SearchGamesAsync(term, token)))), "match.search"));
         body.Children.Add(Tagged(
             Row("Use Steam game", "Clear the manual provider match", Icons.Restart,
@@ -435,7 +437,7 @@ public sealed class ArtworkView : ServiceSubView
             return;
         }
 
-        var generation = _navigationGeneration;
+        var generation = NavigationGeneration;
         _logoApp = state.AppId;
         try
         {
@@ -447,7 +449,7 @@ public sealed class ArtworkView : ServiceSubView
             return;
         }
 
-        if (generation == _navigationGeneration)
+        if (generation == NavigationGeneration)
         {
             Navigate(RenderLogo);
         }

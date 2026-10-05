@@ -18,7 +18,7 @@
 
     <Grid ColumnDefinitions="100,*" ColumnSpacing="12">
       <TextBlock Text="Output" VerticalAlignment="Center" />
-      <ComboBox Grid.Column="1" ItemsSource="{Binding OutputEndpoints}" SelectedItem="{Binding SelectedOutput, Mode=TwoWay}"
+      <ComboBox x:Name="OutputChoice" Grid.Column="1" ItemsSource="{Binding OutputEndpoints}" SelectedItem="{Binding SelectedOutput, Mode=OneWay}"
                 PlaceholderText="No active outputs" FocusAdorner="{x:Null}" HorizontalAlignment="Stretch"
                 HorizontalContentAlignment="Stretch" ToolTip.Tip="Default playback device">
         <ComboBox.ItemTemplate>
@@ -31,17 +31,17 @@
 
     <Grid x:Name="ChannelsRow" ColumnDefinitions="100,*" ColumnSpacing="12" IsVisible="False">
       <TextBlock Text="Channels" VerticalAlignment="Center" />
-      <ComboBox x:Name="ChannelsChoice" Grid.Column="1" SelectionChanged="OnFormatChanged"
+      <ComboBox x:Name="ChannelsChoice" Grid.Column="1"
                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" />
     </Grid>
     <Grid x:Name="FormatRow" ColumnDefinitions="100,*" ColumnSpacing="12" IsVisible="False">
       <TextBlock Text="Format" VerticalAlignment="Center" />
-      <ComboBox x:Name="FormatChoice" Grid.Column="1" SelectionChanged="OnFormatChanged"
+      <ComboBox x:Name="FormatChoice" Grid.Column="1"
                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" />
     </Grid>
     <Grid x:Name="SpatialRow" ColumnDefinitions="100,*" ColumnSpacing="12" IsVisible="False">
       <TextBlock Text="Spatial sound" VerticalAlignment="Center" />
-      <ComboBox x:Name="SpatialChoice" Grid.Column="1" SelectionChanged="OnSpatialChanged"
+      <ComboBox x:Name="SpatialChoice" Grid.Column="1"
                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" />
     </Grid>
     <TextBlock x:Name="CapabilityStatus" Classes="caption" TextWrapping="Wrap"
@@ -50,7 +50,7 @@
     <Border Height="1" Background="{StaticResource DeckDividerBrush}" Margin="0,4" />
     <Grid ColumnDefinitions="100,*" ColumnSpacing="12">
       <TextBlock Text="Input" VerticalAlignment="Center" />
-      <ComboBox Grid.Column="1" ItemsSource="{Binding InputEndpoints}" SelectedItem="{Binding SelectedInput, Mode=TwoWay}"
+      <ComboBox x:Name="InputChoice" Grid.Column="1" ItemsSource="{Binding InputEndpoints}" SelectedItem="{Binding SelectedInput, Mode=OneWay}"
                 PlaceholderText="No active inputs" FocusAdorner="{x:Null}" HorizontalAlignment="Stretch"
                 HorizontalContentAlignment="Stretch" ToolTip.Tip="Default recording device">
         <ComboBox.ItemTemplate>

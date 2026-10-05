@@ -11,6 +11,12 @@ public partial class OverlayWindow
 {
     private PowerConfirm? _armedConfirm;
 
+    /// <summary>
+    ///     Raised after the sheet is dismissed for a machine power action. The controller decides whether this
+    ///     surface may act on the machine; the window never calls Windows itself.
+    /// </summary>
+    internal event Action<SessionPowerAction>? PowerActionRequested;
+
     private void OnShowWakeLockHolders(object? sender, RoutedEventArgs e)
     {
         WakeLockHost.Open();
@@ -46,13 +52,13 @@ public partial class OverlayWindow
     private void OnStandby(object? sender, RoutedEventArgs e)
     {
         Dismissed?.Invoke();
-        PowerActions.Standby();
+        PowerActionRequested?.Invoke(SessionPowerAction.Standby);
     }
 
     private void OnHibernate(object? sender, RoutedEventArgs e)
     {
         Dismissed?.Invoke();
-        PowerActions.Hibernate();
+        PowerActionRequested?.Invoke(SessionPowerAction.Hibernate);
     }
 
     /// <summary>
@@ -81,7 +87,7 @@ public partial class OverlayWindow
         }
 
         Dismissed?.Invoke();
-        PowerActions.Restart();
+        PowerActionRequested?.Invoke(SessionPowerAction.Restart);
     }
 
     private void OnShutdown(object? sender, RoutedEventArgs e)
@@ -92,7 +98,7 @@ public partial class OverlayWindow
         }
 
         Dismissed?.Invoke();
-        PowerActions.Shutdown();
+        PowerActionRequested?.Invoke(SessionPowerAction.Shutdown);
     }
 
     private void OnSignOut(object? sender, RoutedEventArgs e)
@@ -103,7 +109,7 @@ public partial class OverlayWindow
         }
 
         Dismissed?.Invoke();
-        PowerActions.SignOut();
+        PowerActionRequested?.Invoke(SessionPowerAction.SignOut);
     }
 
     /// <summary>Arms an action on its first press and lets the second press through.</summary>

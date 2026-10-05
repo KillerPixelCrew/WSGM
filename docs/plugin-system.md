@@ -322,7 +322,10 @@ raw evaluation access; its page presentation is a compiled package-owned fragmen
 toolkit's generic renderer registration and typed bridge. The current projection exposes only Ready,
 non-stopping, non-quarantined registrations. IDs belong to the captured registration and generation,
 so a replacement with the same plugin identity cannot receive an old menu action. `SteamUiChanged`
-invalidates plugin module state without coupling the session host to a particular plugin.
+invalidates plugin module state without coupling the session host to a particular plugin. A
+package's Steam UI modules are registered when it becomes ready and removed when it stops, without
+rebuilding the session host; a module whose patch, state or command collides with one already
+registered is dropped with one log line, and the other surfaces stay.
 
 The Extensions tab maps `PluginSettingKind.OrderedChoices` to native move-up and move-down controls.
 Its text value is a comma-separated permutation of the declared choices; validation rejects
@@ -381,13 +384,13 @@ television comes up showing the wrong input. Argument values are checked against
 ranges and choices the host enforces, and a value outside them blocks the save rather than being
 sent and refused.
 
-Which actions can be added depends on where Settings was opened. Opened from the WSGM tray icon or
-the overlay it runs inside the shell session and reads the running instances through
-`Settings\SettingsPluginActions`; a standalone `--settings` process has no plugin host, so it lists
-nothing to add. A saved step whose plugin is not running keeps its values, is shown but not
-editable, and is still removable: dropping a step you no longer want must not require starting a
-plugin. Its argument schema is captured by the host before the plugin starts, so for one that is not
-there, there is nothing truthful to render.
+Which actions can be added depends on where Settings was opened. Opened from the WSGM tray icon, the
+overlay or a desktop Settings launch it is the shell session's one Settings window
+(`Shell\SettingsSurface`), and the session hands it its own reader of the running instances; a
+standalone `--settings` process has no plugin host, so it lists nothing to add. A saved step whose
+plugin is not running keeps its values, is shown but not editable, and is still removable: dropping
+a step you no longer want must not require starting a plugin. Its argument schema is captured by the
+host before the plugin starts, so for one that is not there, there is nothing truthful to render.
 
 Desktop startup and wake are coalesced by `Shell\DesktopActionAdmission.cs`: one run at a time, a
 five-second cooldown, and never while Game Mode is active or a transition is in flight. The four

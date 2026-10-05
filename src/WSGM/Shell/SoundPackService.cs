@@ -341,7 +341,7 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
     private AudioFilePreview CreatePreview()
     {
         var preview = new AudioFilePreview();
-        preview.Failed += error =>
+        preview.Failed += failure =>
         {
             lock (_sync)
             {
@@ -350,9 +350,10 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
                     return;
                 }
 
-                _state = _state with { Error = "Preview failed: " + error };
+                _state = _state with { Error = "Preview failed: " + failure.Message };
             }
 
+            _report($"Sounds preview failed: {failure.Error}, HRESULT 0x{failure.HResult:X8}: {failure.Message}");
             Changed?.Invoke();
         };
         return preview;

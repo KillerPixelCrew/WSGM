@@ -1,11 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
-using SteamUiToolkit;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Shell;
@@ -55,7 +53,7 @@ public sealed partial class GameLibraryView
             RenderAddFolder();
         }));
         body.Children.Add(Tagged(Row("File types", _extensions, Icons.ListLines, () => EditText("File extensions",
-            _extensions, 32,
+            _extensions, 0,
             value =>
             {
                 _extensions = value;
@@ -68,9 +66,9 @@ public sealed partial class GameLibraryView
 
         async Task ChooseAsync()
         {
-            var generation = _navigationGeneration;
+            var generation = NavigationGeneration;
             var path = await PickPathAsync(true);
-            if (path is not null && generation == _navigationGeneration)
+            if (path is not null && generation == NavigationGeneration)
             {
                 _folderPath = path;
                 RenderAddFolder();
@@ -79,11 +77,11 @@ public sealed partial class GameLibraryView
 
         async Task AddAsync()
         {
-            var generation = _navigationGeneration;
+            var generation = NavigationGeneration;
             var types = _extensions.Split([' ', ',', ';'], StringSplitOptions.RemoveEmptyEntries)
                 .Select(value => value.Trim()).ToArray();
             var result = await _service!.AddFolderAsync(_folderPath, _subfolders, types, CancellationToken.None);
-            if (generation != _navigationGeneration)
+            if (generation != NavigationGeneration)
             {
                 return;
             }
@@ -114,7 +112,7 @@ public sealed partial class GameLibraryView
                 _shown = 48;
                 Replace(() => RenderReview(false));
             }))).ToArray()));
-        body.Children.Add(Tagged(Row("Search", _search, Icons.ListLines, () => EditText("Search titles", _search, 128,
+        body.Children.Add(Tagged(Row("Search", _search, Icons.ListLines, () => EditText("Search titles", _search, 0,
             value =>
             {
                 _search = value;
@@ -145,13 +143,14 @@ public sealed partial class GameLibraryView
                                                    && (_sourceId.Length == 0 || entry.SourceId == _sourceId) &&
                                                    entry.Name.Contains(_search, StringComparison.OrdinalIgnoreCase))
             .ToArray();
-        var selectable = entries.Where(entry => entry.Selectable && entry.Action != "Remove").ToArray();
+        var selectable = entries.Where(entry => entry.Selectable && entry.Action != nameof(ImportAction.Remove)).ToArray();
         var allSelected = selectable.Length > 0 && selectable.All(entry => entry.Selected);
         body.Children.Add(Tagged(Row(allSelected ? "Deselect visible" : "Select visible",
             "Applies only to this source, tab and search", Icons.ListLines,
             state.Loading || selectable.Length == 0
                 ? null
-                : () => Run(token => SelectVisibleAsync(selectable, !allSelected, token))), "review.select"));
+                : () => Run(token => _service!.SetSelectedAsync(
+                    selectable.Select(entry => entry.Id).ToArray(), !allSelected, token))), "review.select"));
         body.Children.Add(Tagged(PrimaryRow($"Apply {state.SelectedCount}", "Save the selected changes to Steam",
             Icons.Play,
             state.Loading || state.SelectedCount == 0 ? null : () => Run(_service!.ApplyAsync)), "apply"));
@@ -182,10 +181,12 @@ public sealed partial class GameLibraryView
 
         if (entries.Length > _shown)
         {
+            var added = (_grid ? "item:" : "entry:") + entries[_shown].Id;
             body.Children.Add(Tagged(Row("Load more", $"{_shown} of {entries.Length}", Icons.ArrowDown, () =>
             {
                 _shown += 48;
                 RenderReview(importedOnly);
+                PagedRows.FocusAdded(this, added);
             }), "review.more"));
         }
 
@@ -193,26 +194,6 @@ public sealed partial class GameLibraryView
         {
             body.Children.Add(Caption("No matching titles."));
         }
-    }
-
-    private async Task<SteamUiCommandResult> SelectVisibleAsync(GameLibraryEntry[] entries, bool selected,
-        CancellationToken token)
-    {
-        foreach (var entry in entries)
-        {
-            if (entry.Selected == selected)
-            {
-                continue;
-            }
-
-            var result = await _service!.ToggleEntryAsync(entry.Id, token);
-            if (!result.Succeeded)
-            {
-                return result;
-            }
-        }
-
-        return SteamUiCommandResult.Applied;
     }
 
     private void RenderTitleArtwork(string id, string asset)
@@ -288,7 +269,7 @@ public sealed partial class GameLibraryView
         var body = NewStack("Artwork game match");
         body.Children.Add(Caption(entry.MatchName.Length == 0 ? "Automatic match" : entry.MatchName));
         body.Children.Add(Tagged(Row("Search", entry.Name, Icons.ListLines, () => EditText("Find artwork game",
-            entry.Name, 128,
+            entry.Name, 0,
             query => _ = RunSafelyAsync(SearchAsync(query), "match search"))), "match.search"));
         body.Children.Add(Tagged(
             Row("Use automatic match", "Discard the fixed match", Icons.Restart,
@@ -316,18 +297,16 @@ public sealed partial class GameLibraryView
 
         async Task SearchAsync(string query)
         {
-            var generation = _navigationGeneration;
+            var generation = NavigationGeneration;
             var result = await _service!.SearchMatchAsync(id, query, CancellationToken.None);
-            if (generation != _navigationGeneration)
+            if (generation != NavigationGeneration)
             {
                 return;
             }
 
             _matchEntry = id;
-            _matchError = result.Error;
-            _matches = result.Payload is { } payload
-                ? payload.Deserialize(GameLibraryJsonContext.Default.GameLibraryMatchesAnswer)
-                : null;
+            _matchError = result.Command.Error;
+            _matches = result.Matches;
             RenderMatch(id);
         }
     }
@@ -382,12 +361,14 @@ public sealed partial class GameLibraryView
             body.Children.Add(row);
         }
 
-        if (state.SelectedCount > _shown)
+        if (state.Entries.Where(entry => entry.Selected).Skip(_shown).FirstOrDefault() is { } next)
         {
+            var added = "item:" + next.Id + ":" + Assets[0].Id;
             body.Children.Add(Tagged(Row("Load more titles", "", Icons.ArrowDown, () =>
             {
                 _shown += 48;
                 RenderAllArtwork();
+                PagedRows.FocusAdded(this, added);
             }), "all.more"));
         }
 

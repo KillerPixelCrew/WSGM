@@ -1,5 +1,5 @@
 using WSGM.Core;
-using WSGM.Settings;
+using WSGM.Testing;
 
 namespace WSGM.Tests.Settings;
 
@@ -9,7 +9,7 @@ public sealed class GameLibrarySettingsTests
     [Fact]
     public void BothSettingsComeUpAsStoredAndSurviveASave()
     {
-        var model = new SettingsViewModel(AppConfigRules.Normalize(new AppConfig
+        var model = SettingsTestServices.Model(AppConfigRules.Normalize(new AppConfig
         {
             GameLibrary = new GameLibraryConfig { DefaultMode = ImportMode.ControllerOnly, ImportUnroutable = true }
         }).Value);
@@ -23,26 +23,5 @@ public sealed class GameLibrarySettingsTests
         var saved = AppConfigRules.Normalize(model.SnapshotForPreview()).Value;
         Assert.Equal(ImportMode.SteamIntegration, saved.GameLibrary.DefaultMode);
         Assert.False(saved.GameLibrary.ImportUnroutable);
-    }
-
-    [Fact]
-    public void ANewInstallStartsSingleplayerTitlesOnTheSteamOverlay()
-    {
-        // The recorded decision: a title nothing says is multiplayer takes the Steam integration route.
-        var library = AppConfigRules.Normalize(new AppConfig()).Value.GameLibrary;
-
-        Assert.Equal(ImportMode.SteamIntegration, library.DefaultMode);
-        Assert.False(library.ImportUnroutable);
-    }
-
-    [Fact]
-    public void AModeNoReleaseHasIsRepairedRatherThanTrusted()
-    {
-        var config = AppConfigRules.Normalize(new AppConfig
-        {
-            GameLibrary = new GameLibraryConfig { DefaultMode = (ImportMode)42 }
-        }).Value;
-
-        Assert.Equal(ImportMode.SteamIntegration, config.GameLibrary.DefaultMode);
     }
 }

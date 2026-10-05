@@ -40,6 +40,16 @@ internal sealed class FakePower : IPowerSchemeApi
 
         _active = id;
     }
+
+    public uint ReadSetting(Guid scheme, Guid subgroup, Guid setting, bool onBattery)
+    {
+        return 0;
+    }
+
+    public void WriteSetting(Guid scheme, Guid subgroup, Guid setting, bool onBattery, uint value)
+    {
+        throw new InvalidOperationException("Unexpected power setting write");
+    }
 }
 
 internal sealed class ReadOnlyPowerModeApi : IPowerModeApi

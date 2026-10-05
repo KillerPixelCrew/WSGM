@@ -152,21 +152,21 @@
          same way as focus and selection do rather than inventing a third colour.
          The tiles are not focus stops, so the border is free to mean only that. -->
   <Style Selector="Border.glyph-tile">
-    <Setter Property="Background" Value="{DynamicResource HcControlBrush}" />
+    <Setter Property="Background" Value="{StaticResource HcControlBrush}" />
     <Setter Property="BorderBrush" Value="Transparent" />
     <Setter Property="BorderThickness" Value="2" />
   </Style>
   <Style Selector="Border.glyph-tile > StackPanel > TextBlock">
-    <Setter Property="Foreground" Value="{DynamicResource HcTextMutedBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource HcTextMutedBrush}" />
   </Style>
   <Style Selector="Border.glyph-tile > StackPanel > c|PhysicalGlyphImage">
-    <Setter Property="Foreground" Value="{DynamicResource HcTextSecondaryBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource HcTextSecondaryBrush}" />
   </Style>
   <Style Selector="Border.glyph-tile.pressed">
     <Setter Property="BorderBrush" Value="{DynamicResource HcAccentBrush}" />
   </Style>
   <Style Selector="Border.glyph-tile.pressed > StackPanel > TextBlock">
-    <Setter Property="Foreground" Value="{DynamicResource HcTextPrimaryBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource HcTextPrimaryBrush}" />
   </Style>
   <Style Selector="Border.glyph-tile.pressed > StackPanel > c|PhysicalGlyphImage">
     <Setter Property="Foreground" Value="{DynamicResource HcAccentBrush}" />

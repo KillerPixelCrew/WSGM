@@ -24,7 +24,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 {
     private readonly AutoTdpService? _autoTdp;
     private readonly DeviceCoordinator _coordinator;
-    private readonly PhysicalGlyphService _glyphs;
+    private readonly PhysicalGlyphPlans _glyphs;
     private readonly GpuCoordinator? _gpu;
     private readonly Lock _sampleGate = new();
     private bool _disposed;
@@ -49,7 +49,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 
         // One service over the coordinator's catalog, so its bounded geometry cache is shared by
         // every preview and is invalidated by the same catalog change that replaces the profiles.
-        _glyphs = new PhysicalGlyphService(coordinator.PhysicalGlyphCatalog);
+        _glyphs = new PhysicalGlyphPlans(coordinator.PhysicalGlyphCatalog);
         _coordinator.StateChanged += OnStateChanged;
         _coordinator.Capabilities.Changed += OnCapabilityViewsChanged;
         _coordinator.ConfigurationChanged += OnConfigurationChanged;
@@ -306,9 +306,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             _coordinator.PhysicalGlyphSelectionSnapshot(),
             control,
             PhysicalGlyphSurface.NavigationHint,
-            _coordinator.Controllers.Snapshot().State is ControllerManagementState.Active,
-            PhysicalGlyphTheme.Dark,
-            1);
+            _coordinator.Controllers.Snapshot().State is ControllerManagementState.Active);
         return plan.UsesDeviceArtwork ? plan : null;
     }
 
@@ -360,7 +358,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             }
         }
 
-        // The service subscribed to the catalog's change event, so it has to be released here or it
+        // The plans subscribed to the catalog's change event, so it has to be released here or it
         // keeps this bridge's geometry cache alive for the rest of the session.
         _glyphs.Dispose();
     }
@@ -478,7 +476,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     /// </remarks>
     private static DeviceOverlayGlyphPreview? GlyphPreview(
         PhysicalGlyphSelectionResult selection,
-        PhysicalGlyphService glyphs,
+        PhysicalGlyphPlans glyphs,
         bool inputTestAvailable)
     {
         ArgumentNullException.ThrowIfNull(selection);
@@ -500,9 +498,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 selection,
                 mapping.Control,
                 PhysicalGlyphSurface.DeviceDescription,
-                true,
-                PhysicalGlyphTheme.Dark,
-                1);
+                true);
             if (!plan.UsesDeviceArtwork)
             {
                 continue;

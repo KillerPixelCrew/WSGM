@@ -1,10 +1,7 @@
-using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
 using Avalonia.Controls;
 using WSGM.Controls;
-using WSGM.Core;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
@@ -60,116 +57,47 @@ public partial class OverlayWindow
 
     private void ReconcilePerformanceRows(Panel target, IEnumerable<DescriptorRow> descriptors, bool pinned)
     {
-        var rows = descriptors.ToArray();
-        var keys = rows.Select(row => (pinned ? PinTagPrefix : "") + "performance." + row.Id).ToArray();
-        foreach (var stale in target.Children.Where(child => child is DescriptorControlView
-                                                             && !keys.Contains(child.Tag as string,
-                                                                 StringComparer.Ordinal)).ToArray())
+        List<Control> rows = [];
+        foreach (var descriptor in descriptors)
         {
-            target.Children.Remove(stale);
-        }
-
-        for (var index = 0; index < rows.Length; index++)
-        {
-            var key = keys[index];
+            var key = (pinned ? PinTagPrefix : "") + "performance." + descriptor.Id;
             var existing = target.Children.OfType<DescriptorControlView>().FirstOrDefault(row => Equals(row.Tag, key));
-            if (existing is not null && existing.Matches(rows[index]))
+            if (existing is not null && existing.Matches(descriptor))
             {
-                existing.Refresh(rows[index]);
+                existing.Refresh(descriptor);
             }
             else
             {
-                if (existing is not null)
-                {
-                    target.Children.Remove(existing);
-                }
-
-                existing = CreatePerformanceRow(rows[index], key);
-                target.Children.Add(existing);
+                existing = CreatePerformanceRow(descriptor, key);
             }
 
-            var desiredIndex = index + (pinned ? 1 : 0);
-            var currentIndex = target.Children.IndexOf(existing);
-            if (currentIndex != desiredIndex)
-            {
-                target.Children.Move(currentIndex, desiredIndex);
-            }
-        }
-    }
-
-    private void WritePerformanceValue(string rowId, int value)
-    {
-        var source = _performanceSource;
-        if (source is null || _closed)
-        {
-            return;
+            rows.Add(existing);
         }
 
-        _ = WritePerformanceValueAsync(source, rowId, value);
-    }
-
-    private async Task WritePerformanceValueAsync(
-        PerformanceOverlayBridge source,
-        string rowId,
-        int value)
-    {
-        try
-        {
-            await source.SetValueAsync(rowId, value, _deviceLifetime.Token);
-        }
-        catch (OperationCanceledException) when (_deviceLifetime.IsCancellationRequested)
-        {
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Performance row '{rowId}' could not be set to {value}: {ex.Message}");
-        }
+        ReconcileChildren(target, rows);
     }
 
     private DescriptorControlView CreatePerformanceRow(DescriptorRow descriptor, string focusKey)
     {
-        return new DescriptorControlView(descriptor, focusKey, async current =>
-        {
-            if (_performanceSource is { } source && !_closed && current.CanInvoke)
+        return new DescriptorControlView(descriptor, focusKey, async seen =>
             {
-                await InvokePerformanceAsync(source, current);
-            }
-        }, value => WritePerformanceValue(descriptor.Id, value), UseGlobalOnPerformance);
-    }
+                // The row may have been republished since it was drawn; act only on a row that is still
+                // published and invokable.
+                if (_performanceSource is not { } source
+                    || source.Snapshot() is not { Visible: true } snapshot
+                    || snapshot.ProfileRows.Concat(snapshot.Rows)
+                        .FirstOrDefault(row => row.Id == seen.Id) is not { CanInvoke: true } current)
+                {
+                    return;
+                }
 
-    private async Task UseGlobalOnPerformance(string overrideId)
-    {
-        if (_performanceSource is not { } source || _closed)
-        {
-            return;
-        }
-
-        try
-        {
-            await source.UseGlobalAsync(overrideId, _deviceLifetime.Token);
-        }
-        catch (OperationCanceledException) when (_deviceLifetime.IsCancellationRequested)
-        {
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Use global for '{overrideId}' failed: {ex.Message}");
-        }
-    }
-
-    private async Task InvokePerformanceAsync(PerformanceOverlayBridge source, DescriptorRow descriptor)
-    {
-        try
-        {
-            await source.InvokeAsync(descriptor, _deviceLifetime.Token);
-        }
-        catch (OperationCanceledException) when (_deviceLifetime.IsCancellationRequested)
-        {
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Performance command failed: {descriptor.Id}, {ex.Message}");
-        }
+                await RunCommandAsync(source, $"Performance command {current.Id}",
+                    (performance, token) => performance.InvokeAsync(current, token));
+            },
+            value => _ = RunCommandAsync(_performanceSource, $"Performance row '{descriptor.Id}' set to {value}",
+                (source, token) => source.SetValueAsync(descriptor.Id, value, token)),
+            overrideId => RunCommandAsync(_performanceSource, $"Use global for '{overrideId}'",
+                (source, token) => source.UseGlobalAsync(overrideId, token)));
     }
 
     /// <summary>Puts the shared performance rows where the user will look for them.</summary>

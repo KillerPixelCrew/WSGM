@@ -59,8 +59,11 @@ public sealed partial class SettingsViewModel
         get;
         set
         {
-            field = value;
-            Raise(nameof(GameModeLaunchKindIndex));
+            if (!SetFieldIfChanged(ref field, value, nameof(GameModeLaunchKindIndex)))
+            {
+                return;
+            }
+
             Raise(nameof(ShowCustomLaunch));
             Raise(nameof(ShowLayoutEditor));
             if (_launchLoaded && ShowCustomLaunch && GameLayout is { HasActiveDisplays: false, CanUndo: false })
@@ -84,8 +87,11 @@ public sealed partial class SettingsViewModel
         get;
         set
         {
-            field = value;
-            Raise(nameof(GameModeReturnIndex));
+            if (!SetFieldIfChanged(ref field, value, nameof(GameModeReturnIndex)))
+            {
+                return;
+            }
+
             Raise(nameof(ShowDesktopLayout));
             Raise(nameof(ShowLayoutEditor));
             if (_launchLoaded && ShowDesktopLayout && DesktopLayout is { HasActiveDisplays: false, CanUndo: false })
@@ -148,22 +154,7 @@ public sealed partial class SettingsViewModel
             KnownDisplays.Add(display);
         }
 
-        // Injected readers provide the initial fixture observation here. Production discovery
-        // starts on a worker after the Settings window opens.
-        if (!_queryDisplaysOnWorker)
-        {
-            try
-            {
-                _observedDisplays = _services.CaptureDisplays();
-                MergeCatalog(_observedDisplays);
-            }
-            catch (Exception ex)
-            {
-                DisplayDiscoveryText = "Displays could not be read. Refresh the display list to try again.";
-                _services.Report("Could not read the current displays for Settings", ex);
-            }
-        }
-
+        // Connected displays are read on a worker once the Settings window has opened.
         RefreshLaunchRows();
         _launchLoaded = true;
     }
@@ -293,12 +284,14 @@ public sealed partial class SettingsViewModel
     ///     display stays configurable after it is unplugged.
     /// </summary>
     private void MergeCatalog(DisplayArrangement arrangement,
-        IReadOnlyDictionary<string, DisplayCatalogFacts?>? factsByDisplay = null)
+        IReadOnlyDictionary<string, DisplayCatalogFacts?> factsByDisplay)
     {
         _present = [.. arrangement.Targets.Where(target => target.Available).Select(target => target.Target)];
         foreach (var observed in arrangement.Targets)
         {
-            if (!observed.Available)
+            // An identity with neither a device path nor EDID ids can never be found again, so it is not
+            // remembered: a layout or wait naming it would wait forever.
+            if (!observed.Available || !observed.Target.Matches(observed.Target))
             {
                 continue;
             }
@@ -314,9 +307,7 @@ public sealed partial class SettingsViewModel
             existing.LastSeen = arrangement.CapturedAt;
             // Disabled sources still expose monitor EDID. Retain the broader driver-mode list
             // remembered while active rather than replacing it with descriptor-only timings.
-            if ((factsByDisplay is null
-                    ? _services.ReadDisplayFacts(observed.Target)
-                    : factsByDisplay.GetValueOrDefault(observed.Target.DevicePath)) is { } facts)
+            if (factsByDisplay.GetValueOrDefault(observed.Target.DevicePath) is { } facts)
             {
                 if (facts.Modes.Count > 0)
                 {

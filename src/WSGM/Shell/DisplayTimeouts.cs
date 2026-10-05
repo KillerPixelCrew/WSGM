@@ -31,22 +31,27 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
     private readonly Dictionary<PowerTimeoutKind, int?> _observed = [];
 
     private readonly Func<PowerTimeoutKind, int?> _read;
+    private readonly PowerSchemes _schemes;
     private readonly Func<PowerTimeoutKind, int, bool> _write;
     private bool _publishWritten;
     private long _revision;
     private SteamScreensaverReport? _steam;
 
     /// <summary>Creates the owner over the active power scheme.</summary>
-    internal DisplayTimeouts()
-        : this(PowerTimeouts.Read, PowerTimeouts.Write)
+    /// <param name="timeouts">The session's timeout owner, whose scheme lock every read-then-write takes.</param>
+    internal DisplayTimeouts(PowerTimeouts timeouts)
+        : this(timeouts.Schemes, timeouts.Read, timeouts.Write)
     {
     }
 
     /// <summary>Creates the owner over supplied reads and writes, for tests.</summary>
+    /// <param name="schemes">The scheme owner whose mutation lock a read-then-write holds.</param>
     /// <param name="read">Reads one timeout in seconds, or null when Windows gives no answer.</param>
     /// <param name="write">Writes one timeout and reports whether Windows accepted it.</param>
-    internal DisplayTimeouts(Func<PowerTimeoutKind, int?> read, Func<PowerTimeoutKind, int, bool> write)
+    internal DisplayTimeouts(PowerSchemes schemes, Func<PowerTimeoutKind, int?> read,
+        Func<PowerTimeoutKind, int, bool> write)
     {
+        _schemes = schemes ?? throw new ArgumentNullException(nameof(schemes));
         _read = read ?? throw new ArgumentNullException(nameof(read));
         _write = write ?? throw new ArgumentNullException(nameof(write));
     }
@@ -90,7 +95,7 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
             $"Steam screensaver starts after {DescribeScreensaver(report.PluggedInSeconds)} plugged in, "
             + $"{(report.BatterySeconds is { } battery ? DescribeScreensaver(battery) : "unset")} on battery; "
             + $"Steam {(report.Battery ? "keeps them apart" : "applies the plugged-in timeout everywhere")}.");
-        lock (PowerSchemes.MutationGate)
+        using (_schemes.EnterMutation())
         {
             var readings = DisplayTimeoutPolicy.DisplayKinds.Select(kind => (Kind: kind, Current: _read(kind)))
                 .ToArray();
@@ -122,7 +127,7 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
         }
 
         bool written;
-        lock (PowerSchemes.MutationGate)
+        using (_schemes.EnterMutation())
         {
             var minimum = Minimum(target.Kind);
             if (!DisplayTimeoutPolicy.Allows(seconds, minimum))
@@ -191,7 +196,7 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
     internal bool Cycle(PowerTimeoutKind kind)
     {
         bool written;
-        lock (PowerSchemes.MutationGate)
+        using (_schemes.EnterMutation())
         {
             // A failed read refuses to write blind.
             var current = _read(kind);
@@ -214,7 +219,7 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
     internal bool Select(PowerTimeoutKind kind, int seconds)
     {
         bool written;
-        lock (PowerSchemes.MutationGate)
+        using (_schemes.EnterMutation())
         {
             if (!DisplayTimeoutPolicy.Allows(seconds, Minimum(kind)))
             {
@@ -232,7 +237,7 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
     /// <returns>One row per display timeout, with only the choices the screensaver allows.</returns>
     internal SteamScreensaverState ReadState()
     {
-        lock (PowerSchemes.MutationGate)
+        using (_schemes.EnterMutation())
         {
             return ReadStateUnderGate();
         }
@@ -289,7 +294,7 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
 
     private void RaiseBelowBound(PowerTimeoutKind kind, int? current)
     {
-        lock (PowerSchemes.MutationGate)
+        using (_schemes.EnterMutation())
         {
             var minimum = Minimum(kind);
             if (minimum is null || current is null || DisplayTimeoutPolicy.Allows(current.Value, minimum))

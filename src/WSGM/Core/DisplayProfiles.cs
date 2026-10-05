@@ -178,11 +178,13 @@ internal static class DisplayProfiles
     ///     Applies a refresh rate to the primary display without persisting it.
     /// </summary>
     /// <param name="refreshHz">The rate to apply.</param>
-    /// <returns><see langword="true" /> when the display reports the new rate afterwards.</returns>
+    /// <returns>
+    ///     <see langword="true" /> when Windows accepted the change, or the display already ran at that rate.
+    /// </returns>
     /// <remarks>
     ///     Deliberately dynamic: no `CDS_UPDATEREGISTRY`, so the user's saved display configuration is
-    ///     untouched and exit, a crash, or a reboot all restore it without WSGM doing anything. That is
-    ///     what makes a game-scoped refresh change safe to make at all.
+    ///     untouched. The rate stays after WSGM exits, until another mode change, sign-out or restart, so
+    ///     the pairing restores it explicitly; only a restart is a certain restore after a crash.
     ///     <para>
     ///         Distinct from the display-profile path above, which deliberately does persist. Do not merge
     ///         them: a profile is the user's chosen configuration, and this is a transient pairing WSGM owns
@@ -204,11 +206,11 @@ internal static class DisplayProfiles
     /// </summary>
     /// <param name="width">Target width in pixels.</param>
     /// <param name="height">Target height in pixels.</param>
-    /// <returns>Whether the display is now at that resolution.</returns>
+    /// <returns>Whether Windows accepted the change, or the display already ran at that resolution.</returns>
     /// <remarks>
     ///     The same discipline as <see cref="TryApplyTransientRefreshRate" />, and for the same reason:
-    ///     no <c>CDS_UPDATEREGISTRY</c>, so exit, crash, and reboot all restore the user's own
-    ///     persisted configuration without WSGM having to remember to.
+    ///     no <c>CDS_UPDATEREGISTRY</c>, so the user's own persisted configuration is untouched. Like the
+    ///     rate, the resolution stays after WSGM exits until something changes it back.
     ///     <para>
     ///         The refresh rate is carried over from the current mode rather than left to the driver's
     ///         default for the new resolution. Changing one axis must not silently change the other, or a
@@ -294,8 +296,13 @@ internal static class DisplayProfiles
 
         try
         {
-            var rates = DisplayEdid.ReadModes(point.Target).Select(mode => mode.RefreshHz)
-                .Distinct().Order().ToArray();
+            var edid = DisplayEdid.ReadModes(point.Target);
+            if (edid.Status != DisplayEdidStatus.Read)
+            {
+                Log.Warn($"Display modes: no EDID for '{point.Target.DevicePath}': {edid.Status}.");
+            }
+
+            var rates = edid.Modes.Select(mode => mode.RefreshHz).Distinct().Order().ToArray();
             Log.Info($"Display modes: panel advertises [{string.Join(",", rates)}].");
             return rates;
         }

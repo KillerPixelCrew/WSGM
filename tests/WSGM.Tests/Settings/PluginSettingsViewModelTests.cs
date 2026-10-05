@@ -3,6 +3,7 @@ using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
 using WSGM.Settings;
 using WSGM.Shell;
+using WSGM.Testing;
 
 namespace WSGM.Tests.Settings;
 
@@ -14,7 +15,7 @@ public sealed class PluginSettingsViewModelTests
 
     private static SettingsViewModel ViewModel()
     {
-        return new SettingsViewModel(new AppConfig());
+        return SettingsTestServices.Model(new AppConfig());
     }
 
     private static PluginSettingDescriptor Setting(string id, string? sectionId)
@@ -195,7 +196,7 @@ public sealed class PluginSettingsViewModelTests
     [Fact]
     public void ACachedDeclarationProducesAnEditablePage()
     {
-        SettingsViewModel viewModel = new(Config(Manifest()));
+        var viewModel = SettingsTestServices.Model(Config(Manifest()));
 
         Assert.True(viewModel.PluginSettingsAvailable);
         Assert.Equal(
@@ -206,7 +207,7 @@ public sealed class PluginSettingsViewModelTests
     [Fact]
     public void NoCachedDeclarationSaysSoRatherThanShowingABlankPage()
     {
-        SettingsViewModel viewModel = new(Config(null));
+        var viewModel = SettingsTestServices.Model(Config(null));
 
         Assert.False(viewModel.PluginSettingsAvailable);
         Assert.Contains("plugin", viewModel.PluginSettingsEmptyReason, StringComparison.OrdinalIgnoreCase);
@@ -217,7 +218,7 @@ public sealed class PluginSettingsViewModelTests
     {
         // The save re-reads configuration from disk and applies the view model onto THAT object, so
         // an edit written to the loaded copy would be silently discarded.
-        SettingsViewModel viewModel = new(Config(Manifest()));
+        var viewModel = SettingsTestServices.Model(Config(Manifest()));
         viewModel.PluginSettingSections[0].Rows[0].BooleanValue = true;
 
         var fresh = Config(Manifest());
@@ -234,7 +235,7 @@ public sealed class PluginSettingsViewModelTests
     {
         // The running shell owns the same store while Settings is open, so writing an unedited
         // snapshot over the fresh load would silently revert it.
-        SettingsViewModel viewModel = new(Config(Manifest()));
+        var viewModel = SettingsTestServices.Model(Config(Manifest()));
 
         var fresh = Config(Manifest());
         fresh.DeviceIntegration.PluginSettings[0].Values.Add(new PluginSettingValue
@@ -261,7 +262,7 @@ public sealed class PluginSettingsViewModelTests
             Integer = 7
         });
 
-        SettingsViewModel viewModel = new(config);
+        var viewModel = SettingsTestServices.Model(config);
 
         Assert.False(viewModel.PluginSettingSections[0].Rows[0].BooleanValue);
     }
@@ -278,7 +279,7 @@ public sealed class PluginSettingsViewModelTests
         };
         config.DeviceIntegration.PluginSettings.Add(current);
 
-        SettingsViewModel viewModel = new(config);
+        var viewModel = SettingsTestServices.Model(config);
 
         Assert.Equal("Current", viewModel.PluginSettingSections[0].Rows[0].Label);
     }
@@ -294,7 +295,7 @@ public sealed class PluginSettingsViewModelTests
             Declaration = Manifest("Installed")
         });
 
-        SettingsViewModel viewModel = new(config, "wsgm.device.current");
+        var viewModel = SettingsTestServices.Model(config, "wsgm.device.current");
 
         Assert.Equal("Installed", viewModel.PluginSettingSections[0].Rows[0].Label);
     }
@@ -302,7 +303,7 @@ public sealed class PluginSettingsViewModelTests
     [Fact]
     public void EmptyPluginSlotDoesNotExposeAReplacedPluginDeclaration()
     {
-        SettingsViewModel viewModel = new(Config(Manifest("Replaced")), null);
+        var viewModel = SettingsTestServices.Model(Config(Manifest("Replaced")), null);
 
         Assert.False(viewModel.PluginSettingsAvailable);
     }

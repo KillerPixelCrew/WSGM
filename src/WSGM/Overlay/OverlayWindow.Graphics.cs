@@ -1,13 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
-using Avalonia.Labs.Panels;
 using Avalonia.LogicalTree;
 using Avalonia.Media;
 using WSGM.Core;
@@ -28,12 +25,12 @@ namespace WSGM.Overlay;
 /// </remarks>
 public partial class OverlayWindow
 {
-    // The layout identity of each pinned Graphics group on Quick Access, by pin id.
-    private readonly Dictionary<string, string> _pinnedGraphicsLayouts = new(StringComparer.Ordinal);
+    // The group each pinned Graphics section on Quick Access was last drawn from, by pin id.
+    private readonly Dictionary<string, GraphicsOverlaySection> _pinnedGraphicsLayouts = new(StringComparer.Ordinal);
 
-    // The layout identity of what the controls pane last drew, so a value change refreshes rows in place
-    // and keeps focus and drafts, and only a new descriptor or section rebuilds them.
-    private string? _graphicsLayout;
+    // What the controls pane last drew, so a value change refreshes rows in place and keeps focus and
+    // drafts, and only a new descriptor or section rebuilds them.
+    private GraphicsOverlaySnapshot? _graphicsLayout;
     private IGraphicsOverlaySource? _graphicsSource;
 
     internal void AttachGraphicsSource(IGraphicsOverlaySource? source)
@@ -100,19 +97,14 @@ public partial class OverlayWindow
         GraphicsStatus.Text = status;
         GraphicsStatus.IsVisible = status.Length > 0;
 
-        var layout = snapshot.Visible + "|" + string.Join("\n", snapshot.Sections.Select(section =>
-            GraphicsLayout(section.Key, section, snapshot.Sections.Count)));
-        if (layout == _graphicsLayout)
+        if (SameGraphicsLayout(_graphicsLayout, snapshot))
         {
-            foreach (var section in snapshot.Sections)
-            {
-                RefreshGraphicsValues(GraphicsCapabilityList, section.Capabilities);
-            }
-
+            CapabilityRowRenderer.RefreshValues(GraphicsCapabilityList,
+                snapshot.Sections.SelectMany(section => section.Capabilities), null);
             return;
         }
 
-        _graphicsLayout = layout;
+        _graphicsLayout = snapshot;
         var focusedKey = GetTopLevel(this)?.FocusManager.GetFocusedElement() is Control focused
             ? focused.Tag as string
             : null;
@@ -169,12 +161,12 @@ public partial class OverlayWindow
             return null;
         }
 
-        var layout = GraphicsLayout(id,
-            pin.Section with { Title = pin.PinTitle, Categories = [], Capabilities = pin.Rows }, 0);
+        var layout = pin.Section with { Title = pin.PinTitle, Categories = [], Capabilities = pin.Rows };
         var existing = PinnedSectionsGrid.Children.FirstOrDefault(row => Equals(row.Tag, PinTagPrefix + id));
-        if (existing is not null && _pinnedGraphicsLayouts.TryGetValue(id, out var previous) && previous == layout)
+        if (existing is not null && _pinnedGraphicsLayouts.TryGetValue(id, out var previous)
+                                 && SameGraphicsSection(previous, layout))
         {
-            RefreshGraphicsValues(existing, pin.Rows);
+            CapabilityRowRenderer.RefreshValues(existing, pin.Rows, null);
             return existing;
         }
 
@@ -204,116 +196,56 @@ public partial class OverlayWindow
         string? focusedKey, bool pinned = false)
     {
         Control? restoreFocus = null;
-        var readings = new FlexPanel { Wrap = FlexWrap.Wrap, ColumnSpacing = 12, RowSpacing = 4 };
         foreach (var capability in capabilities)
         {
             var key = (pinned ? PinTagPrefix : "") + GraphicsRowKey(capability);
-            var row = CreateGraphicsCapabilityRow(PresentDeviceCapability(capability), key);
-            if (!capability.Writable && !capability.SupportsAction && capability.ValueKind != CapabilityValueKind.None)
-            {
-                row.MinWidth = 160;
-                Flex.SetGrow(row, 1);
-                readings.Children.Add(row);
-            }
-            else
-            {
-                if (readings.Children.Count > 0)
-                {
-                    target.Children.Add(readings);
-                    readings = new FlexPanel { Wrap = FlexWrap.Wrap, ColumnSpacing = 12, RowSpacing = 4 };
-                }
-
-                target.Children.Add(row);
-            }
-
+            var row = CreateGraphicsCapabilityRow(CapabilityRowRenderer.Present(capability), key);
+            CapabilityRowRenderer.AddRow(target, row,
+                !capability.Writable && !capability.SupportsAction && capability.ValueKind != CapabilityValueKind.None
+                    ? 160
+                    : null);
             if (key == focusedKey)
             {
                 restoreFocus = row;
             }
         }
 
-        if (readings.Children.Count > 0)
-        {
-            target.Children.Add(readings);
-        }
-
         return restoreFocus;
-    }
-
-    private static void RefreshGraphicsValues(Control root, IReadOnlyList<DeviceOverlayCapability> capabilities)
-    {
-        foreach (var view in root.GetLogicalDescendants().OfType<DeviceCapabilityControl>())
-        {
-            if (capabilities.FirstOrDefault(capability => capability.CapabilityId == view.CapabilityId
-                                                          && capability.InstanceId == view.InstanceId
-                                                          && (Equals(view.Tag, GraphicsRowKey(capability))
-                                                              || Equals(view.Tag,
-                                                                  PinTagPrefix + GraphicsRowKey(capability)))) is
-                { } current)
-            {
-                view.Refresh(PresentDeviceCapability(current), null);
-            }
-        }
     }
 
     private DeviceCapabilityControl CreateGraphicsCapabilityRow(DeviceOverlayCapability capability, string key)
     {
-        return new DeviceCapabilityControl(capability, key, WriteGraphicsValue, current =>
-                current.ValueKind == CapabilityValueKind.Color
+        return new DeviceCapabilityControl(capability, key, WriteGraphicsValue, seen =>
+                seen.ValueKind == CapabilityValueKind.Color
+                || _graphicsSource is not { } source || CurrentGraphicsCapability(source, seen) is not { } current
                     ? Task.CompletedTask
-                    : RunGraphicsCommandAsync($"Graphics action {current.CapabilityId}",
-                        (source, token) => source.WriteAsync(current, current.SupportsAction ? null : current.NextValue,
-                            token)),
+                    : RunCommandAsync(source, $"Graphics action {current.CapabilityId}",
+                        (graphics, token) => graphics.WriteAsync(current,
+                            current.SupportsAction ? null : current.NextValue, token)),
             null,
-            id => RunGraphicsCommandAsync("Graphics use global", (source, token) => source.UseGlobalAsync(id, token)));
+            id => RunCommandAsync(_graphicsSource, "Graphics use global",
+                (source, token) => source.UseGlobalAsync(id, token)));
+    }
+
+    /// <summary>The published graphics row a commit or action may use, or null when the user's row is gone.</summary>
+    private static DeviceOverlayCapability? CurrentGraphicsCapability(IGraphicsOverlaySource source,
+        DeviceOverlayCapability seen)
+    {
+        return CapabilityRowRenderer.CurrentInvokable(
+            source.Snapshot().Sections.SelectMany(section => section.Capabilities), seen);
     }
 
     private void WriteGraphicsValue(DeviceOverlayCapability capability, CapabilityValue value)
     {
-        if (_graphicsSource is not { } source || _closed)
-        {
-            return;
-        }
-
         // The editor may report after the row was republished; it belongs to the descriptor the user saw.
-        var current = source.Snapshot().Sections
-            .SelectMany(section => section.Capabilities)
-            .FirstOrDefault(candidate => candidate.GpuPluginId == capability.GpuPluginId
-                                         && candidate.CapabilityId == capability.CapabilityId
-                                         && candidate.InstanceId == capability.InstanceId);
-        if (current is not { CanInvoke: true }
-            || current.DescriptorGeneration != capability.DescriptorGeneration
-            || current.CycleGeneration != capability.CycleGeneration)
+        if (_graphicsSource is not { } source || _closed
+                                              || CurrentGraphicsCapability(source, capability) is not { } current)
         {
             return;
         }
 
-        _ = RunGraphicsCommandAsync($"Graphics value write {capability.CapabilityId}",
+        _ = RunCommandAsync(source, $"Graphics value write {capability.CapabilityId}",
             (graphics, token) => graphics.WriteAsync(current, value, token));
-    }
-
-    /// <summary>Runs one Graphics command with the overlay's cancellation, never letting it fault the overlay.</summary>
-    private async Task RunGraphicsCommandAsync(
-        string description,
-        Func<IGraphicsOverlaySource, CancellationToken, Task> command)
-    {
-        var source = _graphicsSource;
-        if (source is null || _closed)
-        {
-            return;
-        }
-
-        try
-        {
-            await command(source, _deviceLifetime.Token);
-        }
-        catch (OperationCanceledException) when (_deviceLifetime.IsCancellationRequested)
-        {
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"{description} failed: {ex.Message}");
-        }
     }
 
     private static string GraphicsRowKey(DeviceOverlayCapability capability)
@@ -323,33 +255,29 @@ public partial class OverlayWindow
 
     /// <summary>What decides whether the controls pane is rebuilt rather than refreshed.</summary>
     /// <remarks>Values never take part, so a reading or a new value keeps the rows, focus and slider drafts.</remarks>
-    private static string GraphicsLayout(string? sectionKey, GraphicsOverlaySection? section, int sections)
+    private static bool SameGraphicsLayout(GraphicsOverlaySnapshot? before, GraphicsOverlaySnapshot after)
     {
-        StringBuilder layout = new();
-        layout.Append(sectionKey ?? "root").Append('|').Append(sections).Append('|');
-        if (section is null)
+        if (before is null || before.Visible != after.Visible || before.Sections.Count != after.Sections.Count)
         {
-            return layout.ToString();
+            return false;
         }
 
-        layout.Append(section.Title).Append('|');
-        foreach (var category in section.Categories)
+        for (var index = 0; index < after.Sections.Count; index++)
         {
-            layout.Append(category.Id).Append(':').Append(category.Title).Append(';');
+            if (!SameGraphicsSection(before.Sections[index], after.Sections[index]))
+            {
+                return false;
+            }
         }
 
-        foreach (var capability in section.Capabilities)
-        {
-            layout.Append('|').Append(DeviceRowKey(capability))
-                .Append(':').Append(capability.CycleGeneration)
-                .Append(':').Append(capability.DescriptorGeneration)
-                .Append(':').Append(capability.ValueKind)
-                .Append(':').Append(capability.Writable)
-                .Append(':').Append(capability.SupportsAction)
-                .Append(':').Append(capability.CategoryId)
-                .Append(':').Append(capability.Title);
-        }
+        return true;
+    }
 
-        return layout.ToString();
+    private static bool SameGraphicsSection(GraphicsOverlaySection before, GraphicsOverlaySection after)
+    {
+        return before.Key == after.Key && before.Title == after.Title
+                                       && before.Categories.SequenceEqual(after.Categories)
+                                       && CapabilityRowRenderer.SameRowLayouts(before.Capabilities,
+                                           after.Capabilities);
     }
 }

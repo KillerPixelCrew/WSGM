@@ -33,9 +33,6 @@ public sealed record ModernStandbyReport(
 /// </remarks>
 public static class ModernStandbyDiagnostics
 {
-    /// <summary>Enough to diagnose a handheld; a list longer than this is not a settings row.</summary>
-    private const int MaximumReportedWakeSources = 16;
-
     /// <summary>Describes the last standby, or why nothing can be described.</summary>
     /// <returns>A report safe to show in settings; never throws.</returns>
     public static ModernStandbyReport Read()
@@ -92,7 +89,7 @@ public static class ModernStandbyDiagnostics
             List<string> armed = [];
             foreach (var device in ModernStandby.EnumerateWakeDevices())
             {
-                if (device.Armed && armed.Count < MaximumReportedWakeSources)
+                if (device.Armed)
                 {
                     armed.Add(device.Name);
                 }

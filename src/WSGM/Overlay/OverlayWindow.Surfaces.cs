@@ -88,7 +88,7 @@ public partial class OverlayWindow
         panel.CloseRequested += () => CloseSurface(panel);
         panel.TextEntryRequested += (prompt, initial, accept) =>
         {
-            var keyboard = new KeyboardPanel(prompt, initial, 256, true);
+            var keyboard = new KeyboardPanel(prompt, initial, 0, true);
             keyboard.Accepted += accept;
             ShowKeyboardSurface(keyboard);
         };
@@ -121,7 +121,7 @@ public partial class OverlayWindow
         };
         picker.TextEntryRequested += (initial, accept) =>
         {
-            var keyboard = new KeyboardPanel("Local path", initial, 1024);
+            var keyboard = new KeyboardPanel("Local path", initial, 0);
             keyboard.Accepted += accept;
             ShowKeyboardSurface(keyboard);
         };

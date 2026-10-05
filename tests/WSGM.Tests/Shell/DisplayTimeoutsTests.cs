@@ -1,6 +1,7 @@
 using SteamUiToolkit;
 using WSGM.Core;
 using WSGM.Shell;
+using WSGM.Tests.Fakes;
 
 namespace WSGM.Tests.Shell;
 
@@ -14,11 +15,12 @@ public sealed class DisplayTimeoutsTests
     public void ExplicitSelectionWritesAndPublishesWithoutAnyPriorOrConfirmingRead()
     {
         List<int> writes = [];
-        DisplayTimeouts owner = new(_ => throw new InvalidOperationException("Unexpected read"), (_, seconds) =>
-        {
-            writes.Add(seconds);
-            return true;
-        });
+        DisplayTimeouts owner = new(new PowerSchemes(new UnusedPowerSchemeApi()),
+            _ => throw new InvalidOperationException("Unexpected read"), (_, seconds) =>
+            {
+                writes.Add(seconds);
+                return true;
+            });
 
         Assert.True(owner.Select(PowerTimeoutKind.DisplayAc, 1800));
         var published = owner.ReadState();
@@ -209,7 +211,7 @@ public sealed class DisplayTimeoutsTests
 
         internal DisplayTimeouts Owner()
         {
-            return new DisplayTimeouts(
+            return new DisplayTimeouts(new PowerSchemes(new UnusedPowerSchemeApi()),
                 kind => _values.TryGetValue(kind, out var seconds) ? seconds : null,
                 (kind, seconds) =>
                 {

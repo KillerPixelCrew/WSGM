@@ -8,7 +8,7 @@ public sealed class CpuBoostTests
     [Fact]
     public void ASchemeThatRefusesTheReadOffersNothing()
     {
-        var status = new CpuBoost(new FakeCpuBoostApi { Readable = false }).Read();
+        var status = new FakeCpuBoostApi { Readable = false }.Owner().Read();
 
         Assert.False(status.Supported);
         Assert.Null(status.OnAc);
@@ -23,7 +23,7 @@ public sealed class CpuBoostTests
             api.Values[false] = (uint)option.Mode;
             api.Values[true] = (uint)option.Mode;
 
-            var status = new CpuBoost(api).Read();
+            var status = api.Owner().Read();
 
             Assert.True(status.Supported);
             Assert.Equal(option.Mode, status.OnAc);
@@ -38,7 +38,7 @@ public sealed class CpuBoostTests
         FakeCpuBoostApi api = new();
         api.Values[false] = 5;
 
-        var status = new CpuBoost(api).Read();
+        var status = api.Owner().Read();
 
         Assert.True(status.Supported);
         Assert.Null(status.OnAc);
@@ -50,7 +50,7 @@ public sealed class CpuBoostTests
     {
         FakeCpuBoostApi api = new();
 
-        new CpuBoost(api).Apply(CpuBoostMode.Disabled);
+        api.Owner().Apply(CpuBoostMode.Disabled);
 
         // Capture, reveal, write both sources and refresh; no confirming read follows.
         Assert.Equal(["read", "read", "reveal", "write ac 0", "write dc 0", "refresh"], api.Calls);
@@ -63,7 +63,7 @@ public sealed class CpuBoostTests
     {
         FakeCpuBoostApi api = new();
 
-        new CpuBoost(api).Apply(CpuBoostMode.Enabled);
+        api.Owner().Apply(CpuBoostMode.Enabled);
 
         Assert.DoesNotContain(api.Calls, call => call.StartsWith("write", StringComparison.Ordinal));
     }
@@ -73,7 +73,7 @@ public sealed class CpuBoostTests
     {
         FakeCpuBoostApi api = new() { IgnoreWrites = true };
 
-        new CpuBoost(api).Apply(CpuBoostMode.Aggressive);
+        api.Owner().Apply(CpuBoostMode.Aggressive);
 
         Assert.Contains("write ac 2", api.Calls);
         Assert.Contains("write dc 2", api.Calls);

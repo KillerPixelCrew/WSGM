@@ -203,13 +203,13 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         foreach (var theme in state.Themes.Where(theme => !theme.Hidden))
         {
             var key = ExtensionsKey("theme", theme.Name);
-            var description = theme.Status == "outdated"
+            var description = theme.Status == ThemeStates.Outdated
                 ? $"Update available · {theme.Author}"
                 : string.IsNullOrEmpty(theme.Author)
                     ? theme.Version
                     : $"{theme.Version} · {theme.Author}";
             settings.Add(new SteamExtensionsTabSetting(key, theme.DisplayName, "boolean", theme.Enabled,
-                Description: description, Highlight: theme.Status == "outdated"));
+                Description: description, Highlight: theme.Status == ThemeStates.Outdated));
             foreach (var patch in theme.Patches)
             {
                 var patchKey = ExtensionsKey("patch", theme.Name, patch.Name);
@@ -429,7 +429,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
             listing = _browseItems.FirstOrDefault(item => item.Id == id);
             _detail = new SteamThemesDetail(
                 listing ?? new SteamThemesStoreItem(id, string.Empty, "Loading…", string.Empty, string.Empty, [],
-                    string.Empty, null, 0, 0, null, "none"),
+                    string.Empty, null, 0, 0, null, ThemeStates.None),
                 string.Empty,
                 [],
                 [],
@@ -478,7 +478,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         string? id;
         lock (_sync)
         {
-            id = _updates.TryGetValue(name, out var update) && update.Status == "outdated" ? update.Id : null;
+            id = _updates.TryGetValue(name, out var update) && update.Status == ThemeStates.Outdated ? update.Id : null;
         }
 
         if (id is null)
@@ -501,7 +501,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         {
             outdated =
             [
-                .. _updates.Where(pair => pair.Value.Status == "outdated" && pair.Value.Id is not null)
+                .. _updates.Where(pair => pair.Value.Status == ThemeStates.Outdated && pair.Value.Id is not null)
                     .Select(pair => (pair.Key, pair.Value.Id!))
             ];
         }
@@ -726,26 +726,46 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     public Task<SteamUiCommandResult> SetSettingAsync(string key, JsonElement value,
         CancellationToken cancellationToken)
     {
-        switch (key)
+        return key switch
         {
-            case "enabled" when value.ValueKind is JsonValueKind.True or JsonValueKind.False:
-                var enabled = value.GetBoolean();
-                return Task.FromResult(ChangeConfig(config => config.Enabled = enabled, true));
-            case "translationsBranch" when value.ValueKind == JsonValueKind.String
-                                           && value.GetString() is { } branch
-                                           && branch is ThemeTranslationBranch.Auto or ThemeTranslationBranch.Stable
-                                               or ThemeTranslationBranch.Beta:
-                var branchChanged = branch != ReadConfig().TranslationsBranch;
-                var result = ChangeConfig(config => config.TranslationsBranch = branch, true);
-                if (result.Succeeded && branchChanged)
-                {
-                    Track(Task.Run(() => FetchTranslationsOnceAsync(_shutdown.Token)));
-                }
+            "enabled" when value.ValueKind is JsonValueKind.True or JsonValueKind.False =>
+                SetThemesEnabledAsync(value.GetBoolean(), cancellationToken),
+            "translationsBranch" when value.ValueKind == JsonValueKind.String && value.GetString() is { } branch =>
+                SetTranslationsBranchAsync(branch, cancellationToken),
+            _ => Task.FromResult(new SteamUiCommandResult(false, "That setting is not one of the themes'."))
+        };
+    }
 
-                return Task.FromResult(result);
-            default:
-                return Task.FromResult(new SteamUiCommandResult(false, "That setting is not one of the themes'."));
+    /// <summary>Turns installing themes into Steam on or off.</summary>
+    /// <param name="enabled">Whether themes are installed.</param>
+    /// <param name="cancellationToken">Unused; the change is immediate.</param>
+    /// <returns>Whether the setting was saved.</returns>
+    internal Task<SteamUiCommandResult> SetThemesEnabledAsync(bool enabled, CancellationToken cancellationToken)
+    {
+        return Task.FromResult(ChangeConfig(config => config.Enabled = enabled, true));
+    }
+
+    /// <summary>Chooses the class-translation branch and fetches its translations when it changed.</summary>
+    /// <param name="branch">One of the <see cref="ThemeTranslationBranch" /> values.</param>
+    /// <param name="cancellationToken">Unused; the change is immediate.</param>
+    /// <returns>Whether the setting was saved, or why it was refused.</returns>
+    internal Task<SteamUiCommandResult> SetTranslationsBranchAsync(string branch,
+        CancellationToken cancellationToken)
+    {
+        if (branch is not (ThemeTranslationBranch.Auto or ThemeTranslationBranch.Stable
+            or ThemeTranslationBranch.Beta))
+        {
+            return Task.FromResult(new SteamUiCommandResult(false, "That setting is not one of the themes'."));
         }
+
+        var branchChanged = branch != ReadConfig().TranslationsBranch;
+        var result = ChangeConfig(config => config.TranslationsBranch = branch, true);
+        if (result.Succeeded && branchChanged)
+        {
+            Track(Task.Run(() => FetchTranslationsOnceAsync(_shutdown.Token)));
+        }
+
+        return Task.FromResult(result);
     }
 
     /// <inheritdoc />
@@ -952,7 +972,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
                 _busy,
                 _notice,
                 _error,
-                _updates.Values.Count(update => update.Status == "outdated"),
+                _updates.Values.Count(update => update.Status == ThemeStates.Outdated),
                 _revision);
         }
     }
@@ -1212,10 +1232,10 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         {
             var entry = remote.FirstOrDefault(candidate => candidate.Id == id || candidate.Name == id);
             updates[name] = entry is null
-                ? ("local", null, null)
+                ? (ThemeStates.Local, null, null)
                 : entry.Version == version
-                    ? ("installed", null, entry.Id)
-                    : ("outdated", entry.Version, entry.Id);
+                    ? (ThemeStates.Installed, null, entry.Id)
+                    : (ThemeStates.Outdated, entry.Version, entry.Id);
         }
 
         lock (_sync)
@@ -1330,7 +1350,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     private SteamThemesInstalled Project(InstalledTheme theme, bool hidden)
     {
         var snapshot = theme.Snapshot();
-        var (status, latest, _) = _updates.TryGetValue(theme.Name, out var update) ? update : ("unknown", null, null);
+        var (status, latest, _) = _updates.TryGetValue(theme.Name, out var update) ? update : (ThemeStates.Unknown, null, null);
         return new SteamThemesInstalled(
             snapshot.Id,
             snapshot.Name,
@@ -1361,7 +1381,11 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     private SteamThemesStoreItem ProjectListing(ThemeStoreSummary summary)
     {
         var local = _loader.Themes.FirstOrDefault(theme => theme.Id == summary.Id || theme.Name == summary.Name);
-        var status = local is null ? "none" : local.Version == summary.Version ? "installed" : "outdated";
+        var status = local is null
+            ? ThemeStates.None
+            : local.Version == summary.Version
+                ? ThemeStates.Installed
+                : ThemeStates.Outdated;
         return new SteamThemesStoreItem(
             summary.Id,
             summary.Name,

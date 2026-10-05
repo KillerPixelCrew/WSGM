@@ -167,7 +167,7 @@ public sealed class OverlayInteractionTests
         DevicePowerPresets service = new(
             () => [Power(CapabilityRole.PowerSustainedLimit, 16), Power(CapabilityRole.PowerSlowLimit, 18)],
             (_, _, _, _, _, _) => throw new InvalidOperationException("Rendering must not write hardware"),
-            new WindowsPowerModes(new ReadOnlyPowerModeApi()));
+            new WindowsPowerModes(new PowerSchemes(new FakePower()), new ReadOnlyPowerModeApi()));
         DevicePowerAssignments assignments = new(service,
             () => new DevicePowerAssignmentContext(new ProfileSnapshot(config, ActiveProfile.None, 1), "fixture", 1,
                 true, ac),
@@ -264,7 +264,7 @@ public sealed class OverlayInteractionTests
         using SemaphoreSlim powerLane = new(1, 1);
         var service = new DevicePowerPresets(() => views,
             (_, _, _, _, _, _) => throw new InvalidOperationException("Inactive source must not write hardware"),
-            new WindowsPowerModes(new ReadOnlyPowerModeApi()), powerLane: powerLane);
+            new WindowsPowerModes(new PowerSchemes(new FakePower()), new ReadOnlyPowerModeApi()), powerLane: powerLane);
         ProfileConfig config = new();
         var saves = 0;
         var assignments = new DevicePowerAssignments(service,
@@ -563,7 +563,7 @@ public sealed class OverlayInteractionTests
             _ => throw new InvalidOperationException("Unexpected power scheme write"));
         DevicePowerPresets service = new(() => [],
             (_, _, _, _, _, _) => throw new InvalidOperationException("Unexpected preset write"),
-            new WindowsPowerModes(new UnusedPowerModeApi()));
+            new WindowsPowerModes(new PowerSchemes(new FakePower()), new UnusedPowerModeApi()));
         using DevicePowerPresetSelection presets = new(service, false);
         TaskCompletionSource operation = new();
         TaskCompletionSource completed = new();

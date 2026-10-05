@@ -54,6 +54,9 @@ public sealed class SessionModes
 
     private static readonly TimeSpan HomeLaunchCooldown = TimeSpan.FromSeconds(5);
 
+    /// <summary>How long Steam stays closed before an automatic relaunch.</summary>
+    private static readonly TimeSpan SteamRelaunchDelay = TimeSpan.FromSeconds(10);
+
     // Upper bound for an unresponsive exit. Healthy and retired-shell paths finish on observation.
     internal static readonly TimeSpan ExplorerExitTimeout = TimeSpan.FromSeconds(30);
 
@@ -111,6 +114,7 @@ public sealed class SessionModes
 
     private bool _homeLaunchInProgress;
     private DateTime _lastHomeLaunchUtc;
+    private IDisposable? _pendingSteamRelaunch;
     private int _shutdownRequested;
     private int _steamClosedByUser;
 
@@ -119,12 +123,19 @@ public sealed class SessionModes
     ///     because Settings and other safe previews do not own an Explorer recovery host.
     /// </summary>
     /// <param name="config">The initial configuration controlling display posture and launch behavior.</param>
-    /// <param name="monitor">The optional Steam monitor to pause or resume during transitions.</param>
+    /// <param name="monitor">
+    ///     The optional Steam monitor to pause or resume during transitions. Its exits drive the
+    ///     auto-relaunch policy for the monitor's lifetime.
+    /// </param>
     public SessionModes(AppConfig config, SteamMonitor? monitor)
     {
         _config = config;
         _monitor = monitor;
         _desktopHost = null;
+        if (_monitor is not null)
+        {
+            _monitor.SteamExited += OnSteamExited;
+        }
     }
 
     /// <summary>Creates the coordinator with the session-owned verified Explorer launch path.</summary>
@@ -206,6 +217,12 @@ public sealed class SessionModes
     public event Action<string>? SteamStartFailed;
 
     /// <summary>
+    ///     Raised on the UI thread when Steam exited in game mode with auto-relaunch off: the overlay is the
+    ///     only surface left, so its owner shows it.
+    /// </summary>
+    public event Action? SteamExitShowOverlayRequested;
+
+    /// <summary>
     ///     Raised (on the UI thread — the transition posts back there after the
     ///     off-thread Big Picture close) during a desktop-mode transition, after Steam
     ///     left Big Picture but BEFORE explorer starts. Listeners that own per-game-mode
@@ -235,6 +252,69 @@ public sealed class SessionModes
     public void ApplyConfig(AppConfig config)
     {
         _config = config;
+    }
+
+    /// <summary>Applies the Steam exit policy. UI thread: the monitor raises its exit from its own tick.</summary>
+    private void OnSteamExited()
+    {
+        switch (DecideSteamExitReaction())
+        {
+            case SteamExitReaction.ShowOverlay:
+                SteamExitShowOverlayRequested?.Invoke();
+                return;
+            case SteamExitReaction.RelaunchBigPicture:
+            case SteamExitReaction.RelaunchDesktop:
+                Log.Info($"Steam exited — auto-relaunching in {SteamRelaunchDelay.TotalSeconds:0} s.");
+                _pendingSteamRelaunch?.Dispose();
+                _pendingSteamRelaunch = DispatcherTimer.RunOnce(RelaunchSteamAfterExit, SteamRelaunchDelay);
+                return;
+            case SteamExitReaction.Ignore:
+            default:
+                Log.Info("Steam exited — leaving it closed.");
+                return;
+        }
+    }
+
+    /// <summary>
+    ///     Re-decides at fire time: a config reload replaces <c>_config</c> wholesale, the
+    ///     session may have changed mode or begun shutting down, and the user may have closed
+    ///     Steam while the delay ran.
+    /// </summary>
+    private void RelaunchSteamAfterExit()
+    {
+        _pendingSteamRelaunch = null;
+        switch (DecideSteamExitReaction())
+        {
+            case SteamExitReaction.RelaunchBigPicture:
+                StartOrFocusSteam();
+                return;
+            case SteamExitReaction.RelaunchDesktop:
+                EnsureSteamDesktop();
+                return;
+            case SteamExitReaction.Ignore:
+            case SteamExitReaction.ShowOverlay:
+            default:
+                Log.Info("Auto-relaunch skipped: the session no longer wants Steam started.");
+                return;
+        }
+    }
+
+    /// <summary>
+    ///     Reads the live session state the policy needs. Explorer's presence is the same
+    ///     signal the overlay's own mode button uses to tell desktop from game mode.
+    /// </summary>
+    private SteamExitReaction DecideSteamExitReaction()
+    {
+        if (Volatile.Read(ref _shutdownRequested) != 0)
+        {
+            return SteamExitReaction.Ignore;
+        }
+
+        return SteamExitPolicy.Decide(
+            !ExplorerControl.IsDesktopShellRunning(),
+            _config.SteamAutoRelaunch,
+            _monitor?.Paused == true,
+            SteamClosedByUser);
     }
 
     /// <summary>
@@ -864,7 +944,7 @@ public sealed class SessionModes
                     .ConfigureAwait(false);
                 if (!result.Applied)
                 {
-                    warnings.Add("Desktop display layout: " + result.Detail);
+                    warnings.Add("Desktop display layout: " + DisplayText.Layout(result));
                 }
 
                 return result.Applied;

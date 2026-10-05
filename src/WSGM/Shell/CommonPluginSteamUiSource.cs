@@ -39,6 +39,9 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
     private readonly Dictionary<string, PluginRegistration> _settingsOwners = new(StringComparer.Ordinal);
     private readonly HashSet<PluginRegistration> _subscriptions = [];
     private bool _disposed;
+
+    // The ready plugins' Steam UI modules as of the last refresh, replaced whole.
+    private IReadOnlyList<ISteamUiModule> _modules = [];
     private long _revision;
 
     internal CommonPluginSteamUiSource(CommonPluginManager manager, PluginHost host)
@@ -72,9 +75,11 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
             _subscriptions.Clear();
             _settingsOwners.Clear();
             _commands.Clear();
+            _modules = [];
             _manager.Changed -= OnChanged;
             _host.HealthChanged -= OnHealthChanged;
             Changed = null;
+            ModulesChanged = null;
         }
     }
 
@@ -129,6 +134,14 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
     }
 
     internal event Action? Changed;
+
+    /// <summary>Raised after a refresh in which the ready plugins' Steam UI modules changed.</summary>
+    /// <remarks>
+    ///     A plugin that becomes ready adds its modules, and one that stops, restarts or is quarantined
+    ///     takes them away, so the handlers of a retired instance leave with it. Raised outside the
+    ///     lock, before <see cref="Changed" />; <see cref="ReadModules" /> returns the new list.
+    /// </remarks>
+    internal event Action? ModulesChanged;
 
     internal SteamExtensionsTabState ReadExtensionsTab()
     {
@@ -213,18 +226,13 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
         }
     }
 
+    /// <summary>The ready plugins' Steam UI modules, without any that claims a host-owned patch.</summary>
+    /// <returns>The list as of the last refresh; <see cref="ModulesChanged" /> says when it moves.</returns>
     internal IReadOnlyList<ISteamUiModule> ReadModules()
     {
         lock (_gate)
         {
-            return
-            [
-                .. _manager.Snapshot()
-                    .Where(instance => instance.Registration is { } owner && CanInvoke(owner)
-                                                                          && owner.Actions is not null)
-                    .SelectMany(instance => instance.Registration!.Actions!.SteamUiModules)
-                    .Where(module => !module.Patches.Any(patch => HostOwnedPatches.Contains(patch.Id)))
-            ];
+            return _modules;
         }
     }
 
@@ -307,11 +315,13 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
         }
     }
 
-    private void Refresh()
+    /// <summary>Projects the manager's instances. The caller holds <c>_gate</c>.</summary>
+    /// <returns>Whether the plugin module list changed.</returns>
+    private bool Refresh()
     {
         if (_disposed)
         {
-            return;
+            return false;
         }
 
         var instances = _manager.Snapshot();
@@ -373,6 +383,22 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
                     contribution, instance.Manifest.Name, instance.Manifest.Version));
             }
         }
+
+        IReadOnlyList<ISteamUiModule> modules =
+        [
+            .. instances
+                .Where(instance => instance.Registration is { } owner && CanInvoke(owner)
+                                                                      && owner.Actions is not null)
+                .SelectMany(instance => instance.Registration!.Actions!.SteamUiModules)
+                .Where(module => !module.Patches.Any(patch => HostOwnedPatches.Contains(patch.Id)))
+        ];
+        if (modules.SequenceEqual(_modules, ReferenceEqualityComparer.Instance))
+        {
+            return false;
+        }
+
+        _modules = modules;
+        return true;
     }
 
     private static bool CanInvoke(PluginRegistration owner)
@@ -437,6 +463,7 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
 
     private void OnChanged()
     {
+        bool modulesChanged;
         lock (_gate)
         {
             if (_disposed)
@@ -445,7 +472,12 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
             }
 
             _revision++;
-            Refresh();
+            modulesChanged = Refresh();
+        }
+
+        if (modulesChanged)
+        {
+            ModulesChanged?.Invoke();
         }
 
         Changed?.Invoke();

@@ -817,15 +817,14 @@ artwork overrides while Steam control hiding still uses the active package's aut
 manual id that does not match falls back to automatic and reports it. Any fallback leaves Valve's
 glyphs untouched and the overlay draws letters.
 
-On the Avalonia side `PhysicalGlyphService` resolves a control to a render plan (vector paths
+On the Avalonia side `PhysicalGlyphPlans` resolves a control to a render plan (vector paths
 converted to `StreamGeometry`, or the PNG bytes), authorizes navigation hints only while the managed
-handheld is the input source, and caches at most 128 plans or 4 MiB, keyed by profile, revision,
-control, theme and scale bucket. On the Steam side `SteamInputGlyphPresentation` maps Valve's
-resource paths to `data:` URIs, `SteamGlyphCss` builds one stylesheet of `content: url(...)`
-overrides, controller-image custom properties and `display: none` for absent controls, and
-`SteamInputGlyphStylePatch` installs it as `<style id="wsgm-handheld-glyphs">` in the main window
-under an 8 s, 2 MiB bound. The patch is enabled only when the setting is on and the presentation has
-something to show.
+handheld is the input source, and keeps one plan per profile, revision and control until the catalog
+changes. On the Steam side `SteamInputGlyphPresentation` maps Valve's resource paths to `data:`
+URIs, `SteamGlyphCss` builds one stylesheet of `content: url(...)` overrides, controller-image
+custom properties and `display: none` for absent controls, and `SteamInputGlyphStylePatch` installs
+it as `<style id="wsgm-handheld-glyphs">` in the main window under an 8 s, 2 MiB bound. The patch is
+enabled only when the setting is on and the presentation has something to show.
 
 ## 16. Configuration
 

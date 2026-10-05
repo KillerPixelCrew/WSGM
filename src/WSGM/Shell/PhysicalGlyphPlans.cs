@@ -4,10 +4,11 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using Avalonia.Media;
+using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Device.Sdk.Glyphs;
 
-namespace WSGM.Controls;
+namespace WSGM.Shell;
 
 internal enum PhysicalGlyphSurface
 {
@@ -15,64 +16,27 @@ internal enum PhysicalGlyphSurface
     NavigationHint
 }
 
-internal enum PhysicalGlyphTheme
-{
-    Light,
-    Dark,
-    HighContrast
-}
-
-internal sealed record PhysicalGlyphPath(
-    Geometry Geometry,
-    string Fill,
-    string Stroke,
-    decimal StrokeWidth,
-    string StrokeLineCap,
-    string StrokeLineJoin);
-
-internal sealed record PhysicalGlyphRenderPlan
-{
-    internal required GlyphControlId? PhysicalControl { get; init; }
-    internal required PhysicalGlyphFallbackReason FallbackReason { get; init; }
-    internal required GlyphViewBox? ViewBox { get; init; }
-    internal required IReadOnlyList<PhysicalGlyphPath> Paths { get; init; }
-    internal required ReadOnlyMemory<byte> RasterPng { get; init; }
-
-    internal bool UsesDeviceArtwork => Paths.Count > 0 || !RasterPng.IsEmpty;
-}
-
 /// <summary>
-///     Bounded, path-free adapter from an imported physical profile to Avalonia-safe geometry plans.
+///     Path-free adapter from an imported physical profile to Avalonia-safe geometry plans.
 /// </summary>
 /// <remarks>
-///     The service never opens a package file, parses SVG, or performs network work; it consumes only
-///     the normalized model returned by the SDK's bounded package loader.
+///     It never opens a package file, parses SVG, or performs network work; it consumes only the normalized
+///     model returned by the SDK's bounded package loader. One plan is kept per profile revision and control,
+///     so the cache holds at most the catalog's profiles times their controls and is cleared when the
+///     catalog changes.
 /// </remarks>
-internal sealed class PhysicalGlyphService : IDisposable
+internal sealed class PhysicalGlyphPlans : IDisposable
 {
-    private const int DefaultMaximumCacheEntries = 128;
-    private const int DefaultMaximumCacheBytes = 4 * 1024 * 1024;
-    private readonly Dictionary<RenderCacheKey, CacheEntry> _cache = [];
+    private readonly Dictionary<(string ProfileId, int Revision, GlyphControlId Control), PhysicalGlyphRenderPlan>
+        _cache = [];
+
     private readonly PhysicalGlyphCatalog _catalog;
-
     private readonly Lock _gate = new();
-    private readonly LinkedList<RenderCacheKey> _lru = [];
-    private readonly int _maximumCacheBytes;
-    private readonly int _maximumCacheEntries;
-    private int _cacheBytes;
 
-    internal PhysicalGlyphService(
-        PhysicalGlyphCatalog catalog,
-        int maximumCacheEntries = DefaultMaximumCacheEntries,
-        int maximumCacheBytes = DefaultMaximumCacheBytes)
+    internal PhysicalGlyphPlans(PhysicalGlyphCatalog catalog)
     {
         ArgumentNullException.ThrowIfNull(catalog);
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumCacheEntries);
-        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumCacheBytes);
-
         _catalog = catalog;
-        _maximumCacheEntries = maximumCacheEntries;
-        _maximumCacheBytes = maximumCacheBytes;
         _catalog.Changed += ResetCache;
     }
 
@@ -87,17 +51,6 @@ internal sealed class PhysicalGlyphService : IDisposable
         }
     }
 
-    internal int CachedBytes
-    {
-        get
-        {
-            lock (_gate)
-            {
-                return _cacheBytes;
-            }
-        }
-    }
-
     public void Dispose()
     {
         _catalog.Changed -= ResetCache;
@@ -108,9 +61,7 @@ internal sealed class PhysicalGlyphService : IDisposable
         PhysicalGlyphSelectionResult selection,
         GlyphControlId requestedControl,
         PhysicalGlyphSurface surface,
-        bool activeInputSourceIsManagedHandheld,
-        PhysicalGlyphTheme theme,
-        double scale)
+        bool activeInputSourceIsManagedHandheld)
     {
         ArgumentNullException.ThrowIfNull(selection);
         if (selection.Profile is null)
@@ -129,32 +80,15 @@ internal sealed class PhysicalGlyphService : IDisposable
             return FallbackPlan(PhysicalGlyphFallbackReason.SourceNotHandheld);
         }
 
-        var scaleBucket = Math.Clamp((int)Math.Round(scale * 4, MidpointRounding.AwayFromZero), 2, 16);
-        RenderCacheKey key = new(
-            selection.Profile.Manifest.ProfileId,
-            selection.Profile.Manifest.Revision,
-            requestedControl,
-            theme,
-            scaleBucket);
+        var key = (selection.Profile.Manifest.ProfileId, selection.Profile.Manifest.Revision, requestedControl);
         lock (_gate)
         {
-            if (_cache.TryGetValue(key, out var cached))
+            if (!_cache.TryGetValue(key, out var plan))
             {
-                Touch(cached);
-                return cached.Plan;
+                plan = BuildPlan(selection.Profile, requestedControl);
+                _cache.Add(key, plan);
             }
 
-            var plan = BuildPlan(selection.Profile, requestedControl);
-            var cost = EstimateCost(selection.Profile, plan);
-            if (cost > _maximumCacheBytes)
-            {
-                return plan;
-            }
-
-            var node = _lru.AddFirst(key);
-            _cache.Add(key, new CacheEntry(plan, cost, node));
-            _cacheBytes += cost;
-            TrimCache();
             return plan;
         }
     }
@@ -163,7 +97,7 @@ internal sealed class PhysicalGlyphService : IDisposable
     {
         lock (_gate)
         {
-            ClearCacheLocked();
+            _cache.Clear();
         }
     }
 
@@ -242,22 +176,6 @@ internal sealed class PhysicalGlyphService : IDisposable
     private static string FillRulePrefix(string fillRule)
     {
         return string.Equals(fillRule, "evenodd", StringComparison.Ordinal) ? "F0 " : "F1 ";
-    }
-
-    private static int EstimateCost(
-        ImportedGlyphProfile profile,
-        PhysicalGlyphRenderPlan plan)
-    {
-        if (plan.PhysicalControl is not { } control)
-        {
-            return 64;
-        }
-
-        var mapping = profile.Manifest.Controls.FirstOrDefault(item => item.Control == control);
-        return mapping?.AssetId is { } assetId
-               && profile.Assets.TryGetValue(assetId, out var asset)
-            ? Math.Max(64, asset.RetainedBytes)
-            : 64;
     }
 
     private static string ToAvaloniaPathData(string normalized)
@@ -341,47 +259,4 @@ internal sealed class PhysicalGlyphService : IDisposable
             RasterPng = default
         };
     }
-
-    private void Touch(CacheEntry entry)
-    {
-        _lru.Remove(entry.Node);
-        _lru.AddFirst(entry.Node);
-    }
-
-    private void TrimCache()
-    {
-        while (_cache.Count > _maximumCacheEntries || _cacheBytes > _maximumCacheBytes)
-        {
-            var tail = _lru.Last;
-            if (tail is null
-                || !_cache.Remove(tail.Value, out var removed))
-            {
-                break;
-            }
-
-            _lru.Remove(tail);
-            _cacheBytes -= removed.Cost;
-        }
-    }
-
-    private void ClearCacheLocked()
-    {
-        _cache.Clear();
-        _lru.Clear();
-        _cacheBytes = 0;
-    }
-
-    // ReSharper disable NotAccessedPositionalProperty.Local
-    private readonly record struct RenderCacheKey(
-        string ProfileId,
-        int Revision,
-        GlyphControlId Control,
-        PhysicalGlyphTheme Theme,
-        int ScaleBucket);
-    // ReSharper restore NotAccessedPositionalProperty.Local
-
-    private sealed record CacheEntry(
-        PhysicalGlyphRenderPlan Plan,
-        int Cost,
-        LinkedListNode<RenderCacheKey> Node);
 }

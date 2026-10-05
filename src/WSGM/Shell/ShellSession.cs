@@ -28,7 +28,7 @@ public sealed partial class ShellSession
 
     // The one owner of the display-off timeouts: the overlay's Power page and the rows WSGM adds to
     // Steam's Screensaver settings both edit through it, and it hears Steam's screensaver timeout.
-    private readonly DisplayTimeouts _displayTimeouts = new();
+    private readonly DisplayTimeouts _displayTimeouts;
 
     /// <summary>
     ///     The one owner of removable-library registration for this session, shared by the card
@@ -44,6 +44,13 @@ public sealed partial class ShellSession
     private readonly bool _overlayTestOnly;
     private readonly PluginHost _pluginHost;
     private readonly ProfileService _profiles;
+
+    /// <summary>
+    ///     The session's Windows power policy owners. They share one scheme owner, whose lock serializes
+    ///     every machine-wide power change the overlay, Steam's Quick Access and the device presets make.
+    /// </summary>
+    private readonly WindowsPowerPolicy _power = WindowsPowerPolicy.OverWindows();
+
     private readonly bool _serviceBoot;
     private readonly bool _verboseLogging;
     private readonly CancellationTokenSource _shutdownCancellation = new();
@@ -176,6 +183,7 @@ public sealed partial class ShellSession
     private RunningApplicationCoordinator? _runningApplicationTargets;
     private RunningApplicationMonitor? _runningApplications;
     private SettingsActivation? _settingsActivation;
+    private SettingsSurface? _settingsSurface;
     private volatile bool _shutdownRequested;
     private SoundPackService? _sounds;
     private BootSplash? _splash;
@@ -233,6 +241,7 @@ public sealed partial class ShellSession
         _config = config;
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _steamInput = steamInput ?? throw new ArgumentNullException(nameof(steamInput));
+        _displayTimeouts = new DisplayTimeouts(_power.Timeouts);
         _verboseLogging = verboseLogging;
         _pluginHost = new PluginHost(UiThread.Post, new ApplicationPluginConfigurationStore(_store));
         // Overlay-test keeps profile edits in memory: it is a safe UI mode and must never rewrite the
@@ -241,7 +250,7 @@ public sealed partial class ShellSession
             overlayTestOnly ? MutateSimulatedProfilesAsync() : MutateProfilesAsync);
         // Overlay-test must not write Windows power policy, so it gets no processor boost.
         _applicationProfiles = new ApplicationPerformanceReconciler(_profiles, () => _deviceCoordinator,
-            overlayTestOnly ? null : CpuBoost.Windows, () => _gpu);
+            overlayTestOnly ? null : _power.CpuBoost, () => _gpu);
         _cefMasterEnabled = config.Cef.Enabled;
         // One transport and one client for the session. The real shell opens the transport only
         // through the readiness gate, once it is running and knows whether Steam is cold-starting
@@ -339,6 +348,7 @@ public sealed partial class ShellSession
                     () => _performance?.SampleSensors() ?? RtssOsdMetrics.Empty,
                     // Variable refresh set on the Device row or Steam's control is saved to the profile.
                     _applicationProfiles.PersistManualVariableRefresh,
+                    _power.Modes,
                     _shutdownCancellation.Token).ConfigureAwait(false);
             if (_commonPluginStartup is not null)
             {
@@ -672,10 +682,6 @@ public sealed partial class ShellSession
             _modes.GameModeEntryServices = new ShellGameModeEntryServices(this);
             _modes.DesktopReady = () => _splash?.Dismiss("desktop restored");
             _modes.IsGameMode = () => _inGameMode;
-            // Settings opened from the tray or the overlay runs in this process, so its action
-            // lists can offer what is actually running. A standalone --settings sees nothing here
-            // and shows saved steps read-only, which is the truthful rendering.
-            SettingsPluginActions.Publish(ReadPluginActionOptions);
             _modes.GameModeEntrySettled = () => Dispatcher.UIThread.Post(() =>
             {
                 _holdingEntrySplash = false;
@@ -745,7 +751,8 @@ public sealed partial class ShellSession
         // read through the session's live config, so switching it in Settings takes effect on
         // the next press rather than the next session.
         _steamStorage = new SteamStorageBridge(
-            _drives, _formats, () => _config.SteamStorageFormatEnabled, SteamStorageBridge.DescribeLocalVolumes,
+            _drives, _formats, () => _config.SteamStorageFormatEnabled,
+            () => _drives?.Inventory.Volumes ?? [],
             _libraryPolicy);
         // Whatever is already inserted; after this the drive manager's own changes drive it.
         _formats.Refresh();
@@ -882,6 +889,8 @@ public sealed partial class ShellSession
                 ? new SimulatedGraphicsOverlaySource()
                 : null;
 
+        // A crash can leave media preview files behind. No sheet exists yet, so none is in use.
+        OverlayMediaPreview.DeleteStaleFiles(_store.Context.Root);
         _overlay = new OverlayController(
             _config,
             _store,
@@ -919,22 +928,32 @@ public sealed partial class ShellSession
             _drives,
             _formats,
             _displayTimeouts,
-            _messageWindow);
+            _messageWindow,
+            _power);
         _overlay.ShowOnScreenKeyboard = ShowOnScreenKeyboardAsync;
         _overlay.SteamClient = _steamClient;
         if (!_overlayTestOnly)
         {
+            _overlay.RequestPowerAction = PowerActions.Request;
             _overlay.GameReturn = new GameWindowReturn(async (processId, token) =>
                     _config.Cef.Enabled && _steamUiTransport is { } transport
                                         && await SteamGameWindowActivation.RaiseAsync(transport, processId, token),
                 _shutdownCancellation.Token);
         }
 
+        // The one Settings window of this process, for the tray, the sheet and a desktop Settings launch
+        // alike; the overlay test keeps its sheet's Settings row too. It runs in this process, so its action
+        // lists offer what is actually running.
+        var settings = _settingsSurface = new SettingsSurface(
+            read => SettingsViewModel.FromLoadedConfig(read, _store, _steamInput.Shim, ReadPluginActionOptions),
+            _store,
+            _steamInput,
+            () => _inGameMode,
+            () => _deviceCoordinator?.Controllers.UiPad);
+        _overlay.OpenSettings = settings.OpenAsync;
         if (!_overlayTestOnly)
         {
             _desktopTray = new DesktopTray(
-                _store,
-                _steamInput,
                 () =>
                 {
                     if (!_shutdownRequested)
@@ -947,6 +966,13 @@ public sealed partial class ShellSession
                     if (!_shutdownRequested)
                     {
                         _modes.EnterGameMode();
+                    }
+                },
+                () =>
+                {
+                    if (!_shutdownRequested)
+                    {
+                        Log.Observe(settings.OpenAsync(), "Settings open from the tray", true);
                     }
                 },
                 () =>
@@ -965,7 +991,7 @@ public sealed partial class ShellSession
             {
                 if (!_shutdownRequested)
                 {
-                    _desktopTray?.OpenSettings();
+                    Log.Observe(settings.OpenAsync(), "Settings open from a desktop launch", true);
                 }
             });
         }
@@ -1106,13 +1132,13 @@ public sealed partial class ShellSession
                 Brightness = _brightness
                              ?? throw new InvalidOperationException("Brightness was not created."),
                 Folds = new QuickAccessFolds(_store.Context),
-                PowerProfiles = new NativeQamPowerProfileService(PowerSchemes.Windows,
+                PowerProfiles = new NativeQamPowerProfileService(_power.Schemes,
                     id => store.Update(config =>
                     {
                         config.LastSelectedPowerSchemeId = id;
                         return true;
                     })),
-                HybridCores = new NativeQamHybridCoreService(HybridCores.Windows),
+                HybridCores = new NativeQamHybridCoreService(_power.HybridCores),
                 DeviceCoordinator = _deviceCoordinator,
                 AutoTdp = _autoTdp,
                 PerfSupport = ReadNativeQamPerfSupport,

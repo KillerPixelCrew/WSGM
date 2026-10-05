@@ -5,10 +5,10 @@ using WSGM.Interop;
 
 namespace WSGM.Core;
 
-internal sealed class WindowsPowerModes(IPowerModeApi api)
+/// <summary>The Windows power-mode overlay (Better Battery, Balanced, Best Performance).</summary>
+/// <remarks>Writes take the scheme owner's mutation lock with every other machine-wide power change.</remarks>
+internal sealed class WindowsPowerModes(PowerSchemes schemes, IPowerModeApi api)
 {
-    internal static WindowsPowerModes Windows { get; } = new(new WindowsPowerModeApi());
-
     internal static Guid Id(DevicePowerMode mode)
     {
         return mode switch
@@ -38,7 +38,7 @@ internal sealed class WindowsPowerModes(IPowerModeApi api)
 
     internal void Apply(DevicePowerMode mode, CancellationToken cancellationToken)
     {
-        lock (PowerSchemes.MutationGate)
+        using (schemes.EnterMutation())
         {
             cancellationToken.ThrowIfCancellationRequested();
             api.Set(Id(mode));

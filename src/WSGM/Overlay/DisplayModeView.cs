@@ -6,15 +6,19 @@ using Avalonia.Controls;
 using Avalonia.Controls.Templates;
 using Avalonia.Layout;
 using WindowsDeviceControl;
+using WSGM.Core;
 
 namespace WSGM.Overlay;
 
-/// <summary>Applies committed mode selections through Windows Device Control.</summary>
+/// <summary>
+///     Applies committed mode selections through Windows Device Control to the display the overlay
+///     sheet is shown on.
+/// </summary>
 internal sealed class DisplayModeView : StackPanel
 {
-    private readonly Func<DisplayModeSnapshot, DisplayMode, Task<DisplayProfileResult>> _apply;
+    private readonly Func<DisplayModeSnapshot, DisplayMode, Task<DisplayModeResult>> _apply;
 
-    private readonly Func<Task<DisplayModeSnapshot?>> _read;
+    private readonly Func<string?, Task<DisplayModeSnapshot?>> _read;
     private readonly ComboBox _refresh = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly ComboBox _resolution = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly TextBlock _status = new();
@@ -25,13 +29,22 @@ internal sealed class DisplayModeView : StackPanel
     private DisplayModeSnapshot? _snapshot;
     private bool _synchronizing;
 
-    internal DisplayModeView(Func<Task<DisplayModeSnapshot?>>? read = null,
-        Func<DisplayModeSnapshot, DisplayMode, Task<DisplayProfileResult>>? apply = null)
+    /// <summary>Creates the selector.</summary>
+    /// <param name="read">
+    ///     Reads the modes of the display with the given GDI source name, null when the sheet's display
+    ///     is unknown. By default the active path with that source name, and no other display.
+    /// </param>
+    /// <param name="apply">Applies a mode to the display a snapshot was read from.</param>
+    internal DisplayModeView(Func<string?, Task<DisplayModeSnapshot?>>? read = null,
+        Func<DisplayModeSnapshot, DisplayMode, Task<DisplayModeResult>>? apply = null)
     {
-        _read = read ?? (() => Task.Run(() =>
+        _read = read ?? (source => Task.Run(() =>
         {
-            var paths = DisplayTopology.CaptureActive().Paths;
-            return paths.Count == 0 ? null : DisplayModes.Read(paths[0].Target);
+            var path = source is null
+                ? null
+                : DisplayTopology.CaptureActive().Paths.FirstOrDefault(candidate =>
+                    string.Equals(candidate.SourceName, source, StringComparison.OrdinalIgnoreCase));
+            return path is null ? null : DisplayModes.Read(path.Target);
         }));
         _apply = apply ?? ((snapshot, mode) => Task.Run(() => DisplayModes.Apply(snapshot, mode)));
         Classes.Add("overlay-control");
@@ -133,7 +146,9 @@ internal sealed class DisplayModeView : StackPanel
         _resolution.IsEnabled = _refresh.IsEnabled = false;
         try
         {
-            var next = await _read();
+            // Read per refresh, so a sheet placed on another display follows it.
+            var display = TopLevel.GetTopLevel(this) is OverlayWindow window ? window.DisplaySourceName() : null;
+            var next = await _read(display);
             if (_closed || generation != _attachmentGeneration)
             {
                 return;
@@ -206,7 +221,7 @@ internal sealed class DisplayModeView : StackPanel
             var result = await _apply(snapshot, requested);
             if (!result.Applied)
             {
-                detail = result.Detail;
+                detail = DisplayText.Mode(result);
             }
         }
         catch (Exception ex)

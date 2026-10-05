@@ -81,26 +81,25 @@ public sealed class PowerSchemesTests
     }
 
     [Fact]
-    public async Task SelectionWaitsUntilTheTimeoutMutationReleasesTheSharedGate()
+    public async Task SelectionWaitsUntilTheTimeoutMutationReleasesTheSharedLock()
     {
-        FakeApi api = new() { Active = Balanced };
         using ManualResetEventSlim releaseTimeout = new(false);
         TaskCompletionSource timeoutEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         TaskCompletionSource selectionStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        Task timeout = Task.Run(() => PowerTimeouts.Write(PowerTimeoutKind.SleepAc, 60,
-            (kind, seconds) =>
+        FakeApi api = new()
+        {
+            Active = Balanced,
+            BeforeSettingWrite = () =>
             {
-                Assert.Equal(PowerTimeoutKind.SleepAc, kind);
-                Assert.Equal(60, seconds);
                 timeoutEntered.SetResult();
                 if (!releaseTimeout.Wait(TimeSpan.FromSeconds(10)))
                 {
                     throw new TimeoutException();
                 }
-
-                api.Active = Balanced;
-                return true;
-            }));
+            }
+        };
+        PowerSchemes schemes = new(api);
+        var timeout = Task.Run(() => new PowerTimeouts(schemes).Write(PowerTimeoutKind.SleepAc, 60));
         Task selection;
         try
         {
@@ -108,7 +107,7 @@ public sealed class PowerSchemesTests
             selection = Task.Run(() =>
             {
                 selectionStarted.SetResult();
-                new PowerSchemes(api).Select(Custom);
+                schemes.Select(Custom);
             });
             await selectionStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
             Assert.NotSame(selection, await Task.WhenAny(selection, Task.Delay(100)));
@@ -119,10 +118,11 @@ public sealed class PowerSchemesTests
             releaseTimeout.Set();
         }
 
-        await timeout;
+        Assert.True(await timeout);
         await selection;
+        // The timeout re-activates the scheme it wrote before the waiting selection runs.
         Assert.Equal(Custom, api.Active);
-        Assert.Equal(1, api.Writes);
+        Assert.Equal(2, api.Writes);
     }
 
     [Fact]
@@ -169,7 +169,18 @@ public sealed class PowerSchemesTests
         internal uint? EnumerationFailureIndex { get; init; }
         internal Win32Exception? WriteFailure { get; init; }
         internal Win32Exception? ReadFailure { get; init; }
+        internal Action? BeforeSettingWrite { get; init; }
         internal int Writes { get; private set; }
+
+        public uint ReadSetting(Guid scheme, Guid subgroup, Guid setting, bool onBattery)
+        {
+            return 0;
+        }
+
+        public void WriteSetting(Guid scheme, Guid subgroup, Guid setting, bool onBattery, uint value)
+        {
+            BeforeSettingWrite?.Invoke();
+        }
 
         public Guid? Enumerate(uint index)
         {

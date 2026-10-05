@@ -128,16 +128,18 @@ public sealed class PluginSettingRowViewModelTests
     }
 
     [Fact]
-    public void TextIsTruncatedToItsDeclaredMaximum()
+    public void TextLongerThanItsDeclaredMaximumIsRefused()
     {
         PluginSettingRowViewModel row = new(
             Descriptor(CapabilityValueKind.Text, maximumLength: 4),
             Value(CapabilityValueKind.Text))
         {
-            TextValue = "far too long"
+            TextValue = "fits"
         };
 
-        Assert.Equal("far ", row.TextValue);
+        row.TextValue = "far too long";
+
+        Assert.Equal("fits", row.TextValue);
     }
 
     [Fact]

@@ -73,7 +73,7 @@ public sealed class DevicePageCaptureTests
         using UiFixture fixture = new();
         var presets = new DevicePowerPresets(() => views,
             (_, _, _, _, _, _) => throw new InvalidOperationException("Unexpected hardware write"),
-            new WindowsPowerModes(new ReadOnlyPowerModeApi()), () => true);
+            new WindowsPowerModes(new PowerSchemes(new FakePower()), new ReadOnlyPowerModeApi()), () => true);
         ProfileConfig config = new()
         {
             Global = new ProfileValues

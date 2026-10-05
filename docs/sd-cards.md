@@ -84,6 +84,13 @@ geometry record
 An unavailable privileged read handle does not remove a Format candidate. Formatting still uses the
 existing confirmation, elevation and fresh target-validation path.
 
+One reader, `Shell\StorageInventory.cs`, walks the mounted volumes and the disk interfaces and
+classifies each disk once, so every storage surface agrees on which card is which by disk number.
+The eject list, the format targets and Steam's storage pages project from the eject list's latest
+read: a change to that list refreshes the format targets from the same read instead of walking the
+disks again. The card monitor and the library tabs take a fresh read when they need the answer. The
+identity checks around an eject or a format still open their own fresh handles.
+
 System/application disks and internal fixed storage remain excluded. Eject refreshes on volume
 arrival and removal notifications after the card settle delay, and keeps a 10-second full snapshot
 for media inserted into an existing reader and for disks without a volume. The card manifest watcher

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using WindowsDeviceControl;
 
@@ -33,23 +34,39 @@ internal static class LockScreenSettings
             if (disableSignInOnWake)
             {
                 var snapshot = WindowsWakeSecurity.Capture();
-                store.Update(fresh => {
+                store.Update(fresh =>
+                {
                     if (!fresh.PreviousLockOnWakeSnapshotCaptured)
                     {
                         CaptureInto(fresh, snapshot);
                     }
-                
-            return true;
-        });
 
-                WindowsWakeSecurity.DisableSignIn();
+                    return true;
+                });
+
+                DisableSignIn();
             }
             else
             {
                 var saved = store.Read().RequireConfig();
                 var snapshot = RecoverySnapshot(saved);
-                WindowsWakeSecurity.Restore(snapshot);
-                store.Update(fresh => {
+                var failures = saved.PreviousLockOnWakeSnapshotCaptured
+                    ? Describe(WindowsWakeSecurity.Restore(snapshot).Failures)
+                    : RestoreSecureDefault(saved.PreviousNoLockScreen);
+                if (failures.Count > 0)
+                {
+                    // Every step was attempted once; the saved snapshot stays for the next restore.
+                    foreach (var failure in failures)
+                    {
+                        Log.Warn($"Lock-on-wake restore: {failure}");
+                    }
+
+                    Log.Error($"Sign-in on wake was not fully restored ({failures.Count} step(s) failed).");
+                    return false;
+                }
+
+                store.Update(fresh =>
+                {
                     var current = RecoverySnapshot(fresh);
                     if (fresh.PreviousLockOnWakeSnapshotCaptured != saved.PreviousLockOnWakeSnapshotCaptured
                         || current.PolicyExisted != snapshot.PolicyExisted
@@ -66,9 +83,8 @@ internal static class LockScreenSettings
                     fresh.PreviousConsoleLockPolicyAc = -1;
                     fresh.PreviousConsoleLockPolicyDc = -1;
                     fresh.PreviousNoLockScreen = -1;
-                
-            return true;
-        });
+                    return true;
+                });
             }
 
             Log.Info($"Sign-in on wake {(disableSignInOnWake ? "disabled" : "restored")}.");
@@ -116,5 +132,74 @@ internal static class LockScreenSettings
         return SelfElevation.RunElevatedAction(
             disableSignInOnWake ? "--disable-lock-on-wake" : "--restore-lock-on-wake",
             "Lock-on-wake change");
+    }
+
+    /// <summary>
+    ///     Disables wake sign-in in the order Windows needs: the policy for every scheme, each installed
+    ///     scheme's own value, the refresh that applies those, then the lock screen itself. The first
+    ///     failure stops it; the snapshot saved before it is what restores.
+    /// </summary>
+    private static void DisableSignIn()
+    {
+        WindowsWakeSecurity.SetConsoleLockPolicy(0, 0);
+        foreach (var scheme in SchemesOrActive())
+        {
+            WindowsWakeSecurity.SetSchemeConsoleLock(scheme, 0, 0);
+        }
+
+        WindowsPower.RefreshActiveScheme();
+        WindowsWakeSecurity.SetNoLockScreen(1);
+    }
+
+    /// <summary>
+    ///     Restores Windows' secure default when no snapshot was saved: no console-lock policy values, sign-in on
+    ///     wake in every scheme, the active scheme refreshed so that takes effect, and the saved personalization
+    ///     value (deleted when none was saved). Every step is attempted once, even after an earlier one fails.
+    /// </summary>
+    /// <param name="noLockScreen">The saved NoLockScreen value, or -1 to delete it.</param>
+    /// <returns>A description of each step that failed; empty when all were written.</returns>
+    private static List<string> RestoreSecureDefault(int noLockScreen)
+    {
+        List<string> failures = [];
+        Attempt("console-lock policy", static () => WindowsWakeSecurity.SetConsoleLockPolicy(-1, -1));
+        IReadOnlyList<Guid> schemes = [];
+        Attempt("scheme list", () => schemes = SchemesOrActive());
+        foreach (var scheme in schemes)
+        {
+            Attempt($"scheme {scheme:D}", () => WindowsWakeSecurity.SetSchemeConsoleLock(scheme, 1, 1));
+        }
+
+        Attempt("active scheme refresh", WindowsPower.RefreshActiveScheme);
+        Attempt("NoLockScreen", () => WindowsWakeSecurity.SetNoLockScreen(noLockScreen));
+        return failures;
+
+        void Attempt(string step, Action write)
+        {
+            try
+            {
+                write();
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"{step} failed: {ex.Message}");
+            }
+        }
+    }
+
+    private static List<string> Describe(IReadOnlyList<WakeSecurityRestoreFailure> failures)
+    {
+        return
+        [
+            .. failures.Select(failure => failure.Scheme is { } scheme
+                ? $"{failure.Setting} {scheme:D} failed: {failure.Error.Message}"
+                : $"{failure.Setting} failed: {failure.Error.Message}")
+        ];
+    }
+
+    /// <summary>Every installed scheme, or the active one alone when Windows lists none.</summary>
+    private static IReadOnlyList<Guid> SchemesOrActive()
+    {
+        var schemes = WindowsPower.EnumerateSchemes();
+        return schemes.Count > 0 ? schemes : [WindowsPower.GetActiveScheme()];
     }
 }

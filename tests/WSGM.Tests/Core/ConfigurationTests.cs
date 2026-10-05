@@ -1191,4 +1191,25 @@ public sealed class ConfigurationTests
         Assert.Equal("Custom", normalized.Splash.Text);
         Assert.Equal("#FF123456", normalized.AccentColor);
     }
+
+    [Fact]
+    public void Normalize_NewInstallStartsSingleplayerTitlesOnTheSteamOverlay()
+    {
+        // The recorded decision: a title nothing says is multiplayer takes the Steam integration route.
+        var library = AppConfigRules.Normalize(new AppConfig()).Value.GameLibrary;
+
+        Assert.Equal(ImportMode.SteamIntegration, library.DefaultMode);
+        Assert.False(library.ImportUnroutable);
+    }
+
+    [Fact]
+    public void Normalize_RepairsAGameLibraryModeNoReleaseHas()
+    {
+        var config = AppConfigRules.Normalize(new AppConfig
+        {
+            GameLibrary = new GameLibraryConfig { DefaultMode = (ImportMode)42 }
+        }).Value;
+
+        Assert.Equal(ImportMode.SteamIntegration, config.GameLibrary.DefaultMode);
+    }
 }

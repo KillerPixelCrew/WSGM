@@ -120,19 +120,40 @@ public partial class OverlayWindow
         // Values never participate in this comparison. Telemetry must not replace rail focus targets.
         if (!_workspaceSections.SequenceEqual(entries))
         {
+            // An unchanged entry keeps its button, so a section appearing or leaving does not take focus
+            // from the others; a new or changed entry gets a new button.
+            Dictionary<WorkspaceSection, Control> previous = [];
+            for (var index = 0; index < _workspaceSections.Count && index < SectionRail.Children.Count; index++)
+            {
+                previous.TryAdd(_workspaceSections[index], SectionRail.Children[index]);
+            }
+
             _workspaceSections.Clear();
             _workspaceSections.AddRange(entries);
-            SectionRail.Children.Clear();
-            _sectionBadges.Clear();
+            List<Control> rows = [];
+            Control? created = null;
             foreach (var entry in entries)
             {
-                var button = CreateSectionButton(entry);
-                SectionRail.Children.Add(button);
-                if (Equals(button.Tag, focusedKey))
+                if (!previous.Remove(entry, out var button))
                 {
-                    button.Focus(NavigationMethod.Directional);
+                    _sectionBadges.Remove(entry.Key);
+                    button = CreateSectionButton(entry);
+                    if (Equals(button.Tag, focusedKey))
+                    {
+                        created = button;
+                    }
                 }
+
+                rows.Add(button);
             }
+
+            foreach (var gone in previous.Keys.Where(gone => entries.All(entry => entry.Key != gone.Key)))
+            {
+                _sectionBadges.Remove(gone.Key);
+            }
+
+            ReconcileChildren(SectionRail, rows);
+            created?.Focus(NavigationMethod.Directional);
         }
 
         if (ActiveSubView is { Available: { } availability } && !availability())

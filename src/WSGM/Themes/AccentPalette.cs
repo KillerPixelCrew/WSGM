@@ -4,6 +4,7 @@ using Avalonia;
 using Avalonia.Media;
 using Avalonia.Media.Immutable;
 using FluentAvalonia.Styling;
+using WSGM.Core;
 
 namespace WSGM.Themes;
 
@@ -18,10 +19,9 @@ public static class AccentPalette
 {
     /// <summary>
     ///     The default WSGM accent (Handheld Companion orange), used when the
-    ///     configured value is missing or unparsable. The single source for the accent
-    ///     digits.
+    ///     configured value is missing or unparsable. Defined by <see cref="AppConfig.DefaultAccentColor" />.
     /// </summary>
-    public const string DefaultAccent = "#FFFF9D3D";
+    public const string DefaultAccent = AppConfig.DefaultAccentColor;
 
     /// <summary>
     ///     Parses a configured accent color string. The result is always

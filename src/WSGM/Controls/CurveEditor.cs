@@ -49,7 +49,7 @@ internal sealed class CurveEditor : Control
     private static readonly CurveBounds EditBounds = new(0, 100, 0, 100);
 
     /// <summary>Index of the selected point, or -1 when none is selected.</summary>
-    private static readonly StyledProperty<int> SelectedIndexProperty =
+    public static readonly StyledProperty<int> SelectedIndexProperty =
         AvaloniaProperty.Register<CurveEditor, int>(nameof(SelectedIndex), -1);
 
     /// <summary>The input the device is currently at, drawn as a marker, or null for none.</summary>
@@ -57,7 +57,7 @@ internal sealed class CurveEditor : Control
     ///     A fan curve is read to answer "what is it doing right now", and the answer is where the
     ///     current temperature crosses it. HandheldCompanion draws the same line for the same reason.
     /// </remarks>
-    private static readonly StyledProperty<int?> MarkerInputProperty =
+    public static readonly StyledProperty<int?> MarkerInputProperty =
         AvaloniaProperty.Register<CurveEditor, int?>(nameof(MarkerInput));
 
     /// <summary>Whether outputs must not decrease along the curve.</summary>
@@ -66,7 +66,7 @@ internal sealed class CurveEditor : Control
     ///     <see cref="CurveEditing.Move" />; this only says which curves it applies to, because a
     ///     lighting response has no reason to rise.
     /// </remarks>
-    private static readonly StyledProperty<bool> RisingOutputProperty =
+    public static readonly StyledProperty<bool> RisingOutputProperty =
         AvaloniaProperty.Register<CurveEditor, bool>(nameof(RisingOutput));
 
     private int _dragIndex = -1;
@@ -121,11 +121,10 @@ internal sealed class CurveEditor : Control
     internal void AddPointAtWidestGap()
     {
         var points = Points;
-        switch (points.Count)
+        if (points.Count == 0)
         {
-            case 0:
-                LogEditRefused("add", "the curve has no points to split");
-                return;
+            LogEditRefused("add", "the curve has no points to split");
+            return;
         }
 
         var widest = 0;

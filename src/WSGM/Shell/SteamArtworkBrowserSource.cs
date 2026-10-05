@@ -13,10 +13,13 @@ namespace WSGM.Shell;
 /// <summary>Projects WSGM's artwork providers into the toolkit's Steam-native browser.</summary>
 internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
 {
+    /// <summary>The tab that manages a title's current artwork instead of browsing one slot.</summary>
+    internal const string ManageTab = "manage";
+
     private static readonly SteamArtworkBrowserTab[] AllTabs =
     [
         .. ArtworkAssetNames.Ordered.Select(slot => new SteamArtworkBrowserTab(slot.Id, slot.Label)),
-        new("manage", "Manage", true)
+        new(ManageTab, "Manage", true)
     ];
 
     /// <summary>A 1×1 fully transparent PNG: what "Invisible" applies to a slot.</summary>
@@ -171,7 +174,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
                 Filter = FilterFor(tab),
                 Page = 0,
                 HasMore = false,
-                Loading = tab != "manage",
+                Loading = tab != ManageTab,
                 Error = null,
                 Notice = null,
                 Revision = ++_revision
@@ -179,7 +182,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         }
 
         Changed?.Invoke();
-        if (tab != "manage")
+        if (tab != ManageTab)
         {
             _ = LoadAsync(appId, tab, 0, false, generation, loadToken);
         }
@@ -590,7 +593,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         Log.Info($"Steam artwork page: opened for app {appId} on the {initialTab} tab"
                  + (savedLink is null ? "." : $", matched to {savedLink.ProviderId} game {savedLink.GameId}."));
         Changed?.Invoke();
-        if (initialTab != "manage")
+        if (initialTab != ManageTab)
         {
             _ = LoadAsync(appId, initialTab, 0, false, generation, loadToken);
         }
@@ -1323,7 +1326,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
             ["hero"] = configuration.ShowHero,
             ["logo"] = configuration.ShowLogo,
             ["icon"] = configuration.ShowIcon,
-            ["manage"] = configuration.ShowManage
+            [ManageTab] = configuration.ShowManage
         };
         var lookup = AllTabs.ToDictionary(tab => tab.Id, StringComparer.Ordinal);
         SteamArtworkBrowserTab[] tabs =

@@ -63,7 +63,8 @@ internal static class GameModeLaunchRules
 
         if (DisplayLayouts.Describe(layout) is { } reason)
         {
-            diagnostics.Add($"Game Mode {name} is kept but cannot be applied as stored: {reason}");
+            diagnostics.Add(
+                $"Game Mode {name} is kept but cannot be applied as stored: {DisplayText.Problem(reason)}");
         }
 
         return layout;
@@ -135,7 +136,8 @@ internal static class GameModeLaunchRules
         foreach (var step in steps)
         {
             step.Arguments ??= [];
-            step.TimeoutSeconds = Math.Clamp(step.TimeoutSeconds, 1, 120);
+            step.TimeoutSeconds = Math.Clamp(step.TimeoutSeconds, PluginActionStep.MinimumTimeoutSeconds,
+                PluginActionStep.MaximumTimeoutSeconds);
         }
 
         return steps;

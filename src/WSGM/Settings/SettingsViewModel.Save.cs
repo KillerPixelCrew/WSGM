@@ -32,6 +32,13 @@ public sealed partial class SettingsViewModel
     }
 
     /// <summary>
+    ///     Gets the accent config.json holds as far as this window knows: the loaded value, moved forward by
+    ///     every committed save. Closing restores it after an abandoned preview without reading the store,
+    ///     because Settings is the only writer of the accent.
+    /// </summary>
+    internal string SavedAccentColor { get; private set; }
+
+    /// <summary>
     ///     Gets the command that merges and persists the edited settings,
     ///     reporting the outcome (including the last-save time) via <see cref="StatusText" />.
     /// </summary>
@@ -192,12 +199,31 @@ public sealed partial class SettingsViewModel
             _services.BeginImportSession();
             importLease = true;
             var request = CaptureSaveRequest();
-            var result = await _services.Persist(request);
+            SaveResult result;
+            try
+            {
+                result = await _services.Persist(request);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                // Nothing was committed, so nothing outside the configuration follows it.
+                _services.Report("Saving settings failed", ex);
+                StatusText = $"Save failed: {ex.Message}";
+                return;
+            }
+
+            // config.json is committed from here on, even when a splash image or the sign-in
+            // preference then failed, so what follows it outside the configuration is applied too.
             AdvanceSharedBaseline(request);
             CompletePersistedSave(result);
-            await _services.ApplySteamInput(result.Config);
+            var applyFailure = await ApplyAfterSaveAsync(result.Config, result.Changes);
             Raise(nameof(SteamInputShimStatusText));
-            StatusText = $"Saved {DateTime.Now:HH:mm:ss}";
+            StatusText = result.Failure is not null
+                // The save did not do everything it said, so it must never read "Saved".
+                ? $"Save failed: {result.Failure}"
+                : applyFailure is not null
+                    ? $"Saved; applying Steam Input failed: {applyFailure.Message}"
+                    : $"Saved {DateTime.Now:HH:mm:ss}";
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -236,6 +262,7 @@ public sealed partial class SettingsViewModel
         using var splashAssets = SplashAssets.Prepare(splash, store.Context);
 
         AppConfig config;
+        SaveChanges changes;
         IReadOnlyList<string> failedSlots;
         string? failure;
         // The lock now covers exactly four fast operations, and nothing else:
@@ -264,7 +291,7 @@ public sealed partial class SettingsViewModel
             var fresh = transaction.Config;
             previousLogoPath = fresh.Splash.LogoImagePath;
             previousBackgroundPath = fresh.Splash.BackgroundImagePath;
-            config = SettingsSaveMerge.Apply(fresh, request, splash);
+            (config, changes) = SettingsSaveMerge.Apply(fresh, request, splash);
             transaction.Save(config);
             failedSlots = splashAssets.Commit();
             // A slot that could not be promoted (locked file, AV hold, permissions)
@@ -287,12 +314,15 @@ public sealed partial class SettingsViewModel
             }
         }
 
-        return new SaveResult(config, failedSlots, failure);
+        return new SaveResult(config, failedSlots, failure, changes);
     }
 
     private void CompletePersistedSave(SaveResult result)
     {
         AdoptMaterializedPaths(result.Config.Splash, result.FailedSlots);
+        // The accent this window restores when it closes: the commit happened, even when a splash
+        // repair or the boot manifest then failed.
+        SavedAccentColor = result.Config.AccentColor;
         // Re-color the running UI live; Application.Current is null in unit tests.
         if (Application.Current is { } app)
         {
@@ -301,96 +331,87 @@ public sealed partial class SettingsViewModel
 
         if (result.Failure is not null)
         {
-            // Everything else was persisted and applied — but the save did not do what
-            // it said, so SaveCommand must report "Save failed", never "Saved".
-            throw new IOException(result.Failure);
+            _services.Report("Saving settings failed", new IOException(result.Failure));
+            return;
         }
 
         _services.Report("Settings saved.", null);
     }
 
     /// <summary>
-    ///     Brings Steam's directory in line with the setting that was just
-    ///     persisted.
+    ///     Brings what lives outside the configuration in line with what this save changed: the Steam
+    ///     Input shim in Steam's directory, Windows' own Steam startup entries and the other handheld
+    ///     managers.
     /// </summary>
     /// <remarks>
-    ///     Deployment follows persisted intent and never precedes it: a save that failed
-    ///     must not leave Steam's directory describing a setting nobody wrote. It also
-    ///     runs outside the writer transaction - that lock's timeout is sized for
-    ///     one small JSON write, not for file copies into Program Files.
+    ///     Deployment follows persisted intent and never precedes it, so this runs only after the commit.
+    ///     It runs on a worker outside the writer transaction, whose timeout is sized for one small JSON
+    ///     write, not for file copies into Program Files or an elevation prompt. Only a step this save
+    ///     changed runs: an unrelated save neither reconciles the shim, which can raise a UAC prompt, nor
+    ///     rescans for a takeover accepted earlier; the two "Check and take over" buttons are the explicit
+    ///     re-check. A failing step does not skip the later ones.
     /// </remarks>
-    private static void ApplySteamInputManagementAfterSave(SteamInputShim shim, AppConfig config, ConfigStore store)
+    /// <param name="saved">The configuration that was just written.</param>
+    /// <param name="changes">What this save changed in the persisted configuration.</param>
+    /// <returns>The Steam Input reconcile failure, or null.</returns>
+    private Task<Exception?> ApplyAfterSaveAsync(AppConfig saved, SaveChanges changes)
     {
-        SteamInputManagement.Apply(shim, config, "settings-save");
-        ApplySteamAutostartAfterSave(config, store);
-        ApplyOtherManagersAfterSave(config, store);
-    }
-
-    /// <summary>
-    ///     Turns the other handheld managers off once the takeover has been persisted, for the same
-    ///     reasons as the Steam autostart: persisted intent, outside the config lock, prompt allowed.
-    /// </summary>
-    /// <param name="config">The configuration that was just written.</param>
-    /// <param name="store">The configuration persistence the takeover is recorded in.</param>
-    private static void ApplyOtherManagersAfterSave(AppConfig config, ConfigStore store)
-    {
-        if (!config.OtherManagersTakeoverAccepted)
+        if (changes is { Shim: false, SteamAutostartAccepted: false, OtherManagersAccepted: false })
         {
-            return;
+            return Task.FromResult<Exception?>(null);
         }
 
-        try
+        var services = _services;
+        return Task.Run<Exception?>(() =>
         {
-            var detected = OtherManagers.Detect();
-            if (detected.Count == 0)
+            Exception? shimFailure = null;
+            if (changes.Shim)
             {
-                return;
+                try
+                {
+                    services.ReconcileSteamInputShim(saved);
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    services.Report("Applying Steam Input management after a save failed", ex);
+                    shimFailure = ex;
+                }
             }
 
-            var result = OtherManagers.Apply(store, detected, true);
-            if (result.Failed.Count > 0)
+            if (changes.SteamAutostartAccepted)
             {
-                Log.Warn("Other managers takeover incomplete: " + string.Join(", ", result.Failed));
-            }
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            Log.Warn($"Other managers takeover failed: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    ///     Turns Windows' own Steam startup entries off once the takeover has been persisted.
-    ///     Like the shim deployment, it follows persisted intent and runs outside the config lock: a
-    ///     machine-scope entry needs an elevation prompt, which has no business inside it.
-    /// </summary>
-    /// <param name="config">The configuration that was just written.</param>
-    /// <param name="store">The configuration persistence each change is recorded in.</param>
-    private static void ApplySteamAutostartAfterSave(AppConfig config, ConfigStore store)
-    {
-        if (!config.SteamAutostartTakeoverAccepted)
-        {
-            return;
-        }
-
-        try
-        {
-            var enabled = SteamAutostartService.Scan().Where(source => source.Enabled).ToArray();
-            if (enabled.Length == 0)
-            {
-                return;
+                try
+                {
+                    var enabled = services.ScanSteamAutostart().Where(source => source.Enabled).ToArray();
+                    if (enabled.Length > 0 && !services.ApplySteamAutostart(enabled).Complete)
+                    {
+                        Log.Warn("Steam autostart takeover incomplete: Windows may still start Steam itself.");
+                    }
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    Log.Warn($"Steam autostart takeover failed: {ex.Message}");
+                }
             }
 
-            var result = SteamAutostartService.Apply(store, enabled, true);
-            if (!result.Complete)
+            if (changes.OtherManagersAccepted)
             {
-                Log.Warn("Steam autostart takeover incomplete: Windows may still start Steam itself.");
+                try
+                {
+                    var detected = services.DetectOtherManagers();
+                    if (detected.Count > 0 && services.ApplyOtherManagers(detected) is { Failed.Count: > 0 } result)
+                    {
+                        Log.Warn("Other managers takeover incomplete: " + string.Join(", ", result.Failed));
+                    }
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    Log.Warn($"Other managers takeover failed: {ex.Message}");
+                }
             }
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            Log.Warn($"Steam autostart takeover failed: {ex.Message}");
-        }
+
+            return shimFailure;
+        });
     }
 
     private static bool Failed(IReadOnlyList<string> failedSlots, string slot)
@@ -529,7 +550,7 @@ public sealed partial class SettingsViewModel
     public AppConfig SnapshotForPreview()
     {
         var request = CaptureSaveRequest();
-        var snapshot = SettingsSaveMerge.Apply(ConfigJson.Clone(_config, ConfigJsonContext.Tolerant.AppConfig),
+        var (snapshot, _) = SettingsSaveMerge.Apply(ConfigJson.Clone(_config, ConfigJsonContext.Tolerant.AppConfig),
             request, request.Splash);
         return ConfigJson.Clone(snapshot, ConfigJsonContext.Tolerant.AppConfig);
     }
@@ -563,8 +584,10 @@ public sealed partial class SettingsViewModel
         }
 
         if (sameScope && request.DeviceProfiles is not null
-                      && JsonSerializer.Serialize(DeviceProfiles.Select(profile => profile.ToStored()).ToArray())
-                      == JsonSerializer.Serialize(request.DeviceProfiles))
+                      && JsonSerializer.Serialize(DeviceProfiles.Select(profile => profile.ToStored()).ToList(),
+                          ConfigJsonContext.Default.ListDeviceAuthoredProfile)
+                      == JsonSerializer.Serialize(request.DeviceProfiles.ToList(),
+                          ConfigJsonContext.Default.ListDeviceAuthoredProfile))
         {
             _deviceProfilesEdited = false;
         }
@@ -606,5 +629,6 @@ public sealed partial class SettingsViewModel
     internal sealed record SaveResult(
         AppConfig Config,
         IReadOnlyList<string> FailedSlots,
-        string? Failure);
+        string? Failure,
+        SaveChanges Changes);
 }

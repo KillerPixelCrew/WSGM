@@ -31,7 +31,7 @@ public partial class OverlayWindow
     private void OnFormatEditName(object? sender, RoutedEventArgs e)
     {
         if (!RequestText("Name (volume and Steam library)",
-                _formatName, 32, SetFormatName))
+                _formatName, SdFormatManager.MaximumLabelLength, SetFormatName))
         {
             // No keyboard surface means no way to type on a controller; say so instead
             // of leaving a row that silently does nothing when pressed.

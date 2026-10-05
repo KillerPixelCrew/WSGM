@@ -82,11 +82,11 @@ public sealed class LibraryTabsView : OverlaySubView
     /// </summary>
     public void Open()
     {
-        _stack.Clear();
-        _current = null;
+        NavigationStack.Clear();
+        CurrentLevel = null;
         _tags = null;
         _collections = null;
-        var generation = ++_navigationGeneration;
+        var generation = ++NavigationGeneration;
         RenderLoading("Library Tabs");
         _ = RunSafelyAsync(LoadAndRenderAsync(generation), "open");
     }
@@ -94,7 +94,7 @@ public sealed class LibraryTabsView : OverlaySubView
     private async Task LoadAndRenderAsync(int generation)
     {
         var config = await Task.Run((() => (Store.Read().Config ?? new AppConfig())));
-        if (generation != _navigationGeneration)
+        if (generation != NavigationGeneration)
         {
             return;
         }
@@ -255,7 +255,7 @@ public sealed class LibraryTabsView : OverlaySubView
         var stack = NewStack(_editingOriginal is null ? "New Tab" : "Edit Tab");
 
         stack.Children.Add(Row("Name", string.IsNullOrWhiteSpace(_editing.Name) ? "(required)" : _editing.Name,
-            Icons.CopyDoc, () => EditText("Tab name", _editing.Name, 40, v => { _editing.Name = v.Trim(); })));
+            Icons.CopyDoc, () => EditText("Tab name", _editing.Name, 0, v => { _editing.Name = v.Trim(); })));
 
         stack.Children.Add(ChoiceRow("Match",
             [(FilterMode.And, "All filters (AND)"), (FilterMode.Or, "Any filter (OR)")],
@@ -339,7 +339,7 @@ public sealed class LibraryTabsView : OverlaySubView
         }
 
         // Drop back to the list, then materialize in the background.
-        _stack.Clear();
+        NavigationStack.Clear();
         Replace(RenderTabList);
     }
 
@@ -361,7 +361,7 @@ public sealed class LibraryTabsView : OverlaySubView
             return;
         }
 
-        _stack.Clear();
+        NavigationStack.Clear();
         Replace(RenderTabList);
     }
 
@@ -380,7 +380,7 @@ public sealed class LibraryTabsView : OverlaySubView
             Log.Warn($"Library tab {operation} failed: {ex.Message}");
             _config = await Task.Run((() => (Store.Read().Config ?? new AppConfig())));
             Toast($"Could not {operation} the tab. Try again.");
-            _stack.Clear();
+            NavigationStack.Clear();
             Replace(RenderTabList);
             return false;
         }
@@ -429,7 +429,7 @@ public sealed class LibraryTabsView : OverlaySubView
         }
 
         // Replace the picker level with the editor for the new node.
-        _current = () => RenderFilterEditor(node);
+        CurrentLevel = () => RenderFilterEditor(node);
         RenderFilterEditor(node);
     }
 
@@ -609,7 +609,7 @@ public sealed class LibraryTabsView : OverlaySubView
                 {
                     var child = new FilterNode { Kind = k };
                     group.Children.Add(child);
-                    _current = () => RenderChildEditor(group, child);
+                    CurrentLevel = () => RenderChildEditor(group, child);
                     RenderChildEditor(group, child);
                 }));
             }
@@ -653,12 +653,12 @@ public sealed class LibraryTabsView : OverlaySubView
     private async Task OpenTagPickerAsync(FilterNode node)
     {
         Navigate(() => RenderLoading("Tags"));
-        var generation = _navigationGeneration;
+        var generation = NavigationGeneration;
         IReadOnlyList<SteamStoreTag> tags = [];
         if (Steam is { } steam)
         {
             var read = await steam.Library.ReadStoreTagsAsync();
-            if (generation != _navigationGeneration)
+            if (generation != NavigationGeneration)
             {
                 return;
             }
@@ -687,9 +687,9 @@ public sealed class LibraryTabsView : OverlaySubView
     private async Task OpenGamePickerAsync(FilterNode node)
     {
         Navigate(() => RenderLoading("Games"));
-        var generation = _navigationGeneration;
+        var generation = NavigationGeneration;
         var read = await OverlayLibraryLookup.ReadAsync(Steam);
-        if (generation != _navigationGeneration)
+        if (generation != NavigationGeneration)
         {
             return;
         }
@@ -713,12 +713,12 @@ public sealed class LibraryTabsView : OverlaySubView
     private async Task OpenCollectionPickerAsync(FilterNode node)
     {
         Navigate(() => RenderLoading("Collections"));
-        var generation = _navigationGeneration;
+        var generation = NavigationGeneration;
         IReadOnlyList<SteamCollectionInfo> collections = [];
         if (Steam is { } steam)
         {
             var read = await steam.Library.ReadCollectionsAsync();
-            if (generation != _navigationGeneration)
+            if (generation != NavigationGeneration)
             {
                 return;
             }

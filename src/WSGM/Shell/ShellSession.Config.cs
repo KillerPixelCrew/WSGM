@@ -2,8 +2,10 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia;
 using Avalonia.Threading;
 using WSGM.Core;
+using WSGM.Themes;
 
 namespace WSGM.Shell;
 
@@ -161,6 +163,8 @@ public sealed partial class ShellSession
                         _wsgmSettings?.ConfigurationChanged();
                         _displayMute?.ApplyConfig(config.MuteWhileDisplayOff);
                         _chordMirror?.Apply(config.DeviceIntegration.KeepGuideChordEdits, _steamDeckTargetActive);
+                        AccentPalette.Apply(Application.Current!, AccentPalette.Parse(config.AccentColor));
+                        _modes?.ApplyConfig(config);
                         _overlay?.ApplyConfig(config);
                         Log.Debug($"Config reloaded at {Log.MinimumLevel} minimum log level.");
                         _startupWatcher?.Apply(config.StartupApps);

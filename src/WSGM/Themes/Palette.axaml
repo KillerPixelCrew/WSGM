@@ -33,7 +33,7 @@
   <SolidColorBrush x:Key="HcTextMutedBrush" Color="#FFB8B8B8" />
 
   <!-- Accent family: shadowed in Application.Resources by the runtime accent
-         pipeline (AccentPalette.DefaultAccent is the authoritative default).
+         pipeline (AppConfig.DefaultAccentColor is the authoritative default).
          Consume via DynamicResource only. -->
   <SolidColorBrush x:Key="HcAccentBrush" Color="#FFFF9D3D" />
   <SolidColorBrush x:Key="HcOnAccentBrush" Color="Black" />
@@ -43,4 +43,26 @@
   <SolidColorBrush x:Key="HcDangerBrush" Color="#FFFFA0A0" />
   <SolidColorBrush x:Key="HcWarningBrush" Color="#FFFFC66D" />
   <SolidColorBrush x:Key="HcSuccessBrush" Color="#FFA3DCA3" />
+
+  <!-- Plugin icon tiles and badges on Settings > Plugins. A badge has a tinted fill, a stronger
+       border and, where the status tokens above do not supply one, the text. The accent badge stays
+       the default orange whatever accent the user chose. -->
+  <SolidColorBrush x:Key="HcPluginIconBrush" Color="#14FFFFFF" />
+  <SolidColorBrush x:Key="HcBadgeBrush" Color="#14FFFFFF" />
+  <SolidColorBrush x:Key="HcBadgeBorderBrush" Color="#2EFFFFFF" />
+  <SolidColorBrush x:Key="HcBadgeAccentBrush" Color="#26FF9D3D" />
+  <SolidColorBrush x:Key="HcBadgeAccentBorderBrush" Color="#73FF9D3D" />
+  <SolidColorBrush x:Key="HcBadgeAccentTextBrush" Color="#FFFFB870" />
+  <SolidColorBrush x:Key="HcBadgeCommunityBrush" Color="#26B79CFF" />
+  <SolidColorBrush x:Key="HcBadgeCommunityBorderBrush" Color="#73B79CFF" />
+  <SolidColorBrush x:Key="HcBadgeCommunityTextBrush" Color="#FFCDB9FF" />
+  <SolidColorBrush x:Key="HcBadgeInfoBrush" Color="#268AB4F8" />
+  <SolidColorBrush x:Key="HcBadgeInfoBorderBrush" Color="#738AB4F8" />
+  <SolidColorBrush x:Key="HcBadgeInfoTextBrush" Color="#FFA8C7FA" />
+  <SolidColorBrush x:Key="HcBadgeGoodBrush" Color="#26A3DCA3" />
+  <SolidColorBrush x:Key="HcBadgeGoodBorderBrush" Color="#73A3DCA3" />
+  <SolidColorBrush x:Key="HcBadgeWarnBrush" Color="#26FFC66D" />
+  <SolidColorBrush x:Key="HcBadgeWarnBorderBrush" Color="#73FFC66D" />
+  <SolidColorBrush x:Key="HcBadgeBadBrush" Color="#26FFA0A0" />
+  <SolidColorBrush x:Key="HcBadgeBadBorderBrush" Color="#73FFA0A0" />
 </ResourceDictionary>

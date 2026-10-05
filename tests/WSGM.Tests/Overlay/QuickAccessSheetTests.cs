@@ -1,6 +1,5 @@
 using WSGM.Core;
 using WSGM.Overlay;
-using WSGM.Settings;
 
 namespace WSGM.Tests.Overlay;
 
@@ -40,94 +39,6 @@ public sealed class QuickAccessSheetTests
         Assert.Equal(expected, OverlayWindow.IsOriginalPinnedRow(tag, pins));
     }
 
-    // Each switch is exercised at its NON-default value in one of the two cases:
-    // both default to true, so asserting a true round trip would also pass if the
-    // snapshot never read the view model at all.
-    [Theory]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    public void SettingsSnapshotPersistsLeftAndRightSteamGestureSwitchesIndependently(
-        bool left, bool right)
-    {
-        var viewModel = new SettingsViewModel(new AppConfig())
-        {
-            GestureLeftSteamMenu = left,
-            GestureRightSteamQuickAccess = right
-        };
-
-        var snapshot = viewModel.SnapshotForPreview();
-
-        Assert.Equal(left, snapshot.Gestures.LeftEdgeSteamMenu);
-        Assert.Equal(right, snapshot.Gestures.RightEdgeSteamQuickAccess);
-    }
-
-    [Theory]
-    [InlineData(false, true)]
-    [InlineData(true, false)]
-    public void SettingsSnapshotPersistsTopAndBottomSheetGestureSwitchesIndependently(
-        bool top, bool bottom)
-    {
-        var viewModel = new SettingsViewModel(new AppConfig())
-        {
-            GestureTop = top,
-            GestureBottom = bottom
-        };
-
-        var snapshot = viewModel.SnapshotForPreview();
-
-        Assert.Equal(top, snapshot.Gestures.TopEdge);
-        Assert.Equal(bottom, snapshot.Gestures.BottomEdge);
-    }
-
-    [Theory]
-    [InlineData(BigPictureShortcut.SteamMenu, 0x31)]
-    [InlineData(BigPictureShortcut.QuickAccess, 0x32)]
-    public void BigPictureMenuShortcutsMatchSteamsKeyboardSimulator(
-        BigPictureShortcut shortcut, ushort expected)
-    {
-        Assert.Equal(expected, Steam.ShortcutVirtualKey(shortcut));
-    }
-
-    [Theory]
-    [InlineData(150, 100u, 100u, 150u)] // saved desktop scaling wins
-    [InlineData(null, 100u, 150u, 150u)] // desktop already ran 100% → panel's recommended
-    [InlineData(null, 175u, 150u, 175u)] // live desktop scaling beats recommended
-    [InlineData(null, 100u, 100u, 100u)] // nothing known → no upscale
-    [InlineData(99, 100u, 150u, 150u)] // garbage snapshot value is ignored
-    [InlineData(600, 100u, 150u, 150u)]
-    public void UiScaleUsesTheSavedDesktopScalingElseTheRecommendedPanelScale(
-        int? saved, uint current, uint recommended, uint expected)
-    {
-        Assert.Equal(expected, DisplayScale.PickUiScalePercent(saved, current, recommended));
-    }
-
-    [Fact]
-    public void ANewDockDisplayIsNotLoweredWhileAnotherDisplaysRecoverySnapshotSurvives()
-    {
-        Assert.False(DisplayScale.ShouldLowerDisplay(
-            false,
-            [new DisplayScaleEntry { DeviceName = @"\\.\DISPLAY1", Percent = 150 }],
-            @"\\.\DISPLAY2"));
-    }
-
-    [Fact]
-    public void ADisplayAlreadyOwnedByTheRecoverySnapshotCanBeLoweredAgain()
-    {
-        Assert.True(DisplayScale.ShouldLowerDisplay(
-            false,
-            [new DisplayScaleEntry { DeviceName = @"\\.\DISPLAY1", Percent = 150 }],
-            @"\\.\display1"));
-    }
-
-    [Fact]
-    public void AFreshCaptureCanLowerEveryIdentifiedDisplay()
-    {
-        Assert.True(DisplayScale.ShouldLowerDisplay(
-            true,
-            [],
-            @"\\.\DISPLAY2"));
-    }
-
     // The tray shares the bottom rail with Open apps.
 
     [Theory]
@@ -153,19 +64,6 @@ public sealed class QuickAccessSheetTests
         double requested, double renderScale, double width, double height, double expected)
     {
         Assert.Equal(expected, OverlayWindow.ComputeContentScale(requested, renderScale, width, height), 4);
-    }
-
-    [Fact]
-    public void EveryDestinationHasAUserFacingLabel()
-    {
-        foreach (var destination in Enum.GetValues<OverlayDestination>())
-        {
-            Assert.False(string.IsNullOrWhiteSpace(OverlayWindow.DestinationLabel(destination)));
-        }
-
-        Assert.Equal("Quick access", OverlayWindow.DestinationLabel(OverlayDestination.QuickAccess));
-        Assert.Equal("Power", OverlayWindow.DestinationLabel(OverlayDestination.Power));
-        Assert.Equal("Tools", OverlayWindow.DestinationLabel(OverlayDestination.System));
     }
 
     private static WindowFinder.AppWindow Window(nint hwnd, string title, bool minimized = false)
@@ -242,16 +140,5 @@ public sealed class QuickAccessSheetTests
         Assert.Equal(
             [nameof(AppSwitcherEntry.Title), nameof(AppSwitcherEntry.IsMinimized), nameof(AppSwitcherEntry.IsActive)],
             changed);
-    }
-
-    [Fact]
-    public void WindowEntryPreservesTheActivationTargetAndPresentationState()
-    {
-        var entry = new AppSwitcherEntry(123, "Steam", true, null);
-
-        Assert.Equal(123, entry.Hwnd);
-        Assert.Equal("Steam", entry.Title);
-        Assert.True(entry.IsSteam);
-        Assert.True(entry.HasNoIcon);
     }
 }

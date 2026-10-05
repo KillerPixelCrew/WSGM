@@ -40,7 +40,7 @@ public partial class AppearancePage : UserControl
     /// <summary>Preset accent swatches (D-pad friendly one-tap choices).</summary>
     private static readonly string[] AccentSwatches =
     [
-        "#FFFF9D3D", // WSGM orange (default)
+        AppConfig.DefaultAccentColor, // WSGM orange (default)
         "#FFE5484D", // red
         "#FFE93D82", // pink
         "#FF8E4EC6", // purple

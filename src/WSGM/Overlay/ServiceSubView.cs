@@ -8,6 +8,7 @@ using Avalonia.LogicalTree;
 using Avalonia.Threading;
 using SteamUiToolkit;
 using WSGM.Controls;
+using WSGM.Core;
 using WSGM.Input;
 using WSGM.Shell;
 
@@ -53,16 +54,16 @@ public abstract class ServiceSubView : OverlaySubView
         if (_renderDeferred && IsEffectivelyVisible)
         {
             _renderDeferred = false;
-            _current?.Invoke();
+            CurrentLevel?.Invoke();
         }
     }
 
     /// <summary>Opens the view on its home level.</summary>
     public void Open()
     {
-        _stack.Clear();
-        _current = null;
-        _navigationGeneration++;
+        NavigationStack.Clear();
+        CurrentLevel = null;
+        NavigationGeneration++;
         Navigate(RenderHome);
     }
 
@@ -88,9 +89,9 @@ public abstract class ServiceSubView : OverlaySubView
     /// <inheritdoc />
     private protected override void SetContent(StackPanel stack)
     {
-        if (_renderGeneration != _navigationGeneration || Content is not Control old)
+        if (_renderGeneration != NavigationGeneration || Content is not Control old)
         {
-            _renderGeneration = _navigationGeneration;
+            _renderGeneration = NavigationGeneration;
             base.SetContent(stack);
             return;
         }
@@ -233,7 +234,20 @@ public abstract class ServiceSubView : OverlaySubView
             var result = await Task.Run(() => operation(CancellationToken.None));
             if (!result.Succeeded)
             {
-                Dispatcher.UIThread.Post(() => Toast(result.Error ?? "That did not work."));
+                // The service owns its work and finishes it after the user leaves. A refusal that
+                // arrives then is only logged: a left view keeps its notice for the next open.
+                var message = result.Error ?? "That did not work.";
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (CurrentLevel is not null)
+                    {
+                        Toast(message);
+                    }
+                    else
+                    {
+                        Log.Info($"{LogScope}: {message}");
+                    }
+                });
             }
         }
     }
@@ -255,9 +269,9 @@ public abstract class ServiceSubView : OverlaySubView
 
         async Task CommitAsync()
         {
-            var generation = _navigationGeneration;
+            var generation = NavigationGeneration;
             var result = await Task.Run(() => command(CancellationToken.None));
-            if (generation != _navigationGeneration)
+            if (generation != NavigationGeneration)
             {
                 return;
             }
@@ -265,7 +279,7 @@ public abstract class ServiceSubView : OverlaySubView
             if (result.Succeeded)
             {
                 Back();
-                _current?.Invoke();
+                CurrentLevel?.Invoke();
             }
             else
             {
@@ -295,7 +309,7 @@ public abstract class ServiceSubView : OverlaySubView
                 }
                 else
                 {
-                    _current?.Invoke();
+                    CurrentLevel?.Invoke();
                 }
             }
         }, DispatcherPriority.Background);

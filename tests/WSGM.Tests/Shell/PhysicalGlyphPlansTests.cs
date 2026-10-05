@@ -2,7 +2,6 @@ using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
-using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Device.Sdk.Serialization;
@@ -10,9 +9,9 @@ using WSGM.Overlay;
 using WSGM.Shell;
 using WSGM.Tests.Builders;
 
-namespace WSGM.Tests.Controls;
+namespace WSGM.Tests.Shell;
 
-public sealed class PhysicalGlyphServiceTests
+public sealed class PhysicalGlyphPlansTests
 {
     [Fact]
     public void Automatic_WithNoActiveDevice_ReportsTheMismatchRatherThanAProfile()
@@ -137,7 +136,7 @@ public sealed class PhysicalGlyphServiceTests
     {
         var profile = ImportProfile(["device-a"]);
         using PhysicalGlyphCatalog catalog = new();
-        using PhysicalGlyphService service = new(catalog);
+        using PhysicalGlyphPlans service = new(catalog);
         catalog.ReplacePackageProfiles([profile]);
         catalog.SetActiveDevice("device-a");
         var selected = catalog.SelectProfile(
@@ -151,16 +150,12 @@ public sealed class PhysicalGlyphServiceTests
             selected,
             GlyphControlId.FaceSouth,
             PhysicalGlyphSurface.DeviceDescription,
-            false,
-            PhysicalGlyphTheme.Dark,
-            1);
+            false);
         var externalNavigation = service.Resolve(
             selected,
             GlyphControlId.FaceSouth,
             PhysicalGlyphSurface.NavigationHint,
-            false,
-            PhysicalGlyphTheme.Dark,
-            1);
+            false);
 
         Assert.True(device.UsesDeviceArtwork);
         Assert.False(externalNavigation.UsesDeviceArtwork);
@@ -170,14 +165,11 @@ public sealed class PhysicalGlyphServiceTests
     }
 
     [Fact]
-    public void Cache_IsBoundedAndReleasedWhenPackageProfileChanges()
+    public void Cache_KeepsOnePlanPerControlAndIsReleasedWhenPackageProfileChanges()
     {
         var profile = ImportProfile(["device-a"]);
         using PhysicalGlyphCatalog catalog = new();
-        using PhysicalGlyphService service = new(
-            catalog,
-            1,
-            4096);
+        using PhysicalGlyphPlans service = new(catalog);
         catalog.ReplacePackageProfiles([profile]);
         catalog.SetActiveDevice("device-a");
         var selected = catalog.SelectProfile(
@@ -185,17 +177,16 @@ public sealed class PhysicalGlyphServiceTests
             DeviceGlyphSelection.Automatic,
             null);
 
-        _ = service.Resolve(selected, GlyphControlId.FaceSouth,
-            PhysicalGlyphSurface.DeviceDescription, true, PhysicalGlyphTheme.Light, 1);
-        _ = service.Resolve(selected, GlyphControlId.FaceSouth,
-            PhysicalGlyphSurface.DeviceDescription, true, PhysicalGlyphTheme.Dark, 1.5);
+        var description = service.Resolve(selected, GlyphControlId.FaceSouth,
+            PhysicalGlyphSurface.DeviceDescription, true);
+        var hint = service.Resolve(selected, GlyphControlId.FaceSouth,
+            PhysicalGlyphSurface.NavigationHint, true);
 
+        Assert.Same(description, hint);
         Assert.Equal(1, service.CachedEntryCount);
-        Assert.InRange(service.CachedBytes, 1, 4096);
 
         catalog.ReplacePackageProfiles([]);
         Assert.Equal(0, service.CachedEntryCount);
-        Assert.Equal(0, service.CachedBytes);
     }
 
     [Fact]
@@ -203,7 +194,7 @@ public sealed class PhysicalGlyphServiceTests
     {
         var profile = ImportProfile(["device-a"], false);
         using PhysicalGlyphCatalog catalog = new();
-        using PhysicalGlyphService service = new(catalog);
+        using PhysicalGlyphPlans service = new(catalog);
         catalog.ReplacePackageProfiles([profile]);
         catalog.SetActiveDevice("device-a");
         var selected = catalog.SelectProfile(
@@ -215,9 +206,7 @@ public sealed class PhysicalGlyphServiceTests
             selected,
             GlyphControlId.FaceSouth,
             PhysicalGlyphSurface.DeviceDescription,
-            true,
-            PhysicalGlyphTheme.HighContrast,
-            2);
+            true);
 
         Assert.False(result.UsesDeviceArtwork);
         Assert.Equal(PhysicalGlyphFallbackReason.ArtworkMissing, result.FallbackReason);

@@ -371,7 +371,7 @@ tint, so nested groups do not repeat the blur. The Windows Transparency Effects 
 control this path; an unavailable compositor attachment leaves the Overlay opaque and readable. The
 backend's private DWM exports are an explicit compatibility risk. The Claw confirmed the separate
 sample and integrated Overlay over Steam and a game with no noticeable frame-time change. Details
-are in `src\Avalonia.LiveBackdrop\README.md`.
+are in `src\Avalonia.LiveBackdrop\README.md` and `docs\overlay-and-input.md`.
 
 ## RTSS lifetime
 

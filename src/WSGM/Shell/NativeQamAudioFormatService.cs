@@ -7,7 +7,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
 using WindowsDeviceControl;
-using WSGM.Settings;
 
 namespace WSGM.Shell;
 
@@ -99,7 +98,7 @@ internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, ID
             .Concat(capabilities.SupportedSpatialFormats)
             .Distinct()
             .Select(static format =>
-                new SteamAudioFormatOption(format.ToString(), AudioProfileEditor.SpatialName(format)))
+                new SteamAudioFormatOption(format.ToString(), SpatialAudioNames.For(format)))
             .ToArray();
         _offered = new Offered(
             capabilities.EndpointId,

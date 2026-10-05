@@ -15,7 +15,7 @@ namespace WSGM;
 /// <summary>Configures Avalonia application lifetime and creates the selected WSGM session.</summary>
 public class App : Application
 {
-    private readonly AppConfig _startupConfig;
+    private readonly ConfigReadResult _startupRead;
     private readonly ConfigStore _store;
     private readonly StartupOptions _options;
     private readonly SteamInputBlocker _steamInput;
@@ -24,14 +24,16 @@ public class App : Application
     // (and its config watcher) would survive only via incidental GC reachability.
     private ShellSession? _session;
 
-    /// <summary>Creates the application over the configuration loaded during process startup.</summary>
-    /// <param name="startupConfig">The configuration loaded by the process entry point.</param>
+    /// <summary>Creates the application over the configuration read during process startup.</summary>
+    /// <param name="startupRead">
+    ///     The entry point's configuration read; a failed read runs on defaults, and Settings says so.
+    /// </param>
     /// <param name="store">The process-owned configuration persistence.</param>
     /// <param name="options">The immutable options parsed by the process entry point.</param>
     /// <param name="steamInput">The process's Steam Input lease owner, which the entry point releases at exit.</param>
-    internal App(AppConfig startupConfig, ConfigStore store, StartupOptions options, SteamInputBlocker steamInput)
+    internal App(ConfigReadResult startupRead, ConfigStore store, StartupOptions options, SteamInputBlocker steamInput)
     {
-        _startupConfig = startupConfig ?? throw new ArgumentNullException(nameof(startupConfig));
+        _startupRead = startupRead ?? throw new ArgumentNullException(nameof(startupRead));
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _steamInput = steamInput ?? throw new ArgumentNullException(nameof(steamInput));
@@ -50,7 +52,7 @@ public class App : Application
     {
         // Accent first, before any window exists — every mode (shell, overlay
         // test, settings, welcome) shows the configured accent from first paint.
-        var config = _startupConfig;
+        var config = _startupRead.Config ?? new AppConfig();
         AccentPalette.Apply(this, AccentPalette.Parse(config.AccentColor));
 
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
@@ -76,8 +78,12 @@ public class App : Application
                 default:
                     // Setup is the only installer, so there is no portable run to offer
                     // an install for, and it asks every first-run question itself.
-                    desktop.MainWindow = new SettingsWindow(
-                        SettingsViewModel.FromLoadedConfig(config, _store, _steamInput.Shim), _steamInput);
+                    // A standalone Settings process has no plugin host: its action lists offer nothing
+                    // and show saved steps read-only.
+                    var settings = SettingsViewModel.FromLoadedConfig(_startupRead, _store, _steamInput.Shim, () => []);
+                    desktop.MainWindow = new SettingsWindow(settings,
+                        SettingsWindowServices.Create(settings, _steamInput, null,
+                            SettingsSurface.TestSheet(_store, _steamInput, null)));
                     break;
             }
 

@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using WSGM.Core;
 
 namespace WSGM.Settings.Pages;
 
@@ -16,7 +17,7 @@ public partial class DisplayPage : UserControl
     {
         if (DataContext is SettingsViewModel { CurrentAudioProfile: { } audio })
         {
-            _ = audio.RefreshEndpointsAsync();
+            Log.Observe(audio.RefreshEndpointsAsync(), "Settings audio discovery");
         }
     }
 }

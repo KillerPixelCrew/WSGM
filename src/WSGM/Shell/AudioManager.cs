@@ -682,7 +682,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
             var entry = entries[index];
             if (remaining.Remove(entry.Id, out var endpoint))
             {
-                entry.Name = endpoint.Name;
+                entry.Name = AudioEndpointText.Name(endpoint);
             }
             else
             {
@@ -694,7 +694,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
         {
             if (remaining.Remove(endpoint.Id))
             {
-                entries.Add(new AudioEndpointEntry(endpoint.Id, endpoint.Name));
+                entries.Add(new AudioEndpointEntry(endpoint.Id, AudioEndpointText.Name(endpoint)));
             }
         }
     }

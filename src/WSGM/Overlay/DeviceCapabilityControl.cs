@@ -2,7 +2,6 @@ using System;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using FluentAvalonia.UI.Controls;
@@ -18,8 +17,8 @@ internal sealed class DeviceCapabilityControl : ContentControl
     private readonly Control _body;
     private readonly ProfileOverrideMarker _marker;
     private readonly Action<DeviceOverlayCapability, CapabilityValue> _write;
+    private readonly InvokeButtonRow? _run;
     private DeviceOverlayCapability _capability;
-    private bool _invoking;
 
     internal DeviceCapabilityControl(DeviceOverlayCapability capability, string key,
         Action<DeviceOverlayCapability, CapabilityValue> write, Func<DeviceOverlayCapability, Task> invoke, int? marker,
@@ -65,36 +64,9 @@ internal sealed class DeviceCapabilityControl : ContentControl
         else if (capability.Writable || capability.SupportsAction ||
                  (capability.ValueKind == CapabilityValueKind.None && capability.CanInvoke))
         {
-            var button = new Button
-                { Content = capability.ValueKind == CapabilityValueKind.Color ? "Choose colour" : "Run" };
-            button.Click += async (_, _) =>
-            {
-                if (_invoking || !_capability.CanInvoke)
-                {
-                    return;
-                }
-
-                var restoreFocus = button.IsFocused;
-                var root = TopLevel.GetTopLevel(button);
-                _invoking = true;
-                button.IsEnabled = false;
-                try
-                {
-                    await invoke(_capability);
-                }
-                finally
-                {
-                    _invoking = false;
-                    button.IsEnabled = _capability.CanInvoke;
-                    if (restoreFocus && button.IsEnabled && button.IsEffectivelyVisible
-                        && ReferenceEquals(root, TopLevel.GetTopLevel(button))
-                        && root?.FocusManager?.GetFocusedElement() is null)
-                    {
-                        button.Focus(NavigationMethod.Directional);
-                    }
-                }
-            };
-            _body = new DeviceSettingRow(key, capability.Title, capability.Description, button, _ => { });
+            _run = new InvokeButtonRow(capability.ValueKind == CapabilityValueKind.Color ? "Choose colour" : "Run",
+                () => _capability.CanInvoke, () => invoke(_capability));
+            _body = new DeviceSettingRow(key, capability.Title, capability.Description, _run.Button, _ => { });
         }
         else
         {
@@ -108,6 +80,7 @@ internal sealed class DeviceCapabilityControl : ContentControl
 
     internal string CapabilityId => _capability.CapabilityId;
     internal string? InstanceId => _capability.InstanceId;
+    internal string? GpuPluginId => _capability.GpuPluginId;
 
     private void Commit(CapabilityValue value)
     {
@@ -127,7 +100,8 @@ internal sealed class DeviceCapabilityControl : ContentControl
                     capability.CurrentValue?.IntegerValue ?? capability.Minimum ?? 0, capability.CanInvoke);
                 break;
             case DeviceSettingRow setting:
-                setting.Refresh(capability.CurrentValue, capability.CanInvoke && !_invoking, capability.Description);
+                setting.Refresh(capability.CurrentValue, capability.CanInvoke && _run?.Invoking != true,
+                    capability.Description);
                 break;
             case DeviceCurveRow curve:
                 curve.RefreshReadback(capability.CurrentValue?.CurveValue ?? [], marker, capability.CanInvoke);

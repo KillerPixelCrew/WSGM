@@ -8,7 +8,6 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using WindowsDeviceControl;
 using WSGM.Overlay;
-using WSGM.Settings;
 using WSGM.Shell;
 using WSGM.UiTests.Infrastructure;
 
@@ -33,12 +32,16 @@ internal static class PreviewAudioPanel
         var choices = body.GetLogicalDescendants().OfType<ComboBox>().ToArray();
         AudioEndpointEntry output = new("preview-output", "Speakers (Realtek Audio)");
         AudioEndpointEntry input = new("preview-input", "Microphone Array");
+        // A disabled dropdown commits nothing, so freezing the endpoints never asks Windows to change the
+        // default device.
+        choices[0].IsEnabled = choices[^1].IsEnabled = false;
         Freeze(choices[0], SelectingItemsControl.SelectedItemProperty, output);
         choices[0].ItemsSource = new[] { output };
         choices[0].SelectedItem = output;
         Freeze(choices[^1], SelectingItemsControl.SelectedItemProperty, input);
         choices[^1].ItemsSource = new[] { input };
         choices[^1].SelectedItem = input;
+        choices[0].IsEnabled = choices[^1].IsEnabled = true;
         var format = new CoreAudio.AudioDeviceFormat(2, 48000, 24, 32, 3, false);
         Show("Channels", new AudioPlaybackChoice(format, "Stereo"));
         Show("Format", new AudioPlaybackChoice(format, "48 kHz · 24-bit PCM"));

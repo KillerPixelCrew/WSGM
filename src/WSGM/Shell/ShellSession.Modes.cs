@@ -872,7 +872,7 @@ public sealed partial class ShellSession
 
             var result =
                 await ApplyLayoutAsync(layout, CancellationToken.None).ConfigureAwait(false);
-            return result.Applied ? null : "Desktop display layout: " + result.Detail;
+            return result.Applied ? null : "Desktop display layout: " + DisplayText.Layout(result);
         }
 
         public async Task<string?> ApplyReturnAudioAsync()

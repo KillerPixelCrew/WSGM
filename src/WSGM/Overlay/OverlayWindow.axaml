@@ -523,7 +523,8 @@
                             Tag="system.settings"
                             IconGeometry="{x:Static c:Icons.Gear}"
                             Title="Settings"
-                            Description="Shell, startup, and quick access configuration" />
+                            Description="Shell, startup, and quick access configuration"
+                            IsVisible="{Binding SettingsAvailable}" />
               <c:ActionButton Click="OnTaskManager"
                             Tag="system.task-manager"
                             IconGeometry="{x:Static c:Icons.Grid4}"

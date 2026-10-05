@@ -3,7 +3,6 @@ using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
-using Avalonia.Input;
 using Avalonia.Layout;
 using WSGM.Controls;
 using WSGM.Device.Sdk.Capabilities;
@@ -15,8 +14,8 @@ internal sealed class DescriptorControlView : ContentControl
 {
     private readonly Control _body;
     private readonly ProfileOverrideMarker _marker;
+    private readonly InvokeButtonRow? _run;
     private DescriptorRow _descriptor;
-    private bool _invoking;
 
     internal DescriptorControlView(DescriptorRow descriptor, string key, Func<DescriptorRow, Task> invoke,
         Action<int>? setValue = null, Func<string, Task>? useGlobal = null)
@@ -43,36 +42,10 @@ internal sealed class DescriptorControlView : ContentControl
         }
         else if (descriptor.CanInvoke)
         {
-            var button = new Button
-                { Content = string.IsNullOrWhiteSpace(descriptor.TrailingText) ? "Run" : descriptor.TrailingText };
-            button.Click += async (_, _) =>
-            {
-                if (_invoking || !_descriptor.CanInvoke)
-                {
-                    return;
-                }
-
-                var restoreFocus = button.IsFocused;
-                var root = TopLevel.GetTopLevel(button);
-                _invoking = true;
-                button.IsEnabled = false;
-                try
-                {
-                    await invoke(_descriptor);
-                }
-                finally
-                {
-                    _invoking = false;
-                    button.IsEnabled = _descriptor.CanInvoke;
-                    if (restoreFocus && button.IsEnabled && button.IsEffectivelyVisible
-                        && ReferenceEquals(root, TopLevel.GetTopLevel(button))
-                        && root?.FocusManager?.GetFocusedElement() is null)
-                    {
-                        button.Focus(NavigationMethod.Directional);
-                    }
-                }
-            };
-            _body = new DeviceSettingRow(key, descriptor.Title, descriptor.Description, button, _ => { });
+            _run = new InvokeButtonRow(
+                string.IsNullOrWhiteSpace(descriptor.TrailingText) ? "Run" : descriptor.TrailingText,
+                () => _descriptor.CanInvoke, () => invoke(_descriptor));
+            _body = new DeviceSettingRow(key, descriptor.Title, descriptor.Description, _run.Button, _ => { });
         }
         else
         {
@@ -102,7 +75,7 @@ internal sealed class DescriptorControlView : ContentControl
                     {
                         Kind = CapabilityValueKind.Choice,
                         ChoiceValue = descriptor.Value?.ToString(CultureInfo.InvariantCulture)
-                    }, descriptor.CanInvoke && !_invoking,
+                    }, descriptor.CanInvoke && _run?.Invoking != true,
                     descriptor.Description);
                 break;
             case DeviceSliderRow slider when descriptor.Range is { } range:

@@ -15,10 +15,15 @@ internal sealed record PowerScheme(Guid Id, string Name);
 ///     Reads always consult Windows; selections are neither enforced nor restored later.
 ///     Call from background work when projecting into a UI.
 /// </summary>
+/// <remarks>
+///     The session builds one instance (see <see cref="WindowsPowerPolicy" />) and hands it to every owner
+///     that changes machine-wide power policy. Its mutation lock serializes those changes, because each one
+///     writes the active scheme or re-activates it, and a scheme switch between another owner's read and
+///     write would land a value in a scheme that is no longer active.
+/// </remarks>
 internal sealed class PowerSchemes(IPowerSchemeApi api)
 {
-    internal static PowerSchemes Windows { get; } = new(new WindowsPowerSchemeApi());
-    internal static object MutationGate { get; } = new();
+    private readonly Lock _mutation = new();
 
     /// <summary>Whether a picker is worth showing: one plan is nothing to choose.</summary>
     /// <param name="count">How many plans Windows enumerates.</param>
@@ -27,9 +32,36 @@ internal sealed class PowerSchemes(IPowerSchemeApi api)
         return count > 1;
     }
 
+    /// <summary>
+    ///     Enters the one lock over machine-wide power changes. Reentrant, so an owner holding it may call
+    ///     another owner that takes it too. Dispose the scope to leave.
+    /// </summary>
+    internal Lock.Scope EnterMutation()
+    {
+        return _mutation.EnterScope();
+    }
+
     internal Guid ReadActive()
     {
         return api.ReadActive();
+    }
+
+    /// <summary>Re-activates the active scheme so values written to it take effect. Call under the mutation lock.</summary>
+    internal void RefreshActive()
+    {
+        api.SetActive(api.ReadActive());
+    }
+
+    /// <summary>Reads one AC or battery policy value of a scheme. Native failures propagate.</summary>
+    internal uint ReadSetting(Guid scheme, Guid subgroup, Guid setting, bool onBattery)
+    {
+        return api.ReadSetting(scheme, subgroup, setting, onBattery);
+    }
+
+    /// <summary>Writes one AC or battery policy value of a scheme once. Call under the mutation lock.</summary>
+    internal void WriteSetting(Guid scheme, Guid subgroup, Guid setting, bool onBattery, uint value)
+    {
+        api.WriteSetting(scheme, subgroup, setting, onBattery, value);
     }
 
     internal IReadOnlyList<PowerScheme> Enumerate()
@@ -57,7 +89,7 @@ internal sealed class PowerSchemes(IPowerSchemeApi api)
             throw new ArgumentException("A power scheme GUID is required.", nameof(id));
         }
 
-        lock (MutationGate)
+        using (EnterMutation())
         {
             cancellationToken.ThrowIfCancellationRequested();
             api.SetActive(id);

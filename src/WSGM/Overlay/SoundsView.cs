@@ -89,9 +89,9 @@ public sealed class SoundsView : ServiceSubView
 
     private async Task ImportLocalAsync()
     {
-        var generation = _navigationGeneration;
+        var generation = NavigationGeneration;
         var path = await PickPathAsync(false, ".zip");
-        if (path is not null && generation == _navigationGeneration && _service is { } service)
+        if (path is not null && generation == NavigationGeneration && _service is { } service)
         {
             Run(token => service.ImportAsync(path, token), "import");
         }
@@ -167,7 +167,7 @@ public sealed class SoundsView : ServiceSubView
         var stack = NewStack("Browse sound packs");
         AddStatus(stack, state.Busy, state.Error, null);
         stack.Children.Add(Tagged(Row("Search", _search, Icons.ListLines, () => EditText("Search sound packs", _search,
-            64, text =>
+            0, text =>
             {
                 _search = text;
                 Run(token => service.BrowseAsync(1, text, token), "search");
@@ -188,7 +188,7 @@ public sealed class SoundsView : ServiceSubView
                 "sounds.page.previous"));
         }
 
-        if (state.Page * 24 < state.Total)
+        if (state.Page * ThemeStoreClient.SoundsPageSize < state.Total)
         {
             stack.Children.Add(Tagged(Row("Next page", "", Icons.ArrowDown,
                     () => Run(token => service.BrowseAsync(state.Page + 1, _search, token), "browse")),

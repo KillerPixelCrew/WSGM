@@ -109,7 +109,7 @@ public sealed partial class SettingsViewModel
     ///     Gets a plain-language description of the shim deployment, naming the
     ///     file so a pasted screenshot is diagnostic on its own.
     /// </summary>
-    public string SteamInputShimStatusText => SteamInputManagement.Describe(_steamInputShim);
+    public string SteamInputShimStatusText => _services.DescribeSteamInputShim();
 
     // --- Steam (the only launcher; located via registry, nothing to configure) ---
 #pragma warning disable CA1822

@@ -36,6 +36,7 @@
     <!-- The service reference is aliased because it compiles its own shared BootManifest type. -->
     <Compile Include="../Shared/AsyncConditions.cs" Link="Shared/AsyncConditions.cs"/>
     <Compile Include="../Shared/RepositoryFiles.cs" Link="Shared/RepositoryFiles.cs"/>
+    <Compile Include="../Shared/SettingsTestServices.cs" Link="Shared/SettingsTestServices.cs"/>
     <Compile Include="../Shared/SplashConfigBuilder.cs" Link="Shared/SplashConfigBuilder.cs"/>
     <Compile Include="../Shared/TemporaryDirectory.cs" Link="Shared/TemporaryDirectory.cs"/>
   </ItemGroup>

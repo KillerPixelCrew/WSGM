@@ -27,14 +27,9 @@ internal sealed class DevicePowerPresetSelection(
             return;
         }
 
+        // The source has no timer, so it needs no disposal; in-flight work keeps its cancelled token.
         _disposed = true;
         _lifetime.Cancel();
-        if (!Busy && !_refreshing)
-        {
-            _lifetime.Dispose();
-        }
-
-        // In-flight work owns its token until it completes.
         Changed = null;
     }
 
@@ -78,10 +73,6 @@ internal sealed class DevicePowerPresetSelection(
             {
                 Changed?.Invoke();
             }
-            else if (!_refreshing)
-            {
-                _lifetime.Dispose();
-            }
         }
     }
 
@@ -111,10 +102,6 @@ internal sealed class DevicePowerPresetSelection(
         finally
         {
             _refreshing = false;
-            if (_disposed && !Busy)
-            {
-                _lifetime.Dispose();
-            }
         }
     }
 }

@@ -9,6 +9,8 @@ internal interface IPowerSchemeApi
     string ReadName(Guid id);
     Guid ReadActive();
     void SetActive(Guid id);
+    uint ReadSetting(Guid scheme, Guid subgroup, Guid setting, bool onBattery);
+    void WriteSetting(Guid scheme, Guid subgroup, Guid setting, bool onBattery, uint value);
 }
 
 /// <summary>Adapts the reusable library to WSGM's policy test seam.</summary>
@@ -32,5 +34,15 @@ internal sealed class WindowsPowerSchemeApi : IPowerSchemeApi
     public void SetActive(Guid id)
     {
         WindowsPower.SetActiveScheme(id);
+    }
+
+    public uint ReadSetting(Guid scheme, Guid subgroup, Guid setting, bool onBattery)
+    {
+        return WindowsPower.ReadSetting(scheme, subgroup, setting, onBattery);
+    }
+
+    public void WriteSetting(Guid scheme, Guid subgroup, Guid setting, bool onBattery, uint value)
+    {
+        WindowsPower.WriteSetting(scheme, subgroup, setting, onBattery, value);
     }
 }

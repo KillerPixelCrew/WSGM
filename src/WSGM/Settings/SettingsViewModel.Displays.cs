@@ -10,7 +10,6 @@ namespace WSGM.Settings;
 public sealed partial class SettingsViewModel
 {
     private readonly List<DisplayTargetIdentity> _forgottenDisplays = [];
-    private readonly bool _queryDisplaysOnWorker;
     private bool _displayDiscoveryClosed;
     private bool _launchLoaded;
     private DisplayArrangement? _observedDisplays;
@@ -81,19 +80,18 @@ public sealed partial class SettingsViewModel
         }
     } = "";
 
-    internal void StartDisplayDiscovery()
+    /// <summary>Reads the connected displays on a worker; the window starts it once it has opened.</summary>
+    /// <returns>The read, which a test without a window awaits for the observed rows.</returns>
+    internal Task StartDisplayDiscoveryAsync()
     {
-        if (_queryDisplaysOnWorker)
-        {
-            RefreshDisplaysCommand.Execute(null);
-        }
+        return RefreshDisplaysAsync();
     }
 
     /// <summary>Starts the audio endpoint and capability reads for both profiles on a worker.</summary>
     internal void StartAudioDiscovery()
     {
-        _ = GameAudioProfile.RefreshEndpointsAsync();
-        _ = DesktopAudioProfile.RefreshEndpointsAsync();
+        Log.Observe(GameAudioProfile.RefreshEndpointsAsync(), "Settings audio discovery");
+        Log.Observe(DesktopAudioProfile.RefreshEndpointsAsync(), "Settings audio discovery");
     }
 
     internal void StopDisplayDiscovery()
@@ -160,7 +158,7 @@ public sealed partial class SettingsViewModel
         DisplayDiscoveryText = "Reading displays…";
         try
         {
-            var read = _queryDisplaysOnWorker ? await Task.Run(ReadDisplayCatalog) : ReadDisplayCatalog();
+            var read = await Task.Run(ReadDisplayCatalog);
             if (_displayDiscoveryClosed)
             {
                 return;

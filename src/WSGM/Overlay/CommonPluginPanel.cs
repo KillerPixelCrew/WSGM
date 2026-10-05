@@ -24,7 +24,6 @@ namespace WSGM.Overlay;
 internal sealed class CommonPluginPanel : StackPanel
 {
     private readonly Dictionary<(string Plugin, string Instance, string Category), Control> _categories = [];
-    private readonly CancellationTokenSource _closed = new();
     private readonly ISet<string> _folds;
     private readonly bool _independentOnly;
     private readonly Action<PluginWidgetPin, string>? _navigate;
@@ -34,6 +33,7 @@ internal sealed class CommonPluginPanel : StackPanel
     private readonly List<Action> _refresh = [];
     private readonly ICommonPluginOverlaySource _source;
     private readonly PluginWidgetPin? _widget;
+    private CancellationTokenSource _closed = new();
     private PluginOverlayInstance[] _observed = [];
     private (PluginInstanceIdentity Identity, long Generation, bool HasControls, string? Error)[]? _structure;
 
@@ -51,6 +51,15 @@ internal sealed class CommonPluginPanel : StackPanel
         _navigate = navigate;
         Spacing = widget is null ? 20 : 12;
         HorizontalAlignment = HorizontalAlignment.Stretch;
+        // A re-parented panel gets a live token before the poll's first read; actions of the detached
+        // lifetime stay cancelled.
+        AttachedToVisualTree += (_, _) =>
+        {
+            if (_closed.IsCancellationRequested)
+            {
+                _closed = new CancellationTokenSource();
+            }
+        };
         VisiblePoll.Attach(this, TimeSpan.FromMilliseconds(500), Refresh);
         DetachedFromVisualTree += (_, _) => _closed.Cancel();
     }
@@ -552,7 +561,7 @@ internal sealed class CommonPluginPanel : StackPanel
         Button editor = new() { Content = draft.Length > 0 ? draft : "Enter value" };
         editor.Click += (_, _) =>
         {
-            var opened = requestText(field.Label, draft, field.Kind == PluginSettingKind.Number ? 64 : 4096,
+            var opened = requestText(field.Label, draft, 0,
                 value =>
                 {
                     draft = value;

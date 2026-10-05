@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -22,14 +23,10 @@ internal sealed class ApplicationProfilesView : StackPanel
     private readonly Button _delete = new() { Content = "Delete profile", IsEnabled = false };
     private readonly CheckBox _enabled = new() { Content = "Use this profile when a matching application is active" };
 
-    private readonly TextBox _name = new() { PlaceholderText = "Profile name", MaxLength = 80 };
-
-    private readonly TextBox _processes = new()
-    {
-        PlaceholderText = "game.exe\nlauncher.exe", AcceptsReturn = true, MinHeight = 76, MaxHeight = 120,
-        TextWrapping = TextWrapping.Wrap
-    };
-
+    // Press-to-edit rows: the controller cannot reach a TextBox, so each field opens the overlay keyboard.
+    private readonly Button _name = Row();
+    private readonly List<string> _processNames = [];
+    private readonly StackPanel _processRows = new() { Spacing = 6 };
     private readonly ComboBox _profiles = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly Button _save = new() { Content = "Save profile" };
     private readonly PerformanceOverlayBridge _source;
@@ -37,6 +34,7 @@ internal sealed class ApplicationProfilesView : StackPanel
     private bool _confirmDelete;
     private GameProfile? _editing;
     private bool _loading;
+    private string _nameDraft = string.Empty;
 
     internal ApplicationProfilesView(PerformanceOverlayBridge source, CancellationToken cancellationToken)
     {
@@ -44,14 +42,12 @@ internal sealed class ApplicationProfilesView : StackPanel
         _cancellation = cancellationToken;
         Spacing = 10;
         Classes.Add("profile-editor");
-        foreach (var (control, label) in new (Control, string)[]
-                 {
-                     (_profiles, "Saved profile"), (_name, "Profile name"), (_processes, "Activation processes")
-                 })
-        {
-            AutomationProperties.SetName(control, label);
-        }
-
+        AutomationProperties.SetName(_profiles, "Saved profile");
+        AutomationProperties.SetName(_name, "Profile name");
+        _name.Click += (_, _) => RequestText("Profile name", _nameDraft, SetName);
+        var addProcess = Row();
+        addProcess.Content = "Add process";
+        addProcess.Click += (_, _) => RequestText("Process name", string.Empty, AddProcess);
         var create = new Button { Content = "New profile" };
         create.Click += (_, _) => NewProfile();
         var selection = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 10 };
@@ -61,10 +57,11 @@ internal sealed class ApplicationProfilesView : StackPanel
         Children.Add(selection);
         Children.Add(_name);
         Children.Add(new TextBlock { Text = "Activation processes", FontWeight = FontWeight.SemiBold });
-        Children.Add(_processes);
+        Children.Add(_processRows);
+        Children.Add(addProcess);
         Children.Add(new TextBlock
         {
-            Text = "One executable name per line, including .exe. Names match exactly, ignoring case. "
+            Text = "One executable name per row, including .exe. Names match exactly, ignoring case. "
                    + "Existing profiles with an empty list retain their original application binding.",
             FontSize = 12, TextWrapping = TextWrapping.Wrap
         });
@@ -74,8 +71,7 @@ internal sealed class ApplicationProfilesView : StackPanel
         {
             if (_source.ProfileScope.Target?.RtssProfileName is { Length: > 0 } executable)
             {
-                _processes.Text = string.Join(Environment.NewLine,
-                    ProcessNames().Append(executable).Distinct(StringComparer.OrdinalIgnoreCase));
+                AddProcess(executable);
             }
         };
         Children.Add(current);
@@ -127,10 +123,87 @@ internal sealed class ApplicationProfilesView : StackPanel
 
     internal Control DefaultFocusTarget => _profiles;
 
-    private string[] ProcessNames()
+    private static Button Row()
     {
-        return (_processes.Text ?? string.Empty).Split(['\r', '\n'],
-            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var row = new Button
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left
+        };
+        row.Classes.Add("deck-action");
+        return row;
+    }
+
+    private void RequestText(string prompt, string initial, Action<string> accept)
+    {
+        if (TopLevel.GetTopLevel(this) is not OverlayWindow window || !window.RequestText(prompt, initial, 0, accept))
+        {
+            _status.Text = "Keyboard unavailable. Reopen the overlay to retry.";
+        }
+    }
+
+    private void SetName(string name)
+    {
+        _nameDraft = name;
+        _name.Content = name.Length == 0 ? "Profile name" : name;
+    }
+
+    private void AddProcess(string value)
+    {
+        var name = value.Trim();
+        if (name.Length > 0 && !_processNames.Contains(name, StringComparer.OrdinalIgnoreCase))
+        {
+            _processNames.Add(name);
+            RenderProcesses();
+        }
+    }
+
+    private void EditProcess(Button row, string value)
+    {
+        var index = _processRows.Children.IndexOf(row);
+        if (index < 0 || index >= _processNames.Count)
+        {
+            return;
+        }
+
+        var name = value.Trim();
+        if (name.Length == 0)
+        {
+            _processNames.RemoveAt(index);
+        }
+        else
+        {
+            _processNames[index] = name;
+        }
+
+        RenderProcesses();
+    }
+
+    // Rows are reused by position so the row that opened the keyboard keeps focus when it closes.
+    private void RenderProcesses()
+    {
+        while (_processRows.Children.Count > _processNames.Count)
+        {
+            _processRows.Children.RemoveAt(_processRows.Children.Count - 1);
+        }
+
+        for (var index = 0; index < _processNames.Count; index++)
+        {
+            if (index == _processRows.Children.Count)
+            {
+                var row = Row();
+                row.Click += (_, _) =>
+                {
+                    var position = _processRows.Children.IndexOf(row);
+                    if (position >= 0 && position < _processNames.Count)
+                    {
+                        RequestText("Process name", _processNames[position], value => EditProcess(row, value));
+                    }
+                };
+                _processRows.Children.Add(row);
+            }
+
+            ((Button)_processRows.Children[index]).Content = _processNames[index];
+        }
     }
 
     private void Reload(string? selectedId)
@@ -167,9 +240,11 @@ internal sealed class ApplicationProfilesView : StackPanel
     private void Load(GameProfile? profile)
     {
         _editing = profile;
-        _name.Text = profile is null ? string.Empty :
-            string.IsNullOrEmpty(profile.Name) ? profile.Id : profile.Name;
-        _processes.Text = string.Join(Environment.NewLine, profile?.ProcessNames ?? []);
+        SetName(profile is null ? string.Empty :
+            string.IsNullOrEmpty(profile.Name) ? profile.Id : profile.Name);
+        _processNames.Clear();
+        _processNames.AddRange(profile?.ProcessNames ?? []);
+        RenderProcesses();
         _enabled.IsChecked = profile?.Enabled ?? true;
         _confirmDelete = false;
         _delete.Content = "Delete profile";
@@ -181,7 +256,7 @@ internal sealed class ApplicationProfilesView : StackPanel
     {
         await RunAsync(async () =>
         {
-            var id = await _source.SaveProfileAsync(_editing?.Id, _name.Text ?? string.Empty, ProcessNames(),
+            var id = await _source.SaveProfileAsync(_editing?.Id, _nameDraft, _processNames.ToArray(),
                 _enabled.IsChecked == true, _cancellation);
             Reload(id);
             _status.Text = "Profile saved.";

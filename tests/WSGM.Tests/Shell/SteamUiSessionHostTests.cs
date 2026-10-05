@@ -21,6 +21,7 @@ public sealed class SteamUiSessionHostTests : IDisposable
     /// <summary>The backends a host needs, with every optional one absent and no hardware behind them.</summary>
     private SteamUiBackends Backends(PerformanceService performance)
     {
+        FakeHybridCoreApi power = new();
         return new SteamUiBackends
         {
             Performance = performance,
@@ -28,8 +29,8 @@ public sealed class SteamUiSessionHostTests : IDisposable
             Brightness = new NativeQamBrightnessService(() => false, () => null, _ => false,
                 Timeout.InfiniteTimeSpan),
             Folds = new QuickAccessFolds(_config.Store.Context),
-            PowerProfiles = new NativeQamPowerProfileService(PowerSchemes.Windows, _ => { }),
-            HybridCores = new NativeQamHybridCoreService(HybridCores.Windows)
+            PowerProfiles = new NativeQamPowerProfileService(new PowerSchemes(power), _ => { }),
+            HybridCores = new NativeQamHybridCoreService(power.Owner())
         };
     }
 
@@ -65,7 +66,11 @@ public sealed class SteamUiSessionHostTests : IDisposable
         await using var host = new SteamUiSessionHost(
             screensaverTransport,
             _ => Task.FromResult(true),
-            Backends(performance) with { DisplayTimeouts = new DisplayTimeouts(_ => 600, (_, _) => true) });
+            Backends(performance) with
+            {
+                DisplayTimeouts = new DisplayTimeouts(new PowerSchemes(new UnusedPowerSchemeApi()), _ => 600,
+                    (_, _) => true)
+            });
 
         host.Apply(SteamUiSurfaceSwitches.Off with { ScreensaverRows = true });
         await screensaverTransport.BridgeInstalled.Task.WaitAsync(TimeSpan.FromSeconds(2));

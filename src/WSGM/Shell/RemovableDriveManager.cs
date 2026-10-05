@@ -50,11 +50,8 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
     private int _refreshing;
     private DispatcherTimer? _settle;
 
-    /// <summary>
-    ///     Disk numbers that must never be listed: the Windows volume's and
-    ///     WSGM's own. Resolved once on the first snapshot (worker thread only).
-    /// </summary>
-    private HashSet<int>? _systemDisks;
+    /// <summary>The storage read behind the current list, shared with the format flow and Steam's pages.</summary>
+    private StorageInventory _inventory = StorageInventory.Empty;
 
     private readonly MessageWindow? _messages;
     private DispatcherTimer? _timer;
@@ -84,6 +81,13 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
     ///     startup to someone who is holding a card the first scan has not reached.
     /// </remarks>
     public bool HasScanned { get; private set; }
+
+    /// <summary>The storage read behind the latest list, or an empty one before the first read.</summary>
+    /// <remarks>
+    ///     Readable from any thread. Written on the refresh worker before its list reaches the UI thread, so
+    ///     a consumer reacting to a list change sees the read that produced it and needs no walk of its own.
+    /// </remarks>
+    internal StorageInventory Inventory => Volatile.Read(ref _inventory);
 
     /// <summary>
     ///     Gets whether anything ejectable is present; the sheet shows
@@ -221,7 +225,9 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
         {
             try
             {
-                var devices = ReadSnapshot();
+                var inventory = StorageInventory.Read();
+                Volatile.Write(ref _inventory, inventory);
+                var devices = Project(inventory);
                 Dispatcher.UIThread.Post(() => Apply(devices));
             }
             catch (Exception ex)
@@ -298,100 +304,43 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
     }
 
     /// <summary>
-    ///     Reads the current ejectable-device list. Worker thread only:
-    ///     this opens volume and disk handles.
+    ///     Projects one storage read into the ejectable-device list: one row per hot-pluggable device, one
+    ///     per removable-media volume. Touches no handle.
     /// </summary>
-    private List<EjectableDevice> ReadSnapshot()
+    /// <param name="inventory">The storage read to project.</param>
+    /// <returns>The rows, ordered by disk number.</returns>
+    internal static List<EjectableDevice> Project(StorageInventory inventory)
     {
-        _systemDisks ??= ResolveSystemDisks();
-
         // Candidate volumes: mounted local disks. USB HDDs report Fixed, so the
-        // type never filters — only network/optical/absent drives are skipped.
-        var volumes = NativeStorage.MountedVolumes()
-            .Where(volume => volume is { DeviceType: NativeStorage.FileDeviceDisk, Disk: >= 0 })
-            .Select(volume => (volume.Letter, volume.Disk, Size: volume.SizeBytes))
+        // type never filters; only network, optical and absent drives are left out.
+        var volumes = inventory.Volumes
+            .Select(volume => (volume.Letter, volume.Disk, Size: volume.CapacityBytes))
             .ToList();
-        // Physical interfaces exist even when Windows cannot mount any partition.
-        var diskPaths = new Dictionary<int, string>();
-        foreach (var path in NativeStorage.ListDiskInterfaces())
+        // A disk Windows mounts no partition from still has its interface and a row.
+        foreach (var disk in inventory.ExternalDisks.Where(disk => disk.InterfacePath.Length > 0))
         {
-            using var probe = NativeStorage.OpenVolumeForQueryPath(path);
-            if (probe.IsInvalid || !NativeStorage.TryGetDeviceNumber(probe, out var type, out var disk)
-                                || type != NativeStorage.FileDeviceDisk || disk < 0)
-            {
-                continue;
-            }
-
-            diskPaths.TryAdd(disk, path);
-            if (volumes.Any(volume => volume.Disk == disk))
-            {
-                continue;
-            }
-
-            var capacity = NativeStorage.GetDiskCapacityForQuery(probe);
-            AddUnletteredDisk(volumes, disk, capacity);
-        }
-
-        if (volumes.Count == 0)
-        {
-            return [];
-        }
-
-        // Classify each disk once, skipping internal storage and the guarded
-        // system/app disks regardless of what the hotplug flags claim.
-        var kinds = new Dictionary<int, EjectKind>();
-        foreach (var disk in volumes.Select(v => v.Disk).Distinct())
-        {
-            if (ClassifyDisk(disk, _systemDisks) is { } kind)
-            {
-                kinds[disk] = kind;
-            }
-        }
-
-        if (kinds.Count == 0)
-        {
-            return [];
-        }
-
-        // Devnode and name per interesting disk, via the disk interface list.
-        var nodes = new Dictionary<int, (uint DevInst, string Id, string Name)>();
-        foreach (var path in NativeStorage.ListDiskInterfaces())
-        {
-            using var handle = NativeStorage.OpenVolumeForQueryPath(path);
-            if (handle.IsInvalid
-                || !NativeStorage.TryGetDeviceNumber(handle, out _, out var disk)
-                || !kinds.ContainsKey(disk)
-                || nodes.ContainsKey(disk)
-                || !NativeStorage.TryGetDevNode(path, out var devInst))
-            {
-                continue;
-            }
-
-            nodes[disk] = (devInst,
-                NativeStorage.GetDeviceInstanceId(devInst),
-                NativeStorage.GetDeviceDisplayName(devInst));
+            AddUnletteredDisk(volumes, disk.Number, disk.CapacityBytes);
         }
 
         var result = new List<EjectableDevice>();
         foreach (var group in volumes.GroupBy(v => v.Disk).OrderBy(g => g.Key))
         {
-            if (!kinds.TryGetValue(group.Key, out var kind))
+            // Internal storage and the guarded system and app disks are not external, whatever
+            // their hotplug flags claim.
+            if (inventory.FindDisk(group.Key) is not { } disk)
             {
                 continue;
             }
 
-            var hasNode = nodes.TryGetValue(group.Key, out var node);
-            var name = hasNode ? node.Name : "";
-            var devInst = hasNode ? node.DevInst : 0u;
             var letters = group.Select(v => v.Letter).Where(char.IsAsciiLetter).OrderBy(l => l).ToArray();
             var size = group.Sum(v => v.Size);
-            if (kind == EjectKind.UsbDevice)
+            if (disk.Kind == EjectKind.UsbDevice)
             {
                 // One row per DEVICE: the PnP eject takes every partition at
                 // once, and per-partition rows would invite a doomed second try.
-                var id = hasNode && node.Id.Length > 0 ? node.Id : $"disk:{group.Key}";
+                var id = disk.InstanceId.Length > 0 ? disk.InstanceId : $"disk:{group.Key}";
                 result.Add(new EjectableDevice(
-                    id, name, FormatLetters(letters), size, kind, devInst, letters.FirstOrDefault())
+                    id, disk.Name, FormatLetters(letters), size, disk.Kind, disk.DevInst, letters.FirstOrDefault())
                     { VolumeLetters = letters });
             }
             else
@@ -399,11 +348,11 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
                 // Media rows stay per-volume: a multi-slot reader ejects each
                 // card on its own.
                 result.AddRange(group.Select(volume => new EjectableDevice(
-                        volume.Letter == '\0' ? $"media:{node.Id}:{group.Key}" : $"media:{volume.Letter}",
-                        name, volume.Letter == '\0' ? "No Windows drive letter" : FormatLetters([volume.Letter]),
-                        volume.Size, kind, devInst, volume.Letter)
+                        volume.Letter == '\0' ? $"media:{disk.InstanceId}:{group.Key}" : $"media:{volume.Letter}",
+                        disk.Name, volume.Letter == '\0' ? "No Windows drive letter" : FormatLetters([volume.Letter]),
+                        volume.Size, disk.Kind, disk.DevInst, volume.Letter)
                     {
-                        DiskPath = diskPaths.GetValueOrDefault(group.Key, ""),
+                        DiskPath = disk.InterfacePath,
                         VolumeLetters = char.IsAsciiLetter(volume.Letter) ? [volume.Letter] : []
                     }));
             }

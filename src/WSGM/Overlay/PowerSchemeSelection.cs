@@ -20,7 +20,8 @@ internal sealed class PowerSchemeSelection(PowerSchemes schemes, Action<Guid> pe
     internal Guid? ActiveId { get; private set; }
     internal string Status { get; private set; } = "Read Windows power profiles to choose one.";
     internal bool Busy { get; private set; }
-    internal bool CanSelect => !readOnly && !Busy && !_disposed && ActiveId is not null && Schemes.Count > 0;
+    // An explicit choice is the user action: it never waits on a fresh read of the active profile.
+    internal bool CanSelect => !readOnly && !Busy && !_disposed && Schemes.Count > 0;
 
     /// <summary>
     ///     Whether the picker is worth showing: Windows offers more than one profile. A machine with a
@@ -76,7 +77,7 @@ internal sealed class PowerSchemeSelection(PowerSchemes schemes, Action<Guid> pe
                     return (Items: schemes.Enumerate(), Active: schemes.ReadActive(), SaveError: saveError);
                 }
 
-                lock (PowerSchemes.MutationGate)
+                using (schemes.EnterMutation())
                 {
                     schemes.Select(id, token);
                     // Record accepted writes even if the sheet closes meanwhile.

@@ -21,7 +21,7 @@ public partial class RadioPanel : UserControl
     private bool _applyingSwitch;
 
     private PromptMode _prompt;
-    private string _promptSsid = "";
+    private WindowsRadio.WifiNetworkKey _promptNetwork;
     private uint _promptToken;
 
     /// <summary>Creates the panel.</summary>
@@ -189,13 +189,13 @@ public partial class RadioPanel : UserControl
 
         if (entry.NeedsPassword)
         {
-            _promptSsid = entry.Ssid;
+            _promptNetwork = entry.Key;
             ShowPrompt(PromptMode.WifiPassword, $"Connect to {entry.Ssid}", "Enter the network password.");
             return;
         }
 
         _ = RunRadioActionAsync(
-            () => _radios.ConnectAsync(entry.Ssid, null),
+            () => _radios.ConnectAsync(entry.Key, null),
             $"Wi-Fi connect to {entry.Ssid}");
     }
 
@@ -203,7 +203,7 @@ public partial class RadioPanel : UserControl
     {
         if ((sender as Control)?.DataContext is WifiNetworkEntry entry)
         {
-            _ = RunRadioActionAsync(() => _radios.ForgetAsync(entry.Ssid),
+            _ = RunRadioActionAsync(() => _radios.ForgetAsync(entry.Key),
                 $"Wi-Fi forget {entry.Ssid}");
         }
     }
@@ -346,10 +346,10 @@ public partial class RadioPanel : UserControl
     {
         var mode = _prompt;
         var token = _promptToken;
-        var ssid = _promptSsid;
+        var network = _promptNetwork;
         TextEntryRequested?.Invoke(PromptTitle.Text ?? "Enter credential", PromptInput.Text ?? "", text =>
         {
-            if (_prompt != mode || _promptToken != token || _promptSsid != ssid)
+            if (_prompt != mode || _promptToken != token || _promptNetwork != network)
             {
                 return;
             }
@@ -371,7 +371,7 @@ public partial class RadioPanel : UserControl
     {
         var mode = _prompt;
         var text = PromptInput.Text ?? "";
-        var ssid = _promptSsid;
+        var network = _promptNetwork;
         var token = _promptToken;
         // An empty PIN cannot answer the provide-pin ceremony. Keep the prompt
         // open instead of asking WinRT to accept with the wrong overload.
@@ -386,8 +386,8 @@ public partial class RadioPanel : UserControl
         switch (mode)
         {
             case PromptMode.WifiPassword:
-                _ = RunRadioActionAsync(() => _radios.ConnectAsync(ssid, text),
-                    $"Wi-Fi connect to {ssid}");
+                _ = RunRadioActionAsync(() => _radios.ConnectAsync(network, text),
+                    $"Wi-Fi connect to {network.DisplayText}");
                 break;
             case PromptMode.PairingPin:
                 RadioManager.RespondToPairing(token, true, text);

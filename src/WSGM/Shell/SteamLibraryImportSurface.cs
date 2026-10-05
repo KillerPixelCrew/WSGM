@@ -80,7 +80,8 @@ internal static class SteamLibraryImportSurface
                     (request, token) => backend.SetModeAsync(request.Id, request.Mode, request.Acknowledged, token),
                     "The import mode payload is invalid."),
                 SteamUiModuleBuilder.Command<string>(PatchId, "cycleLaunch", TryReadId,
-                    backend.CycleLaunchAsync, "The import selection payload is invalid."),
+                    async (id, token) => CycleAnswer(await backend.CycleLaunchAsync(id, token)),
+                    "The import selection payload is invalid."),
                 SteamUiModuleBuilder.Command<string>(PatchId, "exclude", TryReadId,
                     backend.ExcludeAsync, "The import selection payload is invalid."),
                 SteamUiModuleBuilder.Command<string>(PatchId, "include", TryReadId,
@@ -122,13 +123,35 @@ internal static class SteamLibraryImportSurface
                     (request, token) => backend.ArtworkOptionsAsync(request.Id, request.Asset, token),
                     "The artwork payload is invalid."),
                 SteamUiModuleBuilder.Command<QueryRequest>(PatchId, "searchMatch", TryReadQuery,
-                    (request, token) => backend.SearchMatchAsync(request.Id, request.Query, token),
+                    async (request, token) => MatchesAnswer(
+                        await backend.SearchMatchAsync(request.Id, request.Query, token)),
                     "The search payload is invalid."),
                 SteamUiModuleBuilder.Command<MatchRequest>(PatchId, "setMatch", TryReadMatch,
                     (request, token) => backend.SetMatchAsync(
                         request.Id, request.Provider, request.GameId, request.Name, token),
                     "The match payload is invalid.")
             ]);
+    }
+
+    /// <summary>The page's answer to a launch cycle: <c>{ acknowledge: true }</c> when it must ask first.</summary>
+    private static SteamUiCommandResult CycleAnswer(GameLibraryLaunchCycle cycle)
+    {
+        return cycle.NeedsAcknowledgement
+            ? new SteamUiCommandResult(true, null, JsonSerializer.SerializeToElement(
+                new GameLibraryAcknowledgeAnswer(true), GameLibraryJsonContext.Default.GameLibraryAcknowledgeAnswer))
+            : cycle.Command;
+    }
+
+    /// <summary>The page's answer to a match search: the matches as its payload.</summary>
+    private static SteamUiCommandResult MatchesAnswer(GameLibraryMatchSearch search)
+    {
+        return search.Matches is { } matches
+            ? search.Command with
+            {
+                Payload = JsonSerializer.SerializeToElement(
+                    matches, GameLibraryJsonContext.Default.GameLibraryMatchesAnswer)
+            }
+            : search.Command;
     }
 
     private static bool TryReadId(JsonElement payload, out string value)

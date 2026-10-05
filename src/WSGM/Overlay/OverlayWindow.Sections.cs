@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Input;
-using Avalonia.Labs.Panels;
 using Avalonia.Layout;
 using Avalonia.Media;
 using WSGM.Controls;
@@ -34,6 +33,13 @@ public partial class OverlayWindow
     {
         var header = new SectionPinHeader(id, title, key => PinToggleRequested?.Invoke(key), pinnedSurface);
         header.Refresh(_pins.Contains(id));
+        // Pin indicator updates visit only the headers in the tree, not every control in the window.
+        header.AttachedToLogicalTree += (_, _) =>
+        {
+            _pinHeaders.Add(header);
+            header.Refresh(_pins.Contains(header.SectionId));
+        };
+        header.DetachedFromLogicalTree += (_, _) => _pinHeaders.Remove(header);
         return header;
     }
 
@@ -61,8 +67,8 @@ public partial class OverlayWindow
     private CollapsibleSection FoldSection(StackPanel content)
     {
         var header = (SectionPinHeader)content.Children[0];
-        // Retain the existing row offset used by the reconciliation code.
-        content.Children[0] = new Control { IsVisible = false };
+        // The fold's heading carries the title; the header keeps only its pin action there.
+        content.Children.RemoveAt(0);
         header.ShowPinOnly();
         var key = (string)content.Tag!;
         return CreateFold(key, header.Title, content, header);
@@ -241,41 +247,20 @@ public partial class OverlayWindow
             }
         }
 
-        var readings = new FlexPanel { Wrap = FlexWrap.Wrap, ColumnSpacing = 12, RowSpacing = 4 };
-        var ordered = OrderDeviceCapabilities(section.Capabilities);
-        foreach (var capability in ordered)
+        foreach (var capability in OrderDeviceCapabilities(section.Capabilities))
         {
-            var presentation = PresentDeviceCapability(capability);
             var key = (pinned ? PinTagPrefix : "") + DeviceRowKey(capability);
-            var row = CreateDeviceCapabilityRow(presentation, key);
+            var row = CreateDeviceCapabilityRow(CapabilityRowRenderer.Present(capability), key);
             ToolTip.SetTip(row, capability.Description);
-            if (!capability.Writable && capability.ValueKind != CapabilityValueKind.None
-                                     && capability.Prominence != CapabilityProminence.Primary)
-            {
-                row.MinWidth = capability.Prominence == CapabilityProminence.Compact ? 112 : 160;
-                Flex.SetGrow(row, 1);
-                readings.Children.Add(row);
-            }
-            else
-            {
-                if (readings.Children.Count > 0)
-                {
-                    target.Children.Add(readings);
-                    readings = new FlexPanel { Wrap = FlexWrap.Wrap, ColumnSpacing = 12, RowSpacing = 4 };
-                }
-
-                target.Children.Add(row);
-            }
-
+            CapabilityRowRenderer.AddRow(target, row,
+                !capability.Writable && capability.ValueKind != CapabilityValueKind.None
+                                     && capability.Prominence != CapabilityProminence.Primary
+                    ? capability.Prominence == CapabilityProminence.Compact ? 112 : 160
+                    : null);
             if (key == focusedKey)
             {
                 restoreFocus = row;
             }
-        }
-
-        if (readings.Children.Count > 0)
-        {
-            target.Children.Add(readings);
         }
 
         return restoreFocus;

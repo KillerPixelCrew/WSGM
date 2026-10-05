@@ -5,13 +5,10 @@ namespace WSGM.Overlay;
 
 public sealed partial class OverlayController
 {
-    private ManagedUiPad? _managedPad;
-
     /// <summary>Lets WSGM's own navigation and the chord read the managed controller.</summary>
     /// <param name="pad">The managed controller's UI state.</param>
     internal void UseManagedPad(ManagedUiPad pad)
     {
-        _managedPad = pad;
         _gamepad.UseManagedPad(pad);
     }
 

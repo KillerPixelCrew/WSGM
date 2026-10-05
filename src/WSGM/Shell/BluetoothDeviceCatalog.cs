@@ -17,6 +17,10 @@ internal sealed record BluetoothLogicalDevice(
     IReadOnlyList<string> EndpointIds);
 
 /// <summary>Merges watcher endpoints into the one logical collection used by every WSGM surface.</summary>
+/// <remarks>
+///     Container identities arrive normalized by WindowsDeviceControl: lower-case, and empty for an
+///     endpoint without a real container, so an empty container never merges unrelated endpoints.
+/// </remarks>
 internal sealed class BluetoothDeviceCatalog
 {
     private readonly Dictionary<string, WindowsRadio.BluetoothDevice>
@@ -83,8 +87,8 @@ internal sealed class BluetoothDeviceCatalog
         return
         [
             .. _endpoints.Values
-                .GroupBy(device => Container(device.Container) is { Length: > 0 } container
-                    ? $"container:{container}"
+                .GroupBy(device => device.Container.Length > 0
+                    ? $"container:{device.Container}"
                     : $"endpoint:{device.Id}", StringComparer.OrdinalIgnoreCase)
                 .Select(group =>
                 {
@@ -96,14 +100,9 @@ internal sealed class BluetoothDeviceCatalog
                         string.IsNullOrEmpty(pairable.Id) ? selected.Id : pairable.Id,
                         members.Select(d => d.Name).FirstOrDefault(name => !string.IsNullOrWhiteSpace(name)) ??
                         "Unnamed device",
-                        Container(selected.Container), members.Any(d => d.Paired), members.Any(d => d.CanPair),
+                        selected.Container, members.Any(d => d.Paired), members.Any(d => d.CanPair),
                         members.Any(d => d.Connected), [.. members.Select(d => d.Id)]);
                 }).OrderBy(device => device.Id, StringComparer.OrdinalIgnoreCase)
         ];
-    }
-
-    private static string Container(string? value)
-    {
-        return Guid.TryParse(value, out var id) && id != Guid.Empty ? id.ToString("D") : string.Empty;
     }
 }

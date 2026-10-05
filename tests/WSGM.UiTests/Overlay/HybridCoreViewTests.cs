@@ -21,7 +21,7 @@ public sealed class HybridCoreViewTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         using HybridCoreSelection selection =
-            new(new HybridCores(new FakeHybridCoreApi { HeterogeneousPolicies = [0] }));
+            new(new FakeHybridCoreApi { HeterogeneousPolicies = [0] }.Owner());
         window.AttachHybridCores(selection);
         await selection.RefreshAsync();
         Dispatcher.UIThread.RunJobs();
@@ -48,8 +48,8 @@ public sealed class HybridCoreViewTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         using HybridCoreSelection selection = new(
-            new HybridCores(new FakeHybridCoreApi
-                { HeterogeneousPolicies = [0], Classes = [new HybridCoreClass(0, 8, 16)] }));
+            new FakeHybridCoreApi
+                { HeterogeneousPolicies = [0], Classes = [new HybridCoreClass(0, 8, 16)] }.Owner());
         window.AttachHybridCores(selection);
         await selection.RefreshAsync();
         Dispatcher.UIThread.RunJobs();
@@ -65,7 +65,7 @@ public sealed class HybridCoreViewTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         FakeHybridCoreApi api = new() { HeterogeneousPolicies = [0] };
-        using HybridCoreSelection selection = new(new HybridCores(api));
+        using HybridCoreSelection selection = new(api.Owner());
         window.AttachHybridCores(selection);
         await selection.RefreshAsync();
 
@@ -82,7 +82,7 @@ public sealed class HybridCoreViewTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         FakeHybridCoreApi api = new() { HeterogeneousPolicies = [0] };
-        using HybridCoreSelection selection = new(new HybridCores(api), true);
+        using HybridCoreSelection selection = new(api.Owner(), true);
         window.AttachHybridCores(selection);
         await selection.RefreshAsync();
 
@@ -99,8 +99,8 @@ public sealed class HybridCoreViewTests
     {
         using UiFixture fixture = new();
         var window = fixture.Overlay();
-        using HybridCoreSelection selection = new(new HybridCores(new FakeHybridCoreApi
-            { HeterogeneousPolicies = [0], IgnoreWrites = true }));
+        using HybridCoreSelection selection = new(new FakeHybridCoreApi
+            { HeterogeneousPolicies = [0], IgnoreWrites = true }.Owner());
         window.AttachHybridCores(selection);
         await selection.RefreshAsync();
 

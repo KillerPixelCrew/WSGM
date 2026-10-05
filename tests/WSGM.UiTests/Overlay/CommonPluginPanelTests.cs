@@ -313,7 +313,7 @@ public sealed class CommonPluginPanelTests
         {
             Assert.Equal("Command name", prompt);
             Assert.Equal("Power", initial);
-            Assert.Equal(4096, maximum);
+            Assert.Equal(0, maximum);
             accept = callback;
             return true;
         };

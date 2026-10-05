@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
@@ -8,59 +7,6 @@ using WSGM.Core;
 using WSGM.Shell;
 
 namespace WSGM.Settings;
-
-/// <summary>
-///     One reading of what the machine currently offers: the endpoints, and the capabilities of the
-///     one endpoint that was asked about.
-/// </summary>
-/// <param name="Outputs">Render endpoints, in enumeration order.</param>
-/// <param name="Inputs">Capture endpoints, in enumeration order.</param>
-/// <param name="EndpointId">The endpoint the capabilities below describe, or null when none was read.</param>
-/// <param name="Formats">The device formats that endpoint reports, or null when the read failed.</param>
-/// <param name="SpatialFormats">The spatial formats that endpoint reports, or null when the read failed.</param>
-internal sealed record AudioDiscovery(
-    IReadOnlyList<AudioEndpointOption> Outputs,
-    IReadOnlyList<AudioEndpointOption> Inputs,
-    string? EndpointId,
-    IReadOnlyList<CoreAudio.AudioDeviceFormat>? Formats,
-    IReadOnlyList<Guid>? SpatialFormats)
-{
-    /// <summary>Nothing observed, which is what a machine without Core Audio offers.</summary>
-    internal static AudioDiscovery Empty { get; } = new([], [], null, null, null);
-
-    /// <summary>Reads Windows' endpoints, and one endpoint's capabilities when one is named.</summary>
-    /// <param name="endpointId">The endpoint whose capabilities to read, or null for none.</param>
-    /// <returns>The observation. Every call here is a blocking Core Audio read.</returns>
-    internal static AudioDiscovery Read(string? endpointId)
-    {
-        if (!OperatingSystem.IsWindows())
-        {
-            return Empty;
-        }
-
-        var outputs = Endpoints(CoreAudio.AudioDirection.Render);
-        var inputs = Endpoints(CoreAudio.AudioDirection.Capture);
-        if (endpointId is null)
-        {
-            return new AudioDiscovery(outputs, inputs, null, null, null);
-        }
-
-        var formats = CoreAudio.ListSupportedDeviceFormats(endpointId, out var supported) >= 0
-            ? supported
-            : null;
-        var spatial = CoreAudio.GetSpatialAudio(endpointId, out var state) >= 0
-            ? state.SupportedFormats
-            : null;
-        return new AudioDiscovery(outputs, inputs, endpointId, formats, spatial);
-    }
-
-    private static IReadOnlyList<AudioEndpointOption> Endpoints(CoreAudio.AudioDirection direction)
-    {
-        return CoreAudio.ListEndpoints(direction, out var endpoints) >= 0
-            ? [.. endpoints.Select(static endpoint => new AudioEndpointOption(endpoint.Id, endpoint.Name))]
-            : [];
-    }
-}
 
 /// <summary>Editable saved audio preferences for one display-switch direction.</summary>
 public sealed class AudioProfileEditor : ObservableObject
@@ -91,10 +37,10 @@ public sealed class AudioProfileEditor : ObservableObject
     private SpatialAudioOption? _spatial;
     private int _volumePercent = 50;
 
-    internal AudioProfileEditor(Action changed, Func<string?, AudioDiscovery>? read = null)
+    internal AudioProfileEditor(Action changed, Func<string?, AudioDiscovery> read)
     {
         _changed = changed;
-        _read = read ?? AudioDiscovery.Read;
+        _read = read ?? throw new ArgumentNullException(nameof(read));
     }
 
     /// <summary>Playback endpoint choices, with a null entry meaning leave unchanged.</summary>
@@ -122,7 +68,7 @@ public sealed class AudioProfileEditor : ObservableObject
 
             RefreshPlaybackCapabilities(false);
             // The new endpoint's capabilities are not in the last observation, so ask for them.
-            _ = RefreshEndpointsAsync();
+            Log.Observe(RefreshEndpointsAsync(), "Settings audio discovery");
             Edited();
         }
     }
@@ -385,7 +331,7 @@ public sealed class AudioProfileEditor : ObservableObject
                 SpatialChoices.Add(new SpatialAudioOption(CoreAudio.SpatialAudioFormats.Off, "Off"));
                 foreach (var format in spatial)
                 {
-                    SpatialChoices.Add(new SpatialAudioOption(format, SpatialName(format)));
+                    SpatialChoices.Add(new SpatialAudioOption(format, SpatialAudioNames.For(format)));
                 }
             }
 
@@ -417,28 +363,6 @@ public sealed class AudioProfileEditor : ObservableObject
                && format.ChannelMask == preference.ChannelMask
                && format.IsFloat == preference.IsFloat;
     }
-
-    internal static string SpatialName(Guid format)
-    {
-        return format == CoreAudio.SpatialAudioFormats.Off ? "Off"
-            : format == CoreAudio.SpatialAudioFormats.WindowsSonic ? "Windows Sonic"
-            : format == CoreAudio.SpatialAudioFormats.DolbyAtmosForHeadphones ? "Dolby Atmos for Headphones"
-            : format == CoreAudio.SpatialAudioFormats.DolbyAtmosForSpeakers ? "Dolby Atmos for Speakers"
-            : format == CoreAudio.SpatialAudioFormats.DolbyAtmosForHomeTheater ? "Dolby Atmos for Home Theater"
-            : format == CoreAudio.SpatialAudioFormats.DtsHeadphoneX ? "DTS Headphone:X"
-            : format == CoreAudio.SpatialAudioFormats.DtsXUltra ? "DTS:X Ultra"
-            : format.ToString();
-    }
-}
-
-/// <summary>One named saved-endpoint choice.</summary>
-public sealed record AudioEndpointOption(string Id, string Name)
-{
-    /// <inheritdoc />
-    public override string ToString()
-    {
-        return Name;
-    }
 }
 
 /// <summary>One named default-format choice.</summary>
@@ -448,15 +372,5 @@ public sealed record AudioFormatOption(CoreAudio.AudioDeviceFormat Format)
     public override string ToString()
     {
         return $"{Format.Channels} channels · {Format.SampleRate / 1000.0:0.#} kHz · {Format.BitsPerSample}-bit";
-    }
-}
-
-/// <summary>One named spatial-audio-format choice.</summary>
-public sealed record SpatialAudioOption(Guid Format, string Name)
-{
-    /// <inheritdoc />
-    public override string ToString()
-    {
-        return Name;
     }
 }

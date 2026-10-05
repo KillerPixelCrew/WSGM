@@ -89,7 +89,10 @@ public sealed class PluginSettingRowViewModel : ObservableObject
     /// <summary>Step between legal values for a range setting.</summary>
     public int Step => _descriptor.Step ?? 1;
 
-    /// <summary>Longest accepted text, as the text setting declared it; zero places no limit.</summary>
+    /// <summary>
+    ///     The plugin's declared storage length for a text setting, enforced at input; a longer value is
+    ///     refused rather than cut. Rows that are not text report zero.
+    /// </summary>
     public int MaximumLength => _descriptor.MaximumLength ?? 0;
 
     /// <summary>The packed RGB value exposed through Avalonia's colour type.</summary>
@@ -183,23 +186,18 @@ public sealed class PluginSettingRowViewModel : ObservableObject
         get => _textValue;
         set
         {
-            var bounded = value ?? string.Empty;
-            if (bounded.Length > MaximumLength)
-            {
-                bounded = bounded[..MaximumLength];
-            }
-
-            if (string.Equals(_textValue, bounded, StringComparison.Ordinal))
+            var text = value ?? string.Empty;
+            if (text.Length > MaximumLength || string.Equals(_textValue, text, StringComparison.Ordinal))
             {
                 return;
             }
 
-            _textValue = bounded;
+            _textValue = text;
             Raise(nameof(TextValue));
             Publish(new CapabilityValue
             {
                 Kind = CapabilityValueKind.Text,
-                TextValue = bounded
+                TextValue = text
             });
         }
     }

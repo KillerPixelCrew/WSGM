@@ -1097,9 +1097,9 @@ internal static class LibraryTabManager
     }
 
     /// <summary>
-    ///     The letters of every ready volume on external storage, classified as the eject list and the
-    ///     card volume monitor classify it: a disk volume whose disk is hot-pluggable or holds removable
-    ///     media, and is not one Windows or WSGM runs from.
+    ///     The letters of every ready volume on external storage, from the same <see cref="StorageInventory" />
+    ///     read the eject list and the card volume monitor project: a disk volume whose disk is hot-pluggable
+    ///     or holds removable media, and is not one Windows or WSGM runs from.
     /// </summary>
     /// <remarks>
     ///     Query access only: GENERIC_READ on <c>\\.\PhysicalDriveN</c> requires elevation and WSGM is
@@ -1109,16 +1109,7 @@ internal static class LibraryTabManager
     /// </remarks>
     private static List<char> ExternalVolumeLetters()
     {
-        // Resolved once per scan: each call opens two volume handles and issues two
-        // IOCTLs, and the answer cannot change while a single scan runs.
-        var systemDisks = RemovableDriveManager.ResolveSystemDisks();
-        return
-        [
-            .. NativeStorage.MountedVolumes()
-                .Where(volume => volume is { Ready: true, DeviceType: NativeStorage.FileDeviceDisk, Disk: >= 0 }
-                                 && RemovableDriveManager.ClassifyDisk(volume.Disk, systemDisks) is not null)
-                .Select(volume => volume.Letter)
-        ];
+        return [.. StorageInventory.Read().ReadyExternalVolumes().Select(volume => volume.Letter)];
     }
 
     /// <summary>

@@ -32,7 +32,7 @@ public sealed class SettingsSaveMergeTests
         [
             new KnownDisplay { Target = new DisplayTargetIdentity(@"\\?\guard", null, null, "Guard", 0, 0, 1) }
         ];
-        SettingsViewModel window = new(loaded);
+        var window = SettingsTestServices.Model(loaded);
         List<string> edited = [];
         var paths = Directory
             .EnumerateFiles(Path.Combine(RepositoryFiles.Root, "src", "WSGM", "Settings", "Pages"), "*.axaml")
@@ -103,8 +103,8 @@ public sealed class SettingsSaveMergeTests
         Assert.Contains("Splash.SpinnerStyle", edited);
         var request = window.CaptureSaveRequest();
         var fresh = AppConfigRules.Normalize(new AppConfig()).Value;
-        var merged = SettingsSaveMerge.Apply(fresh, request, request.Splash);
-        SettingsViewModel rebound = new(merged);
+        var (merged, _) = SettingsSaveMerge.Apply(fresh, request, request.Splash);
+        var rebound = SettingsTestServices.Model(merged);
         var reloaded = rebound.CaptureSaveRequest();
 
         Assert.DoesNotContain(edited, path => !Equals(ReadBinding(window, path), ReadBinding(rebound, path)));
@@ -127,7 +127,7 @@ public sealed class SettingsSaveMergeTests
     [Fact]
     public void UntouchedSharedFieldsAndMediaRecoveryStateKeepTheFreshValues()
     {
-        SettingsViewModel window = new(AppConfigRules.Normalize(new AppConfig()).Value);
+        var window = SettingsTestServices.Model(AppConfigRules.Normalize(new AppConfig()).Value);
         var request = window.CaptureSaveRequest();
         Assert.Empty(request.SharedEdits);
         var fresh = AppConfigRules.Normalize(new AppConfig()).Value;
@@ -151,7 +151,7 @@ public sealed class SettingsSaveMergeTests
         var expected = WsgmSharedSettings.All.ToDictionary(field => field.Name, field => field.Read(fresh));
         var mediaBefore = JsonSerializer.Serialize(new { fresh.Themes, fresh.Sounds, fresh.Animations });
 
-        var merged = SettingsSaveMerge.Apply(fresh, request, request.Splash);
+        var (merged, _) = SettingsSaveMerge.Apply(fresh, request, request.Splash);
 
         Assert.Same(fresh, merged);
         Assert.All(WsgmSharedSettings.All, field => Assert.Equal(expected[field.Name], field.Read(merged)));
@@ -208,7 +208,7 @@ public sealed class SettingsSaveMergeTests
         };
 
         var savedPowerScheme = fresh.LastSelectedPowerSchemeId;
-        var merged = SettingsSaveMerge.Apply(fresh, request, values.Splash);
+        var (merged, _) = SettingsSaveMerge.Apply(fresh, request, values.Splash);
         Assert.Equal(savedPowerScheme, merged.LastSelectedPowerSchemeId);
 
         Assert.True(merged.SteamAutoRelaunch);
@@ -236,15 +236,15 @@ public sealed class SettingsSaveMergeTests
         // baseline, the unchanged field would look edited on the second and write the stale value.
         var loaded = AppConfigRules.Normalize(new AppConfig()).Value;
         loaded.Cef.WifiIndicator = true;
-        SettingsViewModel window = new(loaded);
+        var window = SettingsTestServices.Model(loaded);
         var saved = AppConfigRules.Normalize(new AppConfig()).Value;
         saved.Cef.WifiIndicator = false;
 
         var first = window.CaptureSaveRequest();
-        saved = SettingsSaveMerge.Apply(saved, first, first.Splash);
+        (saved, _) = SettingsSaveMerge.Apply(saved, first, first.Splash);
         window.AdvanceSharedBaseline(first);
         var second = window.CaptureSaveRequest();
-        saved = SettingsSaveMerge.Apply(saved, second, second.Splash);
+        (saved, _) = SettingsSaveMerge.Apply(saved, second, second.Splash);
 
         Assert.Empty(second.SharedEdits);
         Assert.False(saved.Cef.WifiIndicator);
@@ -271,7 +271,7 @@ public sealed class SettingsSaveMergeTests
             SharedEdits = ["StartMode"]
         };
 
-        var merged = SettingsSaveMerge.Apply(fresh, request, values.Splash);
+        var (merged, _) = SettingsSaveMerge.Apply(fresh, request, values.Splash);
 
         Assert.False(merged.Cef.WifiIndicator);
         Assert.False(merged.SteamInputLeaseEnabled);
@@ -281,7 +281,7 @@ public sealed class SettingsSaveMergeTests
     [Fact]
     public void ADeviceEditMadeDuringSaveRemainsPendingAndTheNextSaveAcknowledgesIt()
     {
-        SettingsViewModel window = new(AppConfigRules.Normalize(new AppConfig()).Value);
+        var window = SettingsTestServices.Model(AppConfigRules.Normalize(new AppConfig()).Value);
         var original = window.DeviceAutoTdpEnabled;
         window.DeviceAutoTdpEnabled = !original;
         var first = window.CaptureSaveRequest();
@@ -297,7 +297,7 @@ public sealed class SettingsSaveMergeTests
     [Fact]
     public void AnAcknowledgedDeviceValueDoesNotOverwriteAFutureRuntimeChangeOnUnrelatedSave()
     {
-        SettingsViewModel window = new(AppConfigRules.Normalize(new AppConfig()).Value);
+        var window = SettingsTestServices.Model(AppConfigRules.Normalize(new AppConfig()).Value);
         window.DeviceAutoTdpEnabled = !window.DeviceAutoTdpEnabled;
         var first = window.CaptureSaveRequest();
         window.AdvanceSharedBaseline(first);
@@ -306,7 +306,7 @@ public sealed class SettingsSaveMergeTests
         var next = window.CaptureSaveRequest();
         Assert.DoesNotContain("DeviceIntegration.AutoTdpEnabled", next.SharedEdits);
         Assert.Equal(!first.Values.DeviceIntegration.AutoTdpEnabled, SettingsSaveMerge.Apply(fresh, next, next.Splash)
-            .DeviceIntegration.AutoTdpEnabled);
+            .Config.DeviceIntegration.AutoTdpEnabled);
     }
 
     [Fact]
@@ -373,7 +373,7 @@ public sealed class SettingsSaveMergeTests
             ]
         };
 
-        var merged = SettingsSaveMerge.Apply(fresh, request, values.Splash);
+        var (merged, _) = SettingsSaveMerge.Apply(fresh, request, values.Splash);
 
         var scope = Assert.Single(merged.DeviceIntegration.PluginSettings);
         Assert.Equal("keep", scope.Values.Single(value => value.SettingId == "runtime-only").Text);

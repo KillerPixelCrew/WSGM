@@ -23,9 +23,9 @@ public sealed partial class AnimationsView
 
     private async Task AddFileAsync()
     {
-        var generation = _navigationGeneration;
+        var generation = NavigationGeneration;
         var path = await PickPathAsync(false, ".webm");
-        if (path is not null && generation == _navigationGeneration && _service is not null)
+        if (path is not null && generation == NavigationGeneration && _service is not null)
         {
             Run(token => _service.AddFileAsync(path, token), "add file");
         }
@@ -49,7 +49,7 @@ public sealed partial class AnimationsView
         var browse = state.Browse;
         AddStatus(body, state);
         body.Children.Add(Tagged(Row("Search", browse.Search, Icons.ListLines, () => EditText("Search movies",
-            browse.Search, 64,
+            browse.Search, 0,
             search => Run(token => _browser!.BrowseAsync(browse.Sort, search, token)))), "search"));
         body.Children.Add(ChoiceRow("Sort", browse.Sorts.Select(sort => (sort.Id, sort.Label)).ToArray(), browse.Sort,
             sort => Run(token => _browser!.BrowseAsync(sort, browse.Search, token))));
@@ -66,7 +66,7 @@ public sealed partial class AnimationsView
         {
             var id = item.Id;
             cards.Children.Add(PreviewCard(id, item.ThumbnailUrl, item.Name, AnimationsRows.DescribeListing(item),
-                () => Navigate(() => RenderDetail(id))));
+                () => Navigate(() => RenderMovie(id))));
         }
 
         body.Children.Add(cards);

@@ -229,7 +229,7 @@ public partial class OverlayWindow : Window
     /// <summary>Updates the attached backdrop without recreating the Overlay window.</summary>
     internal void SetBlurRadius(double radius)
     {
-        _blurRadius = double.IsFinite(radius) ? Math.Clamp(radius, 0, 60) : 8;
+        _blurRadius = double.IsFinite(radius) ? Math.Clamp(radius, 0, LiveBackdrop.MaximumBlurRadius) : 8;
         if (_glassBackdrop is not null)
         {
             _glassBackdrop.BlurRadius = _blurRadius;

@@ -1,6 +1,7 @@
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WSGM.Core;
@@ -60,32 +61,46 @@ public sealed class ApplicationProfilesViewTests
         UiFixture.Click(window, UiFixture.Named<Button>(window, "ManageProfiles"));
         var editor = window.GetVisualDescendants().OfType<ApplicationProfilesView>().Single();
 
-        TextBox Text(string name)
-        {
-            return editor.GetVisualDescendants().OfType<TextBox>()
-                .Single(box => AutomationProperties.GetName(box) == name);
-        }
-
         Button Button(string name)
         {
             return editor.GetVisualDescendants().OfType<Button>()
                 .Single(button => Equals(button.Content, name));
         }
 
-        Text("Profile name").Text = "My game";
-        Text("Activation processes").Text = "game.exe\nlauncher.exe";
+        // The name and process rows are press-to-edit: each opens the overlay keyboard.
+        async Task EnterAsync(Button row, string text)
+        {
+            UiFixture.Click(window, row);
+            Dispatcher.UIThread.RunJobs();
+            var keyboard = window.GetVisualDescendants().OfType<KeyboardPanel>().Single();
+            UiFixture.Named<TextBox>(keyboard, "Input").Text = text;
+            UiFixture.Click(window, keyboard.GetVisualDescendants().OfType<Button>()
+                .Single(button => button.IsEffectivelyVisible && Equals(button.Tag, Key.Enter)));
+            await WaitAsync(() => !window.GetVisualDescendants().OfType<KeyboardPanel>().Any());
+        }
+
+        var name = editor.GetVisualDescendants().OfType<Button>()
+            .Single(button => AutomationProperties.GetName(button) == "Profile name");
+        await EnterAsync(name, "My game");
+        Assert.Equal("My game", name.Content);
+        await EnterAsync(Button("Add process"), "game.exe");
+        await EnterAsync(Button("Add process"), "launcher.exe");
+        await EnterAsync(Button("Add process"), "old.exe");
+        await EnterAsync(Button("old.exe"), "");
         UiFixture.Click(window, Button("Save profile"));
         await WaitAsync(() => editor.IsEnabled && profiles.Current.Config.Games.Count == 1);
         var entry = Assert.Single(profiles.Current.Config.Games);
+        Assert.Equal("My game", entry.Name);
         Assert.Equal(["game.exe", "launcher.exe"], entry.ProcessNames);
         Assert.Equal(0, entry.Values.Count());
         Dispatcher.UIThread.RunJobs();
         VisualBaseline.Verify(window, baseline);
-        Text("Activation processes").Text = "newgame.exe";
+        await EnterAsync(Button("launcher.exe"), "newgame.exe");
         UiFixture.Click(window, Button("Save profile"));
         await WaitAsync(() =>
             editor.IsEnabled && profiles.Current.Config.Games[0].ProcessNames.Contains("newgame.exe"));
         Assert.Equal(entry.Id, profiles.Current.Config.Games[0].Id);
+        Assert.Equal(["game.exe", "newgame.exe"], profiles.Current.Config.Games[0].ProcessNames);
         UiFixture.Click(window, Button("Delete profile"));
         Assert.Single(profiles.Current.Config.Games);
         UiFixture.Click(window, Button("Confirm delete"));

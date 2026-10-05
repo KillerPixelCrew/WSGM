@@ -198,6 +198,9 @@ public sealed class ThemeStoreClient
         return ParsePage(json);
     }
 
+    /// <summary>How many sound packs one <see cref="QuerySoundsAsync" /> page lists.</summary>
+    public const int SoundsPageSize = 24;
+
     /// <summary>Lists Audio Loader sound packs using the same bounded DeckThemes client as CSS themes.</summary>
     /// <param name="page">The one-based page.</param>
     /// <param name="search">Optional search text.</param>
@@ -206,7 +209,8 @@ public sealed class ThemeStoreClient
     public async Task<ThemePage> QuerySoundsAsync(int page, string search, CancellationToken cancellationToken)
     {
         var json = await GetJsonAsync(
-            $"/themes?page={page}&perPage=24&filters=AUDIO.&order=Last%20Updated&search={Uri.EscapeDataString(search)}",
+            $"/themes?page={page}&perPage={SoundsPageSize}&filters=AUDIO.&order=Last%20Updated"
+            + $"&search={Uri.EscapeDataString(search)}",
             cancellationToken).ConfigureAwait(false);
         return ParsePage(json);
     }

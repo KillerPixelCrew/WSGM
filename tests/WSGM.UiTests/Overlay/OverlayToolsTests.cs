@@ -81,7 +81,8 @@ public sealed class OverlayToolsTests
         Click(window, "Deselect visible");
         Assert.False(source.State.Entries.Single(entry => entry.Id == "new-one").Selected);
         Assert.False(source.State.Entries.Single(entry => entry.Action == "Remove").Selected);
-        Assert.Single(source.Commands, name => name == "ToggleEntryAsync");
+        Assert.Single(source.Commands, name => name == "SetSelectedAsync");
+        Assert.DoesNotContain("ToggleEntryAsync", source.Commands);
     }
 
     [AvaloniaFact]

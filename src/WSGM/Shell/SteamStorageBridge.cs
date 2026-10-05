@@ -7,7 +7,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
-using WindowsDeviceControl;
 using WSGM.Core;
 
 namespace WSGM.Shell;
@@ -30,7 +29,7 @@ namespace WSGM.Shell;
 /// </remarks>
 internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
 {
-    private readonly Func<IReadOnlyList<StorageVolume>> _describeVolumes;
+    private readonly Func<IReadOnlyList<StorageVolumeFacts>> _describeVolumes;
 
     // Steam addresses drives and volumes by uint32 and both managers key on strings. These hold the
     // mapping for the life of the session so an id Steam saw stays the same id on the next read —
@@ -61,8 +60,9 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     /// <param name="formats">The format manager, which owns erase and library registration.</param>
     /// <param name="formatAllowed">Whether formatting from Steam's own pages is permitted.</param>
     /// <param name="describeVolumes">
-    ///     Reads the mounted local volumes and their disks; the session passes
-    ///     <see cref="DescribeLocalVolumes" />.
+    ///     The mounted disk volumes of the latest storage read; the session passes the drive manager's
+    ///     <see cref="RemovableDriveManager.Inventory" />, so Steam's pages project from the same read as
+    ///     the eject list and the format targets.
     /// </param>
     /// <remarks>
     ///     The format manager enumerates on demand and has no timer of its own, because until now the
@@ -82,7 +82,7 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     /// </param>
     internal SteamStorageBridge(
         RemovableDriveManager drives, SdFormatManager formats, Func<bool> formatAllowed,
-        Func<IReadOnlyList<StorageVolume>> describeVolumes, LibraryPolicy? policy = null)
+        Func<IReadOnlyList<StorageVolumeFacts>> describeVolumes, LibraryPolicy? policy = null)
     {
         _drives = drives ?? throw new ArgumentNullException(nameof(drives));
         _formats = formats ?? throw new ArgumentNullException(nameof(formats));
@@ -99,62 +99,6 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     {
         _drives.Drives.CollectionChanged -= OnDrivesChanged;
         _formats.Targets.CollectionChanged -= OnTargetsChanged;
-    }
-
-    /// <summary>Every mounted local volume and the disk behind it.</summary>
-    /// <returns>One entry per removable or fixed volume that could be queried.</returns>
-    /// <remarks>
-    ///     Network, optical and unrooted drives are skipped before their readiness is asked, so a
-    ///     stalled network share never holds up a Steam publication. Only removable and fixed volumes
-    ///     can be a card, a stick or the disk a format target names.
-    /// </remarks>
-    internal static IReadOnlyList<StorageVolume> DescribeLocalVolumes()
-    {
-        List<StorageVolume> volumes = [];
-        DriveInfo[] drives;
-        try
-        {
-            drives = DriveInfo.GetDrives();
-        }
-        catch (IOException)
-        {
-            return volumes;
-        }
-
-        foreach (var drive in drives)
-        {
-            if (drive.Name.Length == 0 || !IsLocalVolume(drive.DriveType))
-            {
-                continue;
-            }
-
-            try
-            {
-                var ready = drive.IsReady;
-                volumes.Add(new StorageVolume(
-                    drive.Name,
-                    WindowsStorage.DiskNumberFor(drive.Name[0]),
-                    ready ? drive.VolumeLabel : "",
-                    ready ? drive.TotalSize : 0,
-                    ready ? drive.AvailableFreeSpace : 0,
-                    ready));
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-                                           or DriveNotFoundException)
-            {
-                // Not a volume this bridge can act on, so not one worth reporting.
-            }
-        }
-
-        return volumes;
-    }
-
-    /// <summary>Whether a drive of this type is read for Steam's storage pages at all.</summary>
-    /// <param name="type">The drive's type.</param>
-    /// <returns>True for removable and fixed volumes only.</returns>
-    internal static bool IsLocalVolume(DriveType type)
-    {
-        return type is DriveType.Removable or DriveType.Fixed;
     }
 
     /// <inheritdoc />
@@ -351,7 +295,8 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     private void OnDrivesChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         Volatile.Write(ref _snapshot, BuildSnapshot());
-        _formats.Refresh();
+        // The format targets follow from the storage read that changed the drive list, not a second walk.
+        _formats.Refresh(_drives.Inventory);
     }
 
     private void OnTargetsChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -428,10 +373,10 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
                 true);
         }
 
-        // One read of what Windows says about mounted volumes, shared by every row below. It is the
-        // only thing that relates a volume to the disk under it: the format manager knows a card by
-        // its disk number and the drive manager knows it by its device instance path, and nothing
-        // else can say those describe the same card.
+        // One storage read's mounted volumes, shared by every row below. They are the only thing that
+        // relates a volume to the disk under it: the format manager knows a card by its disk number and
+        // the drive manager knows it by its device instance path, and nothing else can say those
+        // describe the same card.
         var volumes = _describeVolumes();
 
         // One drive row per format target, because that is the manager that knows a disk by number
@@ -492,7 +437,7 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     /// <param name="volumes">What Windows reports about mounted volumes.</param>
     /// <returns>The row Steam shows under the volume's drive.</returns>
     private SteamStorageBlockDevice BlockDevice(
-        StorageSnapshot snapshot, RemovableDriveEntry entry, IReadOnlyList<StorageVolume> volumes)
+        StorageSnapshot snapshot, RemovableDriveEntry entry, IReadOnlyList<StorageVolumeFacts> volumes)
     {
         // The parent drive is zero rather than a guess when nothing erasable matches: Steam
         // reads it to decide which drive a volume belongs under, and a wrong parent puts the
@@ -524,16 +469,16 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     ///     never match and comparing them parented nothing. Steam then saw a card reader with no volume
     ///     on it, which is its definition of "unusable until formatted", and offered exactly that on a
     ///     card holding a library. The disk number is the fact both sides are really describing, which
-    ///     is why reading it is <see cref="WindowsStorage" />'s job rather than either manager's.
+    ///     is why the storage read carries it on every volume rather than either manager keeping its own.
     /// </remarks>
-    private static uint MatchingDrive(StorageSnapshot snapshot, StorageVolume? volume)
+    private static uint MatchingDrive(StorageSnapshot snapshot, StorageVolumeFacts? volume)
     {
-        if (volume is null || volume.DiskNumber < 0)
+        if (volume is null)
         {
             return 0;
         }
 
-        var match = snapshot.Targets.FirstOrDefault(target => target.DiskNumber == volume.DiskNumber);
+        var match = snapshot.Targets.FirstOrDefault(target => target.DiskNumber == volume.Disk);
         return match is null ? 0 : IdOf(snapshot.DriveIds, match.Id);
     }
 
@@ -586,9 +531,9 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     ///     hides the offer on a blank card or makes it on a card holding a library.
     /// </remarks>
     private static bool IsUnformatted(
-        IReadOnlyList<StorageVolume> volumes, FormatTargetEntry target)
+        IReadOnlyList<StorageVolumeFacts> volumes, FormatTargetEntry target)
     {
-        return !volumes.Any(volume => volume.DiskNumber == target.DiskNumber && volume.Ready);
+        return !volumes.Any(volume => volume.Disk == target.DiskNumber && volume.Ready);
     }
 
     /// <summary>Whether the media itself carries a Steam library marker.</summary>
@@ -629,12 +574,12 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     /// <param name="volumes">The volumes read for this state.</param>
     /// <param name="path">The mount path to find.</param>
     /// <returns>The volume, or null when Windows did not describe it.</returns>
-    private static StorageVolume? FindVolume(IReadOnlyList<StorageVolume> volumes, string path)
+    private static StorageVolumeFacts? FindVolume(IReadOnlyList<StorageVolumeFacts> volumes, string path)
     {
-        return volumes.FirstOrDefault(volume => volume.MountPath.Length > 0 && path.Length > 0
-                                                                            && char.ToUpperInvariant(
-                                                                                volume.MountPath[0]) ==
-                                                                            char.ToUpperInvariant(path[0]));
+        return path.Length == 0
+            ? null
+            : volumes.FirstOrDefault(volume =>
+                char.ToUpperInvariant(volume.Letter) == char.ToUpperInvariant(path[0]));
     }
 
     /// <summary>Every Steam library registered on a volume, as Steam spells the path.</summary>
@@ -728,7 +673,7 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
         }
 
         var volume = _describeVolumes()
-            .FirstOrDefault(candidate => candidate.Ready && candidate.DiskNumber == target.DiskNumber);
+            .FirstOrDefault(candidate => candidate.Ready && candidate.Disk == target.DiskNumber);
         return volume?.MountPath;
     }
 

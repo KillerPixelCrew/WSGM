@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Data;
 using Avalonia.Layout;
 using Avalonia.Media;
+using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 
@@ -46,26 +47,19 @@ public sealed class DevicePowerPresetView : UserControl
                 }
             }
         };
-        _ac.SelectionChanged += async (_, _) =>
-        {
-            if (_rendering || _model is not { CanAssign: true } model
-                           || _ac.SelectedItem is not DevicePowerPreset choice || choice.Id == "custom")
-            {
-                return;
-            }
+        // Browsing an open dropdown must not assign every preset it passes.
+        ComboCommit.Attach<DevicePowerPreset>(_ac, () => _rendering, choice => Assign(true, choice));
+        ComboCommit.Attach<DevicePowerPreset>(_battery, () => _rendering, choice => Assign(false, choice));
+    }
 
-            await model.AssignAsync(true, choice.Id.Length == 0 ? null : choice.Id);
-        };
-        _battery.SelectionChanged += async (_, _) =>
+    private void Assign(bool ac, DevicePowerPreset choice)
+    {
+        if (_model is not { CanAssign: true } model || choice.Id == "custom")
         {
-            if (_rendering || _model is not { CanAssign: true } model
-                           || _battery.SelectedItem is not DevicePowerPreset choice || choice.Id == "custom")
-            {
-                return;
-            }
+            return;
+        }
 
-            await model.AssignAsync(false, choice.Id.Length == 0 ? null : choice.Id);
-        };
+        _ = model.AssignAsync(ac, choice.Id.Length == 0 ? null : choice.Id);
     }
 
     // The running game's own assignment for a source is marked beside its title. Its unset entry,

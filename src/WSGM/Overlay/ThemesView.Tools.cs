@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Media;
 using WSGM.Controls;
@@ -31,7 +30,7 @@ public sealed partial class ThemesView
         var browse = state.Browse;
         AddStatus(body, state);
         body.Children.Add(Tagged(Row("Search", browse.Search, Icons.ListLines, () => EditText("Search themes",
-                browse.Search, 64,
+                browse.Search, 0,
                 text => Run(token => _browser!.BrowseAsync(browse.Filter, browse.Order, text, token), "browse"))),
             "search"));
         List<(string Value, string Label)> filters = [("All", "All")];
@@ -86,12 +85,12 @@ public sealed partial class ThemesView
 
         options.AddRange(state.Presets.Select(profile => (profile.Name, profile.DisplayName)));
         body.Children.Add(ChoiceRow("Selected profile", options, state.SelectedPreset,
-            name => Run(token => _service!.SetProfileAsync(name, token))));
+            name => Run(token => _browser!.SetProfileAsync(name, token))));
         body.Children.Add(Tagged(Row("Create profile", "Save the enabled themes and their settings", Icons.CopyDoc,
             state.Busy
                 ? null
-                : () => EditText("Profile name", "", 64,
-                    name => Run(token => _service!.CreateProfileAsync(name, token)))), "profiles.create"));
+                : () => EditText("Profile name", "", 0,
+                    name => Run(token => _browser!.CreateProfileAsync(name, token)))), "profiles.create"));
         foreach (var profile in state.Presets)
         {
             var name = profile.Name;
@@ -100,7 +99,7 @@ public sealed partial class ThemesView
                 state.Busy
                     ? null
                     : () => ConfirmCommand("Delete profile", "Delete " + profile.DisplayName + "?",
-                        token => _service!.DeleteAsync(name, token))), "profile.delete:" + name));
+                        token => _browser!.DeleteAsync(name, token))), "profile.delete:" + name));
         }
     }
 
@@ -110,7 +109,7 @@ public sealed partial class ThemesView
         var settings = state.Settings;
         body.Children.Add(ToggleRow("Install themes into Steam", settings.Enabled,
             enabled => Run(token =>
-                _service!.SetSettingAsync("enabled", JsonSerializer.SerializeToElement(enabled), token))));
+                _browser!.SetThemesEnabledAsync(enabled, token))));
         body.Children.Add(ChoiceRow("Class translations",
             new[]
             {
@@ -119,15 +118,15 @@ public sealed partial class ThemesView
             },
             settings.TranslationsBranch,
             value => Run(token =>
-                _service!.SetSettingAsync("translationsBranch", JsonSerializer.SerializeToElement(value), token))));
+                _browser!.SetTranslationsBranchAsync(value, token))));
         body.Children.Add(Caption(
             $"Translations: {settings.Translations} names; fetched {settings.TranslationsFetched ?? "not yet"}"));
         body.Children.Add(Caption("Themes folder: " + settings.ThemesPath));
         body.Children.Add(Caption("Steam themes_custom: " + settings.SteamLink));
         body.Children.Add(Tagged(
             Row("Refresh", "Reload themes and check updates", Icons.Restart,
-                state.Busy ? null : () => Run(_service!.RefreshAsync)), "refresh"));
-        body.Children.Add(Tagged(Row("Dismiss notice", "", Icons.Close, () => Run(_service!.DismissAsync)), "dismiss"));
+                state.Busy ? null : () => Run(_browser!.RefreshAsync)), "refresh"));
+        body.Children.Add(Tagged(Row("Dismiss notice", "", Icons.Close, () => Run(_browser!.DismissAsync)), "dismiss"));
     }
 
     private Control ThemeSlider(string name, ThemePatchSnapshot patch)
@@ -140,7 +139,7 @@ public sealed partial class ThemesView
             {
                 if (index >= 0 && index < patch.Options.Count)
                 {
-                    Run(token => _service!.SetPatchAsync(name, patch.Name, patch.Options[index], token));
+                    Run(token => _browser!.SetPatchAsync(name, patch.Name, patch.Options[index], token));
                 }
             });
         body.Children.Add(slider);
@@ -159,13 +158,13 @@ public sealed partial class ThemesView
                 Tag = "component.color:" + theme + ":" + patch + ":" + component.Name
             };
             picker.Commit = chosen => Run(token =>
-                _service!.SetComponentAsync(theme, patch, component.Name, ThemeColorText(chosen), token));
+                _browser!.SetComponentAsync(theme, patch, component.Name, ThemeColorText(chosen), token));
             body.Children.Add(picker);
         }
 
         body.Children.Add(Tagged(Row("Edit value", component.Value, Icons.CopyDoc,
-                () => EditText(component.Name, component.Value, 256,
-                    value => Run(token => _service!.SetComponentAsync(theme, patch, component.Name, value, token)))),
+                () => EditText(component.Name, component.Value, 0,
+                    value => Run(token => _browser!.SetComponentAsync(theme, patch, component.Name, value, token)))),
             "component.value:" + theme + ":" + patch + ":" + component.Name));
         return body;
     }

@@ -9,16 +9,22 @@ verified on the reference MSI Claw. Boot and shell transitions are in
 
 Windows Device Control owns the first reusable CCD display-profile primitives. `DisplayTopology`
 captures active paths in Windows priority order, identifies monitors primarily by device-interface
-path with EDID manufacturer/product fallback, and waits for a saved identity using fresh bounded
-snapshots. Friendly names and GDI `DISPLAY1` numbering are presentation metadata; adapter LUID and
-target ID are current route coordinates and are refreshed after hotplug. Enumeration and waits are
-read-only. `DisplayLayouts` holds the editable form: a `DisplayLayout` names each display's
-placement, mode, scaling and advanced colour state by value. `Validate` rematches each saved target
-to the current topology and asks Windows to validate without changing anything. `Apply` snapshots
-rollback state, writes once, reads back the result, and attempts one rollback when application is
-rejected or unconfirmed. A failed rollback remains explicitly unknown, never a claim that the prior
-desktop was restored. The design uses DisplayMagician as behavioral reference while the MIT library
-implementation comes from documented Windows CCD contracts rather than copied GPL source.
+path with EDID manufacturer/product fallback, and skips a display whose name cannot be read rather
+than failing the rest. Friendly names and GDI `DISPLAY1` numbering are presentation metadata;
+adapter LUID and target ID are current route coordinates and are refreshed after hotplug.
+Enumeration is read-only. The library has no wait of its own: WSGM's `Shell\DisplayArrivalWaiter.cs`
+is the one display wait, settling on two equal `DisplayLayouts.Observe` fingerprints.
+`DisplayLayouts` holds the editable form: a `DisplayLayout` names each display's placement, mode,
+scaling and advanced colour state by value. `Validate` rematches each saved target to the current
+topology and asks Windows to validate without changing anything. `Apply` snapshots rollback state,
+writes once and takes Windows' acceptance as the result without reading it back; a refused
+application gets one rollback to the snapshot, scaling and colour included. A failed rollback
+reports its own status, never a claim that the prior desktop was restored. Every display write
+(layout, mode, scaling, HDR) shares one gate in the library, and its results are codes and native
+statuses; `Core\DisplayText.cs` words them for Settings, the overlay and the log. A layout output
+with rotation 0 keeps the display's current rotation. The design uses DisplayMagician as behavioral
+reference while the MIT library implementation comes from documented Windows CCD contracts rather
+than copied GPL source.
 
 ## Windows power schemes
 
@@ -303,10 +309,10 @@ kinds, not four modes:
 
 A layout is keyed by `DisplayTargetIdentity`, so it survives GDI renumbering and a hotplug.
 `WindowsDeviceControl.DisplayLayouts` owns the writing: validate, capture the rollback set, apply
-with readback, and one rollback on a mismatch, never a retry. `DisplayLayouts.Describe` is the pure
-rule set (at least one display, exactly one at 0,0, no duplicates, no overlaps, all connected,
-scaling within range); Settings and configuration normalization both use it, so a layout that could
-never describe a desktop is refused before it reaches a display.
+once, and one rollback only when Windows refuses the apply, never a retry. `DisplayLayouts.Describe`
+is the pure rule set (at least one display, exactly one at 0,0, no duplicates, no overlaps, all
+connected, scaling within range); Settings and configuration normalization both use it, so a layout
+that could never describe a desktop is refused before it reaches a display.
 
 Displays WSGM has seen are remembered in `GameModeLaunch.KnownDisplays`, along with the modes,
 advanced-colour support and scaling range each reported while it was active. That is what lets a TV
@@ -548,6 +554,12 @@ confirmed choices enter an ordered background queue and re-read the active schem
 through `Core\PowerTimeouts.cs`, using Windows Device Control's policy-value API. Parsing
 `powercfg /q` was rejected: its output is localized, the same trap as netstat. The rows are a
 convenience over the active scheme, deliberately not snapshotted or restored.
+
+Every machine-wide power change, from scheme selection and these timeouts to processor boost, core
+placement and the power mode, takes the lock of the session's one `Core\PowerSchemes.cs` instance.
+`Core\WindowsPowerPolicy.cs` builds that instance and the owners that share it, and the session
+hands them to the overlay, Steam's Quick Access and the device presets, so a scheme switch cannot
+land between another owner's read of the active scheme and its write.
 
 ### Log lines
 

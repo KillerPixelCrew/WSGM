@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using Microsoft.Win32;
-using WSGM.Themes;
 
 namespace WSGM.Core;
 
@@ -755,10 +754,16 @@ public sealed class AppConfig
     public SplashConfig Splash { get; set; } = SplashPresets.Wsgm20();
 
     /// <summary>
+    ///     The default WSGM accent (Handheld Companion orange). The single source for the accent digits;
+    ///     <c>Themes/Palette.axaml</c> repeats them because XAML cannot read this constant.
+    /// </summary>
+    public const string DefaultAccentColor = "#FFFF9D3D";
+
+    /// <summary>
     ///     UI accent color as an <c>#AARRGGBB</c>/<c>#RRGGBB</c> string, applied
     ///     to the Fluent theme and the Hc accent tokens at startup and on save.
     /// </summary>
-    public string AccentColor { get; set; } = AccentPalette.DefaultAccent;
+    public string AccentColor { get; set; } = DefaultAccentColor;
 
     /// <summary>Gaussian blur of the live Overlay backdrop in physical pixels (0 to 60).</summary>
     public double OverlayBlurRadius { get; set; } = 8;

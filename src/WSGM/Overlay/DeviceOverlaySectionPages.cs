@@ -172,8 +172,6 @@ internal static class DeviceOverlaySectionPages
         };
     }
 
-    /// <summary>The stable focus key for a section's card on the root page.</summary>
-    /// <returns>Its focus key.</returns>
     /// <summary>The stable focus key for an entry's card on the root page.</summary>
     /// <param name="entry">The menu entry.</param>
     /// <returns>Its focus key.</returns>

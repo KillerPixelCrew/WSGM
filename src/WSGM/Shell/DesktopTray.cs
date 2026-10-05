@@ -2,7 +2,6 @@ using System;
 using Avalonia.Controls;
 using Avalonia.Platform;
 using WSGM.Core;
-using WSGM.Settings;
 
 namespace WSGM.Shell;
 
@@ -10,18 +9,13 @@ namespace WSGM.Shell;
 internal sealed class DesktopTray : IDisposable
 {
     private readonly TrayIcon _icon;
-    private readonly ConfigStore _store;
-    private readonly SteamInputBlocker _steamInput;
-    private SettingsWindow? _settings;
 
-    internal DesktopTray(ConfigStore store, SteamInputBlocker steamInput, Action open, Action gameMode, Action exit)
+    internal DesktopTray(Action open, Action gameMode, Action settings, Action exit)
     {
-        _store = store;
-        _steamInput = steamInput;
         NativeMenu menu = [];
         Add(menu, "Open WSGM", open);
         Add(menu, "Enter Game Mode", gameMode);
-        Add(menu, "Settings", OpenSettings);
+        Add(menu, "Settings", settings);
         menu.Items.Add(new NativeMenuItemSeparator());
         Add(menu, "Exit WSGM", exit);
         using var stream = AssetLoader.Open(new Uri("avares://WSGM/Assets/wsgm.ico"));
@@ -38,7 +32,6 @@ internal sealed class DesktopTray : IDisposable
     public void Dispose()
     {
         _icon.Dispose();
-        _settings?.Close();
     }
 
     internal void SetDesktop(bool desktop)
@@ -61,19 +54,5 @@ internal sealed class DesktopTray : IDisposable
             }
         };
         menu.Items.Add(item);
-    }
-
-    internal void OpenSettings()
-    {
-        if (_settings is null)
-        {
-            _settings = new SettingsWindow(_store, _steamInput);
-            _settings.Closed += (_, _) => _settings = null;
-            _settings.Show();
-            Log.Info($"Settings opened in resident process {Environment.ProcessId}.");
-        }
-
-        _settings.WindowState = WindowState.Normal;
-        _settings.Activate();
     }
 }

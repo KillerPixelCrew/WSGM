@@ -94,9 +94,10 @@ public sealed class OverlayViewModel : ObservableObject
         get;
         set
         {
-            field = value;
-            Raise(nameof(ConfirmingCloseLauncher));
-            Raise(nameof(CloseLauncherText));
+            if (SetFieldIfChanged(ref field, value, nameof(ConfirmingCloseLauncher)))
+            {
+                Raise(nameof(CloseLauncherText));
+            }
         }
     }
 
@@ -110,6 +111,12 @@ public sealed class OverlayViewModel : ObservableObject
     ///     there would exit Explorer and leave the user with no shell to recover to.
     /// </summary>
     public bool ModeSwitchAvailable { get; init; } = true;
+
+    /// <summary>
+    ///     Gets whether the Settings row is offered. False for a preview surface, which has no session
+    ///     whose one Settings window it could open.
+    /// </summary>
+    public bool SettingsAvailable { get; init; } = true;
 
     /// <summary>Whether this surface may change real Windows idle timeouts.</summary>
     public bool PowerTimeoutsEditable { get; init; } = true;

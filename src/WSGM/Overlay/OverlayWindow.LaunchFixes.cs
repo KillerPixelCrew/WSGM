@@ -133,18 +133,37 @@ public partial class OverlayWindow
     /// </summary>
     private async Task<SteamLibraryApp?> ResolveCurrentGameAsync(ActionButton button)
     {
+        var title = button.Title;
         button.Title = "Asking Steam…";
         var appId = await CurrentAppIdAsync();
-        if (_closed || appId == 0)
+        if (_closed)
         {
             return null;
         }
 
-        var match = (await SafeGameLookupAsync()).FirstOrDefault(g => g.AppId == appId);
-        // A game Steam knows about but the collection store did not list still
-        // resolves: the id came from the page, and the shortcut flag from its range.
-        return match ?? new SteamLibraryApp(
-            appId, appId.ToString(CultureInfo.InvariantCulture), SteamApps.IsShortcutAppId(appId));
+        // The caller opens the launch-action page next, so the row stops claiming it is waiting
+        // on Steam whether or not a game was found.
+        var game = appId == 0 ? null : await LookupGameAsync(appId);
+        button.Title = title;
+        return game;
+    }
+
+    /// <summary>
+    ///     The listed game for a page's app id. A game Steam knows about but the collection store
+    ///     did not list, or a lookup that failed, still resolves: the id came from the page, and
+    ///     the shortcut flag from its range.
+    /// </summary>
+    private async Task<SteamLibraryApp> LookupGameAsync(uint appId)
+    {
+        var result = await OverlayLibraryLookup.ReadAsync(_steam);
+        if (!result.Succeeded)
+        {
+            Log.Warn($"Could not list Steam's games for {appId}; using the page's id: {result.Error}");
+        }
+
+        return result.Games.FirstOrDefault(g => g.AppId == appId)
+               ?? new SteamLibraryApp(
+                   appId, appId.ToString(CultureInfo.InvariantCulture), SteamApps.IsShortcutAppId(appId));
     }
 
     /// <summary>The game page Steam shows, or 0 when none does or Steam did not answer.</summary>
@@ -320,25 +339,37 @@ public partial class OverlayWindow
     private async Task ApplyLaunchFixAsync(
         LaunchWrapperMode mode, ActionButton button)
     {
-        button.Title = "Asking Steam…";
-        var appId = await CurrentAppIdAsync();
-        if (appId == 0)
+        var title = button.Title;
+        try
         {
-            // Nothing on screen identifies a game (the library root, or a Steam that
-            // did not answer): ask which one instead of guessing.
-            _pendingLaunchFix = (mode, button);
-            LaunchWrapperHost.Open(mode == LaunchWrapperMode.None
-                ? "Remove launch fixes"
-                : "Apply launch fix");
-            EnterSubView(OverlayPage.SteamLaunchConfiguration);
-            return;
-        }
+            button.Title = "Asking Steam…";
+            var appId = await CurrentAppIdAsync();
+            if (_closed)
+            {
+                return;
+            }
 
-        var games = await SafeGameLookupAsync();
-        var match = games.FirstOrDefault(g => g.AppId == appId);
-        await ApplyLaunchFixToAsync(
-            mode, button, appId, match?.Name ?? appId.ToString(CultureInfo.InvariantCulture),
-            match?.Shortcut ?? SteamApps.IsShortcutAppId(appId));
+            if (appId == 0)
+            {
+                // Nothing on screen identifies a game (the library root, or a Steam that
+                // did not answer): ask which one instead of guessing.
+                button.Title = title;
+                _pendingLaunchFix = (mode, button);
+                LaunchWrapperHost.Open(mode == LaunchWrapperMode.None
+                    ? "Remove launch fixes"
+                    : "Apply launch fix");
+                EnterSubView(OverlayPage.SteamLaunchConfiguration);
+                return;
+            }
+
+            var game = await LookupGameAsync(appId);
+            await ApplyLaunchFixToAsync(mode, button, game.AppId, game.Name, game.Shortcut);
+        }
+        catch (Exception ex)
+        {
+            button.Title = "Couldn't reach Steam";
+            Log.Error("Could not resolve the game for a launch fix", ex);
+        }
     }
 
     private async Task ApplyLaunchFixToAsync(
@@ -440,18 +471,6 @@ public partial class OverlayWindow
             button.Title = "Couldn't reach Steam";
             Log.Error($"Could not configure the launch fix for {appId}", ex);
         }
-    }
-
-    private async Task<IReadOnlyList<SteamLibraryApp>>
-        SafeGameLookupAsync()
-    {
-        var result = await OverlayLibraryLookup.ReadAsync(_steam);
-        if (!result.Succeeded)
-        {
-            throw new InvalidOperationException(result.Error);
-        }
-
-        return result.Games;
     }
 
     private void OnLaunchFixGamePicked(SteamLibraryApp game)

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Avalonia.LiveBackdrop;
 
 using static WSGM.Core.AppConfigDefaults;
 
@@ -134,7 +135,7 @@ internal static class AppConfigRules
 
         config.AccentColor ??= Defaults.AccentColor;
         config.OverlayBlurRadius = double.IsFinite(config.OverlayBlurRadius)
-            ? Math.Clamp(config.OverlayBlurRadius, 0, 60)
+            ? Math.Clamp(config.OverlayBlurRadius, 0, LiveBackdrop.MaximumBlurRadius)
             : Defaults.OverlayBlurRadius;
         config.Splash ??= new SplashConfig();
         diagnostics.AddRange(SplashRules.Repair(config.Splash).Diagnostics);

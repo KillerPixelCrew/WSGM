@@ -434,7 +434,7 @@
     "id": "B046",
     "domain": "wdc",
     "submodule": "windows-device-control",
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Make WDC build independently and keep its tests off live hardware. Pin native layouts with meaningful byte fixtures.",
     "findings": "WDC-018, WDC-026, BUILD-012."
   },
@@ -498,7 +498,7 @@
     "id": "B054",
     "domain": "toolkit",
     "submodule": "steam-ui-toolkit",
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Use one patch synchronization loop; apply the bridge first and remove it last. Remove failed patches without blind retries, isolate faulty modules and support ready-plugin module changes.",
     "findings": "TOOLKITCS-012, TOOLKITCS-025, TOOLKITCS-026, TOOLKITCS-027, TOOLKITCS-028, TOOLKITCS-029, TOOLKITCS-030, TOOLKITCS-031, TOOLKITCS-032, TOOLKITCS-036, TOOLKITCS-038, TOOLKITCS-039, TOOLKITCS-044, STEAMHOST-004, STEAMHOST-037, STEAMHOST-006 (toolkit half)."
   },
@@ -570,7 +570,7 @@
     "id": "B063",
     "domain": "wdc",
     "submodule": "windows-device-control",
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Return disposable watch registrations, contain watch failures and document callback threading. Remove redundant WSGM watch generations.",
     "findings": "WINSVC-022, A01-F003, A01-F005, WDC-014."
   },
@@ -578,7 +578,7 @@
     "id": "B064",
     "domain": "wdc",
     "submodule": "windows-device-control",
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Identify Wi-Fi by SSID bytes and security, handle all matching profiles and return native failures accurately. Preserve WSGM wording and consent handling.",
     "findings": "WDC-022, WDC-V-002, WINSVC-023."
   },
@@ -586,7 +586,7 @@
     "id": "B065",
     "domain": "wdc",
     "submodule": "windows-device-control",
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Fix radio locking and per-adapter results; bound and cancel pairing correctly, complete deferrals and contain callbacks. Keep Bluetooth policy in WSGM.",
     "findings": "WDC-005, WDC-008, WDC-016, WDC-017, WDC-V-003, WINSVC-021, WINSVC-029, WINSVC-044, WINSVC-V-005."
   },
@@ -594,7 +594,7 @@
     "id": "B066",
     "domain": "wdc",
     "submodule": "windows-device-control",
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Fix audio HRESULT handling, disconnected caches and driver-buffer lifetimes; correct backlight policy reads and preview failures. Keep fallback labels in WSGM.",
     "findings": "WDC-009, WDC-V-005."
   },
@@ -602,7 +602,7 @@
     "id": "B067",
     "domain": "wdc",
     "submodule": "windows-device-control",
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Serialize display writes, preserve rotation and handle unreadable targets accurately. A successful native write is success; retain persisted display compatibility and remove arbitrary enumeration caps.",
     "findings": "WDC-001, WDC-003, WDC-007, WDC-015, WDC-021, WDC-025, WDC-V-001, WDC-V-004."
   },
@@ -618,7 +618,7 @@
     "id": "B069",
     "domain": "wdc",
     "submodule": "windows-device-control",
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Return display write results with native detail and map wording in WSGM. Remove confirming reads and retain recovery only for writes that failed to dispatch.",
     "findings": "WDC-004, WDC-010, WDC-023."
   },
@@ -626,7 +626,7 @@
     "id": "B070",
     "domain": "wdc",
     "submodule": "windows-device-control",
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Deduplicate the two display-settle waits with existing timing and cancellation. Avoid a general topology service.",
     "findings": "WINSVC-028, A01-F006."
   },
@@ -634,7 +634,7 @@
     "id": "B071",
     "domain": "wdc",
     "submodule": "windows-device-control",
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Attempt every applicable wake and standby restore, collect failures and fix native registration/layout defects. Remove arbitrary buffer caps; preserve secure default restore behaviour.",
     "findings": "WDC-006, WDC-011, WDC-024."
   },
@@ -658,7 +658,7 @@
     "id": "B074",
     "domain": "input",
     "submodule": null,
-    "status": "Source applied",
+    "status": "In progress",
     "outcome": "Make controller and HidHide ownership explicit at composition, remove duplicated tool setup and expose coherent status.",
     "findings": "INPUT-008, INPUT-014, INPUT-018, INPUT-031, INPUT-036."
   },
@@ -690,7 +690,7 @@
     "id": "B078",
     "domain": "input",
     "submodule": null,
-    "status": "Source applied",
+    "status": "In progress",
     "outcome": "Do not replace a newer guide-chord binding with an old size-limited copy. Dispose existing subscriptions properly.",
     "findings": "INPUT-013, INPUT-022, INPUT-023."
   },
@@ -722,7 +722,7 @@
     "id": "B082",
     "domain": "device",
     "submodule": null,
-    "status": "Source applied",
+    "status": "In progress",
     "outcome": "Ignore stale command results, check cancellation immediately before dispatch and use active-time deadlines. Keep one router and log outside locks.",
     "findings": "DEVICE-006, DEVICE-007, DEVICE-021, DEVICE-028, DEVICE-038, SDK-048."
   },
@@ -754,7 +754,7 @@
     "id": "B086",
     "domain": "steamhost",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Construct and dispose Steam backends in one place; avoid subscriptions during partial construction. Add/remove plugin modules on readiness without rebuilding the session host.",
     "findings": "STEAMHOST-005, STEAMHOST-006, STEAMHOST-027, STEAMHOST-V-007."
   },
@@ -786,7 +786,7 @@
     "id": "B090",
     "domain": "winsvc",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Serialize machine-wide power changes using the existing scheme lock and make lifetime dependencies clear. No extra power scheduler.",
     "findings": "WINSVC-009, WINSVC-030, DEVICE-040."
   },
@@ -833,7 +833,7 @@
     "id": "B096",
     "domain": "winsvc",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Reuse one storage snapshot across eject, format, Steam and library paths. Keep card-swap checks; do not build a revision/cache subsystem.",
     "findings": "WINSVC-004."
   },
@@ -849,7 +849,7 @@
     "id": "B098",
     "domain": "winsvc",
     "submodule": null,
-    "status": "Source applied",
+    "status": "In progress",
     "outcome": "Remove test-only production display branches by supplying the real required inputs or test fakes. Preserve revision guards and original-mode recovery.",
     "findings": "WINSVC-012, WINSVC-027, CONFIG-028, CONFIG-029."
   },
@@ -881,7 +881,7 @@
     "id": "B102",
     "domain": "library",
     "submodule": null,
-    "status": "Source applied",
+    "status": "In progress",
     "outcome": "Use fakeable HTTP handlers in existing artwork providers, compute HasMore before filtering and deduplicate slot rules. Remove expired failures and redundant overloads.",
     "findings": "LIBRARY-010, LIBRARY-011, LIBRARY-015, LIBRARY-016, LIBRARY-037, LIBRARY-039."
   },
@@ -1001,7 +1001,7 @@
     "id": "B117",
     "domain": "settings",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Supply Settings dependencies explicitly, remove hidden production fallbacks and apply external settings only when changed. Reuse existing save/apply paths.",
     "findings": "SETTINGS-005, SETTINGS-006, SETTINGS-008, SETTINGS-012, SETTINGS-013, SETTINGS-V-004."
   },
@@ -1009,7 +1009,7 @@
     "id": "B118",
     "domain": "settings",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Discover displays off the UI thread in every composition; tests await the same discovery task.",
     "findings": "SETTINGS-007."
   },
@@ -1017,7 +1017,7 @@
     "id": "B119",
     "domain": "settings",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Wait for a Settings save on ordinary close without blocking OS shutdown. Report committed-but-apply-failed accurately and still apply after later splash/boot errors.",
     "findings": "SETTINGS-009, SETTINGS-021, SETTINGS-V-003."
   },
@@ -1025,7 +1025,7 @@
     "id": "B120",
     "domain": "settings",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Move shared hardware facts and accent values out of UI files to their actual consumers. Keep moves small.",
     "findings": "SETTINGS-014, SETTINGS-017."
   },
@@ -1033,7 +1033,7 @@
     "id": "B121",
     "domain": "settings",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Route update/package work through existing Settings dependencies and cancel downloads when the window closes.",
     "findings": "SETTINGS-018, SETTINGS-024."
   },
@@ -1041,7 +1041,7 @@
     "id": "B122",
     "domain": "overlay",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Keep test/preview power actions isolated from the machine, release overlay claims synchronously and chain pin writes without mutating shared config.",
     "findings": "OVERLAY-001, OVERLAY-012, OVERLAY-013, OVERLAY-020, CONFIG-V-003."
   },
@@ -1049,7 +1049,7 @@
     "id": "B123",
     "domain": "settings",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Open or activate one Settings window per process with the current session mode and supplied actions.",
     "findings": "SETTINGS-010, SETTINGS-011, SETTINGS-015, SETTINGS-016, OVERLAY-V-002."
   },
@@ -1065,7 +1065,7 @@
     "id": "B125",
     "domain": "overlay",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Move session relaunch and reload policy out of overlay views into the existing session owner.",
     "findings": "OVERLAY-011."
   },
@@ -1073,7 +1073,7 @@
     "id": "B126",
     "domain": "overlay",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Share duplicated capability-row and commit-on-close code; recheck write eligibility at invocation. Preserve layout.",
     "findings": "OVERLAY-007, OVERLAY-008, OVERLAY-032, OVERLAY-033."
   },
@@ -1081,7 +1081,7 @@
     "id": "B127",
     "domain": "overlay",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Fix reattached plugin panels, avoid whole-tree pin scans and simplify page code locally. A controller class per page is not required.",
     "findings": "OVERLAY-005, OVERLAY-006, OVERLAY-035, OVERLAY-049, OVERLAY-V-004."
   },
@@ -1089,7 +1089,7 @@
     "id": "B128",
     "domain": "overlay",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Fix launch-action recovery and lookup errors in the existing workflow; keep snapshots after uncertain writes and give every exit a visible result.",
     "findings": "OVERLAY-V-001."
   },
@@ -1097,7 +1097,7 @@
     "id": "B129",
     "domain": "overlay",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Make profile Name/Process fields controller-reachable press-to-edit rows, remove text caps and share list navigation only where duplicated.",
     "findings": "OVERLAY-016, OVERLAY-017, OVERLAY-024, OVERLAY-025, OVERLAY-026, OVERLAY-031."
   },
@@ -1105,7 +1105,7 @@
     "id": "B130",
     "domain": "overlay",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Target the overlay's own display, load idle/policy values off the UI thread and ignore stale results. Reuse session state and simplify glyph caching.",
     "findings": "OVERLAY-009, OVERLAY-019, OVERLAY-030, OVERLAY-036, OVERLAY-040, OVERLAY-043."
   },
@@ -1113,7 +1113,7 @@
     "id": "B131",
     "domain": "overlay",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Use production overlay input wiring in tests, remove duplicate/getter tests and cover touch/media lifetime at final validation.",
     "findings": "OVERLAY-044, OVERLAY-045."
   },
@@ -1121,7 +1121,7 @@
     "id": "B132",
     "domain": "overlay",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Fix preview work, duplicate downloads and cancellation; simplify local disposal branches and stale comments. Preserve visual output.",
     "findings": "OVERLAY-037, OVERLAY-038, OVERLAY-039, OVERLAY-042, OVERLAY-046, OVERLAY-047, OVERLAY-048, OVERLAY-050."
   },
@@ -1129,7 +1129,7 @@
     "id": "B133",
     "domain": "settings",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Show config read failures in Settings and keep IO off the UI thread. Use the existing strict store write path without a read-only mode.",
     "findings": "SETTINGS-022."
   },
@@ -1137,7 +1137,7 @@
     "id": "B134",
     "domain": "settings",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Raise backdrop changes only when changed and handle late native callbacks after stop. Use a few internal delegates for lifecycle tests.",
     "findings": "SETTINGS-027, SETTINGS-028."
   },
@@ -1145,7 +1145,7 @@
     "id": "B135",
     "domain": "settings",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Remove the wake-source display cap, fix recorder/task continuations and retain bindings on failure. Deduplicate Settings helpers and preserve palette/layout values.",
     "findings": "SETTINGS-019, SETTINGS-023, SETTINGS-025, SETTINGS-026, SETTINGS-031, SETTINGS-032, SETTINGS-033, SETTINGS-034, SETTINGS-035, SETTINGS-036, SETTINGS-037, SETTINGS-038, SETTINGS-040, SETTINGS-041, SETTINGS-V-005, SETTINGS-V-006."
   },

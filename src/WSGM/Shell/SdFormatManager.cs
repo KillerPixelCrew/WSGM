@@ -41,6 +41,12 @@ public sealed class SdFormatManager(
     internal const string DefaultLabel = "Games";
 
     /// <summary>
+    ///     The longest NTFS volume label, because the format script passes the name to
+    ///     <c>format fs=ntfs label=</c>.
+    /// </summary>
+    internal const int MaximumLabelLength = 32;
+
+    /// <summary>
     ///     How long the format waits for the freshly created partition's
     ///     volume to be surfaced by the volume manager before the format run is
     ///     attempted anyway.
@@ -83,8 +89,12 @@ public sealed class SdFormatManager(
     /// <summary>Serializes format runs: strictly one at a time.</summary>
     private readonly SemaphoreSlim _formatGate = new(1, 1);
 
-    /// <summary>Reads the candidate disks; worker thread only.</summary>
-    private readonly Func<List<FormatTarget>> _readTargets = ReadTargets;
+    /// <summary>
+    ///     Reads the candidate disks on a worker thread, projecting the storage read it is handed or a fresh
+    ///     one when it is handed none.
+    /// </summary>
+    private readonly Func<StorageInventory?, List<FormatTarget>> _readTargets =
+        inventory => ReadTargets(inventory ?? StorageInventory.Read());
 
     private int _refreshing;
 
@@ -96,7 +106,8 @@ public sealed class SdFormatManager(
         CancellationToken lifetime = default)
         : this(store, lifetime)
     {
-        _readTargets = readTargets ?? throw new ArgumentNullException(nameof(readTargets));
+        ArgumentNullException.ThrowIfNull(readTargets);
+        _readTargets = _ => readTargets();
     }
 
     /// <summary>Gets the candidate drives, one row per physical disk.</summary>
@@ -162,8 +173,8 @@ public sealed class SdFormatManager(
     ///     Sanitizes a user-typed name into a value safe as both an NTFS
     ///     volume label and a Steam library label: trims, keeps ASCII letters, digits,
     ///     space, dash and underscore (so the diskpart script stays plain ASCII and no
-    ///     quote can break out of the label token), caps at 32 characters, and falls
-    ///     back to <see cref="DefaultLabel" /> when nothing usable remains.
+    ///     quote can break out of the label token), caps at <see cref="MaximumLabelLength" />
+    ///     characters, and falls back to <see cref="DefaultLabel" /> when nothing usable remains.
     /// </summary>
     /// <param name="name">The raw name, or null.</param>
     internal static string SanitizeLabel(string? name)
@@ -176,7 +187,7 @@ public sealed class SdFormatManager(
         var kept = new string(name.Trim()
                 .Where(c => c is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9'
                     or ' ' or '-' or '_')
-                .Take(32)
+                .Take(MaximumLabelLength)
                 .ToArray())
             .Trim();
         return kept.Length == 0 ? DefaultLabel : kept;
@@ -189,6 +200,16 @@ public sealed class SdFormatManager(
     ///     bound list. Called when the flow opens and from its refresh button.
     /// </summary>
     public void Refresh()
+    {
+        Refresh(null);
+    }
+
+    /// <summary>
+    ///     Reconciles the bound list from a storage read someone else already made, such as the one behind
+    ///     the eject list's latest change, so the same change is not read twice. Null reads fresh.
+    /// </summary>
+    /// <param name="inventory">The storage read to project, or null for a fresh one.</param>
+    internal void Refresh(StorageInventory? inventory)
     {
         if (Busy)
         {
@@ -204,7 +225,7 @@ public sealed class SdFormatManager(
         {
             try
             {
-                var targets = _readTargets();
+                var targets = _readTargets(inventory);
                 Dispatcher.UIThread.Post(() => Apply(targets));
             }
             catch (Exception ex)
@@ -218,52 +239,24 @@ public sealed class SdFormatManager(
         });
     }
 
-    /// <summary>Reads the current candidate list. Worker thread only.</summary>
-    private static List<FormatTarget> ReadTargets()
+    /// <summary>Projects one storage read into the candidate list: every external disk with an interface.</summary>
+    /// <param name="inventory">The storage read to project.</param>
+    /// <returns>One target per disk in interface order, with its letters; a letterless Deck card has none.</returns>
+    internal static List<FormatTarget> ReadTargets(StorageInventory inventory)
     {
-        var systemDisks = RemovableDriveManager.ResolveSystemDisks();
-
-        // Letters per disk, for the detail line (a letterless Deck card is the
-        // normal case and simply shows none).
-        var lettersByDisk = new Dictionary<int, List<char>>();
-        foreach (var volume in NativeStorage.MountedVolumes()
-                     .Where(candidate => candidate is { DeviceType: NativeStorage.FileDeviceDisk, Disk: >= 0 }))
-        {
-            (lettersByDisk.TryGetValue(volume.Disk, out var list)
-                ? list
-                : lettersByDisk[volume.Disk] = []).Add(volume.Letter);
-        }
-
-        var result = new List<FormatTarget>();
-        var seenDisks = new HashSet<int>();
-        foreach (var path in NativeStorage.ListDiskInterfaces())
-        {
-            using var probe = NativeStorage.OpenVolumeForQueryPath(path);
-            if (probe.IsInvalid
-                || !NativeStorage.TryGetDeviceNumber(probe, out _, out var disk)
-                || disk < 0 || !seenDisks.Add(disk)
-                || RemovableDriveManager.ClassifyDisk(disk, systemDisks) is null)
-            {
-                continue;
-            }
-
-            var size = NativeStorage.GetDiskCapacityForQuery(probe);
-            NativeStorage.TryGetDeviceDescriptor(probe, out var busType, out var product);
-            var linux = NativeStorage.TryGetPartitionTypes(probe, out var partitions)
-                        && partitions.Any(p => p.IsLinux);
-            var id = NativeStorage.TryGetDevNode(path, out var devInst)
-                ? NativeStorage.GetDeviceInstanceId(devInst)
-                : "";
-            result.Add(new FormatTarget(
-                id.Length > 0 ? id : $"disk:{disk}",
-                disk, product, size, busType,
-                lettersByDisk.TryGetValue(disk, out var letters)
-                    ? [.. letters.OrderBy(l => l)]
-                    : [],
-                linux));
-        }
-
-        return result;
+        return
+        [
+            .. inventory.ExternalDisks
+                .Where(disk => disk.InterfacePath.Length > 0)
+                .Select(disk => new FormatTarget(
+                    disk.InstanceId.Length > 0 ? disk.InstanceId : $"disk:{disk.Number}",
+                    disk.Number, disk.Product, disk.CapacityBytes, disk.BusType,
+                    [
+                        .. inventory.Volumes.Where(volume => volume.Disk == disk.Number)
+                            .Select(volume => volume.Letter).OrderBy(letter => letter)
+                    ],
+                    disk.HasLinuxPartitions))
+        ];
     }
 
     /// <summary>The row's detail line: capacity — bus kind — letters — hint.</summary>

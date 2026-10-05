@@ -25,24 +25,25 @@ public sealed class WakeLockHoldersView : OverlaySubView
     /// <summary>Queries the current power requests and renders them.</summary>
     public void Open()
     {
-        _stack.Clear();
-        _current = null;
+        NavigationStack.Clear();
+        CurrentLevel = null;
         _ = RunSafelyAsync(RenderAsync(), "holder list");
     }
 
     private async Task RenderAsync()
     {
         Navigate(() => RenderLoading("What's keeping this awake"));
-        var generation = _navigationGeneration;
+        var generation = NavigationGeneration;
         // The syscall is fast (~65 µs) but the decode walks the whole list; keep it
         // off the UI thread like every other blocking call the overlay makes.
         var snapshot = await Task.Run(PowerRequestList.Query);
-        if (generation != _navigationGeneration)
+        if (generation != NavigationGeneration)
         {
             return;
         }
 
-        Replace(() => RenderList(snapshot.Entries is null, snapshot.Error,
+        Replace(() => RenderList(snapshot.Entries is null,
+            WakeLockStatus.DescribeQueryStatus(snapshot.Status, snapshot.NativeStatus),
             WakeLockHolders.Build(snapshot.Entries)));
     }
 

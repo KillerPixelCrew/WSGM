@@ -55,8 +55,8 @@ public sealed class DeviceColorView : OverlaySubView
         _initialColor = color & 0xFFFFFF;
         _color = _initialColor;
         _applying = false;
-        _stack.Clear();
-        _current = null;
+        NavigationStack.Clear();
+        CurrentLevel = null;
         Navigate(Render);
     }
 

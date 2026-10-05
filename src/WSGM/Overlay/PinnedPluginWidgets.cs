@@ -25,6 +25,8 @@ internal sealed class PinnedPluginWidgets : StackPanel
         Focusable = true;
         (PluginWidgetPin? Pin, string Label, int Index)? pendingFocus = null;
         TextBlock error = new() { IsVisible = false, Classes = { "caption" } };
+        // Reopen before the poll's first read: a re-parented widget must come back alive.
+        AttachedToVisualTree += (_, _) => _closed = false;
         VisiblePoll.Attach(this, TimeSpan.FromSeconds(1), async () => await RefreshAsync());
         DetachedFromVisualTree += (_, _) => _closed = true;
         return;

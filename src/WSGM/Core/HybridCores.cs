@@ -61,7 +61,7 @@ internal sealed record HybridCoreStatus(
 ///     Independent of device integration: this is Windows power policy, not a device capability, so it
 ///     works with no plugin installed. Call from background work when projecting into a UI.
 /// </remarks>
-internal sealed class HybridCores(IHybridCoreApi api)
+internal sealed class HybridCores(PowerSchemes schemes, IHybridCoreApi api)
 {
     private static readonly HybridCoreOption[] Offered =
     [
@@ -76,8 +76,6 @@ internal sealed class HybridCores(IHybridCoreApi api)
         new(HybridCoreMode.EfficiencyOnly, "Efficiency cores only",
             "Nothing runs on the fast cores. Lowest draw, for light or idle sessions.")
     ];
-
-    internal static HybridCores Windows { get; } = new(new WindowsHybridCoreApi());
 
     /// <summary>The scheduling policy pair a mode writes, for ordinary and short-running threads.</summary>
     /// <remarks>
@@ -161,7 +159,7 @@ internal sealed class HybridCores(IHybridCoreApi api)
     /// <returns>What to offer, and what is in effect for each power source.</returns>
     internal HybridCoreStatus Read()
     {
-        var scheme = api.ReadActiveScheme();
+        var scheme = schemes.ReadActive();
         var support = api.Query(scheme);
         if (!support.Hybrid || !support.Configurable)
         {
@@ -205,27 +203,27 @@ internal sealed class HybridCores(IHybridCoreApi api)
     /// <remarks>
     ///     The heterogeneous-policy value is carried through untouched, because Windows publishes no
     ///     meaning for it. Activation is what makes processor policy take effect, and it is global, so
-    ///     the write and the activation happen under <see cref="PowerSchemes.MutationGate" /> together, the
-    ///     gate scheme selection and timeout writes take as well.
+    ///     the write and the activation happen under the scheme owner's mutation lock together, the lock
+    ///     scheme selection and timeout writes take as well.
     /// </remarks>
     /// <param name="mode">The mode to apply.</param>
     /// <param name="cancellationToken">Cancels before the write starts.</param>
     internal void Apply(HybridCoreMode mode, CancellationToken cancellationToken = default)
     {
         var policy = PolicyFor(mode);
-        lock (PowerSchemes.MutationGate)
+        using (schemes.EnterMutation())
         {
             cancellationToken.ThrowIfCancellationRequested();
-            // Read the active scheme inside the shared gate: a scheme switch between the read and
+            // Read the active scheme inside the shared lock: a scheme switch between the read and
             // the write would land this policy in a scheme that is no longer active.
-            var scheme = api.ReadActiveScheme();
+            var scheme = schemes.ReadActive();
             // Capture both unrelated heterogeneous-policy values before either write.
             var ac = api.Read(scheme, false);
             var dc = api.Read(scheme, true);
             api.Write(scheme, false, ac with { Threads = policy, ShortThreads = policy });
             api.Write(scheme, true, dc with { Threads = policy, ShortThreads = policy });
 
-            api.RefreshActiveScheme();
+            schemes.RefreshActive();
         }
     }
 }

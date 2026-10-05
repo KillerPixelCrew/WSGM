@@ -1,4 +1,7 @@
+using System.Xml.Linq;
 using Avalonia.Media;
+using WSGM.Core;
+using WSGM.Testing;
 using WSGM.Themes;
 
 namespace WSGM.Tests.Themes;
@@ -66,9 +69,20 @@ public sealed class AccentPaletteTests
     }
 
     [Fact]
-    public void Parse_DefaultAccent_IsTheClassicOrange()
+    public void PaletteAccentTokens_AgreeWithTheConfiguredDefault()
     {
-        Assert.Equal(new Color(0xFF, 0xFF, 0x9D, 0x3D), AccentPalette.Parse(AccentPalette.DefaultAccent));
+        // XAML cannot reference the C# constant, so the palette keeps its own literal; this keeps them equal.
+        var palette = XDocument.Load(Path.Combine(RepositoryFiles.Root, "src", "WSGM", "Themes", "Palette.axaml"));
+        var brushes = palette.Descendants().Where(element => element.Name.LocalName == "SolidColorBrush")
+            .ToDictionary(
+                element => element.Attributes().Single(attribute => attribute.Name.LocalName == "Key").Value,
+                element => Color.Parse(element.Attribute("Color")!.Value));
+        var accent = Color.Parse(AppConfig.DefaultAccentColor);
+
+        Assert.Equal(new Color(0xFF, 0xFF, 0x9D, 0x3D), accent);
+        Assert.Equal(accent, brushes["HcAccentBrush"]);
+        Assert.Equal(accent, AccentPalette.ForceOpaque(brushes["HcBadgeAccentBrush"]));
+        Assert.Equal(accent, AccentPalette.ForceOpaque(brushes["HcBadgeAccentBorderBrush"]));
     }
 
     [Fact]

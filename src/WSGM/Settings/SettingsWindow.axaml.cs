@@ -1,7 +1,6 @@
 using System;
 using System.ComponentModel;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -10,7 +9,6 @@ using Avalonia.Media;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Input;
-using WSGM.Overlay;
 using WSGM.Shell;
 using WSGM.Themes;
 
@@ -37,7 +35,6 @@ public partial class SettingsWindow : Window
     // splash preview it drives by pad) is the active, non-minimized foreground,
     // so unfocusing or minimizing Settings hands the controller straight back to
     // Big Picture. SteamInputBlocker does the native work on its own worker.
-    private readonly bool _gameModeSurface;
     private readonly GamepadService _gamepad;
 
     private readonly bool _leaseEnabled;
@@ -51,6 +48,7 @@ public partial class SettingsWindow : Window
     private readonly SettingsViewModel _viewModel;
     private int _chordGeneration;
     private GamepadChordRecorder? _chordRecorder;
+    private bool _closeAfterSave;
     private bool _closed;
 
     // Bumped by every arm AND every clear, so the continuation after the arming
@@ -65,46 +63,27 @@ public partial class SettingsWindow : Window
     private KeyRecorder? _keyRecorder;
     private Window? _keyboardDialog;
     private GamepadNavigation? _navigation;
+    private bool _opened;
     private BootSplashWindow? _splashPreview;
 
     // In game mode WSGM hosts the only taskbar, and it excludes own-process windows
     // (the overlay/taskbar/tray chrome). This window opts in so it stays reachable
     // after it drops behind Big Picture.
+    private bool _switchable;
     private nint _switchableHwnd;
-    private OverlayController? _testOverlay;
-    private AudioManager? _testAudio;
-    private RadioManager? _testRadios;
-    private RemovableDriveManager? _testDrives;
+    private IDisposable? _testOverlay;
 
     /// <summary>
     ///     Creates the settings window, builds the tab strip and connects
-    ///     controller navigation and the shortcut recorders.
+    ///     controller navigation and the shortcut recorders. Every Settings window leases while focused.
     /// </summary>
-    /// <param name="gameModeSurface">
-    ///     True when opened as the on-screen surface in game mode (from the overlay), which
-    ///     keeps the window reachable from the Open apps strip. Every Settings window leases
-    ///     while focused.
-    /// </param>
-    /// <param name="store">The persistence owner supplied by the process or resident session.</param>
-    /// <param name="steamInput">The process's Steam Input lease owner and, through it, its shim.</param>
-    internal SettingsWindow(ConfigStore store, SteamInputBlocker steamInput, bool gameModeSurface = false)
-        : this(SettingsViewModel.FromLoadedConfig(store.Read().Config ?? new AppConfig(), store, steamInput.Shim),
-            steamInput, gameModeSurface)
-    {
-    }
-
-    internal SettingsWindow(SettingsViewModel viewModel, SteamInputBlocker steamInput, bool gameModeSurface = false,
-        ManagedUiPad? managedPad = null)
-        : this(viewModel, SettingsWindowServices.Create(viewModel, steamInput, managedPad), gameModeSurface)
-    {
-    }
-
-    internal SettingsWindow(SettingsViewModel viewModel, SettingsWindowServices services, bool gameModeSurface = false)
+    /// <param name="viewModel">The view model the window edits.</param>
+    /// <param name="services">The window's lifetime operations, supplied by its composer.</param>
+    internal SettingsWindow(SettingsViewModel viewModel, SettingsWindowServices services)
     {
         _viewModel = viewModel;
         _services = services;
         _gamepad = services.Gamepad;
-        _gameModeSurface = gameModeSurface;
         InitializeComponent();
         DataContext = _viewModel;
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
@@ -159,15 +138,16 @@ public partial class SettingsWindow : Window
         // suppression window whether or not anything acted on the key — so an Escape
         // arriving here swallowed the next controller B press instead of going back.
         KeyDown += OnWindowKeyDown;
+        Closing += OnClosing;
         Opened += (_, _) =>
         {
+            _opened = true;
             _navigation = CreateWindowNavigation();
             _services.StartInput();
             UpdateLeaseDesired();
-            if (_gameModeSurface)
+            if (_switchable)
             {
-                _switchableHwnd = TryGetPlatformHandle()?.Handle ?? 0;
-                WindowFinder.IncludeOwnWindow(_switchableHwnd);
+                IncludeAsSwitchable();
             }
 
             // Brackets the window's lifetime for splash-theme imports: an imported
@@ -178,14 +158,15 @@ public partial class SettingsWindow : Window
             // (not the constructor) so a window that is built but never shown cannot
             // leave a session, and with it the staged images, behind.
             _services.BeginImportSession();
-            _viewModel.StartDisplayDiscovery();
+            Log.Observe(_viewModel.StartDisplayDiscoveryAsync(), "Settings display discovery");
             _viewModel.StartAudioDiscovery();
-            _ = _services.RefreshDeviceOwner();
+            Log.Observe(_services.RefreshDeviceOwner(), "Settings device owner read");
         };
         Closed += (_, _) =>
         {
             _closed = true;
             _viewModel.StopDisplayDiscovery();
+            _viewModel.StopUpdateWork();
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;
             _services.StopInput();
             WindowFinder.ExcludeOwnWindow(_switchableHwnd);
@@ -203,9 +184,6 @@ public partial class SettingsWindow : Window
             _keyboardDialog = null;
             _testOverlay?.Dispose();
             _testOverlay = null;
-            _testAudio?.Dispose();
-            _testRadios?.Dispose();
-            _testDrives?.Dispose();
             // The Appearance page live-applies accent picks to the running
             // Application as a preview. In the long-lived shell process an
             // unsaved close would otherwise leak that preview accent onto every
@@ -265,26 +243,55 @@ public partial class SettingsWindow : Window
     internal void ShowTestOverlay()
     {
         _testOverlay?.Dispose();
-        var config = _viewModel.SnapshotForPreview();
-        var steamInput = _services.SteamInput
-                         ?? throw new InvalidOperationException("The test sheet needs the process's Steam Input owner.");
-        _testOverlay = new OverlayController(config, _viewModel.Store, steamInput, null, new SessionModes(config, null),
-            _testAudio ??= new AudioManager(), _testRadios ??= new RadioManager(),
-            _testDrives ??= new RemovableDriveManager(),
-            previewOnly: true, formats: new SdFormatManager(_viewModel.Store), activationWindow: null);
-        if (_services.ManagedPad is { } managedPad)
+        _testOverlay = null;
+        _testOverlay = _services.ShowTestSheet(_viewModel.SnapshotForPreview());
+    }
+
+    /// <summary>
+    ///     Keeps this window reachable from the Open apps strip in game mode, where WSGM's own windows are
+    ///     otherwise left out. Idempotent; before the window has opened it takes effect once it does.
+    /// </summary>
+    internal void IncludeAsSwitchable()
+    {
+        _switchable = true;
+        if (!_opened || _closed || _switchableHwnd != 0)
         {
-            _testOverlay.UseManagedPad(managedPad);
+            return;
         }
 
-        _testOverlay.ShowOverlay();
+        _switchableHwnd = TryGetPlatformHandle()?.Handle ?? 0;
+        WindowFinder.IncludeOwnWindow(_switchableHwnd);
+    }
+
+    /// <summary>
+    ///     Defers a close that arrives while a save is running, so the post-save work (the Steam Input
+    ///     shim and the takeovers) is not cut short, then closes once the save completes. Signing out and
+    ///     application shutdown are never held up.
+    /// </summary>
+    private void OnClosing(object? sender, WindowClosingEventArgs e)
+    {
+        if (!_viewModel.IsSaving
+            || e.CloseReason is WindowCloseReason.OSShutdown or WindowCloseReason.ApplicationShutdown)
+        {
+            return;
+        }
+
+        e.Cancel = true;
+        _closeAfterSave = true;
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(SettingsViewModel.IsSaving))
+        if (e.PropertyName != nameof(SettingsViewModel.IsSaving))
         {
-            UpdateSettingsEnabled();
+            return;
+        }
+
+        UpdateSettingsEnabled();
+        if (_closeAfterSave && !_viewModel.IsSaving)
+        {
+            _closeAfterSave = false;
+            Close();
         }
     }
 
@@ -305,7 +312,7 @@ public partial class SettingsWindow : Window
     /// </summary>
     private bool IsNintendoLayout()
     {
-        return _viewModel.GlyphStyleIndex == 2;
+        return (GlyphStyle)_viewModel.GlyphStyleIndex == GlyphStyle.Nintendo;
     }
 
     /// <summary>
@@ -552,7 +559,7 @@ public partial class SettingsWindow : Window
     /// <summary>Starts hotkey recording (called by the Quick access page).</summary>
     internal void RecordHotkey()
     {
-        Observe(ArmHotkeyRecorder(), "Hotkey recording");
+        Log.Observe(ArmHotkeyRecorder(), "Hotkey recording", true);
     }
 
     /// <summary>
@@ -590,7 +597,19 @@ public partial class SettingsWindow : Window
             _keyRecorder?.Dispose();
             _keyRecorder = null;
         };
-        _keyRecorder.Start();
+        try
+        {
+            _keyRecorder.Start();
+        }
+        catch
+        {
+            // Nothing is listening, so the page must not keep saying "Press keys...". The
+            // shortcut already bound stays bound; only an explicit Clear removes it.
+            _keyRecorder.Dispose();
+            _keyRecorder = null;
+            _viewModel.SetHotkeyRecording(false);
+            throw;
+        }
     }
 
     /// <summary>
@@ -608,7 +627,7 @@ public partial class SettingsWindow : Window
     /// <summary>Starts controller-chord recording (called by the Quick access page).</summary>
     internal void RecordChord()
     {
-        Observe(ArmChordRecorder(), "Chord recording");
+        Log.Observe(ArmChordRecorder(), "Chord recording", true);
     }
 
     /// <summary>
@@ -649,22 +668,18 @@ public partial class SettingsWindow : Window
             _chordRecorder?.Dispose();
             _chordRecorder = null;
         };
-        _chordRecorder.Start();
-    }
-
-    /// <summary>
-    ///     Observes an armed recorder: the recorders are manager operations,
-    ///     not framework event handlers, so a throw after their arming delay is logged
-    ///     here instead of reaching the dispatcher unobserved (which in the shell
-    ///     process is a crash rather than a reported failure).
-    /// </summary>
-    private static void Observe(Task task, string operation)
-    {
-        task.ContinueWith(
-            t => Log.Error($"{operation} failed", t.Exception!),
-            CancellationToken.None,
-            TaskContinuationOptions.OnlyOnFaulted,
-            TaskScheduler.Default);
+        try
+        {
+            _chordRecorder.Start();
+        }
+        catch
+        {
+            // As for the hotkey: stop showing "Press buttons..." and keep the bound chord.
+            _chordRecorder.Dispose();
+            _chordRecorder = null;
+            _viewModel.SetChordRecording(false);
+            throw;
+        }
     }
 
     /// <summary>

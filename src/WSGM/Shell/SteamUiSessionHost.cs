@@ -91,8 +91,16 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly PerformanceServiceNativeQamAdapter _performance;
 
     private readonly PerformanceService _performanceService;
-    private readonly IReadOnlyList<ISteamUiModule> _pluginModules;
-    private readonly HashSet<string> _pluginPatchIds;
+
+    // The modules this host declares itself; the ready plugins' modules are composed beside them.
+    private readonly IReadOnlyList<ISteamUiModule> _hostModules;
+
+    // Serializes plugin module replacement; _composedPluginModules is the list the runtime holds.
+    private readonly SemaphoreSlim _pluginModulesChange = new(1, 1);
+    private IReadOnlyList<ISteamUiModule> _composedPluginModules = [];
+
+    // The registered plugin patches' ids. Replaced whole under _switchGate.
+    private volatile HashSet<string> _pluginPatchIds = [];
     private readonly CommonPluginSteamUiSource? _pluginSteamUi;
     private readonly SteamPowerMenuBackend? _powerMenu;
     private readonly NativeQamPowerPresetService _powerPresets;
@@ -187,8 +195,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _cpuBoost = backends.CpuBoost;
         _displayTimeouts = backends.DisplayTimeouts;
         _pluginSteamUi = backends.PluginSteamUi;
-        _pluginModules = _pluginSteamUi?.ReadModules() ?? [];
-        _pluginPatchIds = [.. _pluginModules.SelectMany(module => module.Patches).Select(patch => patch.Id)];
         // The menu exists for WSGM's own Change Artwork entry, so it is not conditional on a plugin
         // source the way it was while artwork was a package.
         _artwork = backends.Artwork;
@@ -243,7 +249,13 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             : null;
         try
         {
-            var modules = new SteamUiModuleSet(CreateModules());
+            _hostModules = CreateModules();
+            // Plugins that became ready later are added by OnPluginModulesChanged.
+            var pluginModules = _pluginSteamUi?.ReadModules() ?? [];
+            var composed = ComposeModules(pluginModules);
+            var modules = composed.Modules;
+            _pluginPatchIds = composed.PluginPatchIds;
+            _composedPluginModules = pluginModules;
             // The module-derived vocabulary, named here rather than reached for from inside the bridge.
             _bridge = new SteamUiBridgeHost(_transport, asset, modules.AllowedCommands);
             _patches = new SteamUiPatchManager(_transport);
@@ -312,6 +324,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         if (_pluginSteamUi is not null)
         {
             _pluginSteamUi.Changed += QueueStatePublication;
+            _pluginSteamUi.ModulesChanged += OnPluginModulesChanged;
+            // A plugin that turned ready between the constructor's read and this subscription.
+            if (!ReferenceEquals(_pluginSteamUi.ReadModules(), _composedPluginModules))
+            {
+                OnPluginModulesChanged();
+            }
         }
 
         // Both host pages answer a command immediately and finish the work in the background, so
@@ -400,6 +418,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         if (_pluginSteamUi is not null)
         {
             _pluginSteamUi.Changed -= QueueStatePublication;
+            _pluginSteamUi.ModulesChanged -= OnPluginModulesChanged;
         }
 
         if (_artwork is not null)
@@ -902,7 +921,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     ///     The toolkit owns each surface's patches, wire shapes and payload readers, so a module here is
     ///     exactly "this is our data, and it maps to that feature". A surface whose backend is absent
     ///     in this session is simply not declared. WSGM's own features — download sorting and glyph
-    ///     delivery — are patches of WSGM's own and are declared beside them.
+    ///     delivery — are patches of WSGM's own and are declared beside them. Plugin modules are not
+    ///     declared here: <see cref="ComposeModules" /> adds the ready plugins' modules.
     /// </remarks>
     private List<ISteamUiModule> CreateModules()
     {
@@ -1123,11 +1143,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             () => new ValueTask<SteamExtensionsTabState?>(_extensionsTab.ReadState()),
             _extensionsTab));
 
-        if (_pluginSteamUi is not null)
-        {
-            modules.AddRange(_pluginModules);
-        }
-
         // WSGM's display-off rows in Steam's Screensaver settings, over the same timeouts the overlay
         // edits. Reading goes to Windows each time, so an overlay change reaches Steam on the next
         // publication and a change made in Windows reaches it when the page next opens.
@@ -1337,6 +1352,108 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
 
         QueueStatePublication();
+    }
+
+    /// <summary>The host's own modules and the ready plugins' ones, as one set.</summary>
+    /// <param name="pluginModules">The plugin modules, in the source's order.</param>
+    /// <returns>The set, and the patch ids of the plugin modules it took.</returns>
+    /// <remarks>
+    ///     A plugin module whose id, patch, state or command collides with one already taken is dropped
+    ///     with one log line, so one package cannot take every Steam surface down with it.
+    /// </remarks>
+    private (SteamUiModuleSet Modules, HashSet<string> PluginPatchIds) ComposeModules(
+        IReadOnlyList<ISteamUiModule> pluginModules)
+    {
+        List<ISteamUiModule> accepted = [];
+        foreach (var module in pluginModules)
+        {
+            // The bridge and the overlay activation are registered beside the set, so the set cannot
+            // refuse a module claiming them; the patch registry would, after part of the swap.
+            if (module.Patches.Any(patch => patch.Id == SteamUiBridgePatch.PatchId
+                                            || patch.Id == _overlayActivation.Id))
+            {
+                Log.Warn($"Steam UI plugin module {module.Id} was not registered: it claims a host patch.");
+                continue;
+            }
+
+            try
+            {
+                _ = new SteamUiModuleSet([.. _hostModules, .. accepted, module]);
+                accepted.Add(module);
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+            {
+                Log.Warn($"Steam UI plugin module {module.Id} was not registered: {ex.Message}");
+            }
+        }
+
+        HashSet<string> pluginPatchIds = [.. accepted.SelectMany(module => module.Patches).Select(patch => patch.Id)];
+        return (new SteamUiModuleSet([.. _hostModules, .. accepted]), pluginPatchIds);
+    }
+
+    /// <summary>Registers a plugin's modules when it becomes ready and removes them when it stops.</summary>
+    private void OnPluginModulesChanged()
+    {
+        if (!_disposed)
+        {
+            Log.Observe(ReplacePluginModulesAsync(), "Steam UI plugin module registration");
+        }
+    }
+
+    /// <summary>Hands the runtime the module set for the plugins ready now, then applies their switches.</summary>
+    /// <remarks>
+    ///     The runtime registers added patches, swaps the bridge vocabulary and the set, and retracts
+    ///     removed patches. Their switches follow the host surfaces like every plugin patch, and the
+    ///     queued pass applies them and installs the bridge again with the new vocabulary.
+    /// </remarks>
+    private async Task ReplacePluginModulesAsync()
+    {
+        if (_disposed || _pluginSteamUi is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _pluginModulesChange.WaitAsync(_shutdown.Token).ConfigureAwait(false);
+            try
+            {
+                var pluginModules = _pluginSteamUi.ReadModules();
+                if (_disposed || ReferenceEquals(pluginModules, _composedPluginModules))
+                {
+                    return;
+                }
+
+                var composed = ComposeModules(pluginModules);
+                lock (_switchGate)
+                {
+                    // Both lists while the runtime swaps, so neither an added nor a leaving plugin
+                    // patch is switched as a Quick Access row in between.
+                    _pluginPatchIds = [.. _pluginPatchIds, .. composed.PluginPatchIds];
+                }
+
+                await _runtime.ReplaceModulesAsync(composed.Modules, _shutdown.Token).ConfigureAwait(false);
+                _composedPluginModules = pluginModules;
+                lock (_switchGate)
+                {
+                    _pluginPatchIds = composed.PluginPatchIds;
+                    if (!_disposed)
+                    {
+                        ApplySwitchStates();
+                    }
+                }
+
+                QueueSynchronization();
+            }
+            finally
+            {
+                _pluginModulesChange.Release();
+            }
+        }
+        catch (ObjectDisposedException) when (_disposed)
+        {
+            // Shutdown took the runtime or the patch registry first; it retracts every patch itself.
+        }
     }
 
     // The runtime quarantines the module and faults its patches in the manager, which keeps them off

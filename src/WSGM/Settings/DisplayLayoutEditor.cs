@@ -7,15 +7,6 @@ using WSGM.Core;
 
 namespace WSGM.Settings;
 
-/// <summary>What discovery learned about one display beyond its current placement.</summary>
-/// <param name="Modes">Modes advertised by the driver or monitor EDID.</param>
-/// <param name="HdrSupported">Whether the display reported advanced-colour support.</param>
-/// <param name="MaximumDpiPercent">Highest scaling percentage it offered, or zero when unknown.</param>
-internal sealed record DisplayCatalogFacts(
-    IReadOnlyList<DisplayMode> Modes,
-    bool HdrSupported,
-    int MaximumDpiPercent);
-
 /// <summary>One display in the layout editor, present or remembered.</summary>
 public sealed class DisplayLayoutEditorRow : ObservableObject
 {
@@ -424,6 +415,11 @@ public sealed class DisplayLayoutEditor : ObservableObject
             Rows.Clear();
             foreach (var display in catalog)
             {
+                if (!Findable(display))
+                {
+                    continue;
+                }
+
                 DisplayLayoutEditorRow row = new(display,
                     display.Target is { } target && present.Any(other => other.Matches(target)));
                 if (layout?.Outputs.FirstOrDefault(candidate => Same(candidate, display)) is { } output)
@@ -568,6 +564,11 @@ public sealed class DisplayLayoutEditor : ObservableObject
         {
             foreach (var display in catalog)
             {
+                if (!Findable(display))
+                {
+                    continue;
+                }
+
                 var connected = display.Target is { } target && present.Any(other => other.Matches(target));
                 var existing = Rows.FirstOrDefault(row => row.Display == display
                                                           || (display.Target is { } identity &&
@@ -625,6 +626,15 @@ public sealed class DisplayLayoutEditor : ObservableObject
         _previous = CaptureRows();
         Raise(nameof(CanUndo));
         _changed();
+    }
+
+    /// <summary>
+    ///     An identity with neither a device path nor EDID ids matches nothing, itself included, so a layout
+    ///     naming it could never be applied or waited for. Such a display gets no row.
+    /// </summary>
+    private static bool Findable(KnownDisplay display)
+    {
+        return display.Target is not { } target || target.Matches(target);
     }
 
     /// <summary>Copies observed values into the draft as one undoable edit.</summary>
@@ -747,6 +757,8 @@ public sealed class DisplayLayoutEditor : ObservableObject
 
         Raise(nameof(HasActiveDisplays));
         Raise(nameof(HasDisconnectedDisplay));
+        // DisplayArrangementView repaints on this editor's change notifications, and a row edit
+        // reaches it only through this one. Keep it whenever a row's placement or mode changes.
         Raise(nameof(Rows));
         if (active.Length == 0)
         {
@@ -762,7 +774,9 @@ public sealed class DisplayLayoutEditor : ObservableObject
         }
 
         var built = Build();
-        ValidationText = built is null ? "" : DisplayLayouts.Describe(built) ?? "";
+        ValidationText = built is not null && DisplayLayouts.Describe(built) is { } problem
+            ? DisplayText.Problem(problem)
+            : "";
     }
 
     private sealed record RowState(

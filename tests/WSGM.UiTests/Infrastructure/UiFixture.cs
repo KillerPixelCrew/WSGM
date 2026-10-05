@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using Avalonia;
 using Avalonia.Animation;
@@ -5,7 +6,6 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Logging;
-using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WindowsDeviceControl;
@@ -15,6 +15,7 @@ using WSGM.Input;
 using WSGM.Overlay;
 using WSGM.Settings;
 using WSGM.Shell;
+using WSGM.Testing;
 using WSGM.Themes;
 
 namespace WSGM.UiTests.Infrastructure;
@@ -40,6 +41,9 @@ internal sealed class UiFixture : IDisposable
 
     internal List<string> Calls { get; } = [];
     internal ConfigStore Store { get; }
+
+    /// <summary>The snapshots the Settings window's test sheet was shown with, in order.</summary>
+    internal List<AppConfig> TestSheets { get; } = [];
 
     internal AppConfig Saved { get; private set; } = new()
         { AccentColor = "#4CC2FF" };
@@ -106,13 +110,15 @@ internal sealed class UiFixture : IDisposable
 
     internal SettingsWindow Settings(int width = 1280, int height = 800, bool gameModeSurface = false)
     {
-        SettingsViewModel.SettingsServices services = new(
-            () => ReadDisplays?.Invoke() ?? Displays,
-            target => DisplayFacts.GetValueOrDefault(target.DevicePath),
-            () => PluginActions,
-            () => [],
-            () => Calls.Add("save-import-begin"), () => Calls.Add("save-import-end"),
-            async request =>
+        // Inert by default, so nothing here reads this machine; the fixture's own seams on top.
+        var services = SettingsTestServices.Inert(Saved, Calls) with
+        {
+            CaptureDisplays = () => ReadDisplays?.Invoke() ?? Displays,
+            ReadDisplayFacts = target => DisplayFacts.GetValueOrDefault(target.DevicePath),
+            ReadPluginActions = () => PluginActions,
+            BeginImportSession = () => Calls.Add("save-import-begin"),
+            EndImportSession = () => Calls.Add("save-import-end"),
+            Persist = async request =>
             {
                 Calls.Add("save");
                 if (Persist is { } persist)
@@ -123,23 +129,19 @@ internal sealed class UiFixture : IDisposable
                 var fresh = ConfigJson.Clone(Saved, ConfigJsonContext.Default.AppConfig);
                 // Use the production fresh-load merge so fixture saves exercise the same field
                 // ownership and captured-edit tracking as the application.
-                var merged = SettingsSaveMerge.Apply(fresh, request, request.Splash);
+                var (merged, changes) = SettingsSaveMerge.Apply(fresh, request, request.Splash);
                 Saved = merged;
-                return new SettingsViewModel.SaveResult(merged, [], null);
+                return new SettingsViewModel.SaveResult(merged, [], null, changes);
             },
-            _ =>
-            {
-                Calls.Add("reconcile");
-                return Task.CompletedTask;
-            },
-            (message, _) => Calls.Add(message),
-            // A fixed report: the real reader describes this machine's last standby, which put the
-            // previous night's sleep length into the settings-system baselines.
-            () => new ModernStandbyReport(true, "This machine has not been in standby since it booted.", []),
-            () => ScanSteamAutostart(), sources => ApplySteamAutostart(sources),
+            LoadPersisted = () => ConfigJson.Clone(Saved, ConfigJsonContext.Default.AppConfig),
+            ScanSteamAutostart = () => ScanSteamAutostart(),
+            ApplySteamAutostart = sources => ApplySteamAutostart(sources),
+            // Repair offered, as on an installed machine, so the Plugins page keeps its button.
+            RepairAvailable = () => true,
             // A fixed observation: the real reader describes whatever this machine has plugged in,
             // which would put the local endpoint count into every settings baseline.
-            _ => Audio);
+            ReadAudio = _ => Audio
+        };
         var model = new SettingsViewModel(ConfigJson.Clone(Saved, ConfigJsonContext.Default.AppConfig),
             null, false, services, Store);
         var windowServices = new SettingsWindowServices(new GamepadService(),
@@ -149,10 +151,23 @@ internal sealed class UiFixture : IDisposable
             {
                 Calls.Add("device-read");
                 return Task.CompletedTask;
-            }, () => Saved.AccentColor,
-            owner => HoldSteamInput(owner), (owner, reason) => DropSteamInput(owner, reason));
-        SettingsWindow window = new(model, windowServices, gameModeSurface) { Width = width, Height = height };
-        Show(window);
+            }, () => model.SavedAccentColor,
+            owner => HoldSteamInput(owner), (owner, reason) => DropSteamInput(owner, reason),
+            config =>
+            {
+                Calls.Add("test-sheet");
+                TestSheets.Add(config);
+                return new TestSheetHandle(Calls);
+            });
+        SettingsWindow window = new(model, windowServices) { Width = width, Height = height };
+        if (gameModeSurface)
+        {
+            window.IncludeAsSwitchable();
+        }
+
+        // Display discovery starts as the window opens and reads on a worker, as in production; the
+        // window is captured once its first-render rows are in.
+        Show(window, () => model.ReadingDisplays);
         return window;
     }
 
@@ -185,19 +200,30 @@ internal sealed class UiFixture : IDisposable
             {
                 w.Width = width / renderScale;
                 w.Height = height / renderScale;
-                var factor = OverlayWindow.ComputeContentScale(uiScale, renderScale, width, height);
-                Named<LayoutTransformControl>(w, "RootScale").LayoutTransform = new ScaleTransform(factor, factor);
+                w.ApplyContentScale(OverlayWindow.ComputeContentScale(uiScale, renderScale, width, height));
             }, uiScale);
         window.SetPins(["home.steam", "home.desktop"]);
         Show(window);
         return window;
     }
 
-    private void Show(Window window)
+    private void Show(Window window, Func<bool>? busy = null)
     {
         _windows.Add(window);
         window.Show();
         Dispatcher.UIThread.RunJobs();
+        var started = Stopwatch.GetTimestamp();
+        while (busy?.Invoke() == true)
+        {
+            if (Stopwatch.GetElapsedTime(started) > AsyncConditions.TimeLimit)
+            {
+                throw new TimeoutException("The window's opening work did not finish.");
+            }
+
+            Thread.Yield();
+            Dispatcher.UIThread.RunJobs();
+        }
+
         foreach (var visual in window.GetVisualDescendants().OfType<Animatable>())
         {
             visual.Transitions = null;
@@ -269,6 +295,15 @@ internal sealed class UiFixture : IDisposable
         if (window.IsVisible)
         {
             window.KeyRelease(key, RawInputModifiers.None, PhysicalKey.None, null);
+        }
+    }
+
+    /// <summary>A recorded test sheet; closing it is recorded too.</summary>
+    private sealed class TestSheetHandle(List<string> calls) : IDisposable
+    {
+        public void Dispose()
+        {
+            calls.Add("test-sheet-closed");
         }
     }
 

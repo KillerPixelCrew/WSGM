@@ -51,6 +51,21 @@ public static class WakeLockStatus
 {
     private const int MaxNamedHolders = 3;
 
+    /// <summary>Words why a power-request read gave no trustworthy list; null when the list was read.</summary>
+    /// <param name="status">The outcome of <see cref="PowerRequestList.Query" />.</param>
+    /// <param name="nativeStatus">The NTSTATUS that accompanies a failed query.</param>
+    public static string? DescribeQueryStatus(PowerRequestListStatus status, int nativeStatus)
+    {
+        return status switch
+        {
+            PowerRequestListStatus.Read => null,
+            PowerRequestListStatus.AccessDenied => "Administrator rights required",
+            PowerRequestListStatus.QueryFailed => $"Query failed (NTSTATUS 0x{(uint)nativeStatus:X8})",
+            PowerRequestListStatus.Unsupported => "Not readable from a 32-bit process",
+            _ => "Unrecognized power request layout"
+        };
+    }
+
     /// <summary>
     ///     Computes the indicator state and a holder summary such as
     ///     "Standby blocked by steam.exe ×3, chrome.exe". WSGM's own requests count

@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Avalonia.Threading;
 using WindowsDeviceControl;
@@ -55,18 +56,18 @@ public sealed unsafe class MessageWindow : IDisposable
     private static readonly Guid GuidAcDcPowerSource = new("5d3e9a59-e9d5-4b00-a6bd-ff34ff516548");
 
     private static MessageWindow? _instance;
-    private nint _consoleDisplayNotify;
-    private nint _displayNotify;
+    private PowerNotificationRegistration? _consoleDisplayNotify;
+    private PowerNotificationRegistration? _displayNotify;
 
     /// <summary>How many subscribers asked for display-state notifications.</summary>
     private int _displaySubscribers;
 
-    private nint _legacyDisplayNotify;
-    private nint _powerSourceNotify;
+    private PowerNotificationRegistration? _legacyDisplayNotify;
+    private PowerNotificationRegistration? _powerSourceNotify;
     private bool _sessionNotify;
     private uint _shellHookMessage;
     private bool _shellHookRegistered;
-    private nint _suspendResumeNotify;
+    private PowerNotificationRegistration? _suspendResumeNotify;
 
     private nint _volumeNotify;
 
@@ -118,7 +119,7 @@ public sealed unsafe class MessageWindow : IDisposable
         UnregisterDisplayStateNotifications();
         UnregisterSessionNotifications();
         UnregisterSuspendResumeNotifications();
-        UnregisterPowerSetting(ref _powerSourceNotify, "AC/DC power source");
+        Release(ref _powerSourceNotify);
         UnregisterVolumeNotifications();
         if (!NativeMethods.DestroyWindow(Handle))
         {
@@ -281,20 +282,17 @@ public sealed unsafe class MessageWindow : IDisposable
             return;
         }
 
-        _displayNotify = WindowsPower.RegisterSettingNotification(
-            Handle, NativeMethods.GuidSessionDisplayStatus);
-        if (_displayNotify == 0)
+        _displayNotify = TryRegisterSetting(NativeMethods.GuidSessionDisplayStatus, out var error);
+        if (_displayNotify is null)
         {
             Log.Warn("RegisterPowerSettingNotification(session display status) failed "
-                     + $"(error {Marshal.GetLastWin32Error()}).");
+                     + $"(error {error}).");
         }
 
-        _consoleDisplayNotify = WindowsPower.RegisterSettingNotification(
-            Handle, NativeMethods.GuidConsoleDisplayState);
-        _legacyDisplayNotify = WindowsPower.RegisterSettingNotification(
-            Handle, NativeMethods.GuidMonitorPowerOn);
-        Log.Info($"Display-state notifications registered (session={_displayNotify != 0}, "
-                 + $"console={_consoleDisplayNotify != 0}, legacy={_legacyDisplayNotify != 0}).");
+        _consoleDisplayNotify = TryRegisterSetting(NativeMethods.GuidConsoleDisplayState, out _);
+        _legacyDisplayNotify = TryRegisterSetting(NativeMethods.GuidMonitorPowerOn, out _);
+        Log.Info($"Display-state notifications registered (session={_displayNotify is not null}, "
+                 + $"console={_consoleDisplayNotify is not null}, legacy={_legacyDisplayNotify is not null}).");
     }
 
     /// <summary>Releases one subscriber's display on/off notifications; the last one stops them.</summary>
@@ -310,16 +308,16 @@ public sealed unsafe class MessageWindow : IDisposable
 
     private void UnregisterDisplayStateNotifications()
     {
-        var any = _displayNotify != 0 || _consoleDisplayNotify != 0
-                                      || _legacyDisplayNotify != 0;
+        var any = _displayNotify is not null || _consoleDisplayNotify is not null
+                                             || _legacyDisplayNotify is not null;
         if (!any)
         {
             return;
         }
 
-        UnregisterPowerSetting(ref _displayNotify, "session display status");
-        UnregisterPowerSetting(ref _consoleDisplayNotify, "console display state");
-        UnregisterPowerSetting(ref _legacyDisplayNotify, "monitor power on");
+        Release(ref _displayNotify);
+        Release(ref _consoleDisplayNotify);
+        Release(ref _legacyDisplayNotify);
         Log.Info("Display-state notifications deregistered.");
     }
 
@@ -356,16 +354,19 @@ public sealed unsafe class MessageWindow : IDisposable
     // registration the SystemSuspending and SystemResumed events never fired.
     private void RegisterSuspendResumeNotifications()
     {
-        if (_suspendResumeNotify != 0)
+        if (_suspendResumeNotify is not null)
         {
             return;
         }
 
-        _suspendResumeNotify = WindowsPower.RegisterSuspendResumeNotification(Handle);
-        if (_suspendResumeNotify == 0)
+        try
+        {
+            _suspendResumeNotify = WindowsPower.RegisterSuspendResumeNotification(Handle);
+        }
+        catch (Win32Exception ex)
         {
             Log.Warn("RegisterSuspendResumeNotification failed "
-                     + $"(error {Marshal.GetLastWin32Error()}) — a sleep will not suspend or resume the device cycle.");
+                     + $"(error {ex.NativeErrorCode}) — a sleep will not suspend or resume the device cycle.");
             return;
         }
 
@@ -374,19 +375,40 @@ public sealed unsafe class MessageWindow : IDisposable
 
     private void RegisterPowerSourceNotifications()
     {
-        _powerSourceNotify = WindowsPower.RegisterSettingNotification(Handle, GuidAcDcPowerSource);
-        if (_powerSourceNotify == 0)
+        _powerSourceNotify = TryRegisterSetting(GuidAcDcPowerSource, out var error);
+        if (_powerSourceNotify is null)
         {
             Log.Warn("RegisterPowerSettingNotification(AC/DC power source) failed "
-                     + $"(error {Marshal.GetLastWin32Error()}): power preset assignments will not follow "
+                     + $"(error {error}): power preset assignments will not follow "
                      + "a switch between AC and battery.");
         }
     }
 
     private void UnregisterSuspendResumeNotifications()
     {
-        UnregisterPowerSetting(ref _suspendResumeNotify, "suspend/resume",
-            WindowsPower.UnregisterSuspendResumeNotification);
+        Release(ref _suspendResumeNotify);
+    }
+
+    /// <summary>Registers one power-setting notification, or returns null with the native error.</summary>
+    private PowerNotificationRegistration? TryRegisterSetting(Guid setting, out int error)
+    {
+        try
+        {
+            error = 0;
+            return WindowsPower.RegisterSettingNotification(Handle, setting);
+        }
+        catch (Win32Exception ex)
+        {
+            error = ex.NativeErrorCode;
+            return null;
+        }
+    }
+
+    /// <summary>Unregisters a power notification by disposing it; Windows reports no release failure.</summary>
+    private static void Release(ref PowerNotificationRegistration? registration)
+    {
+        registration?.Dispose();
+        registration = null;
     }
 
     /// <summary>
@@ -460,22 +482,6 @@ public sealed unsafe class MessageWindow : IDisposable
 
         _volumeNotify = 0;
         Log.Info("Volume arrival/removal notifications deregistered.");
-    }
-
-    private static void UnregisterPowerSetting(ref nint handle, string name, Func<nint, bool>? unregister = null)
-    {
-        if (handle == 0)
-        {
-            return;
-        }
-
-        if (!(unregister ?? WindowsPower.UnregisterSettingNotification)(handle))
-        {
-            Log.Warn($"UnregisterPowerSettingNotification({name}) failed "
-                     + $"(error {Marshal.GetLastWin32Error()}).");
-        }
-
-        handle = 0;
     }
 
     /// <summary>

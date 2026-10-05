@@ -17,9 +17,9 @@ the translucent glass tint; a failed or unavailable attachment leaves an opaque 
 compositor path works with Windows Transparency Effects disabled on the tested Claw. The fixed
 top-right Close control is the touch dismissal path. Closing preserves the 150 ms touch-promotion
 grace and the synthesized-mouse filter. No exposed game strip or global tap-outside observer
-remains. The maintainer confirmed the integrated Overlay over Steam and a game on the Claw,
-including bright/dark readability and no noticeable frame-time change. Battery-saver behavior and
-physical touch still need attended validation for issue #114.
+remains. On 2026-09-24 the maintainer confirmed the integrated Overlay over Steam and a game on the
+Claw, including bright/dark readability and no noticeable frame-time change. Battery-saver behavior
+and physical touch still need attended validation for issue #114.
 
 The fixed header carries the WSGM context, utility controls and status. Horizontal tabs select Quick
 access, Steam, Device, Tools or Power. Each destination has a persistent one-third section rail
@@ -38,7 +38,9 @@ Two Windows machine policies sit on the overlay, not in WSGM Settings, because t
 rather than WSGM: "Never show UAC prompts on this PC" on Tools > System and "No lock screen after
 standby" on Power > Wake. Each runs the existing elevated one-shot (`--set-uac-silent`,
 `--disable-lock-on-wake` and their restores), re-reads Windows afterwards, and shows read-only on a
-preview surface.
+preview surface. These policies and the idle timeouts are read on a worker, so the sheet opens
+without waiting on Windows: the values fill in a frame later, and until then the timeout badges show
+"—" and the switches stay disabled.
 
 Quick access holds pinned actions, complete sections and plugin widgets. `AppConfig.QuickAccessPins`
 stores stable action and section IDs. A pinned action invokes the same handler as its source. A
@@ -237,6 +239,9 @@ hibernate, restart, shutdown, sign-out and the Desktop/Game Mode transition shar
 Restart, shutdown and sign-out keep the same five-second second-press confirmation in both
 presentations, and closing the menu clears those confirmations. Focus starts on Keep playing. Back,
 the close control, controller X and a repeated menu request cancel without executing a power action.
+The window only reports the confirmed action. The controller carries it out through the action the
+session gave it, so the Settings Test sheet, `--overlay-test` and headless tests dismiss without
+touching the machine.
 
 `OverlayController.ShowPowerMenu` opens the menu from the desktop or from an existing overlay. A new
 desktop power surface acquires no Steam Input lease. Cancelling that standalone menu closes its
@@ -443,13 +448,13 @@ Panel brightness is available in Tools → Display through the resident session'
 service. Steam QAM and the Overlay use the same serialized writes and confirmed readback. The slider
 stays in place during updates, disables when readback is unavailable, and works with CEF disabled.
 
-The same page shows resolution and refresh for the first active display in Windows path-priority
-order. Pickers hold driver-validated modes, and changing resolution updates the offered refresh
-rates. Only Apply changes the display. Fresh observations every five seconds while open replace
-stale choices after a reconnect, resume or profile change. Windows Device Control rechecks target
-identity and driver validation before applying, confirms readback and attempts rollback on an
-unconfirmed write. Ambiguous clone sources are unavailable. None of this establishes physical
-visibility.
+The same page shows resolution and refresh for the display the overlay sheet is on. Pickers hold
+driver-validated modes, and changing resolution updates the offered refresh rates. Only Apply
+changes the display. Fresh observations every five seconds while open replace stale choices after a
+reconnect, resume or profile change. Windows Device Control rechecks target identity and driver
+validation before applying and writes once. A write Windows accepts is the result and is not read
+back; a refused one gets one write-back of the original mode, never a retry. Ambiguous clone sources
+are unavailable. None of this establishes physical visibility.
 
 Device provides a manual TDP mode selector when a paired capability is available. Selecting Unified
 saves the active global or per-game preference without writing hardware, and later sustained-slider
@@ -471,15 +476,20 @@ Resolution and refresh-rate dropdowns apply the committed selection directly. Br
 does not switch display modes; closing it commits once, and selecting the already active mode does
 nothing. Editors are disabled during a mode change, then restored from fresh readback. There is no
 separate Apply display mode button. Windows Device Control keeps its route checks, validation and
-rollback behavior.
+rollback behavior. Every other overlay dropdown that writes (power timeouts, keep awake, device
+choices, device power assignments, manual TDP mode, audio devices and formats) follows the same rule
+through `ComboCommit`: a change while closed commits at once, browsing an open popup commits
+nothing, and closing it commits the settled choice once.
 
 ### Application profiles
 
 Global / Per-application stays in the top bar on every destination. The adjacent profile-list button
 opens a scrollable editor for saved profiles, their names, activation executable names and
-performance overrides. Profiles can be configured while their applications are closed. Disabling
-preserves values; deleting requires a second explicit click. See [RTSS](rtss.md) for matching,
-persistence and device scope.
+performance overrides. The name and each activation executable are press-to-edit rows that open the
+overlay keyboard, so a controller reaches them; Add process appends a name and clearing a row
+removes it. Profiles can be configured while their applications are closed. Disabling preserves
+values; deleting requires a second explicit click. See [RTSS](rtss.md) for matching, persistence and
+device scope.
 
 ## Storage and audio controls
 

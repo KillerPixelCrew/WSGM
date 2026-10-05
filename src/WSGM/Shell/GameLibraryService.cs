@@ -344,6 +344,34 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
     }
 
     /// <inheritdoc />
+    public Task<SteamUiCommandResult> SetSelectedAsync(
+        IReadOnlyList<string> ids, bool selected, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_gate)
+        {
+            if (Guard() is { } refusal)
+            {
+                return Task.FromResult(refusal);
+            }
+
+            foreach (var id in ids)
+            {
+                if (_entries.TryGetValue(id, out var entry))
+                {
+                    entry.Selected = selected && entry.Selectable;
+                }
+            }
+
+            Publish();
+        }
+
+        Notify();
+        return Task.FromResult(SteamUiCommandResult.Applied);
+    }
+
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> SetModeAsync(
         string id, string mode, bool acknowledged, CancellationToken cancellationToken)
     {
@@ -357,7 +385,7 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
     }
 
     /// <inheritdoc />
-    public Task<SteamUiCommandResult> CycleLaunchAsync(string id, CancellationToken cancellationToken)
+    public async Task<GameLibraryLaunchCycle> CycleLaunchAsync(string id, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var acknowledge = false;
@@ -391,10 +419,7 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
             return ChangeMode(entry, ImportMode.SteamIntegration, entry.Acknowledged);
         });
 
-        return acknowledge
-            ? Task.FromResult(new SteamUiCommandResult(true, null, JsonSerializer.SerializeToElement(
-                new GameLibraryAcknowledgeAnswer(true), GameLibraryJsonContext.Default.GameLibraryAcknowledgeAnswer)))
-            : result;
+        return new GameLibraryLaunchCycle(await result.ConfigureAwait(false), acknowledge);
     }
 
     /// <inheritdoc />
@@ -1021,13 +1046,14 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
     ///     does, so a title only Screenscraper knows can be matched even when SteamGridDB returns
     ///     guesses. Only the automatic match asks the providers one after another.
     /// </remarks>
-    public async Task<SteamUiCommandResult> SearchMatchAsync(
+    public async Task<GameLibraryMatchSearch> SearchMatchAsync(
         string id, string query, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (_artwork is null)
         {
-            return new SteamUiCommandResult(false, "No artwork provider is available in this session.");
+            return new GameLibraryMatchSearch(
+                new SteamUiCommandResult(false, "No artwork provider is available in this session."));
         }
 
         string term;
@@ -1035,24 +1061,22 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
         {
             if (!_entries.TryGetValue(id, out var entry))
             {
-                return Unlisted;
+                return new GameLibraryMatchSearch(Unlisted);
             }
 
             term = query.Trim().Length > 0 ? query.Trim() : entry.Plan.Name;
         }
 
         var matches = await _artwork.SearchAsync(term, cancellationToken).ConfigureAwait(false);
-        return new SteamUiCommandResult(true, null, JsonSerializer.SerializeToElement(
-            new GameLibraryMatchesAnswer(
-            [
-                .. matches.Select(match => new GameLibraryMatchAnswer(
-                    match.ProviderId,
-                    ArtworkSearch.Find(match.ProviderId)?.DisplayName ?? match.ProviderId,
-                    match.Id,
-                    match.Name,
-                    match.Exact))
-            ]),
-            GameLibraryJsonContext.Default.GameLibraryMatchesAnswer));
+        return new GameLibraryMatchSearch(SteamUiCommandResult.Applied, new GameLibraryMatchesAnswer(
+        [
+            .. matches.Select(match => new GameLibraryMatchAnswer(
+                match.ProviderId,
+                ArtworkSearch.Find(match.ProviderId)?.DisplayName ?? match.ProviderId,
+                match.Id,
+                match.Name,
+                match.Exact))
+        ]));
     }
 
     /// <inheritdoc />
@@ -2667,7 +2691,9 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
                 return new GameLibrarySource(
                     source.Id,
                     source.DisplayName,
-                    source.Id.StartsWith("folder:", StringComparison.Ordinal) ? "folder" : "launcher",
+                    source.Id.StartsWith("folder:", StringComparison.Ordinal)
+                        ? GameLibrarySourceKinds.Folder
+                        : GameLibrarySourceKinds.Launcher,
                     found.Installed,
                     !disabled.Contains(source.Id),
                     found.Detail,
@@ -2678,7 +2704,14 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
         return new GameLibraryState(
             published,
             [.. published.Where(source => source is { Installed: true, Enabled: true }).Select(source => source.Name)],
-            _phase.ToString().ToLowerInvariant(),
+            _phase switch
+            {
+                Phase.Scanning => GameLibraryPhases.Scanning,
+                Phase.Review => GameLibraryPhases.Review,
+                Phase.Applying => GameLibraryPhases.Applying,
+                Phase.Done => GameLibraryPhases.Done,
+                _ => GameLibraryPhases.Idle
+            },
             entries,
             entries.Count(entry => entry.Selected),
             _progress,

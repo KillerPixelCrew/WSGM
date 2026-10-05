@@ -36,8 +36,8 @@ public sealed class CardManagerView : OverlaySubView
     /// </summary>
     public void Open()
     {
-        _stack.Clear();
-        _current = null;
+        NavigationStack.Clear();
+        CurrentLevel = null;
         Navigate(RenderCardList);
     }
 
@@ -50,14 +50,14 @@ public sealed class CardManagerView : OverlaySubView
 
     private async Task RenderCardListAsync()
     {
-        var generation = _navigationGeneration;
+        var generation = NavigationGeneration;
         SetContent(NewStack("Card Manager").Also(s => s.Children.Add(Caption("Scanning cards…"))));
         IReadOnlyList<LibraryTabManager.CardView> cards;
         var failed = false;
         try
         {
             cards = await LibraryTabManager.ListCardsAsync(Store);
-            if (generation != _navigationGeneration)
+            if (generation != NavigationGeneration)
             {
                 return;
             }
@@ -67,7 +67,7 @@ public sealed class CardManagerView : OverlaySubView
             Log.Warn($"Card list failed: {ex.Message}");
             // The failure path leaves the level just like the success path does:
             // the user may already have backed out while the read was running.
-            if (generation != _navigationGeneration)
+            if (generation != NavigationGeneration)
             {
                 return;
             }
@@ -112,7 +112,7 @@ public sealed class CardManagerView : OverlaySubView
             var stack = NewStack(card.Name);
             stack.Children.Add(Caption(card.Inserted ? "Currently inserted." : "Not inserted (remembered)."));
             stack.Children.Add(Row("Rename", card.Name, Icons.CopyDoc, () =>
-                EditText("Card name", card.Name, 40, v => _ = RunCardMutationAsync(
+                EditText("Card name", card.Name, 0, v => _ = RunCardMutationAsync(
                     async () =>
                     {
                         // Renames the drive itself first, then the tab, the Steam library
@@ -184,10 +184,10 @@ public sealed class CardManagerView : OverlaySubView
     private async Task OpenGameListAsync(LibraryTabManager.CardView card)
     {
         Navigate(() => RenderLoading(card.Name));
-        var generation = _navigationGeneration;
+        var generation = NavigationGeneration;
         // A failed read shows the ids alone, as an empty library did before.
         var loaded = await OverlayLibraryLookup.ReadAsync(Steam);
-        if (generation != _navigationGeneration)
+        if (generation != NavigationGeneration)
         {
             return;
         }

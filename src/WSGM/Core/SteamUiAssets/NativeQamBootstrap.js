@@ -12,6 +12,9 @@
     // Neither generation changes when the host is updated, so without the asset hash a new build kept
     // running the previous build's script until Steam itself restarted.
     prior.assetHash === config.assetHash &&
+    // The allow map is fixed at install, so a bridge reused across a vocabulary change would refuse
+    // every command a module added since.
+    prior.vocabularyRevision === config.vocabularyRevision &&
     prior.contextGeneration === config.contextGeneration &&
     prior.documentGeneration === config.documentGeneration &&
     // A prior bridge that can still hand out gates is one this build can stand aside for. Asking
@@ -311,6 +314,7 @@
   const bridge = Object.freeze({
     version: config.version,
     assetHash: config.assetHash,
+    vocabularyRevision: config.vocabularyRevision,
     contextGeneration: config.contextGeneration,
     documentGeneration: config.documentGeneration,
     request,

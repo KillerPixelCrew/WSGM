@@ -6,8 +6,14 @@ using System.Windows.Input;
 using Avalonia.Media;
 using WSGM.Controls;
 using WSGM.Core;
+using WSGM.Install;
 
 namespace WSGM.Settings;
+
+/// <summary>What the Plugins page shows: the installed release's bundle, when readable, and every card.</summary>
+/// <param name="Bundle">The installed release's bundle, or null when it is missing or unreadable.</param>
+/// <param name="Rows">The cards, each naming its section.</param>
+internal sealed record PluginPackagePage(BundleManifest? Bundle, IReadOnlyList<PluginPackageRowState> Rows);
 
 /// <summary>One badge on a plugin card, with its tone as flags the page's badge classes bind to.</summary>
 public sealed class PluginBadgeView(PluginBadge badge)

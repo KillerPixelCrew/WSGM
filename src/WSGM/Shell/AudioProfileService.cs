@@ -366,7 +366,7 @@ internal sealed class AudioProfileService : IAsyncDisposable
         }
 
         Log.Warn(
-            $"Audio profile: {direction} endpoint '{preference.Name ?? id}' is unavailable; leaving it unchanged.");
+            $"Audio profile: {direction} endpoint '{(string.IsNullOrEmpty(preference.Name) ? id : preference.Name)}' is unavailable; leaving it unchanged.");
         return null;
     }
 
@@ -390,7 +390,7 @@ internal sealed class AudioProfileService : IAsyncDisposable
 
     private static AudioEndpointPreference Endpoint(CoreAudio.AudioEndpoint endpoint)
     {
-        return new AudioEndpointPreference { Id = endpoint.Id, Name = endpoint.Name };
+        return new AudioEndpointPreference { Id = endpoint.Id, Name = AudioEndpointText.Name(endpoint) };
     }
 
     internal static AudioFormatPreference ToPreference(CoreAudio.AudioDeviceFormat format)

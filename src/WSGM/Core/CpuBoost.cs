@@ -53,7 +53,7 @@ internal sealed record CpuBoostStatus(bool Supported, CpuBoostMode? OnAc, CpuBoo
 ///     <c>PerformanceManager.RequestPerfBoostMode</c> and <c>PowerScheme.WritePowerCfg</c> are the
 ///     reference for the mechanism.
 /// </remarks>
-internal sealed class CpuBoost(ICpuBoostApi api)
+internal sealed class CpuBoost(PowerSchemes schemes, ICpuBoostApi api)
 {
     /// <summary>HC's five choices, in HC's order, with HC's labels.</summary>
     internal static readonly IReadOnlyList<CpuBoostOption> Offered =
@@ -69,8 +69,6 @@ internal sealed class CpuBoost(ICpuBoostApi api)
         new(CpuBoostMode.EfficientAggressive, "Efficient aggressive",
             "Boost hard, weighed against energy efficiency.")
     ];
-
-    internal static CpuBoost Windows { get; } = new(new WindowsCpuBoostApi());
 
     /// <summary>The stable id a mode is published under, independent of its display name.</summary>
     /// <param name="mode">The mode to name.</param>
@@ -127,7 +125,7 @@ internal sealed class CpuBoost(ICpuBoostApi api)
     {
         try
         {
-            var scheme = api.ReadActiveScheme();
+            var scheme = schemes.ReadActive();
             return new CpuBoostStatus(true, ModeFor(api.Read(scheme, false)), ModeFor(api.Read(scheme, true)));
         }
         catch (Win32Exception)
@@ -143,20 +141,20 @@ internal sealed class CpuBoost(ICpuBoostApi api)
     ///     already hold the mode, otherwise write them through <c>PowerScheme.WritePowerCfg</c> (reveal
     ///     the setting, write AC and DC, re-activate the active scheme so the processor policy takes
     ///     effect). The accepted write stands without a confirming read. Activation is global, so the write and the
-    ///     activation happen under <see cref="PowerSchemes.MutationGate" /> together, the gate scheme
-    ///     selection and the core preference take as well.
+    ///     activation happen under the scheme owner's mutation lock together, the lock scheme selection and
+    ///     the core preference take as well.
     /// </remarks>
     /// <param name="mode">The mode to apply.</param>
     /// <param name="cancellationToken">Cancels before the write starts.</param>
     internal void Apply(CpuBoostMode mode, CancellationToken cancellationToken = default)
     {
         var value = (uint)mode;
-        lock (PowerSchemes.MutationGate)
+        using (schemes.EnterMutation())
         {
             cancellationToken.ThrowIfCancellationRequested();
-            // Read the active scheme inside the shared gate: a scheme switch between the read and
+            // Read the active scheme inside the shared lock: a scheme switch between the read and
             // the write would land the mode in a scheme that is no longer active.
-            var scheme = api.ReadActiveScheme();
+            var scheme = schemes.ReadActive();
             // HC's ReadPowerCfg returns both sources in one call; both are read before comparing.
             var acValue = api.Read(scheme, false);
             var dcValue = api.Read(scheme, true);
@@ -168,7 +166,7 @@ internal sealed class CpuBoost(ICpuBoostApi api)
             _ = api.TryReveal();
             api.Write(scheme, false, value);
             api.Write(scheme, true, value);
-            api.RefreshActiveScheme();
+            schemes.RefreshActive();
         }
     }
 }

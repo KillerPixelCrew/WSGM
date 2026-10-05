@@ -12,7 +12,7 @@ public sealed class HybridCoreTests
     public async Task AKnownModeNotInThePublishedOptionsIsRefusedWithoutNativeAccess()
     {
         FakeHybridCoreApi api = new() { Policies = [HybridSchedulingPolicy.Automatic] };
-        NativeQamHybridCoreService qam = new(new HybridCores(api));
+        NativeQamHybridCoreService qam = new(api.Owner());
         await qam.ReadAsync();
         api.Calls.Clear();
 
@@ -24,7 +24,7 @@ public sealed class HybridCoreTests
     public async Task AnAcceptedSteamSelectionPublishesTheWrittenModeWithoutQueryingAgain()
     {
         FakeHybridCoreApi api = new() { IgnoreWrites = true };
-        NativeQamHybridCoreService qam = new(new HybridCores(api));
+        NativeQamHybridCoreService qam = new(api.Owner());
         await qam.ReadAsync();
         api.Calls.Clear();
 
@@ -39,7 +39,7 @@ public sealed class HybridCoreTests
     public async Task OverlayApplyPublishesTheWrittenModeWithoutQueryingAgain()
     {
         FakeHybridCoreApi api = new() { IgnoreWrites = true };
-        using HybridCoreSelection selection = new(new HybridCores(api));
+        using HybridCoreSelection selection = new(api.Owner());
         await selection.RefreshAsync();
         api.Calls.Clear();
 
@@ -55,7 +55,7 @@ public sealed class HybridCoreTests
     {
         FakeHybridCoreApi api = new() { Classes = [new HybridCoreClass(0, 8, 16)] };
 
-        var status = new HybridCores(api).Read();
+        var status = api.Owner().Read();
 
         Assert.False(status.Supported);
         Assert.Empty(status.Options);
@@ -66,7 +66,7 @@ public sealed class HybridCoreTests
     {
         FakeHybridCoreApi api = new() { Configurable = false };
 
-        Assert.False(new HybridCores(api).Read().Supported);
+        Assert.False(api.Owner().Read().Supported);
     }
 
     [Fact]
@@ -75,7 +75,7 @@ public sealed class HybridCoreTests
         // Lunar Lake reports two classes: four performance cores and four low-power efficiency ones.
         FakeHybridCoreApi api = new() { Classes = [new HybridCoreClass(0, 4, 4), new HybridCoreClass(1, 4, 4)] };
 
-        var status = new HybridCores(api).Read();
+        var status = api.Owner().Read();
 
         Assert.Equal(4, status.PerformanceCores);
         Assert.Equal(4, status.EfficiencyCores);
@@ -87,7 +87,7 @@ public sealed class HybridCoreTests
         FakeHybridCoreApi api = new()
             { Classes = [new HybridCoreClass(0, 4, 4), new HybridCoreClass(1, 8, 8), new HybridCoreClass(2, 2, 4)] };
 
-        var status = new HybridCores(api).Read();
+        var status = api.Owner().Read();
 
         Assert.Equal(2, status.PerformanceCores);
         Assert.Equal(12, status.EfficiencyCores);
@@ -106,7 +106,7 @@ public sealed class HybridCoreTests
             ]
         };
 
-        var modes = new HybridCores(api).Read().Options.Select(option => option.Mode).ToArray();
+        var modes = api.Owner().Read().Options.Select(option => option.Mode).ToArray();
 
         Assert.Equal([HybridCoreMode.Automatic, HybridCoreMode.PreferPerformance], modes);
     }
@@ -169,7 +169,7 @@ public sealed class HybridCoreTests
             }
         };
 
-        var status = new HybridCores(api).Read();
+        var status = api.Owner().Read();
 
         Assert.Equal(HybridCoreMode.PreferPerformance, status.OnAc);
         Assert.Equal(HybridCoreMode.PreferEfficiency, status.OnBattery);
@@ -180,7 +180,7 @@ public sealed class HybridCoreTests
     {
         FakeHybridCoreApi api = new();
 
-        new HybridCores(api).Apply(HybridCoreMode.PerformanceOnly);
+        api.Owner().Apply(HybridCoreMode.PerformanceOnly);
 
         Assert.Equal(HybridSchedulingPolicy.PerformantProcessors, api.States[false].Threads);
         Assert.Equal(HybridSchedulingPolicy.PerformantProcessors, api.States[false].ShortThreads);
@@ -198,7 +198,7 @@ public sealed class HybridCoreTests
         api.States[false] = api.States[false] with { HeterogeneousPolicy = 2 };
         api.States[true] = api.States[true] with { HeterogeneousPolicy = 4 };
 
-        new HybridCores(api).Apply(HybridCoreMode.PreferEfficiency);
+        api.Owner().Apply(HybridCoreMode.PreferEfficiency);
 
         Assert.Equal(2u, api.States[false].HeterogeneousPolicy);
         Assert.Equal(4u, api.States[true].HeterogeneousPolicy);
@@ -209,7 +209,7 @@ public sealed class HybridCoreTests
     {
         FakeHybridCoreApi api = new() { IgnoreWrites = true };
 
-        new HybridCores(api).Apply(HybridCoreMode.EfficiencyOnly);
+        api.Owner().Apply(HybridCoreMode.EfficiencyOnly);
         Assert.Equal(["read", "read", "write", "write", "refresh"], api.Calls);
     }
 
@@ -219,7 +219,7 @@ public sealed class HybridCoreTests
         // Capture both unrelated settings before writing, then activate the new policy.
         FakeHybridCoreApi api = new();
 
-        new HybridCores(api).Apply(HybridCoreMode.PreferPerformance);
+        api.Owner().Apply(HybridCoreMode.PreferPerformance);
 
         var refresh = api.Calls.IndexOf("refresh");
         Assert.True(refresh >= 0);
@@ -269,7 +269,7 @@ public sealed class HybridCoreTests
     public async Task TheSteamDropdownAndTheOverlayShareOneIdVocabularyAndOnePolicy()
     {
         FakeHybridCoreApi api = new();
-        var qam = new NativeQamHybridCoreService(new HybridCores(api));
+        var qam = new NativeQamHybridCoreService(api.Owner());
 
         var state = await qam.ReadAsync();
 
@@ -281,14 +281,14 @@ public sealed class HybridCoreTests
 
         Assert.True((await qam.SetHybridCoresAsync("prefer-performance", CancellationToken.None)).Succeeded);
         Assert.Equal("prefer-performance", (await qam.ReadAsync())!.Current);
-        Assert.Equal(HybridCoreMode.PreferPerformance, new HybridCores(api).Read().OnAc);
+        Assert.Equal(HybridCoreMode.PreferPerformance, api.Owner().Read().OnAc);
     }
 
     [Fact]
     public async Task TheSteamDropdownRefusesAnIdItNeverPublished()
     {
         FakeHybridCoreApi api = new();
-        var qam = new NativeQamHybridCoreService(new HybridCores(api));
+        var qam = new NativeQamHybridCoreService(api.Owner());
         await qam.ReadAsync();
 
         Assert.False((await qam.SetHybridCoresAsync("turbo", CancellationToken.None)).Succeeded);
@@ -299,7 +299,7 @@ public sealed class HybridCoreTests
     public async Task AFailedSteamWriteDoesNotBlockTheNextExplicitSelection()
     {
         FakeHybridCoreApi api = new() { NextWriteFailure = new IOException("write failed") };
-        var qam = new NativeQamHybridCoreService(new HybridCores(api));
+        var qam = new NativeQamHybridCoreService(api.Owner());
         await qam.ReadAsync();
 
         Assert.False((await qam.SetHybridCoresAsync("efficiency-only", CancellationToken.None)).Succeeded);
@@ -316,7 +316,7 @@ public sealed class HybridCoreTests
     {
         // A silently absent control cannot be told apart from a broken one.
         FakeHybridCoreApi api = new() { Classes = [new HybridCoreClass(0, 8, 16)] };
-        var qam = new NativeQamHybridCoreService(new HybridCores(api));
+        var qam = new NativeQamHybridCoreService(api.Owner());
 
         var state = await qam.ReadAsync();
 
@@ -328,7 +328,7 @@ public sealed class HybridCoreTests
     [Fact]
     public void EveryOfferedModeHasAnIdThatRoundTripsAndFitsTheBridgeRules()
     {
-        foreach (var option in new HybridCores(new FakeHybridCoreApi()).Read().Options)
+        foreach (var option in new FakeHybridCoreApi().Owner().Read().Options)
         {
             var id = HybridCores.IdFor(option.Mode);
             Assert.Matches("^[A-Za-z0-9._-]{1,64}$", id);

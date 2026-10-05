@@ -26,7 +26,6 @@ public sealed partial class AnimationsView : ServiceSubView
     /// <inheritdoc />
     protected override string LogScope => "Animations";
 
-    /// <summary>Raised when the user asks to continue on the Animations page in Steam.</summary>
     /// <summary>Attaches the view to the session's boot movies, or detaches it with null.</summary>
     /// <param name="service">The service, or null when the overlay closes or the session has none.</param>
     internal void Attach(AnimationService? service)
@@ -99,11 +98,6 @@ public sealed partial class AnimationsView : ServiceSubView
         stack.Children.Add(cards);
 
         SetContent(stack);
-    }
-
-    private void RenderDetail(string id)
-    {
-        RenderMovie(id);
     }
 
     private void RenderMovie(string id)

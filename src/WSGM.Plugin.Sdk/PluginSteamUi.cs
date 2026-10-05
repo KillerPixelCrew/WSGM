@@ -45,7 +45,8 @@ public interface IPluginSteamUi
     ///     enablement; plugins own only their bounded state, commands and renderer-specific gate.
     /// </summary>
     /// <remarks>
-    ///     A module must not declare a patch the host owns, including the custom-page host: one patch id
+    ///     The host registers these when the plugin becomes ready and removes them when it stops. A
+    ///     module must not declare a patch the host owns, including the custom-page host: one patch id
     ///     belongs to one module, so a second declaration is refused rather than registered.
     /// </remarks>
     IReadOnlyList<ISteamUiModule> SteamUiModules => [];

@@ -4,14 +4,32 @@ using WSGM.Core;
 
 namespace WSGM.Settings;
 
+/// <summary>What a Settings save changed in the persisted configuration, and so has to apply outside it.</summary>
+/// <param name="Shim">Steam Input management changed, so the shim in Steam's directory is reconciled.</param>
+/// <param name="SteamAutostartAccepted">The Steam autostart takeover was accepted by this save.</param>
+/// <param name="OtherManagersAccepted">The other-managers takeover was accepted by this save.</param>
+internal sealed record SaveChanges(bool Shim, bool SteamAutostartAccepted, bool OtherManagersAccepted);
+
 /// <summary>Applies a captured Settings edit to the fresh strict configuration load.</summary>
 internal static class SettingsSaveMerge
 {
-    internal static AppConfig Apply(AppConfig fresh, SettingsViewModel.SaveRequest request, SplashConfig preparedSplash)
+    /// <summary>Copies the Settings-owned fields of a captured edit onto the fresh load.</summary>
+    /// <param name="fresh">The strict load inside the writer transaction; mutated and returned.</param>
+    /// <param name="request">The values this window captured.</param>
+    /// <param name="preparedSplash">The splash section whose images were already staged.</param>
+    /// <returns>
+    ///     The merged configuration and what it changed against the disk value, measured here so every
+    ///     persistence path, production or test, reports the same answer.
+    /// </returns>
+    internal static (AppConfig Config, SaveChanges Changes) Apply(AppConfig fresh, SettingsViewModel.SaveRequest request,
+        SplashConfig preparedSplash)
     {
         var config = fresh;
         var values = ConfigJson.Clone(request.Values, ConfigJsonContext.Tolerant.AppConfig);
         var discoveredDisplays = fresh.GameModeLaunch.KnownDisplays;
+        var shimWas = fresh.SteamInputManagementEnabled;
+        var autostartWas = fresh.SteamAutostartTakeoverAccepted;
+        var managersWas = fresh.OtherManagersTakeoverAccepted;
         config.SteamAutoRelaunch = values.SteamAutoRelaunch;
         config.SteamLaunchUnelevated = values.SteamLaunchUnelevated;
         config.StartupDelayMs = values.StartupDelayMs;
@@ -137,7 +155,10 @@ internal static class SettingsSaveMerge
         }
 
         config.Splash = preparedSplash;
-        return config;
+        return (config, new SaveChanges(
+            config.SteamInputManagementEnabled != shimWas,
+            !autostartWas && config.SteamAutostartTakeoverAccepted,
+            !managersWas && config.OtherManagersTakeoverAccepted));
     }
 
     private static PluginSettingsScope FindOrAddSaveScope(

@@ -1,3 +1,4 @@
+using WindowsDeviceControl;
 using WSGM.Shell;
 
 namespace WSGM.Tests.Shell;
@@ -50,7 +51,12 @@ public sealed class BluetoothActionTests
     public void PairDispatchesSelectedEndpointAndBlocksDuplicateAttempts()
     {
         List<string> writes = [];
-        using RadioManager manager = new((id, _, _) => writes.Add(id),
+        // The attempt never ends on its own, as a real pairing waits on the device and the user.
+        using RadioManager manager = new((id, _, _) =>
+            {
+                writes.Add(id);
+                return new TaskCompletionSource<WindowsRadio.PairingResult>().Task;
+            },
             (_, _) => throw new InvalidOperationException());
         BluetoothDeviceEntry entry = new("logical") { PairingEndpointId = "pairable-le", CanPair = true };
         Assert.True(manager.BeginPairing(entry));

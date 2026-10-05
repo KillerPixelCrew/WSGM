@@ -350,7 +350,8 @@ public sealed class GameModeEntryTransactionTests
             // whether Explorer has left yet would test the test, so both are recorded.
             Calls.Add("apply-layout");
             RestoredLayouts.Add(name);
-            return Task.FromResult(new DisplayLayoutResult(LayoutOutcome, [], 0, false, false, [], "refused"));
+            return Task.FromResult(new DisplayLayoutResult(LayoutOutcome, [], 0, false, 0, [],
+                FailureMessage: "refused"));
         }
 
         public Task<AudioProfilePreference?> CaptureAudioAsync(CancellationToken cancellationToken)

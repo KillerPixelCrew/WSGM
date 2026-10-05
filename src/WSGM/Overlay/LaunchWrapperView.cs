@@ -49,8 +49,8 @@ public sealed class LaunchWrapperView : OverlaySubView
     {
         _customPath = null;
         _customGame = null;
-        _stack.Clear();
-        _current = null;
+        NavigationStack.Clear();
+        CurrentLevel = null;
         _ = RunSafelyAsync(RenderGameListAsync(heading), "game list");
     }
 
@@ -65,8 +65,8 @@ public sealed class LaunchWrapperView : OverlaySubView
         _customPath = path;
         _customArguments = "";
         _customGame = game;
-        _stack.Clear();
-        _current = null;
+        NavigationStack.Clear();
+        CurrentLevel = null;
         Navigate(RenderArgumentChoice);
     }
 
@@ -80,7 +80,7 @@ public sealed class LaunchWrapperView : OverlaySubView
         stack.Children.Add(PrimaryRow("No arguments", "Continue without additional arguments",
             Icons.Play, ContinueCustomAction));
         stack.Children.Add(Row("Add arguments", "Enter command-line arguments", Icons.CopyDoc,
-            () => EditText($"Arguments for {name}", _customArguments, 2048, value =>
+            () => EditText($"Arguments for {name}", _customArguments, 0, value =>
             {
                 _customArguments = value;
                 Dispatcher.UIThread.Post(ContinueCustomAction);
@@ -95,8 +95,8 @@ public sealed class LaunchWrapperView : OverlaySubView
     // and for a Steam that reported no current app.
     private void ContinueCustomAction()
     {
-        _stack.Clear();
-        _current = null;
+        NavigationStack.Clear();
+        CurrentLevel = null;
         if (_customPath is { } path && _customGame is { } game)
         {
             CustomPicked?.Invoke(path, _customArguments, game);
@@ -109,12 +109,12 @@ public sealed class LaunchWrapperView : OverlaySubView
     private async Task RenderGameListAsync(string heading)
     {
         Navigate(() => RenderLoading(heading));
-        var generation = _navigationGeneration;
+        var generation = NavigationGeneration;
         var result = await OverlayLibraryLookup.ReadAsync(Steam);
         var games = result.Games;
         // The picker load is asynchronous, so a Back press (or a second open) while
         // Steam was answering must discard this result rather than redraw over it.
-        if (generation != _navigationGeneration)
+        if (generation != NavigationGeneration)
         {
             return;
         }
@@ -141,8 +141,8 @@ public sealed class LaunchWrapperView : OverlaySubView
         var stack = NewStack(heading);
         if (_games.Count == 0)
         {
-            // GetGamesAsync answers empty for an unreachable Steam too, so this
-            // says "could not read" rather than claiming the library is empty.
+            // A Steam that could not list its games took the failure branch above, so an
+            // empty list here is a library with no games.
             stack.Children.Add(Caption("Your Steam library has no games."));
         }
         else

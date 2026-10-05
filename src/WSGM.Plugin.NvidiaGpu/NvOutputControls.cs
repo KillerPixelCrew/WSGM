@@ -209,15 +209,28 @@ internal sealed class NvOutputModeControl(
         api.OutputMode(output.Id, requested);
         if (resetTarget is not null)
         {
-            var disabled = DisplayColor.TrySetHdr(resetTarget, false, out var detail);
-            // Restore the captured On state even if the Off operation's readback was inconclusive.
-            var restored = DisplayColor.TrySetHdr(resetTarget, true, out var restoreDetail);
-            if (!disabled || !restored)
+            var disabled = DisplayColor.SetHdr(resetTarget, false);
+            // Restore the captured On state even if the Off write did not happen.
+            var restored = DisplayColor.SetHdr(resetTarget, true);
+            if (!disabled.Succeeded || !restored.Succeeded)
             {
-                throw new DriverFailure("The HDR10 transition was not confirmed: " + detail + " " + restoreDetail,
-                    true);
+                throw new DriverFailure("The HDR10 transition was not confirmed: " + Reason(disabled) + " "
+                                        + Reason(restored), true);
             }
         }
+    }
+
+    /// <summary>Why one HDR write did not happen, in the words this failure has always used.</summary>
+    private static string Reason(DisplaySetResult result)
+    {
+        return result.Outcome switch
+        {
+            DisplaySetOutcome.NotActive => "the display is not active, so its colour state was left alone",
+            DisplaySetOutcome.Unreadable => "its colour state could not be read",
+            DisplaySetOutcome.Unsupported => "this display does not support HDR",
+            DisplaySetOutcome.Refused => $"Windows refused the HDR change (status {result.NativeStatus})",
+            _ => ""
+        };
     }
 }
 

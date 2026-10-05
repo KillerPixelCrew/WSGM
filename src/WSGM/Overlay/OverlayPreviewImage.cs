@@ -9,7 +9,6 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
-using Avalonia.VisualTree;
 using SkiaSharp;
 using WSGM.Core;
 
@@ -25,7 +24,6 @@ internal sealed class OverlayPreviewImage : Border, IOverlayRefreshable
     private readonly string? _source;
     private Bitmap? _bitmap;
     private CancellationTokenSource? _load;
-    private ScrollViewer? _scroller;
 
     internal OverlayPreviewImage(string? source, double height = 140)
     {
@@ -36,24 +34,12 @@ internal sealed class OverlayPreviewImage : Border, IOverlayRefreshable
             Text = string.IsNullOrEmpty(source) ? "No preview" : "Loading preview…",
             VerticalAlignment = VerticalAlignment.Center
         };
-        AttachedToVisualTree += (_, _) =>
-        {
-            LayoutUpdated += LoadWhenVisible;
-            _scroller = this.GetVisualAncestors().OfType<ScrollViewer>().FirstOrDefault();
-            if (_scroller is not null)
-            {
-                _scroller.ScrollChanged += OnScroll;
-            }
-        };
+        // The effective viewport changes when a scroll, a layout or a shown page brings the image
+        // into view, and only for this control, unlike a tree-wide layout pass.
+        AttachedToVisualTree += (_, _) => EffectiveViewportChanged += LoadWhenVisible;
         DetachedFromVisualTree += (_, _) =>
         {
-            LayoutUpdated -= LoadWhenVisible;
-            if (_scroller is not null)
-            {
-                _scroller.ScrollChanged -= OnScroll;
-            }
-
-            _scroller = null;
+            EffectiveViewportChanged -= LoadWhenVisible;
             _load?.Cancel();
             _load?.Dispose();
             _load = null;
@@ -66,22 +52,10 @@ internal sealed class OverlayPreviewImage : Border, IOverlayRefreshable
     {
     }
 
-    private void OnScroll(object? sender, ScrollChangedEventArgs e)
+    private void LoadWhenVisible(object? sender, EffectiveViewportChangedEventArgs e)
     {
-        LoadWhenVisible(sender, EventArgs.Empty);
-    }
-
-    private void LoadWhenVisible(object? sender, EventArgs e)
-    {
-        if (_load is not null || _source is null || !IsEffectivelyVisible || Bounds.Width <= 0)
-        {
-            return;
-        }
-
-        var scroller = this.GetVisualAncestors().OfType<ScrollViewer>().FirstOrDefault();
-        if (scroller is not null && this.TransformToVisual(scroller) is { } transform
-                                 && !new Rect(Bounds.Size).TransformToAABB(transform)
-                                     .Intersects(new Rect(scroller.Bounds.Size)))
+        if (_load is not null || _source is null || !IsEffectivelyVisible || Bounds.Width <= 0
+            || !e.EffectiveViewport.Intersects(new Rect(Bounds.Size)))
         {
             return;
         }

@@ -266,6 +266,16 @@ internal sealed class ThemeBrowseSession : IThemeBrowseSession
         return _owner.SetSettingAsync(key, value, cancellationToken);
     }
 
+    public Task<SteamUiCommandResult> SetThemesEnabledAsync(bool enabled, CancellationToken cancellationToken)
+    {
+        return _owner.SetThemesEnabledAsync(enabled, cancellationToken);
+    }
+
+    public Task<SteamUiCommandResult> SetTranslationsBranchAsync(string branch, CancellationToken cancellationToken)
+    {
+        return _owner.SetTranslationsBranchAsync(branch, cancellationToken);
+    }
+
     private void Publish()
     {
         if (!_lifetime.IsCancellationRequested)

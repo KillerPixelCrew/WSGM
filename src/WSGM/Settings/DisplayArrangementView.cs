@@ -78,6 +78,8 @@ public sealed class DisplayArrangementView : Canvas
         RefreshScreens();
     }
 
+    // Row edits arrive only as the editor's Rows notification from its revalidation; the rows
+    // themselves are not observed here.
     private void Changed(object? sender, PropertyChangedEventArgs e)
     {
         RefreshScreens();

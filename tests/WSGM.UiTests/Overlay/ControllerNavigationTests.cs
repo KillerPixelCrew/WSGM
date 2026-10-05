@@ -53,8 +53,7 @@ public sealed class ControllerNavigationTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         FakeButtonSource buttons = new();
-        using GamepadNavigation navigation = new(buttons, window, () => window.TryCancelSubView(),
-            preferredFocus: () => window.DefaultFocusTarget);
+        using var navigation = OverlayInput.Create(window, buttons, () => window.TryCancelSubView());
         var vm = Assert.IsType<OverlayViewModel>(window.DataContext);
         vm.PowerTimeoutValues = new Dictionary<PowerTimeoutKind, int?> { [PowerTimeoutKind.DisplayDc] = 60 };
         List<(PowerTimeoutKind Kind, int Seconds)> requested = [];
@@ -136,10 +135,7 @@ public sealed class ControllerNavigationTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         FakeButtonSource buttons = new();
-        using GamepadNavigation navigation = new(buttons, window, () => window.TryCancelSubView(),
-            preferredFocus: () => window.DefaultFocusTarget,
-            tabPrevious: window.SelectPreviousTab, tabNext: window.SelectNextTab,
-            navigate: window.NavigateWorkspace, triggerTabs: true);
+        using var navigation = OverlayInput.Create(window, buttons, () => window.TryCancelSubView());
         UiFixture.Click(window, UiFixture.Tab(window, 1));
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SteamLaunchFixes));
         buttons.Press((GamepadButtons)next);
@@ -155,10 +151,7 @@ public sealed class ControllerNavigationTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         FakeButtonSource buttons = new();
-        using GamepadNavigation navigation = new(buttons, window, () => window.TryCancelSubView(),
-            preferredFocus: () => window.DefaultFocusTarget,
-            tabPrevious: window.SelectPreviousTab, tabNext: window.SelectNextTab,
-            navigate: window.NavigateWorkspace, triggerTabs: true);
+        using var navigation = OverlayInput.Create(window, buttons, () => window.TryCancelSubView());
         UiFixture.Click(window, UiFixture.Tab(window, 1));
         var rail = UiFixture.Rail(window, OverlayPage.SteamLibrary);
         Assert.True(rail.Focus());
@@ -178,10 +171,7 @@ public sealed class ControllerNavigationTests
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         FakeButtonSource buttons = new();
-        using GamepadNavigation navigation = new(buttons, window, () => window.TryCancelSubView(),
-            preferredFocus: () => window.DefaultFocusTarget,
-            navigate: direction => !window.HasActiveSurface && window.NavigateWorkspace(direction),
-            focusScope: () => window.ActiveSurfaceNavigationRoot);
+        using var navigation = OverlayInput.Create(window, buttons, () => window.TryCancelSubView());
         window.ShowBrightnessSurface();
         Dispatcher.UIThread.RunJobs();
         var close = Assert.IsType<Button>(window.ActiveSurfaceFocusTarget);

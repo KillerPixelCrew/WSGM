@@ -525,7 +525,7 @@ the host authorizes the envelope, `SteamUiModuleRuntime` routes it to the module
 handler reads the payload with a strict reader (exact object shape, bounded strings, ranges).
 Results travel back as a response envelope; every refusal is logged once under
 `steam.ui.request.<patch>.<command>`. Correlation ids are
-`native-qam:<context>:<document>:<sequence>:<action>` and RTSS commands carry origin `native-qam`.
+`steam-ui:<context>:<document>:<sequence>:<action>` and RTSS commands carry origin `native-qam`.
 
 ### State flow
 
@@ -634,9 +634,9 @@ application when a game holds the target. Device controls select capabilities by
 ambiguous match, and re-resolve descriptors at execution time. Audio maps endpoints through the
 audio manager on the UI thread. Bluetooth maps `pair` and `cancelPair` to scanning because pairing
 is prompt-driven, accepts `setTrusted` and `setWakeAllowed` as no-ops, and reads adapter state from
-the radio manager. The network gate merges the connected access point from
-`WindowsRadio.GetWifiStatus` into the store, which is what gives the header Wi-Fi indicator a signal
-on Windows.
+the radio manager. The network gate merges the connected access point the radio manager reads from
+`WindowsRadio.GetWifiStatus` into the store, matched to the scanned rows by SSID bytes and security,
+which is what gives the header Wi-Fi indicator a signal on Windows.
 
 The power-limit surface exposes a Unified TDP toggle using the coordinator's persisted manual mode.
 Unified mode shows one TDP slider and both observed limits in its description; split mode shows both

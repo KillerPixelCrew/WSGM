@@ -6,12 +6,14 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
-using WSGM.Install;
 
 namespace WSGM.Settings;
 
 public sealed partial class SettingsViewModel
 {
+    // Stops a running check or download when the window closes. The update is the user's confirmed
+    // action, but a download nobody can see finish must not start setup behind a closed window.
+    private readonly CancellationTokenSource _updateWork = new();
     private UpdateOffer? _updateOffer;
 
     /// <summary>Gets or sets whether WSGM checks GitHub once a day for a newer release.</summary>
@@ -68,9 +70,15 @@ public sealed partial class SettingsViewModel
     /// <summary>Downloads the release's setup, verifies it and runs its quiet update.</summary>
     public AsyncRelayCommand ApplyUpdateCommand => field ??= new AsyncRelayCommand(ApplyUpdateAsync);
 
+    /// <summary>Stops a running update check or download; called once when the window closes.</summary>
+    internal void StopUpdateWork()
+    {
+        _updateWork.Cancel();
+    }
+
     private void LoadUpdateState()
     {
-        ShowUpdateState(_services.ReadUpdates?.Invoke() ?? new UpdateState());
+        ShowUpdateState(_services.ReadUpdates());
     }
 
     private void ShowUpdateState(UpdateState state)
@@ -85,7 +93,7 @@ public sealed partial class SettingsViewModel
         UpdateStatusText = _updateOffer is { } found
             ? $"WSGM {found.Release.Version} is available. You have {UpdateChecker.CurrentVersion}. {checkedText}"
             : $"WSGM {UpdateChecker.CurrentVersion} is current. {checkedText}";
-        if (_updateOffer is not null && UpdateFailure.Read() is { } failure)
+        if (_updateOffer is not null && _services.ReadUpdateFailure() is { } failure)
         {
             UpdateStatusText = failure + " " + UpdateStatusText;
         }
@@ -108,8 +116,11 @@ public sealed partial class SettingsViewModel
         try
         {
             UpdateStatusText = "Checking for updates…";
-            using var http = UpdateChecker.CreateHttpClient();
-            ShowUpdateState(await Task.Run(() => UpdateChecker.CheckAsync(http, Store.Context, CancellationToken.None)));
+            ShowUpdateState(await _services.CheckUpdates(_updateWork.Token));
+        }
+        catch (OperationCanceledException) when (_updateWork.IsCancellationRequested)
+        {
+            Log.Info("Update: the check stopped because Settings closed.");
         }
         finally
         {
@@ -131,11 +142,14 @@ public sealed partial class SettingsViewModel
             UpdateStatusText = $"Downloading WSGM {offer.Release.Version}…";
             Progress<double> progress = new(fraction =>
                 UpdateStatusText = $"Downloading WSGM {offer.Release.Version}… {fraction:P0}");
-            using var http = UpdateChecker.CreateHttpClient();
-            var setup = await Task.Run(() =>
-                UpdateChecker.DownloadAsync(http, offer.Release, progress, CancellationToken.None));
+            var setup = await _services.DownloadUpdate(offer.Release, progress, _updateWork.Token);
+            _updateWork.Token.ThrowIfCancellationRequested();
             UpdateStatusText = "Starting the update. Steam and WSGM close now and WSGM starts again when it is done.";
-            UpdateChecker.RunSetup(setup);
+            _services.RunSetup(setup);
+        }
+        catch (OperationCanceledException) when (_updateWork.IsCancellationRequested)
+        {
+            Log.Info("Update: the download stopped because Settings closed.");
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException
                                        or UnauthorizedAccessException or InvalidDataException

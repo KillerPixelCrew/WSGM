@@ -11,7 +11,7 @@ namespace WSGM.Shell;
 /// <summary>Reads which monitors the adapter can currently see.</summary>
 internal interface IDisplayPresence
 {
-    /// <summary>Observes every monitor. May throw when the driver is mid-change.</summary>
+    /// <summary>Observes every monitor. May throw <see cref="Win32Exception" /> when the driver is mid-change.</summary>
     /// <returns>The current observation.</returns>
     DisplayArrangement Observe();
 }
@@ -35,7 +35,8 @@ internal interface IDisplayChangeSignal
 ///     Arrival is not a single event. A monitor coming up behind a switch enumerates, disappears and
 ///     re-enumerates while the sink negotiates, so the waiter requires two identical observations a
 ///     settle apart before it reports the display present. The change hint is an optimisation; the
-///     backstop poll is what makes the wait correct when no hint is delivered.
+///     backstop poll is what makes the wait correct when no hint is delivered. This is the only display
+///     wait: Windows Device Control has none of its own.
 /// </summary>
 internal sealed class DisplayArrivalWaiter(
     IDisplayPresence presence,
@@ -120,10 +121,6 @@ internal sealed class DisplayArrivalWaiter(
             return presence.Observe();
         }
         catch (Win32Exception)
-        {
-            return null;
-        }
-        catch (InvalidOperationException)
         {
             return null;
         }

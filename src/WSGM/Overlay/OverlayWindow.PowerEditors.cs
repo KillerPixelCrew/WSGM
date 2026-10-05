@@ -6,6 +6,7 @@ using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using FluentAvalonia.UI.Controls;
+using WSGM.Controls;
 using WSGM.Core;
 
 namespace WSGM.Overlay;
@@ -66,8 +67,7 @@ public partial class OverlayWindow
     private void OnPowerEditorStateChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (sender is OverlayViewModel vm && e.PropertyName is nameof(OverlayViewModel.KeepAwakeManualMode)
-                or nameof(OverlayViewModel.KeepAwakeDescription) or nameof(OverlayViewModel.PowerTimeoutValues)
-                or nameof(OverlayViewModel.PowerTimeoutMinimums))
+                or nameof(OverlayViewModel.KeepAwakeDescription) or nameof(OverlayViewModel.PowerTimeoutValues))
         {
             RefreshPowerEditors(vm);
         }
@@ -75,41 +75,15 @@ public partial class OverlayWindow
 
     private void ObservePowerChoice<T>(ComboBox editor, Action<T> selected) where T : class
     {
-        object? committed = null;
-        var open = false;
-        editor.DropDownOpened += (_, _) => open = true;
+        ComboCommit.Attach(editor, () => _refreshingPowerEditors, selected);
+        // Added after the commit rule so a closing dropdown commits before the editors re-read.
         editor.DropDownClosed += (_, _) =>
         {
-            open = false;
-            CommitChoice();
             if (DataContext is OverlayViewModel vm)
             {
                 RefreshPowerEditors(vm);
             }
         };
-        editor.SelectionChanged += (_, _) =>
-        {
-            if (_refreshingPowerEditors)
-            {
-                committed = editor.SelectedItem;
-            }
-            else if (!open && !editor.IsDropDownOpen)
-            {
-                CommitChoice();
-            }
-        };
-
-        void CommitChoice()
-        {
-            if (_refreshingPowerEditors || !editor.IsEnabled || editor.SelectedItem is not T choice
-                || Equals(committed, choice))
-            {
-                return;
-            }
-
-            committed = choice;
-            selected(choice);
-        }
     }
 
     internal void RefreshPowerEditors(OverlayViewModel vm)

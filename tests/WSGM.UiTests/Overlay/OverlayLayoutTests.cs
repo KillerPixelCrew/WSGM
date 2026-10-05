@@ -402,7 +402,7 @@ public sealed class OverlayLayoutTests
         DisplayModeSnapshot modes = new(new ActiveDisplayPath(target, "fixture", 0, 120, 1),
             new DisplayMode(1920, 1200, 120),
             [new DisplayMode(1920, 1200, 60), new DisplayMode(1920, 1200, 120), new DisplayMode(1280, 800, 60)]);
-        window.AttachBrightness(brightness, () => Task.FromResult<DisplayModeSnapshot?>(modes));
+        window.AttachBrightness(brightness, _ => Task.FromResult<DisplayModeSnapshot?>(modes));
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SystemDisplay));
         UiFixture.OpenSections(window);

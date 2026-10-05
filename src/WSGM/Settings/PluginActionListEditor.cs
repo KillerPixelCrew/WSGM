@@ -129,7 +129,8 @@ public sealed class PluginActionStepEditorRow : ObservableObject
                 return;
             }
 
-            Step.TimeoutSeconds = Math.Clamp(value, 1, 120);
+            Step.TimeoutSeconds = Math.Clamp(value, PluginActionStep.MinimumTimeoutSeconds,
+                PluginActionStep.MaximumTimeoutSeconds);
             Raise(nameof(TimeoutSeconds));
             _changed();
         }

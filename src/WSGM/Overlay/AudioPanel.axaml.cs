@@ -8,8 +8,8 @@ using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using WindowsDeviceControl;
+using WSGM.Controls;
 using WSGM.Core;
-using WSGM.Settings;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
@@ -38,6 +38,18 @@ public partial class AudioPanel : UserControl
         _audio = audio;
         _profiles = profiles;
         InitializeComponent();
+        // Browsing an open dropdown with the controller passes over items; only the choice the user settles
+        // on changes the default device or the format.
+        ComboCommit.Attach<AudioEndpointEntry>(OutputChoice, static () => false,
+            entry => _audio.SelectedOutput = entry);
+        ComboCommit.Attach<AudioEndpointEntry>(InputChoice, static () => false,
+            entry => _audio.SelectedInput = entry);
+        ComboCommit.Attach<AudioPlaybackChoice>(ChannelsChoice, () => _loadingCapabilities,
+            option => _ = SetFormatAsync(option));
+        ComboCommit.Attach<AudioPlaybackChoice>(FormatChoice, () => _loadingCapabilities,
+            option => _ = SetFormatAsync(option));
+        ComboCommit.Attach<SpatialAudioOption>(SpatialChoice, () => _loadingCapabilities,
+            option => _ = SetSpatialAsync(option));
         DataContext = audio;
         AttachedToVisualTree += (_, _) =>
         {
@@ -110,7 +122,7 @@ public partial class AudioPanel : UserControl
                 [
                     new SpatialAudioOption(CoreAudio.SpatialAudioFormats.Off, "Off"),
                     .. spatial.Select(static format =>
-                        new SpatialAudioOption(format, AudioProfileEditor.SpatialName(format)))
+                        new SpatialAudioOption(format, SpatialAudioNames.For(format)))
                 ])
                 : null;
             SpatialChoice.ItemsSource = spatialOptions;
@@ -167,10 +179,9 @@ public partial class AudioPanel : UserControl
         return true;
     }
 
-    private async void OnFormatChanged(object? sender, SelectionChangedEventArgs e)
+    private async Task SetFormatAsync(AudioPlaybackChoice option)
     {
-        if (_loadingCapabilities || sender is not ComboBox { SelectedItem: AudioPlaybackChoice option }
-                                 || _audio.SelectedOutput is not { } output || Stale(output))
+        if (_audio.SelectedOutput is not { } output || Stale(output))
         {
             return;
         }
@@ -189,10 +200,9 @@ public partial class AudioPanel : UserControl
         await RefreshCapabilitiesAsync();
     }
 
-    private async void OnSpatialChanged(object? sender, SelectionChangedEventArgs e)
+    private async Task SetSpatialAsync(SpatialAudioOption option)
     {
-        if (_loadingCapabilities || SpatialChoice.SelectedItem is not SpatialAudioOption option
-                                 || _audio.SelectedOutput is not { } output || Stale(output))
+        if (_audio.SelectedOutput is not { } output || Stale(output))
         {
             return;
         }

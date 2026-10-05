@@ -2,7 +2,10 @@ using WindowsDeviceControl;
 using WSGM.Shell;
 using PairingOutcome = WindowsDeviceControl.WindowsRadio.PairingOutcome;
 using RadioPower = WindowsDeviceControl.WindowsRadio.Power;
+using WifiConnectOutcome = WindowsDeviceControl.WindowsRadio.WifiConnectOutcome;
+using WifiConnectRefusal = WindowsDeviceControl.WindowsRadio.WifiConnectRefusal;
 using WifiFailureKind = WindowsDeviceControl.WindowsRadio.WifiFailureKind;
+using WifiNetworkKey = WindowsDeviceControl.WindowsRadio.WifiNetworkKey;
 using WifiSecurity = WindowsDeviceControl.WindowsRadio.WifiSecurity;
 
 namespace WSGM.Tests.Shell;
@@ -53,13 +56,55 @@ public class RadioManagerTests
     [Fact]
     public void TheLocationConsentGateIsNamedRatherThanShownAsARawError()
     {
-        // Win32 5 from a scan is the 24H2 consent gate, not something elevating
-        // or retrying can fix, so it must not read as a generic failure.
-        var message = RadioManager.DescribeScanFailure("WlanScan failed (Win32 5)");
-        Assert.Contains("location", message, StringComparison.OrdinalIgnoreCase);
+        // ERROR_ACCESS_DENIED from a scan is the 24H2 consent gate, not something elevating or
+        // retrying can fix, so it must not read as a generic failure.
+        Assert.Equal(
+            "Windows is blocking the Wi-Fi scan until location access is allowed "
+            + "(Settings > Privacy & security > Location).",
+            RadioManager.DescribeScanFailure(5, "WlanGetAvailableNetworkList failed (Win32 5)."));
+    }
 
-        var other = RadioManager.DescribeScanFailure("WlanScan failed (Win32 1168)");
-        Assert.DoesNotContain("location", other, StringComparison.OrdinalIgnoreCase);
+    [Theory]
+    [InlineData(50)]
+    [InlineData(5023)]
+    [InlineData(1168)]
+    [InlineData(0)]
+    public void EveryOtherScanFailureKeepsItsOwnMessage(int status)
+    {
+        // A status that merely starts with 5 is not the consent gate.
+        var message = $"WlanGetAvailableNetworkList failed (Win32 {status}).";
+        Assert.Equal($"Wi-Fi scan failed: {message}", RadioManager.DescribeScanFailure(status, message));
+    }
+
+    [Theory]
+    [InlineData(WifiConnectRefusal.InvalidPassphrase,
+        "The password must be 8-63 printable ASCII characters, or 64 hex digits. (Parameter 'passphrase')")]
+    [InlineData(WifiConnectRefusal.UnsupportedAuthentication,
+        "This network does not advertise a supported personal-key authentication method.")]
+    [InlineData(WifiConnectRefusal.NeedsPassword, "This network needs a password and has no saved profile.")]
+    [InlineData(WifiConnectRefusal.UnsupportedSecurity, "This network's authentication method is not supported.")]
+    public void ARefusedJoinReadsAsItAlwaysHas(WifiConnectRefusal refusal, string expected)
+    {
+        Assert.Equal(expected, RadioManager.DescribeConnectResult(
+            new WindowsRadio.WifiConnectResult(WifiConnectOutcome.Refused, 0, refusal)));
+    }
+
+    [Fact]
+    public void AJoinWithoutAVerdictReadsAsItAlwaysHas()
+    {
+        Assert.Equal(
+            "The Wi-Fi connection attempt did not complete.",
+            RadioManager.DescribeConnectResult(new WindowsRadio.WifiConnectResult(WifiConnectOutcome.Pending, 0, null)));
+    }
+
+    [Fact]
+    public void AFailedJoinKeepsTheReasonWording()
+    {
+        // MSMSEC_PSK_MISMATCH_SUSPECTED: a rejected key, so the password is named.
+        Assert.Equal(
+            RadioManager.DescribeConnectFailure(WifiFailureKind.KeyRejected, 294932u, ""),
+            RadioManager.DescribeConnectResult(
+                new WindowsRadio.WifiConnectResult(WifiConnectOutcome.Failed, 294932u, null)));
     }
 
     [Theory]
@@ -86,103 +131,6 @@ public class RadioManagerTests
         Assert.Equal("no such device", RadioManager.DescribePairOutcome(null, "Pad", "no such device"));
         Assert.Contains("Pad", RadioManager.DescribePairOutcome(null, "Pad", ""));
     }
-
-    [Fact]
-    public void OneLiveRadioWinsTheAggregateState()
-    {
-        Assert.Equal(
-            RadioPower.On,
-            WindowsRadio.AggregatePower([RadioPower.Off, RadioPower.On]));
-    }
-
-    [Fact]
-    public void NoRadioIsReportedAsAbsent()
-    {
-        Assert.Equal(RadioPower.Absent, WindowsRadio.AggregatePower([]));
-    }
-
-    [Theory]
-    [InlineData(294932u, WifiFailureKind.KeyRejected)] // MSMSEC_PSK_MISMATCH_SUSPECTED
-    [InlineData(262148u, WifiFailureKind.SecurityMismatch)] // MSMSEC_PROFILE_PSK_LENGTH
-    [InlineData(196614u, WifiFailureKind.Unreachable)] // any MSM association failure
-    [InlineData(1u, WifiFailureKind.Unknown)]
-    public void WlanReasonFamiliesKeepPasswordAndReachabilityFailuresDistinct(
-        uint reason,
-        WifiFailureKind expected)
-    {
-        Assert.Equal(expected, WindowsRadio.GetReasonVerdict(reason));
-    }
-
-    [Fact]
-    public void ARawPskUsesTheNetworkKeyProfileShape()
-    {
-        var xml = WifiProfile.CreatePsk(
-            "Cafe", "Cafe", [.. "Cafe"u8], string.Concat(Enumerable.Repeat("a1B2", 16)),
-            WifiProfile.PskFlavor.Wpa3Transition);
-        Assert.Contains("<keyType>networkKey</keyType>", xml);
-        Assert.Contains("profile/v4", xml);
-    }
-
-    [Fact]
-    public void AProfileRoundTripsEscapedAndHexSsids()
-    {
-        var escaped = WifiProfile.CreateOpen("A&B", "A&B", [.. "A&B"u8], false);
-        Assert.Equal("A&B"u8.ToArray(), WifiProfile.TryReadSsid(escaped));
-
-        var raw = new byte[] { 0x41, 0xff, 0x42 };
-        var hex = WifiProfile.CreatePsk(
-            "A?B", "A?B", raw, "password1", WifiProfile.PskFlavor.Wpa2Aes);
-        Assert.Equal(raw, WifiProfile.TryReadSsid(hex));
-    }
-
-    [Fact]
-    public void ProfileAuthoringPreservesEveryWindowsSpecificShape()
-    {
-        var escaped = WifiProfile.CreatePsk(
-            "A&B<C>",
-            "A&B<C>",
-            [.. "A&B<C>"u8],
-            "pw\"&<>'x",
-            WifiProfile.PskFlavor.Wpa3Transition);
-        Assert.Contains("<name>A&amp;B&lt;C&gt;</name>", escaped);
-        Assert.Contains("<keyMaterial>pw&quot;&amp;&lt;&gt;&apos;x</keyMaterial>", escaped);
-        Assert.Contains(
-            "<transitionMode xmlns=\"http://www.microsoft.com/networking/WLAN/profile/v4\">true</transitionMode>",
-            escaped);
-
-        var enhancedOpen = WifiProfile.CreateOpen("Cafe", "Cafe", [.. "Cafe"u8], true);
-        Assert.Contains("<authentication>OWE</authentication>", enhancedOpen);
-        Assert.DoesNotContain("<encryption>none</encryption>", enhancedOpen);
-
-        var legacy = WifiProfile.CreatePsk(
-            "Old", "Old", [.. "Old"u8], "password1", WifiProfile.PskFlavor.WpaTkip);
-        Assert.Contains("<authentication>WPAPSK</authentication>", legacy);
-        Assert.Contains("<encryption>TKIP</encryption>", legacy);
-    }
-
-    [Fact]
-    public void AProfileNameNeverReplacesTheNetworkIdentity()
-    {
-        var xml = WifiProfile.CreatePsk(
-            "Cafe 2", " Cafe ", [.. " Cafe "u8], "password1",
-            WifiProfile.PskFlavor.Wpa2Aes);
-        Assert.Contains("<name>Cafe 2</name>", xml);
-        Assert.Equal(" Cafe "u8.ToArray(), WifiProfile.TryReadSsid(xml));
-        Assert.Null(WifiProfile.TryReadSsid("<WLANProfile />"));
-        Assert.Null(WifiProfile.TryReadSsid(
-            "<SSIDConfig><SSID><hex>ABC</hex></SSID></SSIDConfig>"));
-    }
-
-    [Theory]
-    [InlineData("short", false)]
-    [InlineData("12345678", true)]
-    [InlineData("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz", false)]
-    [InlineData("pass\tword", false)]
-    [InlineData("pässword", false)]
-    public void PassphraseValidationUses80211Bounds(string passphrase, bool expected)
-    {
-        Assert.Equal(expected, WifiProfile.PassphraseIsValid(passphrase));
-    }
 }
 
 public class RadioEntryTests
@@ -190,14 +138,14 @@ public class RadioEntryTests
     [Fact]
     public void ASecuredNetworkWithoutASavedProfileAsksForAPassword()
     {
-        var entry = new WifiNetworkEntry("Cafe") { Security = WifiSecurity.PersonalPsk };
+        var entry = new WifiNetworkEntry(new WifiNetworkKey("Cafe"u8, WifiSecurity.PersonalPsk)) { Security = WifiSecurity.PersonalPsk };
         Assert.True(entry.NeedsPassword);
     }
 
     [Fact]
     public void ASavedNetworkNeverAsksForAPasswordAgain()
     {
-        var entry = new WifiNetworkEntry("Cafe")
+        var entry = new WifiNetworkEntry(new WifiNetworkKey("Cafe"u8, WifiSecurity.PersonalPsk))
         {
             Security = WifiSecurity.PersonalPsk,
             Saved = true
@@ -208,14 +156,14 @@ public class RadioEntryTests
     [Fact]
     public void AnOpenNetworkNeverAsksForAPassword()
     {
-        var entry = new WifiNetworkEntry("Cafe") { Security = WifiSecurity.Open };
+        var entry = new WifiNetworkEntry(new WifiNetworkKey("Cafe"u8, WifiSecurity.Open)) { Security = WifiSecurity.Open };
         Assert.False(entry.NeedsPassword);
     }
 
     [Fact]
     public void NeedsPasswordRaisesChangeNotificationWhenTheSavedFlagFlips()
     {
-        var entry = new WifiNetworkEntry("Cafe") { Security = WifiSecurity.PersonalPsk };
+        var entry = new WifiNetworkEntry(new WifiNetworkKey("Cafe"u8, WifiSecurity.PersonalPsk)) { Security = WifiSecurity.PersonalPsk };
         var raised = new List<string?>();
         entry.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
 

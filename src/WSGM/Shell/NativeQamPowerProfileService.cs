@@ -55,7 +55,7 @@ internal sealed class NativeQamPowerProfileService : ISteamPowerProfileBackend
                         return new SteamUiCommandResult(false, "The power profile is no longer installed.");
                     }
 
-                    lock (PowerSchemes.MutationGate)
+                    using (_schemes.EnterMutation())
                     {
                         _schemes.Select(id, cancellationToken);
                         _refreshRequested = true;

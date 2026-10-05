@@ -120,6 +120,35 @@ public sealed record GameLibraryEntry(
     string MatchName,
     bool MatchFixed);
 
+/// <summary>The <see cref="GameLibraryState.Phase" /> values, shared by the service and the overlay.</summary>
+public static class GameLibraryPhases
+{
+    /// <summary>Nothing has been scanned yet.</summary>
+    public const string Idle = "idle";
+
+    /// <summary>A scan is running.</summary>
+    public const string Scanning = "scanning";
+
+    /// <summary>A scan finished and its entries can be reviewed.</summary>
+    public const string Review = "review";
+
+    /// <summary>An apply is running.</summary>
+    public const string Applying = "applying";
+
+    /// <summary>An apply finished.</summary>
+    public const string Done = "done";
+}
+
+/// <summary>The <see cref="GameLibrarySource.Kind" /> values, shared by the service and the overlay.</summary>
+public static class GameLibrarySourceKinds
+{
+    /// <summary>An installed launcher.</summary>
+    public const string Launcher = "launcher";
+
+    /// <summary>A folder of shortcuts the user added.</summary>
+    public const string Folder = "folder";
+}
+
 /// <summary>Everything either surface renders: the Steam page and the overlay view alike.</summary>
 /// <param name="Sources">Every source, in the sidebar's order.</param>
 /// <param name="Reading">The names of the sources a scan reads: installed and ticked.</param>
@@ -193,6 +222,17 @@ public interface IGameLibraryBackend
     Task<SteamUiCommandResult> SelectAsync(
         string group, string query, bool selected, CancellationToken cancellationToken);
 
+    /// <summary>Sets listed entries to selected or not selected in one publication.</summary>
+    /// <param name="ids">The entries to set; ids no longer present are skipped.</param>
+    /// <param name="selected">The state to set. An entry that cannot be selected stays unselected.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <remarks>
+    ///     Sets rather than toggles, so an entry changed meanwhile on another surface still ends in
+    ///     the requested state.
+    /// </remarks>
+    Task<SteamUiCommandResult> SetSelectedAsync(
+        IReadOnlyList<string> ids, bool selected, CancellationToken cancellationToken);
+
     /// <summary>Changes one entry's launch mode.</summary>
     /// <remarks>
     ///     The acknowledgement is checked here, in the host, not only in the page: a page defect
@@ -203,11 +243,11 @@ public interface IGameLibraryBackend
 
     /// <summary>Moves one entry to its next launch mode or route.</summary>
     /// <remarks>
-    ///     Answers <c>{ acknowledge: true }</c> without changing anything when the next mode is the
-    ///     Steam overlay on a multiplayer title, so the surface asks the user to accept the risk and
-    ///     then sends <see cref="SetModeAsync" /> with the acknowledgement.
+    ///     Answers <see cref="GameLibraryLaunchCycle.NeedsAcknowledgement" /> without changing anything
+    ///     when the next mode is the Steam overlay on a multiplayer title, so the surface asks the user
+    ///     to accept the risk and then sends <see cref="SetModeAsync" /> with the acknowledgement.
     /// </remarks>
-    Task<SteamUiCommandResult> CycleLaunchAsync(string id, CancellationToken cancellationToken);
+    Task<GameLibraryLaunchCycle> CycleLaunchAsync(string id, CancellationToken cancellationToken);
 
     /// <summary>Leaves a title out of this and every later scan until the user offers it again.</summary>
     Task<SteamUiCommandResult> ExcludeAsync(string id, CancellationToken cancellationToken);
@@ -273,7 +313,7 @@ public interface IGameLibraryBackend
     Task<SteamUiCommandResult> ArtworkOptionsAsync(string id, string asset, CancellationToken cancellationToken);
 
     /// <summary>Searches every artwork provider for the right game, answering with the matches.</summary>
-    Task<SteamUiCommandResult> SearchMatchAsync(string id, string query, CancellationToken cancellationToken);
+    Task<GameLibraryMatchSearch> SearchMatchAsync(string id, string query, CancellationToken cancellationToken);
 
     /// <summary>Matches an entry to a provider's game, or back to the automatic match with an empty id.</summary>
     Task<SteamUiCommandResult> SetMatchAsync(
@@ -307,11 +347,23 @@ internal sealed record GameLibraryOptionsAnswer(
 /// <param name="Id">Its id for the game.</param>
 /// <param name="Name">The game's name.</param>
 /// <param name="Exact">Whether the provider calls it an exact match.</param>
-internal sealed record GameLibraryMatchAnswer(string Provider, string ProviderName, string Id, string Name, bool Exact);
+public sealed record GameLibraryMatchAnswer(string Provider, string ProviderName, string Id, string Name, bool Exact);
 
 /// <summary>The games a search found.</summary>
 /// <param name="Matches">The matches, exact first, from every provider.</param>
-internal sealed record GameLibraryMatchesAnswer(IReadOnlyList<GameLibraryMatchAnswer> Matches);
+public sealed record GameLibraryMatchesAnswer(IReadOnlyList<GameLibraryMatchAnswer> Matches);
+
+/// <summary>The outcome of moving a title to its next launch mode or route.</summary>
+/// <param name="Command">Whether the change was made or refused.</param>
+/// <param name="NeedsAcknowledgement">
+///     Whether nothing changed because the user has to accept the risk of the next mode first.
+/// </param>
+public sealed record GameLibraryLaunchCycle(SteamUiCommandResult Command, bool NeedsAcknowledgement = false);
+
+/// <summary>The outcome of an artwork game search.</summary>
+/// <param name="Command">Whether the search ran or was refused.</param>
+/// <param name="Matches">The games found, or null when the search was refused.</param>
+public sealed record GameLibraryMatchSearch(SteamUiCommandResult Command, GameLibraryMatchesAnswer? Matches = null);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(GameLibraryState))]

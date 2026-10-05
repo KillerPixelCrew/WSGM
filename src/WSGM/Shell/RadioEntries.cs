@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using WSGM.Controls;
 using WSGM.Core;
+using WifiNetworkKey = WindowsDeviceControl.WindowsRadio.WifiNetworkKey;
 using WifiSecurity = WindowsDeviceControl.WindowsRadio.WifiSecurity;
 
 namespace WSGM.Shell;
@@ -12,13 +13,17 @@ namespace WSGM.Shell;
 public sealed class WifiNetworkEntry : ObservableObject
 {
     /// <summary>Creates a row for a network.</summary>
-    /// <param name="ssid">The network name, which also identifies the row.</param>
-    public WifiNetworkEntry(string ssid)
+    /// <param name="key">The network's SSID bytes and security, which identify the row.</param>
+    public WifiNetworkEntry(WifiNetworkKey key)
     {
-        Ssid = ssid;
+        Key = key;
+        Ssid = key.DisplayText;
     }
 
-    /// <summary>Gets the network name. Immutable: it is the row's identity.</summary>
+    /// <summary>Gets the network's identity. Immutable: two networks can show the same name.</summary>
+    public WifiNetworkKey Key { get; }
+
+    /// <summary>Gets the network name, for display.</summary>
     public string Ssid { get; }
 
     /// <summary>Gets the signal quality, 0-100.</summary>

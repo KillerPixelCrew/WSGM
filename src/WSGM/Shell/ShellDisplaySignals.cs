@@ -34,16 +34,19 @@ internal sealed class ShellDisplayChangeSignal(DisplayChangeWindow? window) : ID
         }
 
         TaskCompletionSource signalled = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        // The backstop delay ends with the wait, so a hint does not leave a timer running behind it.
+        using var backstopCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         window.DisplaysChanged += OnChanged;
         try
         {
-            await Task.WhenAny(signalled.Task, Task.Delay(backstop, cancellationToken))
+            await Task.WhenAny(signalled.Task, Task.Delay(backstop, backstopCancellation.Token))
                 .ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
         }
         finally
         {
             window.DisplaysChanged -= OnChanged;
+            backstopCancellation.Cancel();
         }
 
         return;

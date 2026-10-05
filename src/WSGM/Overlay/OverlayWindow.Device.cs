@@ -702,39 +702,6 @@ public partial class OverlayWindow
         }
     }
 
-    /// <summary>Runs one direct Device-surface command with the shared cancellation and logging.</summary>
-    /// <param name="description">What the command is, for the log line if it fails.</param>
-    /// <param name="command">The command to run against the current source.</param>
-    /// <returns>A task completing once the command has run or failed.</returns>
-    /// <remarks>
-    ///     These commands are WSGM's own rather than plugin capabilities, so they do not go through the
-    ///     capability invoke path. They still need its lifetime and failure handling: a device command
-    ///     that throws must never take the overlay with it, and one that is cancelled by the overlay
-    ///     closing is not a failure worth logging.
-    /// </remarks>
-    private async Task RunDeviceCommandAsync(
-        string description,
-        Func<IDeviceOverlaySource, CancellationToken, Task> command)
-    {
-        var bridge = _deviceBridge;
-        if (bridge is null || _closed)
-        {
-            return;
-        }
-
-        try
-        {
-            await command(bridge, _deviceLifetime.Token);
-        }
-        catch (OperationCanceledException) when (_deviceLifetime.IsCancellationRequested)
-        {
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"{description} failed: {ex.Message}");
-        }
-    }
-
     /// <summary>Opens one plugin-declared section as its own page.</summary>
     private void EnterDevicePluginSection(string sectionId)
     {

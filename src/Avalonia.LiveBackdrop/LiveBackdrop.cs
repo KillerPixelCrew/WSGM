@@ -17,7 +17,19 @@ namespace Avalonia.LiveBackdrop;
 /// </remarks>
 public sealed class LiveBackdrop : IDisposable
 {
+    /// <summary>The largest accepted <see cref="BlurRadius" />, in physical pixels.</summary>
+    public const double MaximumBlurRadius = 60;
+
     private static readonly ConditionalWeakTable<Window, LiveBackdrop> Attachments = new();
+
+    // The native session calls, replaceable by the lifecycle tests. The headless test platform has no
+    // HWND, so the handle read is one of them.
+    internal static CreateSession Create = NativeMethods.BackdropCreate;
+    internal static Func<nint, float, int> SetBlur = NativeMethods.BackdropSetBlur;
+    internal static Action<nint> Destroy = NativeMethods.BackdropDestroy;
+    internal static Func<Window, nint> ReadWindowHandle = static window =>
+        window.TryGetPlatformHandle() is { HandleDescriptor: "HWND" } handle ? handle.Handle : 0;
+
     private readonly IBrush _fallback;
     private readonly IBrush? _originalBackground;
     private readonly Window _window;
@@ -26,6 +38,9 @@ public sealed class LiveBackdrop : IDisposable
     private bool _disposed;
     private bool _enabled = true;
     private int _generation;
+
+    // The state subscribers last saw, so StateChanged is raised only when it differs.
+    private (bool Active, string? Failure, bool Enabled) _published = (false, null, true);
     private nint _session;
 
     private LiveBackdrop(Window window, double blurRadius, IBrush fallback)
@@ -59,7 +74,7 @@ public sealed class LiveBackdrop : IDisposable
                 return;
             }
 
-            var result = NativeMethods.BackdropSetBlur(_session, (float)value);
+            var result = SetBlur(_session, (float)value);
             if (result < 0)
             {
                 SetFailure($"Blur update failed (0x{result:X8}).");
@@ -81,6 +96,8 @@ public sealed class LiveBackdrop : IDisposable
 
             _enabled = value;
             Reconcile();
+            // Enabling may stop at a kept failure or the transparency wait, which publish nothing themselves.
+            Publish();
         }
     }
 
@@ -102,8 +119,12 @@ public sealed class LiveBackdrop : IDisposable
         Attachments.Remove(_window);
     }
 
-    /// <summary>Raised on the UI thread when active, disabled or failed state changes.</summary>
+    /// <summary>Raised on the UI thread when active, disabled or failed state changes, and only then.</summary>
     public event EventHandler? StateChanged;
+
+    /// <summary>The native create call, with the session returned through an out parameter.</summary>
+    internal delegate int CreateSession(nint owner, float sigma, NativeMethods.FailureCallback callback,
+        out nint session);
 
     /// <summary>Attaches a single backdrop owner to a window, before or after it opens.</summary>
     /// <param name="window">The transparent Avalonia window.</param>
@@ -134,11 +155,12 @@ public sealed class LiveBackdrop : IDisposable
         Stop();
         FailureReason = null;
         Reconcile();
+        Publish();
     }
 
     private static void ValidateBlur(double value)
     {
-        if (!double.IsFinite(value) || value is < 0 or > 60)
+        if (!double.IsFinite(value) || value is < 0 or > MaximumBlurRadius)
         {
             throw new ArgumentOutOfRangeException(nameof(value), "Blur must be between 0 and 60 pixels.");
         }
@@ -180,7 +202,7 @@ public sealed class LiveBackdrop : IDisposable
         {
             Stop();
             _window.Background = _fallback;
-            StateChanged?.Invoke(this, EventArgs.Empty);
+            Publish();
             return;
         }
 
@@ -203,15 +225,17 @@ public sealed class LiveBackdrop : IDisposable
             return;
         }
 
-        var handle = _window.TryGetPlatformHandle();
-        if (handle is null || handle.HandleDescriptor != "HWND" || handle.Handle == 0)
+        var handle = ReadWindowHandle(_window);
+        if (handle == 0)
         {
             SetFailure("The window has no Win32 handle.");
             return;
         }
 
         var generation = ++_generation;
-        // Keep the reverse P/Invoke delegate alive until native hooks have been removed.
+        // Keep the reverse P/Invoke delegate alive until native hooks have been removed. A failure the
+        // native side queued before a stop, hide, retry or dispose arrives here late and belongs to a
+        // session that no longer exists: Stop advanced the generation, so it is ignored.
         _callback = result => Dispatcher.UIThread.Post(() =>
         {
             if (!_disposed && generation == _generation)
@@ -221,7 +245,7 @@ public sealed class LiveBackdrop : IDisposable
         });
         try
         {
-            var result = NativeMethods.BackdropCreate(handle.Handle, (float)_blurRadius, _callback, out _session);
+            var result = Create(handle, (float)_blurRadius, _callback, out _session);
             if (result < 0)
             {
                 SetFailure($"Backdrop initialization failed (0x{result:X8}).");
@@ -236,7 +260,7 @@ public sealed class LiveBackdrop : IDisposable
         }
 
         _window.Background = _originalBackground;
-        StateChanged?.Invoke(this, EventArgs.Empty);
+        Publish();
     }
 
     private void SetFailure(string reason)
@@ -244,6 +268,18 @@ public sealed class LiveBackdrop : IDisposable
         Stop();
         FailureReason = reason;
         _window.Background = _fallback;
+        Publish();
+    }
+
+    private void Publish()
+    {
+        var current = (IsActive, FailureReason, _enabled);
+        if (current == _published)
+        {
+            return;
+        }
+
+        _published = current;
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -252,7 +288,7 @@ public sealed class LiveBackdrop : IDisposable
         ++_generation;
         if (_session != 0)
         {
-            NativeMethods.BackdropDestroy(_session);
+            Destroy(_session);
             _session = 0;
         }
 

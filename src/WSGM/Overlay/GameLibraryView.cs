@@ -1,6 +1,5 @@
 using System;
 using System.Linq;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
@@ -118,7 +117,7 @@ public sealed partial class GameLibraryView : ServiceSubView
                     : null), "source:" + id));
         }
 
-        var folders = state.Sources.Where(source => source.Kind == "folder").ToList();
+        var folders = state.Sources.Where(source => source.Kind == GameLibrarySourceKinds.Folder).ToList();
         if (folders.Count > 0)
         {
             stack.Children.Add(SectionLabel("REMOVE A FOLDER"));
@@ -199,7 +198,7 @@ public sealed partial class GameLibraryView : ServiceSubView
             stack.Children.Add(Tagged(Row("Offer again", "List it for import again",
                 Icons.Restart, () => Run(token => _service.IncludeAsync(id, token))), "include"));
         }
-        else if (entry.Action is "Add" or "Adopt")
+        else if (entry.Action is nameof(ImportAction.Add) or nameof(ImportAction.Adopt))
         {
             stack.Children.Add(Tagged(Row("Don't import", "Leave it out of this and every later scan",
                 Icons.BlockedCircle, () => Run(token => _service.ExcludeAsync(id, token))), "exclude"));
@@ -253,14 +252,13 @@ public sealed partial class GameLibraryView : ServiceSubView
     private async Task CycleLaunchCoreAsync(string id, string name)
     {
         var result = await _service!.CycleLaunchAsync(id, CancellationToken.None);
-        if (!result.Succeeded)
+        if (!result.Command.Succeeded)
         {
-            Toast(result.Error ?? "That did not work.");
+            Toast(result.Command.Error ?? "That did not work.");
             return;
         }
 
-        if (result.Payload is { } payload && payload.TryGetProperty("acknowledge", out var acknowledge)
-                                          && acknowledge.ValueKind == JsonValueKind.True)
+        if (result.NeedsAcknowledgement)
         {
             Navigate(() => RenderAcknowledge(id, name));
         }
@@ -289,11 +287,11 @@ public sealed partial class GameLibraryView : ServiceSubView
 
     private void AddStatus(StackPanel stack, GameLibraryState state)
     {
-        if (state.Phase == "scanning")
+        if (state.Phase == GameLibraryPhases.Scanning)
         {
             stack.Children.Add(Caption("Scanning…"));
         }
-        else if (state.Phase == "applying")
+        else if (state.Phase == GameLibraryPhases.Applying)
         {
             stack.Children.Add(Caption($"Applying {state.Progress} of {state.ProgressTotal}…"));
         }

@@ -99,7 +99,7 @@ public sealed class DisplayPageViewsTests
             new DisplayMode(1920, 1080, 120),
             [new DisplayMode(1920, 1080, 60), new DisplayMode(1920, 1080, 120)]);
         var reads = 0;
-        DisplayModeView view = new(() =>
+        DisplayModeView view = new(_ =>
         {
             reads++;
             return Task.FromResult<DisplayModeSnapshot?>(snapshot);
@@ -131,11 +131,11 @@ public sealed class DisplayPageViewsTests
             new DisplayMode(1920, 1080, 120),
             [new DisplayMode(1920, 1080, 60), new DisplayMode(1920, 1080, 120), new DisplayMode(1280, 720, 60)]);
         List<DisplayMode> writes = [];
-        DisplayModeView view = new(() => Task.FromResult<DisplayModeSnapshot?>(snapshot), (_, mode) =>
+        DisplayModeView view = new(_ => Task.FromResult<DisplayModeSnapshot?>(snapshot), (_, mode) =>
         {
             writes.Add(mode);
             snapshot = snapshot with { Current = mode };
-            return Task.FromResult(new DisplayProfileResult(true, 0, false, false, "Applied"));
+            return Task.FromResult(new DisplayModeResult(DisplayModeOutcome.Applied, 0, false, false));
         });
         Window window = new() { Content = view, Width = 500, Height = 400 };
         try

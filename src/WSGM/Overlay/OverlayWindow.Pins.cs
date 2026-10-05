@@ -33,6 +33,9 @@ public partial class OverlayWindow
     /// </summary>
     private readonly Dictionary<string, ActionButton> _pinnable = new(StringComparer.Ordinal);
 
+    // Every section heading currently in the window's tree; each adds itself on attach and leaves on detach.
+    private readonly HashSet<SectionPinHeader> _pinHeaders = [];
+
     // The pin list the current mirrors were built for. Mirrors follow their source rows through
     // property changes, so while the list is unchanged a render only revisits the pinned sections.
     private string[]? _mirroredPins;
@@ -162,24 +165,7 @@ public partial class OverlayWindow
         _mirroredPins = [.. _pins];
         // Host controls own subscriptions and user selections. Keep them attached across
         // telemetry refreshes; removing a pin is what ends that view's lifetime.
-        HashSet<Control> current = [.. valueControls];
-        foreach (var stale in PinnedSectionsGrid.Children.Where(row => !current.Contains(row)).ToArray())
-        {
-            PinnedSectionsGrid.Children.Remove(stale);
-        }
-
-        for (var i = 0; i < valueControls.Count; i++)
-        {
-            var existing = PinnedSectionsGrid.Children.IndexOf(valueControls[i]);
-            if (existing < 0)
-            {
-                PinnedSectionsGrid.Children.Insert(i, valueControls[i]);
-            }
-            else if (existing != i)
-            {
-                PinnedSectionsGrid.Children.Move(existing, i);
-            }
-        }
+        ReconcileChildren(PinnedSectionsGrid, valueControls);
 
         // Once sections are present their headers explain pinning. Avoid an empty
         // action row above a front page containing only sections.
@@ -228,27 +214,52 @@ public partial class OverlayWindow
         }
     }
 
+    /// <summary>
+    ///     Makes <paramref name="panel" /> hold exactly <paramref name="rows" /> in that order, keeping every
+    ///     surviving control in place so its focus, drafts and subscriptions survive.
+    /// </summary>
+    private static void ReconcileChildren(Panel panel, IReadOnlyList<Control> rows)
+    {
+        HashSet<Control> current = [.. rows];
+        foreach (var stale in panel.Children.Where(child => !current.Contains(child)).ToArray())
+        {
+            panel.Children.Remove(stale);
+        }
+
+        for (var index = 0; index < rows.Count; index++)
+        {
+            var existing = panel.Children.IndexOf(rows[index]);
+            if (existing < 0)
+            {
+                panel.Children.Insert(index, rows[index]);
+            }
+            else if (existing != index)
+            {
+                panel.Children.Move(existing, index);
+            }
+        }
+    }
+
     /// <summary>Updates the pin marker on every row in its original destination.</summary>
     /// <remarks>
-    ///     Descriptor generation changes can replace sections, so this walks the current logical
-    ///     tree instead of retaining references to removed controls. Quick
-    ///     access mirrors use a prefixed tag and remain unmarked: the icon is the immediate feedback at
-    ///     the source row, where the user pressed X or held the card.
+    ///     Section headers register themselves while they are in the tree, so replaced sections drop
+    ///     out without a walk of the whole window. Quick access mirrors use a prefixed tag and remain
+    ///     unmarked: the icon is the immediate feedback at the source row, where the user pressed X or
+    ///     held the card.
     /// </remarks>
     private void UpdatePinnedIndicators()
     {
         var pinned = _pins.ToHashSet(StringComparer.Ordinal);
-        // One walk of the logical tree for both kinds of indicator.
-        foreach (var node in this.GetLogicalDescendants())
+        foreach (var header in _pinHeaders)
         {
-            switch (node)
+            header.Refresh(pinned.Contains(header.SectionId));
+        }
+
+        foreach (var (id, button) in _pinnable)
+        {
+            if (button is not PluginWidgetPinControls)
             {
-                case SectionPinHeader header:
-                    header.Refresh(pinned.Contains(header.SectionId));
-                    break;
-                case ActionButton button and not PluginWidgetPinControls:
-                    button.IsPinned = IsOriginalPinnedRow(button.Tag, pinned);
-                    break;
+                button.IsPinned = IsOriginalPinnedRow(id, pinned);
             }
         }
     }

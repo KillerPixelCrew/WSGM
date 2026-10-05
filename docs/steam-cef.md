@@ -556,9 +556,9 @@ and are refused.
 
 Big Picture's header Wi-Fi icon is empty on Windows because Steam's backend sends device reports
 with an empty `wireless.aps` list, so `SystemNetworkStore` never sees a connected access point. WSGM
-injects a synthetic access point (real SSID and signal from `WindowsRadio.GetWifiStatus`) through
-the store's own `SetDeviceInfo` ingestion (plain protobuf-toObject shape; `estate` 5 = connected,
-`estrength` 0-4 = filled arcs).
+injects a synthetic access point (real SSID and signal the radio manager reads from
+`WindowsRadio.GetWifiStatus`) through the store's own `SetDeviceInfo` ingestion (plain
+protobuf-toObject shape; `estate` 5 = connected, `estrength` 0-4 = filled arcs).
 
 Tried and disproven: wrapping `OnNetworkDevicesChanged`. The backend holds the bound callback
 registered at init, so a property wrap never fires. Instead the synthetic instance gets a no-op

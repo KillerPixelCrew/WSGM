@@ -1,5 +1,5 @@
 using WSGM.Core;
-using WSGM.Settings;
+using WSGM.Testing;
 
 namespace WSGM.Tests.Settings;
 
@@ -20,7 +20,7 @@ public sealed class ArtworkTabSettingsTests
     [Fact]
     public void TheRowsComeUpInTheStoredOrderWithTheStoredVisibility()
     {
-        var model = new SettingsViewModel(
+        var model = SettingsTestServices.Model(
             Configured("hero,grid,wide,logo,icon,manage", "grid", false));
 
         Assert.Equal(["hero", "grid", "wide", "logo", "icon", "manage"],
@@ -34,7 +34,7 @@ public sealed class ArtworkTabSettingsTests
     {
         // Settings opens against whatever is on disk, including a file written by an older build
         // or edited by hand. A tab left out of the order must not become unreachable.
-        var model = new SettingsViewModel(Configured("wide,grid", "wide"));
+        var model = SettingsTestServices.Model(Configured("wide,grid", "wide"));
 
         Assert.Equal(6, model.ArtworkTabs.Count);
         Assert.Equal(["wide", "grid"], model.ArtworkTabs.Take(2).Select(row => row.Id));
@@ -44,7 +44,7 @@ public sealed class ArtworkTabSettingsTests
     public void MovingATabKeepsTheDefaultOnTheTabItNames()
     {
         // The user means "this tab opens first", not "whatever ends up in this position".
-        var model = new SettingsViewModel(Configured(ArtworkConfig.DefaultTabOrder, "wide"));
+        var model = SettingsTestServices.Model(Configured(ArtworkConfig.DefaultTabOrder, "wide"));
         var wide = model.ArtworkTabs.Single(row => row.Id == "wide");
 
         model.MoveArtworkTabUpCommand.Execute(wide);
@@ -56,7 +56,7 @@ public sealed class ArtworkTabSettingsTests
     [Fact]
     public void MovingPastEitherEndDoesNothing()
     {
-        var model = new SettingsViewModel(Configured(ArtworkConfig.DefaultTabOrder, "grid"));
+        var model = SettingsTestServices.Model(Configured(ArtworkConfig.DefaultTabOrder, "grid"));
         var expected = model.ArtworkTabs.Select(row => row.Id).ToList();
 
         model.MoveArtworkTabUpCommand.Execute(model.ArtworkTabs[0]);
@@ -68,7 +68,7 @@ public sealed class ArtworkTabSettingsTests
     [Fact]
     public void AReorderedStripAndItsHiddenTabsSurviveASave()
     {
-        var model = new SettingsViewModel(Configured(ArtworkConfig.DefaultTabOrder, "grid"));
+        var model = SettingsTestServices.Model(Configured(ArtworkConfig.DefaultTabOrder, "grid"));
         model.MoveArtworkTabUpCommand.Execute(model.ArtworkTabs.Single(row => row.Id == "icon"));
         model.ArtworkTabs.Single(row => row.Id == "logo").Visible = false;
         model.ArtworkDefaultTabIndex =

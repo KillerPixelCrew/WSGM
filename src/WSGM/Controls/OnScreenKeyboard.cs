@@ -11,7 +11,8 @@ namespace WSGM.Controls;
 /// <summary>A full PC keyboard that edits a local text field without sending global input.</summary>
 public sealed class OnScreenKeyboard : Decorator
 {
-    private static readonly StyledProperty<TextBox?> TargetProperty =
+    /// <summary>Defines the Avalonia property holding the text field the keys edit.</summary>
+    public static readonly StyledProperty<TextBox?> TargetProperty =
         AvaloniaProperty.Register<OnScreenKeyboard, TextBox?>(nameof(Target));
 
     private readonly List<(Button Button, KeyFace Face)> _keys = [];

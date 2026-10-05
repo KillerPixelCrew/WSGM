@@ -17,6 +17,7 @@ internal sealed class OverlayFilePicker : UserControl
     private readonly bool _folder;
     private string? _directory;
     private long _generation;
+    private string? _focusEntry;
     private CancellationTokenSource? _load;
     private int _shown = 100;
 
@@ -24,7 +25,7 @@ internal sealed class OverlayFilePicker : UserControl
     {
         _folder = folder;
         _extensions = extensions.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        AttachedToVisualTree += (_, _) => ShowDirectory(null);
+        AttachedToVisualTree += (_, _) => ShowDirectory(null, null);
         DetachedFromVisualTree += (_, _) =>
         {
             _generation++;
@@ -38,8 +39,15 @@ internal sealed class OverlayFilePicker : UserControl
     internal event Action<string?>? Completed;
     internal event Action<string, Action<string>>? TextEntryRequested;
 
-    private void ShowDirectory(string? path)
+    /// <summary>Lists a folder, or the drives for null.</summary>
+    /// <param name="path">The folder.</param>
+    /// <param name="focus">
+    ///     The entry to focus once listed: empty for the first one, or null to leave focus where the
+    ///     surface put it.
+    /// </param>
+    private void ShowDirectory(string? path, string? focus = "")
     {
+        _focusEntry = focus;
         _load?.Cancel();
         _load?.Dispose();
         _load = new CancellationTokenSource();
@@ -131,7 +139,7 @@ internal sealed class OverlayFilePicker : UserControl
             foreach (var entry in entries.Take(_shown))
             {
                 var chosen = entry.Item1;
-                Add(body, path is null ? chosen : Path.GetFileName(chosen), () =>
+                Add(body, path is null ? chosen : Path.GetFileName(chosen), chosen, () =>
                 {
                     if (entry.Folder)
                     {
@@ -147,10 +155,11 @@ internal sealed class OverlayFilePicker : UserControl
 
             if (entries.Length > _shown)
             {
+                var added = entries[_shown].Item1;
                 Add(body, "Show more", () =>
                 {
                     _shown += 100;
-                    ShowDirectory(path);
+                    ShowDirectory(path, added);
                 });
             }
 
@@ -160,6 +169,14 @@ internal sealed class OverlayFilePicker : UserControl
             }
 
             Content = body;
+            // A new folder starts on its first entry and "Show more" on the first entry it added;
+            // the controller would otherwise fall back to the top of the surface.
+            var focus = _focusEntry is "" ? entries.FirstOrDefault().Item1 : _focusEntry;
+            _focusEntry = null;
+            if (focus is not null)
+            {
+                PagedRows.FocusAdded(body, focus);
+            }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
@@ -188,7 +205,12 @@ internal sealed class OverlayFilePicker : UserControl
 
     private static void Add(StackPanel body, string label, Action action)
     {
-        var button = new ActionButton { Title = label };
+        Add(body, label, null, action);
+    }
+
+    private static void Add(StackPanel body, string label, string? tag, Action action)
+    {
+        var button = new ActionButton { Title = label, Tag = tag };
         button.Click += (_, _) => action();
         body.Children.Add(button);
     }

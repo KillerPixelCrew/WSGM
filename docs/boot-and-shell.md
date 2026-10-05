@@ -334,7 +334,10 @@ would otherwise start it straight back up; any request that wants Steam running 
 `Shell\SteamExitPolicy` decides what an observed exit means. Game mode needs Steam on screen, so it
 relaunches Big Picture or shows the overlay, the only surface left. A desktop session has Explorer,
 so it either starts the windowed client again or does nothing, and it never interrupts the user with
-the overlay.
+the overlay. `SessionModes` applies the policy for the monitor it was given, so it runs whether or
+not an overlay exists; it decides again when the 10 s delay ends, and a session that is shutting
+down relaunches nothing. For the show-overlay case it raises `SteamExitShowOverlayRequested`, which
+the session's overlay controller answers.
 
 Desktop mode: pause the monitor, close Big Picture, restore the layout the Game Mode session owed
 the desktop, start Explorer through the anchor, run the configured leave actions, then resume

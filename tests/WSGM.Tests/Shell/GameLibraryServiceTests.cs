@@ -239,8 +239,8 @@ public sealed class GameLibraryServiceTests
 
         var answer = await source.CycleLaunchAsync(entry.Id, CancellationToken.None);
 
-        Assert.True(answer.Succeeded);
-        Assert.True(answer.Payload?.GetProperty("acknowledge").GetBoolean());
+        Assert.True(answer.Command.Succeeded);
+        Assert.True(answer.NeedsAcknowledgement);
         Assert.Equal(nameof(ImportMode.ControllerOnly), Assert.Single(source.ReadState().Entries).Mode);
     }
 
@@ -251,7 +251,7 @@ public sealed class GameLibraryServiceTests
         using var source = harness.Create([Game()]);
         var entry = Assert.Single((await ScannedAsync(source)).Entries);
 
-        Assert.True((await source.CycleLaunchAsync(entry.Id, CancellationToken.None)).Succeeded);
+        Assert.True((await source.CycleLaunchAsync(entry.Id, CancellationToken.None)).Command.Succeeded);
 
         Assert.Equal(nameof(ImportMode.ControllerOnly), Assert.Single(source.ReadState().Entries).Mode);
     }

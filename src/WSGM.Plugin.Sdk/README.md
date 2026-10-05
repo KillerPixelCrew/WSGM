@@ -77,11 +77,12 @@ declarations immutably.
 actions in the shared Quick Access Extensions tab, a command in a selected game's menu, and typed
 `SteamUiModules` built on SteamUiToolkit. The selected-game contribution names one declared numeric
 action argument for the exact Steam app id. A successful action can return `SteamRoute` to open a
-plugin-owned page, and `SteamUiChanged` asks the host to republish module state. WSGM renders the
-generic host surfaces, keeps opaque command IDs and routes requests through the current plugin
-generation. A package never receives Steam's React objects, webpack registry or arbitrary evaluation
-capability; custom presentation is compiled with the package and uses toolkit-owned registration and
-bridge mechanisms.
+plugin-owned page, and `SteamUiChanged` asks the host to republish module state. The modules are
+registered when the plugin becomes ready and removed when it stops. WSGM renders the generic host
+surfaces, keeps opaque command IDs and routes requests through the current plugin generation. A
+package never receives Steam's React objects, webpack registry or arbitrary evaluation capability;
+custom presentation is compiled with the package and uses toolkit-owned registration and bridge
+mechanisms.
 
 Every ready configurable package also appears in the Extensions tab. Boolean, number, text, secret
 and ordered-choice settings use the existing revisioned configuration contract. Ordered choices

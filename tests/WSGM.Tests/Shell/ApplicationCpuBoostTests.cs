@@ -13,7 +13,7 @@ public sealed class ApplicationCpuBoostTests
     {
         FakeCpuBoostApi api = new();
         var profiles = Profiles();
-        ApplicationPerformanceReconciler reconciler = new(profiles, () => null, new CpuBoost(api));
+        ApplicationPerformanceReconciler reconciler = new(profiles, () => null, api.Owner());
         profiles.SetRunningApplication(new PerformanceApplicationTarget("steam:42", 42, "doom.exe"));
         Assert.True(await profiles.SetGameEnabledAsync(true));
         await profiles.SetAsync(values => values.CpuBoost = CpuBoostMode.Disabled, "CpuBoost=Disabled");
@@ -37,7 +37,7 @@ public sealed class ApplicationCpuBoostTests
     {
         FakeCpuBoostApi api = new();
         var profiles = Profiles();
-        ApplicationPerformanceReconciler reconciler = new(profiles, () => null, new CpuBoost(api));
+        ApplicationPerformanceReconciler reconciler = new(profiles, () => null, api.Owner());
 
         await reconciler.ReconcileApplicationProfileAsync(profiles.Current, CancellationToken.None);
 
@@ -49,7 +49,7 @@ public sealed class ApplicationCpuBoostTests
     {
         FakeCpuBoostApi api = new();
         var profiles = Profiles();
-        ApplicationPerformanceReconciler reconciler = new(profiles, () => null, new CpuBoost(api));
+        ApplicationPerformanceReconciler reconciler = new(profiles, () => null, api.Owner());
         profiles.SetRunningApplication(new PerformanceApplicationTarget("steam:7", 7, "sonic.exe"));
         Assert.True(await profiles.SetGameEnabledAsync(true));
 
@@ -66,7 +66,7 @@ public sealed class ApplicationCpuBoostTests
     {
         var profiles = Profiles();
         ApplicationPerformanceReconciler reconciler = new(profiles, () => null,
-            new CpuBoost(new FakeCpuBoostApi { Readable = false }));
+            new FakeCpuBoostApi { Readable = false }.Owner());
 
         Assert.False(await reconciler.SetCpuBoostFromUserAsync(CpuBoostMode.Disabled, CancellationToken.None));
 

@@ -146,7 +146,8 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         ProfileService profiles,
         Func<double> autoTdpTargetFrametimeMs,
         Func<RtssOsdMetrics> autoTdpMetrics,
-        Action<bool> manualVariableRefresh)
+        Action<bool> manualVariableRefresh,
+        WindowsPowerModes powerModes)
     {
         _config = config;
         _store = store;
@@ -183,7 +184,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         // Scenario targets are one-shot preset steps. Persist only the watt controls through the
         // manual funnel; saving an AC scenario as desired state would replay it on battery later.
         PowerPresets = new DevicePowerPresets(() => IntegrationEnabled ? Capabilities.Snapshot() : [],
-            ExecutePresetCapabilityAsync, WindowsPowerModes.Windows, ReadOnAcPower, _powerLane,
+            ExecutePresetCapabilityAsync, powerModes, ReadOnAcPower, _powerLane,
             () => AutoTdp.OwnsPower);
         PowerAssignments = new DevicePowerAssignments(PowerPresets,
             () => new DevicePowerAssignmentContext(Profiles.Current,
@@ -251,6 +252,16 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         get { return Profiles.Current.Layers.Value(values => values.TdpUnified).Value == true; }
     }
 
+    /// <summary>The game profile overriding the manual power mode, or null when it comes from Global.</summary>
+    internal string? ManualTdpOverrideId =>
+        CapabilityProjection.OverrideId(Profiles.Current.Layers, new ProfileSettingKey(ProfileField.TdpUnified));
+
+    /// <summary>Returns the manual power mode of the running application to the Global value.</summary>
+    internal Task UseGlobalManualTdpAsync()
+    {
+        return Profiles.ClearGameOverrideAsync(new ProfileSettingKey(ProfileField.TdpUnified), null);
+    }
+
     /// <summary>The controller manager, for status/sample subscriptions and reads.</summary>
     /// <remarks>
     ///     Reads and events only. Lifecycle, UI capture, and the release ordering stay behind this
@@ -271,7 +282,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
 
     /// <summary>The catalog holding the installed package's glyph profiles.</summary>
     /// <remarks>
-    ///     Exposed so one <c>PhysicalGlyphService</c> can be built over it and share its invalidation.
+    ///     Exposed so one <see cref="PhysicalGlyphPlans" /> can be built over it and share its invalidation.
     ///     The catalog is immutable data plus a change event; handing it out does not let a consumer
     ///     load, replace or reach past a profile.
     /// </remarks>
@@ -503,6 +514,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     /// <param name="autoTdpTargetFrametimeMs">The frame deadline AutoTDP judges against; zero permits no control.</param>
     /// <param name="autoTdpMetrics">Samples the sensors AutoTDP consults.</param>
     /// <param name="manualVariableRefresh">Saves a variable-refresh state the user set to the profile in force.</param>
+    /// <param name="powerModes">The session's Windows power-mode owner, which power presets switch.</param>
     /// <param name="cancellationToken">Cancels admission before the coordinator is created.</param>
     /// <returns>The coordinator, or null when the process-wide device owner is already reserved.</returns>
     internal static Task<DeviceCoordinator?> TryStartAsync(
@@ -512,9 +524,11 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         Func<double> autoTdpTargetFrametimeMs,
         Func<RtssOsdMetrics> autoTdpMetrics,
         Action<bool> manualVariableRefresh,
+        WindowsPowerModes powerModes,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(powerModes);
         ArgumentNullException.ThrowIfNull(autoTdpTargetFrametimeMs);
         ArgumentNullException.ThrowIfNull(autoTdpMetrics);
         ArgumentNullException.ThrowIfNull(manualVariableRefresh);
@@ -539,7 +553,8 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
                 UiThread.Post, profiles,
                 autoTdpTargetFrametimeMs,
                 autoTdpMetrics,
-                manualVariableRefresh);
+                manualVariableRefresh,
+                powerModes);
         }
         catch
         {

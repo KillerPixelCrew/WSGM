@@ -72,8 +72,11 @@ public sealed partial class SettingsViewModel
         get => _glyphStyleIndex;
         set
         {
-            _glyphStyleIndex = value;
-            Raise(nameof(GlyphStyleIndex));
+            if (!SetFieldIfChanged(ref _glyphStyleIndex, value, nameof(GlyphStyleIndex)))
+            {
+                return;
+            }
+
             Raise(nameof(GlyphStyle));
         }
     }
@@ -82,7 +85,8 @@ public sealed partial class SettingsViewModel
     ///     Gets the selected glyph family as its enum value — what the
     ///     status strip's A/B glyph icons bind to.
     /// </summary>
-    public GlyphStyle GlyphStyle => (GlyphStyle)Math.Clamp(_glyphStyleIndex, 0, 2);
+    public GlyphStyle GlyphStyle =>
+        (GlyphStyle)Math.Clamp(_glyphStyleIndex, (int)GlyphStyle.Xbox, (int)GlyphStyle.Nintendo);
 
     /// <summary>Gets the controller-glyph family names presented by the settings selector.</summary>
     public List<string> GlyphStyles { get; } = ["Xbox", "PlayStation", "Nintendo"];

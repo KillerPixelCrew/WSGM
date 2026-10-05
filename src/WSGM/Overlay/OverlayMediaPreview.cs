@@ -63,6 +63,34 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
     {
     }
 
+    /// <summary>Where each preview keeps its own folder of downloaded media, beside the WebView2 profile.</summary>
+    /// <param name="root">The user-data root.</param>
+    private static string FilesRoot(string root)
+    {
+        return Path.Combine(root, "MediaPreview", "Files");
+    }
+
+    /// <summary>
+    ///     Deletes the preview files a crash left behind. Called once at session start, before any
+    ///     sheet can show a preview; a file that cannot be deleted is logged and left for the next start.
+    /// </summary>
+    /// <param name="root">The user-data root.</param>
+    internal static void DeleteStaleFiles(string root)
+    {
+        var files = FilesRoot(root);
+        try
+        {
+            if (Directory.Exists(files))
+            {
+                Directory.Delete(files, true);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Log.Warn($"Could not delete leftover media previews in {files}: {ex.Message}");
+        }
+    }
+
     internal sealed class MediaViewport : NativeControlHost
     {
         private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(60) };
@@ -195,7 +223,7 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
         private async Task InitializeAsync(CancellationToken token)
         {
             var handle = _handle;
-            var folder = Path.Combine(Path.GetTempPath(), "WSGM-media-" + Guid.NewGuid().ToString("N"));
+            var folder = Path.Combine(FilesRoot(_context.Root), Guid.NewGuid().ToString("N"));
             var media = Path.Combine(folder, _image ? "preview.image" : "preview.webm");
             try
             {

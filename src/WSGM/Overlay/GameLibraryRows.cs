@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using WSGM.Core;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
@@ -70,7 +71,7 @@ internal static class GameLibraryRows
 
         var found = source.Count >= 0 ? $" · {source.Count} found" : string.Empty;
         return (source.Enabled ? "On" : "Off") + found
-                                               + (source.Kind == "folder" ? $" · {source.Detail}" : string.Empty);
+                                               + (source.Kind == GameLibrarySourceKinds.Folder ? $" · {source.Detail}" : string.Empty);
     }
 
     /// <summary>The home level's summary of the last scan.</summary>
@@ -80,7 +81,7 @@ internal static class GameLibraryRows
     {
         if (state.Entries.Count == 0)
         {
-            return state.Phase == "idle"
+            return state.Phase == GameLibraryPhases.Idle
                 ? "Scan to see which games can be brought into Steam."
                 : "No games were found.";
         }
@@ -94,14 +95,14 @@ internal static class GameLibraryRows
 
         List<string> parts =
         [
-            $"{Count("Add")} to add",
-            $"{Count("Update")} to update",
-            $"{Count("Skip")} already imported"
+            $"{Count(nameof(ImportAction.Add))} to add",
+            $"{Count(nameof(ImportAction.Update))} to update",
+            $"{Count(nameof(ImportAction.Skip))} already imported"
         ];
         AddWhenAny(parts, Count("Artwork"), "with new artwork to save");
-        AddWhenAny(parts, Count("Adopt"), "already in Steam to adopt");
-        AddWhenAny(parts, Count("Remove"), "to remove");
-        AddWhenAny(parts, Count("Conflict"), "edited by hand");
+        AddWhenAny(parts, Count(nameof(ImportAction.Adopt)), "already in Steam to adopt");
+        AddWhenAny(parts, Count(nameof(ImportAction.Remove)), "to remove");
+        AddWhenAny(parts, Count(nameof(ImportAction.Conflict)), "edited by hand");
         return string.Join(", ", parts);
     }
 

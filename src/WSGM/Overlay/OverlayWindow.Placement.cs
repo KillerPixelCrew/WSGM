@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Media;
 using Avalonia.Threading;
 using WSGM.Core;
+using WSGM.Interop;
 
 namespace WSGM.Overlay;
 
@@ -54,6 +55,29 @@ public partial class OverlayWindow
         return Math.Max(TrayMinWidth, inner * TrayWidthFraction);
     }
 
+    /// <summary>Lays the content out at <paramref name="factor" /> times its DIP size.</summary>
+    /// <param name="factor">The content scale from <see cref="ComputeContentScale" />.</param>
+    internal void ApplyContentScale(double factor)
+    {
+        _contentScale = factor;
+        RootScale.LayoutTransform = new ScaleTransform(factor, factor);
+    }
+
+    /// <summary>
+    ///     The GDI source name of the display the sheet is on, such as <c>\\.\DISPLAY2</c>, or null when
+    ///     the window has no screen or Windows does not describe it.
+    /// </summary>
+    internal unsafe string? DisplaySourceName()
+    {
+        if (Screens.ScreenFromWindow(this)?.TryGetPlatformHandle()?.Handle is not { } monitor || monitor == 0)
+        {
+            return null;
+        }
+
+        var info = new NativeMethods.MonitorInfoExW { CbSize = (uint)sizeof(NativeMethods.MonitorInfoExW) };
+        return NativeMethods.GetMonitorInfoW(monitor, ref info) ? new string((char*)info.Device) : null;
+    }
+
     /// <summary>
     ///     Covers the summoning window's display and slides the live glass sheet into place.
     /// </summary>
@@ -90,8 +114,7 @@ public partial class OverlayWindow
         if (Math.Abs(factor - 1.0) >= 0.01)
         {
             Log.Info($"Quick access UI scale {factor:0.##}x (desktop DPI over current {scaling:0.##}).");
-            _contentScale = factor;
-            RootScale.LayoutTransform = new ScaleTransform(factor, factor);
+            ApplyContentScale(factor);
         }
 
         Width = bounds.Width / scaling;

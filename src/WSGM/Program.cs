@@ -140,6 +140,13 @@ public static class Program
             return ExportSetupAnswers(exportPath);
         }
 
+        // An About link from the elevated resident process, started at the user's own integrity level
+        // through the de-elevating task so the user's normal browser opens it.
+        if (StartupOptions.ArgumentValue(args, "--open-link=") is { } link)
+        {
+            return OpenLink(link);
+        }
+
         if (flags.Contains("--setup"))
         {
             return RunSetup(args);
@@ -223,7 +230,7 @@ public static class Program
 
         try
         {
-            var exitCode = BuildAvaloniaApp(startupConfig, Store, _startupOptions, steamInput)
+            var exitCode = BuildAvaloniaApp(startupRead, Store, _startupOptions, steamInput)
                 .StartWithClassicDesktopLifetime(args);
             // Normal shutdown. A process only ever releases its own pipe lease, so a process that
             // never acquired one (a Settings window that was never focused) has nothing to release.
@@ -640,6 +647,20 @@ public static class Program
 
 
 
+    /// <summary>Opens one https address through the Windows shell; any other input is refused.</summary>
+    /// <param name="url">The address to open.</param>
+    /// <returns>Process exit code.</returns>
+    private static int OpenLink(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
+        {
+            Log.Warn($"Open link: '{url}' is not an https address.");
+            return 1;
+        }
+
+        return AppLauncher.StartProtocol(uri.AbsoluteUri).Started ? 0 : 1;
+    }
+
     /// <summary>Writes the current configuration as setup answers, for setup's profile page.</summary>
     /// <param name="path">Where to write the answers.</param>
     /// <returns>Process exit code.</returns>
@@ -835,17 +856,17 @@ public static class Program
     }
 
     /// <summary>Builds the Avalonia application configuration used by all UI modes.</summary>
-    /// <param name="config">The configuration loaded for this process startup.</param>
+    /// <param name="read">The configuration read for this process startup.</param>
     /// <param name="store">The process-owned configuration persistence.</param>
     /// <param name="options">The immutable options parsed from this process's command line.</param>
     /// <param name="steamInput">The process's Steam Input lease owner.</param>
     /// <returns>The configured Avalonia application builder.</returns>
     // ReSharper disable once MemberCanBePrivate.Global
-    internal static AppBuilder BuildAvaloniaApp(AppConfig config, ConfigStore store, StartupOptions options,
+    internal static AppBuilder BuildAvaloniaApp(ConfigReadResult read, ConfigStore store, StartupOptions options,
         SteamInputBlocker steamInput)
     {
-        ArgumentNullException.ThrowIfNull(config);
-        return AppBuilder.Configure(() => new App(config, store, options, steamInput))
+        ArgumentNullException.ThrowIfNull(read);
+        return AppBuilder.Configure(() => new App(read, store, options, steamInput))
             .UsePlatformDetect()
             .WithInterFont()
             .LogToTrace();

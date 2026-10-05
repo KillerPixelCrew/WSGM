@@ -7,7 +7,6 @@ using Avalonia.Threading;
 using WSGM.Core;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
-using WSGM.Settings;
 
 namespace WSGM.Shell;
 
@@ -861,7 +860,6 @@ public sealed partial class ShellSession
 
     private void DisposeUiOwnedSessionResources(List<Exception> failures)
     {
-        SettingsPluginActions.Withdraw();
         CleanupUiResource(failures, "config watcher", () =>
         {
             lock (_configDebounceGate)
@@ -972,6 +970,13 @@ public sealed partial class ShellSession
         {
             _desktopTray?.Dispose();
             _desktopTray = null;
+        });
+        // A save still running finishes before the window closes itself; the session's own exit
+        // (application shutdown) is never held up by it.
+        CleanupUiResource(failures, "Settings window", () =>
+        {
+            _settingsSurface?.Close();
+            _settingsSurface = null;
         });
         CleanupUiResource(failures, "activation", () =>
         {

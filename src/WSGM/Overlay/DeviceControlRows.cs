@@ -4,6 +4,7 @@ using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Data;
 using Avalonia.Layout;
+using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 
@@ -100,39 +101,11 @@ internal static class DeviceControlRows
             HorizontalAlignment = HorizontalAlignment.Right
         };
         DeviceSettingRow? row = null;
-        var committed = selected;
-        var open = false;
-        combo.DropDownOpened += (_, _) => open = true;
-        combo.DropDownClosed += (_, _) =>
-        {
-            open = false;
-            CommitChoice();
-        };
-        combo.SelectionChanged += (_, _) =>
-        {
-            if (!open && !combo.IsDropDownOpen)
-            {
-                CommitChoice();
-            }
-        };
+        // Until the row exists, and while it refreshes, a selection is the published value, not a choice.
+        ComboCommit.Attach<ChoiceItem>(combo, () => row?.Refreshing is not false, item => onChanged(item.Value));
         row = Tile(key, title, description, combo, value =>
-        {
-            committed = value?.ChoiceValue;
-            combo.SelectedIndex = items.FindIndex(item => item.Value == committed);
-        });
+            combo.SelectedIndex = items.FindIndex(item => item.Value == value?.ChoiceValue));
         return row;
-
-        void CommitChoice()
-        {
-            if (row?.Refreshing is not false || !combo.IsEnabled || combo.SelectedItem is not ChoiceItem item
-                || string.Equals(item.Value, committed, StringComparison.Ordinal))
-            {
-                return;
-            }
-
-            committed = item.Value;
-            onChanged(item.Value);
-        }
     }
 
     /// <summary>A text capability edited through the shared controller keyboard.</summary>
@@ -162,7 +135,7 @@ internal static class DeviceControlRows
         editor.Click += (_, _) =>
         {
             if (TopLevel.GetTopLevel(editor) is not OverlayWindow window
-                || !window.RequestText(title, draft, maximumLength ?? 4096, value =>
+                || !window.RequestText(title, draft, maximumLength ?? 0, value =>
                 {
                     draft = value;
                     editor.Content = value;

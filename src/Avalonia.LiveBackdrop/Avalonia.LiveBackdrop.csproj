@@ -9,6 +9,9 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Avalonia.LiveBackdrop.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="Avalonia" Version="12.1.2" />
     <None Include="$(NativeOutput)\Avalonia.LiveBackdrop.Native.dll" Link="Avalonia.LiveBackdrop.Native.dll"
           Condition="'$(OS)' == 'Windows_NT' and '$(SkipNativeArtifacts)' != 'true'"

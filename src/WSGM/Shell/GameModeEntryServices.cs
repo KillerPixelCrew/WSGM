@@ -137,8 +137,8 @@ internal sealed class SessionModesEntryBackend(SessionModes modes, ExplorerDeskt
     public Task<DisplayLayoutResult> ApplyLayoutAsync(DisplayLayout layout, CancellationToken cancellationToken)
     {
         return modes.GameModeEntryServices?.ApplyLayoutAsync(layout, cancellationToken)
-               ?? Task.FromResult(new DisplayLayoutResult(DisplayLayoutOutcome.Rejected, [], 0, false, false, [],
-                   "This session cannot change displays."));
+               ?? Task.FromResult(new DisplayLayoutResult(DisplayLayoutOutcome.Rejected, [], 0, false, 0, [],
+                   FailureMessage: "This session cannot change displays."));
     }
 
     /// <inheritdoc />
