@@ -10,5 +10,5 @@ It is unsigned and carries no version resource, so `kx.lock.json` pins it by SHA
 extracting the embedded copy into an administrators-only folder.
 
 Its licence is unknown: neither the file nor Handheld Companion names an author or terms. It is
-redistributed unmodified, as Handheld Companion 1.3.1.6 bundles it, and the Device Lab MIT licence
-does not cover it.
+redistributed unmodified, as Handheld Companion 1.3.1.6 bundles it, and Device Lab's licence does
+not cover it.
