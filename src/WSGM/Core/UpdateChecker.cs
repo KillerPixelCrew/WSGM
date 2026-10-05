@@ -300,7 +300,7 @@ public static class UpdateChecker
 
     private static string[] InstalledPluginIds()
     {
-        var catalog = PluginPackageCatalog.DiscoverInstalled();
+        var catalog = PluginPackageCatalog.Discover(InstallLayout.Plugins);
         return
         [
             .. catalog.Common.Select(package => package.Manifest.Id),

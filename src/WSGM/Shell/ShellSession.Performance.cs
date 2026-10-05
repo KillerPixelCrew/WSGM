@@ -73,7 +73,7 @@ public sealed partial class ShellSession
             refreshRates.Count > 0 ? refreshRates.Min() : null,
             refreshRates.Count > 0 ? refreshRates.Max() : null,
             vrrEnabled,
-            refreshRates.Count > 0 ? DisplayProfiles.ReadCurrentRefreshRate() : null,
+            refreshRates.Count > 0 ? PrimaryDisplayModes.ReadCurrentRefreshRate() : null,
             ReadPairedRefreshRates(pairing, options, manualRefresh),
             refreshRates);
     }

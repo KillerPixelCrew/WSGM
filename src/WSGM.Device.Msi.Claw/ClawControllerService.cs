@@ -71,7 +71,6 @@ internal sealed class ControllerService(
     private readonly Func<TimeSpan, CancellationToken, Task> _delay =
         delay ?? throw new ArgumentNullException(nameof(delay));
 
-    private readonly Lock _hapticGate = new();
     private readonly IPluginHostAdapter _host = host ?? throw new ArgumentNullException(nameof(host));
     private readonly ClawRecoveryJournal _journal = journal ?? throw new ArgumentNullException(nameof(journal));
     private readonly IClawMcuTransport _mcu = mcu ?? throw new ArgumentNullException(nameof(mcu));
@@ -168,7 +167,7 @@ internal sealed class ControllerService(
         await ConfigurePaddlesAsync(context, cancellationToken).ConfigureAwait(false);
         if (CurrentTopology.Mode is not ClawControllerMode.DirectInput)
         {
-            ClawWriteBudget.Require(context.Deadline, "controller mode acquisition");
+            DeviceWriteBudget.Require(context.Deadline, "controller mode acquisition");
             _ = await _journal.BeginAsync(
                 ServiceId,
                 ClawFirmwareIdentities.Mcu,
@@ -259,6 +258,13 @@ internal sealed class ControllerService(
             "controller",
             $"owned: published {CurrentTopology.PhysicalDevices.Count} physical identities for hiding, "
             + "haptics=True.");
+
+        // Haptics write nothing until the service is Owned, so this is the one place the last levels can
+        // be cleared without racing a write: the first frame of the new ownership is always written.
+        await _outputSerializer.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+        _lastWeak = 0;
+        _lastStrong = 0;
+        _outputSerializer.Release();
         return Set(DeviceServiceState.Owned);
     }
 
@@ -389,20 +395,26 @@ internal sealed class ControllerService(
             return;
         }
 
-        var status = DeviceRecoveryStatus.RestoredVerified;
-        if (CurrentTopology.Mode != ReleaseMode)
+        DeviceRecoveryStatus? status = DeviceRecoveryStatus.RestoredVerified;
+        if (CurrentTopology.Mode != ReleaseMode && !DeviceWriteBudget.IsAvailable(deadline))
+        {
+            // Nothing is written and the entry is left as it is: the next start reads the mode and
+            // puts it back.
+            _host.Trace(DeviceTraceLevel.Warn, "controller",
+                "too little time to put the original controller mode back; the next start restores it.");
+            status = null;
+        }
+        else if (CurrentTopology.Mode != ReleaseMode)
         {
             try
             {
-                ClawWriteBudget.Require(deadline, "controller mode restoration");
                 var restored = await _mcu.SwitchModeAsync(
                     ReleaseMode,
                     _original.PhysicalLocation,
                     deadline,
                     cancellationToken).ConfigureAwait(false);
                 if (restored.Mode != ReleaseMode
-                    || !string.Equals(restored.PhysicalLocation, _original.PhysicalLocation,
-                        StringComparison.OrdinalIgnoreCase))
+                    || !HidDevices.SamePhysicalLocation(restored.PhysicalLocation, _original.PhysicalLocation))
                 {
                     _host.Trace(DeviceTraceLevel.Warn, "controller",
                         $"mode switch back settled at {restored.Mode} at '{restored.PhysicalLocation}'.");
@@ -419,8 +431,12 @@ internal sealed class ControllerService(
 
         CurrentTopology = null;
         _rearButtons = CanonicalButtons.None;
-        await _journal.SetStatusAsync(ServiceId, status, CancellationToken.None)
-            .ConfigureAwait(false);
+        if (status is { } recorded)
+        {
+            await _journal.SetStatusAsync(ServiceId, recorded, CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+
         _ = Set(DeviceServiceState.Idle);
     }
 
@@ -445,20 +461,14 @@ internal sealed class ControllerService(
                 strong = strong == 0 ? (byte)0 : ClawModels.BinaryRumbleLevel;
             }
 
-            lock (_hapticGate)
+            if (weak == _lastWeak && strong == _lastStrong)
             {
-                if (weak == _lastWeak && strong == _lastStrong)
-                {
-                    return;
-                }
+                return;
             }
 
             await _source.WriteRumbleAsync(weak, strong, cancellationToken).ConfigureAwait(false);
-            lock (_hapticGate)
-            {
-                _lastWeak = weak;
-                _lastStrong = strong;
-            }
+            _lastWeak = weak;
+            _lastStrong = strong;
         }
         finally
         {
@@ -547,12 +557,6 @@ internal sealed class ControllerService(
             // cleanup step that keeps external input usable.
             _host.Trace(DeviceTraceLevel.Warn, "controller",
                 $"the controller source did not stop cleanly: {ex.GetType().Name}: {ex.Message}");
-        }
-
-        lock (_hapticGate)
-        {
-            _lastWeak = 0;
-            _lastStrong = 0;
         }
     }
 

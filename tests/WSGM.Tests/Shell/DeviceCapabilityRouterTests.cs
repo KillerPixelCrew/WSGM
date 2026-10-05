@@ -282,14 +282,14 @@ public sealed class DeviceCapabilityRouterTests
             Maximum = 100
         };
 
-        Assert.True(DeviceCapabilityValidation.ValueMatches(Curve(0, 100), fanCurve, out _));
-        Assert.False(DeviceCapabilityValidation.ValueMatches(Curve(0, 101), fanCurve, out _));
-        Assert.False(DeviceCapabilityValidation.ValueMatches(Curve(-1, 100), fanCurve, out _));
+        Assert.True(CapabilityValueValidation.ValueMatches(Curve(0, 100), fanCurve, out _));
+        Assert.False(CapabilityValueValidation.ValueMatches(Curve(0, 101), fanCurve, out _));
+        Assert.False(CapabilityValueValidation.ValueMatches(Curve(-1, 100), fanCurve, out _));
 
         // An undeclared bound means the device has no limit there; inventing one would refuse a
         // curve it would have accepted.
         var unbounded = fanCurve with { Minimum = null, Maximum = null };
-        Assert.True(DeviceCapabilityValidation.ValueMatches(Curve(-500, 5000), unbounded, out _));
+        Assert.True(CapabilityValueValidation.ValueMatches(Curve(-500, 5000), unbounded, out _));
     }
 
     [Theory]

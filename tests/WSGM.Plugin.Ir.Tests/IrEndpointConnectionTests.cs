@@ -9,12 +9,12 @@ namespace WSGM.Plugin.Ir.Tests;
 public sealed class IrEndpointConnectionTests
 {
     private const string Identity =
-        "\"identity\":\"e072a115ef50\",\"model\":\"xiao-ir-mate\",\"firmware\":\"0.2.0\",\"protocol\":1,\"maxTimings\":1024";
+        "\"identity\":\"e072a115ef50\",\"model\":\"xiao-ir-mate\",\"firmware\":\"0.2.0\",\"protocol\":2,\"maxTimings\":1024";
 
     /// <summary>Builds one reply line, so a nested payload does not have to be brace-escaped.</summary>
     private static string Frame(string request, string status, string? data = null)
     {
-        return "{\"v\":1,\"id\":\"" + Id(request) + "\",\"status\":\"" + status + "\""
+        return "{\"v\":2,\"id\":\"" + Id(request) + "\",\"status\":\"" + status + "\""
                + (data is null ? "" : ",\"data\":" + data) + "}\n";
     }
 
@@ -22,8 +22,8 @@ public sealed class IrEndpointConnectionTests
     public async Task IdentifySkipsBootNoiseAndForeignFramesAndSendsThePairingTokenOverTheNetwork()
     {
         ScriptedLink link = new(request =>
-            "ESP-ROM:esp32c3-api1-20210207\r\n{\"v\":1,\"id\":\"other\",\"status\":\"ok\"}\nnot json\n"
-            + $"{{\"v\":1,\"id\":\"{Id(request)}\",\"status\":\"ok\",\"data\":{{{Identity},\"hostname\":\"wsgm-ir-15ef50\",\"port\":7521,"
+            "ESP-ROM:esp32c3-api1-20210207\r\n{\"v\":2,\"id\":\"other\",\"status\":\"ok\"}\nnot json\n"
+            + $"{{\"v\":2,\"id\":\"{Id(request)}\",\"status\":\"ok\",\"data\":{{{Identity},\"hostname\":\"wsgm-ir-15ef50\",\"port\":7521,"
             + "\"wifiConfigured\":true,\"wifiConnected\":true,\"ip\":\"192.0.2.7\",\"learning\":false,\"uptimeMs\":12}}\n");
         IrEndpointConnection endpoint = new(_ => link, "0123456789abcdef");
         var identity = await endpoint.IdentifyAsync(CancellationToken.None);
@@ -33,7 +33,7 @@ public sealed class IrEndpointConnectionTests
         Assert.Same(identity, endpoint.Identity);
         using var sentDocument = JsonDocument.Parse(link.Written.Single());
         var sent = sentDocument.RootElement;
-        Assert.Equal(1, sent.GetProperty("v").GetInt32());
+        Assert.Equal(IrEndpointConnection.ProtocolVersion, sent.GetProperty("v").GetInt32());
         Assert.Equal("identify", sent.GetProperty("op").GetString());
         Assert.Equal("0123456789abcdef", sent.GetProperty("token").GetString());
         Assert.DoesNotContain('\n', link.Written.Single());
@@ -43,7 +43,7 @@ public sealed class IrEndpointConnectionTests
     public async Task OlderFirmwareWithoutNetworkFieldsReadsAsUnconfigured()
     {
         ScriptedLink link = new(request =>
-            $"{{\"v\":1,\"id\":\"{Id(request)}\",\"status\":\"ok\",\"data\":{{{Identity.Replace("0.2.0", "0.1.0")}}}}}\n");
+            $"{{\"v\":2,\"id\":\"{Id(request)}\",\"status\":\"ok\",\"data\":{{{Identity.Replace("0.2.0", "0.1.0")}}}}}\n");
         IrEndpointConnection endpoint = new(_ => link);
         var identity = await endpoint.IdentifyAsync(CancellationToken.None);
         Assert.Equal("0.1.0", identity.Firmware);
@@ -55,6 +55,15 @@ public sealed class IrEndpointConnectionTests
     [Fact]
     public async Task BuiltInRemoteOperationsCarryTheirOwnFramesAndExpectedStatuses()
     {
+        const string catalogText = "{\"remotes\":["
+                                   + "{\"id\":\"hdmi-switch\",\"name\":\"HDMI switch ✓\",\"buttons\":[{\"id\":\"port-1\",\"label\":\"Port 1\"}],"
+                                   + "\"sequences\":[{\"id\":\"reset\",\"label\":\"Reset\"}]},"
+                                   + "{\"id\":\"ac\",\"name\":\"AC\",\"buttons\":[],\"sequences\":[],\"climate\":"
+                                   + "{\"protocol\":\"MIDEA\",\"modes\":[\"cool\"],\"fans\":[\"auto\"],\"minDegrees\":17,\"maxDegrees\":30,"
+                                   + "\"celsius\":true,\"swing\":\"toggle\"}}]}";
+        // Three chunks, the first ending right after the multi-byte character in a label.
+        var split = catalogText.IndexOf('✓') + 1;
+        string[] chunks = [catalogText[..split], catalogText[split..(split + 40)], catalogText[(split + 40)..]];
         List<string> operations = [];
         ScriptedLink link = new(request =>
         {
@@ -64,12 +73,8 @@ public sealed class IrEndpointConnectionTests
             {
                 "identify" => Frame(request, "ok", "{" + Identity
                                                        + ",\"webPort\":80,\"webConfigured\":true,\"remotes\":3,\"sequenceRunning\":true}"),
-                "remotes" => Frame(request, "ok", "{\"remotes\":["
-                                                  + "{\"id\":\"hdmi-switch\",\"name\":\"HDMI switch\",\"buttons\":[{\"id\":\"port-1\",\"label\":\"Port 1\"}],"
-                                                  + "\"sequences\":[{\"id\":\"reset\",\"label\":\"Reset\"}]},"
-                                                  + "{\"id\":\"ac\",\"name\":\"AC\",\"buttons\":[],\"sequences\":[],\"climate\":"
-                                                  + "{\"protocol\":\"MIDEA\",\"modes\":[\"cool\"],\"fans\":[\"auto\"],\"minDegrees\":17,\"maxDegrees\":30,"
-                                                  + "\"celsius\":true,\"swing\":\"toggle\"}}]}"),
+                "remotes" => Frame(request, "ok", "{\"chunk\":" + JsonSerializer.Serialize(chunks[ChunkIndex(request)])
+                                                  + ",\"index\":" + ChunkIndex(request) + ",\"count\":3}"),
                 // A sequence only reports that it started; press and climate report an emission.
                 "run" => Frame(request, "started"),
                 "cancel" => Frame(request, "ok"),
@@ -86,6 +91,7 @@ public sealed class IrEndpointConnectionTests
 
         var catalog = await endpoint.ListRemotesAsync(CancellationToken.None);
         Assert.Equal(["hdmi-switch", "ac"], catalog.Remotes.Select(remote => remote.Id));
+        Assert.Equal("HDMI switch ✓", catalog.Remotes[0].Name);
         Assert.Equal("reset", catalog.Remotes[0].Sequences.Single().Id);
         Assert.Equal("toggle", catalog.Remotes[1].Climate!.Swing);
         Assert.Equal(30, catalog.Remotes[1].Climate!.MaxDegrees);
@@ -95,8 +101,9 @@ public sealed class IrEndpointConnectionTests
         await endpoint.RunSequenceAsync("hdmi-switch", "reset", CancellationToken.None);
         await endpoint.CancelAsync(CancellationToken.None);
 
-        Assert.Equal(["identify", "remotes", "press", "climate", "run", "cancel"], operations);
-        using var climateDocument = JsonDocument.Parse(link.Written[3]);
+        Assert.Equal(["identify", "remotes", "remotes", "remotes", "press", "climate", "run", "cancel"], operations);
+        Assert.Equal([0, 1, 2], link.Written.Where(frame => Op(frame) == "remotes").Select(ChunkIndex));
+        using var climateDocument = JsonDocument.Parse(link.Written[5]);
         var climate = climateDocument.RootElement;
         Assert.Equal("ac", climate.GetProperty("remote").GetString());
         Assert.True(climate.GetProperty("toggleSwing").GetBoolean());
@@ -126,7 +133,7 @@ public sealed class IrEndpointConnectionTests
     {
         var opened = 0;
         ScriptedLink link = new(request =>
-            $"{{\"v\":1,\"id\":\"{Id(request)}\",\"status\":\"ok\",\"data\":{{{Identity.Replace("\"protocol\":1", "\"protocol\":2")}}}}}\n");
+            $"{{\"v\":2,\"id\":\"{Id(request)}\",\"status\":\"ok\",\"data\":{{{Identity.Replace("\"protocol\":2", "\"protocol\":1")}}}}}\n");
         IrEndpointConnection endpoint = new(_ =>
         {
             opened++;
@@ -134,7 +141,8 @@ public sealed class IrEndpointConnectionTests
         });
         var refusal =
             await Assert.ThrowsAsync<InvalidDataException>(() => endpoint.IdentifyAsync(CancellationToken.None));
-        Assert.Contains("protocol 2", refusal.Message);
+        Assert.Contains("protocol 1 is incompatible", refusal.Message);
+        Assert.Contains("0.5.0", refusal.Message);
         Assert.Null(endpoint.Identity);
         Assert.True(link.Disposed);
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -146,11 +154,12 @@ public sealed class IrEndpointConnectionTests
     public async Task RefusalStatusesBecomeReadableMessagesAndForgetTheIdentity()
     {
         ScriptedLink link = new(request => Op(request) == "identify"
-            ? $"{{\"v\":1,\"id\":\"{Id(request)}\",\"status\":\"ok\",\"data\":{{{Identity}}}}}\n"
-            : $"{{\"v\":1,\"id\":\"{Id(request)}\",\"status\":\"timeout\"}}\n");
+            ? $"{{\"v\":2,\"id\":\"{Id(request)}\",\"status\":\"ok\",\"data\":{{{Identity}}}}}\n"
+            : $"{{\"v\":2,\"id\":\"{Id(request)}\",\"status\":\"timeout\"}}\n");
         IrEndpointConnection endpoint = new(_ => link);
         await endpoint.IdentifyAsync(CancellationToken.None);
-        var refusal = await Assert.ThrowsAsync<InvalidDataException>(() =>
+        // Every status but the expected one is answered before the endpoint emits, so it is a refusal.
+        var refusal = await Assert.ThrowsAsync<IrRejectedException>(() =>
             endpoint.LearnAsync(TimeSpan.FromSeconds(1), CancellationToken.None));
         Assert.StartsWith("No IR signal arrived", refusal.Message);
         Assert.Null(endpoint.Identity);
@@ -168,7 +177,7 @@ public sealed class IrEndpointConnectionTests
         {
             if (Op(request) == "identify")
             {
-                return $"{{\"v\":1,\"id\":\"{Id(request)}\",\"status\":\"ok\",\"data\":{{{Identity}}}}}\n";
+                return $"{{\"v\":2,\"id\":\"{Id(request)}\",\"status\":\"ok\",\"data\":{{{Identity}}}}}\n";
             }
 
             if (Op(request) == "learn")
@@ -196,12 +205,31 @@ public sealed class IrEndpointConnectionTests
         await Assert.ThrowsAsync<InvalidDataException>(() =>
             new IrEndpointConnection(_ => oversized).IdentifyAsync(CancellationToken.None));
         ScriptedLink wrongStatus = new(request => Op(request) == "identify"
-            ? $"{{\"v\":1,\"id\":\"{Id(request)}\",\"status\":\"ok\",\"data\":{{{Identity}}}}}\n"
-            : $"{{\"v\":1,\"id\":\"{Id(request)}\",\"status\":\"ok\"}}\n");
+            ? $"{{\"v\":2,\"id\":\"{Id(request)}\",\"status\":\"ok\",\"data\":{{{Identity}}}}}\n"
+            : $"{{\"v\":2,\"id\":\"{Id(request)}\",\"status\":\"ok\"}}\n");
         IrEndpointConnection endpoint = new(_ => wrongStatus);
+        await endpoint.IdentifyAsync(CancellationToken.None);
+        await Assert.ThrowsAsync<IrRejectedException>(() =>
+            endpoint.TransmitAsync(new IrPayload(38000, [9000, 4500]), 0, 40, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task AnotherProtocolIsNotUnderstoodUnlessItReportsTheMismatch()
+    {
+        ScriptedLink link = new(request => Op(request) switch
+        {
+            "identify" => Frame(request, "ok", "{" + Identity + "}"),
+            "send" => Frame(request, "transmitted").Replace("\"v\":2", "\"v\":1"),
+            _ => Frame(request, "protocol-mismatch").Replace("\"v\":2", "\"v\":1")
+        });
+        IrEndpointConnection endpoint = new(_ => link);
         await endpoint.IdentifyAsync(CancellationToken.None);
         await Assert.ThrowsAsync<InvalidDataException>(() =>
             endpoint.TransmitAsync(new IrPayload(38000, [9000, 4500]), 0, 40, CancellationToken.None));
+        await endpoint.IdentifyAsync(CancellationToken.None);
+        var refusal = await Assert.ThrowsAsync<IrRejectedException>(() =>
+            endpoint.PressAsync("tv", "power", CancellationToken.None));
+        Assert.Contains("flash the firmware", refusal.Message);
     }
 
     [Fact]
@@ -209,9 +237,9 @@ public sealed class IrEndpointConnectionTests
     {
         ScriptedLink link = new(request => Op(request) switch
         {
-            "send" => $"{{\"v\":1,\"id\":\"{Id(request)}\",\"status\":\"transmitted\"}}\n",
+            "send" => $"{{\"v\":2,\"id\":\"{Id(request)}\",\"status\":\"transmitted\"}}\n",
             _ =>
-                $"{{\"v\":1,\"id\":\"{Id(request)}\",\"status\":\"ok\",\"data\":{{{Identity},\"hostname\":\"wsgm-ir-15ef50\",\"wifiConfigured\":true}}}}\n"
+                $"{{\"v\":2,\"id\":\"{Id(request)}\",\"status\":\"ok\",\"data\":{{{Identity},\"hostname\":\"wsgm-ir-15ef50\",\"wifiConfigured\":true}}}}\n"
         });
         IrEndpointConnection endpoint = new(_ => link);
         await endpoint.IdentifyAsync(CancellationToken.None);
@@ -283,7 +311,7 @@ public sealed class IrEndpointConnectionTests
             var original = property switch
             {
                 "id" => "\"id\":\"" + Id(request) + "\"",
-                "v" => "\"v\":1",
+                "v" => "\"v\":2",
                 _ => "\"status\":\"ok\""
             };
             return value is null
@@ -303,8 +331,8 @@ public sealed class IrEndpointConnectionTests
     public async Task StaleReplyAndMissingIdDoNotConsumeTheMatchingReply()
     {
         ScriptedLink link = new(request =>
-            "{\"v\":1,\"status\":\"ok\"}\n"
-            + "{\"v\":1,\"id\":\"stale\",\"status\":\"ok\"}\n"
+            "{\"v\":2,\"status\":\"ok\"}\n"
+            + "{\"v\":2,\"id\":\"stale\",\"status\":\"ok\"}\n"
             + Frame(request, "ok", "{" + Identity + "}"));
         await using IrEndpointConnection endpoint = new(_ => link);
 
@@ -343,10 +371,10 @@ public sealed class IrEndpointConnectionTests
                 await Task.Delay(TcpIrLink.ReceiveTimeoutMs *
                                  2); // Longer than the receive timeout, so idle polling runs.
                 await writer.WriteLineAsync(element.GetProperty("op").GetString() == "identify"
-                    ? $"{{\"v\":1,\"id\":\"{id}\",\"status\":\"ok\",\"data\":{{{Identity},\"hostname\":\"wsgm-ir-15ef50\",\"wifiConnected\":true,\"ip\":\"127.0.0.1\"}}}}"
+                    ? $"{{\"v\":2,\"id\":\"{id}\",\"status\":\"ok\",\"data\":{{{Identity},\"hostname\":\"wsgm-ir-15ef50\",\"wifiConnected\":true,\"ip\":\"127.0.0.1\"}}}}"
                     : authorized
-                        ? $"{{\"v\":1,\"id\":\"{id}\",\"status\":\"transmitted\"}}"
-                        : $"{{\"v\":1,\"id\":\"{id}\",\"status\":\"unauthorized\"}}");
+                        ? $"{{\"v\":2,\"id\":\"{id}\",\"status\":\"transmitted\"}}"
+                        : $"{{\"v\":2,\"id\":\"{id}\",\"status\":\"unauthorized\"}}");
             }
         });
         var endpoint = IrEndpointConnection.Create(new IrEndpointTarget(true, $"127.0.0.1:{port}", "0123456789abcdef"));
@@ -371,6 +399,12 @@ public sealed class IrEndpointConnectionTests
     {
         using var document = JsonDocument.Parse(frame);
         return document.RootElement.GetProperty("op").GetString()!;
+    }
+
+    private static int ChunkIndex(string frame)
+    {
+        using var document = JsonDocument.Parse(frame);
+        return document.RootElement.GetProperty("chunk").GetInt32();
     }
 
     /// <summary>Answers each written frame from a script; idle reads return -1 like a real link.</summary>

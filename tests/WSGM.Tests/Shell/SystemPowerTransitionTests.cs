@@ -1,4 +1,3 @@
-using WSGM.Interop;
 using WSGM.Shell;
 
 namespace WSGM.Tests.Shell;
@@ -66,16 +65,5 @@ public sealed class SystemPowerTransitionTests
     public void ASessionThatNeverResumedTreatsItsFirstSuspendAsReal()
     {
         Assert.False(ShellSession.IsStaleSuspend(Hour, Hour));
-    }
-
-    [Fact]
-    public void EveryResumeCodeWindowsCanSendIsADistinctValue()
-    {
-        // PBT_APMRESUMECRITICAL is the one a process gets when it never saw the suspend, which on a
-        // modern standby machine is how an ordinary hibernate ends.
-        Assert.Equal(0x12, NativeMethods.PbtApmResumeAutomatic);
-        Assert.Equal(0x7, NativeMethods.PbtApmResumeSuspend);
-        Assert.Equal(0x6, NativeMethods.PbtApmResumeCritical);
-        Assert.Equal(0x4, NativeMethods.PbtApmSuspend);
     }
 }

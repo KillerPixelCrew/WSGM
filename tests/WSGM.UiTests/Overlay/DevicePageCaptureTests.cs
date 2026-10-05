@@ -42,7 +42,7 @@ public sealed class DevicePageCaptureTests
                 State = publication.States.Last(state => state.CapabilityId == descriptor.CapabilityId
                                                          && state.InstanceId == descriptor.InstanceId)
             }, null)).ToArray();
-        var sections = DeviceSections.IncludePredefined(publication.Descriptors.Sections);
+        var sections = DeviceSectionLayout.IncludePredefined(publication.Descriptors.Sections);
         var ids = sections.Select(section => section.SectionId).ToHashSet();
         using SimulatedDeviceOverlaySource hostControls = new();
         // Variable refresh is the graphics package's now; Power and thermals shows it as the bridge does.

@@ -3,7 +3,7 @@ using WSGM.Plugin.Sdk;
 
 namespace WSGM.Plugin.IntelGpu;
 
-/// <summary>The package's diagnostic lines, written into WSGM's log through the capability host.</summary>
+/// <summary>The package's diagnostic lines, written into WSGM's log through the plugin host.</summary>
 /// <remarks>
 ///     A common plugin has no <see cref="PluginTrace" /> sink of its own, so every transport takes this
 ///     instead. Before the host is known, and in tests, the lines go nowhere. Lines are written
@@ -11,11 +11,11 @@ namespace WSGM.Plugin.IntelGpu;
 /// </remarks>
 internal sealed class IntelLog
 {
-    private readonly ICapabilityHost? _host;
+    private readonly IPluginHost? _host;
 
     /// <summary>Creates a log that writes through the host, or nowhere when it is null.</summary>
-    /// <param name="host">The capability host.</param>
-    public IntelLog(ICapabilityHost? host)
+    /// <param name="host">The plugin host.</param>
+    public IntelLog(IPluginHost? host)
     {
         _host = host;
     }

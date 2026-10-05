@@ -104,15 +104,19 @@ startup.
 
 ## Package loading and dependencies
 
-`CommonPluginPackage` reads bounded `plugin.wsgm.json` metadata and loads a public parameterless
-`IPlugin` entry type with a matching ID. It rejects Device-category packages, which retain their
-selected installation slot and adapter. Package roots and entry/manifest files cannot be reparse
-points. Package constructors must not acquire external resources.
+`Shell\PluginLoader` loads a common package's public parameterless `IPlugin` entry type with a
+matching ID, after checking that the reopened `plugin.wsgm.json` still equals the admitted one. It
+rejects Device-category packages, which retain their selected installation slot and adapter. Package
+roots and entry/manifest files cannot be reparse points. Package constructors must not acquire
+external resources.
 
-The common loader reuses the existing `PluginLoadContext`, including host-owned Device/common SDK
-type identity, shared WinRT process state, host-first dependencies and collectible package-local
-fallbacks. A failed plugin disposal does not explicitly unload its context. The caller must retain
-ownership of loading tasks that ignore cancellation.
+The device package and common packages share that loader and its `PluginLoadContext`, including
+host-owned Device/common SDK type identity, shared WinRT process state, host-first dependencies and
+collectible package-local fallbacks. The host works on the plugin instance itself, so a plugin that
+does not implement `IConfigurablePlugin` has no settings and is never sent a configuration. The
+plugin is disposed once by its current owner, and its code is unloaded only after that disposal
+completed: a failed or unfinished disposal keeps the context loaded and the instance reserved. The
+caller must retain ownership of loading tasks that ignore cancellation.
 
 `CommonPluginDependencyPlan` orders enabled packages before their consumers. Missing, duplicate,
 incompatible and cyclic dependencies reject affected packages while preserving independent ones.
@@ -172,15 +176,18 @@ explicit `Enabled = false` switches it off. On a machine without such an adapter
 whatever the configuration says. Setup offers the package by the same match and writes no enable
 entry. The adapter list is read once per process and logged.
 
-**Admission.** `CommonPluginPackage` refuses a graphics entry type that does not implement
-`ICapabilityPlugin`. Before admission `CommonPluginManager` asks `GpuCoordinator` to open a
-`PluginCapabilityChannel` for the instance, and `PluginHost.Admit` requires that channel for the
-category and refuses one for any other. The plugin reaches it as `IPluginHost.Capabilities`. The
-registration begins a new capability cycle generation before `StartAsync` and before each
-`ResumeAsync`, and closes command admission before a suspend or a stop, so what the plugin publishes
-from inside those calls is already current. The channel refuses a stale descriptor or state
-generation and a descriptor whose role the manifest's `capabilities` list does not declare, and it
-writes the plugin's trace lines into `wsgm.log` as `plugin/<plugin id>/<scope>: ...`.
+**Admission.** The loader refuses a graphics entry type that does not implement `ICapabilityPlugin`.
+Before admission `CommonPluginManager` asks `GpuCoordinator` to open a `PluginCapabilityChannel` for
+the instance, and `PluginHost.Admit` requires that channel for the category and refuses one for any
+other. The plugin reaches it as `IPluginHost.Capabilities`. The registration begins a new capability
+cycle generation before `StartAsync` and before each `ResumeAsync`, and closes command admission
+before a suspend or a stop, so what the plugin publishes from inside those calls is already current.
+The channel refuses a stale descriptor or state generation and a descriptor whose role the
+manifest's `capabilities` list does not declare.
+
+**Tracing.** Every common plugin, not only a graphics one, logs through `IPluginHost.Trace` and
+`IPluginHost.TraceChange`. WSGM writes the lines into `wsgm.log` as
+`plugin/<plugin id>/<scope>: ...`, and `TraceChange` writes only when that key's value changed.
 
 **Ownership.** `Shell\GpuCoordinator` owns one `DeviceCapabilityRouter` per publisher. It is never
 merged with the device router: consumers that select the power limit, a fan or VRR by role expect
@@ -249,19 +256,21 @@ where setup and the Plugins page read them without loading code. A first-party g
 bundled like any other through its `plugins/curated` file.
 
 Packaging publishes the project for `win-x64`, validates the manifest with this checkout's
-`PluginManifestReader` through `eng/plugin-manifest.cs`, checks the entry file, refuses native
-images, and creates a new `.wsgmpkg`. It does not execute the plugin entry type, install, enable or
-replace a package. Full common manifest, dependency and UI/action validation remains authoritative
-in the host. Trust build inputs before publishing; MSBuild is executable code. Copy an approved
-package file into the protected `%ProgramFiles%\WSGM\Plugins` folder while WSGM is closed, then
-enable it in Settings. To update, close WSGM and replace the file.
+`PluginManifestReader` through `eng/plugin-manifest.cs`, checks the entry file, creates a new
+`.wsgmpkg` and validates it with the Device SDK's `PluginPackageLayout`, the rules WSGM applies when
+it opens the package: the byte bounds, safe entry names and no native images. It does not execute
+the plugin entry type, install, enable or replace a package. Full common manifest, dependency and
+UI/action validation remains authoritative in the host. Trust build inputs before publishing;
+MSBuild is executable code. Copy an approved package file into the protected
+`%ProgramFiles%\WSGM\Plugins` folder while WSGM is closed, then enable it in Settings. To update,
+close WSGM and replace the file.
 
-The existing `CommonPluginPackageTests` fixture is an offline example harness covering
-configuration, actions, state and lifecycle without external hardware. Use the same contract pattern
-for provider fakes. Runtime health and action outcomes appear on Tools; a failed or unconfirmed
-operation is never an automatic retry request. Common preferences use `PluginConfigurations` with
-explicit increasing revisions; provider schema validation occurs before delivery. Their generic
-Settings editor is not part of this initial surface; the Device settings editor remains available.
+The existing `PluginLoaderTests` fixture is an offline example harness covering configuration,
+actions, state and lifecycle without external hardware. Use the same contract pattern for provider
+fakes. Runtime health and action outcomes appear on Tools; a failed or unconfirmed operation is
+never an automatic retry request. Common preferences use `PluginConfigurations` with explicit
+increasing revisions; provider schema validation occurs before delivery. Their generic Settings
+editor is not part of this initial surface; the Device settings editor remains available.
 
 The migration follows common contracts, Device compatibility adapter,
 lifecycle/configuration/events, action/UI contributions, then an independent non-device consumer.

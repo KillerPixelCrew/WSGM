@@ -239,8 +239,8 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     internal DevicePowerAssignments PowerAssignments { get; }
 
     internal (bool Available, bool Unified) ManualTdpMode =>
-        (IntegrationEnabled && Capabilities.Snapshot().Any(view =>
-                view.Descriptor is { Role: CapabilityRole.PowerSustainedLimit, PairedPowerLimitId: not null }),
+        (IntegrationEnabled && Capabilities.HasDescriptor(static descriptor =>
+                descriptor is { Role: CapabilityRole.PowerSustainedLimit, PairedPowerLimitId: not null }),
             ManualTdpUnified);
 
     /// <summary>
@@ -1902,10 +1902,12 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
                         return;
                     }
 
-                    // The release shows the physical pad in its own cleanup, whatever the plugin does.
+                    // The release shows the physical pad in its own cleanup, whatever the plugin does, and
+                    // ends Faulted with this detail.
                     released = true;
                     await ReleaseControllerAsync(client, HandoffScope.ControllerOnly,
-                        Deadline.After(TimeSpan.FromSeconds(6)), budget.Token).ConfigureAwait(false);
+                        Deadline.After(TimeSpan.FromSeconds(6)), budget.Token, faultDetail: detail)
+                        .ConfigureAwait(false);
                 }
                 finally
                 {
@@ -1914,11 +1916,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             }
             finally
             {
-                if (released)
-                {
-                    Controllers.ReportTargetFault(detail);
-                }
-                else if (Controllers.State is ControllerManagementState.Faulted)
+                if (!released && Controllers.State is ControllerManagementState.Faulted)
                 {
                     using var cleanup = Deadline.After(TimeSpan.FromSeconds(6)).CreateCancellationSource();
                     await Controllers.ShowPhysicalControllerAsync("virtual target lost", cleanup.Token)
@@ -2021,6 +2019,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     /// <param name="deadline">Bounds the whole release.</param>
     /// <param name="cancellationToken">Cancels waiting; the physical pad is still shown.</param>
     /// <param name="keepPhysicalHidden">Whether a fault restart takes the controller again at once.</param>
+    /// <param name="faultDetail">When set, the release ends Faulted with this detail instead of Idle.</param>
     /// <remarks>
     ///     A start still attaching would otherwise take the manager's transition after the release and
     ///     raise a virtual target over a plugin that has let go, with the physical pad hidden. A start
@@ -2031,7 +2030,8 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         HandoffScope scope,
         Deadline deadline,
         CancellationToken cancellationToken,
-        bool keepPhysicalHidden = false)
+        bool keepPhysicalHidden = false,
+        string? faultDetail = null)
     {
         using (var bounded = deadline.CreateCancellationSource(cancellationToken))
         {
@@ -2050,7 +2050,8 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             token => client.ReleaseControllerAsync(scope, deadline, token),
             deadline,
             cancellationToken,
-            keepPhysicalHidden).ConfigureAwait(false);
+            keepPhysicalHidden,
+            faultDetail).ConfigureAwait(false);
     }
 
     /// <summary>Applies a running-application change from the one shared monitor.</summary>
@@ -2734,7 +2735,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         }
 
         var profiles = scope.Profiles
-            .Where(profile => profile.CapabilityId == DeviceAuthoredProfileCapabilities.FanCurve)
+            .Where(profile => profile.CapabilityId == CapabilityIds.FanCurve)
             .ToArray();
         return profiles.Length == 0
             ? null
@@ -2800,7 +2801,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             await DeviceProfileApplier.ApplyAsync(
                 scope.Profiles.FirstOrDefault(profile => profile.ProfileId == selected.Value),
                 selected,
-                DeviceAuthoredProfileCapabilities.FanCurve,
+                CapabilityIds.FanCurve,
                 DescribeCapability,
                 // A started write runs to its deadline, as in ReconcileDesiredValuesAsync.
                 (capabilityId, value, _) => ExecuteCapabilityAsync(
@@ -3010,7 +3011,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         return Task.Run(
-            () => PluginPackageCatalog.DiscoverInstalled().Device,
+            () => PluginPackageCatalog.Discover(InstallLayout.Plugins).Device,
             cancellationToken);
     }
 

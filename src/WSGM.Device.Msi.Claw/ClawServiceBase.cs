@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Services;
 
@@ -10,14 +11,17 @@ namespace WSGM.Device.Msi.Claw;
 /// <summary>A cycle service whose temporary changes the recovery journal restores on release.</summary>
 internal abstract class ClawJournalledService(string serviceId) : DeviceService<ClawIdentityState>(serviceId)
 {
+    /// <summary>Writes a pending original back. A restore is complete once its writes went through.</summary>
+    /// <remarks>
+    ///     Only a pending entry is written: one an earlier restore left unverified or failed waits for an
+    ///     explicit command. A release without the time to write leaves its entry pending for the next
+    ///     start, and a restore that throws records the failure so nothing writes it again automatically.
+    /// </remarks>
     protected async ValueTask<DeviceServiceResult> RestoreJournalledAsync<TSnapshot>(
         DeviceCycleContext<ClawIdentityState> context,
         ClawRecoveryJournal journal,
         Func<ClawRecoveryState?, TSnapshot?> readSnapshot,
-        Func<TSnapshot, CancellationToken, ValueTask<bool>> restoreAsync,
-        string recoveryNoun,
-        string budgetLabel,
-        string unverifiedMessage,
+        Func<TSnapshot, CancellationToken, ValueTask> restoreAsync,
         CancellationToken cancellationToken)
         where TSnapshot : class
     {
@@ -26,24 +30,25 @@ internal abstract class ClawJournalledService(string serviceId) : DeviceService<
             return Set(DeviceServiceState.Faulted, ReconciliationBlockReason);
         }
 
-        if (State is not DeviceServiceState.Owned || !journal.HasUnrestoredMutation(ServiceId))
+        // Only on the BIOS the original was captured under: an entry a start could not compare waits.
+        if (State is not DeviceServiceState.Owned
+            || journal.EntryFor(ServiceId) is not { Status: DeviceRecoveryStatus.Pending } entry
+            || !string.Equals(entry.FirmwareIdentity, context.Identity.RecoveryBinding, StringComparison.Ordinal)
+            || readSnapshot(entry.OriginalState) is not { } restoreSnapshot)
         {
             return Set(DeviceServiceState.Idle);
         }
 
-        var restoreSnapshot = readSnapshot(journal.OriginalStateFor(ServiceId));
-        if (restoreSnapshot is null)
+        if (!DeviceWriteBudget.IsAvailable(context.Deadline))
         {
-            return Set(DeviceServiceState.Faulted, new CapabilityReason(
-                CapabilityReasonCode.TransportFaulted,
-                $"The {recoveryNoun} recovery record did not contain its pre-mutation snapshot."));
+            return Set(DeviceServiceState.ReleasedUnverified, new CapabilityReason(
+                CapabilityReasonCode.Quiescing,
+                "Not enough time to restore; the original stays recorded for the next start."));
         }
 
-        ClawWriteBudget.Require(context.Deadline, budgetLabel);
-        bool restored;
         try
         {
-            restored = await restoreAsync(restoreSnapshot, cancellationToken).ConfigureAwait(false);
+            await restoreAsync(restoreSnapshot, cancellationToken).ConfigureAwait(false);
         }
         catch
         {
@@ -54,15 +59,9 @@ internal abstract class ClawJournalledService(string serviceId) : DeviceService<
             throw;
         }
 
-        await journal.SetStatusAsync(
-            ServiceId,
-            restored ? DeviceRecoveryStatus.RestoredVerified : DeviceRecoveryStatus.RestoredUnverified,
-            cancellationToken).ConfigureAwait(false);
-        return restored
-            ? Set(DeviceServiceState.Idle)
-            : Set(DeviceServiceState.ReleasedUnverified, new CapabilityReason(
-                CapabilityReasonCode.TransportFaulted,
-                unverifiedMessage));
+        await journal.SetStatusAsync(ServiceId, DeviceRecoveryStatus.RestoredVerified, cancellationToken)
+            .ConfigureAwait(false);
+        return Set(DeviceServiceState.Idle);
     }
 }
 
@@ -110,21 +109,34 @@ internal static class ClawFirmwareIdentities
     /// </summary>
     public const string Mcu = "mcu";
 
-    /// <summary>True when neither the EC nor the BIOS version was known, so the binding cannot tell two apart.</summary>
-    public static bool IsUnknownEc(string identity)
+    /// <summary>The power and fan binding for a BIOS version, <c>bios:&lt;version&gt;</c>.</summary>
+    public static string Bios(string biosVersion)
     {
-        return identity.StartsWith("ec:unknown;", StringComparison.Ordinal);
+        return "bios:" + biosVersion;
+    }
+
+    /// <summary>True for a power or fan binding as this build writes it: <c>bios:&lt;version&gt;</c>.</summary>
+    public static bool IsBios(string identity)
+    {
+        return identity.StartsWith("bios:", StringComparison.Ordinal) && !IsLegacy(identity);
     }
 
     /// <summary>
-    ///     True for a power or fan binding, <c>ec:&lt;version&gt;</c> or <c>bios:&lt;version&gt;</c> then
-    ///     <c>;msi-acpi:&lt;major.minor&gt;</c>, as <see cref="WindowsClawIdentityReader" /> builds it. The
-    ///     reference unit's reads <c>ec:1T52EMS1.109;msi-acpi:8.0</c>, the value every earlier journal carries.
+    ///     True for a power or fan binding an earlier build wrote: <c>ec:&lt;version&gt;</c> or
+    ///     <c>bios:&lt;version&gt;</c> then <c>;msi-acpi:&lt;major.minor&gt;</c>. The reference unit's reads
+    ///     <c>ec:1T52EMS1.109;msi-acpi:8.0</c>. Such an entry is restored once when this start reads the same
+    ///     binding, and discarded otherwise.
     /// </summary>
-    public static bool IsWmi(string identity)
+    public static bool IsLegacy(string identity)
     {
         return (identity.StartsWith("ec:", StringComparison.Ordinal)
                 || identity.StartsWith("bios:", StringComparison.Ordinal))
                && identity.Contains(";msi-acpi:", StringComparison.Ordinal);
+    }
+
+    /// <summary>True for a legacy binding without an EC or BIOS version, which cannot tell two firmwares apart.</summary>
+    public static bool IsUnknownEc(string identity)
+    {
+        return identity.StartsWith("ec:unknown;", StringComparison.Ordinal);
     }
 }

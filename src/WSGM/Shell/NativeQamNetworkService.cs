@@ -153,10 +153,6 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
         else
         {
             networks.Insert(0, joined);
-            if (networks.Count > 24)
-            {
-                networks.RemoveAt(networks.Count - 1);
-            }
         }
 
         return new SteamNetworkState(networks);

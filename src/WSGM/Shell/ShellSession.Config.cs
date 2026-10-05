@@ -124,13 +124,29 @@ public sealed partial class ShellSession
             {
                 _ = Task.Run(() =>
                 {
+                    if (_disposed)
+                    {
+                        return;
+                    }
+
                     var generation = Interlocked.Read(ref _configReloadGeneration);
-                    var read = _store.Read();
+                    ConfigReadResult read;
+                    try
+                    {
+                        read = _store.Read();
+                    }
+                    catch (Exception ex) when (ex is not OutOfMemoryException)
+                    {
+                        Log.Warn($"Config reload skipped: {ex.Message}; the running state is retained.");
+                        return;
+                    }
+
                     if (read.Config is not { } config)
                     {
                         Log.Warn($"Config reload skipped: {read.Outcome}; the running state is retained.");
                         return;
                     }
+
                     Dispatcher.UIThread.Post(() =>
                     {
                         if (_disposed || generation != Interlocked.Read(ref _configReloadGeneration))
@@ -138,39 +154,7 @@ public sealed partial class ShellSession
                             return;
                         }
 
-                        // One instance for every reader: the volume OSD's UI-scale
-                        // callback and DisplayScale's saved-scale snapshot must not
-                        // drift onto different AppConfig objects.
-                        var steamInputManagementWas = _config.SteamInputManagementEnabled;
-                        _config = config;
-                        Log.SetVerbosity(_verboseLogging ? LogVerbosity.Verbose : config.LogVerbosity);
-                        Log.Observe(_profiles.ReloadAsync(_shutdownCancellation.Token), "Profile config reload", true);
-                        ApplyDeviceConfig(config);
-                        ApplyPerformanceConfig(config);
-                        ApplyCefMasterSwitch(config.Cef.Enabled);
-                        // Every surface switch in one apply. With the master switch off that is all
-                        // off at once, so Quick Access refuses commands while the retraction runs.
-                        ApplySteamUiSurfaces();
-                        ApplySteamInputManagement(steamInputManagementWas, config.SteamInputManagementEnabled);
-                        // The artwork settings are in this file too. The browser reads them live,
-                        // but a page already open still shows the old tabs, and a response the old
-                        // key earned is still cached against the new one.
-                        _artwork?.ConfigurationChanged();
-                        _libraryImport?.ConfigurationChanged(config.GameLibrary);
-                        _themes?.ConfigurationChanged();
-                        _animations?.ConfigurationChanged();
-                        _sounds?.ConfigurationChanged();
-                        _wsgmSettings?.ConfigurationChanged();
-                        _displayMute?.ApplyConfig(config.MuteWhileDisplayOff);
-                        _chordMirror?.Apply(config.DeviceIntegration.KeepGuideChordEdits, _steamDeckTargetActive);
-                        AccentPalette.Apply(Application.Current!, AccentPalette.Parse(config.AccentColor));
-                        _modes?.ApplyConfig(config);
-                        _overlay?.ApplyConfig(config);
-                        Log.Debug($"Config reloaded at {Log.MinimumLevel} minimum log level.");
-                        _startupWatcher?.Apply(config.StartupApps);
-                        _keepAwake?.ApplyConfig(
-                            AutoKeepAwakeEnabled(config),
-                            DownloadMonitoringEnabled(config));
+                        ApplyReloadedConfig(config);
                     });
                 });
             }
@@ -182,6 +166,13 @@ public sealed partial class ShellSession
             {
                 lock (_configDebounceGate)
                 {
+                    // Shutdown disposes the timer under this gate after it set _disposed, so a late
+                    // event can never create a timer nobody disposes.
+                    if (_disposed)
+                    {
+                        return;
+                    }
+
                     Interlocked.Increment(ref _configReloadGeneration);
                     _configDebounce ??= new Timer(
                         Reload, null, Timeout.Infinite, Timeout.Infinite);
@@ -220,6 +211,66 @@ public sealed partial class ShellSession
         catch (Exception ex)
         {
             Log.Warn($"Config watcher not available: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    ///     Applies a configuration the watcher read successfully, on the UI thread, in a fixed order.
+    ///     Each step runs on its own, so one that throws is logged and the rest still apply.
+    /// </summary>
+    /// <param name="config">The new configuration, which becomes the session's live instance.</param>
+    private void ApplyReloadedConfig(AppConfig config)
+    {
+        // One instance for every reader: the volume OSD's UI-scale callback and DisplayScale's
+        // saved-scale snapshot must not drift onto different AppConfig objects.
+        var steamInputManagementWas = _config.SteamInputManagementEnabled;
+        _config = config;
+        TryApply("log verbosity", () =>
+            Log.SetVerbosity(_verboseLogging ? LogVerbosity.Verbose : config.LogVerbosity));
+        TryApply("profiles", () =>
+            Log.Observe(_profiles.ReloadAsync(_shutdownCancellation.Token), "Profile config reload", true));
+        TryApply("device integration", () => ApplyDeviceConfig(config));
+        TryApply("performance", () => ApplyPerformanceConfig(config));
+        TryApply("Steam integration", () => ApplyCefMasterSwitch(config.Cef.Enabled));
+        // Every surface switch in one apply. With the master switch off that is all off at once, so
+        // Quick Access refuses commands while the retraction runs.
+        TryApply("Steam surfaces", ApplySteamUiSurfaces);
+        TryApply("Steam Input management", () =>
+            ApplySteamInputManagement(steamInputManagementWas, config.SteamInputManagementEnabled));
+        // The artwork settings are in this file too. The browser reads them live, but a page already
+        // open still shows the old tabs, and a response the old key earned is still cached against the
+        // new one.
+        TryApply("artwork", () => _artwork?.ConfigurationChanged());
+        TryApply("game library", () => _libraryImport?.ConfigurationChanged(config.GameLibrary));
+        TryApply("themes", () => _themes?.ConfigurationChanged());
+        TryApply("boot movies", () => _animations?.ConfigurationChanged());
+        TryApply("sounds", () => _sounds?.ConfigurationChanged());
+        TryApply("WSGM settings page", () => _wsgmSettings?.ConfigurationChanged());
+        TryApply("screen-off mute", () => _displayMute?.ApplyConfig(config.MuteWhileDisplayOff));
+        TryApply("guide chord edits", () => _chordMirror?.SetEnabled(config.DeviceIntegration.KeepGuideChordEdits));
+        TryApply("accent colour", () =>
+            AccentPalette.Apply(Application.Current!, AccentPalette.Parse(config.AccentColor)));
+        TryApply("session modes", () => _modes?.ApplyConfig(config));
+        TryApply("overlay", () => _overlay?.ApplyConfig(config));
+        Log.Debug($"Config reloaded at {Log.MinimumLevel} minimum log level.");
+        TryApply("startup apps", () => _startupWatcher?.Apply(config.StartupApps));
+        TryApply("keep awake", () => _keepAwake?.ApplyConfig(
+            AutoKeepAwakeEnabled(config),
+            DownloadMonitoringEnabled(config)));
+    }
+
+    /// <summary>Runs one reload step; a failure is logged with its name and the later steps still run.</summary>
+    /// <param name="step">The step, for the log.</param>
+    /// <param name="apply">The step.</param>
+    private static void TryApply(string step, Action apply)
+    {
+        try
+        {
+            apply();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Error($"Config reload: applying {step} failed", ex);
         }
     }
 

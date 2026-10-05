@@ -87,15 +87,6 @@ public sealed partial class ClawPlugin
         }
     ];
 
-    /// <summary>Who currently owns a physical input source.</summary>
-    /// <remarks>
-    ///     Ordered so the first value is the resting state. <c>device</c> means the Claw's own firmware
-    ///     still has it, <c>plugin</c> means this plugin acquired it, and <c>unavailable</c> covers both
-    ///     a failed acquisition and a source this unit does not expose. A user reading the row needs
-    ///     those to be distinguishable, which is exactly what the previous boolean threw away.
-    /// </remarks>
-    private static readonly string[] SourceOwnershipChoices = ["device", "plugin", "unavailable"];
-
     private void BuildCapabilitySurface()
     {
         if (_power is null || _chargeLimit is null || _fans is null || _telemetry is null
@@ -170,7 +161,7 @@ public sealed partial class ClawPlugin
                 CapabilityIds.Controller,
                 CapabilityRole.ControllerSource,
                 DisplayKey.Controller,
-                SourceOwnershipChoices,
+                SourceOwnership.Choices,
                 false,
                 SectionIds.Info,
                 CategoryIds.Ownership),
@@ -178,7 +169,7 @@ public sealed partial class ClawPlugin
                 CapabilityIds.Motion,
                 CapabilityRole.MotionSource,
                 DisplayKey.Motion,
-                SourceOwnershipChoices,
+                SourceOwnership.Choices,
                 false,
                 SectionIds.Info,
                 CategoryIds.Ownership,

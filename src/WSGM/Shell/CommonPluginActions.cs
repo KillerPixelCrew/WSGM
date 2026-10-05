@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
+using WSGM.Device.Sdk.Capabilities;
 using WSGM.Plugin.Sdk;
 
 namespace WSGM.Shell;
@@ -268,6 +269,6 @@ internal sealed class CommonPluginActions
 
     private static bool Label(string? label)
     {
-        return PluginText.TryValidate(label, "label", out _);
+        return PlainText.TryValidate(label, "label", out _);
     }
 }

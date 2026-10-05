@@ -46,7 +46,7 @@ internal sealed class CommonPluginManager
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly PluginHost _host;
     private readonly string _installedRoot;
-    private readonly Func<CommonInstalledPlugin, CancellationToken, Task<IPlugin>> _load;
+    private readonly Func<CommonInstalledPlugin, CancellationToken, Task<LoadedPluginPackage<IPlugin>>> _load;
     private readonly Lock _stateGate = new();
     private readonly string _stateRoot;
     private volatile PluginPackageCatalog _catalog = PluginPackageCatalog.Empty;
@@ -67,28 +67,29 @@ internal sealed class CommonPluginManager
     /// <param name="capabilityChannels">
     ///     Opens a graphics instance's capability channel. Without one, graphics packages cannot start.
     /// </param>
-    /// <param name="adapters">Reads the present display adapters; defaults to the cached inventory.</param>
+    /// <param name="adapters">Reads the present display adapters; defaults to a fresh read at each reconcile.</param>
     internal CommonPluginManager(PluginHost host, string installedRoot, string stateRoot,
-        Func<CommonInstalledPlugin, CancellationToken, Task<IPlugin>>? load = null,
+        Func<CommonInstalledPlugin, CancellationToken, Task<LoadedPluginPackage<IPlugin>>>? load = null,
         ICapabilityChannelRegistry? capabilityChannels = null,
         Func<IReadOnlyList<DisplayAdapterIdentity>>? adapters = null)
     {
         _host = host;
         _capabilityChannels = capabilityChannels;
-        _adapters = adapters ?? (static () => CommonPluginEnablement.PresentAdapters);
+        _adapters = adapters ?? (static () => CommonPluginEnablement.ReadAdapters());
         _installedRoot = Path.GetFullPath(installedRoot);
         _stateRoot = Path.GetFullPath(stateRoot);
-        _load = load ?? (async (package, token) =>
-            package.Factory is { } factory
-                ? factory()
-                : await CommonPluginPackage.LoadAsync(package.PackagePath, package.Manifest, token)
-                    .ConfigureAwait(false));
+        _load = load ?? (static (package, token) =>
+            PluginLoader.LoadCommonAsync(package.PackagePath, package.Manifest, token));
     }
 
     /// <summary>The installed packages as of the last reconcile, read without touching the disk.</summary>
     internal PluginPackageCatalog Catalog => _catalog;
 
     /// <summary>Raised after the admitted-plugin projection may have changed.</summary>
+    /// <remarks>
+    ///     Raised on the thread that finished the operation, usually a pool thread. Subscribers marshal
+    ///     themselves.
+    /// </remarks>
     internal event Action? Changed;
 
     /// <summary>Whether an installed package runs by default when the configuration does not name it.</summary>
@@ -276,15 +277,19 @@ internal sealed class CommonPluginManager
                         _entries.Add(identity, entry);
                     }
 
-                    entry.StartWork = StartEntryAsync(entry);
+                    // Active time, so a sleep during startup does not spend its budget.
+                    var startDeadline = Deadline.After(TimeSpan.FromSeconds(15));
+                    entry.StartWork = StartEntryAsync(entry, startDeadline);
+                    using var bounded = startDeadline.CreateCancellationSource(cancellationToken);
                     try
                     {
-                        await entry.StartWork.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken)
-                            .ConfigureAwait(false);
+                        await entry.StartWork.WaitAsync(bounded.Token).ConfigureAwait(false);
                     }
-                    catch (Exception ex) when (ex is TimeoutException or OperationCanceledException)
+                    catch (OperationCanceledException ex)
                     {
-                        entry.Error = "Plugin startup did not finish: " + ex.Message;
+                        entry.Error = "Plugin startup did not finish: " + (cancellationToken.IsCancellationRequested
+                            ? ex.Message
+                            : new TimeoutException().Message);
                         Cancel(entry.Cancellation);
                     }
                 }
@@ -299,23 +304,23 @@ internal sealed class CommonPluginManager
         }
     }
 
-    private async Task StartEntryAsync(Entry entry)
+    private async Task StartEntryAsync(Entry entry, Deadline deadline)
     {
         try
         {
-            entry.Loaded = await _load(entry.Package, entry.Cancellation.Token).ConfigureAwait(false);
+            var loaded = await _load(entry.Package, entry.Cancellation.Token).ConfigureAwait(false);
+            entry.Loaded = loaded;
             entry.Cancellation.Token.ThrowIfCancellationRequested();
+            var plugin = loaded.Plugin;
             // Hash host instance identities so configuration cannot introduce filesystem aliases or traversal.
             var instanceDirectory =
                 Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(entry.Identity.InstanceId)));
-            var state = PluginPackageLoader.ConstrainPackagePath(_stateRoot,
-                Path.Combine(entry.Identity.PluginId, instanceDirectory));
+            var state = ConstrainStatePath(Path.Combine(entry.Identity.PluginId, instanceDirectory));
             Directory.CreateDirectory(state);
             PluginCapabilityChannel? channel = null;
             if (entry.Package.Manifest.Category == PluginCategories.Gpu)
             {
-                if (entry.Loaded is not ICapabilityPlugin capabilityPlugin
-                    || entry.Loaded is CommonPluginPackage { PublishesCapabilities: false })
+                if (plugin is not ICapabilityPlugin capabilityPlugin)
                 {
                     throw new InvalidDataException("A graphics package must implement ICapabilityPlugin.");
                 }
@@ -326,15 +331,14 @@ internal sealed class CommonPluginManager
                     .Open(entry.Identity, entry.Package.Manifest, capabilityPlugin);
             }
 
-            entry.Registration = _host.Admit(entry.Loaded, entry.Identity, entry.Package.Manifest.Category,
+            entry.Registration = _host.Admit(plugin, entry.Identity, entry.Package.Manifest.Category,
                 PluginCategoryPolicy.Multiple, false, 1, state, channel);
-            await entry.Registration.StartAsync(Deadline.After(TimeSpan.FromSeconds(15)), entry.Cancellation.Token)
-                .ConfigureAwait(false);
+            await entry.Registration.StartAsync(deadline, entry.Cancellation.Token).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             entry.Error = ex.Message;
-            entry.LoadCleanupUnconfirmed = entry.Loaded is null && ex is AggregateException;
+            entry.LoadCleanupUnconfirmed = ex is PluginLoadException { CleanupConfirmed: false };
             CloseChannel(entry);
         }
         finally
@@ -488,7 +492,7 @@ internal sealed class CommonPluginManager
         Cancel(entry.Cancellation);
         try
         {
-            await entry.StartWork.WaitAsync(Remaining(deadline)).ConfigureAwait(false);
+            await WaitWithinAsync(entry.StartWork, deadline).ConfigureAwait(false);
             if (entry.LoadCleanupUnconfirmed)
             {
                 throw new InvalidOperationException("Package construction cleanup was not confirmed.");
@@ -498,6 +502,9 @@ internal sealed class CommonPluginManager
             {
                 var released = await registration.StopAsync(deadline, CancellationToken.None).ConfigureAwait(false);
                 await registration.DisposeAsync().ConfigureAwait(false);
+                // The plugin's disposal completed, so its code can go. An unconfirmed release still keeps
+                // the instance reserved below.
+                entry.Loaded?.Unload();
                 if (!released)
                 {
                     throw new InvalidOperationException("Plugin release was not confirmed.");
@@ -507,7 +514,7 @@ internal sealed class CommonPluginManager
             {
                 // The package never entered Start, so only construction cleanup is required.
                 entry.Disposal ??= Task.Run(async () => await loaded.DisposeAsync().ConfigureAwait(false));
-                await entry.Disposal.WaitAsync(Remaining(deadline)).ConfigureAwait(false);
+                await WaitWithinAsync(entry.Disposal, deadline).ConfigureAwait(false);
             }
 
             lock (_stateGate)
@@ -532,6 +539,36 @@ internal sealed class CommonPluginManager
         }
     }
 
+    /// <summary>Waits for work within an active-time deadline.</summary>
+    /// <exception cref="TimeoutException">The deadline passed while the work was still running.</exception>
+    private static async Task WaitWithinAsync(Task work, Deadline deadline)
+    {
+        using var bounded = deadline.CreateCancellationSource();
+        try
+        {
+            await work.WaitAsync(bounded.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!work.IsCompleted)
+        {
+            throw new TimeoutException("Plugin cleanup deadline expired.");
+        }
+    }
+
+    /// <summary>Resolves a path below the state root, refusing an escape.</summary>
+    private string ConstrainStatePath(string relativePath)
+    {
+        if (string.IsNullOrWhiteSpace(relativePath) || Path.IsPathRooted(relativePath))
+        {
+            throw new InvalidDataException("Package paths must be non-empty and relative.");
+        }
+
+        var rootPrefix = _stateRoot.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var candidate = Path.GetFullPath(Path.Combine(_stateRoot, relativePath));
+        return candidate.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase)
+            ? candidate
+            : throw new InvalidDataException("A package path escaped the package directory.");
+    }
+
     private static TimeSpan Remaining(Deadline deadline)
     {
         var remaining = deadline.Remaining;
@@ -554,6 +591,12 @@ internal sealed class CommonPluginManager
         Changed?.Invoke();
     }
 
+    /// <summary>One instance.</summary>
+    /// <remarks>
+    ///     Its fields are read and written while <see cref="_gate" /> is held. A start that outlives its wait
+    ///     writes only the volatile fields and <see cref="Channel" />, and every reader of the others awaits
+    ///     <see cref="StartWork" /> first.
+    /// </remarks>
     private sealed class Entry(
         PluginInstanceIdentity identity,
         CommonInstalledPlugin package,
@@ -562,7 +605,7 @@ internal sealed class CommonPluginManager
         internal PluginCapabilityChannel? Channel;
         internal volatile string? Error;
         internal bool LoadCleanupUnconfirmed;
-        internal volatile IPlugin? Loaded;
+        internal volatile LoadedPluginPackage<IPlugin>? Loaded;
         internal volatile PluginRegistration? Registration;
         internal volatile bool Retiring;
         internal bool Suspended;

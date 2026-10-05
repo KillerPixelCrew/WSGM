@@ -90,6 +90,11 @@ internal sealed unsafe partial class AdlxSession : IDriverSession
         }
     }
 
+    /// <summary>ADLX reads each control live; there is nothing to load per pass.</summary>
+    public void BeginPass()
+    {
+    }
+
     public DriverModel Discover()
     {
         var objects = new List<AdlxObject>();
@@ -113,11 +118,6 @@ internal sealed unsafe partial class AdlxSession : IDriverSession
                     if (!pnp.Contains("VEN_1002", StringComparison.OrdinalIgnoreCase))
                     {
                         return;
-                    }
-
-                    if (pnp.Length == 0)
-                    {
-                        throw new DriverFailure("ADLX returned no stable adapter identity.");
                     }
 
                     var instance = "pci-" + Hash(pnp);
@@ -177,7 +177,8 @@ internal sealed unsafe partial class AdlxSession : IDriverSession
         }
     }
 
-    public ApplicationProfileSyncResult Sync(ApplicationProfileSync sync, CancellationToken token)
+    public ApplicationProfileSyncResult Sync(ApplicationProfileSync sync, WriteAdmission admission,
+        CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
         // ADLX controls are GPU-wide. WSGM applies/restores Switched values using its existing game identity.
@@ -294,7 +295,7 @@ internal sealed record AmdTarget(string GpuPnp, nuint? DisplayId, string? Edid);
 internal sealed class AdlxControl(
     CapabilityDescriptor descriptor,
     Func<CapabilityValue> read,
-    Action<CapabilityValue> write)
+    Action<CapabilityValue, WriteAdmission> write)
     : DriverControl(descriptor)
 {
     internal override CapabilityValue Read()
@@ -302,18 +303,9 @@ internal sealed class AdlxControl(
         return read();
     }
 
-    internal override void Write(CapabilityValue value)
+    internal override void Write(CapabilityValue value, WriteAdmission admission)
     {
-        // A failed optional observation must not prevent a supported field write.
-        try
-        {
-            read();
-        }
-        catch (DriverFailure failure) when (!failure.Lost)
-        {
-        }
-
-        write(value);
+        write(value, admission);
     }
 }
 

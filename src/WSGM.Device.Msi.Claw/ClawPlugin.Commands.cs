@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Services;
 
@@ -27,34 +28,18 @@ public sealed partial class ClawPlugin
                 $"Capability '{CapabilityKey(command.CapabilityId, command.InstanceId)}' is not available.");
         }
 
-        ClawIdentityState identity;
-        try
-        {
-            identity = await _services.Identity.ReadAsync(cancellationToken).ConfigureAwait(false);
-            if (identity.ExactMachineMatch && identity.Model != _cycleModel)
-            {
-                // A changed model gets no hardware read or write.
-                return CommandResults.Rejected(command, new CapabilityReason(
-                    CapabilityReasonCode.GenerationChanged,
-                    "The Claw model no longer matches the one this cycle started on.",
-                    true));
-            }
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        if (_cycleIdentity is not { } cycleIdentity)
         {
             return CommandResults.Rejected(
                 command,
-                CapabilityReasonCode.Quiescing,
-                "Command was cancelled before hardware application began.");
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            return CommandResults.Rejected(
-                command,
-                CapabilityReasonCode.TransportFaulted,
-                $"Current-state revalidation failed: {ex.GetType().Name}.");
+                CapabilityReasonCode.ResourceReleased,
+                "No device cycle is active.",
+                true);
         }
 
+        // SMBIOS, the model and the firmware binding cannot change within a cycle; start and resume
+        // read them. Only the power source changes under a running cycle, so it is read per command.
+        var identity = cycleIdentity with { OnAcPower = _services.Identity.ReadOnAcPower() };
         var refusal = RefusalFor(
             service,
             FirmwareForCapability(command.CapabilityId),
@@ -70,9 +55,9 @@ public sealed partial class ClawPlugin
         {
             result = await ApplyCapabilityCommandAsync(command, identity, cancellationToken).ConfigureAwait(false);
         }
-        catch (ClawWriteBudgetException exception)
+        catch (DeviceWriteBudgetException exception)
         {
-            return CommandResults.Rejected(command, CapabilityReasonCode.Quiescing, exception.Message);
+            return CommandResults.Rejected(command, CapabilityReasonCode.Quiescing, exception.Message, true);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -87,7 +72,7 @@ public sealed partial class ClawPlugin
                 $"Capability handler failed after admission: {ex.GetType().Name}.");
         }
 
-        return NormalizeCommandResult(command, result);
+        return result;
     }
 
     private ValueTask<CapabilityCommandResult> ApplyCapabilityCommandAsync(
@@ -95,13 +80,8 @@ public sealed partial class ClawPlugin
         ClawIdentityState identity,
         CancellationToken cancellationToken)
     {
-        // Admission refuses a WMI capability without the provider, and the provider's availability is
-        // the binding itself, so only a WMI-free capability, which never journals, finds none.
-        string WmiFirmware()
-        {
-            return identity.WmiFirmwareIdentity
-                   ?? throw new InvalidOperationException("A WMI capability was admitted without a firmware binding.");
-        }
+        // Power and fans bind their restore point to the BIOS version; without one they write without it.
+        var binding = identity.RecoveryBinding;
 
         (int Sustained, int Boost) Limits()
         {
@@ -124,7 +104,7 @@ public sealed partial class ClawPlugin
         {
             CapabilityIds.PowerSustained or CapabilityIds.PowerBoost => JournalCommandAsync(
                 ServiceIds.Power,
-                WmiFirmware(),
+                binding,
                 command,
                 async token => ClawRecoveryValues.Power(
                     await power.ReadAsync(token).ConfigureAwait(false)),
@@ -136,7 +116,7 @@ public sealed partial class ClawPlugin
                 cancellationToken),
             CapabilityIds.Scenario => JournalCommandAsync(
                 ServiceIds.Power,
-                WmiFirmware(),
+                binding,
                 command,
                 async token => ClawRecoveryValues.Power(
                     await power.ReadAsync(token).ConfigureAwait(false)),
@@ -151,7 +131,7 @@ public sealed partial class ClawPlugin
                 cancellationToken),
             CapabilityIds.FanMode => JournalCommandAsync(
                 ServiceIds.Fans,
-                WmiFirmware(),
+                binding,
                 command,
                 async token => ClawRecoveryValues.Fans(
                     await fans.ReadSnapshotAsync(token).ConfigureAwait(false)),
@@ -160,7 +140,7 @@ public sealed partial class ClawPlugin
                     journalCommand.RequestedValue!.ChoiceValue!,
                     token),
                 cancellationToken),
-            CapabilityIds.FanCurve => ApplyFanCurveCommandAsync(command, fans, WmiFirmware(), cancellationToken),
+            CapabilityIds.FanCurve => ApplyFanCurveCommandAsync(command, fans, binding, cancellationToken),
             CapabilityIds.LightingBrightness => lighting.ApplyAsync(
                 command,
                 state => state with
@@ -194,12 +174,12 @@ public sealed partial class ClawPlugin
     private ValueTask<CapabilityCommandResult> ApplyFanCurveCommandAsync(
         CapabilityCommand command,
         ClawFanCapability fans,
-        string wmiFirmware,
+        string? binding,
         CancellationToken cancellationToken)
     {
         return JournalCommandAsync(
             ServiceIds.Fans,
-            wmiFirmware,
+            binding,
             command,
             async token => ClawRecoveryValues.Fans(
                 await fans.ReadSnapshotAsync(token).ConfigureAwait(false)),
@@ -336,9 +316,9 @@ public sealed partial class ClawPlugin
                 $"Value kind {value.Kind} does not match descriptor kind {descriptor.ValueKind}.");
         }
 
-        if (ValidateCommandValue(value, descriptor) is { } invalid)
+        if (!CapabilityValueValidation.ValueMatches(value, descriptor, out var invalid))
         {
-            return invalid;
+            return ValueOutOfRange(invalid!);
         }
 
         // WSGM decides both limits of the pair; a command that does not carry a valid one is refused.
@@ -346,96 +326,6 @@ public sealed partial class ClawPlugin
                && !DevicePowerPair.TryResolve(command, _descriptorSet.Descriptors, out _, out _, out var pairError)
             ? ValueOutOfRange(pairError!)
             : null;
-    }
-
-    private static CapabilityReason? ValidateCommandValue(
-        CapabilityValue value,
-        CapabilityDescriptor descriptor)
-    {
-        switch (descriptor.ValueKind)
-        {
-            case CapabilityValueKind.Integer:
-                if (value.IntegerValue is not { } integer)
-                {
-                    return ValueOutOfRange("No integer value was supplied.");
-                }
-
-                if (descriptor.Minimum is { } minimum && integer < minimum)
-                {
-                    return ValueOutOfRange($"{integer} is below the minimum of {minimum}.");
-                }
-
-                if (descriptor.Maximum is { } maximum && integer > maximum)
-                {
-                    return ValueOutOfRange($"{integer} is above the maximum of {maximum}.");
-                }
-
-                if (descriptor.Step is not ({ } step and > 0))
-                {
-                    return null;
-                }
-
-                var origin = descriptor.Minimum ?? 0;
-                if ((integer - origin) % step != 0)
-                {
-                    return ValueOutOfRange(
-                        $"{integer} is not on the {step} step boundary from {origin}.");
-                }
-
-                return null;
-
-            case CapabilityValueKind.Choice:
-                if (value.ChoiceValue is not { Length: > 0 } choice)
-                {
-                    return ValueOutOfRange("No choice was supplied.");
-                }
-
-                return descriptor.Choices.Any(candidate => string.Equals(
-                    candidate.Value,
-                    choice,
-                    StringComparison.Ordinal))
-                    ? null
-                    : ValueOutOfRange($"'{choice}' is not one of the declared options.");
-
-            case CapabilityValueKind.Boolean:
-                return value.BooleanValue is not null
-                    ? null
-                    : ValueOutOfRange("No boolean value was supplied.");
-
-            case CapabilityValueKind.Color:
-                if (value.ColorValue is not { } color)
-                {
-                    return ValueOutOfRange("No colour was supplied.");
-                }
-
-                return color is >= 0 and <= 0xFFFFFF
-                    ? null
-                    : ValueOutOfRange("Colour must be 24-bit RGB.");
-
-            case CapabilityValueKind.Curve:
-                if (value.CurveValue.Count == 0)
-                {
-                    return ValueOutOfRange("Curve has no points.");
-                }
-
-                for (var index = 1; index < value.CurveValue.Count; index++)
-                {
-                    if (value.CurveValue[index].Input <= value.CurveValue[index - 1].Input)
-                    {
-                        return ValueOutOfRange(
-                            "Curve points must be strictly increasing in input.");
-                    }
-                }
-
-                return null;
-
-            case CapabilityValueKind.None:
-            case CapabilityValueKind.Text:
-            default:
-                return new CapabilityReason(
-                    CapabilityReasonCode.Unsupported,
-                    $"Value kind {descriptor.ValueKind} carries no value.");
-        }
     }
 
     private static CapabilityReason ValueOutOfRange(string detail)
@@ -448,34 +338,9 @@ public sealed partial class ClawPlugin
         return kind is not FirmwareKind.Wmi || identity.WmiAvailable;
     }
 
-    private static CapabilityCommandResult NormalizeCommandResult(
-        CapabilityCommand command,
-        CapabilityCommandResult result)
-    {
-        if (result.CommandId != command.CommandId)
-        {
-            return Indeterminate(command, "Capability handler returned a result for another command.");
-        }
-
-        if (result.Outcome is CommandOutcome.AppliedVerified && result.ReadbackValue is null)
-        {
-            return result with
-            {
-                Outcome = CommandOutcome.AppliedUnverified,
-                Reason = new CapabilityReason(
-                    CapabilityReasonCode.TransportFaulted,
-                    "Handler claimed verified application without readback evidence.")
-            };
-        }
-
-        return result.Outcome is not CommandOutcome.AppliedVerified && result.ReadbackValue is not null
-            ? result with { ReadbackValue = null }
-            : result;
-    }
-
     private async ValueTask<CapabilityCommandResult> JournalCommandAsync(
         string serviceId,
-        string firmwareIdentity,
+        string? binding,
         CapabilityCommand command,
         Func<CancellationToken, ValueTask<ClawRecoveryState>> readOriginal,
         ClawCommandHandler apply,
@@ -488,22 +353,33 @@ public sealed partial class ClawPlugin
         }
 
         ClawRecoveryState? originalState = null;
-        try
+        if (binding is null)
         {
-            originalState = await readOriginal(cancellationToken).ConfigureAwait(false);
+            // HC writes without capturing anything. Without a BIOS version there is no firmware to bind
+            // a restore point to, so the command is written the same way and there is nothing to restore.
+            PluginTrace.Change(serviceId, "journal",
+                "The BIOS version is unknown, so the original has no binding; writing without a restore point.");
         }
-        catch (OperationCanceledException exception) when (cancellationToken.IsCancellationRequested)
+        else
         {
-            return ClawApplied.Refused(command, "original-state capture", exception, cancellationToken);
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException && !cancellationToken.IsCancellationRequested)
-        {
-            // HC writes without capturing anything. When the original cannot be read, the command is
-            // written the same way and there is nothing to restore; a read never gates a write.
-            PluginTrace.Failure(serviceId, "The original state could not be captured; writing without a restore", ex);
+            try
+            {
+                originalState = await readOriginal(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException exception) when (cancellationToken.IsCancellationRequested)
+            {
+                return ClawApplied.Refused(command, "original-state capture", exception, cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException && !cancellationToken.IsCancellationRequested)
+            {
+                // When the original cannot be read, the command is written the same way and there is
+                // nothing to restore; a read never gates a write.
+                PluginTrace.Failure(serviceId, "The original state could not be captured; writing without a restore",
+                    ex);
+            }
         }
 
-        if (!ClawWriteBudget.IsAvailable(command.Deadline))
+        if (!DeviceWriteBudget.IsAvailable(command.Deadline))
         {
             return CommandResults.Rejected(command, new CapabilityReason(
                 CapabilityReasonCode.Quiescing,
@@ -511,17 +387,19 @@ public sealed partial class ClawPlugin
                 true));
         }
 
-        if (originalState is null)
+        if (binding is null || originalState is null)
         {
             return await apply(command, cancellationToken).ConfigureAwait(false);
         }
 
+        // An entry left unverified or failed by an earlier restore is set pending again here: this
+        // explicit command is the user action that lets the next release write its first original.
         DeviceRecoveryOperation<ClawRecoveryState> operation;
         try
         {
             operation = await _journal.BeginAsync(
                 serviceId,
-                firmwareIdentity,
+                binding,
                 originalState,
                 cancellationToken).ConfigureAwait(false);
         }
@@ -533,9 +411,20 @@ public sealed partial class ClawPlugin
         // A transport exception does not prove whether the firmware accepted a write. Let it
         // propagate while the exact pre-command journal entry remains outstanding for recovery.
         var result = await apply(command, cancellationToken).ConfigureAwait(false);
+        if (operation.Opened && result.Outcome is CommandOutcome.Rejected)
+        {
+            // Nothing was written, so the entry this command opened has nothing to restore.
+            try
+            {
+                await _journal.SetStatusAsync(serviceId, DeviceRecoveryStatus.RestoredVerified, CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                PluginTrace.Failure(serviceId, "The unused recovery entry could not be removed; release rewrites it", ex);
+            }
+        }
 
-        await _journal.CompleteCommandAsync(operation, result, CancellationToken.None)
-            .ConfigureAwait(false);
         return result;
     }
 

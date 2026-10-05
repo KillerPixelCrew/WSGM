@@ -61,11 +61,6 @@ public sealed class SessionModes
     internal static readonly TimeSpan ExplorerExitTimeout = TimeSpan.FromSeconds(30);
 
     /// <summary>
-    ///     Requests or focuses Big Picture without changing monitor state.
-    ///     The serialized game-mode transition uses this while the monitor remains
-    ///     paused, so it must not take the unrelated Home-button cooldown.
-    /// </summary>
-    /// <summary>
     ///     How long the Steam UI retraction may delay the Big Picture request. Bounded so a
     ///     broken CEF session can never block the mode switch itself.
     /// </summary>
@@ -105,7 +100,13 @@ public sealed class SessionModes
     private readonly SteamInputShim? _steamInputShim;
     private SteamInputShim SteamInputShim =>
         _steamInputShim ?? throw new InvalidOperationException("Preview modes cannot start Steam.");
-    private int _desktopRequested;
+    private readonly SessionModeHooks? _hooks;
+    private SessionModeHooks Hooks =>
+        _hooks ?? throw new InvalidOperationException("Preview modes cannot change the session mode.");
+
+    // Both UI-thread only: set when an entry starts, read and cleared by the entry's settle
+    // callback, which is posted back to the UI thread.
+    private bool _desktopRequested;
     private bool _desktopReturnComplete;
     private CancellationTokenSource? _entryCancellation;
 
@@ -144,56 +145,23 @@ public sealed class SessionModes
     /// <param name="desktopHost">The session's verified Explorer launch path.</param>
     /// <param name="store">The process-owned persistence and data roots.</param>
     /// <param name="steamInputShim">The process's Steam Input shim, reconciled before every Steam cold start.</param>
+    /// <param name="hooks">The session's half of every transition.</param>
     internal SessionModes(
         AppConfig config,
         SteamMonitor? monitor,
         ExplorerDesktopHost desktopHost,
         ConfigStore store,
-        SteamInputShim steamInputShim)
+        SteamInputShim steamInputShim,
+        SessionModeHooks hooks)
         : this(config, monitor)
     {
         ArgumentNullException.ThrowIfNull(desktopHost);
+        ArgumentNullException.ThrowIfNull(hooks);
         _desktopHost = desktopHost;
         _store = store;
         _steamInputShim = steamInputShim;
+        _hooks = hooks;
     }
-
-    /// <summary>
-    ///     Awaited (bounded) immediately before a transition asks Steam for Big Picture, so
-    ///     the owner can retract injected Steam UI state and close its transport first: the request
-    ///     rebuilds Steam's whole front-end, and that rebuild must see stock client state (see
-    ///     <c>ShellSession.PrepareSteamUiForBigPictureAsync</c>).
-    /// </summary>
-    internal Func<Task>? PrepareSteamUiForBigPictureAsync { get; set; }
-
-    /// <summary>
-    ///     Awaited (bounded) immediately before the desktop return asks Steam to close Big
-    ///     Picture, for the same reason as the entry hook above: closing rebuilds Steam's front-end
-    ///     just as opening does (see <c>ShellSession.PrepareSteamUiForDesktopAsync</c>).
-    /// </summary>
-    internal Func<Task>? PrepareSteamUiForDesktopAsync { get; set; }
-
-    /// <summary>
-    ///     Invoked when a transition worker that may have requested Big Picture has settled,
-    ///     on every outcome path, so the owner can lift the hold above. Idempotent by contract; also
-    ///     invoked by transitions that never fired the request.
-    /// </summary>
-    internal Action? SteamUiBigPictureRequestSettled { get; set; }
-
-    /// <summary>
-    ///     The displays, plugin actions and splash half of the entry transaction. Null in
-    ///     overlay-test mode, where entry runs its Default posture only.
-    /// </summary>
-    internal IGameModeEntryServices? GameModeEntryServices { get; set; }
-
-    /// <summary>
-    ///     Invoked once an entry transaction has settled, on every outcome, so the owner can
-    ///     dismiss the splash. Idempotent by contract.
-    /// </summary>
-    internal Action? GameModeEntrySettled { get; set; }
-
-    internal Action? DesktopReady { get; set; }
-    internal Func<bool>? IsGameMode { get; set; }
 
     /// <summary>
     ///     Whether the user closed Steam deliberately. The monitor's pause only covers a
@@ -323,7 +291,7 @@ public sealed class SessionModes
     /// </summary>
     public void ApplyGameModePosture()
     {
-        DisplayScale.ApplyGameMode(Store, _config);
+        DisplayScale.ApplyGameMode(Store);
     }
 
     /// <summary>
@@ -415,7 +383,8 @@ public sealed class SessionModes
 
         if (_entryCancellation is not null)
         {
-            Interlocked.Exchange(ref _desktopRequested, 1);
+            // The entry's settle callback honours this once, on this thread, after the attempt ends.
+            _desktopRequested = true;
             CancelGameModeEntry();
             return;
         }
@@ -449,11 +418,20 @@ public sealed class SessionModes
         });
     }
 
+    /// <summary>
+    ///     Runs the shared desktop return: Big Picture closed, the desktop layout and audio
+    ///     restored, Game Mode retired, Explorer restored, then the leave actions. Shows its own
+    ///     warnings, including the pending-desktop one when Explorer was not restored.
+    /// </summary>
+    /// <param name="layout">The layout to restore, or null for the recorded or configured one.</param>
+    /// <param name="runLeaveActions">Whether the configured leave actions run.</param>
+    /// <returns>Whether Explorer was restored.</returns>
     internal async Task<bool> ReturnToDesktopAsync(
         DisplayLayout? layout, bool runLeaveActions)
     {
+        var hooks = Hooks;
         var warnings = new List<string>();
-        var backend = new DesktopReturnBackend(this, _desktopHost!, layout, warnings);
+        var backend = new DesktopReturnBackend(this, _desktopHost!, hooks, layout, warnings);
         var restored = await DesktopReturnSequence.RunAsync(backend, runLeaveActions, (phase, ex) =>
         {
             Log.Error(phase + " failed", ex);
@@ -482,7 +460,7 @@ public sealed class SessionModes
         }
         finally
         {
-            SteamUiBigPictureRequestSettled?.Invoke();
+            hooks.SteamUiBigPictureRequestSettled();
         }
 
         return restored;
@@ -536,14 +514,13 @@ public sealed class SessionModes
     /// </summary>
     public void EnterGameMode()
     {
-        var desktopHost = _desktopHost;
-        if (desktopHost is null)
+        if (_desktopHost is null || _hooks is not { } hooks)
         {
             Log.Info("Ignoring game-mode switch in preview-only SessionModes.");
             return;
         }
 
-        if (IsGameMode?.Invoke() == true)
+        if (hooks.IsGameMode())
         {
             StartOrFocusSteam();
             return;
@@ -561,16 +538,17 @@ public sealed class SessionModes
         _monitor?.Paused = true;
         var cancellation = new CancellationTokenSource();
         _entryCancellation = cancellation;
+        _desktopRequested = false;
+        // The session's current configuration, read on this thread when the entry starts.
+        var launch = _config.GameModeLaunch;
         // ReSharper disable once MethodSupportsCancellation
         _ = Task.Run(async () =>
         {
-            SessionModesEntryBackend backend = new(this, desktopHost);
             var entered = false;
             try
             {
-                GameModeEntryTransaction transaction = new(backend,
-                    GameModeEntryServices?.ReadLaunch() ?? new GameModeLaunchConfiguration());
-                var result = await transaction.RunAsync(cancellation.Token).ConfigureAwait(false);
+                var result = await new GameModeEntryTransaction(hooks.Entry, launch)
+                    .RunAsync(cancellation.Token).ConfigureAwait(false);
                 entered = result.Outcome == GameModeEntryOutcome.Entered;
                 if (result.Warning is { } warning)
                 {
@@ -580,44 +558,58 @@ public sealed class SessionModes
             }
             catch (Exception ex)
             {
+                // The transaction returns every outcome, failed recovery included; only a bug lands here.
                 Log.Error("Game-mode transition failed", ex);
                 await Dispatcher.UIThread.InvokeAsync(() =>
                     SteamStartFailed?.Invoke(ExplorerExitFailedWarning));
             }
             finally
             {
-                _entryCancellation = null;
-                cancellation.Dispose();
                 try
                 {
-                    SteamUiBigPictureRequestSettled?.Invoke();
-                    GameModeEntrySettled?.Invoke();
+                    hooks.SteamUiBigPictureRequestSettled();
+                    hooks.GameModeEntrySettled();
                 }
                 finally
                 {
                     EndTransition();
-                    if (Interlocked.Exchange(ref _desktopRequested, 0) != 0 && entered)
-                    {
-                        Dispatcher.UIThread.Post(EnterDesktopMode);
-                    }
+                    Dispatcher.UIThread.Post(() => SettleEntry(cancellation, entered));
                 }
             }
         });
     }
 
     /// <summary>
+    ///     Ends an entry attempt on the UI thread, where desktop requests arrive: a request that
+    ///     landed during the attempt is honoured once, and only when the attempt entered Game Mode.
+    /// </summary>
+    /// <param name="cancellation">The attempt's cancellation.</param>
+    /// <param name="entered">Whether the attempt entered Game Mode.</param>
+    private void SettleEntry(CancellationTokenSource cancellation, bool entered)
+    {
+        cancellation.Dispose();
+        if (!ReferenceEquals(_entryCancellation, cancellation))
+        {
+            return;
+        }
+
+        _entryCancellation = null;
+        var desktopRequested = _desktopRequested;
+        _desktopRequested = false;
+        if (desktopRequested && entered)
+        {
+            EnterDesktopMode();
+        }
+    }
+
+    /// <summary>
     ///     Requests desktop recovery from an active entry. An in-flight Explorer/display
     ///     operation settles first, then cancellation returns through the shared recovery sequence.
+    ///     UI thread only, like the field it reads.
     /// </summary>
     internal void CancelGameModeEntry()
     {
-        try
-        {
-            _entryCancellation?.Cancel();
-        }
-        catch (ObjectDisposedException)
-        {
-        }
+        _entryCancellation?.Cancel();
     }
 
     /// <summary>
@@ -682,7 +674,7 @@ public sealed class SessionModes
         }
 
         await PrepareSteamUiAsync(
-                PrepareSteamUiForDesktopAsync,
+                Hooks.PrepareSteamUiForDesktopAsync,
                 "Big Picture close",
                 SteamUiDesktopPrepareTimeout)
             .ConfigureAwait(false);
@@ -745,13 +737,8 @@ public sealed class SessionModes
     ///     Runs one bounded Steam UI retraction before a Big Picture mode change. A broken CEF
     ///     session delays the switch by at most <see cref="SteamUiPrepareTimeout" /> and never blocks it.
     /// </summary>
-    private static async Task PrepareSteamUiAsync(Func<Task>? prepare, string request, TimeSpan budget)
+    private static async Task PrepareSteamUiAsync(Func<Task> prepare, string request, TimeSpan budget)
     {
-        if (prepare is null)
-        {
-            return;
-        }
-
         try
         {
             var work = prepare();
@@ -827,11 +814,16 @@ public sealed class SessionModes
         }
     }
 
+    /// <summary>
+    ///     The entry's one Big Picture request, made while the monitor stays paused: retracts the
+    ///     Steam UI first, then starts Steam or re-activates the running client into Big Picture.
+    /// </summary>
+    /// <returns>A warning when Big Picture could not be started, otherwise null.</returns>
     internal async Task<string?> RequestBigPictureWhilePausedAsync()
     {
         Volatile.Write(ref _steamClosedByUser, 0);
         await PrepareSteamUiAsync(
-                PrepareSteamUiForBigPictureAsync,
+                Hooks.PrepareSteamUiForBigPictureAsync,
                 "Big Picture request",
                 SteamUiPrepareTimeout)
             .ConfigureAwait(false);
@@ -922,6 +914,7 @@ public sealed class SessionModes
     private sealed class DesktopReturnBackend(
         SessionModes modes,
         ExplorerDesktopHost host,
+        SessionModeHooks hooks,
         DisplayLayout? layout,
         List<string> warnings) : IDesktopReturnBackend
     {
@@ -933,11 +926,7 @@ public sealed class SessionModes
         public async Task<bool> RestoreLayoutAsync()
         {
             DisplayScale.ApplyDesktopMode(modes.Store, modes._config);
-            if (modes.GameModeEntryServices is not { } services)
-            {
-                return true;
-            }
-
+            var services = hooks.Entry;
             if (layout is not null)
             {
                 var result = await services.ApplyLayoutAsync(layout, CancellationToken.None)
@@ -961,12 +950,7 @@ public sealed class SessionModes
 
         public async Task<bool> RestoreAudioAsync()
         {
-            if (modes.GameModeEntryServices is not { } services)
-            {
-                return true;
-            }
-
-            var warning = await services.ApplyReturnAudioAsync().ConfigureAwait(false);
+            var warning = await hooks.Entry.ApplyReturnAudioAsync().ConfigureAwait(false);
             if (warning is not null)
             {
                 warnings.Add(warning);
@@ -1000,25 +984,53 @@ public sealed class SessionModes
                 warnings.Add("Desktop shell: restored but unverified (" + result.Detail + ").");
             }
 
-            await Dispatcher.UIThread.InvokeAsync(() => modes.DesktopReady?.Invoke());
+            await Dispatcher.UIThread.InvokeAsync(hooks.DesktopReady);
             return true;
         }
 
         public async Task RunLeaveActionsAsync()
         {
-            if (modes.GameModeEntryServices is not { } services)
-            {
-                return;
-            }
-
-            var steps = await services.RunLeaveActionsAsync().ConfigureAwait(false);
+            var steps = await hooks.Entry.RunLeaveActionsAsync().ConfigureAwait(false);
             warnings.AddRange(steps.Where(step => !step.Succeeded)
                 .Select(step => "Leave Game Mode action: " + step.Detail));
         }
 
         public Task ClearPendingReturnAsync()
         {
-            return modes.GameModeEntryServices?.PersistPendingReturnAsync(null, null) ?? Task.CompletedTask;
+            return hooks.Entry.PersistPendingReturnAsync(null, null);
         }
     }
 }
+
+/// <summary>The session's half of the live mode transitions, supplied once when the coordinator is built.</summary>
+/// <param name="Entry">
+///     The displays, audio, plugin actions, splash and desktop recovery record the entry and the
+///     desktop return work through.
+/// </param>
+/// <param name="PrepareSteamUiForBigPictureAsync">
+///     Awaited (bounded) immediately before a transition asks Steam for Big Picture, so the owner can
+///     retract injected Steam UI state and close its transport first: the request rebuilds Steam's
+///     whole front-end, and that rebuild must see stock client state.
+/// </param>
+/// <param name="PrepareSteamUiForDesktopAsync">
+///     Awaited (bounded) immediately before the desktop return asks Steam to close Big Picture, for
+///     the same reason: closing rebuilds Steam's front-end just as opening does.
+/// </param>
+/// <param name="SteamUiBigPictureRequestSettled">
+///     Invoked when a transition that may have requested Big Picture has settled, on every outcome,
+///     so the owner can lift the hold above. Idempotent.
+/// </param>
+/// <param name="GameModeEntrySettled">
+///     Invoked once an entry attempt has settled, on every outcome, so the owner can dismiss the
+///     splash. Idempotent.
+/// </param>
+/// <param name="DesktopReady">Invoked on the UI thread once Explorer is restored.</param>
+/// <param name="IsGameMode">Whether the session is in Game Mode.</param>
+internal sealed record SessionModeHooks(
+    IGameModeEntryBackend Entry,
+    Func<Task> PrepareSteamUiForBigPictureAsync,
+    Func<Task> PrepareSteamUiForDesktopAsync,
+    Action SteamUiBigPictureRequestSettled,
+    Action GameModeEntrySettled,
+    Action DesktopReady,
+    Func<bool> IsGameMode);

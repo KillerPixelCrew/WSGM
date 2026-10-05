@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
-using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Settings.Pages;
@@ -51,7 +50,7 @@ public partial class PluginSettingsPage : UserControl
         {
             // The fan curve is the only curve capability WSGM has a semantic role for, so it is the
             // one a new profile authors until a plugin publishes another.
-            viewModel.AddDeviceProfile(DeviceAuthoredProfileCapabilities.FanCurve);
+            viewModel.AddDeviceProfile(CapabilityIds.FanCurve);
         }
     }
 
@@ -59,7 +58,7 @@ public partial class PluginSettingsPage : UserControl
     {
         if (DataContext is SettingsViewModel viewModel)
         {
-            viewModel.AddDeviceProfile(DeviceAuthoredProfileCapabilities.Lighting, true);
+            viewModel.AddDeviceProfile(CapabilityIds.LightingColor, true);
         }
     }
 

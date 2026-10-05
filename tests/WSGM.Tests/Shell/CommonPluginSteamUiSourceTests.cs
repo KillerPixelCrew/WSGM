@@ -19,7 +19,7 @@ public sealed class CommonPluginSteamUiSourceTests
         PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         SteamUiFixturePlugin plugin = new() { MenuLabel = new string('A', 128) };
         CommonPluginManager manager = new(host, installed, temporary.GetPath("state"),
-            (_, _) => Task.FromResult<IPlugin>(plugin));
+            (_, _) => PluginBuilders.Loaded(plugin));
         using CommonPluginSteamUiSource source = new(manager, host);
         await manager.ReconcileAsync([new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true }],
             CancellationToken.None);
@@ -38,7 +38,7 @@ public sealed class CommonPluginSteamUiSourceTests
         PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         SteamUiFixturePlugin plugin = new();
         CommonPluginManager manager = new(host, installed, temporary.GetPath("state"),
-            (_, _) => Task.FromResult<IPlugin>(plugin));
+            (_, _) => PluginBuilders.Loaded(plugin));
         using CommonPluginSteamUiSource source = new(manager, host);
         CommonPluginInstanceConfig enabled = new() { PluginId = plugin.Id, Enabled = true };
         await manager.ReconcileAsync([enabled], CancellationToken.None);
@@ -63,7 +63,7 @@ public sealed class CommonPluginSteamUiSourceTests
         PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         SteamUiFixturePlugin plugin = new();
         CommonPluginManager manager = new(host, installed, temporary.GetPath("state"),
-            (_, _) => Task.FromResult<IPlugin>(plugin));
+            (_, _) => PluginBuilders.Loaded(plugin));
         using CommonPluginSteamUiSource source = new(manager, host);
         var changes = 0;
         source.Changed += () => changes++;
@@ -96,7 +96,7 @@ public sealed class CommonPluginSteamUiSourceTests
         PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         SteamUiFixturePlugin plugin = new();
         CommonPluginManager manager = new(host, installed, temporary.GetPath("state"),
-            (_, _) => Task.FromResult<IPlugin>(plugin));
+            (_, _) => PluginBuilders.Loaded(plugin));
         CommonPluginSteamUiSource source = new(manager, host);
 
         await manager.ReconcileAsync([new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true }],
@@ -155,7 +155,7 @@ public sealed class CommonPluginSteamUiSourceTests
             ]
         };
         CommonPluginManager manager = new(host, installed, temporary.GetPath("state"),
-            (_, _) => Task.FromResult<IPlugin>(plugin));
+            (_, _) => PluginBuilders.Loaded(plugin));
         using CommonPluginSteamUiSource source = new(manager, host);
         await manager.ReconcileAsync([new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true }],
             CancellationToken.None);
@@ -182,7 +182,7 @@ public sealed class CommonPluginSteamUiSourceTests
             ]
         };
         CommonPluginManager manager = new(host, installed, temporary.GetPath("state"),
-            (_, _) => Task.FromResult<IPlugin>(plugin));
+            (_, _) => PluginBuilders.Loaded(plugin));
         using CommonPluginSteamUiSource source = new(manager, host);
         await manager.ReconcileAsync([new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true }],
             CancellationToken.None);

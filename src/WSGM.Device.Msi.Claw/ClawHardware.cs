@@ -32,9 +32,6 @@ internal static class ClawHardwareFacts
     public const byte FanFullSpeedAddress = 0x98;
     public const byte ChargeLimitAddress = 0xD7;
 
-    /// <summary>The RGB profile on the reference unit; <see cref="ClawModels.LightingProfileAddress" /> picks per MCU.</summary>
-    public const ushort DefaultLightingProfileAddress = 0x024A;
-
     public const int McuReportLength = 64;
     public const int WmiPackageLength = 32;
 
@@ -62,19 +59,24 @@ internal sealed record ClawIdentityState
     /// <summary>The matched model; null exactly when <see cref="ExactMachineMatch" /> is false.</summary>
     public ClawModel? Model { get; init; }
 
-    /// <summary>
-    ///     The MSI_ACPI provider is present, which is all HC requires. Derived from the binding, which
-    ///     exists whenever the provider does, so a WMI capability admitted here always has one to journal
-    ///     against.
-    /// </summary>
-    public bool WmiAvailable => WmiFirmwareIdentity is not null;
+    /// <summary>The MSI_ACPI provider is present, which is all HC requires.</summary>
+    public bool WmiAvailable { get; init; }
 
     /// <summary>
-    ///     The firmware the power and fan journal entries bind to: the EC version, or the BIOS version
-    ///     where the EC's cannot be decoded, and the MSI_ACPI interface, for example
-    ///     <c>ec:1T52EMS1.109;msi-acpi:8.0</c>. Null when the provider is unavailable.
+    ///     The firmware the power and fan journal entries bind to: the SMBIOS BIOS version, for example
+    ///     <c>bios:E1T52IMS.114</c>. MSI ships EC updates inside its BIOS packages, so a changed BIOS is the
+    ///     change the binding guards, and SMBIOS reads the same on every start. Null when the BIOS version
+    ///     is unknown: a command then writes without a restore point, and an entry waits.
     /// </summary>
-    public string? WmiFirmwareIdentity { get; init; }
+    public string? RecoveryBinding =>
+        Snapshot.BiosVersion is { Length: > 0 } bios ? ClawFirmwareIdentities.Bios(bios) : null;
+
+    /// <summary>
+    ///     The binding earlier builds wrote, built from this start's reads only to migrate their entries: the
+    ///     EC version, or the BIOS version where the EC's cannot be decoded, and the MSI_ACPI interface, for
+    ///     example <c>ec:1T52EMS1.109;msi-acpi:8.0</c>. Null when the provider is unavailable.
+    /// </summary>
+    public string? LegacyRecoveryBinding { get; init; }
 
     public required bool OnAcPower { get; init; }
 }
@@ -126,7 +128,12 @@ internal sealed record ControllerTopology(
 
 internal interface IClawIdentityReader
 {
+    /// <summary>The cycle's identity, read at start, at resume and when controller management is turned on.</summary>
     ValueTask<ClawIdentityState> ReadAsync(CancellationToken cancellationToken);
+
+    /// <summary>The power source, the one part of the identity that changes under a running cycle.</summary>
+    /// <returns>True on AC power, and when the power source cannot be told.</returns>
+    bool ReadOnAcPower();
 }
 
 internal interface IMsiWmiTransport : IAsyncDisposable
@@ -146,6 +153,9 @@ internal interface IMsiWmiTransport : IAsyncDisposable
 
 internal interface IMsiOemEventSource : IAsyncDisposable
 {
+    /// <summary>HC's <c>MSI_Event</c> repair, run once per cycle before the services acquire.</summary>
+    ValueTask EnsureEventClassAsync(CancellationToken cancellationToken);
+
     ValueTask<bool> StartAsync(
         Func<byte, DateTimeOffset, ValueTask> callback,
         CancellationToken cancellationToken);
@@ -225,28 +235,3 @@ internal sealed record ClawHardwareServices(
     IFirmwareChordSuppressor ChordSuppressor,
     OemButtonLatch OemButtons,
     Func<TimeSpan, CancellationToken, Task> Delay);
-
-/// <summary>Applies the one minimum budget required before any Claw hardware write.</summary>
-/// <remarks>
-///     Two seconds covers the slowest journal flush plus one bounded firmware exchange. Keeping this
-///     threshold here prevents lifecycle, command, lighting, and mode-switch paths from drifting apart.
-/// </remarks>
-internal static class ClawWriteBudget
-{
-    private static readonly TimeSpan Minimum = TimeSpan.FromSeconds(2);
-
-    internal static bool IsAvailable(Deadline deadline)
-    {
-        return deadline.Remaining >= Minimum;
-    }
-
-    internal static void Require(Deadline deadline, string operation)
-    {
-        if (!IsAvailable(deadline))
-        {
-            throw new ClawWriteBudgetException($"Insufficient budget for {operation}.");
-        }
-    }
-}
-
-internal sealed class ClawWriteBudgetException(string message) : Exception(message);

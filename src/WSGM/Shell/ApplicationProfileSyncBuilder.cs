@@ -65,7 +65,7 @@ internal static class ApplicationProfileSyncBuilder
                          .ThenBy(entry => entry.InstanceId, StringComparer.Ordinal))
             {
                 if (native.TryGetValue((entry.CapabilityId, entry.InstanceId ?? string.Empty), out var descriptor)
-                    && DeviceCapabilityValidation.ValueMatches(entry.Value!, descriptor, out _))
+                    && CapabilityValueValidation.ValueMatches(entry.Value!, descriptor, out _))
                 {
                     values.Add(new ApplicationCapabilityValue(entry.CapabilityId, entry.InstanceId, entry.Value!));
                 }

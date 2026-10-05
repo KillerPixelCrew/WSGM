@@ -3,6 +3,7 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
 using WSGM.Plugin.Sdk;
 
@@ -12,8 +13,11 @@ internal sealed record DriverModel(IReadOnlyList<CapabilitySection> Sections, IR
 
 internal interface IDriverSession : IDisposable
 {
+    /// <summary>Starts one observation pass or command; the session may load driver state once for it.</summary>
+    void BeginPass();
+
     DriverModel Discover();
-    ApplicationProfileSyncResult Sync(ApplicationProfileSync sync, CancellationToken token);
+    ApplicationProfileSyncResult Sync(ApplicationProfileSync sync, WriteAdmission admission, CancellationToken token);
 }
 
 internal sealed class DriverFailure(string message, bool attempted = false, bool lost = false) : Exception(message)
@@ -28,11 +32,11 @@ internal abstract class DriverControl(CapabilityDescriptor descriptor)
     internal string Key => Descriptor.CapabilityId + "/" + Descriptor.InstanceId;
     internal virtual string SupportKey => Key;
     internal abstract CapabilityValue Read();
-    internal abstract void Write(CapabilityValue value);
+    internal abstract void Write(CapabilityValue value, WriteAdmission admission);
 
-    internal virtual void ProbeSupport(CapabilityValue current)
+    internal virtual void ProbeSupport(CapabilityValue current, WriteAdmission admission)
     {
-        Write(current);
+        Write(current, admission);
     }
 
     internal bool Accepts(CapabilityValue? value)
@@ -68,7 +72,10 @@ internal sealed class DriverRuntime(string id, Func<string, Action<string, strin
     private readonly SemaphoreSlim _lane = new(1, 1);
     private readonly Dictionary<string, (CapabilityValue? Value, DateTimeOffset At)> _published = [];
     private readonly Lock _stopGate = new();
+
+    /// <summary>Probe outcomes by support key: null when the round trip succeeded, else why it failed.</summary>
     private readonly Dictionary<string, string?> _supportResults = [];
+
     private ICapabilityHost? _capabilities;
     private PluginContext? _context;
     private long _cycle;
@@ -89,95 +96,105 @@ internal sealed class DriverRuntime(string id, Func<string, Action<string, strin
         await _lane.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!_running || _session is null || command.ExpectedCycleGeneration != _cycle
-                || command.ExpectedDescriptorGeneration != _generation || command.Deadline.HasExpired)
+            if (!_running || _session is not { } session)
             {
-                return Result(command, CommandOutcome.Rejected, "The GPU generation or deadline is no longer valid.");
+                return CommandResults.Rejected(command, CapabilityReasonCode.HostUnavailable,
+                    "The GPU driver is not open.");
+            }
+
+            if (command.ExpectedCycleGeneration != _cycle || command.ExpectedDescriptorGeneration != _generation)
+            {
+                return CommandResults.Rejected(command, CapabilityReasonCode.GenerationChanged,
+                    "The command was authored against an earlier descriptor set.", true);
+            }
+
+            if (command.Deadline.HasExpired)
+            {
+                return CommandResults.Rejected(command, CapabilityReasonCode.Quiescing,
+                    "Command deadline passed before it could be applied.", true);
             }
 
             var control = _model.Controls.FirstOrDefault(item => item.Descriptor.CapabilityId == command.CapabilityId
                                                                  && item.Descriptor.InstanceId == command.InstanceId);
-            if (control is null || !control.Accepts(command.RequestedValue))
+            if (control is null)
             {
-                return Result(command, CommandOutcome.Rejected, "The value is not offered by this GPU control.");
+                return CommandResults.Rejected(command, CapabilityReasonCode.Unsupported,
+                    $"{command.CapabilityId} is not published for {command.InstanceId}.");
             }
 
-            cancellationToken.ThrowIfCancellationRequested();
+            if (!control.Accepts(command.RequestedValue))
+            {
+                return CommandResults.Rejected(command, CapabilityReasonCode.ValueOutOfRange,
+                    "The value is not offered by this GPU control.");
+            }
+
+            var requested = command.RequestedValue ?? CapabilityValue.None();
+            var admission = new WriteAdmission(cancellationToken, command.Deadline,
+                () => _running && _session is not null);
             try
             {
                 // Admission may originate on the UI dispatcher. All native work stays off it.
                 await Task.Run(() =>
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    if (command.Deadline.HasExpired)
-                    {
-                        throw new DriverFailure("The GPU command expired before the driver call.");
-                    }
-
-                    DriverWriteScope.Run(() =>
-                    {
-                        control.Write(command.RequestedValue ?? CapabilityValue.None());
-                        return true;
-                    }, () =>
-                    {
-                        if (cancellationToken.IsCancellationRequested || command.Deadline.HasExpired)
-                        {
-                            throw new DriverFailure(
-                                "The GPU command expired or was cancelled before its native write.");
-                        }
-                    });
+                    session.BeginPass();
+                    control.Write(requested, admission);
                 }, CancellationToken.None).ConfigureAwait(false);
             }
             catch (DriverFailure failure)
             {
                 if (failure.Lost)
                 {
-                    await Task.Run(Close, CancellationToken.None).ConfigureAwait(false);
-                    await PublishModelAsync(new DriverModel([], []), CancellationToken.None).ConfigureAwait(false);
-                    Health(PluginHealth.Unavailable, failure.Message);
+                    await LoseAsync(failure.Message).ConfigureAwait(false);
                 }
 
-                return Result(command, failure.Attempted ? CommandOutcome.Indeterminate : CommandOutcome.Rejected,
+                if (failure.Attempted)
+                {
+                    return CommandResults.Indeterminate(command, CapabilityReasonCode.TransportFaulted,
+                        failure.Message, RollbackResult.NotRequired);
+                }
+
+                if (!admission.Admitted)
+                {
+                    return CommandResults.Rejected(command, CapabilityReasonCode.Quiescing, failure.Message, true);
+                }
+
+                return CommandResults.Rejected(command,
+                    failure.Lost ? CapabilityReasonCode.HostUnavailable : CapabilityReasonCode.Unsupported,
                     failure.Message);
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            catch (Exception error) when (error is not OutOfMemoryException)
             {
-                return Result(command, CommandOutcome.Rejected, "The GPU command was cancelled before dispatch.");
-            }
-            catch (Exception error)
-            {
-                return Result(command, CommandOutcome.Indeterminate, error.Message);
+                return CommandResults.Indeterminate(command, CapabilityReasonCode.TransportFaulted, error.Message,
+                    RollbackResult.NotRequired);
             }
 
             CapabilityValue? readback = null;
-            try
+            if (control.Descriptor.SupportsRead)
             {
-                if (control.Descriptor.SupportsRead)
+                try
                 {
                     readback = await Task.Run(control.Read, CancellationToken.None).ConfigureAwait(false);
                 }
-            }
-            catch (DriverFailure failure) when (failure.Lost)
-            {
-                await Task.Run(Close, CancellationToken.None).ConfigureAwait(false);
-                await PublishModelAsync(new DriverModel([], []), CancellationToken.None).ConfigureAwait(false);
-                Health(PluginHealth.Unavailable, failure.Message);
-                return Result(command, CommandOutcome.AppliedUnverified,
-                    "The driver accepted the write and disappeared before readback: " + failure.Message);
-            }
-            catch (Exception error)
-            {
-                Trace(DeviceTraceLevel.Warn, error.Message);
+                catch (DriverFailure failure) when (failure.Lost)
+                {
+                    await LoseAsync(failure.Message).ConfigureAwait(false);
+                    return CommandResults.Unverified(command,
+                        "The driver accepted the write and disappeared before readback: " + failure.Message);
+                }
+                catch (Exception error) when (error is not OutOfMemoryException)
+                {
+                    Trace(DeviceTraceLevel.Warn, error.Message);
+                }
             }
 
-            var verified = control.Descriptor.SupportsRead && readback == command.RequestedValue;
-            await PublishValueAsync(control, command.RequestedValue ?? CapabilityValue.None(), CancellationToken.None)
+            // The written value is what is published, verified or not.
+            var verified = readback is not null && readback == requested;
+            await PublishValueAsync(control, requested, CancellationToken.None,
+                    quality: verified ? HardwareStateQuality.Verified : HardwareStateQuality.Observed)
                 .ConfigureAwait(false);
-            return Result(command, verified ? CommandOutcome.AppliedVerified : CommandOutcome.AppliedUnverified,
-                verified || !control.Descriptor.SupportsRead
-                    ? null
-                    : "The driver accepted the write; readback did not confirm the requested value.",
-                verified ? readback : null);
+            return verified
+                ? CommandResults.Verified(command, readback!)
+                : CommandResults.Unverified(command, "The driver accepted the write; the written value stands.");
         }
         finally
         {
@@ -191,21 +208,21 @@ internal sealed class DriverRuntime(string id, Func<string, Action<string, strin
         await _lane.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!_running || _session is null || sync.CycleGeneration != _cycle)
+            if (!_running || _session is not { } session || sync.CycleGeneration != _cycle)
             {
                 return new ApplicationProfileSyncResult(0, 0, []);
             }
 
+            var admission = new WriteAdmission(cancellationToken, Deadline.Never,
+                () => _running && _session is not null);
             try
             {
-                return await Task.Run(() => DriverWriteScope.Run(() => _session.Sync(sync, cancellationToken),
-                    cancellationToken.ThrowIfCancellationRequested), CancellationToken.None).ConfigureAwait(false);
+                return await Task.Run(() => session.Sync(sync, admission, cancellationToken), CancellationToken.None)
+                    .ConfigureAwait(false);
             }
             catch (DriverFailure failure) when (failure.Lost)
             {
-                await Task.Run(Close, CancellationToken.None).ConfigureAwait(false);
-                await PublishModelAsync(new DriverModel([], []), CancellationToken.None).ConfigureAwait(false);
-                Health(PluginHealth.Unavailable, failure.Message);
+                await LoseAsync(failure.Message).ConfigureAwait(false);
                 return new ApplicationProfileSyncResult(0, 0,
                     [new ApplicationProfileFailure("driver", "", "", failure.Message)]);
             }
@@ -243,7 +260,8 @@ internal sealed class DriverRuntime(string id, Func<string, Action<string, strin
             _cycle = _capabilities.CycleGeneration;
             _fingerprint = null;
             _running = true;
-            await Task.Run(() => ObserveAsync(cancellationToken), cancellationToken).ConfigureAwait(false);
+            await Task.Run(() => ObserveAsync(cancellationToken, context.Deadline), cancellationToken)
+                .ConfigureAwait(false);
             if (_running)
             {
                 _observation = new CancellationTokenSource();
@@ -282,10 +300,44 @@ internal sealed class DriverRuntime(string id, Func<string, Action<string, strin
         await StartAsync(_host!, context, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>Stops within the caller's budget.</summary>
+    /// <remarks>
+    ///     When the token ends first, stop reports itself unconfirmed: the retiring task keeps the native lane
+    ///     and the DLL until the running driver call returns, then closes them.
+    /// </remarks>
     public async ValueTask<bool> StopAsync(PluginContext context, CancellationToken cancellationToken)
     {
         _running = false;
-        Task retiring;
+        var retiring = BeginRetirement();
+        try
+        {
+            await retiring.WaitAsync(cancellationToken).ConfigureAwait(false);
+            return true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            Trace(DeviceTraceLevel.Warn, "The driver is still finishing an owned call; cleanup remains queued.");
+            return false;
+        }
+    }
+
+    /// <summary>Starts or joins retirement and returns; the host bounds dispose with its own deadline.</summary>
+    public ValueTask DisposeAsync()
+    {
+        if (_disposed)
+        {
+            return ValueTask.CompletedTask;
+        }
+
+        _disposed = true;
+        _running = false;
+        _ = BeginRetirement();
+        return ValueTask.CompletedTask;
+    }
+
+    /// <summary>Starts retirement once, or returns the one already running.</summary>
+    private Task BeginRetirement()
+    {
         lock (_stopGate)
         {
             if (_retiring is null || _retiring.IsCompleted)
@@ -296,33 +348,7 @@ internal sealed class DriverRuntime(string id, Func<string, Action<string, strin
                 _retiring = Task.Run(() => RetireAsync(observation, loop), CancellationToken.None);
             }
 
-            retiring = _retiring;
-        }
-
-        // A cancelled caller stops waiting. The retiring task still owns the native lane and DLL.
-        await retiring.WaitAsync(cancellationToken).ConfigureAwait(false);
-        return true;
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        if (_context is { } context)
-        {
-            using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            try
-            {
-                await StopAsync(context, budget.Token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (budget.IsCancellationRequested)
-            {
-                Trace(DeviceTraceLevel.Warn, "The driver is still finishing an owned call; cleanup remains queued.");
-            }
+            return _retiring;
         }
     }
 
@@ -378,7 +404,9 @@ internal sealed class DriverRuntime(string id, Func<string, Action<string, strin
                 {
                     if (_running)
                     {
-                        await Task.Run(() => ObserveAsync(token), CancellationToken.None).ConfigureAwait(false);
+                        // The loop is bounded by its own token, which stop cancels.
+                        await Task.Run(() => ObserveAsync(token, Deadline.Never), CancellationToken.None)
+                            .ConfigureAwait(false);
                     }
                 }
                 finally
@@ -392,13 +420,15 @@ internal sealed class DriverRuntime(string id, Func<string, Action<string, strin
         }
     }
 
-    private async Task ObserveAsync(CancellationToken token)
+    /// <summary>One observation pass, bounded by the token and deadline of the call that runs it.</summary>
+    private async Task ObserveAsync(CancellationToken token, Deadline deadline)
     {
         try
         {
             _session ??= open(_context!.StateDirectory, (key, detail) =>
-                _capabilities!.TraceChange(DeviceTraceLevel.Warn, id, key, detail));
-            await PublishModelAsync(CheckSupport(_session.Discover(), token), token).ConfigureAwait(false);
+                _host!.TraceChange(DeviceTraceLevel.Warn, id, key, detail));
+            _session.BeginPass();
+            await PublishModelAsync(CheckSupport(_session.Discover(), token, deadline), token).ConfigureAwait(false);
             foreach (var control in _model.Controls)
             {
                 try
@@ -408,7 +438,7 @@ internal sealed class DriverRuntime(string id, Func<string, Action<string, strin
                 catch (Exception error) when (error is not OperationCanceledException &&
                                               error is not DriverFailure { Lost: true })
                 {
-                    _capabilities!.TraceChange(DeviceTraceLevel.Warn, id, control.Key, error.Message);
+                    _host!.TraceChange(DeviceTraceLevel.Warn, id, control.Key, error.Message);
                     await PublishValueAsync(control, null, token, error.Message).ConfigureAwait(false);
                 }
             }
@@ -426,6 +456,7 @@ internal sealed class DriverRuntime(string id, Func<string, Action<string, strin
         }
     }
 
+    /// <summary>Publishes a model. A set WSGM refuses keeps the session open and goes out again next pass.</summary>
     private async Task PublishModelAsync(DriverModel model, CancellationToken token)
     {
         var fingerprint = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new
@@ -438,16 +469,28 @@ internal sealed class DriverRuntime(string id, Func<string, Action<string, strin
             return;
         }
 
-        await _capabilities!.PublishDescriptorsAsync(new CapabilityDescriptorSet
+        try
         {
-            CycleGeneration = _cycle, Generation = ++_generation, Sections = model.Sections,
-            Descriptors = model.Controls.Select(control => control.Descriptor).ToArray()
-        }, token).ConfigureAwait(false);
-        _fingerprint = fingerprint;
-        _published.Clear();
+            await _capabilities!.PublishDescriptorsAsync(new CapabilityDescriptorSet
+            {
+                CycleGeneration = _cycle, Generation = ++_generation, Sections = model.Sections,
+                Descriptors = model.Controls.Select(control => control.Descriptor).ToArray()
+            }, token).ConfigureAwait(false);
+            _fingerprint = fingerprint;
+            _published.Clear();
+        }
+        catch (Exception error) when (error is not OperationCanceledException and not OutOfMemoryException)
+        {
+            _host!.TraceChange(DeviceTraceLevel.Warn, id, "descriptors",
+                "WSGM refused the descriptor set: " + error.Message);
+        }
     }
 
-    private DriverModel CheckSupport(DriverModel discovered, CancellationToken token)
+    /// <summary>
+    ///     Reads every writable control and probes each support key once. Only probe outcomes are kept: a failed
+    ///     read skips the control for this pass, and a probe refused before its native write runs again later.
+    /// </summary>
+    private DriverModel CheckSupport(DriverModel discovered, CancellationToken token, Deadline deadline)
     {
         var values = new Dictionary<string, CapabilityValue>();
         // Read the whole model before any setter is exercised. Actions and status rows are never written.
@@ -466,16 +509,17 @@ internal sealed class DriverRuntime(string id, Func<string, Action<string, strin
             }
             catch (Exception error) when (error is not OperationCanceledException and not OutOfMemoryException)
             {
-                _supportResults[control.SupportKey] = error.Message;
-                _capabilities!.TraceChange(DeviceTraceLevel.Info, id, "support/" + control.SupportKey,
-                    "Support read failed; control omitted: " + error.Message);
                 if (error is DriverFailure { Lost: true })
                 {
                     throw;
                 }
+
+                _host!.TraceChange(DeviceTraceLevel.Info, id, "support/" + control.SupportKey,
+                    "Support read failed; control skipped this pass: " + error.Message);
             }
         }
 
+        var admission = new WriteAdmission(token, deadline, () => _running && _session is not null);
         foreach (var control in discovered.Controls.Where(control => values.ContainsKey(control.Key)))
         {
             token.ThrowIfCancellationRequested();
@@ -486,36 +530,28 @@ internal sealed class DriverRuntime(string id, Func<string, Action<string, strin
 
             try
             {
-                DriverWriteScope.Run(() =>
-                {
-                    control.ProbeSupport(values[control.Key]);
-                    return true;
-                }, () =>
-                {
-                    token.ThrowIfCancellationRequested();
-                    if (_context?.Deadline.HasExpired == true)
-                    {
-                        throw new OperationCanceledException("GPU support discovery deadline expired.");
-                    }
-
-                    if (!_running || _session is null)
-                    {
-                        throw new DriverFailure("GPU support discovery is no longer admitted.");
-                    }
-                });
+                control.ProbeSupport(values[control.Key], admission);
                 _supportResults[control.SupportKey] = null;
             }
             catch (Exception error) when (error is not OutOfMemoryException)
             {
-                // A failed/uncertain native write is never retried by the observation loop or reconnect.
+                if (error is OperationCanceledException
+                    || (error is DriverFailure { Attempted: false } && !admission.Admitted))
+                {
+                    // Nothing was written, so nothing is recorded: the next discovery probes it again.
+                    token.ThrowIfCancellationRequested();
+                    throw;
+                }
+
+                // A failed or uncertain native write is never retried by the observation loop or a reconnect.
                 _supportResults[control.SupportKey] = error.Message;
-                if (error is OperationCanceledException or DriverFailure { Lost: true })
+                if (error is DriverFailure { Lost: true })
                 {
                     throw;
                 }
             }
 
-            _capabilities!.TraceChange(DeviceTraceLevel.Info, id, "support/" + control.SupportKey,
+            _host!.TraceChange(DeviceTraceLevel.Info, id, "support/" + control.SupportKey,
                 _supportResults[control.SupportKey] is { } detail
                     ? "Support round trip failed; control omitted: " + detail
                     : "Support round trip succeeded; current native state retained.");
@@ -525,13 +561,14 @@ internal sealed class DriverRuntime(string id, Func<string, Action<string, strin
         {
             Controls = discovered.Controls.Where(control => !control.Descriptor.SupportsWrite
                                                             || control.Descriptor.SupportsAction
-                                                            || _supportResults.GetValueOrDefault(control.SupportKey) is
-                                                                null).ToArray()
+                                                            || (_supportResults.TryGetValue(control.SupportKey,
+                                                                out var result) && result is null)).ToArray()
         };
     }
 
+    /// <summary>Publishes one state. A state WSGM refuses is traced and published again on the next pass.</summary>
     private async Task PublishValueAsync(DriverControl control, CapabilityValue? value, CancellationToken token,
-        string? error = null)
+        string? error = null, HardwareStateQuality? quality = null)
     {
         var now = DateTimeOffset.UtcNow;
         if (_published.TryGetValue(control.Key, out var previous) && previous.Value == value
@@ -540,16 +577,33 @@ internal sealed class DriverRuntime(string id, Func<string, Action<string, strin
             return;
         }
 
-        await _capabilities!.PublishCapabilityStateAsync(new CapabilityState
+        try
         {
-            CapabilityId = control.Descriptor.CapabilityId, InstanceId = control.Descriptor.InstanceId,
-            CycleGeneration = _cycle, DescriptorGeneration = _generation, ObservedValue = value,
-            Available = value is not null || control.Descriptor.SupportsWrite || control.Descriptor.SupportsAction,
-            ObservedAt = now,
-            Reason = error is null ? null : new CapabilityReason(CapabilityReasonCode.TransportFaulted, error),
-            Quality = value is null ? HardwareStateQuality.Unknown : HardwareStateQuality.Observed
-        }, token).ConfigureAwait(false);
-        _published[control.Key] = (value, now);
+            await _capabilities!.PublishCapabilityStateAsync(new CapabilityState
+            {
+                CapabilityId = control.Descriptor.CapabilityId, InstanceId = control.Descriptor.InstanceId,
+                CycleGeneration = _cycle, DescriptorGeneration = _generation, ObservedValue = value,
+                Available = value is not null || control.Descriptor.SupportsWrite || control.Descriptor.SupportsAction,
+                ObservedAt = now,
+                Reason = error is null ? null : new CapabilityReason(CapabilityReasonCode.TransportFaulted, error),
+                Quality = quality ?? (value is null ? HardwareStateQuality.Unknown : HardwareStateQuality.Observed)
+            }, token).ConfigureAwait(false);
+            _published[control.Key] = (value, now);
+        }
+        catch (Exception refusal) when (refusal is not OperationCanceledException and not OutOfMemoryException)
+        {
+            _published.Remove(control.Key);
+            _host!.TraceChange(DeviceTraceLevel.Warn, id, "publish/" + control.Key,
+                "WSGM refused the state: " + refusal.Message);
+        }
+    }
+
+    /// <summary>Closes a lost session and retracts its controls.</summary>
+    private async Task LoseAsync(string detail)
+    {
+        await Task.Run(Close, CancellationToken.None).ConfigureAwait(false);
+        await PublishModelAsync(new DriverModel([], []), CancellationToken.None).ConfigureAwait(false);
+        Health(PluginHealth.Unavailable, detail);
     }
 
     private async ValueTask ReleaseLaneAsync()
@@ -578,7 +632,7 @@ internal sealed class DriverRuntime(string id, Func<string, Action<string, strin
 
     private void Trace(DeviceTraceLevel level, string message)
     {
-        _capabilities?.Trace(level, id, message);
+        _host?.Trace(level, id, message);
     }
 
     private void Health(PluginHealth health, string detail)
@@ -586,18 +640,7 @@ internal sealed class DriverRuntime(string id, Func<string, Action<string, strin
         if (_context is { } context)
         {
             _host!.PublishHealth(new PluginHealthPublication(context.Instance, context.Generation, health, detail));
-            _capabilities!.TraceChange(DeviceTraceLevel.Info, id, "health", detail);
+            _host!.TraceChange(DeviceTraceLevel.Info, id, "health", detail);
         }
-    }
-
-    private static CapabilityCommandResult Result(CapabilityCommand command, CommandOutcome outcome, string? error,
-        CapabilityValue? readback = null)
-    {
-        return new CapabilityCommandResult
-        {
-            CommandId = command.CommandId, Outcome = outcome, CompletedAt = DateTimeOffset.UtcNow,
-            ReadbackValue = readback,
-            Reason = error is null ? null : new CapabilityReason(CapabilityReasonCode.TransportFaulted, error)
-        };
     }
 }

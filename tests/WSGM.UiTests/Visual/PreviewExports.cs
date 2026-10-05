@@ -42,7 +42,7 @@ public static class PreviewExports
             using var fixture = new UiFixture();
             var publication = JsonSerializer.Deserialize<Publication>(File.ReadAllText(
                 Path.Combine(AppContext.BaseDirectory, "Fixtures", "claw-ui-publication.json")))!;
-            var sections = DeviceSections.IncludePredefined(publication.Descriptors.Sections);
+            var sections = DeviceSectionLayout.IncludePredefined(publication.Descriptors.Sections);
             var ids = sections.Select(section => section.SectionId).ToHashSet();
             var capabilities = publication.Descriptors.Descriptors.Select(descriptor =>
                 new DeviceCapabilityView(descriptor, new CapabilityProjection

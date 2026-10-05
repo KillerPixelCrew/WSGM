@@ -211,6 +211,9 @@ public sealed partial class ClawPlugin : IDevicePlugin
             await context.Host.PublishOemControlsAsync(CreateOemControls(), cancellationToken)
                 .ConfigureAwait(false);
 
+            // HC repairs a missing MSI_Event class once, when it opens the device. A resume only subscribes
+            // again: a repair that did not help would restart the ACPI device power and fans go through.
+            await _services.OemEvents.EnsureEventClassAsync(cancellationToken).ConfigureAwait(false);
             await AcquireServicesAsync(OperationContext(Deadline.After(TimeSpan.FromSeconds(15))), cancellationToken)
                 .ConfigureAwait(false);
             _active = true;
@@ -277,15 +280,9 @@ public sealed partial class ClawPlugin : IDevicePlugin
         {
             _cycleGeneration = context.CycleGeneration;
             _cycleIdentity = await _services.Identity.ReadAsync(cancellationToken).ConfigureAwait(false);
-            if (_journal is not null
-                && await _journal.CheckHealthAsync(cancellationToken).ConfigureAwait(false)
-                    is { } journalFailure)
-            {
-                BlockService(ServiceIds.Power, journalFailure);
-                BlockService(ServiceIds.Fans, journalFailure);
-                BlockService(ServiceIds.Controller, journalFailure);
-            }
 
+            // No journal probe here: a record refused after a wake is found by the command that needs
+            // it, which is rejected with nothing written, and the next command tries again.
             await AcquireServicesAsync(OperationContext(context.Deadline), cancellationToken)
                 .ConfigureAwait(false);
             if (_host is null || _powerCapability is null || _chargeLimitCapability is null
@@ -399,19 +396,17 @@ public sealed partial class ClawPlugin : IDevicePlugin
             _active = false;
             _descriptorSet = null;
             _cycleServices = [];
-            if (_journal is null)
-            {
-                return result;
-            }
-
-            await _journal.DisposeAsync().ConfigureAwait(false);
             _journal = null;
-
             return result;
         }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    ///     The host awaits <see cref="StopAsync" /> first. Disposal only releases handles and never writes the
+    ///     hardware: a cycle that was not stopped is restored from the journal at the next start. Every owner is
+    ///     disposed even when an earlier one throws, and the failures are thrown together at the end.
+    /// </remarks>
     public async ValueTask DisposeAsync()
     {
         if (_disposed)
@@ -421,28 +416,35 @@ public sealed partial class ClawPlugin : IDevicePlugin
 
         _disposed = true;
         _serializer.StopObservation();
-        if (_active)
+        List<Exception> failures = [];
+        await Step("chord suppressor", _services.ChordSuppressor.DisposeAsync).ConfigureAwait(false);
+        await Step("motion", _services.Motion.DisposeAsync).ConfigureAwait(false);
+        await Step("controller", _services.Controller.DisposeAsync).ConfigureAwait(false);
+        await Step("MCU", _services.Mcu.DisposeAsync).ConfigureAwait(false);
+        await Step("OEM events", _services.OemEvents.DisposeAsync).ConfigureAwait(false);
+        await Step("WMI", _services.Wmi.DisposeAsync).ConfigureAwait(false);
+        await Step("serializer", () =>
         {
-            await StopAsync(
-                new PluginStopContext(
-                    PluginStopReason.WsgmExiting,
-                    Deadline.After(TimeSpan.FromSeconds(12))),
-                CancellationToken.None).ConfigureAwait(false);
+            _serializer.Dispose();
+            return ValueTask.CompletedTask;
+        }).ConfigureAwait(false);
+        if (failures.Count != 0)
+        {
+            throw new AggregateException("Claw plugin disposal was not complete.", failures);
         }
 
-        await _services.ChordSuppressor.DisposeAsync().ConfigureAwait(false);
-        await _services.Motion.DisposeAsync().ConfigureAwait(false);
-        await _services.Controller.DisposeAsync().ConfigureAwait(false);
-        await _services.Mcu.DisposeAsync().ConfigureAwait(false);
-        await _services.OemEvents.DisposeAsync().ConfigureAwait(false);
-        await _services.Wmi.DisposeAsync().ConfigureAwait(false);
-        if (_journal is not null)
+        async ValueTask Step(string name, Func<ValueTask> dispose)
         {
-            await _journal.DisposeAsync().ConfigureAwait(false);
-            _journal = null;
+            try
+            {
+                await dispose().ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                PluginTrace.Failure("plugin", name + " disposal failed", ex);
+                failures.Add(ex);
+            }
         }
-
-        _serializer.Dispose();
     }
 
     private async ValueTask ReleaseControllerCoreAsync(
@@ -464,12 +466,7 @@ public sealed partial class ClawPlugin : IDevicePlugin
             _host,
             _descriptorSet).ConfigureAwait(false);
 
-        if (_journal is not null)
-        {
-            await _journal.DisposeAsync().ConfigureAwait(false);
-            _journal = null;
-        }
-
+        _journal = null;
         _active = false;
         _descriptorSet = null;
         _cycleServices = [];

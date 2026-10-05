@@ -25,7 +25,7 @@ public sealed class CommonPluginManagerTests
             {
                 FakePlugin plugin = new(package.Manifest.Id);
                 created.Add(plugin);
-                return Task.FromResult<IPlugin>(plugin);
+                return PluginBuilders.Loaded(plugin);
             });
         var first = new CommonPluginInstanceConfig { PluginId = "test.plugin", InstanceId = "one", Enabled = false };
         await manager.ReconcileAsync([first], CancellationToken.None);
@@ -58,7 +58,7 @@ public sealed class CommonPluginManagerTests
                 loads++;
                 return package.Manifest.Id == "a.bad"
                     ? throw new InvalidOperationException("Fixture load failure")
-                    : Task.FromResult<IPlugin>(new FakePlugin(package.Manifest.Id));
+                    : PluginBuilders.Loaded(new FakePlugin(package.Manifest.Id));
             });
         CommonPluginInstanceConfig[] configuration =
             [new() { PluginId = "a.bad", Enabled = true }, new() { PluginId = "b.good", Enabled = true }];
@@ -83,7 +83,7 @@ public sealed class CommonPluginManagerTests
             (_, _) =>
             {
                 loads++;
-                return Task.FromResult<IPlugin>(plugin);
+                return PluginBuilders.Loaded(plugin);
             });
         var configuration = new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true };
         await manager.ReconcileAsync([configuration], CancellationToken.None);
@@ -105,10 +105,11 @@ public sealed class CommonPluginManagerTests
         var installed = temporary.GetPath("plugins");
         PluginPackageBuilders.WriteGpuFixture(installed, "test.gpu");
         PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
-        await using GpuCoordinator coordinator = new(action => action(), PerformanceBuilders.Profiles(), host);
+        await using GpuCoordinator coordinator = new(action => action(), PerformanceBuilders.Profiles(), host,
+            () => true);
         FakeCapabilityPlugin plugin = new("test.gpu") { Released = false };
         CommonPluginManager manager = new(host, installed, temporary.GetPath("state"),
-            (_, _) => Task.FromResult<IPlugin>(plugin), coordinator,
+            (_, _) => PluginBuilders.Loaded(plugin), coordinator,
             () => [new DisplayAdapterIdentity("8086", "7D55", @"PCI\VEN_8086")]);
         var configuration = new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true };
         await manager.ReconcileAsync([configuration], CancellationToken.None);
@@ -138,7 +139,7 @@ public sealed class CommonPluginManagerTests
             {
                 entered.SetResult();
                 await release.Task;
-                return plugin;
+                return new LoadedPluginPackage<IPlugin>(plugin);
             });
         using CancellationTokenSource cancellation = new();
         var start = manager.ReconcileAsync([new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true }],
@@ -173,12 +174,12 @@ public sealed class CommonPluginManagerTests
             created.Add(plugin);
             if (created.Count != 1)
             {
-                return plugin;
+                return new LoadedPluginPackage<IPlugin>(plugin);
             }
 
             entered.SetResult();
             await release.Task;
-            return plugin;
+            return new LoadedPluginPackage<IPlugin>(plugin);
         });
         var configuration = new CommonPluginInstanceConfig { PluginId = "test.plugin", Enabled = true };
         var initial = manager.ReconcileAsync([configuration], CancellationToken.None);
@@ -206,7 +207,7 @@ public sealed class CommonPluginManagerTests
         FakePlugin plugin = new("test.plugin");
         CommonPluginManager manager = new(new PluginHost(action => action(), new MemoryPluginConfigurationStore()),
             installed, temporary.GetPath("state"),
-            (_, _) => Task.FromResult<IPlugin>(plugin));
+            (_, _) => PluginBuilders.Loaded(plugin));
         await manager.ReconcileAsync([new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true }],
             CancellationToken.None);
         await manager.PowerTransitionAsync(true, CancellationToken.None);

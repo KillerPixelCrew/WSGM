@@ -3,15 +3,15 @@ using System.IO;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
-using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Services;
 
 namespace WSGM.Device.Msi.Claw;
 
 /// <summary>Keeps only the original temporary state WSGM must restore after a crash.</summary>
 /// <remarks>
-///     Power and fans bind to the MSI_ACPI firmware identity and the controller mode to the MCU binding
-///     (<see cref="ClawFirmwareIdentities" />). <see cref="Decide" /> holds the reconciliation policy.
+///     Power and fans bind to the BIOS version and the controller mode to the MCU binding
+///     (<see cref="ClawFirmwareIdentities" />). <see cref="Decide" /> holds the start-time rule for power
+///     and fans; the controller entry re-reads the pad before it writes, so it is restored at every start.
 /// </remarks>
 internal sealed class ClawRecoveryJournal()
     : DeviceRecoveryJournal<ClawRecoveryState>(ClawRecoveryJsonContext.Default.RecoveryDocument)
@@ -22,87 +22,62 @@ internal sealed class ClawRecoveryJournal()
     {
         var journal = new ClawRecoveryJournal();
         await journal.LoadAsync(stateDirectory, cancellationToken).ConfigureAwait(false);
-        _ = await journal.CheckHealthAsync(cancellationToken).ConfigureAwait(false);
         return journal;
     }
 
-    /// <summary>Records what a journalled command left behind.</summary>
-    /// <remarks>
-    ///     A failed or unverified rollback stays outstanding with that status. An entry this command
-    ///     opened is removed when the command was refused or its rollback was verified; otherwise it waits
-    ///     for the service's release.
-    /// </remarks>
-    public async ValueTask CompleteCommandAsync(
-        DeviceRecoveryOperation<ClawRecoveryState> operation,
-        CapabilityCommandResult result,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(operation);
-        ArgumentNullException.ThrowIfNull(result);
-        var serviceId = operation.Entry.ServiceId;
-        switch (result.Rollback)
-        {
-            case RollbackResult.RestoreFailed:
-                await SetStatusAsync(serviceId, DeviceRecoveryStatus.RestoreFailed, cancellationToken)
-                    .ConfigureAwait(false);
-                return;
-            case RollbackResult.RestoredUnverified:
-                await SetStatusAsync(serviceId, DeviceRecoveryStatus.RestoredUnverified, cancellationToken)
-                    .ConfigureAwait(false);
-                return;
-            case RollbackResult.NotRequired:
-            case RollbackResult.RestoredVerified:
-            default:
-                break;
-        }
-
-        if (operation.Opened
-            && (result.Outcome is CommandOutcome.Rejected
-                || result.Rollback is RollbackResult.RestoredVerified))
-        {
-            await SetStatusAsync(serviceId, DeviceRecoveryStatus.RestoredVerified, cancellationToken)
-                .ConfigureAwait(false);
-        }
-    }
-
+    /// <summary>What the start of a cycle does with an outstanding power or fan entry.</summary>
+    /// <param name="entry">The entry.</param>
+    /// <param name="binding">This start's binding, or null when the BIOS version or MSI_ACPI is unavailable.</param>
+    /// <param name="legacyBinding">This start's binding in the form earlier builds wrote, or null.</param>
     internal static ClawReconciliationAction Decide(
         DeviceRecoveryEntry<ClawRecoveryState> entry,
-        string? currentFirmwareIdentity)
+        string? binding,
+        string? legacyBinding)
     {
         ArgumentNullException.ThrowIfNull(entry);
-        if (currentFirmwareIdentity is null)
+        if (ClawFirmwareIdentities.IsLegacy(entry.FirmwareIdentity))
         {
-            // The service cannot be reached this cycle, so nothing is known about the firmware. The
-            // entry waits for a cycle that can read it.
-            return ClawReconciliationAction.ReportOnly;
+            // An earlier build bound to the EC and MSI_ACPI versions. Only a pending entry whose binding
+            // this start reads again is restored, once; an unresolved one would be replayed, and no later
+            // command could re-arm it under the new binding, so it is dropped with every other one.
+            if (legacyBinding is null)
+            {
+                return ClawReconciliationAction.Wait;
+            }
+
+            return entry.Status is DeviceRecoveryStatus.Pending
+                   && !ClawFirmwareIdentities.IsUnknownEc(entry.FirmwareIdentity)
+                   && !ClawFirmwareIdentities.IsUnknownEc(legacyBinding)
+                   && string.Equals(entry.FirmwareIdentity, legacyBinding, StringComparison.Ordinal)
+                ? ClawReconciliationAction.Restore
+                : ClawReconciliationAction.Discard;
         }
 
-        var unknown = ClawFirmwareIdentities.IsUnknownEc(entry.FirmwareIdentity)
-                      || ClawFirmwareIdentities.IsUnknownEc(currentFirmwareIdentity);
-        if (!unknown && string.Equals(entry.FirmwareIdentity, currentFirmwareIdentity, StringComparison.Ordinal))
+        if (binding is null)
         {
-            // One bounded reconciliation attempt is made per fresh device cycle. A transient bus
-            // failure from the previous cycle must not permanently strand exact captured state,
-            // but a firmware identity change still forbids the write.
-            return ClawReconciliationAction.Restore;
+            // Nothing can be written or compared this cycle; the entry stays pending for one that can.
+            return ClawReconciliationAction.Wait;
         }
 
-        if (entry.Status is DeviceRecoveryStatus.RestoreFailed)
+        if (!string.Equals(entry.FirmwareIdentity, binding, StringComparison.Ordinal))
         {
-            return ClawReconciliationAction.Block;
+            // A BIOS update rewrites the state the entry captured, so it is dropped rather than restored.
+            return ClawReconciliationAction.Discard;
         }
 
-        // A different EC, or one that cannot be told apart from another, forbids the write. Keeping
-        // the entry would fault the service on every start with nothing able to clear it, and an EC
-        // update rewrites the state the entry captured anyway, so it is dropped.
-        return ClawReconciliationAction.Discard;
+        // A restore that already failed or did not verify is never written again automatically; the
+        // service stays usable and the next explicit command re-arms it.
+        return entry.Status is DeviceRecoveryStatus.Pending
+            ? ClawReconciliationAction.Restore
+            : ClawReconciliationAction.Keep;
     }
 
     protected override void ValidateEntry(DeviceRecoveryEntry<ClawRecoveryState> entry)
     {
         var expectedFirmware = entry.ServiceId switch
         {
-            ServiceIds.Power or ServiceIds.Fans => ClawFirmwareIdentities.IsWmi(entry.FirmwareIdentity),
+            ServiceIds.Power or ServiceIds.Fans => ClawFirmwareIdentities.IsBios(entry.FirmwareIdentity)
+                                                   || ClawFirmwareIdentities.IsLegacy(entry.FirmwareIdentity),
             ServiceIds.Controller => string.Equals(entry.FirmwareIdentity, ClawFirmwareIdentities.Mcu,
                 StringComparison.Ordinal),
             _ => throw new InvalidDataException("A recovery entry names a non-restorable service.")
@@ -139,12 +114,17 @@ internal sealed class ClawRecoveryJournal()
 
 internal enum ClawReconciliationAction
 {
+    /// <summary>Write the original once.</summary>
     Restore,
-    ReportOnly,
+
+    /// <summary>The firmware cannot be read this cycle: write nothing and keep the entry pending.</summary>
+    Wait,
+
+    /// <summary>An earlier restore failed or did not verify: write nothing until a command re-arms it.</summary>
+    Keep,
 
     /// <summary>The firmware changed under the entry: drop it without restoring.</summary>
-    Discard,
-    Block
+    Discard
 }
 
 internal sealed record ClawRecoveryState

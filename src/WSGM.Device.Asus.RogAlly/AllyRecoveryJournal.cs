@@ -27,52 +27,41 @@ internal sealed class AllyRecoveryJournal()
         return journal;
     }
 
-    /// <summary>Records the state captured before a service's first mutation in this cycle.</summary>
+    /// <summary>Whether a service already holds a pending original captured under this BIOS.</summary>
     /// <remarks>
-    ///     An entry whose restore was unverified or failed keeps its original state and is set pending
-    ///     again: the explicit command that called this is the user action that allows the next release to
-    ///     write that original once more. Nothing re-arms it automatically.
+    ///     Then the command writes without reading again: the first original stays the restore point. An
+    ///     entry from another BIOS is replaced by the next capture, as <c>BeginAsync</c> does.
     /// </remarks>
-    public async ValueTask ArmAsync(
-        string serviceId,
-        string firmwareIdentity,
-        AllyRecoveryState originalState,
-        CancellationToken cancellationToken)
+    public bool HoldsOriginal(string serviceId, string firmwareIdentity)
     {
-        if (EntryFor(serviceId) is { Status: not DeviceRecoveryStatus.Pending })
-        {
-            await SetStatusAsync(serviceId, DeviceRecoveryStatus.Pending, cancellationToken).ConfigureAwait(false);
-            return;
-        }
-
-        _ = await BeginAsync(serviceId, firmwareIdentity, originalState, cancellationToken).ConfigureAwait(false);
+        return EntryFor(serviceId) is { Status: DeviceRecoveryStatus.Pending } entry
+               && string.Equals(entry.FirmwareIdentity, firmwareIdentity, StringComparison.Ordinal);
     }
 
-    /// <summary>The original a release may write back: only a pending entry, never an unresolved one.</summary>
-    public AllyRecoveryState? PendingOriginalFor(string serviceId)
-    {
-        return EntryFor(serviceId) is { Status: DeviceRecoveryStatus.Pending } entry ? entry.OriginalState : null;
-    }
-
-    /// <summary>Whether an outstanding entry may be restored on this firmware.</summary>
+    /// <summary>What the start of a cycle does with an outstanding entry.</summary>
+    /// <param name="entry">The entry.</param>
+    /// <param name="currentFirmwareIdentity">
+    ///     This start's binding, or null when the transport the restore needs is not available yet.
+    /// </param>
+    /// <remarks>
+    ///     A restore either dispatched or failed to dispatch; nothing is read back (D9). There is no
+    ///     unresolved entry to keep: a failed restore stays pending and this start writes it once.
+    /// </remarks>
     internal static AllyReconciliationAction Decide(
         DeviceRecoveryEntry<AllyRecoveryState> entry,
         string? currentFirmwareIdentity)
     {
         ArgumentNullException.ThrowIfNull(entry);
-        // A restore already reached the device but did not read back. Another automatic write would
-        // retry an uncertain cleanup; the entry waits for an explicit command (see ArmAsync).
-        if (entry.Status is DeviceRecoveryStatus.RestoredUnverified or DeviceRecoveryStatus.RestoreFailed)
+        if (currentFirmwareIdentity is null)
         {
-            return AllyReconciliationAction.Block;
+            return AllyReconciliationAction.Wait;
         }
 
-        if (string.Equals(entry.FirmwareIdentity, currentFirmwareIdentity, StringComparison.Ordinal))
-        {
-            return AllyReconciliationAction.Restore;
-        }
-
-        return AllyReconciliationAction.ReportOnly;
+        // A BIOS update changes the ACPI methods the captured state was written through, so the entry is
+        // dropped rather than restored, as the Claw drops one after a firmware change.
+        return string.Equals(entry.FirmwareIdentity, currentFirmwareIdentity, StringComparison.Ordinal)
+            ? AllyReconciliationAction.Restore
+            : AllyReconciliationAction.Discard;
     }
 
     /// <summary>Whether a captured limit is one the recovery record can hold.</summary>
@@ -106,9 +95,14 @@ internal sealed class AllyRecoveryJournal()
 
 internal enum AllyReconciliationAction
 {
+    /// <summary>Write the original once.</summary>
     Restore,
-    ReportOnly,
-    Block
+
+    /// <summary>The transport is not available yet: write nothing and keep the entry pending.</summary>
+    Wait,
+
+    /// <summary>The BIOS changed under the entry: drop it without restoring.</summary>
+    Discard
 }
 
 [JsonConverter(typeof(JsonStringEnumConverter<AllyRecoveryStateKind>))]

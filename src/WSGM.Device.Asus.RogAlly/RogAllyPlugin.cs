@@ -240,12 +240,9 @@ public sealed partial class RogAllyPlugin : IDevicePlugin
             _cycleGeneration = context.CycleGeneration;
             _written.Clear();
             _cycleIdentity = await _hardware.Identity.ReadAsync(cancellationToken).ConfigureAwait(false);
-            if (_journal is not null && await _journal.CheckHealthAsync(cancellationToken).ConfigureAwait(false)
-                    is { } journalFailure)
-            {
-                Block(journalFailure, _power, _fans, _controller);
-            }
 
+            // No journal probe here: a record refused after a wake is found by the command that needs
+            // it, which is rejected with nothing written, and the next command tries again.
             await DeviceServiceLifecycle.AcquireAllAsync(
                 _services.Where(service => service.Suspendable || service.State is not DeviceServiceState.Owned),
                 Context(context.Deadline),
@@ -345,17 +342,17 @@ public sealed partial class RogAllyPlugin : IDevicePlugin
             _descriptorSet = null;
             _services = [];
             await DisposeCycleTransportsAsync().ConfigureAwait(false);
-            if (_journal is not null)
-            {
-                await _journal.DisposeAsync().ConfigureAwait(false);
-                _journal = null;
-            }
-
+            _journal = null;
             return result;
         }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    ///     The host awaits <see cref="StopAsync" /> first. Disposal only releases handles and never writes the
+    ///     hardware: a cycle that was not stopped is restored from the journal at the next start. Every owner is
+    ///     disposed even when an earlier one throws, and the failures are thrown together at the end.
+    /// </remarks>
     public async ValueTask DisposeAsync()
     {
         if (_disposed)
@@ -365,23 +362,45 @@ public sealed partial class RogAllyPlugin : IDevicePlugin
 
         _disposed = true;
         _serializer.StopObservation();
-        if (_active)
+        List<Exception> failures = [];
+        await Step("controller source", () => _source?.DisposeAsync() ?? ValueTask.CompletedTask)
+            .ConfigureAwait(false);
+        await Step("motion source", () => _motionSource?.DisposeAsync() ?? ValueTask.CompletedTask)
+            .ConfigureAwait(false);
+        await Step("vendor HID", () => _vendor?.DisposeAsync() ?? ValueTask.CompletedTask).ConfigureAwait(false);
+        await Step("Aura HID", () => _aura?.DisposeAsync() ?? ValueTask.CompletedTask).ConfigureAwait(false);
+        _source = null;
+        _motionSource = null;
+        _vendor = null;
+        _aura = null;
+        await Step("keyboard", _hardware.Keyboard.DisposeAsync).ConfigureAwait(false);
+        await Step("ACPI", () =>
         {
-            await StopAsync(
-                new PluginStopContext(PluginStopReason.WsgmExiting, Deadline.After(TimeSpan.FromSeconds(12))),
-                CancellationToken.None).ConfigureAwait(false);
+            _hardware.Acpi.Dispose();
+            return ValueTask.CompletedTask;
+        }).ConfigureAwait(false);
+        await Step("serializer", () =>
+        {
+            _serializer.Dispose();
+            return ValueTask.CompletedTask;
+        }).ConfigureAwait(false);
+        if (failures.Count != 0)
+        {
+            throw new AggregateException("Ally plugin disposal was not complete.", failures);
         }
 
-        await DisposeCycleTransportsAsync().ConfigureAwait(false);
-        await _hardware.Keyboard.DisposeAsync().ConfigureAwait(false);
-        _hardware.Acpi.Dispose();
-        if (_journal is not null)
+        async ValueTask Step(string name, Func<ValueTask> dispose)
         {
-            await _journal.DisposeAsync().ConfigureAwait(false);
-            _journal = null;
+            try
+            {
+                await dispose().ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                PluginTrace.Failure("plugin", name + " disposal failed", ex);
+                failures.Add(ex);
+            }
         }
-
-        _serializer.Dispose();
     }
 
     private async ValueTask DisposeCycleTransportsAsync()
@@ -430,12 +449,7 @@ public sealed partial class RogAllyPlugin : IDevicePlugin
             _host,
             _descriptorSet).ConfigureAwait(false);
         await DisposeCycleTransportsAsync().ConfigureAwait(false);
-        if (_journal is not null)
-        {
-            await _journal.DisposeAsync().ConfigureAwait(false);
-            _journal = null;
-        }
-
+        _journal = null;
         _active = false;
         _descriptorSet = null;
         _services = [];

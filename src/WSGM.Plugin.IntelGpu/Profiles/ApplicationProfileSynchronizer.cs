@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json.Serialization;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Plugin.Gpu;
 using WSGM.Plugin.IntelGpu.Graphics;
 using WSGM.Plugin.Sdk;
 
@@ -110,7 +111,9 @@ internal interface INativeApplicationSwitch
 ///     <para>
 ///         The record is saved after every write and every removal, so a sync cancelled halfway still
 ///         remembers the names it created. A write whose recorded value is unchanged and whose recorded
-///         names are all still there is confirmed rather than repeated.
+///         names are all still there is confirmed rather than repeated. A record that cannot be read is
+///         never replaced: every sync then fails and changes nothing. A record that cannot be saved fails
+///         the entries it was recording; the driver write is never repeated.
 ///     </para>
 /// </remarks>
 internal sealed class ApplicationProfileSynchronizer
@@ -130,6 +133,9 @@ internal sealed class ApplicationProfileSynchronizer
         _snapshots =
             [];
 
+    /// <summary>Why the record could not be read, or null when it was read or is absent.</summary>
+    private readonly string? _unreadable;
+
     /// <summary>
     ///     The newest sync applied in this process. WSGM's revision restarts with WSGM, so it is never
     ///     compared with one from an earlier run.
@@ -141,10 +147,23 @@ internal sealed class ApplicationProfileSynchronizer
         _root = root;
         _path = stateDirectory is null ? null : Path.Combine(stateDirectory, FileName);
         _log = log;
+        Record = SyncRecord.Empty;
+        if (_path is null)
+        {
+            return;
+        }
 
-        // Without the record nothing can be removed safely, so nothing will be: an unreadable record only
-        // means stale overrides stay until the user clears them in Intel's own software.
-        Record = StateFile.TryLoad<SyncRecord>(_path, log, Scope, What) ?? SyncRecord.Empty;
+        try
+        {
+            Record = DriverStateFile.Read(_path, SyncRecord.Empty);
+        }
+        catch (DriverFailure failure)
+        {
+            // Without the record nothing WSGM wrote could be removed, so it is never replaced and nothing
+            // per-application is changed. The global controls keep working.
+            _unreadable = failure.Message;
+            log.Warn(Scope, $"{failure.Message} Per-application Intel settings are left unchanged.");
+        }
     }
 
     /// <summary>The current record.</summary>
@@ -160,7 +179,18 @@ internal sealed class ApplicationProfileSynchronizer
         Func<string, string?, INativeProfileTarget?> resolve,
         CancellationToken cancellationToken)
     {
-        if (sync.Revision < _appliedRevision)
+        if (_unreadable is not null)
+        {
+            return new ApplicationProfileSyncResult(0, 0,
+            [
+                .. sync.Profiles.SelectMany(profile => profile.Executables.Select(executable =>
+                    new ApplicationProfileFailure(profile.ProfileId, executable, "",
+                        $"The Intel per-application record could not be read ({_unreadable}); nothing was changed.")))
+            ]);
+        }
+
+        // WSGM never repeats a revision, so the same one again has nothing new.
+        if (sync.Revision <= _appliedRevision)
         {
             _log.Info(Scope, $"Sync {sync.Revision} is older than the applied {_appliedRevision}; skipped.");
             return new ApplicationProfileSyncResult(0, 0, []);
@@ -197,7 +227,12 @@ internal sealed class ApplicationProfileSynchronizer
             if (Confirmed(applicationSwitch.RegistryKeys, executable, [(earlier, SwitchWritten)]))
             {
                 entries[key] = earlier! with { ProfileId = first.ProfileId };
-                Save(entries);
+                if (Save(entries) is { } unsaved)
+                {
+                    failures.Add(new ApplicationProfileFailure(first.ProfileId, first.Executable,
+                        applicationSwitch.RecordId, NotRecorded(unsaved)));
+                }
+
                 continue;
             }
 
@@ -212,7 +247,11 @@ internal sealed class ApplicationProfileSynchronizer
 
             entries[key] = new SyncEntry(first.ProfileId, first.Executable, applicationSwitch.RecordId, group,
                 SwitchWritten, Merge(earlier, appeared));
-            Save(entries);
+            if (Save(entries) is { } notSaved)
+            {
+                failures.Add(new ApplicationProfileFailure(first.ProfileId, first.Executable,
+                    applicationSwitch.RecordId, NotRecorded(notSaved)));
+            }
         }
 
         var written = 0;
@@ -239,28 +278,32 @@ internal sealed class ApplicationProfileSynchronizer
                     out appeared);
             }
 
+            if (error is not null)
+            {
+                failures.AddRange(items.Select(item => new ApplicationProfileFailure(item.ProfileId,
+                    item.Executable, item.Value.CapabilityId, error)));
+                continue;
+            }
+
             for (var index = 0; index < items.Count; index++)
             {
                 var item = items[index];
                 var (earlier, value) = claims[index];
-                if (error is not null)
-                {
-                    failures.Add(new ApplicationProfileFailure(item.ProfileId, item.Executable,
-                        item.Value.CapabilityId, error));
-                    continue;
-                }
-
-                written++;
                 entries[SyncEntry.Identity(item.Executable, item.Value.CapabilityId, item.Value.InstanceId)] =
                     new SyncEntry(item.ProfileId, item.Executable, item.Value.CapabilityId, item.Value.InstanceId,
                         value,
                         confirmed ? earlier!.Names : Merge(earlier, appeared));
             }
 
-            if (error is null)
+            if (Save(entries) is { } unrecorded)
             {
-                Save(entries);
+                // Applied, but not owned on disk: reported, and never written again for it.
+                failures.AddRange(items.Select(item => new ApplicationProfileFailure(item.ProfileId,
+                    item.Executable, item.Value.CapabilityId, NotRecorded(unrecorded))));
+                continue;
             }
+
+            written += items.Count;
         }
 
         var removed = Remove(entries, wanted, failures, cancellationToken);
@@ -491,9 +534,19 @@ internal sealed class ApplicationProfileSynchronizer
 
             if (left.Count == 0)
             {
-                removed++;
                 entries.Remove(entry.Key);
                 _log.Info(Scope, $"Removed {entry.CapabilityId} for {entry.Executable} ({entry.ProfileId}).");
+                if (Save(entries) is { } unsaved)
+                {
+                    // The stale entry is harmless: its names are gone and a later delete ignores them.
+                    failures.Add(new ApplicationProfileFailure(entry.ProfileId, entry.Executable,
+                        entry.CapabilityId,
+                        $"Removed from the driver, but WSGM could not update its record ({unsaved})."));
+                }
+                else
+                {
+                    removed++;
+                }
             }
             else
             {
@@ -501,9 +554,8 @@ internal sealed class ApplicationProfileSynchronizer
                     "The driver's stored value could not be deleted; WSGM needs elevation."));
                 entries[entry.Key] = entry with { Names = left };
                 held.UnionWith(left);
+                _ = Save(entries);
             }
-
-            Save(entries);
         }
 
         return removed;
@@ -524,10 +576,34 @@ internal sealed class ApplicationProfileSynchronizer
         }
     }
 
-    private void Save(Dictionary<string, SyncEntry> entries)
+    /// <summary>
+    ///     Keeps the record in memory, so this session can still remove what it wrote, and saves it.
+    /// </summary>
+    /// <returns>Null when the file was written or there is no state directory, else why it was not.</returns>
+    private string? Save(Dictionary<string, SyncEntry> entries)
     {
         Record = new SyncRecord([.. entries.Values]);
-        StateFile.Save(_path, Record, _log, Scope, What);
+        if (_path is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            DriverStateFile.Write(_path, Record);
+            return null;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            _log.Warn(Scope, $"The {What} could not be saved: {IntelLog.Describe(error)}");
+            return error.Message;
+        }
+    }
+
+    private static string NotRecorded(string reason)
+    {
+        return $"Applied to the driver, but WSGM could not record it ({reason}); remove it in Intel Graphics "
+               + "Software if it stays after a restart.";
     }
 
     private sealed record Wanted(string ProfileId, string Executable, ApplicationCapabilityValue Value);

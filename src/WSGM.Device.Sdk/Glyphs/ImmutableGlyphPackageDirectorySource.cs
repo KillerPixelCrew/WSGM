@@ -73,16 +73,10 @@ public sealed class ImmutableGlyphPackageDirectorySource : IGlyphPackageSource
                     .Where(path => !IsLink(path))
                     .Select(Path.GetFileNameWithoutExtension)
                     .Where(id => !string.IsNullOrEmpty(id)
-                                 && id.Length <= GlyphProfileLimits.MaxIdentifierLength
                                  && id.AsSpan().IndexOfAnyExcept(IdentifierCharacters) < 0)
                     .Select(id => id!)
                     .Distinct(StringComparer.Ordinal)
                     .Order(StringComparer.Ordinal)
-                    // One past the limit on purpose: the importer decides what to do about an
-                    // over-limit package, and it can only see one if the enumeration shows it.
-                    // Cutting at exactly the limit here made a package of 33 or more profiles
-                    // indistinguishable from a conforming one, with the extras silently dropped.
-                    .Take(GlyphProfileLimits.MaxProfiles + 1)
             ];
         }
         catch (Exception exception) when (exception is IOException

@@ -10,6 +10,7 @@ import gzip
 import html
 import json
 import re
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import NoReturn
 
@@ -98,7 +99,7 @@ def flag(where, value):
 
 
 def choice(where, value, allowed):
-    if value not in allowed:
+    if not isinstance(value, str) or value not in allowed:
         fail(where, "must be one of " + ", ".join(sorted(allowed)))
     return value
 
@@ -148,6 +149,8 @@ def code(where, source, library):
         return result
     if "state" in source:
         fail(where, f"{protocol} takes value, not state")
+    if "address" in source and "command" not in source:
+        fail(where, "address is only used together with command")
     if "command" in source:
         if protocol != "NEC" or "value" in source:
             fail(where, "address and command are only for NEC, instead of value")
@@ -226,7 +229,7 @@ def button(where, source, defaults, library):
         if "command" not in source:
             merged.pop("address", None)
         merged.update(source)
-        merged.pop("label")
+        merged.pop("label", None)
         body = {"code": code(where, merged, library)}
     return {"label": text(f"{where}.label", source.get("label"), 48), **body}
 
@@ -241,7 +244,8 @@ def climate(where, source, library):
             f"{where}.model", model, -1, 32767)
     for key, allowed in (("modes", MODES - {"off"}), ("fans", FANS)):
         values = source.get(key)
-        if not isinstance(values, list) or not values or len(set(values)) != len(values):
+        if (not isinstance(values, list) or not values
+                or not all(isinstance(value, str) for value in values) or len(set(values)) != len(values)):
             fail(f"{where}.{key}", "must list distinct names")
         for index, value in enumerate(values):
             choice(f"{where}.{key}[{index}]", value, allowed)
@@ -260,13 +264,13 @@ def climate(where, source, library):
 def sequence(where, source, buttons):
     fields(where, source, {"label", "steps"})
     steps = source.get("steps")
-    if not isinstance(steps, list) or not 1 <= len(steps) <= 32:
-        fail(f"{where}.steps", "must list 1 to 32 steps")
+    if not isinstance(steps, list) or not steps:
+        fail(f"{where}.steps", "must list at least one step")
     result, total = [], 0
     for index, step in enumerate(steps):
         at = f"{where}.steps[{index}]"
         if isinstance(step, dict) and set(step) == {"button"}:
-            if step["button"] not in buttons:
+            if not isinstance(step["button"], str) or step["button"] not in buttons:
                 fail(at, f"unknown button {step['button']!r}")
             result.append({"button": step["button"]})
         elif isinstance(step, dict) and set(step) == {"delayMs"}:
@@ -299,18 +303,25 @@ button[aria-pressed=true]{outline:2px solid AccentColor}
 
 SCRIPT = """
 const statusLine = document.getElementById("status");
+// Every click sends its own request. Only the latest request's reply may write the status line, so
+// an older reply that arrives late never hides a newer outcome.
+let latest = 0;
 async function post(path, body) {
+  const request = ++latest;
   statusLine.textContent = "Sending...";
+  let status;
   try {
     const response = await fetch(path, {method: "POST", body: body && JSON.stringify(body),
       headers: {"X-WSGM-IR": "1", "Content-Type": "application/json"}});
-    const result = await response.json();
-    statusLine.textContent = result.status === "transmitted" ? "" :
-      result.status === "started" ? "Sequence running" : result.status;
-    return result.status;
+    status = (await response.json()).status;
   } catch (error) {
-    statusLine.textContent = "Endpoint unreachable";
+    status = undefined;
   }
+  if (request === latest) {
+    statusLine.textContent = status === undefined ? "Endpoint unreachable" : status === "transmitted" ? "" :
+      status === "started" ? "Sequence running" : status;
+  }
+  return {status, latest: request === latest};
 }
 document.querySelectorAll("[data-button]").forEach(key =>
   key.addEventListener("click", () => post("buttons/" + key.dataset.button)));
@@ -322,7 +333,17 @@ if (climate) {
   const storageKey = "wsgm-ir-climate:" + location.pathname;
   let state = {power: false, mode: config.modes[0], fan: config.fans[0],
     degrees: Math.round((config.minDegrees + config.maxDegrees) / 2)};
-  try { Object.assign(state, JSON.parse(localStorage.getItem(storageKey))); } catch (error) {}
+  // A stored draft may predate a reflash, so keep only the fields this remote still accepts.
+  try {
+    const stored = JSON.parse(localStorage.getItem(storageKey)) || {};
+    if (typeof stored.power === "boolean") state.power = stored.power;
+    if (config.modes.includes(stored.mode)) state.mode = stored.mode;
+    if (config.fans.includes(stored.fan)) state.fan = stored.fan;
+    if (Number.isFinite(stored.degrees) && stored.degrees >= config.minDegrees
+      && stored.degrees <= config.maxDegrees) state.degrees = stored.degrees;
+  } catch (error) {}
+  // The state the next click builds on: what was last asked for, while state is what was confirmed.
+  let draft = Object.assign({}, state);
   const render = () => {
     climate.querySelector(".degrees").textContent = state.degrees + (config.celsius ? " \\u00b0C" : " \\u00b0F");
     climate.querySelectorAll("[data-mode]").forEach(k => k.setAttribute("aria-pressed", k.dataset.mode === state.mode));
@@ -332,19 +353,24 @@ if (climate) {
   };
   // IR is one-way, so this page remembers what it last sent; the unit's own panel can differ.
   const send = async (change, toggleSwing) => {
-    const next = Object.assign({}, state, change);
+    const next = Object.assign({}, draft, change);
+    draft = next;
     const body = Object.assign({}, next, toggleSwing ? {toggleSwing: true} : {});
-    if (await post("climate", body) === "transmitted") {
+    const result = await post("climate", body);
+    if (!result.latest) return;
+    if (result.status === "transmitted") {
       state = next;
       try { localStorage.setItem(storageKey, JSON.stringify(state)); } catch (error) {}
       render();
+    } else {
+      draft = Object.assign({}, state);
     }
   };
   const clamp = value => Math.min(config.maxDegrees, Math.max(config.minDegrees, value));
   climate.querySelector("[data-power=on]").onclick = () => send({power: true});
   climate.querySelector("[data-power=off]").onclick = () => send({power: false});
-  climate.querySelector("[data-step=down]").onclick = () => send({power: true, degrees: clamp(state.degrees - 1)});
-  climate.querySelector("[data-step=up]").onclick = () => send({power: true, degrees: clamp(state.degrees + 1)});
+  climate.querySelector("[data-step=down]").onclick = () => send({power: true, degrees: clamp(draft.degrees - 1)});
+  climate.querySelector("[data-step=up]").onclick = () => send({power: true, degrees: clamp(draft.degrees + 1)});
   climate.querySelectorAll("[data-mode]").forEach(k => k.onclick = () => send({power: true, mode: k.dataset.mode}));
   climate.querySelectorAll("[data-fan]").forEach(k => k.onclick = () => send({power: true, fan: k.dataset.fan}));
   const swing = climate.querySelector("[data-swing]");
@@ -397,19 +423,46 @@ def index_page(entries_list):
     return document("IR remotes", f"<ul>{items or '<li>No remotes are built in.</li>'}</ul>", back=False)
 
 
+class References(HTMLParser):
+    """Collects static data-button and data-sequence attributes in any quoting or letter case."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.found = []
+
+    def handle_starttag(self, tag, attrs):
+        self.found += [(name, value or "") for name, value in attrs if name in ("data-button", "data-sequence")]
+
+    def handle_startendtag(self, tag, attrs):
+        self.handle_starttag(tag, attrs)
+
+
 def check_page_references(where, page, entry):
+    # Only literal attributes in the markup are checked; ids a script builds at run time are not.
     ids = {"data-button": {b["id"] for b in entry["buttons"]},
            "data-sequence": {s["id"] for s in entry["sequences"]}}
-    for attribute, known in ids.items():
-        for name in re.findall(attribute + r'="([^"]+)"', page):
-            if name not in known:
-                fail(where, f"index.html references unknown {attribute[5:]} {name!r}")
+    parser = References()
+    parser.feed(page)
+    parser.close()
+    for attribute, name in parser.found:
+        if name not in ids[attribute]:
+            fail(where, f"index.html references unknown {attribute[5:]} {name!r}")
+
+
+def unique_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate key {key!r}")
+        result[key] = value
+    return result
 
 
 def load(identifier, folder, library):
     where = folder.relative_to(PROJECT).as_posix()
     try:
-        source = json.loads((folder / "remote.json").read_text(encoding="utf-8"))
+        # A repeated key is refused rather than letting the last one silently win.
+        source = json.loads((folder / "remote.json").read_text(encoding="utf-8"), object_pairs_hook=unique_keys)
     except (OSError, ValueError) as problem:
         fail(where, f"remote.json is not readable JSON ({problem})")
     fields(where, source, {"name", "defaults", "buttons", "climate", "sequences"})
@@ -421,8 +474,6 @@ def load(identifier, folder, library):
         "buttons": [{"id": key, **button(f"{where}.buttons.{key}", value, defaults, library)}
                     for key, value in entries(f"{where}.buttons", source.get("buttons", {}))],
     }
-    if len(entry["buttons"]) > 128:
-        fail(where, "has more than 128 buttons")
     if "climate" in source:
         entry["climate"] = climate(f"{where}.climate", source["climate"], library)
     if not entry["buttons"] and "climate" not in entry:

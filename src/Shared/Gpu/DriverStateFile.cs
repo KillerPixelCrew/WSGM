@@ -4,23 +4,31 @@ using System.Text.Json;
 
 namespace WSGM.Plugin.Gpu;
 
-/// <summary>Atomic private state. An unreadable journal is never replaced with an empty one.</summary>
+/// <summary>
+///     Atomic private state. A missing file is absent; a corrupt or unreadable one throws and is never replaced.
+/// </summary>
 internal static class DriverStateFile
 {
     internal static T Read<T>(string path, T empty)
     {
-        if (!File.Exists(path))
+        try
+        {
+            using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            return JsonSerializer.Deserialize<T>(file)
+                   ?? throw new DriverFailure($"{Path.GetFileName(path)} is corrupt: it holds no record.");
+        }
+        catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException)
         {
             return empty;
         }
-
-        if (new FileInfo(path).Length > 4 * 1024 * 1024)
+        catch (JsonException error)
         {
-            throw new DriverFailure("The GPU ownership journal exceeds its size bound.");
+            throw new DriverFailure($"{Path.GetFileName(path)} is corrupt: {error.Message}");
         }
-
-        return JsonSerializer.Deserialize<T>(File.ReadAllBytes(path))
-               ?? throw new DriverFailure("The GPU ownership journal is unreadable.");
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            throw new DriverFailure($"{Path.GetFileName(path)} could not be read: {error.Message}");
+        }
     }
 
     internal static void Write<T>(string path, T value)

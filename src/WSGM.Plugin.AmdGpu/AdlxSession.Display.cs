@@ -82,11 +82,11 @@ internal sealed unsafe partial class AdlxSession
                     }
 
                     throw new DriverFailure("The Vari-Bright policy could not be read.");
-                }, value =>
+                }, (value, admission) =>
                 {
                     Validate(target);
                     RequireSupported(feature);
-                    AdlxNative.Call(feature.Pointer, 11 + AmdValue.Decode(value));
+                    AdlxNative.Call(feature.Pointer, 11 + AmdValue.Decode(value), admission);
                 }));
         });
         if (_displays3 is not null)
@@ -109,11 +109,11 @@ internal sealed unsafe partial class AdlxSession
                     {
                         var current = AdlIds(display);
                         return CapabilityValue.Choice(AmdValue.Encode(_dither.Read(current.Adapter, current.Display)));
-                    }, value =>
+                    }, (value, admission) =>
                     {
                         Validate(target);
                         var current = AdlIds(display);
-                        _dither.Write(current.Adapter, current.Display, AmdValue.Decode(value));
+                        _dither.Write(current.Adapter, current.Display, AmdValue.Decode(value), admission);
                     }));
             });
         }
@@ -140,11 +140,11 @@ internal sealed unsafe partial class AdlxSession
                     {
                         Role = role
                     },
-                () => CapabilityValue.Boolean(AdlxNative.Boolean(feature.Pointer, 4)), value =>
+                () => CapabilityValue.Boolean(AdlxNative.Boolean(feature.Pointer, 4)), (value, admission) =>
                 {
                     Validate(target);
                     RequireSupported(feature);
-                    AdlxNative.SetBoolean(feature.Pointer, 5, value.BooleanValue == true);
+                    AdlxNative.SetBoolean(feature.Pointer, 5, value.BooleanValue == true, admission);
                 }));
         }
 
@@ -159,7 +159,8 @@ internal sealed unsafe partial class AdlxSession
             controls.Add(new AdlxControl(DriverDescriptors.Choice("display." + id, instance, label, section,
                     CapabilityProfileScope.GlobalOnly,
                     values.Select(value => (AmdValue.Encode(value.Value), value.Label))),
-                () => CapabilityValue.Choice(AmdValue.Encode(AdlxNative.Integer(feature.Pointer, read))), value =>
+                () => CapabilityValue.Choice(AmdValue.Encode(AdlxNative.Integer(feature.Pointer, read))),
+                (value, admission) =>
                 {
                     Validate(target);
                     RequireSupported(feature);
@@ -169,7 +170,7 @@ internal sealed unsafe partial class AdlxSession
                         throw new DriverFailure("This output color value is no longer supported by the AMD link.");
                     }
 
-                    AdlxNative.SetInteger(feature.Pointer, write, requested);
+                    AdlxNative.SetInteger(feature.Pointer, write, requested, admission);
                 }));
         }
 
@@ -178,7 +179,7 @@ internal sealed unsafe partial class AdlxSession
             var bounds = AdlxNative.Range(feature.Pointer, range);
             controls.Add(new AdlxControl(DriverDescriptors.Range("display." + id, instance, label, section,
                     CapabilityProfileScope.GlobalOnly, bounds.Minimum, bounds.Maximum, bounds.Step),
-                () => CapabilityValue.Integer(AdlxNative.Integer(feature.Pointer, read)), value =>
+                () => CapabilityValue.Integer(AdlxNative.Integer(feature.Pointer, read)), (value, admission) =>
                 {
                     Validate(target);
                     RequireSupported(feature, supported);
@@ -187,7 +188,7 @@ internal sealed unsafe partial class AdlxSession
                         throw new DriverFailure("This color value is outside the current AMD range.");
                     }
 
-                    AdlxNative.SetInteger(feature.Pointer, write, value.IntegerValue.Value);
+                    AdlxNative.SetInteger(feature.Pointer, write, value.IntegerValue.Value, admission);
                 }));
         }
     }

@@ -159,8 +159,14 @@ internal sealed partial class IntelGraphicsMemoryTransport
             var value = memory?.GetValue(PinningLimitValue);
             if (value is int stored)
             {
+                // A write that did not throw is support. The readback is only traced; it never decides.
                 memory!.SetDWord(PinningLimitValue, stored);
-                return memory.GetValue(PinningLimitValue) is int readback && readback == stored;
+                if (memory.GetValue(PinningLimitValue) is not int readback || readback != stored)
+                {
+                    _log.Info("intel-memory", $"Support discovery wrote {stored}% and read back something else.");
+                }
+
+                return true;
             }
 
             // No override is a distinct state. Do not create a persistent override just to probe it.

@@ -8,9 +8,6 @@ namespace WSGM.Plugin.Ir;
 public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPluginUi
 {
     private const string UsbTransport = "usb", WifiTransport = "wifi";
-
-    // Half-second polls, bounded to the ten minutes a sequence's delays may add up to.
-    private const int SequencePollLimit = 1200;
     private readonly Func<IrEndpointTarget, IIrEndpoint> _createEndpoint;
     private readonly SemaphoreSlim _lane = new(1, 1);
     private PluginContext? _context;
@@ -78,12 +75,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                 return new PluginConfigurationResult(configuration.Revision, PluginConfigurationOutcome.Applied);
             }
 
-            if (_endpoint is not null)
-            {
-                await _endpoint.DisposeAsync().ConfigureAwait(false);
-                _endpoint = null;
-            }
-
+            await DropEndpointAsync().ConfigureAwait(false);
             _port = port;
             _transport = transport;
             _hostName = hostName;
@@ -147,13 +139,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
         try
         {
             _stopped = true;
-            if (_endpoint is null)
-            {
-                return true;
-            }
-
-            await _endpoint.DisposeAsync().ConfigureAwait(false);
-            _endpoint = null;
+            await DropEndpointAsync().ConfigureAwait(false);
             return true;
         }
         finally
@@ -252,10 +238,9 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
             // The firmware closes idle TCP clients after two minutes. A cached identity cannot
             // prove that socket is still alive. Start each explicit Wi-Fi action on a fresh link,
             // before any emission, rather than discovering the stale connection with an IR write.
-            if (_transport == WifiTransport && _endpoint is { } previousEndpoint)
+            if (_transport == WifiTransport)
             {
-                _endpoint = null;
-                await previousEndpoint.DisposeAsync().ConfigureAwait(false);
+                await DropEndpointAsync().ConfigureAwait(false);
             }
 
             Publish("status", $"{request.ActionId} requested", request.OperationId);
@@ -267,12 +252,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                         request.OperationId);
                     break;
                 case "connect":
-                    if (_endpoint is not null)
-                    {
-                        await _endpoint.DisposeAsync().ConfigureAwait(false);
-                        _endpoint = null;
-                    }
-
+                    await DropEndpointAsync().ConfigureAwait(false);
                     await EndpointAsync(request.OperationId, cancellationToken).ConfigureAwait(false);
                     return new PluginActionResult(request.OperationId, PluginActionOutcome.AppliedVerified,
                         "Endpoint identity verified.");
@@ -297,13 +277,11 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
 
                     var payload = await LearnAsync(request.OperationId, cancellationToken).ConfigureAwait(false);
                     var id = Guid.NewGuid().ToString("N");
-                    var learned = _library with
+                    await SaveLibraryAsync(_library with
                     {
                         Commands = [.. _library.Commands, new IrCommand(id, Arg("device"), Arg("name"), payload)],
                         SelectedCommandId = id
-                    };
-                    await learned.SaveAsync(LibraryPath(context), cancellationToken).ConfigureAwait(false);
-                    _library = learned;
+                    }, context, cancellationToken).ConfigureAwait(false);
                     _lastCommand = id;
                     break;
                 case "select":
@@ -358,7 +336,6 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                 case "set-carrier":
                 case "reset-carrier":
                     var original = ResolveCommand(Arg("command"));
-                    var commandId = original.Id;
                     int? frequency = null;
                     if (request.ActionId == "set-carrier")
                     {
@@ -372,17 +349,8 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                         frequency = (int)value;
                     }
 
-                    var edited = _library with
-                    {
-                        Commands =
-                        [
-                            .. _library.Commands.Select(item => item.Id == commandId
-                                ? original with { CarrierOverrideHz = frequency }
-                                : item)
-                        ]
-                    };
-                    await edited.SaveAsync(LibraryPath(context), cancellationToken).ConfigureAwait(false);
-                    _library = edited;
+                    await ReplaceCommandAsync(original with { CarrierOverrideHz = frequency }, context,
+                        cancellationToken).ConfigureAwait(false);
                     break;
                 case "send":
                     await SendAsync(Arg("command"), request.OperationId, cancellationToken).ConfigureAwait(false);
@@ -408,13 +376,11 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                             "This command is used by a scene. Edit or delete that scene first.");
                     }
 
-                    var deleted = _library with
+                    await SaveLibraryAsync(_library with
                     {
                         Commands = [.. _library.Commands.Where(item => item.Id != removedId)],
                         SelectedCommandId = _library.SelectedCommandId == removedId ? null : _library.SelectedCommandId
-                    };
-                    await deleted.SaveAsync(LibraryPath(context), cancellationToken).ConfigureAwait(false);
-                    _library = deleted;
+                    }, context, cancellationToken).ConfigureAwait(false);
                     if (_lastCommand == removedId)
                     {
                         _lastCommand = "";
@@ -430,12 +396,11 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                     var backup = Path.Combine(context.StateDirectory, "library.backup.json");
                     if (!File.Exists(backup))
                     {
-                        throw new FileNotFoundException("No command library backup exists.");
+                        throw new IrRejectedException("No command library backup exists.");
                     }
 
                     var restored = await IrLibrary.LoadAsync(backup, cancellationToken).ConfigureAwait(false);
-                    await restored.SaveAsync(LibraryPath(context), cancellationToken).ConfigureAwait(false);
-                    _library = restored;
+                    await SaveLibraryAsync(restored, context, cancellationToken).ConfigureAwait(false);
                     _lastCommand = restored.SelectedCommandId ?? restored.Commands.LastOrDefault()?.Id ?? "";
                     break;
                 case "remote-refresh":
@@ -451,7 +416,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                         "Unknown IR action.");
             }
 
-            PublishLibrary();
+            PublishLibrary(request.OperationId);
             Publish("status", $"{request.ActionId} completed", request.OperationId);
             return new PluginActionResult(request.OperationId, PluginActionOutcome.AppliedVerified);
 
@@ -527,7 +492,8 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
     /// <summary>
     ///     Returns an endpoint with a verified identity, identifying it first when no verified connection
     ///     exists. Identification only reads; this lets route automation send after a restart or a dropped
-    ///     link without a manual Connect, while emission still needs an explicit send or scene.
+    ///     link without a manual Connect, while emission still needs an explicit send or scene. Nothing here
+    ///     emits, so an endpoint that cannot be opened or identified is a refusal.
     /// </summary>
     private async Task<IIrEndpoint> EndpointAsync(Guid operation, CancellationToken token)
     {
@@ -537,9 +503,31 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
             return _endpoint;
         }
 
-        var identity = await _endpoint.IdentifyAsync(token).ConfigureAwait(false);
+        IrEndpointIdentity identity;
+        try
+        {
+            // The connection opens its link on this first exchange.
+            identity = await _endpoint.IdentifyAsync(token).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not (OutOfMemoryException or IrRejectedException)
+                                   && !token.IsCancellationRequested)
+        {
+            // An identify that times out ends in its own cancellation; the action itself was not cancelled.
+            throw new IrRejectedException("The IR endpoint could not be reached: " + ex.Message);
+        }
+
         Publish("status", Describe(identity), operation);
         return _endpoint;
+    }
+
+    /// <summary>Closes the current endpoint connection; the next endpoint action opens and identifies a fresh one.</summary>
+    private async Task DropEndpointAsync()
+    {
+        if (_endpoint is { } endpoint)
+        {
+            _endpoint = null;
+            await endpoint.DisposeAsync().ConfigureAwait(false);
+        }
     }
 
     /// <summary>
@@ -659,15 +647,15 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
     }
 
     /// <summary>
-    ///     Waits for a started sequence to finish by polling the endpoint's own flag. A
-    ///     cancelled wait sends the endpoint's cancel, which is a distinct operation and never a retry
-    ///     of the sequence.
+    ///     Waits for a started sequence to finish by polling the endpoint's own flag, until it clears or the
+    ///     action's token ends the wait. A cancelled wait sends the endpoint's cancel, which is a distinct
+    ///     operation and never a retry of the sequence.
     /// </summary>
     private static async Task WaitForSequenceAsync(IIrEndpoint endpoint, CancellationToken token)
     {
         try
         {
-            for (var poll = 0; poll < SequencePollLimit; poll++)
+            while (true)
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(500), token).ConfigureAwait(false);
                 var identity = await endpoint.IdentifyAsync(token).ConfigureAwait(false);
@@ -702,13 +690,13 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
         if (_transport != WifiTransport)
         {
             return string.IsNullOrEmpty(_port)
-                ? throw new InvalidOperationException("Select a USB serial port in plugin preferences first.")
+                ? throw new IrRejectedException("Select a USB serial port in plugin preferences first.")
                 : new IrEndpointTarget(false, _port, null);
         }
 
         if (_pairing is null)
         {
-            throw new InvalidOperationException("Pair the endpoint over USB first, or choose the USB connection.");
+            throw new IrRejectedException("Pair the endpoint over USB first, or choose the USB connection.");
         }
 
         var address = _hostName.Length != 0 ? _hostName : _pairing.Hostname;
@@ -733,15 +721,10 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
     {
         if (string.IsNullOrEmpty(_port))
         {
-            throw new InvalidOperationException("Select the USB serial port the endpoint is attached to first.");
+            throw new IrRejectedException("Select the USB serial port the endpoint is attached to first.");
         }
 
-        if (_endpoint is not null)
-        {
-            await _endpoint.DisposeAsync().ConfigureAwait(false);
-            _endpoint = null;
-        }
-
+        await DropEndpointAsync().ConfigureAwait(false);
         await using var usb = _createEndpoint(new IrEndpointTarget(false, _port, null));
         await usb.IdentifyAsync(token).ConfigureAwait(false);
         if (ssid.Length == 0)
@@ -806,7 +789,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
         var value = request.Arguments[key].Number ?? double.NaN;
         if (!double.IsInteger(value) || value < minimum || value > maximum)
         {
-            throw new ArgumentException($"{key} must be an integer from {minimum} to {maximum}.");
+            throw new IrRejectedException($"{key} must be an integer from {minimum} to {maximum}.");
         }
 
         return (int)value;
@@ -863,41 +846,42 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
         return Path.Combine(context.StateDirectory, "endpoint.json");
     }
 
-    private void PublishLibrary()
+    /// <summary>Publishes the library, the selected command and its carrier; an action passes its operation.</summary>
+    private void PublishLibrary(Guid? operation = null)
     {
         Publish("library", $"{_library.Commands.Length} commands, {_library.Scenes.Length} scenes\n"
                            + string.Join("\n",
                                _library.Commands.Select(item => $"{item.Device} / {item.Name}"))
-                           + "\nScenes: " + string.Join(", ", _library.Scenes.Select(item => item.Name)));
+                           + "\nScenes: " + string.Join(", ", _library.Scenes.Select(item => item.Name)), operation);
         var selected = _library.Commands.FirstOrDefault(item => item.Id == _lastCommand);
         Publish("selected",
             selected is null
                 ? "No command selected"
-                : $"{selected.Device} / {selected.Name}; repeats {selected.Repeats}, gap {selected.GapMs} ms");
+                : $"{selected.Device} / {selected.Name}; repeats {selected.Repeats}, gap {selected.GapMs} ms",
+            operation);
         if (selected is null)
         {
-            Publish("carrier-source", "Learn or select a command first.");
+            Publish("carrier-source", "Learn or select a command first.", operation);
             return;
         }
 
         Publish("carrier-source",
-            $"{selected.TransmitPayload.CarrierHz} Hz ({selected.TransmitPayload.CarrierSource}); captured value: {selected.Payload.CarrierHz} Hz ({selected.Payload.CarrierSource})");
-        if (_host is { } host && _context is { } context)
-        {
-            host.PublishState(new PluginStatePublication(context.Instance, context.Generation,
-                Interlocked.Increment(ref _sequence),
-                "carrier-hz", new PluginValue(Number: selected.TransmitPayload.CarrierHz),
-                PluginStateOrigin.Initialization));
-        }
+            $"{selected.TransmitPayload.CarrierHz} Hz ({selected.TransmitPayload.CarrierSource}); captured value: {selected.Payload.CarrierHz} Hz ({selected.Payload.CarrierSource})",
+            operation);
+        Publish("carrier-hz", new PluginValue(Number: selected.TransmitPayload.CarrierHz), operation);
     }
 
     private void Publish(string key, string text, Guid? operation = null)
     {
+        Publish(key, new PluginValue(Text: text), operation);
+    }
+
+    private void Publish(string key, PluginValue value, Guid? operation)
+    {
         if (_host is { } host && _context is { } context)
         {
             host.PublishState(new PluginStatePublication(context.Instance, context.Generation,
-                Interlocked.Increment(ref _sequence), key,
-                new PluginValue(Text: text),
+                Interlocked.Increment(ref _sequence), key, value,
                 operation.HasValue ? PluginStateOrigin.Action : PluginStateOrigin.Initialization,
                 OperationId: operation));
         }

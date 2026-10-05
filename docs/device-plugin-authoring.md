@@ -240,8 +240,8 @@ New-Item -ItemType Directory -Path $plugins -Force | Out-Null
 Copy-Item -LiteralPath <plugin.wsgmpkg> -Destination $plugins
 ```
 
-At the next start WSGM validates the file again: bounded archive entries, no native images, the
-manifest, the exact API version and an x64 entry point
+At the next start WSGM validates the file again: bounded file and package sizes, no native images,
+the manifest, the exact API version and an x64 entry point
 ([device plugin system](device-plugin-system.md) §2–§5). For one id the highest version wins, and
 older files are reported as superseded rather than deleted. A second device package with a different
 id makes WSGM refuse device integration until one of them is removed, so a release and a developer

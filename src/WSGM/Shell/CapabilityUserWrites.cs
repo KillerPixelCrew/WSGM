@@ -133,7 +133,7 @@ internal static class CapabilityUserWrites
     {
         string? error = null;
         if (!view.Descriptor.SupportsWrite
-            || !DeviceCapabilityValidation.ValueMatches(value, view.Descriptor, out error))
+            || !CapabilityValueValidation.ValueMatches(value, view.Descriptor, out error))
         {
             return new CapabilityCommandResult
             {

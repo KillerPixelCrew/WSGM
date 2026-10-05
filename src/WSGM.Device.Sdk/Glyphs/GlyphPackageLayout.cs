@@ -20,8 +20,7 @@ public static class GlyphPackageLayout
     public static string ProfileManifest(string profileId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(profileId);
-        if (profileId.Length > GlyphProfileLimits.MaxIdentifierLength
-            || profileId.AsSpan().IndexOfAnyExcept(IdentifierCharacters) >= 0)
+        if (profileId.AsSpan().IndexOfAnyExcept(IdentifierCharacters) >= 0)
         {
             throw new ArgumentException("Profile identifiers contain only ASCII letters, digits, '.', '_', and '-'.",
                 nameof(profileId));
@@ -37,8 +36,7 @@ public static class GlyphPackageLayout
     public static string Asset(string assetId, GlyphAssetFormat format)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(assetId);
-        if (assetId.Length > GlyphProfileLimits.MaxIdentifierLength
-            || assetId.AsSpan().IndexOfAnyExcept(IdentifierCharacters) >= 0)
+        if (assetId.AsSpan().IndexOfAnyExcept(IdentifierCharacters) >= 0)
         {
             throw new ArgumentException("Asset identifiers contain only ASCII letters, digits, '.', '_', and '-'.",
                 nameof(assetId));

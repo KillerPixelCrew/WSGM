@@ -11,9 +11,12 @@ public static class PluginApi
     ///     Version 2 made <c>PluginContext.Deadline</c> an active-time <c>Deadline</c>. Version 3 adds the
     ///     <c>wsgm.gpu</c> category, the manifest's <c>displayAdapters</c> and <c>capabilities</c>, and
     ///     <see cref="ICapabilityPlugin" /> with <see cref="ICapabilityHost" />, through which a common plugin
-    ///     publishes Device SDK capabilities.
+    ///     publishes Device SDK capabilities. Version 4 makes the manifest immutable, moves diagnostic tracing to
+    ///     <see cref="IPluginHost" /> so every common plugin can log, replaces <c>PluginText</c> with the Device
+    ///     SDK's <see cref="PlainText" />, and takes in the SteamUiToolkit types reachable from
+    ///     <see cref="SteamUiToolkit.ISteamUiModule" />, which every plugin shares with the host.
     /// </remarks>
-    public const int Version = 3;
+    public const int Version = 4;
 }
 
 /// <summary>Known categories. Other stable category strings remain valid.</summary>
@@ -64,17 +67,17 @@ public sealed record PluginManifest
     /// <summary>Plain display name.</summary>
     public required string Name { get; init; }
 
-    /// <summary>Dotted numeric package version.</summary>
+    /// <summary>Canonical dotted numeric package version, such as <c>1.2.0</c>.</summary>
     public required string Version { get; init; }
 
     /// <summary>Open category identity; category multiplicity is decided by the host.</summary>
     public required string Category { get; init; }
 
     /// <summary>Minimum accepted common SDK revision.</summary>
-    public int MinimumApiVersion { get; set; } = PluginApi.Version;
+    public int MinimumApiVersion { get; init; } = PluginApi.Version;
 
     /// <summary>Maximum accepted common SDK revision.</summary>
-    public int MaximumApiVersion { get; set; } = PluginApi.Version;
+    public int MaximumApiVersion { get; init; } = PluginApi.Version;
 
     /// <summary>Assembly filename at the package root, never an absolute or parent-relative path.</summary>
     public required string EntryAssembly { get; init; }
@@ -83,28 +86,29 @@ public sealed record PluginManifest
     public required string EntryType { get; init; }
 
     /// <summary>Required plugin packages, checked before activation.</summary>
-    public IReadOnlyList<PluginDependency> Dependencies { get; set; } = [];
+    public IReadOnlyList<PluginDependency> Dependencies { get; init; } = [];
 
-    /// <summary>Declared external access requirements. Declarations are not grants or sandbox boundaries.</summary>
-    public IReadOnlyList<string> Permissions { get; set; } = [];
+    /// <summary>Declared external access requirements, kept as metadata.</summary>
+    /// <remarks>The host validates and records declarations but never grants or enforces them.</remarks>
+    public IReadOnlyList<string> Permissions { get; init; } = [];
 
     /// <summary>
     ///     The exact WSGM version the package was built for. Packing writes it; a source manifest omits
     ///     it. The host refuses a package built for another version.
     /// </summary>
-    public string? WsgmVersion { get; set; }
+    public string? WsgmVersion { get; init; }
 
     /// <summary>
     ///     Display adapters the package serves. Setup offers and WSGM enables a <c>wsgm.gpu</c> package only
     ///     on a machine with a matching adapter. Other categories leave it empty.
     /// </summary>
-    public IReadOnlyList<DisplayAdapterMatch> DisplayAdapters { get; set; } = [];
+    public IReadOnlyList<DisplayAdapterMatch> DisplayAdapters { get; init; } = [];
 
     /// <summary>
     ///     Capability roles the package may publish through <see cref="ICapabilityHost" />. The host refuses a
     ///     descriptor whose role is not declared here.
     /// </summary>
-    public IReadOnlyList<CapabilityRole> Capabilities { get; set; } = [];
+    public IReadOnlyList<CapabilityRole> Capabilities { get; init; } = [];
 }
 
 /// <summary>One display adapter rule, matched against the PCI identity of every present adapter.</summary>

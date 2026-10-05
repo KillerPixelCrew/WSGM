@@ -103,7 +103,8 @@ public sealed class SteamGuideChordMirrorTests
         rig.WriteAutosave(Autosave(20));
         using var mirror = rig.Create();
 
-        mirror.Apply(true, true);
+        mirror.SetEnabled(true);
+        mirror.SetSteamDeckTargetActive(true);
 
         Assert.True(mirror.Active);
         Assert.Equal(Mirrored(20), rig.Template);
@@ -123,7 +124,8 @@ public sealed class SteamGuideChordMirrorTests
         rig.WriteAutosave(Autosave(20));
         using var mirror = rig.Create();
 
-        mirror.Apply(true, true);
+        mirror.SetEnabled(true);
+        mirror.SetSteamDeckTargetActive(true);
 
         Assert.Equal(ValveSize, rig.TemplateBytes);
         Assert.Contains("\"revision\"\t\"20\"", rig.Template, StringComparison.Ordinal);
@@ -138,7 +140,8 @@ public sealed class SteamGuideChordMirrorTests
         rig.WriteAutosave(Autosave(20));
         using var mirror = rig.Create();
 
-        mirror.Apply(true, true);
+        mirror.SetEnabled(true);
+        mirror.SetSteamDeckTargetActive(true);
 
         Assert.DoesNotContain("progenitor", rig.Template, StringComparison.Ordinal);
     }
@@ -160,7 +163,8 @@ public sealed class SteamGuideChordMirrorTests
         using Rig rig = new();
         rig.WriteAutosave(Autosave(20));
         using var mirror = rig.Create();
-        mirror.Apply(true, true);
+        mirror.SetEnabled(true);
+        mirror.SetSteamDeckTargetActive(true);
 
         // The bootstrapper's reinstall, or a client update with the same file.
         rig.WriteTemplate(ValveTemplate);
@@ -176,7 +180,8 @@ public sealed class SteamGuideChordMirrorTests
         using Rig rig = new();
         rig.WriteAutosave(Autosave(20));
         using var mirror = rig.Create();
-        mirror.Apply(true, true);
+        mirror.SetEnabled(true);
+        mirror.SetSteamDeckTargetActive(true);
 
         Assert.True(mirror.RestoreDefault());
         Assert.Equal(ValveTemplate, rig.Template);
@@ -196,9 +201,10 @@ public sealed class SteamGuideChordMirrorTests
         using Rig rig = new();
         rig.WriteAutosave(Autosave(20));
         using var mirror = rig.Create();
-        mirror.Apply(true, true);
+        mirror.SetEnabled(true);
+        mirror.SetSteamDeckTargetActive(true);
 
-        mirror.Apply(false, true);
+        mirror.SetEnabled(false);
 
         Assert.False(mirror.Active);
         Assert.Equal(ValveTemplate, rig.Template);
@@ -211,7 +217,8 @@ public sealed class SteamGuideChordMirrorTests
         using Rig rig = new();
         rig.WriteAutosave(Autosave(20));
         using var mirror = rig.Create();
-        mirror.Apply(true, true);
+        mirror.SetEnabled(true);
+        mirror.SetSteamDeckTargetActive(true);
 
         rig.WriteAutosave(Autosave(24), "28de-1205-43fa5b1.vdf");
         // A newer file for another controller type does not outrank the chord layout.
@@ -229,7 +236,8 @@ public sealed class SteamGuideChordMirrorTests
         rig.WriteAutosave(Autosave(20).Replace("controller_neptune", "controller_xbox360", StringComparison.Ordinal));
         using var mirror = rig.Create();
 
-        mirror.Apply(true, true);
+        mirror.SetEnabled(true);
+        mirror.SetSteamDeckTargetActive(true);
 
         Assert.Equal(ValveTemplate, rig.Template);
         Assert.Null(rig.Backup);
@@ -241,7 +249,8 @@ public sealed class SteamGuideChordMirrorTests
         using Rig rig = new();
         rig.WriteAutosave(Autosave(20));
         using var mirror = rig.Create();
-        mirror.Apply(true, true);
+        mirror.SetEnabled(true);
+        mirror.SetSteamDeckTargetActive(true);
 
         var updated = ValveTemplate.Replace("\"19\"", "\"30\"", StringComparison.Ordinal);
         rig.WriteTemplate(updated);
@@ -259,7 +268,8 @@ public sealed class SteamGuideChordMirrorTests
         rig.WriteAutosave(Autosave(20));
         using (var mirror = rig.Create())
         {
-            mirror.Apply(true, true);
+            mirror.SetEnabled(true);
+            mirror.SetSteamDeckTargetActive(true);
             Assert.Equal(Mirrored(20), rig.Template);
             // Disposal restores as well; the uninstall path has to cope with nothing left to do.
         }

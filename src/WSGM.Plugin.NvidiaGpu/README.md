@@ -55,10 +55,12 @@ application defaults and unrelated settings remain intact. Empty native profile 
 retained rather than risking deletion of externally added content.
 
 External edits are preserved during cleanup. An unchanged desired value is not repeatedly forced
-over an external edit. An unconfirmed save or restoration is read back on a later pass but never
-blindly repeated. Conflicting WSGM games sharing a native profile/setting are refused; identical
-requests are coalesced. Unreadable ownership state aborts instead of replacing it with an empty
-journal.
+over an external edit. A write counts once SaveSettings returns; nothing waits for the driver to
+report the value. A failed save puts the journal back as it was, and a failed restoration keeps its
+entry for the next sync; neither is repeated automatically. Conflicting WSGM games sharing a native
+profile/setting are refused; identical requests are coalesced. An unreadable journal is never
+replaced: every per-application sync fails without changing anything, and the global controls keep
+working.
 
 ## Lifetime and display identity
 

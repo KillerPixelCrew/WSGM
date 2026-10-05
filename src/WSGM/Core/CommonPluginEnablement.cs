@@ -19,16 +19,6 @@ internal static class CommonPluginEnablement
     /// <summary>The instance id a package runs as when nothing configures another.</summary>
     internal const string DefaultInstanceId = "default";
 
-    private static readonly Lazy<IReadOnlyList<DisplayAdapterIdentity>> Adapters =
-        new(ReadAdapters);
-
-    /// <summary>The display adapters present, read once per process.</summary>
-    /// <remarks>
-    ///     A read-only device enumeration, cached so a Settings page and every reconcile agree and none of
-    ///     them enumerates again.
-    /// </remarks>
-    internal static IReadOnlyList<DisplayAdapterIdentity> PresentAdapters => Adapters.Value;
-
     /// <summary>Whether a package serves one of the present adapters.</summary>
     /// <param name="manifest">The package manifest.</param>
     /// <param name="adapters">The present adapters.</param>
@@ -48,15 +38,6 @@ internal static class CommonPluginEnablement
     internal static bool EnabledByDefault(PluginManifest manifest, IReadOnlyList<DisplayAdapterIdentity> adapters)
     {
         return manifest.Category == PluginCategories.Gpu && ServesMachine(manifest, adapters);
-    }
-
-    /// <summary>Whether a package's default instance runs on this machine when nothing names it.</summary>
-    /// <param name="manifest">The package manifest.</param>
-    /// <returns>True for a graphics package that serves a present adapter.</returns>
-    /// <remarks>Reads the adapters only for a graphics package.</remarks>
-    internal static bool EnabledByDefault(PluginManifest manifest)
-    {
-        return manifest.Category == PluginCategories.Gpu && ServesMachine(manifest, PresentAdapters);
     }
 
     /// <summary>The instances that should run.</summary>
@@ -95,12 +76,16 @@ internal static class CommonPluginEnablement
         return [.. desired.Distinct()];
     }
 
-    private static IReadOnlyList<DisplayAdapterIdentity> ReadAdapters()
+    /// <summary>Reads the display adapters present now.</summary>
+    /// <returns>The adapters, or none when Windows could not list them.</returns>
+    /// <remarks>Read fresh each time, so a docked or newly enabled adapter is seen without a restart.</remarks>
+    internal static IReadOnlyList<DisplayAdapterIdentity> ReadAdapters()
     {
         try
         {
             var adapters = DisplayAdapterInventory.Collect();
-            Log.Info("Display adapters: "
+            // Keyed: every reconcile and every Plugins page load reads the adapters again.
+            Log.Change("display-adapters", "Display adapters: "
                      + (adapters.Count == 0
                          ? "none reported."
                          : string.Join(", ",

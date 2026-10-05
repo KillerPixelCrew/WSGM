@@ -40,10 +40,10 @@ internal sealed class RefreshRatePairingService
     /// <summary>Creates the service over the real display.</summary>
     internal RefreshRatePairingService()
         : this(
-            DisplayProfiles.EnumerateAcceptedRefreshRates,
-            DisplayProfiles.ReadAdvertisedRefreshRates,
-            DisplayProfiles.ReadPrimaryOperatingPoint,
-            DisplayProfiles.TryRestoreRefreshRate,
+            PrimaryDisplayModes.EnumerateAcceptedRefreshRates,
+            PrimaryDisplayModes.ReadAdvertisedRefreshRates,
+            PrimaryDisplayModes.ReadPrimaryOperatingPoint,
+            PrimaryDisplayModes.TryRestoreRefreshRate,
             target => DisplayModes.Read(target)?.Current.RefreshHz)
     {
     }

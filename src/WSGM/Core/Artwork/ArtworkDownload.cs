@@ -13,7 +13,7 @@ namespace WSGM.Core;
 ///     provider's JSON answer. A provider whose images count against its own allowance wraps this in its
 ///     own pacing (<see cref="IArtworkProvider.DownloadAsync" />).
 /// </remarks>
-public static class ArtworkDownload
+internal static class ArtworkDownload
 {
     /// <summary>The largest image accepted.</summary>
     public const int MaximumBytes = 16 * 1024 * 1024;

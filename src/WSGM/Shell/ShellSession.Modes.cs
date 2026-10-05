@@ -32,7 +32,6 @@ public sealed partial class ShellSession
     private Task? _bootWork;
     private bool _gameModeEntryActive;
     private bool _holdingEntrySplash;
-    private DisplayLayout? _pendingReturnLayout;
     private bool _tookOverFromExplorer;
 
     private async Task NotifyPluginModeAsync(PluginSessionMode mode)
@@ -70,8 +69,10 @@ public sealed partial class ShellSession
     }
 
     /// <summary>
-    ///     Covers the screen with the boot splash when configured; the overlay
-    ///     opening dismisses it.
+    ///     Covers the screen with the boot splash when configured. Its timeout starts when the launch
+    ///     sequence asks Steam for Big Picture, not here, because a service boot waits for the input
+    ///     desktop and Explorer first. Opening the overlay dismisses the boot cover; a Game Mode entry
+    ///     splash stays up, since the entry is still running behind it.
     /// </summary>
     private void ShowBootSplashIfEnabled()
     {
@@ -81,8 +82,23 @@ public sealed partial class ShellSession
         }
 
         _splash = new BootSplash(_config, SwitchToDesktopFromSplash);
-        _overlay!.OverlayShown += () => _splash?.Dismiss("quick access opened");
+        _overlay!.OverlayShown += () =>
+        {
+            if (!_holdingEntrySplash)
+            {
+                _splash?.Dismiss("quick access opened");
+            }
+        };
         _splash.Show();
+    }
+
+    /// <summary>Arms the boot cover's Big Picture detection and timeout; an entry splash arms itself.</summary>
+    private void ArmBootSplash()
+    {
+        if (!_holdingEntrySplash)
+        {
+            _splash?.ArmSteamDetection();
+        }
     }
 
     /// <summary>
@@ -163,6 +179,11 @@ public sealed partial class ShellSession
         catch (Exception ex)
         {
             Log.Error("Shell session launch sequence failed", ex);
+        }
+        finally
+        {
+            // A sequence that ended before asking Steam must not leave the cover up with no deadline.
+            Dispatcher.UIThread.Post(ArmBootSplash);
         }
     }
 
@@ -324,7 +345,7 @@ public sealed partial class ShellSession
             // sits over a live BP window. With the splash disabled there is no
             // cover, so report no BP and let explorer finish its logon prep — that
             // one-per-session init is what keeps touch features alive in game mode.
-            var coveredBigPicture = bigPicture && _splash is not null;
+            var coveredBigPicture = bigPicture && _splash?.IsCovering == true;
             var action = ExplorerReadiness.Decide(shellWindow, taskbar, coveredBigPicture,
                 watch.Elapsed, settle?.Elapsed, settleDuration, ExplorerReadiness.MaxWait);
             if (action == ExplorerReadinessAction.BeginSettle)
@@ -336,6 +357,8 @@ public sealed partial class ShellSession
             else if (action == ExplorerReadinessAction.ProceedAccelerated)
             {
                 Log.Info("Big Picture appeared during boot cover — accelerating takeover.");
+                // The cover has to fade off the live window now, not when the launch sequence asks.
+                Dispatcher.UIThread.Post(ArmBootSplash);
                 break;
             }
             else if (action == ExplorerReadinessAction.ProceedTimeout)
@@ -551,7 +574,7 @@ public sealed partial class ShellSession
             }
 
             SwitchToDesktopFromSplash();
-        }, false);
+        });
         _splash = splash;
         splash.Show();
         return splash;
@@ -573,17 +596,12 @@ public sealed partial class ShellSession
     /// <summary>Runs the desktop startup or wake action list, coalesced.</summary>
     /// <param name="startup">True for the startup list, false for the wake list.</param>
     /// <remarks>
-    ///     The work starts synchronously inside the posted callback, and a fault that escapes it is
-    ///     rethrown on the dispatcher, as an async callback would have raised it there.
+    ///     The work starts synchronously inside the posted callback and handles its own failures;
+    ///     the admission refuses it once the session is stopping.
     /// </remarks>
     private void QueueDesktopActions(bool startup)
     {
-        Dispatcher.UIThread.Post(() =>
-            _ = RunDesktopActionsAsync(startup).ContinueWith(
-                static task => Dispatcher.UIThread.Post(() => task.GetAwaiter().GetResult()),
-                CancellationToken.None,
-                TaskContinuationOptions.OnlyOnFaulted,
-                TaskScheduler.Default));
+        Dispatcher.UIThread.Post(() => _ = RunDesktopActionsAsync(startup));
     }
 
     private async Task RunDesktopActionsAsync(bool startup)
@@ -602,10 +620,11 @@ public sealed partial class ShellSession
         {
             await _displayActionGate.WaitAsync(_shutdownCancellation.Token);
             acquired = true;
-            var config = await Task.Run((() => _store.Read().RequireConfig()), _shutdownCancellation.Token);
+            // Back on the UI thread: the session's current configuration, which a reload keeps at the
+            // last good read, rather than a second load of the file.
             var steps = startup
-                ? config.GameModeLaunch.DesktopStartupActions
-                : config.GameModeLaunch.DesktopWakeActions;
+                ? _config.GameModeLaunch.DesktopStartupActions
+                : _config.GameModeLaunch.DesktopWakeActions;
             if (_shutdownRequested || _inGameMode || _modes?.TransitionInProgress != false
                 || steps.Count == 0)
             {
@@ -613,13 +632,7 @@ public sealed partial class ShellSession
             }
 
             await _commonPluginStartup.WaitAsync(_shutdownCancellation.Token);
-            Task powerReady;
-            lock (_devicePowerGate)
-            {
-                powerReady = _devicePowerWork;
-            }
-
-            await powerReady.WaitAsync(_shutdownCancellation.Token);
+            await DevicePowerWork.WaitAsync(_shutdownCancellation.Token);
             // Re-checked after both waits: a Game Mode entry can have started meanwhile, and a
             // desktop action list must never fire into a session that is leaving the desktop.
             if (_shutdownRequested || _inGameMode || _modes?.TransitionInProgress != false)
@@ -639,7 +652,7 @@ public sealed partial class ShellSession
                 }
             }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (_shutdownCancellation.IsCancellationRequested)
         {
         }
         catch (Exception ex)
@@ -716,6 +729,7 @@ public sealed partial class ShellSession
         // boot surfaces failures itself because this runs off the UI thread.
         // (steam://open/bigpicture adopts a Steam that explorer's own autostart
         // already brought up, so no duplicate check is needed for Steam itself.)
+        await Dispatcher.UIThread.InvokeAsync(ArmBootSplash);
         var warning = _modes!.StartBigPicture();
         if (warning is not null)
         {
@@ -742,16 +756,18 @@ public sealed partial class ShellSession
     }
 
     /// <summary>
-    ///     The session's half of the Game Mode entry transaction. Everything here needs state
-    ///     the session owns — the splash, the plugin host, the config lock and the shutdown token — so
-    ///     it is a view onto the session rather than a free-standing service.
+    ///     Everything the Game Mode entry and the desktop return do to the machine. Everything here
+    ///     needs state the session owns (the splash, the plugin host, the config store, the Explorer
+    ///     host and the shutdown token), so it is a view onto the session rather than a free-standing
+    ///     service. Launch settings come from the session's current configuration.
     /// </summary>
-    private sealed class ShellGameModeEntryServices(ShellSession session) : IGameModeEntryServices
+    private sealed class SessionEntryBackend(ShellSession session) : IGameModeEntryBackend
     {
-        public GameModeLaunchConfiguration ReadLaunch()
-        {
-            return session._store.Read().RequireConfig().GameModeLaunch;
-        }
+        private SessionModes Modes =>
+            session._modes ?? throw new InvalidOperationException("The session modes were not created.");
+
+        private ExplorerDesktopHost DesktopHost =>
+            session._desktopHost ?? throw new InvalidOperationException("The Explorer host was not created.");
 
         public void SetStatus(string line)
         {
@@ -821,7 +837,7 @@ public sealed partial class ShellSession
         {
             return Task.Run(() =>
             {
-                session._pendingReturnLayout = layout;
+                // The durable record is the one source of truth for the return; nothing is kept in memory.
                 session._store.Update(fresh =>
                 {
                     fresh.GameModeLaunchRecovery.PendingReturnLayout = layout;
@@ -842,28 +858,87 @@ public sealed partial class ShellSession
                 GameModeReturnRecovery.ClearRestored(session._store, fingerprint);
             }
 
+            if (!restored)
+            {
+                // The entry stops before it changed anything, so no desktop return runs to let the
+                // monitor watch Steam again.
+                Dispatcher.UIThread.Post(() =>
+                {
+                    session._monitor?.Paused = false;
+                });
+            }
+
             return restored;
         }
 
         public async Task<IReadOnlyList<PluginActionStepResult>> RunEnterActionsAsync(
-            CancellationToken cancellationToken)
+            IReadOnlyList<PluginActionStep> steps, CancellationToken cancellationToken)
         {
-            var launch = ReadLaunch();
             await session._commonPluginStartup.WaitAsync(cancellationToken).ConfigureAwait(false);
             return await session.ActionSequence()
-                .RunUntilFailureAsync(launch.EnterActions, cancellationToken).ConfigureAwait(false);
+                .RunUntilFailureAsync(steps, cancellationToken).ConfigureAwait(false);
         }
 
         public Task<IReadOnlyList<PluginActionStepResult>> RunLeaveActionsAsync()
         {
-            return session.ActionSequence().RunAllAsync(ReadLaunch().LeaveActions, CancellationToken.None);
+            return session.ActionSequence()
+                .RunAllAsync(session._config.GameModeLaunch.LeaveActions, CancellationToken.None);
+        }
+
+        public Task ApplyDefaultPostureAsync()
+        {
+            return Task.Run(Modes.ApplyGameModePosture);
+        }
+
+        public async Task<bool> PrepareExplorerExitAsync()
+        {
+            // The normal desktop can be recreated only if its current taskbar owner is captured while
+            // it still exists. A contaminated or unknown shell is preserved instead.
+            var preparation = await DesktopHost.PrepareForExplorerExitAsync().ConfigureAwait(false);
+            return preparation.Prepared;
+        }
+
+        public async Task<bool> ExitExplorerAndWaitAsync()
+        {
+            try
+            {
+                return await DesktopHost.ExitExplorerAndWaitAsync(SessionModes.ExplorerExitTimeout)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Explorer exit failed", ex);
+                return false;
+            }
+        }
+
+        public Task<bool> ReturnToDesktopAsync(DisplayLayout? layout, bool runLeaveActions)
+        {
+            return Modes.ReturnToDesktopAsync(layout, runLeaveActions);
+        }
+
+        public async Task<string?> RequestBigPictureAsync()
+        {
+            try
+            {
+                return await Modes.RequestBigPictureWhilePausedAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Log.Error("Starting Steam Big Picture during game-mode transition failed", ex);
+                return SessionModes.BigPictureStartFailedWarning;
+            }
+        }
+
+        public async Task CommitGameModeAsync()
+        {
+            await Dispatcher.UIThread.InvokeAsync(Modes.CommitGameMode);
         }
 
         public async Task<string?> ApplyReturnLayoutAsync()
         {
-            var launch = ReadLaunch();
-            var layout = session._pendingReturnLayout
-                         ?? session._store.Read().RequireConfig().GameModeLaunchRecovery.PendingReturnLayout
+            var launch = session._config.GameModeLaunch;
+            var layout = session._store.Read().RequireConfig().GameModeLaunchRecovery.PendingReturnLayout
                          ?? (launch.Return == GameModeReturn.DesktopLayout ? launch.DesktopLayout : null);
             if (layout is null)
             {
@@ -877,8 +952,7 @@ public sealed partial class ShellSession
 
         public async Task<string?> ApplyReturnAudioAsync()
         {
-            var launch = ReadLaunch();
-            var audio = GameModeLaunchRules.DesktopAudio(launch,
+            var audio = GameModeLaunchRules.DesktopAudio(session._config.GameModeLaunch,
                 session._store.Read().RequireConfig().GameModeLaunchRecovery);
             var result = await ApplyAudioAsync(audio, CancellationToken.None).ConfigureAwait(false);
             return result.Succeeded

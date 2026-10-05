@@ -18,8 +18,8 @@ Related:
 | Assembly / package | `WSGM.Device.Sdk`                                                                  |
 | Target framework   | `net10.0-windows`, matching the host that loads the plugin                         |
 | Dependencies       | none; a plugin inherits nothing from the SDK                                       |
-| API version        | `DeviceApi.Version = 11`; WSGM, Device Lab and every plugin require an exact match |
-| Package version    | `0.1.0`; pre-1.0, a breaking change moves the minor version                        |
+| API version        | `DeviceApi.Version = 12`; WSGM, Device Lab and every plugin require an exact match |
+| Package version    | `0.5.0`; pre-1.0, a breaking change moves the minor version                        |
 | Licence            | MIT (WSGM itself is GPL-3.0-or-later)                                              |
 | Documentation      | every public member is documented; an undocumented member fails the build          |
 
@@ -73,9 +73,10 @@ deduplicated by its `DeduplicationId`.
 ## Lifecycle: `IDevicePlugin`
 
 The entry type named by the manifest. The host constructs it with its public parameterless
-constructor; it lives for one WSGM run and is `IAsyncDisposable`. Lifecycle calls are serialized, so
-a plugin never sees two at once, but commands and haptic frames can arrive while a background
-service the plugin started is running.
+constructor; it lives for one WSGM run and is `IAsyncDisposable`. The host awaits `StopAsync` before
+it calls `DisposeAsync`, and disposal only releases handles: it never writes the hardware. Lifecycle
+calls are serialized, so a plugin never sees two at once, but commands and haptic frames can arrive
+while a background service the plugin started is running.
 
 The cancellation token passed to a lifecycle call is the host's deadline for that call. A plugin
 that ignores it keeps the host waiting until the outer application deadline, after which WSGM
@@ -95,7 +96,7 @@ proceeds with its own cleanup and records the plugin's answer as unverified.
 | `ReleaseControllerAsync(PluginControllerReleaseContext, ct)`          | When controller management is turned off (`ControllerOnly`) and when the cycle ends (`FullDeactivation`), after WSGM has silenced its virtual target. | Stop the motors and the reader, close handles and write the original controller mode back. Best effort: trace what failed and return. Nothing is reported, and the host waits for no readback.                                          |
 | `SetControllerManagementAsync(PluginControllerManagementContext, ct)` | When the user toggles controller management while the cycle continues.                                                                                | Acquire or release the physical controller only, in the same cycle generation; republish the controller and haptic capability states.                                                                                                   |
 | `StopAsync(PluginStopContext, ct)`                                    | At the end of the cycle, for one of the `PluginStopReason` values.                                                                                    | Restore every temporarily changed hardware state, release everything, report `Clean`, `Unverified` or `Failed` truthfully.                                                                                                              |
-| `DisposeAsync()`                                                      | After stop, before the collectible load context unloads.                                                                                              | Release whatever survived stop. Must not throw.                                                                                                                                                                                         |
+| `DisposeAsync()`                                                      | After stop, before the collectible load context unloads.                                                                                              | Release every remaining handle, even when an earlier owner throws. Never write the hardware; the journal covers a cycle that was not stopped.                                                                                           |
 
 ### Lifecycle records
 
@@ -246,9 +247,9 @@ disappears; nothing lingers as permanently unavailable.
 reference a predefined section without declaring it. A plugin can declare a record copy with
 categories; the predefined identity, title key, icon and ordering stay WSGM-owned. Existing valid
 declarations are accepted, with shared metadata canonicalized by the host. Custom sections still
-require a declaration. Hosts use `IncludePredefined` when validating and projecting layouts and
-render only populated pages. WSGM's Windows energy controls keep Power populated even when device
-integration is disabled.
+require a declaration. WSGM adds every shared page a plugin did not declare when it validates and
+projects a layout, and renders only populated pages. WSGM's Windows energy controls keep Power
+populated even when device integration is disabled.
 
 A section is a page of the Device overlay; a category is a heading on that page. Both travel inside
 the set so layout and content replace atomically. For custom sections, the plugin chooses placement,
@@ -392,8 +393,7 @@ back and confirmed to match what was applied), `Stale` (expired or its generatio
 `TextValue`. The static factories `CapabilityValue.None()`, `Boolean`, `Integer`, `Choice`, `Color`,
 `Curve` and `Text` build a value of that kind with its one field set; `Curve` stores the list it is
 given. `CurvePoint(int Input, int Output)` is one table entry, for example temperature in Celsius to
-duty in percent. `CapabilityStateDelta(long Sequence, CapabilityState State)` is one update as it
-arrives, with a producer-assigned monotonic sequence.
+duty in percent.
 
 ### `CapabilityCommand` and `CapabilityCommandResult`
 
@@ -406,19 +406,20 @@ arrives, with a producer-assigned monotonic sequence.
 | `ExpectedCycleGeneration`      | Must equal the current cycle generation.                                             |
 | `Deadline`                     | Active-time moment after which the command is not worth applying.                    |
 
-| `CommandOutcome`    | Meaning                                                                | Host handling                                                                 |
-| ------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `Accepted`          | Validated and queued; nothing reached hardware yet.                    | Waits for the eventual state.                                                 |
-| `AppliedUnverified` | Written, no readback available.                                        | Success; state quality stays `Observed`.                                      |
-| `AppliedVerified`   | Written and confirmed by an independent read; `ReadbackValue` present. | Success; state may be `Verified`.                                             |
-| `Rejected`          | Refused before anything was written.                                   | Shown with its reason.                                                        |
-| `TimedOut`          | Deadline passed; unknown whether applied.                              | Not success; never retried automatically.                                     |
-| `Indeterminate`     | Interrupted mid-operation; unknown whether applied.                    | Reported to the owning service; never retried blindly for a persistent write. |
+| `CommandOutcome`    | Meaning                                                                | Host handling                                                                              |
+| ------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `Accepted`          | Validated and kept for a later apply; nothing reached hardware yet.    | WSGM returns it for a native per-application value it saved to the running game's profile. |
+| `AppliedUnverified` | Written, no readback available.                                        | Success; state quality stays `Observed`.                                                   |
+| `AppliedVerified`   | Written and confirmed by an independent read; `ReadbackValue` present. | Success; state may be `Verified`.                                                          |
+| `Rejected`          | Refused before anything was written.                                   | Shown with its reason.                                                                     |
+| `TimedOut`          | Deadline passed; unknown whether applied.                              | Not success; never retried automatically.                                                  |
+| `Indeterminate`     | Interrupted mid-operation; unknown whether applied.                    | Reported to the owning service; never retried blindly for a persistent write.              |
 
-`CapabilityCommandResult`: `CommandId`, `Outcome`, `Reason`, `ReadbackValue` (only for
-`AppliedVerified`; this field, not the absence of an error, is what lets WSGM call a value
-verified), `Rollback`, `CompletedAt`. `RollbackResult`: `NotRequired`, `RestoredVerified`,
-`RestoredUnverified`, `RestoreFailed` (the resource is faulted and journalled for reconciliation).
+`CapabilityCommandResult`: `CommandId`, `Outcome`, `Reason`, `ReadbackValue` (the value the device
+now holds as WSGM should publish it: the readback for `AppliedVerified`, the written value for
+`AppliedUnverified`, absent when nothing was applied), `Rollback`, `CompletedAt`. `RollbackResult`:
+`NotRequired`, `RestoredVerified`, `RestoredUnverified`, `RestoreFailed` (the resource is faulted
+and journalled for reconciliation).
 
 ### `CapabilityReason`
 
@@ -646,7 +647,7 @@ plugin runs; dependencies, glyphs and recovery policy stay in plugin code or fix
   "id": "wsgm.device.msi.claw",
   "name": "MSI Claw",
   "version": "1.4.0",
-  "apiVersion": 11,
+  "apiVersion": 12,
   "entryAssembly": "WSGM.Device.Msi.Claw.dll",
   "entryType": "WSGM.Device.Msi.Claw.ClawPlugin",
   "hardware": [
@@ -679,15 +680,26 @@ field `Path`, a stable `ManifestValidationCode` and a message.
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
 | document        | ≤ 262,144 bytes                                                                                                                                 | `DocumentTooLarge`                       |
 | document        | non-empty, well-formed, no unknown members, depth ≤ 16, not null                                                                                | `MalformedDocument`                      |
-| `id`            | required; ASCII letters, digits, `.`, `-`, `_`                                                                                                  | `MissingField`, `InvalidIdentifier`      |
-| `name`          | required                                                                                                                                        | `MissingField`                           |
+| `id`            | required; lowercase ASCII letters, digits, `.`, `-`, `_`, starting with a letter or digit                                                       | `MissingField`, `InvalidIdentifier`      |
+| `name`          | required; plain text without control or bidirectional formatting characters                                                                     | `MissingField`, `InvalidText`            |
 | `version`       | required; canonical dotted numeric with 2–4 components that round-trips through `System.Version` (`1.0`, `1.0.0`, `1.0.0.0`; not `1` or `01.0`) | `MissingField`, `InvalidVersion`         |
 | `apiVersion`    | equals `DeviceApi.Version`                                                                                                                      | `InvalidApiVersion`                      |
-| `entryAssembly` | required; relative; no `:`; no empty, `.` or `..` segment; `.dll` extension                                                                     | `MissingField`, `UnsafePath`             |
-| `entryType`     | required; ASCII letters, digits, `.`, `_`, `+`, `` ` ``                                                                                         | `MissingField`, `InvalidIdentifier`      |
+| `entryAssembly` | required; a `.dll` file name at the package root: ASCII letters, digits, `.`, `_`, `-`, not starting with `.`                                   | `MissingField`, `UnsafePath`             |
+| `entryType`     | required; ASCII letters, digits, `.`, `_`, `+` (no generic type)                                                                                | `MissingField`, `InvalidIdentifier`      |
 | `hardware`      | optional; `HardwareMatchRule`s; each sets at least one field; each field non-blank plain text                                                   | `InvalidText`, `MissingField`            |
 | `capabilities`  | optional; distinct `CapabilityRole` names; an unknown name is a malformed document                                                              | `InvalidIdentifier`, `MalformedDocument` |
 | `wsgmVersion`   | optional; canonical dotted numeric version                                                                                                      | `InvalidVersion`                         |
+
+### Package layout (`PluginPackageLayout`)
+
+The archive rules WSGM applies when it opens a `.wsgmpkg`, and Device Lab and the packers apply too.
+`ReadEntries(Stream)` reads every file into memory and throws `InvalidDataException` for an archive
+over `MaxPackageBytes` (512 MiB on disk or uncompressed), a file over `MaxFileBytes` (128 MiB), an
+unsafe entry name (`TryNormalizeEntryName`: relative, `/`-separated, no `\`, `:`, empty, `.` or `..`
+segment), two names that differ only in case, or a native image (`IsImageName` and `IsManagedImage`:
+every `.dll`, `.exe` and `.sys` must carry a CLR header). Nothing limits how many files a package
+holds. `HostProvidedAssemblies` names the assemblies WSGM always supplies itself, which a packer
+leaves out.
 
 ### `HardwareMatchRule` and `HardwareMatcher`
 
@@ -725,27 +737,27 @@ identifier of the wrong shape.
 
 Schema version 1, camelCase JSON, unknown members rejected, depth ≤ 12.
 
-| Field              | Rule                                                                                                                                                     |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `schemaVersion`    | Must be 1.                                                                                                                                               |
-| `profileId`        | Identifier ≤ 128; must equal the file name.                                                                                                              |
-| `displayName`      | Plain text ≤ 128, no control characters.                                                                                                                 |
-| `revision`         | Positive integer.                                                                                                                                        |
-| `exactDeviceIds`   | ≤ 32 unique identifiers naming the device definitions the profile applies to.                                                                            |
-| `sourceRevision`   | Identifier ≤ 128, kept for attribution and reproducibility.                                                                                              |
-| `noticePath`       | Relative, forward slashes, ≤ 256, no leading `/`, no `\` or `:`, no `.` or `..` segment, only identifier characters per segment, ending `.md` or `.txt`. |
-| `assets`           | ≤ 128 `GlyphAssetEntry`, unique by `assetId`; the supplied bytes total ≤ 4 MiB.                                                                          |
-| `controllerImages` | Optional `fullAssetId`, `leftAssetId`, `rightAssetId`, each resolving to an asset of the matching role.                                                  |
-| `controls`         | ≤ 64 `GlyphControlMapping`, unique by control.                                                                                                           |
-| `aliases`          | ≤ 64 `GlyphControlAlias`, unique by logical control.                                                                                                     |
+| Field              | Rule                                                                                                                                              |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `schemaVersion`    | Must be 1.                                                                                                                                        |
+| `profileId`        | Identifier; must equal the file name.                                                                                                             |
+| `displayName`      | Plain text, no control characters.                                                                                                                |
+| `revision`         | Positive integer.                                                                                                                                 |
+| `exactDeviceIds`   | Unique identifiers naming the device definitions the profile applies to.                                                                          |
+| `sourceRevision`   | Identifier, kept for attribution and reproducibility.                                                                                             |
+| `noticePath`       | Relative, forward slashes, no leading `/`, no `\` or `:`, no `.` or `..` segment, only identifier characters per segment, ending `.md` or `.txt`. |
+| `assets`           | `GlyphAssetEntry` records, unique by `assetId`; the supplied bytes total ≤ 4 MiB.                                                                 |
+| `controllerImages` | Optional `fullAssetId`, `leftAssetId`, `rightAssetId`, each resolving to an asset of the matching role.                                           |
+| `controls`         | `GlyphControlMapping` records, unique by control.                                                                                                 |
+| `aliases`          | `GlyphControlAlias` records, unique by logical control.                                                                                           |
 
-`GlyphAssetEntry`: `assetId` (identifier ≤ 128, naming the file under `glyphs/assets`), `format`
-(`Svg` or `Png`), `role` (`Control`, `FullController`, `LeftController`, `RightController`,
+`GlyphAssetEntry`: `assetId` (identifier, naming the file under `glyphs/assets`), `format` (`Svg` or
+`Png`), `role` (`Control`, `FullController`, `LeftController`, `RightController`,
 `ControlHighlight`), and exactly one of `viewBox` for SVG (positive width and height, every extent
 within ±4096) or `pixelWidth`/`pixelHeight` for PNG (each ≤ 4096, product ≤ 4,194,304).
 
 `GlyphControlMapping`: `control` (`GlyphControlId`), `presence` (`Present` or `Absent`), `side`
-(`None`, `Left`, `Right`), `physicalLabel` (plain text ≤ 32), `assetId` (must resolve to a `Control`
+(`None`, `Left`, `Right`), `physicalLabel` (plain text), `assetId` (must resolve to a `Control`
 asset; forbidden when `Absent`; null means the generic fallback), `highlightAssetId` (must resolve
 to a `ControlHighlight` asset; forbidden when `Absent`; null means selecting the control lights
 nothing on the controller diagram), `softPullAssetId` (must resolve to a `Control` asset; forbidden
@@ -785,12 +797,13 @@ SVG rules: strict UTF-8, bounded well-formed XML with an `svg` root, a view box 
 matching the lock entry. The author's bytes are kept intact for Steam. Separately, the paths WSGM's
 own Avalonia renderer can draw are extracted into `NormalizedGlyphSvg.Paths` (each a
 `NormalizedGlyphPath` with data, fill, stroke, stroke width, fill rule, cap and join resolved
-through enclosing groups) under `MaxSvgPaths = 256`, `MaxSvgCommands = 4096` and
-`MaxPathDataLength = 64 KiB`. Drawing features the renderer does not understand affect only that
-local projection; the document still imports and still reaches Steam.
+through enclosing groups), every non-blank path however many there are. Drawing features the
+renderer does not understand affect only that local projection; the document still imports and still
+reaches Steam.
 
 PNG rules: the eight-byte signature and IHDR must be present and the header dimensions must match
-the declared pixel width and height. The exact bytes are retained as `ImportedGlyphAsset.RasterPng`.
+the declared pixel width and height. Animation chunks are refused; text and other ancillary chunks
+are skipped. The exact bytes are retained as `ImportedGlyphAsset.RasterPng`.
 
 `ImportedGlyphProfile` is the validated, ordered manifest plus `Assets` keyed by package-scoped
 asset identifier. `ImportedGlyphAsset.RetainedBytes` is the payload size a bounded cache accounts
@@ -836,10 +849,10 @@ package keeps its machine-specific services, identity snapshot and recovery stat
 state machine, the walks that apply results, the command gate with its observation loop, and the
 journal file.
 
-Disposal stops the serializer's observation loop but retains its managed gate, and journal disposal
-retains its write gate, so in-flight and queued work can finish safely. Post-command publication and
-failed-start rollback use active-time deadline tokens; rollback passes the supplied cycle deadline
-through every release and retraction.
+Disposal stops the serializer's observation loop but retains its managed gate, so in-flight and
+queued work can finish safely. The journal is not disposable; its write gate lives as long as the
+journal. Post-command publication and failed-start rollback use active-time deadline tokens;
+rollback passes the supplied cycle deadline through every release and retraction.
 
 Only a missing journal file counts as an absent record. A directory, read failure, malformed
 document or undefined recovery status blocks mutations and preserves the existing record. Status
@@ -851,16 +864,24 @@ permanent fault.
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `DeviceServiceState`            | `Idle`, `Acquiring`, `Owned`, `Passive`, `Degraded`, `Releasing`, `ReleasedUnverified`, `Faulted`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `DeviceCycleContext<TIdentity>` | Cycle generation, the operation's `Deadline`, and the package's identity snapshot.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `DeviceServiceStatus`           | A service's id, state and reason. `Fault` lasts until the next acquisition; `ReconciliationBlockReason` outlives the cycle and keeps the service faulted.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `DeviceServiceStatus`           | A service's id, state and reason. `Fault` lasts until the next acquisition; `ReconciliationBlockReason` outlives the cycle, and the service itself decides how it acquires and releases while it is set.                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `DeviceService<TIdentity>`      | Adds `AcquireAsync`, `ReleaseAsync` and `SuspendAsync` (a release unless overridden, run only when `Suspendable`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `DeviceServiceLifecycle`        | Acquires, suspends and releases one service and applies the result: an exception faults only that service, an acquisition outside Owned, Passive, Degraded or Faulted faults it, and a release outside Idle, ReleasedUnverified or Faulted, or past its deadline, is unverified. `AcquireAllAsync` walks services in start order, `SuspendAllAsync` (suspendable ones only) and `ReleaseAllAsync` in reverse, and `RollBackStartAsync` releases every service of a failed start and retracts its physical devices, OEM controls and descriptors. Also builds the start and stop results, the default state reason and the `device`/`plugin`/`unavailable` ownership choice. |
 | `DeviceCommandSerializer`       | One gate for a plugin's commands, lifecycle transitions (`RunAsync`) and a 10-second observation loop, so a refresh never interleaves with a write. `ExecuteAsync` refuses a command while the cycle is inactive or quiescing, before and after its turn, and after an applied write refreshes and republishes within the command's deadline (at most 2 s); a `ScenarioMode` write whose resulting limits cannot be published is indeterminate. The plugin supplies the accepting descriptor set, the refresh and the publication; `StopObservation` also cancels a post-command publication in flight.                                                                     |
 | `DeviceRecoveryJournal<TState>` | `temporary-state.v1.json` in the plugin state directory: one entry per service with the original captured before its first mutation, the firmware it belongs to and the restore status, replaced atomically. A package derives it with its source-generated `DeviceRecoveryDocument<TState>` type information and entry validation, and decides when an entry is restored. `DiagnosticState` reads `blocked`, `pending` or `healthy`.                                                                                                                                                                                                                                       |
-| `DeviceRecoveryStatus`          | `Pending`, `RestoredVerified` (removes the entry), `RestoredUnverified`, `RestoreFailed`. `BeginAsync` refuses to overwrite an unresolved entry.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `DeviceRecoveryStatus`          | `Pending`, `RestoredVerified` (removes the entry), `RestoredUnverified`, `RestoreFailed`. The last two are for a package that can read its state back. `BeginAsync` replaces an entry bound to other firmware with the fresh capture and sets an unverified or failed entry on the same firmware pending again; `PendingOriginalFor` is what a release may write back.                                                                                                                                                                                                                                                                                                      |
 
 `CommandResults` (in `Capabilities`) builds the verified, unverified, rejected and indeterminate
-`CapabilityCommandResult`s, and `DiagnosticText.FromException` (in `Plugin`) turns an exception into
-one plain line for a reason or a trace.
+`CapabilityCommandResult`s; an unverified result carries no readback, and the plugin publishes the
+written value as the observed state. `DiagnosticText.FromException` (in `Plugin`) turns an exception
+into one plain line for a reason or a trace. `DeviceWriteBudget` (in `Lifecycle`) refuses a write
+when a deadline leaves less than two seconds, through `IsAvailable` or through `Require`, which
+throws `DeviceWriteBudgetException` (not a cancellation): a command refused this way is rejected and
+may be retried, and a release leaves its recovery entry pending.
+`CapabilityValueValidation.ValueMatches` (in `Capabilities`) is the value check WSGM applies before
+dispatch, for a plugin to repeat when it revalidates a command. `CapabilityIds` names the capability
+ids the first-party packages declare and WSGM persists in profiles, and `SourceOwnership` the
+`device`, `plugin` and `unavailable` choices `DeviceServiceLifecycle.Ownership` projects.
 
 ## Serialization
 
@@ -898,9 +919,9 @@ The compiler catches none of these; the host relies on all of them.
 - Revalidate on every command: identity, firmware, range and current state. Then check
   `ExpectedDescriptorGeneration` and `ExpectedCycleGeneration` and return `Rejected` with
   `GenerationChanged` when either is stale.
-- Report the truth. `AppliedVerified` only with a `ReadbackValue`; `AppliedUnverified` without
-  readback; `TimedOut` or `Indeterminate` when the outcome is unknown. Never retry an uncertain
-  persistent write yourself.
+- Report the truth. `AppliedVerified` with the readback as `ReadbackValue`; `AppliedUnverified` with
+  the written value there; `TimedOut` or `Indeterminate` when the outcome is unknown. Never retry an
+  uncertain persistent write yourself.
 - Never gate a write on readback. Write, publish the written value as observed, and let a matching
   readback upgrade the result to verified; a missing or different readback leaves it unverified.
 - Publish whole sets. Descriptors, OEM controls and physical devices replace what came before. Bump
@@ -923,20 +944,17 @@ The compiler catches none of these; the host relies on all of them.
 
 ## Limits at a glance
 
-| Limit                                                        | Value                   | Defined on                              |
-| ------------------------------------------------------------ | ----------------------- | --------------------------------------- |
-| API version                                                  | 11                      | `DeviceApi.Version`                     |
-| Manifest document                                            | 256 KiB, depth 16       | `ManifestLimits`                        |
-| Haptic frame rate default                                    | 60 fps                  | `HapticCapabilities.MaxFramesPerSecond` |
-| Glyph profile document                                       | 256 KiB, depth 12       | `GlyphProfileLimits.MaxDocumentBytes`   |
-| Glyph asset                                                  | 512 KiB                 | `GlyphProfileLimits.MaxAssetBytes`      |
-| Glyph profile aggregate                                      | 4 MiB                   | `GlyphProfileLimits.MaxProfileBytes`    |
-| Glyph notice                                                 | 256 KiB                 | `GlyphProfileLimits.MaxNoticeBytes`     |
-| Glyph dimension / raster pixels                              | 4096 / 4,194,304        | `GlyphProfileLimits`                    |
-| Glyph assets / profiles / controls / aliases / exact devices | 128 / 32 / 64 / 64 / 32 | `GlyphProfileLimits`                    |
-| Glyph identifier / display name / physical label             | 128 / 128 / 32          | `GlyphProfileLimits`                    |
-| SVG paths / commands / path data                             | 256 / 4096 / 64 KiB     | `GlyphProfileLimits`                    |
-| Notice path                                                  | 256                     | `GlyphPackageImporter`                  |
+| Limit                           | Value             | Defined on                              |
+| ------------------------------- | ----------------- | --------------------------------------- |
+| API version                     | 12                | `DeviceApi.Version`                     |
+| Manifest document               | 256 KiB, depth 16 | `ManifestLimits`                        |
+| Package file / whole package    | 128 MiB / 512 MiB | `PluginPackageLayout`                   |
+| Haptic frame rate default       | 60 fps            | `HapticCapabilities.MaxFramesPerSecond` |
+| Glyph profile document          | 256 KiB, depth 12 | `GlyphProfileLimits.MaxDocumentBytes`   |
+| Glyph asset                     | 512 KiB           | `GlyphProfileLimits.MaxAssetBytes`      |
+| Glyph profile aggregate         | 4 MiB             | `GlyphProfileLimits.MaxProfileBytes`    |
+| Glyph notice                    | 256 KiB           | `GlyphProfileLimits.MaxNoticeBytes`     |
+| Glyph dimension / raster pixels | 4096 / 4,194,304  | `GlyphProfileLimits`                    |
 
 ## Device power presets
 
@@ -996,3 +1014,4 @@ separate work.
 | 9   | Every lifecycle context and `CapabilityCommand` carries a `Deadline` measured on `ActiveClock` instead of a UTC `DateTimeOffset`. Time the process spends frozen by Modern Standby, sleep or hibernation does not count against it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | 10  | Simpler controller model. `CanonicalControllerSample` loses `Sequence`, `CycleGeneration` and `Quality` (`SampleQuality` is gone), `OemControlEvent` loses `SourceGeneration`, `HapticOutputFrame` loses `TargetGeneration`, and `PluginControllerManagementContext` loses `CycleGeneration`. `ReleaseControllerAsync` is best effort and returns `ValueTask`, so `PluginControllerRelease`, `ControllerHandoffStep` and `ControllerHandoffResult` are gone. `SetMotionDemandAsync` and `PluginMotionDemandContext` are removed: a plugin streams motion for as long as it owns the controller. New shared helpers in `WSGM.Device.Sdk.Windows` and `WSGM.Device.Sdk.Input`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | 11  | Shared service scaffolding: `WSGM.Device.Sdk.Services` (`DeviceService`, `DeviceServiceLifecycle`, `DeviceCommandSerializer`, `DeviceRecoveryJournal`), `CommandResults` and `DiagnosticText`. A plugin built against them cannot load on an older host, so the exact match refuses it. `DeviceDiagnosticsSnapshot`, which no host assembled, is removed. `HidDevices.EnumerateAll`, `HidDevices.Inspect` (`HidCollectionDetails`, `HidCapability`, `HidReportType`) and `HidCollection.ReleaseNumber` are new. `HapticOutputFrame` is a readonly record struct. Identifiers, labels, titles, descriptions, preset names and manifest fields are checked for shape only: the length and count limits (`MaxCustomLabelLength`, `MaxSections`, `MaxCategories`, the section, category and setting id lengths, `MaxChoices`, `MaxSettings`, `MaxTextLength`, the preset count, `HardwareMatchRule.MaxRules` and `MaxFieldLength`, and the manifest id, text and path lengths) are removed, `PlainText.IsIdentifier` takes no length, `PlainText.TryValidate` gains an overload without one, and `ManifestValidationCode.LimitExceeded` becomes `InvalidText`. `PluginTrace.MaxMessageLength` is removed; trace lines are recorded whole. `IPluginHostAdapter.TraceChange` loses its default implementation, so every host adapter implements it. `CapabilityCommand.ApplyPowerPair` is replaced by `PairedPowerLimitWatts`: the host decides both limits of a declared power pair, every write to either carries the other, and `DevicePowerPair.TryResolve` and `Peer` are new. `CapabilityDescriptor` gains `ProfileScope` (`Switched`, `GlobalOnly`, `NativePerApplication`) and `ApplyTiming` (`Immediate`, `NextApplicationStart`, `SystemRestart`). Both default to the earlier behaviour. |
+| 12  | Glyph import keeps only its byte and decode bounds: `GlyphProfileLimits` loses `MaxAssets`, `MaxProfiles`, `MaxControls`, `MaxAliases`, `MaxExactDevices`, `MaxIdentifierLength`, `MaxDisplayNameLength`, `MaxPhysicalLabelLength`, `MaxSvgPaths`, `MaxSvgCommands` and `MaxPathDataLength`, every SVG path is projected, and a PNG text chunk is skipped instead of refused. The host-only `CapabilityStateDelta` and `DeviceSections.IncludePredefined` move into WSGM. `ManifestRules` holds the identity and entry-point rules both manifest readers share: a lowercase package identifier, a canonical version, a `.dll` file name at the package root, an entry type without a backtick, and a plain-text package name. `DeviceRecoveryJournal` is no longer `IAsyncDisposable`, and a plugin's `DisposeAsync` only releases handles after the host awaited `StopAsync`. `DeviceRecoveryJournal.CheckHealthAsync` is removed: opening the record proves the directory writable. `BeginAsync` no longer refuses an unresolved entry: it replaces an entry bound to other firmware and sets an unverified or failed one on the same firmware pending again, and `PendingOriginalFor` is new. `CommandResults.Unverified(command, written)` is removed, because an unverified result carries no readback. `DeviceWriteBudget` and `DeviceWriteBudgetException`, `CapabilityValueValidation`, `CapabilityIds` and `SourceOwnership` are new.                                                                                                                                                                                                                                                                                                                                                |

@@ -31,9 +31,9 @@ internal sealed class DisplayResolutionService
     /// <summary>Creates the service against the real display.</summary>
     internal DisplayResolutionService()
         : this(
-            DisplayProfiles.EnumerateAcceptedResolutions,
-            DisplayProfiles.TryApplyTransientResolution,
-            DisplayProfiles.ReadCurrentResolution)
+            PrimaryDisplayModes.EnumerateAcceptedResolutions,
+            PrimaryDisplayModes.TryApplyTransientResolution,
+            PrimaryDisplayModes.ReadCurrentResolution)
     {
     }
 

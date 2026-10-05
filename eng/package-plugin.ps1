@@ -5,10 +5,11 @@ Builds a common plugin into a .wsgmpkg without loading or installing it.
 .DESCRIPTION
 Uses a new staging directory and create-new archive publication. The manifest is validated by this
 checkout's common Plugin SDK through plugin-manifest.cs, the reader the host uses at discovery. This
-command then checks the common category, entry file and package contents before creating the
-archive. WSGM loads the package straight from the file, so the plugin is published for win-x64,
-which puts every dependency at the package root, and a native image is refused because it cannot be
-loaded from memory. Install it by copying the file into %ProgramFiles%\WSGM\Plugins.
+command then checks the common category and entry file, creates the archive and validates it with
+the Device SDK's package layout (plugin-manifest.cs validate-package), the rules WSGM applies when it
+opens the package. WSGM loads the package straight from the file, so the plugin is published for
+win-x64, which puts every dependency at the package root, and a native image is refused because it
+cannot be loaded from memory. Install it by copying the file into %ProgramFiles%\WSGM\Plugins.
 A graphics package (wsgm.gpu) is a common package too; the SDK refuses one that declares no display
 adapter or no capability. It calls its vendor's driver library from the system, never a packaged copy.
 #>
@@ -48,20 +49,16 @@ try {
     if (-not (Test-Path -LiteralPath (Join-Path $payload $manifest.entryAssembly) -PathType Leaf)) {
         throw 'Entry assembly must exist at the package root.'
     }
+    # CreateFromDirectory would follow a link into the archive.
     $files = @(Get-ChildItem -LiteralPath $payload -Recurse -Force)
-    if ($files.Count -gt 4096 -or @($files | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }).Count) {
-        throw 'Package contains too many entries or a reparse point.'
-    }
-    foreach ($image in @($files | Where-Object { $_.Extension -in '.dll', '.exe', '.sys' })) {
-        $stream = [IO.File]::OpenRead($image.FullName)
-        try {
-            $pe = [Reflection.PortableExecutable.PEReader]::new($stream)
-            if ($null -eq $pe.PEHeaders.CorHeader) { throw "Packages may carry managed assemblies only: $($image.Name) is native." }
-        }
-        finally { $stream.Dispose() }
+    if (@($files | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }).Count) {
+        throw 'Package contains a reparse point.'
     }
     $stagedArchive = Join-Path $stage 'package.zip'
     [IO.Compression.ZipFile]::CreateFromDirectory($payload, $stagedArchive)
+    # The archive WSGM will open, checked by the SDK's package layout as WSGM checks it.
+    $packageValidation = @(& dotnet run --file (Join-Path $PSScriptRoot 'plugin-manifest.cs') -- validate-package $stagedArchive 2>&1)
+    if ($LASTEXITCODE -ne 0) { throw "WSGM would refuse the package:`n$($packageValidation -join [Environment]::NewLine)" }
     Publish-DevicePackageArchive -StagedArchive $stagedArchive -Archive $archivePath
     Write-Output "Created $archivePath for $($manifest.id) $($manifest.version). No plugin code was loaded."
 }

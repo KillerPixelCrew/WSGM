@@ -19,11 +19,11 @@ namespace WSGM.Device.Sdk.Services;
 ///     information for its state, validates its entries, and owns the policy for when an entry is restored.
 ///     A record another build of the package wrote loads as long as its entries validate, so the package's
 ///     JSON context should ignore members its state type does not declare.
-///     A record that cannot be loaded, or fails an explicit health check, leaves
-///     <see cref="FailureReason" /> set and refuses changes. A failed save refuses its own mutation;
-///     it does not permanently block later writes after a transient file lock has been released.
+///     A record that cannot be loaded, or a state directory that cannot be written when it is opened,
+///     leaves <see cref="FailureReason" /> set and refuses changes. A failed save refuses its own
+///     mutation; it does not permanently block later writes after a transient file lock has been released.
 /// </remarks>
-public abstract class DeviceRecoveryJournal<TState> : IAsyncDisposable
+public abstract class DeviceRecoveryJournal<TState>
     where TState : class
 {
     private const int CurrentVersion = 1;
@@ -50,12 +50,6 @@ public abstract class DeviceRecoveryJournal<TState> : IAsyncDisposable
     public string DiagnosticState =>
         FailureReason is not null ? "blocked" : _entries.Count == 0 ? "healthy" : "pending";
 
-    /// <inheritdoc />
-    public ValueTask DisposeAsync()
-    {
-        return ValueTask.CompletedTask;
-    }
-
     /// <summary>The outstanding entry of a service, if it has one.</summary>
     /// <param name="serviceId">The service.</param>
     /// <returns>The entry, or null.</returns>
@@ -80,18 +74,26 @@ public abstract class DeviceRecoveryJournal<TState> : IAsyncDisposable
         return EntryFor(serviceId)?.OriginalState;
     }
 
+    /// <summary>The original a release may write back: that of a pending entry only.</summary>
+    /// <param name="serviceId">The service being released.</param>
+    /// <returns>The captured state, or null when the service has no pending entry.</returns>
+    public TState? PendingOriginalFor(string serviceId)
+    {
+        return EntryFor(serviceId) is { Status: DeviceRecoveryStatus.Pending } entry ? entry.OriginalState : null;
+    }
+
     /// <summary>Records the state captured before a service's first mutation.</summary>
     /// <param name="serviceId">The service about to mutate.</param>
     /// <param name="firmwareIdentity">The firmware the captured state belongs to.</param>
     /// <param name="originalState">The state to restore.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
     /// <returns>
-    ///     The new entry, opened; or a pending entry already outstanding, kept with its first original and
-    ///     not opened.
+    ///     A new entry, opened, when the service has none or its entry belongs to other firmware, which
+    ///     the fresh capture replaces. An entry on the same firmware keeps its first original and is not
+    ///     opened; one whose restore was unverified or failed is set pending again, because the explicit
+    ///     command that calls this is the user action that lets the next release write that original.
     /// </returns>
-    /// <exception cref="InvalidOperationException">
-    ///     The record is unavailable, or the service's entry holds an unresolved restore.
-    /// </exception>
+    /// <exception cref="InvalidOperationException">The record is unavailable.</exception>
     public async ValueTask<DeviceRecoveryOperation<TState>> BeginAsync(
         string serviceId,
         string firmwareIdentity,
@@ -110,17 +112,24 @@ public abstract class DeviceRecoveryJournal<TState> : IAsyncDisposable
         await _writeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (EntryFor(serviceId) is { } existing)
+            List<DeviceRecoveryEntry<TState>> others =
+            [
+                .. _entries.Where(item => !string.Equals(item.ServiceId, serviceId, StringComparison.Ordinal))
+            ];
+            if (EntryFor(serviceId) is { } existing
+                && string.Equals(existing.FirmwareIdentity, firmwareIdentity, StringComparison.Ordinal))
             {
-                if (existing.Status is DeviceRecoveryStatus.RestoredUnverified or DeviceRecoveryStatus.RestoreFailed)
+                if (existing.Status is DeviceRecoveryStatus.Pending)
                 {
-                    throw new InvalidOperationException($"Recovery for service '{serviceId}' is unresolved.");
+                    return new DeviceRecoveryOperation<TState>(existing, false);
                 }
 
-                return new DeviceRecoveryOperation<TState>(existing, false);
+                var rearmed = existing with { Status = DeviceRecoveryStatus.Pending };
+                await SaveAsync([.. others, rearmed], cancellationToken).ConfigureAwait(false);
+                return new DeviceRecoveryOperation<TState>(rearmed, false);
             }
 
-            await SaveAsync([.. _entries, entry], cancellationToken).ConfigureAwait(false);
+            await SaveAsync([.. others, entry], cancellationToken).ConfigureAwait(false);
             return new DeviceRecoveryOperation<TState>(entry, true);
         }
         finally
@@ -175,40 +184,7 @@ public abstract class DeviceRecoveryJournal<TState> : IAsyncDisposable
         }
     }
 
-    /// <summary>Writes the record again to prove it is still writable.</summary>
-    /// <param name="cancellationToken">Cancels the write.</param>
-    /// <returns><see cref="FailureReason" /> after the check.</returns>
-    public async ValueTask<CapabilityReason?> CheckHealthAsync(CancellationToken cancellationToken)
-    {
-        if (FailureReason is not null)
-        {
-            return FailureReason;
-        }
-
-        await _writeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await SaveAsync([.. _entries], cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            FailureReason = new CapabilityReason(
-                CapabilityReasonCode.TransportFaulted,
-                $"The plugin recovery record is not writable ({ex.GetType().Name}).");
-        }
-        finally
-        {
-            _writeGate.Release();
-        }
-
-        return FailureReason;
-    }
-
-    /// <summary>Opens the record in the plugin state directory and loads its entries.</summary>
+    /// <summary>Opens the record in the plugin state directory, loads its entries and proves it writable.</summary>
     /// <param name="stateDirectory">The plugin state directory WSGM provided.</param>
     /// <param name="cancellationToken">Cancels the read.</param>
     /// <returns>A task completing once the entries are loaded or <see cref="FailureReason" /> is set.</returns>
@@ -259,6 +235,24 @@ public abstract class DeviceRecoveryJournal<TState> : IAsyncDisposable
         {
             FailureReason = Unavailable($"The plugin recovery record is unavailable or invalid ({ex.GetType().Name}).");
             _entries = [];
+            return;
+        }
+
+        // The temporary file a save writes proves the directory writable without touching the record,
+        // so a start finds a refused directory before the first command needs it.
+        var probe = _path + ".tmp";
+        try
+        {
+            await File.WriteAllBytesAsync(probe, [], cancellationToken).ConfigureAwait(false);
+            File.Delete(probe);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            FailureReason = Unavailable($"The plugin recovery record is not writable ({ex.GetType().Name}).");
         }
     }
 

@@ -41,16 +41,18 @@ commit.
 Match the machine as HC's `IDevice.GetCurrent` does: baseboard manufacturer `MICRO-STAR INTERNATIONAL CO., LTD.` and
 a baseboard product in `ClawModels`. The SKU is recorded, never matched. Package ID `wsgm.device.msi.claw` and the
 per-model definition IDs (`ms-1t41` ... `ms-1t91`) identify software records, not the machine. WMI-backed services need
-only the MSI_ACPI provider, bound at HC's instance path. `Get_WMI` and `Get_EC` are read for the recovery binding and
-may fail without consequence; where the EC version cannot be decoded, the BIOS version binds instead. A journal entry
-bound to another firmware, or to one that could not be told apart, is dropped rather than restored; only a failed
-restore blocks. MSI USB VID `0DB0` with the supported PIDs gates the controller. Never gate on a firmware revision, EC
-or MCU (USB `bcdDevice`): MSI ships both through Windows Update and its updater, and the 0229 gate refused controller
-ownership and lighting on every unit that moved to 0230. Record revisions for diagnostics. MCU addresses (lighting and
-the paddle mapping) follow HC's nearest-firmware table.
+only the MSI_ACPI provider, bound at HC's instance path. Power and fan recovery entries bind to the SMBIOS BIOS
+version (MSI ships EC updates inside BIOS packages). `Get_WMI` and `Get_EC` are read for diagnostics and to migrate
+entries earlier builds bound to them, and may fail without consequence. An entry bound to another BIOS is dropped
+rather than restored. Unresolved entries are kept and never written automatically; an explicit command re-arms them.
+No reconciliation outcome blocks a service. MSI USB VID `0DB0` with the supported PIDs gates the controller. Never
+gate on a firmware revision, EC or MCU (the HID collection's release number): MSI ships both through Windows Update and
+its updater, and the 0229 gate refused controller ownership and lighting on every unit that moved to 0230. Record
+revisions for diagnostics. MCU addresses (lighting and the paddle mapping) follow HC's nearest-firmware table.
 
-Detection must remain side-effect free. `StartAsync` and every command must revalidate live identity, model, service
-availability, generation, deadline and range before access. Install `PluginTrace` before the first hardware read.
+Detection must remain side-effect free. Identity is a snapshot per start and resume (and when controller management is
+turned on); a command reads the AC line and revalidates service availability, generation, deadline and range before
+access. Install `PluginTrace` before the first hardware read.
 Report truthful outcomes: a write the transport failed is indeterminate, never success.
 
 ## Readback
@@ -107,7 +109,7 @@ and lighting payloads; power and charge use zero-filled envelopes with the value
   physical device through `DEVPKEY_Device_LocationPaths`. On release switch to XInput, as HC's `Close` does, whatever
   mode the controller was found in.
 - Power, fans, and controller mode are temporary. Capture the first original value in `temporary-state.v1.json` before
-  mutation when it can be read, restore power and fans only on the same firmware binding, and restore controller mode on
+  mutation when it can be read, restore power and fans only on the same BIOS binding, and restore controller mode on
   any MCU revision. A restore is complete once its writes went through.
 - Intel graphics-driver controls (variable refresh, Endurance Gaming, shader download, shared GPU memory, driver
   VSync) belong to the `wsgm.gpu.intel` plugin, not to this package.

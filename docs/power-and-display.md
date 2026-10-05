@@ -589,7 +589,7 @@ that keeps the persisted preference unchanged. It does not prove that a process 
 restores the active timing. WSGM explicitly restores the original rate on normal release; Windows
 reconstructs display state on reboot.
 
-Consequences encoded in `Core\FrameLimitPairing.cs`, `Core\EdidModes.cs` and
+Consequences encoded in `Core\FrameLimitPairing.cs`, `Core\PrimaryDisplayModes.cs` and
 `Core\RefreshRatePairingService.cs`:
 
 - Enumeration alone cannot tell an advertised mode from a synthesized one, so the native-modes

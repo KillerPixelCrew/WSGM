@@ -3,8 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using WSGM.Device.Sdk;
-using WSGM.Install;
-using WSGM.Plugin.Sdk;
 using CommonManifest = WSGM.Plugin.Sdk.PluginManifest;
 using DeviceManifest = WSGM.Device.Sdk.Packaging.PluginManifest;
 
@@ -55,6 +53,9 @@ internal sealed record InstalledDevicePackage
 
     /// <summary>Sanitized diagnostic detail.</summary>
     public string? Detail { get; init; }
+
+    /// <summary>The SHA-256 of the package file as upper-case hex, read when it was discovered.</summary>
+    public string Sha256 { get; init; } = "";
 }
 
 /// <summary>The device side of one Plugins folder read.</summary>
@@ -74,10 +75,11 @@ internal sealed record DevicePackageDiscovery
 }
 
 /// <summary>One installed non-device package, admitted by metadata only.</summary>
-internal sealed record CommonInstalledPlugin(
-    string PackagePath,
-    CommonManifest Manifest,
-    Func<IPlugin>? Factory = null);
+internal sealed record CommonInstalledPlugin(string PackagePath, CommonManifest Manifest)
+{
+    /// <summary>The SHA-256 of the package file as upper-case hex, read when it was discovered.</summary>
+    public string Sha256 { get; init; } = "";
+}
 
 /// <summary>One package file that was not selected, and why.</summary>
 internal sealed record PluginPackageNotice(string PackagePath, string Id, string Reason);
@@ -85,8 +87,6 @@ internal sealed record PluginPackageNotice(string PackagePath, string Id, string
 /// <summary>Everything one read of the Plugins folder found. Discovery never loads plugin code.</summary>
 internal sealed record PluginPackageCatalog
 {
-    private const int MaxPackages = 128;
-
     /// <summary>The device package, if any, and why it may or may not run.</summary>
     public required DevicePackageDiscovery Device { get; init; }
 
@@ -107,32 +107,13 @@ internal sealed record PluginPackageCatalog
         Errors = []
     };
 
-    /// <summary>Reads the production Plugins folder.</summary>
-    /// <remarks>Package files the Plugins page removed while they were loaded are deleted first.</remarks>
-    internal static PluginPackageCatalog DiscoverInstalled()
-    {
-        PendingPluginRemovals.Apply(InstallLayout.Plugins);
-        return Discover(InstallLayout.Plugins);
-    }
-
     /// <summary>The id of the installed, valid device plugin, or null when there is none.</summary>
     /// <remarks>
     ///     A settings declaration is cached in configuration and outlives its package, so every surface
     ///     that draws device plugin settings keeps to the scope of the plugin actually installed.
     /// </remarks>
-    internal static string? InstalledDevicePluginId()
-    {
-        try
-        {
-            var package = DiscoverInstalled().Device.InstalledPackage;
-            return package is { Valid: true, Manifest: { } manifest } ? manifest.Id : null;
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Plugin settings unavailable: installed packages could not be inspected ({ex.Message}).");
-            return null;
-        }
-    }
+    internal string? InstalledDevicePluginId =>
+        Device.InstalledPackage is { Valid: true, Manifest: { } manifest } ? manifest.Id : null;
 
     /// <summary>Reads every <c>.wsgmpkg</c> directly in <paramref name="pluginsRoot" />.</summary>
     /// <param name="pluginsRoot">The folder holding package files.</param>
@@ -140,7 +121,9 @@ internal sealed record PluginPackageCatalog
     /// <remarks>
     ///     For each id the highest version wins; older files stay on disk and are reported, because WSGM
     ///     never deletes a file it did not place. Two different device package ids refuse device
-    ///     integration entirely rather than choose between them.
+    ///     integration entirely rather than choose between them. Reading changes nothing on disk: pending
+    ///     removals are applied once at startup, and every package is opened and hashed here, so call it
+    ///     off the UI thread.
     /// </remarks>
     internal static PluginPackageCatalog Discover(string pluginsRoot)
     {
@@ -171,12 +154,7 @@ internal sealed record PluginPackageCatalog
                     .Where(path => string.Equals(Path.GetExtension(path), PluginPackageFile.Extension,
                         StringComparison.OrdinalIgnoreCase))
                     .Order(StringComparer.OrdinalIgnoreCase)
-                    .Take(MaxPackages + 1)
             ];
-            if (files.Length > MaxPackages)
-            {
-                throw new InvalidDataException($"The Plugins folder holds more than {MaxPackages} packages.");
-            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException
                                        or ArgumentException)
@@ -198,7 +176,7 @@ internal sealed record PluginPackageCatalog
                 }
 
                 candidates.Add(new Candidate(package.Path, package.Id, ParseVersion(package.Version),
-                    package.DeviceManifest, package.CommonManifest, package.EntryIsX64Assembly));
+                    package.DeviceManifest, package.CommonManifest, package.EntryIsX64Assembly, package.HashFile()));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException
                                            or ArgumentException)
@@ -230,7 +208,10 @@ internal sealed record PluginPackageCatalog
             [
                 .. selected.Where(candidate => candidate.Common is not null)
                     .OrderBy(candidate => candidate.Id, StringComparer.Ordinal)
-                    .Select(candidate => new CommonInstalledPlugin(candidate.Path, candidate.Common!))
+                    .Select(candidate => new CommonInstalledPlugin(candidate.Path, candidate.Common!)
+                    {
+                        Sha256 = candidate.Sha256
+                    })
             ],
             Superseded = superseded.AsReadOnly(),
             Errors = errors.AsReadOnly()
@@ -267,7 +248,8 @@ internal sealed record PluginPackageCatalog
             Manifest = device.Device,
             Valid = code is null,
             RejectionCode = code,
-            Detail = detail
+            Detail = detail,
+            Sha256 = device.Sha256
         };
     }
 
@@ -282,5 +264,6 @@ internal sealed record PluginPackageCatalog
         Version Version,
         DeviceManifest? Device,
         CommonManifest? Common,
-        bool EntryIsX64Assembly);
+        bool EntryIsX64Assembly,
+        string Sha256);
 }

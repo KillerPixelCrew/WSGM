@@ -183,8 +183,9 @@ without a plugin; see the 2026-09-24 entry in `docs/decisions.md`.
 
 ## Package and scaffold rules
 
-- Package validation is static and must never load plugin code. Keep manifest/layout, managed-x64 PE, entry-count,
-  file-size, aggregate-size, and prohibited-file checks bounded and fail closed.
+- Package validation is static and must never load plugin code. Keep manifest/layout, managed-x64 PE, file-size,
+  aggregate-size, and prohibited-file checks bounded and fail closed. Take the byte bounds, entry-name rule and
+  native-image check from the Device SDK's `PluginPackageLayout`, which WSGM applies too; add no count cap.
 - Retain opened input handles through validation and packing so validated bytes are the bytes published. Keep packages
   deterministic.
 - Generated projects, manifests, tests, glyph profiles, and documentation must agree on package ID, API version, target

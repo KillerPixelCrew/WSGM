@@ -8,7 +8,7 @@ namespace WSGM.Tests.Shell;
 
 public class SplashStyleTests
 {
-    // ---- Background decode budget (BootSplashWindow) ----
+    // ---- Background decode budget (SplashDecode) ----
 
     /// <summary>2560x1600 — the widest supported panel at its own aspect ratio.</summary>
     private const long BackgroundPixelBudget = 2560L * 1600;
@@ -278,7 +278,7 @@ public class SplashStyleTests
         Assert.Equal(Colors.Cyan, SplashStyle.ParseColor(null, Colors.Cyan));
     }
 
-    // ---- Logo decode cap (BootSplashWindow) ----
+    // ---- Logo decode cap (SplashDecode) ----
 
     [Theory]
     [InlineData(200, 1000)] // Default logo bound: 200 DIP -> 4 MB decoded, not 320 MB.
@@ -289,7 +289,7 @@ public class SplashStyleTests
         // DisplayScale supports 100-500%, and the renderer draws the logo in physical
         // pixels (DIP * scaling), so a headroom below 5 left everything above 300%
         // upscaled from a too-small decode and visibly soft.
-        Assert.Equal(expected, BootSplashWindow.LogoDecodeCap(maxSizeDips));
+        Assert.Equal(expected, SplashDecode.LogoCap(maxSizeDips));
     }
 
     [Theory]
@@ -299,7 +299,7 @@ public class SplashStyleTests
     {
         // Beyond the largest edge ImageHeader accepts, the cap could never bind
         // anyway — and the multiplication must not wrap into a negative width.
-        Assert.Equal(ImageHeader.MaxDimension, BootSplashWindow.LogoDecodeCap(maxSizeDips));
+        Assert.Equal(ImageHeader.MaxDimension, SplashDecode.LogoCap(maxSizeDips));
     }
 
     [Theory]
@@ -307,7 +307,7 @@ public class SplashStyleTests
     [InlineData(-200)]
     public void TheLogoDecodeCapNeverGoesBelowASinglePixel(int maxSizeDips)
     {
-        Assert.True(BootSplashWindow.LogoDecodeCap(maxSizeDips) >= 1);
+        Assert.True(SplashDecode.LogoCap(maxSizeDips) >= 1);
     }
 
     [Theory]
@@ -318,41 +318,31 @@ public class SplashStyleTests
         int sourceWidth, int sourceHeight, int expected)
     {
         // 200 DIP * 5 headroom = a 1000 px cap on the rendered longer edge.
-        Assert.Equal(expected, BootSplashWindow.LogoDecodeWidth(200, sourceWidth, sourceHeight));
+        Assert.Equal(expected, SplashDecode.LogoWidth(200, sourceWidth, sourceHeight));
     }
 
     [Fact]
     public void TheLogoDecodeWidthStaysPositiveAtTheImageHeaderLimits()
     {
         // cap * sourceWidth is 20000 * 20000 here, which wraps a 32-bit multiply.
-        var width = BootSplashWindow.LogoDecodeWidth(
+        var width = SplashDecode.LogoWidth(
             int.MaxValue, ImageHeader.MaxDimension, ImageHeader.MaxDimension);
 
         Assert.InRange(width, 1, ImageHeader.MaxDimension);
         Assert.True(
             DecodedLogoPixels(int.MaxValue, ImageHeader.MaxDimension, ImageHeader.MaxDimension)
-            <= BootSplashWindow.LogoDecodePixelBudget(int.MaxValue) + width,
+            <= SplashDecode.LogoPixelBudget(int.MaxValue) + width,
             $"the largest source ImageHeader admits must stay inside the budget, decoded {width} px wide");
-        Assert.True(BootSplashWindow.LogoDecodeWidth(int.MaxValue, 1, ImageHeader.MaxDimension) >= 1);
+        Assert.True(SplashDecode.LogoWidth(int.MaxValue, 1, ImageHeader.MaxDimension) >= 1);
     }
 
-    // ---- Logo decode budget (BootSplashWindow) ----
+    // ---- Logo decode budget (SplashDecode) ----
 
-    /// <summary>
-    ///     The pixels a logo decode actually produces: the caller only ever
-    ///     scales DOWN, so a source narrower than its bound is decoded whole. This is the
-    ///     branch the per-edge cap alone never bounded.
-    /// </summary>
+    /// <summary>The pixels the production decode decision produces for a logo source.</summary>
     private static long DecodedLogoPixels(int maxSizeDips, int sourceWidth, int sourceHeight)
     {
-        var bound = BootSplashWindow.LogoDecodeWidth(maxSizeDips, sourceWidth, sourceHeight);
-        if (sourceWidth <= bound)
-        {
-            return (long)sourceWidth * sourceHeight;
-        }
-
-        var height = (long)Math.Ceiling((double)bound * sourceHeight / sourceWidth);
-        return bound * height;
+        return SplashDecode.DecodedPixels(
+            SplashDecode.LogoWidth(maxSizeDips, sourceWidth, sourceHeight), sourceWidth, sourceHeight);
     }
 
     [Theory]
@@ -368,7 +358,7 @@ public class SplashStyleTests
         // — it follows from the configured bound and the DPI headroom, not from the
         // display — and stops at the pixels a full-screen cover can show, which is
         // where the derived value (419 MP at 4096 DIP) stops meaning anything.
-        Assert.Equal(expected, BootSplashWindow.LogoDecodePixelBudget(maxSizeDips));
+        Assert.Equal(expected, SplashDecode.LogoPixelBudget(maxSizeDips));
     }
 
     [Theory]
@@ -387,8 +377,8 @@ public class SplashStyleTests
         // fell through to a whole-image decode: 79,995,136 px (~305 MiB) at LogoMaxSize
         // 2000 and 80,000,000 px at 4096 — and LogoMaxSize is carried by an untrusted
         // .wsgmsplash theme, on the boot path, at every sign-in.
-        var budget = BootSplashWindow.LogoDecodePixelBudget(maxSizeDips);
-        var width = BootSplashWindow.LogoDecodeWidth(maxSizeDips, sourceWidth, sourceHeight);
+        var budget = SplashDecode.LogoPixelBudget(maxSizeDips);
+        var width = SplashDecode.LogoWidth(maxSizeDips, sourceWidth, sourceHeight);
         var pixels = DecodedLogoPixels(maxSizeDips, sourceWidth, sourceHeight);
 
         Assert.InRange(width, 1, ImageHeader.MaxDimension);
@@ -405,10 +395,10 @@ public class SplashStyleTests
     public void TheLogoDecodeIsNeverUpscaled(int maxSizeDips, int sourceWidth, int sourceHeight)
     {
         // The bound is an upper limit only: when it does not fall below the source's
-        // own width, TryLoadBitmap skips DecodeToWidth entirely — and a source already
+        // own width, SplashDecode.ScaledWidth decodes it whole — and a source already
         // inside the budget is by construction never scaled down.
         Assert.True(
-            BootSplashWindow.LogoDecodeWidth(maxSizeDips, sourceWidth, sourceHeight) >= sourceWidth,
+            SplashDecode.LogoWidth(maxSizeDips, sourceWidth, sourceHeight) >= sourceWidth,
             "a source inside both bounds must not be scaled at all");
         Assert.Equal(
             (long)sourceWidth * sourceHeight, DecodedLogoPixels(maxSizeDips, sourceWidth, sourceHeight));
@@ -419,25 +409,16 @@ public class SplashStyleTests
     {
         // ImageHeader gates these out before the bound is consulted; the helper still
         // must not divide by zero or return a nonsense width.
-        Assert.Equal(1000, BootSplashWindow.LogoDecodeWidth(200, 0, 1080));
-        Assert.Equal(1000, BootSplashWindow.LogoDecodeWidth(200, 1920, 0));
-        Assert.Equal(1000, BootSplashWindow.LogoDecodeWidth(200, -1920, -1080));
+        Assert.Equal(1000, SplashDecode.LogoWidth(200, 0, 1080));
+        Assert.Equal(1000, SplashDecode.LogoWidth(200, 1920, 0));
+        Assert.Equal(1000, SplashDecode.LogoWidth(200, -1920, -1080));
     }
 
-    /// <summary>
-    ///     The pixels a background decode actually produces: the caller only ever
-    ///     scales DOWN, so a source narrower than its bound is decoded whole.
-    /// </summary>
+    /// <summary>The pixels the production decode decision produces for a background source.</summary>
     private static long DecodedPixels(int sourceWidth, int sourceHeight)
     {
-        var bound = BootSplashWindow.BackgroundDecodeWidth(sourceWidth, sourceHeight);
-        if (sourceWidth <= bound)
-        {
-            return (long)sourceWidth * sourceHeight;
-        }
-
-        var height = (long)Math.Ceiling((double)bound * sourceHeight / sourceWidth);
-        return bound * height;
+        return SplashDecode.DecodedPixels(
+            SplashDecode.BackgroundWidth(sourceWidth, sourceHeight), sourceWidth, sourceHeight);
     }
 
     [Theory]
@@ -450,7 +431,7 @@ public class SplashStyleTests
     {
         // Any aspect at or wider than 16:10 hits the 2560 width cap before the area
         // budget, so realistic backgrounds decode exactly as they did before.
-        Assert.Equal(2560, BootSplashWindow.BackgroundDecodeWidth(sourceWidth, sourceHeight));
+        Assert.Equal(2560, SplashDecode.BackgroundWidth(sourceWidth, sourceHeight));
     }
 
     [Fact]
@@ -458,7 +439,7 @@ public class SplashStyleTests
     {
         // 2000x20000 is inside every ImageHeader limit and already under 2560 wide, so
         // a width-only cap never scaled it: 40 MP, ~160 MB, allocated on the boot path.
-        var width = BootSplashWindow.BackgroundDecodeWidth(2000, 20000);
+        var width = SplashDecode.BackgroundWidth(2000, 20000);
 
         Assert.True(width < 2000, $"a tall source must be scaled down, got {width}");
         Assert.True(
@@ -474,9 +455,9 @@ public class SplashStyleTests
     public void TheBackgroundDecodeIsNeverUpscaled(int sourceWidth, int sourceHeight)
     {
         // The bound is an upper limit only: when it does not fall below the source's
-        // own width, TryLoadBitmap skips DecodeToWidth entirely.
+        // own width, SplashDecode.ScaledWidth decodes it whole.
         Assert.True(
-            BootSplashWindow.BackgroundDecodeWidth(sourceWidth, sourceHeight) >= sourceWidth,
+            SplashDecode.BackgroundWidth(sourceWidth, sourceHeight) >= sourceWidth,
             "a source inside the budget must not be scaled at all");
         Assert.Equal((long)sourceWidth * sourceHeight, DecodedPixels(sourceWidth, sourceHeight));
     }
@@ -492,7 +473,7 @@ public class SplashStyleTests
     {
         // budget * 20000 is ~8.2e10: the arithmetic must not wrap into a negative or
         // absurd width anywhere in the range ImageHeader admits.
-        var width = BootSplashWindow.BackgroundDecodeWidth(sourceWidth, sourceHeight);
+        var width = SplashDecode.BackgroundWidth(sourceWidth, sourceHeight);
 
         Assert.InRange(width, 1, 2560);
         Assert.True(
@@ -505,8 +486,8 @@ public class SplashStyleTests
     {
         // ImageHeader gates these out before the bound is consulted; the helper still
         // must not divide by zero or return a nonsense width.
-        Assert.Equal(2560, BootSplashWindow.BackgroundDecodeWidth(0, 1080));
-        Assert.Equal(2560, BootSplashWindow.BackgroundDecodeWidth(1920, 0));
-        Assert.Equal(2560, BootSplashWindow.BackgroundDecodeWidth(-1920, -1080));
+        Assert.Equal(2560, SplashDecode.BackgroundWidth(0, 1080));
+        Assert.Equal(2560, SplashDecode.BackgroundWidth(1920, 0));
+        Assert.Equal(2560, SplashDecode.BackgroundWidth(-1920, -1080));
     }
 }

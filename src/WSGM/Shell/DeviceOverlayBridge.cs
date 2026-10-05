@@ -76,7 +76,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         var controllerStatus = _coordinator.Controllers.Snapshot();
         var declaredSections = _coordinator.Capabilities.Sections;
         HashSet<string> declaredSectionIds = new(
-            DeviceSections.IncludePredefined(declaredSections).Select(section => section.SectionId),
+            DeviceSectionLayout.IncludePredefined(declaredSections).Select(section => section.SectionId),
             StringComparer.Ordinal);
         var deviceViews = _coordinator.Capabilities.Snapshot();
         var capabilities = deviceViews
@@ -586,8 +586,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 
         var display = profiles[0].CapabilityId switch
         {
-            DeviceAuthoredProfileCapabilities.FanCurve => new CapabilityDisplay { Key = DisplayKey.FanCurve },
-            DeviceAuthoredProfileCapabilities.Lighting => new CapabilityDisplay { Key = DisplayKey.Lighting },
+            CapabilityIds.FanCurve => new CapabilityDisplay { Key = DisplayKey.FanCurve },
+            CapabilityIds.LightingColor => new CapabilityDisplay { Key = DisplayKey.Lighting },
             _ => new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Device profile" }
         };
         var label = CapabilityDisplayLabels.For(display, "Device profile");
@@ -946,7 +946,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     {
         return
         [
-            .. DeviceSections.IncludePredefined(sections)
+            .. DeviceSectionLayout.IncludePredefined(sections)
                 .Select((section, index) => (Section: section, Index: index))
                 .OrderBy(item => item.Section.SortOrder)
                 .ThenBy(item => item.Index)

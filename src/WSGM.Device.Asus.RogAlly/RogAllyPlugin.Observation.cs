@@ -5,6 +5,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Services;
 

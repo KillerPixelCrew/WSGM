@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Plugin.Sdk;
 
@@ -115,7 +116,7 @@ public static class PluginConfigurationRules
         foreach (var setting in settings)
         {
             if (setting is null || !ValidKey(setting.Key) || !keys.Add(setting.Key) || !Enum.IsDefined(setting.Kind)
-                || !PluginText.TryValidate(setting.Label, "setting label", out _)
+                || !PlainText.TryValidate(setting.Label, "setting label", out _)
                 || (setting.Minimum is { } minimum && !double.IsFinite(minimum))
                 || (setting.Maximum is { } maximum && !double.IsFinite(maximum)) || setting.Minimum > setting.Maximum
                 || (setting.Kind != PluginSettingKind.Number && (setting.Minimum.HasValue || setting.Maximum.HasValue))

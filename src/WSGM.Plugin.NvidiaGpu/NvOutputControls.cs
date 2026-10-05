@@ -77,12 +77,12 @@ internal sealed class NvColorControl(
 {
     internal override string SupportKey => "color/" + instance;
 
-    internal override void ProbeSupport(CapabilityValue current)
+    internal override void ProbeSupport(CapabilityValue current, WriteAdmission admission)
     {
         api.RequireOutput(output);
         var data = api.Color(output.Id, 1);
         api.RequireOutput(output);
-        api.Color(output.Id, 2, data);
+        api.SetColor(output.Id, data, admission);
     }
 
     internal override CapabilityValue Read()
@@ -90,7 +90,7 @@ internal sealed class NvColorControl(
         return CapabilityValue.Choice(NvSettingControl.Encode(field.Read(api.Color(output.Id, 1))));
     }
 
-    internal override void Write(CapabilityValue value)
+    internal override void Write(CapabilityValue value, WriteAdmission admission)
     {
         api.RequireOutput(output);
         var data = field.WithValue(api.Color(output.Id, 1), NvSettingControl.Decode(value));
@@ -100,7 +100,7 @@ internal sealed class NvColorControl(
         }
 
         api.RequireOutput(output);
-        api.Color(output.Id, 2, data);
+        api.SetColor(output.Id, data, admission);
     }
 }
 
@@ -118,10 +118,10 @@ internal sealed class NvDitherControl(
 {
     internal override string SupportKey => "dithering/" + instance;
 
-    internal override void ProbeSupport(CapabilityValue current)
+    internal override void ProbeSupport(CapabilityValue current, WriteAdmission admission)
     {
         api.RequireOutput(output);
-        api.SetDither(output, api.Dither(output.Id), true);
+        api.SetDither(output, api.Dither(output.Id), admission, true);
     }
 
     internal override CapabilityValue Read()
@@ -131,7 +131,7 @@ internal sealed class NvDitherControl(
             NvSettingControl.Encode(field switch { 0 => data.State, 1 => data.Bits, _ => data.Mode }));
     }
 
-    internal override void Write(CapabilityValue value)
+    internal override void Write(CapabilityValue value, WriteAdmission admission)
     {
         api.RequireOutput(output);
         var data = api.Dither(output.Id);
@@ -152,7 +152,7 @@ internal sealed class NvDitherControl(
             0 => data with { State = requested },
             1 => data with { Bits = requested },
             _ => data with { Mode = requested }
-        });
+        }, admission);
     }
 }
 
@@ -165,12 +165,12 @@ internal sealed class NvOutputModeControl(
     : DriverControl(DriverDescriptors.Choice("display.hdr-output-mode", instance, "HDR output mode", section,
         CapabilityProfileScope.GlobalOnly, values.Select(value => (NvSettingControl.Encode(value.Value), value.Label))))
 {
-    internal override void ProbeSupport(CapabilityValue current)
+    internal override void ProbeSupport(CapabilityValue current, WriteAdmission admission)
     {
         var output = api.RequireOutput(expected);
         var mode = api.OutputMode(output.Id);
         api.RequireOutput(expected);
-        api.OutputMode(output.Id, mode);
+        api.SetOutputMode(output.Id, mode, admission);
     }
 
     internal override CapabilityValue Read()
@@ -178,7 +178,7 @@ internal sealed class NvOutputModeControl(
         return CapabilityValue.Choice(NvSettingControl.Encode(api.OutputMode(expected.Id)));
     }
 
-    internal override void Write(CapabilityValue value)
+    internal override void Write(CapabilityValue value, WriteAdmission admission)
     {
         var output = api.RequireOutput(expected);
         var requested = NvSettingControl.Decode(value);
@@ -206,7 +206,7 @@ internal sealed class NvOutputModeControl(
         }
 
         api.RequireOutput(expected);
-        api.OutputMode(output.Id, requested);
+        api.SetOutputMode(output.Id, requested, admission);
         if (resetTarget is not null)
         {
             var disabled = DisplayColor.SetHdr(resetTarget, false);
@@ -238,44 +238,20 @@ internal sealed class NvGsyncControl(INvProfiles api, string section)
     : DriverControl(DriverDescriptors.Toggle("graphics.gsync", "driver", "G-SYNC enabled", section,
         CapabilityProfileScope.GlobalOnly))
 {
-    internal override void ProbeSupport(CapabilityValue current)
+    private readonly NvDrsSetting _drs = new(api, 0x1094f157);
+
+    internal override void ProbeSupport(CapabilityValue current, WriteAdmission admission)
     {
-        api.Load();
-        try
-        {
-            var profile = api.GlobalProfile();
-            var native = api.Get(profile, 0x1094f157);
-            api.Set(profile, 0x1094f157, native.Value);
-            if (native.Explicit)
-            {
-                api.Save();
-            }
-        }
-        finally
-        {
-            api.Load();
-        }
+        _drs.Probe(admission);
     }
 
     internal override CapabilityValue Read()
     {
-        api.Load();
-        return CapabilityValue.Boolean(api.Get(api.GlobalProfile(), 0x1094f157).Value == 1);
+        return CapabilityValue.Boolean(_drs.Read() == 1);
     }
 
-    internal override void Write(CapabilityValue value)
+    internal override void Write(CapabilityValue value, WriteAdmission admission)
     {
-        api.Load();
-        var profile = api.GlobalProfile();
-        try
-        {
-            api.Get(profile, 0x1094f157);
-        }
-        catch (DriverFailure failure) when (!failure.Lost)
-        {
-        }
-
-        api.Set(profile, 0x1094f157, value.BooleanValue == true ? 1u : 0u);
-        api.Save();
+        _drs.Write(value.BooleanValue == true ? 1u : 0u, admission);
     }
 }

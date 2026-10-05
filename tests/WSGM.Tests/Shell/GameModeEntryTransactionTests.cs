@@ -308,6 +308,11 @@ public sealed class GameModeEntryTransactionTests
 
         internal DisplayLayoutOutcome LayoutOutcome { get; init; } = DisplayLayoutOutcome.Applied;
 
+        public Task<bool> RestorePendingReturnAsync(CancellationToken cancellationToken)
+        {
+            return Task.FromResult(true);
+        }
+
         public void SetStatus(string line)
         {
         }
@@ -386,11 +391,11 @@ public sealed class GameModeEntryTransactionTests
         }
 
         public Task<IReadOnlyList<PluginActionStepResult>> RunEnterActionsAsync(
-            CancellationToken cancellationToken)
+            IReadOnlyList<PluginActionStep> steps, CancellationToken cancellationToken)
         {
             Calls.Add("enter-actions");
             List<PluginActionStepResult> results = [];
-            foreach (var step in new[] { Step("switch-to-pc"), Step("tv-on") })
+            foreach (var step in steps)
             {
                 var failed = step.ActionId == FailAction;
                 results.Add(new PluginActionStepResult(step,
@@ -418,21 +423,24 @@ public sealed class GameModeEntryTransactionTests
             return Task.FromResult(ExitExplorer);
         }
 
-        public async Task<bool> ReturnToDesktopAsync(DisplayLayout? layout, bool runLeaveActions)
+        public Task<bool> ReturnToDesktopAsync(DisplayLayout? layout, bool runLeaveActions)
         {
             Calls.Add("restore-desktop");
-            if (layout is not null)
-            {
-                await ApplyLayoutAsync(layout, CancellationToken.None);
-            }
+            // The real return sequence over effects that only record what they were asked to do.
+            return DesktopReturnSequence.RunAsync(new ReturnBackend(this, layout), runLeaveActions,
+                (phase, _) => Calls.Add("return-failed:" + phase));
+        }
 
-            if (runLeaveActions)
-            {
-                await RunLeaveActionsAsync();
-            }
+        public Task<string?> ApplyReturnLayoutAsync()
+        {
+            Calls.Add("return-layout");
+            return Task.FromResult<string?>(null);
+        }
 
-            await PersistPendingReturnAsync(null, null);
-            return true;
+        public Task<string?> ApplyReturnAudioAsync()
+        {
+            Calls.Add("return-audio");
+            return Task.FromResult<string?>(null);
         }
 
         public Task ArmSteamDetectionAsync()
@@ -457,7 +465,7 @@ public sealed class GameModeEntryTransactionTests
             }
         }
 
-        private Task<IReadOnlyList<PluginActionStepResult>> RunLeaveActionsAsync()
+        public Task<IReadOnlyList<PluginActionStepResult>> RunLeaveActionsAsync()
         {
             Calls.Add("leave-actions");
             return Task.FromResult<IReadOnlyList<PluginActionStepResult>>([]);
@@ -471,6 +479,50 @@ public sealed class GameModeEntryTransactionTests
                         new DisplayLayoutOutput(Tv, 0, 0, 1920, 1080, DisplayRefresh.FromHertz(60)))
                 ],
                 "captured", DateTimeOffset.UnixEpoch));
+        }
+    }
+
+    /// <summary>The desktop return's effects, routed to the entry backend the way the session routes them.</summary>
+    private sealed class ReturnBackend(Backend owner, DisplayLayout? layout) : IDesktopReturnBackend
+    {
+        public Task ExitBigPictureAsync()
+        {
+            owner.Calls.Add("exit-big-picture");
+            return Task.CompletedTask;
+        }
+
+        public async Task<bool> RestoreLayoutAsync()
+        {
+            return layout is not null
+                ? (await owner.ApplyLayoutAsync(layout, CancellationToken.None)).Applied
+                : await owner.ApplyReturnLayoutAsync() is null;
+        }
+
+        public async Task<bool> RestoreAudioAsync()
+        {
+            return await owner.ApplyReturnAudioAsync() is null;
+        }
+
+        public Task RetireGameModeAsync()
+        {
+            owner.Calls.Add("retire-game-mode");
+            return Task.CompletedTask;
+        }
+
+        public Task<bool> RestoreExplorerAsync()
+        {
+            owner.Calls.Add("restore-explorer");
+            return Task.FromResult(true);
+        }
+
+        public Task RunLeaveActionsAsync()
+        {
+            return owner.RunLeaveActionsAsync();
+        }
+
+        public Task ClearPendingReturnAsync()
+        {
+            return owner.PersistPendingReturnAsync(null, null);
         }
     }
 }

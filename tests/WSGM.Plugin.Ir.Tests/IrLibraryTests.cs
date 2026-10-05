@@ -1,4 +1,3 @@
-using System.Text.Json;
 using WSGM.Plugin.Ir.Tests.Fakes;
 using WSGM.Plugin.Sdk;
 using WSGM.Testing;
@@ -60,7 +59,7 @@ public sealed class IrLibraryTests
         });
         await plugin.StartAsync(new RecordingPluginHost(), context, CancellationToken.None);
         var unconfigured = await Invoke(plugin, context, "connect");
-        Assert.Equal(PluginActionOutcome.Unconfirmed, unconfigured.Outcome);
+        Assert.Equal(PluginActionOutcome.Rejected, unconfigured.Outcome);
         Assert.Contains("USB serial port", unconfigured.Detail);
         await plugin.ConfigureAsync(Configuration("COM3"), context, CancellationToken.None);
         Assert.Equal(PluginActionOutcome.AppliedVerified,
@@ -91,7 +90,7 @@ public sealed class IrLibraryTests
             await plugin.StartAsync(new RecordingPluginHost(), context, CancellationToken.None);
             await plugin.ConfigureAsync(Configuration("COM3", "wifi"), context, CancellationToken.None);
             var unpaired = await Invoke(plugin, context, "connect");
-            Assert.Equal(PluginActionOutcome.Unconfirmed, unpaired.Outcome);
+            Assert.Equal(PluginActionOutcome.Rejected, unpaired.Outcome);
             Assert.Contains("Pair the endpoint over USB", unpaired.Detail);
             var paired = await Invoke(plugin, context, "wifi-setup", ("ssid", new PluginValue(Text: "Home")),
                 ("password", new PluginValue(Text: "hunter22")));
@@ -165,7 +164,14 @@ public sealed class IrLibraryTests
             (library with { Commands = [] }).SaveAsync(path, CancellationToken.None));
         Assert.Equal(before, await File.ReadAllBytesAsync(path));
         await File.WriteAllTextAsync(path, "broken");
-        await Assert.ThrowsAsync<JsonException>(() => IrLibrary.LoadAsync(path, CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidDataException>(() => IrLibrary.LoadAsync(path, CancellationToken.None));
+        Assert.Equal("broken", await File.ReadAllTextAsync(path));
+        // A file that exists but cannot be opened is not an absent library.
+        await using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            await Assert.ThrowsAsync<IOException>(() => IrLibrary.LoadAsync(path, CancellationToken.None));
+        }
+
         Assert.Equal("broken", await File.ReadAllTextAsync(path));
     }
 

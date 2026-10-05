@@ -1,6 +1,6 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
-#include <cerrno>
+#include <string>
 #include <Adafruit_NeoPixel.h>
 #include <ESPmDNS.h>
 #include <IRac.h>
@@ -17,9 +17,13 @@
 // Seeed XIAO IR Mate: D1/D2/D3/D4/D5 map to GPIO 3/4/5/6/7.
 constexpr uint8_t TxPin = 3, RxPin = 4, TouchPin = 5, MotorPin = 6, LedPin = 7;
 constexpr size_t MaxFrame = 32768, MaxTimings = 1024, MaxStateBytes = 64;
+// One remotes reply carries at most this many catalog bytes. Escaping can at most double them, which
+// keeps every reply well inside MaxFrame however large the catalog grows.
+constexpr size_t CatalogChunkBytes = 8192;
 constexpr uint16_t NetworkPort = 7521, WebPort = 80;
 constexpr uint32_t ClientIdleMs = 120000;
-constexpr auto Firmware = "0.4.0";
+constexpr int ProtocolVersion = 2;
+constexpr auto Firmware = "0.5.0";
 
 // One line-oriented request source. USB is trusted by physical access; the network needs the token.
 struct Channel
@@ -48,6 +52,11 @@ decode_results captured;
 String learningId, token, webUser, webPassword;
 // Built-in remotes: full definitions for sending, and the id/label catalog hosts and pages read.
 JsonDocument remotes, catalog;
+// The catalog text the remotes operation serves in chunks: the generated one, or an empty catalog
+// when the generated definitions did not load.
+const char* catalogText = reinterpret_cast<const char*>(CatalogJson);
+size_t catalogLength = sizeof(CatalogJson);
+bool definitionsReady = false, storageReady = false;
 
 // One background sequence at a time; loop() advances it so delays never block other requests.
 struct SequenceRun
@@ -62,20 +71,22 @@ struct SequenceRun
 Print* learningOut = nullptr;
 char hostname[24];
 uint32_t learningDeadline = 0, feedbackDeadline = 0, clientActivity = 0;
-bool touchWasDown = false, mdnsStarted = false;
+bool touchWasDown = false, mdnsStarted = false, feedbackActive = false;
 
 void feedback(uint32_t duration)
 {
     led.setPixelColor(0, led.Color(0, 0, 32));
     led.show();
     digitalWrite(MotorPin, HIGH);
+    // A flag, not a zero deadline: millis() + duration can be zero after the counter wraps.
     feedbackDeadline = millis() + duration;
+    feedbackActive = true;
 }
 
 void reply(Print& out, const String& id, const char* status, JsonDocument* payload = nullptr)
 {
     JsonDocument message;
-    message["v"] = 1;
+    message["v"] = ProtocolVersion;
     message["id"] = id;
     message["status"] = status;
     if (payload) message["data"] = payload->as<JsonVariant>();
@@ -171,13 +182,16 @@ const char* sendCode(JsonVariantConst request)
     }
     else
     {
+        // An optional 0x and 1 to 16 hex digits, nothing else: strtoull alone also takes a sign or spaces.
         const char* value = request["value"] | "";
-        char* end = nullptr;
-        errno = 0;
-        uint64_t code = strtoull(value, &end, 16);
+        if (value[0] == '0' && (value[1] == 'x' || value[1] == 'X')) value += 2;
+        size_t digits = 0;
+        while (isxdigit(static_cast<unsigned char>(value[digits]))) ++digits;
         int bits = request["bits"] | static_cast<int>(IRsend::defaultBits(protocol));
         int repeats = request["repeats"] | static_cast<int>(IRsend::minRepeats(protocol));
-        if (!*value || *end || errno || bits < 1 || bits > 64 || repeats < 0 || repeats > 4) return "invalid-code";
+        if (digits < 1 || digits > 16 || value[digits] || bits < 1 || bits > 64 || repeats < 0 || repeats > 4)
+            return "invalid-code";
+        uint64_t code = strtoull(value, nullptr, 16);
         sent = emit([&] { return transmitter.send(protocol, code, bits, repeats); });
     }
     return sent ? "transmitted" : "unsupported-protocol";
@@ -190,9 +204,15 @@ const char* sendAc(JsonVariantConst request)
     if (state.protocol <= decode_type_t::UNUSED || !IRac::isProtocolSupported(state.protocol)) return
         "unsupported-protocol";
     JsonVariantConst model = request["model"];
-    bool valid = model.is<int>()
-                     ? (state.model = model.as<int16_t>(), true)
-                     : parseName<int16_t>(model, -1, -2, IRac::strToModel, state.model);
+    bool valid;
+    if (model.is<int>())
+    {
+        // Checked before narrowing, so an out-of-range number never wraps into another model.
+        int number = model.as<int>();
+        valid = number >= -1 && number <= 32767;
+        state.model = int16_t(valid ? number : -1);
+    }
+    else valid = parseName<int16_t>(model, -1, -2, IRac::strToModel, state.model);
     valid = valid && parseName(request["mode"], stdAc::opmode_t::kAuto, stdAc::opmode_t::kCool, IRac::strToOpmode,
                                state.mode);
     valid = valid && parseName(request["fan"], stdAc::fanspeed_t::kAuto, stdAc::fanspeed_t::kLow, IRac::strToFanspeed,
@@ -321,6 +341,14 @@ void cancelLearn(const char* reason)
     digitalWrite(MotorPin, LOW);
 }
 
+// Closes the network client. A learn it requested ends here with its terminal reply, so a later capture
+// is never written to whichever client takes the slot next.
+void stopClient()
+{
+    if (learningOut == &client) cancelLearn("cancelled");
+    if (client) client.stop();
+}
+
 bool authorized(const String& supplied)
 {
     if (token.isEmpty() || supplied.length() != token.length()) return false;
@@ -352,7 +380,7 @@ void describe(JsonDocument& data)
     data["identity"] = identity;
     data["model"] = "xiao-ir-mate";
     data["firmware"] = Firmware;
-    data["protocol"] = 1;
+    data["protocol"] = ProtocolVersion;
     data["maxTimings"] = MaxTimings;
     data["learning"] = !learningId.isEmpty();
     data["uptimeMs"] = millis();
@@ -364,8 +392,49 @@ void describe(JsonDocument& data)
     data["ip"] = connected ? WiFi.localIP().toString() : String("");
     data["webPort"] = WebPort;
     data["webConfigured"] = !webUser.isEmpty();
-    data["remotes"] = RemotePageCount;
+    data["remotes"] = definitionsReady ? RemotePageCount : 0;
     data["sequenceRunning"] = sequence.active;
+}
+
+// Answers one chunk of the catalog text. Chunks hold at most CatalogChunkBytes and end on a UTF-8
+// boundary, so each is valid text; the host joins all of them in order and parses the result.
+const char* catalogChunk(JsonVariantConst requested, JsonDocument& data)
+{
+    if (!requested.isNull() && !requested.is<uint32_t>()) return "invalid-chunk";
+    uint32_t index = requested | uint32_t(0);
+    size_t start = 0, end = 0, count = 0, sliceStart = 0, sliceEnd = 0;
+    do
+    {
+        start = end;
+        end = catalogLength - start > CatalogChunkBytes ? start + CatalogChunkBytes : catalogLength;
+        while (end < catalogLength && (uint8_t(catalogText[end]) & 0xC0) == 0x80) --end;
+        if (count == index)
+        {
+            sliceStart = start;
+            sliceEnd = end;
+        }
+        ++count;
+    }
+    while (end < catalogLength);
+    if (index >= count) return "invalid-chunk";
+    data["chunk"] = std::string(catalogText + sliceStart, sliceEnd - sliceStart);
+    data["index"] = index;
+    data["count"] = count;
+    return "ok";
+}
+
+// Writes every key to flash; callers change the running state only after this succeeds. Preferences has
+// no transaction, so a failure part way leaves the flash partly written, and the storage-failed reply
+// tells the user to set it again. Nothing is retried.
+bool storeSettings(const char* const keys[], const String values[], size_t length)
+{
+    if (!storageReady) return false;
+    for (size_t i = 0; i < length; ++i)
+    {
+        // putString answers the stored length, or 0 on failure; an empty value legitimately stores 0.
+        if (settings.putString(keys[i], values[i]) != values[i].length()) return false;
+    }
+    return true;
 }
 
 void dispatch(Channel& channel, const String& line)
@@ -383,7 +452,7 @@ void dispatch(Channel& channel, const String& line)
         reply(out, "", "invalid-id");
         return;
     }
-    if (request["v"].as<int>() != 1)
+    if (request["v"].as<int>() != ProtocolVersion)
     {
         reply(out, id, "protocol-mismatch");
         return;
@@ -408,7 +477,25 @@ void dispatch(Channel& channel, const String& line)
     }
     else if (operation == "remotes")
     {
-        reply(out, id, "ok", &catalog);
+        JsonDocument data;
+        const char* status = catalogChunk(request["chunk"], data);
+        reply(out, id, status, strcmp(status, "ok") == 0 ? &data : nullptr);
+    }
+    else if (operation == "protocols")
+    {
+        // A read-only query, so a running learn or sequence does not refuse it.
+        JsonDocument data;
+        JsonArray list = data["protocols"].to<JsonArray>();
+        for (int type = 1; type <= kLastDecodeType; ++type)
+        {
+            decode_type_t protocol = decode_type_t(type);
+            JsonObject entry = list.add<JsonObject>();
+            entry["name"] = typeToString(protocol);
+            entry["bits"] = IRsend::defaultBits(protocol);
+            entry["state"] = hasACState(protocol);
+            entry["ac"] = IRac::isProtocolSupported(protocol);
+        }
+        reply(out, id, "ok", &data);
     }
     else if (operation == "web")
     {
@@ -425,8 +512,13 @@ void dispatch(Channel& channel, const String& line)
             reply(out, id, "invalid-web");
             return;
         }
-        settings.putString("webuser", user);
-        settings.putString("webpass", password);
+        static const char* const keys[] = {"webuser", "webpass"};
+        const String values[] = {user, password};
+        if (!storeSettings(keys, values, 2))
+        {
+            reply(out, id, "storage-failed");
+            return;
+        }
         webUser = user;
         webPassword = password;
         JsonDocument data;
@@ -475,21 +567,6 @@ void dispatch(Channel& channel, const String& line)
         else if (operation == "run") reply(out, id, startSequence(remote, request["sequence"] | ""));
         else reply(out, id, sendClimate(remote, request.as<JsonVariantConst>()));
     }
-    else if (operation == "protocols")
-    {
-        JsonDocument data;
-        JsonArray list = data["protocols"].to<JsonArray>();
-        for (int type = 1; type <= kLastDecodeType; ++type)
-        {
-            decode_type_t protocol = decode_type_t(type);
-            JsonObject entry = list.add<JsonObject>();
-            entry["name"] = typeToString(protocol);
-            entry["bits"] = IRsend::defaultBits(protocol);
-            entry["state"] = hasACState(protocol);
-            entry["ac"] = IRac::isProtocolSupported(protocol);
-        }
-        reply(out, id, "ok", &data);
-    }
     else if (operation == "wifi")
     {
         // Pairing happens over USB only: whoever holds the cable sets the network and the token.
@@ -505,11 +582,16 @@ void dispatch(Channel& channel, const String& line)
             reply(out, id, "invalid-wifi");
             return;
         }
+        // Flash first, RAM after: a failed write leaves the running credentials and token as they were.
         if (ssid.isEmpty())
         {
-            settings.clear();
+            if (!storageReady || !settings.clear())
+            {
+                reply(out, id, "storage-failed");
+                return;
+            }
             token = webUser = webPassword = "";
-            client.stop();
+            stopClient();
             if (mdnsStarted)
             {
                 MDNS.end();
@@ -520,9 +602,13 @@ void dispatch(Channel& channel, const String& line)
         }
         else
         {
-            settings.putString("ssid", ssid);
-            settings.putString("pass", password);
-            settings.putString("token", pairing);
+            static const char* const keys[] = {"ssid", "pass", "token"};
+            const String values[] = {ssid, password, pairing};
+            if (!storeSettings(keys, values, 3))
+            {
+                reply(out, id, "storage-failed");
+                return;
+            }
             token = pairing;
             WiFi.disconnect(true, false);
             connectWifi();
@@ -581,7 +667,8 @@ void serveNetwork()
     if (incoming)
     {
         // One host at a time; the newest connection wins so a reconnecting host never waits on a dead one.
-        if (client) client.stop();
+        // The old client's learn ends first, even when its socket has already dropped.
+        stopClient();
         client = incoming;
         client.setNoDelay(true);
         network.input = "";
@@ -591,7 +678,7 @@ void serveNetwork()
     if (!client || !client.connected()) return;
     if (client.available()) clientActivity = millis();
     pump(network);
-    if (int32_t(millis() - clientActivity) > int32_t(ClientIdleMs)) client.stop();
+    if (int32_t(millis() - clientActivity) > int32_t(ClientIdleMs)) stopClient();
 }
 
 // Every web route needs the credentials set over USB. Mutations also need a custom header: a browser
@@ -710,13 +797,24 @@ void setup()
     uint64_t mac = ESP.getEfuseMac();
     snprintf(hostname, sizeof(hostname), "wsgm-ir-%02x%02x%02x",
              uint8_t(mac >> 24), uint8_t(mac >> 32), uint8_t(mac >> 40));
-    settings.begin("wsgmir", false);
+    storageReady = settings.begin("wsgmir", false);
     token = stored("token");
     webUser = stored("webuser");
     webPassword = stored("webpass");
-    // Generated and validated at build time, so parsing cannot meet a definition the build refused.
-    deserializeJson(remotes, static_cast<const char*>(RemotesJson), sizeof(RemotesJson));
-    deserializeJson(catalog, static_cast<const char*>(CatalogJson), sizeof(CatalogJson));
+    // Generated and validated at build time. Should parsing still fail, for instance out of memory, the
+    // endpoint serves no remotes at all rather than act on part of a definition.
+    definitionsReady = !deserializeJson(remotes, static_cast<const char*>(RemotesJson), sizeof(RemotesJson))
+                       && !deserializeJson(catalog, static_cast<const char*>(CatalogJson), sizeof(CatalogJson));
+    if (!definitionsReady)
+    {
+        // Not a protocol frame; the host skips lines that do not start with a brace.
+        Serial.println("IR remotes: the built-in definitions did not load; serving none.");
+        remotes.clear();
+        catalog.clear();
+        catalog["remotes"].to<JsonArray>();
+        catalogText = "{\"remotes\":[]}";
+        catalogLength = strlen(catalogText);
+    }
     setupWeb();
     transmitter.begin();
     receiver.enableIRIn();
@@ -728,9 +826,9 @@ void loop()
     pump(usb);
     serveNetwork();
     stepSequence();
-    if (feedbackDeadline && int32_t(millis() - feedbackDeadline) >= 0)
+    if (feedbackActive && int32_t(millis() - feedbackDeadline) >= 0)
     {
-        feedbackDeadline = 0;
+        feedbackActive = false;
         digitalWrite(MotorPin, LOW);
         led.clear();
         led.show();

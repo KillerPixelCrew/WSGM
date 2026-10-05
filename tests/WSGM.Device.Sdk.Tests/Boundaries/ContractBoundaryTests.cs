@@ -25,8 +25,9 @@ public sealed class ContractBoundaryTests
         // published package. Version 2 added sections and categories; version 3 added the
         // suppressed trace level and TraceChange; version 4 made high-rate samples value types;
         // version 10 took the generations out of samples and events; version 11 added the shared
-        // service scaffolding and descriptor profile scope and apply timing.
-        Assert.Equal(11, DeviceApi.Version);
+        // service scaffolding and descriptor profile scope and apply timing; version 12 removed the
+        // glyph caps and the host-only types and shared one manifest rule set.
+        Assert.Equal(12, DeviceApi.Version);
     }
 
     [Fact]

@@ -31,7 +31,7 @@ public sealed class SessionModesTests
     {
         using var config = new TemporaryConfigStore();
         Assert.Throws<ArgumentNullException>(() =>
-            new SessionModes(new AppConfig(), null, null!, config.Store, new SteamInputShim()));
+            new SessionModes(new AppConfig(), null, null!, config.Store, new SteamInputShim(), null!));
     }
 
     [Fact]

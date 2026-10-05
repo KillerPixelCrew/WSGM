@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using WSGM.Device.Sdk.Capabilities;
 using ManifestLimits = WSGM.Device.Sdk.Packaging.ManifestLimits;
+using ManifestRules = WSGM.Device.Sdk.Packaging.ManifestRules;
 
 namespace WSGM.Plugin.Sdk;
 
@@ -84,14 +85,14 @@ public static class PluginManifestReader
             errors.Add("Invalid category identity.");
         }
 
-        if (!PluginText.TryValidate(manifest.Name, "display name", out _))
+        if (!ManifestRules.TryValidateName(manifest.Name, out _))
         {
             errors.Add("Invalid display name.");
         }
 
-        if (!Version.TryParse(manifest.Version, out _))
+        if (!ManifestRules.IsCanonicalVersion(manifest.Version))
         {
-            errors.Add("Invalid numeric package version.");
+            errors.Add("The package version must be a canonical dotted numeric version.");
         }
 
         if (manifest.MinimumApiVersion < 1 || manifest.MaximumApiVersion < manifest.MinimumApiVersion
@@ -101,21 +102,12 @@ public static class PluginManifestReader
             errors.Add("Incompatible common Plugin SDK version range.");
         }
 
-        if (string.IsNullOrEmpty(manifest.EntryAssembly)
-            || !manifest.EntryAssembly.EndsWith(".dll",
-                StringComparison.OrdinalIgnoreCase)
-            || manifest.EntryAssembly.Any(character =>
-                !(char.IsAsciiLetterOrDigit(character) ||
-                  character is '.' or '_' or '-'))
-            || manifest.EntryAssembly.StartsWith('.'))
+        if (!ManifestRules.IsRootAssemblyFileName(manifest.EntryAssembly))
         {
             errors.Add("Entry assembly must be a DLL filename at the package root.");
         }
 
-        if (string.IsNullOrWhiteSpace(manifest.EntryType)
-            || manifest.EntryType.Any(character =>
-                !(char.IsAsciiLetterOrDigit(character) ||
-                  character is '.' or '_' or '+')))
+        if (!ManifestRules.IsEntryTypeName(manifest.EntryType))
         {
             errors.Add("Invalid entry type.");
         }
@@ -150,9 +142,7 @@ public static class PluginManifestReader
             errors.Add("Invalid permission declarations.");
         }
 
-        if (manifest.WsgmVersion is { } wsgmVersion
-            && (!Version.TryParse(wsgmVersion, out var parsed)
-                || parsed.ToString(parsed.Revision >= 0 ? 4 : parsed.Build >= 0 ? 3 : 2) != wsgmVersion))
+        if (manifest.WsgmVersion is { } wsgmVersion && !ManifestRules.IsCanonicalVersion(wsgmVersion))
         {
             errors.Add("The WSGM version must be a canonical dotted numeric version.");
         }
@@ -216,9 +206,7 @@ public static class PluginManifestReader
 
     private static bool Identifier(string? value)
     {
-        return !string.IsNullOrEmpty(value)
-               && char.IsAsciiLetterOrDigit(value[0]) && value.All(character =>
-                   character is >= 'a' and <= 'z' or >= '0' and <= '9' or '.' or '-' or '_');
+        return ManifestRules.IsPackageIdentifier(value);
     }
 }
 

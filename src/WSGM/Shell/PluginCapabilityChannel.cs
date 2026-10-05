@@ -5,7 +5,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Sdk.Plugin;
 using WSGM.Plugin.Sdk;
 
 namespace WSGM.Shell;
@@ -136,50 +135,6 @@ internal sealed class PluginCapabilityChannel : ICapabilityHost, ICapabilityPubl
         return ValueTask.CompletedTask;
     }
 
-    public void Trace(DeviceTraceLevel level, string scope, string message)
-    {
-        if (!TryFormat(scope, message, out var line))
-        {
-            return;
-        }
-
-        // ReSharper disable once SwitchStatementHandlesSomeKnownEnumValuesWithDefault
-        switch (level)
-        {
-            case DeviceTraceLevel.Warn:
-                Log.Warn(line);
-                break;
-            case DeviceTraceLevel.Error:
-                Log.Error(line);
-                break;
-            case DeviceTraceLevel.Debug:
-                Log.Debug(line);
-                break;
-            default:
-                Log.Info(line);
-                break;
-        }
-    }
-
-    public void TraceChange(DeviceTraceLevel level, string scope, string key, string message)
-    {
-        if (!TryFormat(scope, message, out var line))
-        {
-            return;
-        }
-
-        Log.Change(
-            $"plugin/{Identity.PluginId}/{Normalize(scope)}/{(string.IsNullOrWhiteSpace(key) ? "state" : key)}",
-            line,
-            level switch
-            {
-                DeviceTraceLevel.Warn => LogLevel.Warn,
-                DeviceTraceLevel.Error => LogLevel.Error,
-                DeviceTraceLevel.Debug => LogLevel.Debug,
-                _ => LogLevel.Info
-            });
-    }
-
     public IReadOnlyList<CapabilityRole> DeclaredCapabilities { get; }
 
     public event Action<CapabilityDescriptorSet>? DescriptorSetReceived;
@@ -208,14 +163,13 @@ internal sealed class PluginCapabilityChannel : ICapabilityHost, ICapabilityPubl
             lifetime = _lifetime.Token;
         }
 
-        var remaining = command.Deadline.Remaining;
-        if (remaining <= TimeSpan.Zero)
+        if (command.Deadline.HasExpired)
         {
             return new DeviceCommandDispatch(Canceled(command));
         }
 
-        using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lifetime);
-        budget.CancelAfter(remaining);
+        // Active time, so a sleep in the middle of a command does not spend its budget.
+        using var budget = command.Deadline.CreateCancellationSource(cancellationToken, lifetime);
         Task<CapabilityCommandResult> work;
         try
         {
@@ -395,31 +349,6 @@ internal sealed class PluginCapabilityChannel : ICapabilityHost, ICapabilityPubl
             Reason = new CapabilityReason(CapabilityReasonCode.TransportFaulted, exception.Message),
             CompletedAt = DateTimeOffset.UtcNow
         };
-    }
-
-    private static string Normalize(string scope)
-    {
-        return string.IsNullOrWhiteSpace(scope) ? "plugin" : scope;
-    }
-
-    private bool TryFormat(string scope, string message, out string line)
-    {
-        line = string.Empty;
-        if (string.IsNullOrEmpty(message))
-        {
-            return false;
-        }
-
-        lock (_gate)
-        {
-            if (_closed)
-            {
-                return false;
-            }
-        }
-
-        line = $"plugin/{Identity.PluginId}/{Normalize(scope)}: {message}";
-        return true;
     }
 
     private void Raise<T>(Action<T>? handler, T value, string channel)

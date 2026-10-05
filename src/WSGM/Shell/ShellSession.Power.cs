@@ -35,6 +35,21 @@ public sealed partial class ShellSession
     /// <summary>The same moment on the wall clock, which a sleep does not stop.</summary>
     private long _systemResumeWallTicks = DateTimeOffset.UtcNow.AddHours(-1).UtcTicks;
 
+    /// <summary>
+    ///     The device power queue's tail, which completes once every queued transition has run or
+    ///     been dropped. It never faults, so shutdown can join it within its deadline before the device stops.
+    /// </summary>
+    private Task DevicePowerWork
+    {
+        get
+        {
+            lock (_devicePowerGate)
+            {
+                return _devicePowerWork;
+            }
+        }
+    }
+
     private void OnSessionLocked()
     {
         QueueDevicePowerTransition(true, "session locked");
@@ -164,11 +179,6 @@ public sealed partial class ShellSession
     /// </remarks>
     private void QueueDevicePowerTransition(bool suspend, string reason, bool systemSleep = false)
     {
-        if (_shutdownRequested)
-        {
-            return;
-        }
-
         var coordinator = _deviceCoordinator;
         if (coordinator is null && _commonPlugins is null)
         {
@@ -180,6 +190,12 @@ public sealed partial class ShellSession
 
         lock (_devicePowerGate)
         {
+            // Checked under the gate, so the tail shutdown joins is the last transition ever queued.
+            if (_shutdownRequested)
+            {
+                return;
+            }
+
             // A cycle that faulted across the sleep still needs this wake's resume, even though no
             // suspend was recorded for it.
             var repair = !suspend && systemSleep && coordinator?.State is DeviceCycleState.Faulted;
@@ -220,7 +236,9 @@ public sealed partial class ShellSession
         await previous.ConfigureAwait(false);
         lock (_devicePowerGate)
         {
-            if (transition.Cancelled)
+            // A transition still waiting when shutdown began is dropped: the device is about to stop,
+            // and the one already running is what shutdown waits for.
+            if (transition.Cancelled || _shutdownRequested)
             {
                 return;
             }

@@ -317,7 +317,7 @@ internal sealed class ControllerService(
             host.Trace(DeviceTraceLevel.Warn, "controller",
                 "no vendor collection for the controller tables; M1 and M2 stay unavailable.");
         }
-        else if (!AllyWriteBudget.IsAvailable(context.Deadline))
+        else if (!DeviceWriteBudget.IsAvailable(context.Deadline))
         {
             host.Trace(DeviceTraceLevel.Warn, "controller",
                 "too little time to write the controller tables; M1 and M2 stay unavailable this cycle.");
@@ -326,7 +326,8 @@ internal sealed class ControllerService(
         {
             if (!_configured)
             {
-                await journal.ArmAsync(ServiceId, AllyServiceIds.McuFirmware, AllyRecoveryState.Controller(),
+                // An entry a refused release left pending keeps it; the factory tables are the original anyway.
+                _ = await journal.BeginAsync(ServiceId, AllyServiceIds.McuFirmware, AllyRecoveryState.Controller(),
                     cancellationToken).ConfigureAwait(false);
                 _configured = true;
             }
@@ -392,15 +393,11 @@ internal sealed class ControllerService(
     private async ValueTask<CapabilityReason?> RestoreConfigurationAsync(Deadline deadline)
     {
         _configured = false;
-        try
+        if (!DeviceWriteBudget.IsAvailable(deadline))
         {
-            AllyWriteBudget.Require(deadline, "controller table restoration");
-        }
-        catch (AllyBudgetException ex)
-        {
-            // Nothing was written, so the entry stays outstanding and the next cycle restores the tables.
+            // Nothing was written, so the entry stays pending and the next cycle restores the tables.
             return new CapabilityReason(CapabilityReasonCode.Quiescing,
-                DiagnosticText.FromException("The factory controller tables were not written back", ex));
+                "Not enough time to write the factory controller tables back; the next start writes them.");
         }
 
         var refused = await WriteTablesAsync(AllyProtocol.DefaultConfiguration, CancellationToken.None)

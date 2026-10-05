@@ -41,11 +41,6 @@ internal static class PluginPackageWorkflow
     /// <summary>Canonical package manifest path.</summary>
     public const string ManifestPath = "plugin.wsgm.json";
 
-    internal const int MaximumPackageEntries = 1024;
-    internal const int MaximumPackageFiles = 512;
-    internal const long MaximumPackageFileBytes = 128L * 1024 * 1024;
-    internal const long MaximumPackageBytes = 512L * 1024 * 1024;
-
     private static readonly DateTimeOffset DeterministicTimestamp =
         new(1980, 1, 1, 0, 0, 0, TimeSpan.Zero);
 
@@ -104,13 +99,15 @@ internal static class PluginPackageWorkflow
         {
             cancellationToken.ThrowIfCancellationRequested();
             var relative = file.RelativePath;
-            if (!CaptureBundleLayout.IsSafeRelativePath(relative))
+            // WSGM's own entry-name rule too, so nothing packed here is refused when WSGM opens it.
+            if (!CaptureBundleLayout.IsSafeRelativePath(relative)
+                || !PluginPackageLayout.TryNormalizeEntryName(relative, out _))
             {
                 issues.Add(Issue("unsafe-path", relative, "Package file path is not canonical and relative."));
                 continue;
             }
 
-            if (IsImagePath(relative) && !IsManagedPe(file))
+            if (PluginPackageLayout.IsImageName(relative) && !IsManagedPe(file))
             {
                 issues.Add(Issue("native-image", relative,
                     "WSGM loads packages from memory, so a package may carry managed assemblies only."));
@@ -235,21 +232,17 @@ internal static class PluginPackageWorkflow
                        FileOptions.WriteThrough))
             using (ZipArchive archive = new(stream, ZipArchiveMode.Create, true, Encoding.UTF8))
             {
-                var fileCount = 0;
                 long totalBytes = 0;
                 foreach (var file in packageFiles.OrderBy(
                              file => file.RelativePath,
                              StringComparer.Ordinal))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    var written = WriteEntry(
+                    totalBytes += WriteEntry(
                         archive,
                         file,
-                        fileCount,
                         totalBytes,
                         cancellationToken);
-                    fileCount++;
-                    totalBytes += written;
                 }
             }
 
@@ -387,34 +380,25 @@ internal static class PluginPackageWorkflow
                 "Glyph package file is not reachable from a directly enumerated profile.")));
     }
 
+    /// <summary>Applies the package byte bounds WSGM applies when it opens a package.</summary>
+    /// <returns>The stable violation code, or null when the next file fits.</returns>
     internal static string? PackageBudgetViolation(
-        int acceptedFileCount,
         long acceptedBytes,
         long nextFileBytes)
     {
-        if (acceptedFileCount >= MaximumPackageFiles)
-        {
-            return "package-too-many-files";
-        }
-
-        if (nextFileBytes is < 0 or > MaximumPackageFileBytes)
+        if (nextFileBytes is < 0 or > PluginPackageLayout.MaxFileBytes)
         {
             return "file-too-large";
         }
 
         if (acceptedBytes < 0
-            || acceptedBytes > MaximumPackageBytes
-            || nextFileBytes > MaximumPackageBytes - acceptedBytes)
+            || acceptedBytes > PluginPackageLayout.MaxPackageBytes
+            || nextFileBytes > PluginPackageLayout.MaxPackageBytes - acceptedBytes)
         {
             return "package-too-large";
         }
 
         return null;
-    }
-
-    internal static bool PackageEntryBudgetExceeded(int acceptedEntryCount)
-    {
-        return acceptedEntryCount >= MaximumPackageEntries;
     }
 
     internal static bool IsLink(string path)
@@ -461,11 +445,10 @@ internal static class PluginPackageWorkflow
     private static long WriteEntry(
         ZipArchive archive,
         DeviceLabPackageFile file,
-        int acceptedFileCount,
         long acceptedBytes,
         CancellationToken cancellationToken)
     {
-        var violation = PackageBudgetViolation(acceptedFileCount, acceptedBytes, file.Length);
+        var violation = PackageBudgetViolation(acceptedBytes, file.Length);
         if (violation is not null)
         {
             throw new InvalidDataException(PackageBudgetMessage(violation));
@@ -487,8 +470,8 @@ internal static class PluginPackageWorkflow
                 break;
             }
 
-            if (read > MaximumPackageFileBytes - written
-                || read > MaximumPackageBytes - acceptedBytes - written)
+            if (read > PluginPackageLayout.MaxFileBytes - written
+                || read > PluginPackageLayout.MaxPackageBytes - acceptedBytes - written)
             {
                 throw new InvalidDataException("Package source exceeded its validated size while packing.");
             }
@@ -544,24 +527,14 @@ internal static class PluginPackageWorkflow
         return PluginManifestReader.Read(bytes);
     }
 
-    private static bool IsImagePath(string relativePath)
-    {
-        return relativePath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-               || relativePath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
-               || relativePath.EndsWith(".sys", StringComparison.OrdinalIgnoreCase);
-    }
-
     private static bool IsManagedPe(DeviceLabPackageFile file)
     {
         try
         {
             file.Rewind();
-            using PEReader pe = new(file.Stream, PEStreamOptions.LeaveOpen);
-            return pe.PEHeaders.CorHeader is not null && pe.HasMetadata;
+            return PluginPackageLayout.IsManagedImage(file.Stream);
         }
-        catch (Exception exception) when (exception is IOException
-                                              or UnauthorizedAccessException
-                                              or BadImageFormatException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             return false;
         }
@@ -595,9 +568,8 @@ internal static class PluginPackageWorkflow
     {
         return violation switch
         {
-            "package-too-many-files" => $"Package contains more than {MaximumPackageFiles} files.",
-            "file-too-large" => $"A package file exceeds {MaximumPackageFileBytes} bytes.",
-            "package-too-large" => $"Package exceeds {MaximumPackageBytes} total bytes.",
+            "file-too-large" => $"A package file exceeds {PluginPackageLayout.MaxFileBytes} bytes.",
+            "package-too-large" => $"Package exceeds {PluginPackageLayout.MaxPackageBytes} total bytes.",
             _ => "Package exceeds a filesystem budget."
         };
     }

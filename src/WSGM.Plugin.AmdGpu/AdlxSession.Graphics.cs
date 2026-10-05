@@ -84,11 +84,11 @@ internal sealed partial class AdlxSession
                     Role = CapabilityRole.GenericAction, ValueKind = CapabilityValueKind.None, SupportsRead = false,
                     SupportsWrite = false, SupportsAction = true, Persistence = CapabilityPersistence.Volatile
                 };
-            controls.Add(new AdlxControl(descriptor, CapabilityValue.None, _ =>
+            controls.Add(new AdlxControl(descriptor, CapabilityValue.None, (_, admission) =>
             {
                 Validate(target);
                 RequireSupported(feature);
-                AdlxNative.Call(feature.Pointer, 4);
+                AdlxNative.Call(feature.Pointer, 4, admission);
             }));
         });
         if (_graphics1 is not null)
@@ -168,11 +168,11 @@ internal sealed partial class AdlxSession
             CapabilityProfileScope scope = CapabilityProfileScope.Switched)
         {
             controls.Add(new AdlxControl(DriverDescriptors.Toggle("graphics." + id, instance, label, section, scope),
-                () => CapabilityValue.Boolean(AdlxNative.Boolean(feature.Pointer, read)), value =>
+                () => CapabilityValue.Boolean(AdlxNative.Boolean(feature.Pointer, read)), (value, admission) =>
                 {
                     Validate(target);
                     RequireSupported(feature, supported);
-                    AdlxNative.SetBoolean(feature.Pointer, write, value.BooleanValue == true);
+                    AdlxNative.SetBoolean(feature.Pointer, write, value.BooleanValue == true, admission);
                 }));
         }
 
@@ -182,11 +182,12 @@ internal sealed partial class AdlxSession
             controls.Add(new AdlxControl(DriverDescriptors.Choice("graphics." + id, instance, label, section,
                     CapabilityProfileScope.Switched,
                     values.Select(value => (AmdValue.Encode(value.Value), value.Label))),
-                () => CapabilityValue.Choice(AmdValue.Encode(AdlxNative.Integer(feature.Pointer, read))), value =>
+                () => CapabilityValue.Choice(AmdValue.Encode(AdlxNative.Integer(feature.Pointer, read))),
+                (value, admission) =>
                 {
                     Validate(target);
                     RequireSupported(feature, supported);
-                    AdlxNative.SetInteger(feature.Pointer, write, AmdValue.Decode(value));
+                    AdlxNative.SetInteger(feature.Pointer, write, AmdValue.Decode(value), admission);
                 }));
         }
 
@@ -198,7 +199,7 @@ internal sealed partial class AdlxSession
                     {
                         Unit = CapabilityUnit.Percent
                     },
-                () => CapabilityValue.Integer(AdlxNative.Integer(feature.Pointer, read)), value =>
+                () => CapabilityValue.Integer(AdlxNative.Integer(feature.Pointer, read)), (value, admission) =>
                 {
                     Validate(target);
                     RequireSupported(feature);
@@ -208,7 +209,7 @@ internal sealed partial class AdlxSession
                         throw new DriverFailure("This value is outside the AMD driver's current range.");
                     }
 
-                    AdlxNative.SetInteger(feature.Pointer, write, value.IntegerValue.Value);
+                    AdlxNative.SetInteger(feature.Pointer, write, value.IntegerValue.Value, admission);
                 }));
         }
     }

@@ -77,8 +77,7 @@ public static class DevicePowerPair
             return false;
         }
 
-        if (paired < peer.Minimum || paired > peer.Maximum
-                                  || (peer.Step is { } step && (paired - peer.Minimum!.Value) % step != 0))
+        if (!Fits(paired, peer))
         {
             error = $"The paired limit's {paired} W is outside {peer.Minimum}-{peer.Maximum} W in steps of "
                     + $"{peer.Step}.";
@@ -132,7 +131,8 @@ public static class DevicePowerPair
         return true;
     }
 
-    private static bool IsLimit(CapabilityDescriptor descriptor)
+    /// <summary>Whether a descriptor is a single-instance writable integer watt limit with a range and step.</summary>
+    internal static bool IsLimit(CapabilityDescriptor descriptor)
     {
         return descriptor is
                {
@@ -144,5 +144,13 @@ public static class DevicePowerPair
                    Step: > 0
                }
                && descriptor.Maximum >= descriptor.Minimum;
+    }
+
+    /// <summary>Whether a wattage is inside a limit's range and on its step.</summary>
+    internal static bool Fits(int watts, CapabilityDescriptor descriptor)
+    {
+        return watts >= descriptor.Minimum && watts <= descriptor.Maximum
+                                           && (descriptor.Step is not { } step
+                                               || (watts - descriptor.Minimum!.Value) % step == 0);
     }
 }

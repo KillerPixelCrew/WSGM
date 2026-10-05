@@ -1,19 +1,26 @@
 # WSGM Plugin SDK
 
-GPU packages use `PluginCategories.Gpu` (`wsgm.gpu`). They are independent common plugins, may
-coexist across vendors and adapters, and do not consume the sole Device slot. The host projects
-their typed capabilities into Graphics, also reachable from Device > GPU, including with Device
-Integration disabled. Vendor APIs, capability discovery and adapter/display identity belong to each
-package. This category prepares the shared Overlay home for NVIDIA, Intel and AMD work; it does not
-provide a driver API or invent global/per-game/inherit semantics for a driver that has not declared
-them.
-
 The MIT-licensed common contracts for WSGM integrations that are not a device: identity, category
-strings, host-owned slot policy, strict manifests, resident lifecycle, configuration and state
-publications. It depends on nothing, not the Device SDK, not the UI, not Windows Device Control.
+strings, host-owned slot policy, strict manifests, resident lifecycle, configuration, state
+publications and diagnostic tracing. The current contract is `PluginApi.Version` 4.
 
-The Device SDK and the device runtime still work as before. A compatibility adapter in WSGM maps
-this common lifecycle onto that runtime through the resident Shell host.
+It references two libraries, and the types it uses from them are part of the contract:
+
+- the Device SDK, for the active-time `Deadline`, the capability descriptor, state and command
+  model, `PlainText` and `DeviceTraceLevel`;
+- SteamUiToolkit, for `ISteamUiModule` and the toolkit types reachable from it. Every plugin shares
+  the host's copy of the toolkit, so API 4 covers that closure too, and a plugin built against an
+  older toolkit is refused at manifest read rather than failing at load or first call.
+
+It does not reference the UI or Windows Device Control. The device package uses the Device SDK's own
+lifecycle and runtime; nothing maps one onto the other.
+
+GPU packages use `PluginCategories.Gpu` (`wsgm.gpu`). They are independent common plugins, may
+coexist across vendors and adapters, and do not consume the sole Device slot. Their typed
+capabilities appear on the overlay's pages and in Steam's Quick Access, including with Device
+Integration disabled. Vendor APIs, capability discovery and adapter/display identity belong to each
+package. The category does not provide a driver API or invent global/per-game/inherit semantics for
+a driver that has not declared them.
 
 `eng/new-plugin.ps1` creates a common project, and `eng/package-plugin.ps1` builds an archive. See
 `docs/plugin-system.md` for installation, explicit update and reload, and the provider fixture.
@@ -24,8 +31,8 @@ Device is the `wsgm.device` category, with zero or one active instance. Every ot
 open string and the host decides how many instances it allows. A desktop with no device plugin is
 perfectly valid.
 
-Manifest permissions declare what a plugin requires. They do not grant privileges and they do not
-sandbox in-process code.
+Manifest `permissions` are metadata. WSGM validates and records them but never grants or enforces
+them, and they do not sandbox in-process code.
 
 ## Lifecycle
 
@@ -35,12 +42,16 @@ transitions plus suspend and resume, then stops and disposes.
 A timeout is not proof that work stopped. A failed stop must never be reported as released, and the
 host discards publications that arrive from a retired generation.
 
+`IPluginHost.Trace` and `IPluginHost.TraceChange` write into wsgm.log as
+`plugin/<pluginId>/<scope>: <message>`. `TraceChange` writes only when that key's value changed, so
+polled state can go through it without repeating.
+
 ## Manifests
 
-`PluginManifestReader` accepts bounded camel-case JSON, rejects unknown members, checks common API
-compatibility and numeric dependency ranges, and admits only a DLL filename at the package root.
-Resolving those dependencies, deciding trust, containing the filesystem and loading code all belong
-to the host.
+`PluginManifestReader` accepts camel-case JSON of at most 256 KiB and nesting depth 16, rejects
+unknown members, checks common API compatibility and numeric dependency ranges, and admits only a
+DLL filename at the package root. A `PluginManifest` is immutable once read. Resolving those
+dependencies, deciding trust, containing the filesystem and loading code all belong to the host.
 
 ## Configuration and state
 

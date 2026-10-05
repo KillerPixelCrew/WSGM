@@ -63,7 +63,19 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 
     private readonly Dictionary<DeviceCapabilityKey, CapabilityValue> _lastCommandValues = [];
     private readonly Dictionary<DeviceCapabilityKey, CapabilityCommandResult> _lastResults = [];
+
+    /// <summary>Observers of late command completions, joined by <see cref="DisposeAsync" />.</summary>
+    private readonly HashSet<Task> _lateObservers = [];
+
     private readonly Dictionary<DeviceCapabilityKey, (Guid Id, long Cycle, long Descriptors)> _latestCommands = [];
+
+    /// <summary>Stops waiting for late completions once the router is disposed.</summary>
+    /// <remarks>
+    ///     Never disposed: an admitted command still in flight at disposal may read its token. It owns
+    ///     no timer, so leaving it to the collector releases nothing late.
+    /// </remarks>
+    private readonly CancellationTokenSource _lifetime = new();
+
     private readonly Dictionary<DeviceCapabilityKey, CapabilityValue> _pendingValues = [];
 
     private readonly Action<Action> _postToUi;
@@ -134,23 +146,29 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         }
     }
 
-    public ValueTask DisposeAsync()
+    public async ValueTask DisposeAsync()
     {
-        if (_disposed)
-        {
-            return ValueTask.CompletedTask;
-        }
-
+        Task[] observers;
         lock (_gate)
         {
+            if (_disposed)
+            {
+                return;
+            }
+
             _disposed = true;
             DetachUnderGate();
             // An admitted ExecuteAsync releases its local gate in finally. Clearing the index
             // blocks reuse without disposing a semaphore an in-flight command still owns.
             _commandGates.Clear();
+            observers = [.. _lateObservers];
+            _lateObservers.Clear();
         }
 
-        return ValueTask.CompletedTask;
+        // A late result after detaching would be ignored anyway, so the observers stop waiting
+        // for the plugin and the join below cannot outlast a hung command.
+        await _lifetime.CancelAsync().ConfigureAwait(false);
+        await Task.WhenAll(observers).ConfigureAwait(false);
     }
 
     /// <summary>Raised on the UI dispatcher with a complete immutable projection.</summary>
@@ -291,12 +309,12 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 else if (dispatch.LateCompletion is not null)
                 {
                     terminal = false;
-                    _ = ObserveLateCommandAsync(
+                    TrackLateObserver(ObserveLateCommandAsync(
                         key,
                         command.CommandId,
                         command.ExpectedCycleGeneration,
                         client,
-                        dispatch.LateCompletion);
+                        dispatch.LateCompletion));
                 }
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -483,7 +501,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 refusal = new CapabilityReason(CapabilityReasonCode.Unsupported, "Capability is read-only.");
             }
             else if (value is not null
-                     && !DeviceCapabilityValidation.ValueMatches(value, descriptor, out var error))
+                     && !CapabilityValueValidation.ValueMatches(value, descriptor, out var error))
             {
                 refusal = new CapabilityReason(
                     CapabilityReasonCode.ValueOutOfRange,
@@ -567,7 +585,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         }
 
         _descriptorGeneration = descriptors.Generation;
-        _sections = DeviceSections.IncludePredefined(descriptors.Sections);
+        _sections = DeviceSectionLayout.IncludePredefined(descriptors.Sections);
         _descriptors.Clear();
         foreach (var descriptor in descriptors.Descriptors)
         {
@@ -680,6 +698,20 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         return _publisher is null ? $"device-{name}" : $"{_publisher}/{name}";
     }
 
+    /// <summary>Keeps a late-completion observer until disposal joins it.</summary>
+    /// <param name="observer">The observer task.</param>
+    private void TrackLateObserver(Task observer)
+    {
+        lock (_gate)
+        {
+            _lateObservers.RemoveWhere(static task => task.IsCompleted);
+            if (!_disposed && !observer.IsCompleted)
+            {
+                _lateObservers.Add(observer);
+            }
+        }
+    }
+
     private async Task ObserveLateCommandAsync(
         DeviceCapabilityKey key,
         Guid commandId,
@@ -690,7 +722,13 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         CapabilityCommandResult result;
         try
         {
-            result = await completion.ConfigureAwait(false);
+            result = await completion.WaitAsync(_lifetime.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+        {
+            Log.Info($"Late {_label} command result dropped: capability={key}, command={commandId}; "
+                     + "the router was disposed.");
+            return;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -750,6 +788,27 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         Publish();
     }
 
+    /// <summary>Whether the accepted descriptor set holds a capability matching a condition.</summary>
+    /// <param name="match">The condition on the descriptor.</param>
+    /// <returns>True when any accepted descriptor matches.</returns>
+    /// <remarks>Reads descriptors only, so it builds no view and resolves no desired value.</remarks>
+    internal bool HasDescriptor(Func<CapabilityDescriptor, bool> match)
+    {
+        ArgumentNullException.ThrowIfNull(match);
+        lock (_gate)
+        {
+            foreach (var (_, descriptor) in _orderedDescriptors)
+            {
+                if (match(descriptor))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+    }
+
     internal DeviceCapabilityView? TryGetView(DeviceCapabilityKey key)
     {
         lock (_gate)
@@ -803,10 +862,10 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         var desired = ResolveDesired(key, descriptor.ProfileScope);
         var global = _globalDesired.GetValueOrDefault(key);
         var outOfRange = (desired.Value is not null
-                          && !DeviceCapabilityValidation.ValueMatches(desired.Value, descriptor, out _))
+                          && !CapabilityValueValidation.ValueMatches(desired.Value, descriptor, out _))
                          || (global is not null
                              && descriptor.ProfileScope is not CapabilityProfileScope.Switched
-                             && !DeviceCapabilityValidation.ValueMatches(global, descriptor, out _));
+                             && !CapabilityValueValidation.ValueMatches(global, descriptor, out _));
         _pendingValues.TryGetValue(key, out var pending);
         _lastResults.TryGetValue(key, out var result);
         _lastCommandValues.TryGetValue(key, out var commanded);
@@ -1174,7 +1233,7 @@ internal static class DeviceCapabilityValidation
         }
 
         if (state.ObservedValue is not null
-            && !ValueMatches(state.ObservedValue, descriptor, out error))
+            && !CapabilityValueValidation.ValueMatches(state.ObservedValue, descriptor, out error))
         {
             return false;
         }
@@ -1187,43 +1246,6 @@ internal static class DeviceCapabilityValidation
 
         error = null;
         return true;
-    }
-
-    internal static bool ValueMatches(
-        CapabilityValue value,
-        CapabilityDescriptor descriptor,
-        out string? error)
-    {
-        if (value.Kind != descriptor.ValueKind)
-        {
-            error = "Capability value kind differs from its descriptor.";
-            return false;
-        }
-
-        var valid = value.Kind switch
-        {
-            CapabilityValueKind.Boolean => value.BooleanValue is not null,
-            CapabilityValueKind.Integer => value.IntegerValue is { } integer
-                                           && (descriptor.Minimum is null || integer >= descriptor.Minimum)
-                                           && (descriptor.Maximum is null || integer <= descriptor.Maximum)
-                                           && (descriptor.Step is null or <= 0
-                                               || (integer - (descriptor.Minimum ?? 0)) % descriptor.Step == 0),
-            CapabilityValueKind.Choice => value.ChoiceValue is { Length: > 0 } choice
-                                          && descriptor.Choices.Any(item => string.Equals(
-                                              item.Value,
-                                              choice,
-                                              StringComparison.Ordinal)),
-            CapabilityValueKind.Color => value.ColorValue is >= 0 and <= 0xFFFFFF,
-            CapabilityValueKind.Curve => CurveIsValid(value.CurveValue, descriptor),
-            CapabilityValueKind.Text => PlainText.TryValidate(
-                value.TextValue,
-                descriptor.MaximumLength ?? 0,
-                "text",
-                out _),
-            _ => false
-        };
-        error = valid ? null : "Capability value violates its descriptor shape or bounds.";
-        return valid;
     }
 
     /// <summary>Checks a descriptor's section and category references against the declared layout.</summary>
@@ -1405,42 +1427,5 @@ internal static class DeviceCapabilityValidation
                     or CapabilityValueKind.Text,
             _ => true
         };
-    }
-
-    /// <summary>
-    ///     Point count, strictly ascending inputs, and outputs inside whatever bounds the
-    ///     descriptor declared — the same three the authored-profile check applies.
-    /// </summary>
-    /// <remarks>
-    ///     The output bounds are checked here and not only in <see cref="DeviceProfileValidation" />
-    ///     because a curve can also be written straight through <c>ExecuteCapabilityAsync</c>, without
-    ///     passing a profile. Every other numeric kind on this path is held to the declared minimum and
-    ///     maximum, and the refusal message promises "shape or bounds" for all of them. Only the bounds
-    ///     the device actually declared are enforced: a descriptor that leaves one unset is saying it
-    ///     has no limit there, and inventing one would refuse a curve the device would have accepted.
-    /// </remarks>
-    private static bool CurveIsValid(IReadOnlyList<CurvePoint> points, CapabilityDescriptor descriptor)
-    {
-        if (points.Count is 0)
-        {
-            return false;
-        }
-
-        for (var index = 0; index < points.Count; index++)
-        {
-            var point = points[index];
-            if (index > 0 && point.Input <= points[index - 1].Input)
-            {
-                return false;
-            }
-
-            if ((descriptor.Minimum is { } minimum && point.Output < minimum)
-                || (descriptor.Maximum is { } maximum && point.Output > maximum))
-            {
-                return false;
-            }
-        }
-
-        return true;
     }
 }

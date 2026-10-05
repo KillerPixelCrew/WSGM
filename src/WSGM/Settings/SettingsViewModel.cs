@@ -209,9 +209,11 @@ public sealed partial class SettingsViewModel : ObservableObject
     internal static SettingsViewModel FromLoadedConfig(ConfigReadResult read, ConfigStore store,
         SteamInputShim steamInputShim, Func<IReadOnlyList<PluginActionOption>> readPluginActions)
     {
-        var viewModel = new SettingsViewModel(read.Config ?? new AppConfig(), ReadInstalledPluginId(), true,
+        // The installed plugin is not known until the Plugins folder is read on a worker; the plugin
+        // settings page fills in when that read lands.
+        var viewModel = new SettingsViewModel(read.Config ?? new AppConfig(), null, true,
             SettingsServices.Windows(store, steamInputShim, readPluginActions), store);
-        viewModel.LoadCommonPlugins(PluginPackageCatalog.DiscoverInstalled());
+        Log.Observe(viewModel.LoadPluginPackagesAsync(), "Settings plugin packages");
         viewModel.ShowConfigReadProblem(read);
         return viewModel;
     }
@@ -249,7 +251,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         Func<UpdateRelease, IProgress<double>, CancellationToken, Task<string>> DownloadUpdate,
         Action<string> RunSetup,
         Func<string?> ReadUpdateFailure,
-        Func<PluginPackageCatalog, PluginPackagePage> ReadPackages,
+        Func<PluginPackagePage> ReadPackages,
         Func<PluginPackageRowState, BundleManifest?, Task<string>> ActOnPackage,
         Func<bool> RepairAvailable,
         Action StartRepair,

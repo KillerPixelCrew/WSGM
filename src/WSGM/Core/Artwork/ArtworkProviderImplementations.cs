@@ -519,4 +519,4 @@ internal sealed class ScreenscraperProvider : IArtworkProvider
 
 /// <summary>A Screenscraper request failed for a reason the UI should surface.</summary>
 /// <param name="message">A user-facing message.</param>
-public sealed class ScreenscraperException(string message) : ArtworkProviderException(message);
+internal sealed class ScreenscraperException(string message) : ArtworkProviderException(message);

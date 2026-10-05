@@ -34,7 +34,7 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
         return RunSerializedAsync(
             () =>
             {
-                InvalidateProvider();
+                // The bound instance is kept: a failed call already drops it in RunSerializedAsync.
                 using ManagementClass definition = new("root\\WMI", "MSI_ACPI", null);
                 if (definition.Methods.Cast<MethodData>().All(method => method.Name != "Get_WMI"))
                 {
@@ -306,11 +306,12 @@ internal sealed partial class WindowsClawIdentityReader : IClawIdentityReader
 {
     private readonly Func<DeviceIdentitySnapshot> _readBaseIdentity;
     private readonly Func<IReadOnlyList<UsbEndpointObservation>> _readControllerEndpoints;
+    private readonly Func<ushort?> _readMcuRelease;
     private readonly Func<bool> _readOnAcPower;
     private readonly IMsiWmiTransport _wmi;
 
     public WindowsClawIdentityReader(IMsiWmiTransport wmi)
-        : this(wmi, ReadBaseMachineIdentity, ReadControllerEndpoints, ReadOnAcPower)
+        : this(wmi, ReadBaseMachineIdentity, ReadControllerEndpoints, ReadLineStatus, ReadMcuRelease)
     {
     }
 
@@ -318,13 +319,15 @@ internal sealed partial class WindowsClawIdentityReader : IClawIdentityReader
         IMsiWmiTransport wmi,
         Func<DeviceIdentitySnapshot> readBaseIdentity,
         Func<IReadOnlyList<UsbEndpointObservation>> readControllerEndpoints,
-        Func<bool> readOnAcPower)
+        Func<bool> readOnAcPower,
+        Func<ushort?> readMcuRelease)
     {
         _wmi = wmi ?? throw new ArgumentNullException(nameof(wmi));
         _readBaseIdentity = readBaseIdentity ?? throw new ArgumentNullException(nameof(readBaseIdentity));
         _readControllerEndpoints = readControllerEndpoints
                                    ?? throw new ArgumentNullException(nameof(readControllerEndpoints));
         _readOnAcPower = readOnAcPower ?? throw new ArgumentNullException(nameof(readOnAcPower));
+        _readMcuRelease = readMcuRelease ?? throw new ArgumentNullException(nameof(readMcuRelease));
     }
 
     public async ValueTask<ClawIdentityState> ReadAsync(CancellationToken cancellationToken)
@@ -349,6 +352,7 @@ internal sealed partial class WindowsClawIdentityReader : IClawIdentityReader
             };
         }
 
+        // Recorded for diagnostics only; the MCU revision comes from the HID collection below.
         var controllerEndpoints = await Task.Run(
                 _readControllerEndpoints,
                 CancellationToken.None)
@@ -356,39 +360,35 @@ internal sealed partial class WindowsClawIdentityReader : IClawIdentityReader
             .ConfigureAwait(false);
         snapshot = snapshot with { UsbEndpoints = controllerEndpoints };
 
+        var wmiAvailable = false;
         string? ecFirmware = null;
-        string? wmiFirmwareIdentity = null;
+        string? legacyBinding = null;
         string? interfaceVersion = null;
         try
         {
             if (await _wmi.IsProviderAvailableAsync(cancellationToken).ConfigureAwait(false))
             {
+                wmiAvailable = true;
+
                 // HC calls Get_WMI (block 1) and ignores the answer, and never calls Get_EC. Both are
-                // read here for the recovery binding only: a refusal of either leaves the provider
-                // available, as HC would still write.
+                // read here for diagnostics and to migrate journal entries earlier builds bound to them:
+                // a refusal of either leaves the provider available, as HC would still write.
                 var wmiVersion = await TryGetAsync("Get_WMI", 1, cancellationToken).ConfigureAwait(false);
                 var ec = await TryGetAsync("Get_EC", 0, cancellationToken).ConfigureAwait(false);
                 ecFirmware = ec is null ? null : DecodeEcFirmware(ec);
 
-                // The EC and interface versions bind the power and fan journal and gate nothing. HC
-                // reads Get_WMI only to tell old ECs from new and writes on every Claw; an exact
-                // 1T52EMS1.109 / 8.0 gate would disable power and fans on the first EC update, as the
-                // MCU 0229 gate did to the controller, and has no known value for the other models.
-                //
                 // The EC returns its version with its build stamp appended and no separator, so the
                 // field reads "1T52EMS1.1091204202509:10:47" (device-observed on the reference Claw,
-                // 2026-08-29; the raw response is in docs/device-integration.md). The journal binds
-                // to the version alone; the snapshot keeps the whole field for remote diagnosis.
-                //
-                // Where the EC version cannot be decoded, the BIOS version stands in: MSI ships EC
-                // updates inside its BIOS packages, so a changed BIOS is the change the binding guards.
+                // 2026-08-29; the raw response is in docs/device-integration.md). The legacy binding
+                // used the version alone, or the BIOS version where the EC's could not be decoded; the
+                // snapshot keeps the whole field for remote diagnosis.
                 interfaceVersion = wmiVersion is { Length: > 3 } ? $"{wmiVersion[2]}.{wmiVersion[3]}" : "unknown";
                 var firmware = EcFirmwareVersion(ecFirmware) is { } ecVersion
                     ? $"ec:{ecVersion}"
                     : snapshot.BiosVersion is { Length: > 0 } bios
                         ? $"bios:{bios}"
                         : "ec:unknown";
-                wmiFirmwareIdentity = $"{firmware};msi-acpi:{interfaceVersion}";
+                legacyBinding = $"{firmware};msi-acpi:{interfaceVersion}";
             }
         }
         // InvalidDataException is in this list because this class throws it: an invalid Package_32
@@ -404,55 +404,65 @@ internal sealed partial class WindowsClawIdentityReader : IClawIdentityReader
             // A permissions refusal, a missing instance and a malformed response all became this
             // one flag, and all three reached the user as the same partially-available device.
             PluginTrace.Failure("wmi", "MSI_ACPI provider probe failed", ex);
-            wmiFirmwareIdentity = null;
+            wmiAvailable = false;
+            legacyBinding = null;
             interfaceVersion = null;
         }
 
-        // The MCU revision (USB bcdDevice) is recorded for diagnostics and never gated on. It was
-        // gated to exactly 0229 until MSI shipped 0230 through the controller firmware updater on
-        // 2026-09-18, which refused controller ownership and lighting on every updated unit even
-        // though nothing the plugin sends had changed: the mode switch is not an addressed write,
-        // and the RGB profile at 0x024A still read back with the reviewed shape on 0230. Lighting
-        // verifies that shape on every acquire instead, which is the check the revision stood in for.
-        var mcuFirmware = snapshot.UsbEndpoints
-            .Where(endpoint =>
-                string.Equals(endpoint.VendorId, ClawHardwareFacts.Hex(ClawHardwareFacts.UsbVendorId),
-                    StringComparison.OrdinalIgnoreCase)
-                && IsControllerProduct(endpoint.ProductId))
-            .Select(endpoint => endpoint.DeviceRelease)
-            .FirstOrDefault(release => release is not null);
+        // The MCU revision is recorded for diagnostics and picks HC's nearest-firmware row; it is never
+        // gated on. It was gated to exactly 0229 until MSI shipped 0230 through the controller firmware
+        // updater on 2026-09-18, which refused controller ownership and lighting on every updated unit
+        // even though nothing the plugin sends had changed. HC reads it as the HID collection's
+        // Attributes.Version, as this does.
+        string? mcuFirmware = null;
+        try
+        {
+            mcuFirmware = await Task.Run(_readMcuRelease, CancellationToken.None)
+                .WaitAsync(cancellationToken)
+                .ConfigureAwait(false) is { } release
+                ? release.ToString("X4", CultureInfo.InvariantCulture)
+                : null;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException && !cancellationToken.IsCancellationRequested)
+        {
+            PluginTrace.Failure("mcu", "The MCU revision could not be read; HC's reference row applies", ex);
+        }
 
         snapshot = snapshot with
         {
             EcFirmwareVersion = ecFirmware,
             McuFirmwareVersion = mcuFirmware,
-            WmiProviderSignatures = wmiFirmwareIdentity is null
-                ? []
-                : ["root\\WMI:MSI_ACPI", "root\\WMI:MSI_ACPI.Get_WMI:" + interfaceVersion]
+            WmiProviderSignatures = wmiAvailable
+                ? ["root\\WMI:MSI_ACPI", "root\\WMI:MSI_ACPI.Get_WMI:" + interfaceVersion]
+                : []
         };
 
-        bool onAcPower;
-        try
-        {
-            onAcPower = await Task.Run(_readOnAcPower, CancellationToken.None)
-                .WaitAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is ManagementException or IOException
-                                       or InvalidDataException or UnauthorizedAccessException or COMException
-                                   || (ex is OperationCanceledException && !cancellationToken.IsCancellationRequested))
-        {
-            PluginTrace.Failure("power", "AC-power observation failed", ex);
-            onAcPower = false;
-        }
-
+        var onAcPower = await Task.Run(ReadOnAcPower, CancellationToken.None)
+            .WaitAsync(cancellationToken).ConfigureAwait(false);
         return new ClawIdentityState
         {
             Snapshot = snapshot,
             ExactMachineMatch = true,
             Model = model,
-            WmiFirmwareIdentity = wmiFirmwareIdentity,
+            WmiAvailable = wmiAvailable,
+            LegacyRecoveryBinding = legacyBinding,
             OnAcPower = onAcPower
         };
+    }
+
+    public bool ReadOnAcPower()
+    {
+        try
+        {
+            return _readOnAcPower();
+        }
+        catch (Exception ex) when (ex is ManagementException or IOException
+                                       or InvalidDataException or UnauthorizedAccessException or COMException
+                                       or Win32Exception)
+        {
+            PluginTrace.Failure("power", "AC-power observation failed", ex);
+            return false;
+        }
     }
 
     private async ValueTask<byte[]?> TryGetAsync(string method, byte selector, CancellationToken cancellationToken)
@@ -551,14 +561,37 @@ internal sealed partial class WindowsClawIdentityReader : IClawIdentityReader
                ?? throw new FileNotFoundException($"Inventory query returned no rows: {query}");
     }
 
-    private static bool ReadOnAcPower()
+    /// <summary>The AC line status, as the Ally reads it; cheap enough to read before every command.</summary>
+    /// <remarks>An unknown line status counts as AC, as a machine without a battery reported before.</remarks>
+    private static bool ReadLineStatus()
     {
-        using ManagementObjectSearcher searcher = new(
-            "root\\WMI",
-            "SELECT PowerOnline FROM BatteryStatus");
-        using var candidates = searcher.Get();
-        using var battery = candidates.Cast<ManagementObject>().FirstOrDefault();
-        return battery is null || Convert.ToBoolean(battery["PowerOnline"], CultureInfo.InvariantCulture);
+        if (!GetSystemPowerStatus(out var status))
+        {
+            throw new Win32Exception(Marshal.GetLastPInvokeError());
+        }
+
+        return status.AcLineStatus != 0;
+    }
+
+    /// <summary>The MCU collection's HID release number, HC's <c>Attributes.Version</c>.</summary>
+    private static ushort? ReadMcuRelease()
+    {
+        return HidEndpointEnumerator.FindMcu()?.ReleaseNumber;
+    }
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GetSystemPowerStatus(out SystemPowerStatus status);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct SystemPowerStatus
+    {
+        public byte AcLineStatus;
+        public byte BatteryFlag;
+        public byte BatteryLifePercent;
+        public byte SystemStatusFlag;
+        public int BatteryLifeTime;
+        public int BatteryFullLifeTime;
     }
 
     private static string? Normalize(object? value)
@@ -610,22 +643,26 @@ internal sealed class MsiOemEventSource : IMsiOemEventSource
     private Func<byte, DateTimeOffset, ValueTask>? _callback;
     private ManagementEventWatcher? _watcher;
 
-    public async ValueTask<bool> StartAsync(
+    public async ValueTask EnsureEventClassAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await MsiEventRepair.EnsureAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException && !cancellationToken.IsCancellationRequested)
+        {
+            // The repair is HC's best effort; without it the buttons arrive only as keyboard chords.
+            PluginTrace.Failure("wmi", "MSI_Event repair failed", ex);
+        }
+    }
+
+    public ValueTask<bool> StartAsync(
         Func<byte, DateTimeOffset, ValueTask> callback,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(callback);
         cancellationToken.ThrowIfCancellationRequested();
-        lock (_gate)
-        {
-            if (_watcher is not null)
-            {
-                return true;
-            }
-        }
-
-        await MsiEventRepair.EnsureAsync(cancellationToken).ConfigureAwait(false);
-        return Subscribe(callback);
+        return ValueTask.FromResult(Subscribe(callback));
     }
 
     public ValueTask StopAsync(CancellationToken cancellationToken)
@@ -849,7 +886,17 @@ internal static class MsiEventRepair
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(10));
-        await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
+        try
+        {
+            await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // Left to finish: killing a device restart midway is worse than waiting it out unobserved.
+            PluginTrace.Warn("wmi", $"pnputil did not finish restarting {instanceId} within 10 s.");
+            return false;
+        }
+
         return process.ExitCode == 0;
     }
 }

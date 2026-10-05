@@ -64,6 +64,8 @@ public partial class OverlayWindow : Window
     private DispatcherTimer? _confirmResetTimer;
     private IDeviceOverlaySource? _deviceBridge;
     private DevicePrerequisiteSource? _devicePrerequisites;
+    private bool _devicePrerequisitesReading;
+    private bool _devicePrerequisitesStale;
 
     private SdFormatManager? _format;
     private LiveBackdrop? _glassBackdrop;

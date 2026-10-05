@@ -63,25 +63,20 @@ public sealed class ClawModelLifecycleTests
     }
 
     [Fact]
-    public async Task ExecuteCommand_ChangedModelIsRefusedBeforeAnyHardwareRead()
+    public async Task ExecuteCommand_ReadsThePowerSourceButNotTheCycleIdentity()
     {
         using TemporaryDirectory state = new();
         FakeIdentityReader identity = new();
-        FakeWmiTransport wmi = new();
-        await using ClawPlugin plugin = new(Services(identity, wmi));
+        await using ClawPlugin plugin = new(Services(identity));
         _ = await plugin.StartAsync(
             Context(new TestPluginHostAdapter(CycleGeneration), state.Root, ClawModels.Claw8A2Vm),
             CancellationToken.None);
-        identity.Model = ClawModels.A1M;
-        var reads = wmi.Reads;
 
-        var result = await plugin.ExecuteCommandAsync(
-            Command(CapabilityIds.PowerSustained, null, CapabilityValue.Integer(25)), CancellationToken.None);
+        _ = await plugin.ExecuteCommandAsync(
+            Command(CapabilityIds.ChargeLimit, null, CapabilityValue.Integer(60)), CancellationToken.None);
 
-        Assert.Equal(CommandOutcome.Rejected, result.Outcome);
-        Assert.Equal(CapabilityReasonCode.GenerationChanged, result.Reason?.Code);
-        Assert.Equal(reads, wmi.Reads);
-        Assert.Empty(wmi.Writes);
+        Assert.Equal(1, identity.ReadCount);
+        Assert.Equal(1, identity.AcPowerReads);
     }
 
     [Theory]
@@ -106,7 +101,7 @@ public sealed class ClawModelLifecycleTests
         using TemporaryDirectory state = new();
         FakeControllerSource source = new();
         TestPluginHostAdapter host = new(CycleGeneration);
-        await using var journal = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
+        var journal = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
         var controller = await AcquireControllerAsync(source, host, journal, ClawModels.A1M);
 
         Assert.Equal(10, host.PublishedOutput?.MaxFramesPerSecond);
@@ -129,7 +124,7 @@ public sealed class ClawModelLifecycleTests
         using TemporaryDirectory state = new();
         FakeControllerSource source = new() { Topology = DirectInputTopology() };
         TestPluginHostAdapter host = new(CycleGeneration);
-        await using var journal = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
+        var journal = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
         var controller = await AcquireControllerAsync(source, host, journal, ClawModels.A1M);
         await controller.ApplyHapticsAsync(Frame(1, 1), CancellationToken.None);
 
@@ -143,7 +138,7 @@ public sealed class ClawModelLifecycleTests
     {
         using TemporaryDirectory state = new();
         FakeMcuTransport mcu = new();
-        await using var journal = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
+        var journal = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
 
         _ = await AcquireControllerAsync(new FakeControllerSource(), new TestPluginHostAdapter(CycleGeneration),
             journal, ClawModels.Claw8A2Vm, mcu);
@@ -159,7 +154,7 @@ public sealed class ClawModelLifecycleTests
     {
         using TemporaryDirectory state = new();
         FakeControllerSource source = new() { Topology = DirectInputTopology() };
-        await using var journal = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
+        var journal = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
         FakeMcuTransport mcu = new();
         var controller = await AcquireControllerAsync(source, new TestPluginHostAdapter(CycleGeneration), journal,
             ClawModels.Claw8A2Vm, mcu);
@@ -200,7 +195,7 @@ public sealed class ClawModelLifecycleTests
         using TemporaryDirectory state = new();
         FakeControllerSource source = new();
         TestPluginHostAdapter host = new(CycleGeneration);
-        await using var journal = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
+        var journal = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
         var controller = await AcquireControllerAsync(source, host, journal, ClawModels.Claw8A2Vm);
 
         await controller.ApplyHapticsAsync(Frame(0.5f, 0.25f), CancellationToken.None);
@@ -254,7 +249,7 @@ public sealed class ClawModelLifecycleTests
         _ = await power.ApplyLimitsAsync(
             Command(CapabilityIds.PowerBoost, null, CapabilityValue.Integer(20)), 20, 20, CancellationToken.None);
 
-        Assert.True(await power.RestoreAsync(original, CancellationToken.None));
+        await power.RestoreAsync(original, CancellationToken.None);
 
         Assert.Equal(35, original.FastWatts);
         Assert.Equal(35, wmi.ReadData(ClawHardwareFacts.PowerFastAddress));
@@ -272,33 +267,47 @@ public sealed class ClawModelLifecycleTests
     }
 
     [Theory]
-    [InlineData("ec:1T52EMS1.109;msi-acpi:8.0", "ec:1T52EMS1.109;msi-acpi:8.0", "Restore")]
-    [InlineData("ec:1T52EMS1.109;msi-acpi:8.0", "ec:1T52EMS1.110;msi-acpi:8.0", "Discard")]
-    [InlineData("ec:unknown;msi-acpi:8.0", "ec:unknown;msi-acpi:8.0", "Discard")]
-    [InlineData("ec:1T52EMS1.109;msi-acpi:8.0", null, "ReportOnly")]
-    public void Decide_RestoresOnlyOnTheSameKnownEc(string bound, string? current, string action)
+    [InlineData("bios:E1T52IMS.114", "Pending", "bios:E1T52IMS.114", "Restore")]
+    [InlineData("bios:E1T52IMS.114", "RestoreFailed", "bios:E1T52IMS.114", "Keep")]
+    [InlineData("bios:E1T52IMS.114", "RestoredUnverified", "bios:E1T52IMS.114", "Keep")]
+    [InlineData("bios:E1T52IMS.114", "RestoreFailed", "bios:E1T52IMS.115", "Discard")]
+    [InlineData("bios:E1T52IMS.114", "Pending", null, "Wait")]
+    public void Decide_RestoresAPendingEntryOnceOnTheSameBios(
+        string bound,
+        string status,
+        string? current,
+        string action)
     {
         Assert.Equal(
             Enum.Parse<ClawReconciliationAction>(action),
-            ClawRecoveryJournal.Decide(PowerEntry(bound, DeviceRecoveryStatus.Pending), current));
+            ClawRecoveryJournal.Decide(PowerEntry(bound, Enum.Parse<DeviceRecoveryStatus>(status)), current,
+                "ec:1T52EMS1.109;msi-acpi:8.0"));
     }
 
-    [Fact]
-    public void Decide_AFailedRestoreStillBlocksAcrossAnEcChange()
+    [Theory]
+    [InlineData("ec:1T52EMS1.109;msi-acpi:8.0", "Pending", "ec:1T52EMS1.109;msi-acpi:8.0", "Restore")]
+    [InlineData("ec:1T52EMS1.109;msi-acpi:8.0", "RestoreFailed", "ec:1T52EMS1.109;msi-acpi:8.0", "Discard")]
+    [InlineData("ec:1T52EMS1.109;msi-acpi:8.0", "Pending", "ec:1T52EMS1.110;msi-acpi:8.0", "Discard")]
+    [InlineData("ec:unknown;msi-acpi:8.0", "Pending", "ec:unknown;msi-acpi:8.0", "Discard")]
+    [InlineData("ec:1T52EMS1.109;msi-acpi:8.0", "Pending", null, "Wait")]
+    public void Decide_MigratesALegacyEntryOnlyWhenItsOldBindingStillReads(
+        string bound,
+        string status,
+        string? legacy,
+        string action)
     {
         Assert.Equal(
-            ClawReconciliationAction.Block,
-            ClawRecoveryJournal.Decide(
-                PowerEntry("ec:1T52EMS1.109;msi-acpi:8.0", DeviceRecoveryStatus.RestoreFailed),
-                "ec:1T52EMS1.110;msi-acpi:8.0"));
+            Enum.Parse<ClawReconciliationAction>(action),
+            ClawRecoveryJournal.Decide(PowerEntry(bound, Enum.Parse<DeviceRecoveryStatus>(status)),
+                "bios:E1T52IMS.114", legacy));
     }
 
     [Fact]
     public async Task StartAsync_EntryFromAnotherEcIsDroppedAndPowerStaysAvailable()
     {
         using TemporaryDirectory state = new();
-        await using (var journal = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None))
         {
+            var journal = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
             _ = await journal.BeginAsync(ServiceIds.Power, "ec:1T52EMS1.108;msi-acpi:8.0",
                 ClawRecoveryValues.Power(new PowerPair(20, 30, 0xC1)), CancellationToken.None);
         }
@@ -312,7 +321,7 @@ public sealed class ClawModelLifecycleTests
         Assert.Equal(30, wmi.ReadData(ClawHardwareFacts.PowerSustainedAddress));
         Assert.Contains(host.CapabilityStates,
             capability => capability is { CapabilityId: CapabilityIds.PowerSustained, Available: true });
-        await using var reopened = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
+        var reopened = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
         Assert.Empty(reopened.OutstandingEntries);
     }
 
@@ -329,7 +338,7 @@ public sealed class ClawModelLifecycleTests
             "scenario":193},"status":"Pending"}]}
             """);
 
-        await using var journal = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
+        var journal = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
 
         Assert.Null(journal.FailureReason);
         Assert.Equal(20, journal.OriginalStateFor(ServiceIds.Power)?.SustainedWatts);
@@ -346,12 +355,14 @@ public sealed class ClawModelLifecycleTests
             BaseboardManufacturer = ClawHardwareFacts.Manufacturer,
             BaseboardProduct = ClawModels.A1M.BoardProduct,
             BiosVersion = "E1T41IMS.105"
-        }, () => [], () => true);
+        }, () => [], () => true, () => 0x0230);
 
         var identity = await reader.ReadAsync(CancellationToken.None);
 
         Assert.True(identity.WmiAvailable);
-        Assert.Equal("bios:E1T41IMS.105;msi-acpi:0.0", identity.WmiFirmwareIdentity);
+        Assert.Equal("bios:E1T41IMS.105", identity.RecoveryBinding);
+        Assert.Equal("bios:E1T41IMS.105;msi-acpi:0.0", identity.LegacyRecoveryBinding);
+        Assert.Equal("0230", identity.Snapshot.McuFirmwareVersion);
         Assert.Equal(ClawModels.A1M, identity.Model);
     }
 
@@ -359,11 +370,12 @@ public sealed class ClawModelLifecycleTests
     [InlineData("bios:E1T41IMS.105;msi-acpi:0.0", true)]
     [InlineData("ec:1T52EMS1.109;msi-acpi:8.0", true)]
     [InlineData("ec:unknown;msi-acpi:1.0", true)]
+    [InlineData("bios:E1T41IMS.105", false)]
     [InlineData("mcu", false)]
     [InlineData("msi-acpi:8.0", false)]
-    public void IsWmi_AcceptsAnyEcBinding(string identity, bool expected)
+    public void IsLegacy_AcceptsAnyEcBinding(string identity, bool expected)
     {
-        Assert.Equal(expected, ClawFirmwareIdentities.IsWmi(identity));
+        Assert.Equal(expected, ClawFirmwareIdentities.IsLegacy(identity));
     }
 
     [Theory]

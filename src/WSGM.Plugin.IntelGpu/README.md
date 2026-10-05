@@ -195,16 +195,18 @@ the last one, which returns the executable to the driver's own choice.
 
 One IGCL session per cycle: opened at start and on resume, reopened after
 `CTL_RESULT_ERROR_DEVICE_LOST` or `CTL_RESULT_ERROR_UNINITIALIZED`, closed on suspend and stop. Any
-other failed call fails only its own control for that pass. All driver calls run on one lane. With
-no `ControlLib.dll` or no Intel adapter the plugin publishes an empty descriptor set and Unavailable
+other failed call fails only its own control for that pass. All driver calls run on one lane and off
+the caller's thread, so an overlay command never holds the UI thread for a driver call. With no
+`ControlLib.dll` or no Intel adapter the plugin publishes an empty descriptor set and Unavailable
 health, and asks again after 10 seconds, then less and less often, up to every 5 minutes; health is
 published and logged only when it changes. Start publishes the descriptors and returns; the first
 observation follows at once. The driver's state is read every 10 seconds and republished when it
 changes, or before WSGM's freshness window runs out.
 
-Stop waits up to 5 seconds for the observation loop and 5 more for the lane. When a driver call is
+Stop waits for the observation loop and the lane within WSGM's own budget. When a driver call is
 still running after that, stop reports itself unconfirmed and leaves the session and
-`ControlLib.dll` open; the call's thread closes them when it returns.
+`ControlLib.dll` open; the call's thread closes them when it returns. A loop still in its pass is
+not forgotten: the next start runs after it, so two passes never overlap.
 
 ## Build
 

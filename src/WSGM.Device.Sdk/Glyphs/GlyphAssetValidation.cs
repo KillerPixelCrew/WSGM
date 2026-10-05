@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.IO.Compression;
-using System.Linq;
 using System.Text;
 using System.Xml;
 
@@ -53,7 +52,7 @@ internal sealed record AssetImportResult(ImportedGlyphAsset? Asset, GlyphAssetIm
 /// </remarks>
 internal static class GlyphSvgNormalizer
 {
-    internal static AssetImportResult Normalize(GlyphAssetEntry asset, ReadOnlySpan<byte> bytes)
+    internal static AssetImportResult Normalize(GlyphAssetEntry asset, byte[] bytes)
     {
         string source;
         try
@@ -78,7 +77,6 @@ internal static class GlyphSvgNormalizer
 
         GlyphViewBox? viewBox;
         List<NormalizedGlyphPath> paths = [];
-        var commandCount = 0;
         try
         {
             using StringReader text = new(source);
@@ -89,7 +87,7 @@ internal static class GlyphSvgNormalizer
             }
 
             viewBox = ReadViewBox(reader);
-            ExtractPaths(reader, paths, ref commandCount);
+            ExtractPaths(reader, paths);
         }
         catch (XmlException exception)
         {
@@ -109,20 +107,13 @@ internal static class GlyphSvgNormalizer
                 $"Declared viewBox {declaredViewBox} does not match SVG viewBox {viewBox.Value}.");
         }
 
-        if (commandCount > GlyphProfileLimits.MaxSvgCommands)
-        {
-            return Failure(
-                asset,
-                $"SVG contains more than {GlyphProfileLimits.MaxSvgCommands} path commands.");
-        }
-
         return AssetImportResult.Success(new ImportedGlyphAsset
         {
             Entry = asset,
             Vector = new NormalizedGlyphSvg
             {
                 ViewBox = viewBox.Value,
-                SvgUtf8 = bytes.ToArray(),
+                SvgUtf8 = bytes,
                 Paths = paths
             }
         });
@@ -130,11 +121,10 @@ internal static class GlyphSvgNormalizer
 
     /// <summary>Collects the paths WSGM's own renderer can draw.</summary>
     /// <param name="reader">Reader positioned on the root element.</param>
-    /// <param name="paths">Receives one entry per path found.</param>
-    /// <param name="commandCount">Running total used to enforce the package command budget.</param>
+    /// <param name="paths">Receives one entry per non-blank path found, however many there are.</param>
     /// <remarks>
-    ///     Deliberately forgiving. Anything it does not understand — an element it has no renderer for,
-    ///     an attribute outside the handful below — is skipped rather than treated as a fault, because
+    ///     Deliberately forgiving. Anything it does not understand, such as an element it has no renderer
+    ///     for or an attribute outside the handful below, is skipped rather than treated as a fault, because
     ///     this exists to draw glyphs in WSGM's overlay and not to pass judgement on the artwork. Steam
     ///     receives the author's bytes either way, so a drawing this cannot fully read still displays
     ///     there correctly.
@@ -144,10 +134,7 @@ internal static class GlyphSvgNormalizer
     ///         outlines.
     ///     </para>
     /// </remarks>
-    private static void ExtractPaths(
-        XmlReader reader,
-        List<NormalizedGlyphPath> paths,
-        ref int commandCount)
+    private static void ExtractPaths(XmlReader reader, List<NormalizedGlyphPath> paths)
     {
         var root = ReadPresentation(
             reader,
@@ -176,15 +163,6 @@ internal static class GlyphSvgNormalizer
                 var data = reader.GetAttribute("d");
                 if (!string.IsNullOrWhiteSpace(data))
                 {
-                    commandCount = Math.Min(
-                        GlyphProfileLimits.MaxSvgCommands + 1,
-                        commandCount + CountCommands(data));
-                }
-
-                if (paths.Count < GlyphProfileLimits.MaxSvgPaths
-                    && !string.IsNullOrWhiteSpace(data)
-                    && data.Length <= GlyphProfileLimits.MaxPathDataLength)
-                {
                     paths.Add(new NormalizedGlyphPath
                     {
                         Data = data,
@@ -203,12 +181,6 @@ internal static class GlyphSvgNormalizer
                 inherited.Add(current);
             }
         }
-    }
-
-    private static int CountCommands(string pathData)
-    {
-        const string Commands = "MmZzLlHhVvCcSsQqTtAa";
-        return pathData.Count(character => Commands.Contains(character));
     }
 
     /// <summary>Overlays an element's presentation attributes onto what it inherits.</summary>
@@ -394,7 +366,8 @@ internal static class GlyphPngInspector
                 continue;
             }
 
-            if (type is "acTL" or "fcTL" or "fdAT" or "tEXt" or "zTXt" or "iTXt")
+            // Animation is refused. Text and other ancillary chunks are skipped like the rest.
+            if (type is "acTL" or "fcTL" or "fdAT")
             {
                 return Failure(asset, $"PNG chunk '{type}' is not accepted for static artwork.");
             }
@@ -464,7 +437,7 @@ internal static class GlyphPngInspector
         return AssetImportResult.Success(new ImportedGlyphAsset
         {
             Entry = asset,
-            RasterPng = bytes.ToArray()
+            RasterPng = bytes
         });
     }
 

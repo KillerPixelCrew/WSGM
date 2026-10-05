@@ -61,7 +61,7 @@ public sealed class NvColorTests
             return CapabilityValue.None();
         }
 
-        internal override void Write(CapabilityValue value)
+        internal override void Write(CapabilityValue value, WriteAdmission admission)
         {
         }
     }

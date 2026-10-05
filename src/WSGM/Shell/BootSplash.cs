@@ -30,6 +30,7 @@ public sealed class BootSplash
     private bool _armed;
     private DateTime _armedUtc;
     private bool _closeScheduled;
+    private volatile bool _covering;
     private bool _dismissing;
     private GamepadService? _gamepad;
     private GamepadNavigation? _navigation;
@@ -45,17 +46,22 @@ public sealed class BootSplash
     ///     fallback; during a Game Mode entry it cancels the entry until the transaction says
     ///     otherwise.
     /// </param>
-    /// <param name="armed">
-    ///     Whether Steam has already been asked for Big Picture. False for a
-    ///     transition that has work to do first: see <see cref="ArmSteamDetection" />.
-    /// </param>
-    public BootSplash(AppConfig config, Action buttonAction, bool armed = true)
+    /// <remarks>
+    ///     Every splash starts unarmed: it neither looks for Big Picture nor times out until
+    ///     <see cref="ArmSteamDetection" /> says Steam has been asked.
+    /// </remarks>
+    public BootSplash(AppConfig config, Action buttonAction)
     {
         ArgumentNullException.ThrowIfNull(buttonAction);
         _config = config;
         _buttonAction = buttonAction;
-        _armed = armed;
     }
+
+    /// <summary>
+    ///     Whether the opaque cover is up: shown and not yet fading or closing. Readable from any thread,
+    ///     so the boot takeover can tell a covered Big Picture window from an uncovered one.
+    /// </summary>
+    public bool IsCovering => _covering;
 
     /// <summary>
     ///     Starts watching for the Big Picture window, and starts its timeout.
@@ -106,7 +112,7 @@ public sealed class BootSplash
             _gamepad.Start();
         };
 
-        _armedUtc = DateTime.UtcNow;
+        _covering = true;
         _pollTimer = new DispatcherTimer { Interval = PollInterval };
         _pollTimer.Tick += OnPollTick;
         _pollTimer.Start();
@@ -127,6 +133,7 @@ public sealed class BootSplash
             Log.Warn(
                 $"Boot splash timeout after {SplashPolicy.SteamTimeout.TotalSeconds:0} s — closing (Big Picture window never appeared).");
             _dismissing = true;
+            _covering = false;
             _pollTimer?.Stop();
             CloseAfter(TouchInput.CloseGrace);
             return;
@@ -170,6 +177,7 @@ public sealed class BootSplash
     {
         Log.Info("Big Picture window detected — dismissing boot splash.");
         _dismissing = true;
+        _covering = false;
         _pollTimer?.Stop();
         // Fade IMMEDIATELY (no opaque overlap — see PollInterval comment) and no
         // focus handoff afterwards: Steam takes the foreground itself, and a
@@ -185,6 +193,7 @@ public sealed class BootSplash
         }
 
         _dismissing = true;
+        _covering = false;
         Log.Info("Boot splash: button pressed.");
         _pollTimer?.Stop();
         CloseAfter(TouchInput.CloseGrace);
@@ -208,6 +217,7 @@ public sealed class BootSplash
         _pendingAction?.Dispose();
         _pendingAction = null;
         _dismissing = true;
+        _covering = false;
         _pollTimer?.Stop();
         CloseAfter(TouchInput.CloseGrace);
         Log.Info($"Boot splash dismissed ({reason}).");
@@ -228,6 +238,7 @@ public sealed class BootSplash
         // Idempotent — also runs when lifetime.Shutdown() closes the window
         // mid-boot (update flow). A dead splash leaves no persistent state, so
         // recovery paths need no knowledge of it.
+        _covering = false;
         if (_pollTimer is not null)
         {
             _pollTimer.Stop();

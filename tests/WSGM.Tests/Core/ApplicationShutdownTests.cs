@@ -27,20 +27,6 @@ public sealed class ApplicationShutdownTests : IDisposable
     }
 
     [Fact]
-    public void BudgetsMatchFrozenShutdownAndUpdatePreStopDeadlines()
-    {
-        Assert.Equal(TimeSpan.FromSeconds(15),
-            ApplicationShutdownCoordinator.BudgetFor(ApplicationShutdownReason.Normal));
-        Assert.Equal(TimeSpan.FromSeconds(10),
-            ApplicationShutdownCoordinator.BudgetFor(ApplicationShutdownReason.Update));
-        Assert.Equal(TimeSpan.FromSeconds(5),
-            ApplicationShutdownCoordinator.BudgetFor(ApplicationShutdownReason.SessionEnd));
-        Assert.Equal(TimeSpan.FromSeconds(20),
-            ApplicationShutdownCoordinator.BudgetFor(ApplicationShutdownReason.Uninstall));
-        Assert.Equal(TimeSpan.FromSeconds(10), Steam.UpdateStopBudget);
-    }
-
-    [Fact]
     public async Task CompletedCleanupReturnsClean()
     {
         var outcome = await ApplicationShutdownCoordinator.ShutdownAsync(

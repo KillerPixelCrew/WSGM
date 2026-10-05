@@ -93,20 +93,31 @@ public sealed record CapabilityCategory
             return false;
         }
 
-        if (Key is SettingSectionKey.Custom)
+        return CustomTitleRule.TryValidate(Key, CustomTitle, $"category '{CategoryId}'", out error);
+    }
+}
+
+/// <summary>The custom-title rule sections and categories share.</summary>
+internal static class CustomTitleRule
+{
+    /// <summary>A Custom key carries a plain-text title; any other key carries none.</summary>
+    /// <param name="key">The declared key.</param>
+    /// <param name="customTitle">The declared custom title.</param>
+    /// <param name="owner">The declaration named in the failure message.</param>
+    /// <param name="error">The reason it is not valid, when the result is <see langword="false" />.</param>
+    /// <returns><see langword="true" /> when the title fits the key.</returns>
+    internal static bool TryValidate(SettingSectionKey key, string? customTitle, string owner, out string? error)
+    {
+        if (key is SettingSectionKey.Custom)
         {
-            return PlainText.TryValidate(
-                CustomTitle,
-                $"category '{CategoryId}' customTitle",
-                out error
-            );
+            return PlainText.TryValidate(customTitle, $"{owner} customTitle", out error);
         }
 
         // A title alongside a real key is dead weight that some surface eventually renders
         // instead of the localized string.
-        if (CustomTitle is not null)
+        if (customTitle is not null)
         {
-            error = $"category '{CategoryId}' may only carry a customTitle when key is Custom.";
+            error = $"{owner} may only carry a customTitle when key is Custom.";
             return false;
         }
 
@@ -187,19 +198,7 @@ public sealed record CapabilitySection
             return false;
         }
 
-        if (Key is not SettingSectionKey.Custom && CustomTitle is not null)
-        {
-            // A title alongside a real key is dead weight that some surface eventually renders
-            // instead of the localized string.
-            error = $"section '{SectionId}' may only carry a customTitle when key is Custom.";
-            return false;
-        }
-
-        if (Key is SettingSectionKey.Custom
-            && !PlainText.TryValidate(
-                CustomTitle,
-                $"section '{SectionId}' customTitle",
-                out error))
+        if (!CustomTitleRule.TryValidate(Key, CustomTitle, $"section '{SectionId}'", out error))
         {
             return false;
         }

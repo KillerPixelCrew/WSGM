@@ -21,6 +21,12 @@ internal static class PluginBuilders
             PluginCategoryPolicy.Multiple, false, 1, "fixture-state");
     }
 
+    /// <summary>A plugin built into the test process, as a common plugin manager's loader returns it.</summary>
+    internal static Task<LoadedPluginPackage<IPlugin>> Loaded(IPlugin plugin)
+    {
+        return Task.FromResult(new LoadedPluginPackage<IPlugin>(plugin));
+    }
+
     internal static async Task Close(PluginRegistration registration)
     {
         Assert.True(await registration.StopAsync(Deadline, CancellationToken.None));

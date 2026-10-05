@@ -27,7 +27,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
 
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
-    private readonly PluginPackageLoader _package;
+    private readonly LoadedPluginPackage<IDevicePlugin> _package;
     private readonly string _pluginStateRoot;
     private readonly CancellationTokenSource _startCancellation = new();
     private bool _commandAdmissionClosed;
@@ -41,7 +41,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
     private volatile bool _stopped;
 
     private DevicePluginRuntime(
-        PluginPackageLoader package,
+        LoadedPluginPackage<IDevicePlugin> package,
         long cycleGeneration,
         string pluginStateRoot)
     {
@@ -71,7 +71,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
 
     /// <summary>The capability roles the package manifest declares; the router refuses any other.</summary>
     public IReadOnlyList<CapabilityRole> DeclaredCapabilities =>
-        _package.Package.DeviceManifest?.Capabilities ?? [];
+        _package.Package?.DeviceManifest?.Capabilities ?? [];
 
     public event Action<CapabilityDescriptorSet>? DescriptorSetReceived;
     public event Action<CapabilityStateDelta>? CapabilityStateReceived;
@@ -244,7 +244,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
                 _adapter.Dispose();
                 try
                 {
-                    _package.Dispose();
+                    _package.Unload();
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
@@ -301,7 +301,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
         {
             return Task.Run(
                 () => new DevicePluginRuntime(
-                    PluginPackageLoader.Load(package),
+                    PluginLoader.LoadDevice(package),
                     cycleGeneration,
                     stateRoot),
                 cancellationToken);
@@ -678,7 +678,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
             // No plugin lifecycle call still runs. Only successful managed disposal releases the
             // package; a hung or failed disposal continues holding it, without holding up the caller.
             _adapter.Dispose();
-            _package.Dispose();
+            _package.Unload();
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -1201,52 +1201,23 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
 
         public void Trace(DeviceTraceLevel level, string scope, string message)
         {
-            if (!TryFormat(scope, message, out var line))
+            if (!_disposed)
             {
-                return;
-            }
-
-            // ReSharper disable once SwitchStatementHandlesSomeKnownEnumValuesWithDefault
-            switch (level)
-            {
-                case DeviceTraceLevel.Info:
-                    Log.Info(line);
-                    break;
-                case DeviceTraceLevel.Warn:
-                    Log.Warn(line);
-                    break;
-                case DeviceTraceLevel.Error:
-                    Log.Error(line);
-                    break;
-                case DeviceTraceLevel.Debug:
-                    Log.Debug(line);
-                    break;
+                PluginLogLine.Write("plugin", level, scope, message);
             }
         }
 
         /// <summary>Routes a plugin's keyed state through the host's own repeat suppression.</summary>
         /// <remarks>
         ///     Without this the plugin channel is the one part of the log that cannot be deduplicated,
-        ///     which is exactly where the worst repetition has come from. The key is namespaced by
-        ///     scope so two subsystems cannot collide on a short name like "state".
+        ///     which is exactly where the worst repetition has come from.
         /// </remarks>
         public void TraceChange(DeviceTraceLevel level, string scope, string key, string message)
         {
-            if (!TryFormat(scope, message, out var line))
+            if (!_disposed)
             {
-                return;
+                PluginLogLine.WriteChange("plugin", level, scope, key, message);
             }
-
-            Log.Change(
-                $"plugin/{Normalize(scope)}/{(string.IsNullOrWhiteSpace(key) ? "state" : key)}",
-                line,
-                level switch
-                {
-                    DeviceTraceLevel.Warn => LogLevel.Warn,
-                    DeviceTraceLevel.Error => LogLevel.Error,
-                    DeviceTraceLevel.Debug => LogLevel.Debug,
-                    _ => LogLevel.Info
-                });
         }
 
         public void ReportFault(string scope, string message)
@@ -1255,23 +1226,6 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
             owner.ReportPluginFault(
                 string.IsNullOrWhiteSpace(scope) ? "plugin" : scope,
                 string.IsNullOrWhiteSpace(message) ? "No diagnostic detail was supplied." : message);
-        }
-
-        private static string Normalize(string scope)
-        {
-            return string.IsNullOrWhiteSpace(scope) ? "plugin" : scope;
-        }
-
-        private bool TryFormat(string scope, string message, out string line)
-        {
-            line = string.Empty;
-            if (_disposed || string.IsNullOrEmpty(message))
-            {
-                return false;
-            }
-
-            line = $"plugin/{Normalize(scope)}: {message}";
-            return true;
         }
 
         internal void SetCycleGeneration(long generation)

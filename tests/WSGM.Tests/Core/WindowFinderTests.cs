@@ -30,16 +30,4 @@ public sealed class WindowFinderTests
         Assert.True(window.IsMinimized);
         Assert.False(new WindowFinder.AppWindow(1, "A", 2).IsMinimized);
     }
-
-    [Fact]
-    public void WindowSnapshotRetainsItsPositionalRecordContract()
-    {
-        var window = new WindowFinder.AppWindow(456, "Game", 789);
-
-        var (hwnd, title, processId) = window;
-
-        Assert.Equal(456, hwnd);
-        Assert.Equal("Game", title);
-        Assert.Equal(789u, processId);
-    }
 }

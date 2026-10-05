@@ -62,6 +62,9 @@ codes, and safe to rerun.
   anything into the installer tree.
 - `new-plugin.ps1` and `package-plugin.ps1` take the common API version and manifest validation from
   the Plugin SDK through `plugin-manifest.cs`. Do not restate identity patterns or API ranges there.
+  The package rules (byte bounds, entry names, no native images) and the host-provided assembly names
+  come from the Device SDK's `PluginPackageLayout` the same way (`validate-package`, `host-provided`);
+  do not restate them or add a count cap in a script.
 - eng/dev-deploy.ps1 is an attended, machine-specific operation. It checks the supported board,
   stops and restarts live WSGM or Steam processes, and stages a plugin. It stops WSGM through
   `Local\WSGM.ExitForUpdate`, as setup does, so the exit cleanup runs; a force stop is only the

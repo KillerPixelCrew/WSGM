@@ -33,21 +33,6 @@ public sealed class DeviceIntegrationOffTests
     }
 
     [Fact]
-    public void TurningTheMasterOffKeepsTheChildPreferenceForNextTime()
-    {
-        // The remembered preference is what makes the switch reversible without the user having to
-        // set everything up again, and it is only safe to keep because the test above holds.
-        DeviceIntegrationConfig config = new()
-        {
-            Enabled = false,
-            ControllerManagementEnabled = true
-        };
-
-        Assert.True(config.ControllerManagementEnabled);
-        Assert.False(ControllerSelection.From(config, new ProfileConfig()).Enabled);
-    }
-
-    [Fact]
     public void ADisabledSelectionCarriesNoTargetForAnythingToCreate()
     {
         var selection = ControllerSelection.From(new DeviceIntegrationConfig

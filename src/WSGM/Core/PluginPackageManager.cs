@@ -97,21 +97,24 @@ internal static class PluginPackageManager
     /// <param name="bundle">The bundle the install came from, or null when setup recorded none.</param>
     /// <param name="bundledPackages">Where setup keeps the bundled files.</param>
     /// <param name="offers">Offers for this machine, or null without a bundle.</param>
+    /// <param name="removals">The files removed while loaded; an unreadable list shows none.</param>
     /// <returns>Installed rows first, then available ones.</returns>
     internal static IReadOnlyList<PluginPackageRowState> Rows(
         PluginPackageCatalog catalog,
         BundleManifest? bundle,
         string bundledPackages,
-        PluginOffers? offers)
+        PluginOffers? offers,
+        PendingPluginRemovalStore removals)
     {
         ArgumentNullException.ThrowIfNull(catalog);
+        ArgumentNullException.ThrowIfNull(removals);
         List<PluginPackageRowState> rows = [];
-        var pending = PendingPluginRemovals.Read();
+        string[] pending = removals.TryRead(out var entries) ? entries : [];
 
-        void AddInstalled(string path, string id, string name, string version, bool isDevice, bool isGpu,
-            IReadOnlyList<SetupComponent> needs, string? refusal)
+        void AddInstalled(string path, string sha256, string id, string name, string version, bool isDevice,
+            bool isGpu, IReadOnlyList<SetupComponent> needs, string? refusal)
         {
-            var bundled = bundle?.ByHash(Hash(path));
+            var bundled = sha256.Length == 0 ? null : bundle?.ByHash(sha256);
             var removal = pending.Contains(path, StringComparer.OrdinalIgnoreCase);
             var status = refusal is not null
                 ? new PluginBadge("Refused", PluginBadgeTone.Bad)
@@ -138,7 +141,7 @@ internal static class PluginPackageManager
 
         if (catalog.Device.InstalledPackage is { Manifest: { } device } installed)
         {
-            AddInstalled(installed.PackagePath, device.Id, device.Name, device.Version, true, false,
+            AddInstalled(installed.PackagePath, installed.Sha256, device.Id, device.Name, device.Version, true, false,
                 SetupComponents.Required(device.Capabilities),
                 installed.Valid
                     ? null
@@ -154,8 +157,8 @@ internal static class PluginPackageManager
 
         foreach (var common in catalog.Common)
         {
-            AddInstalled(common.PackagePath, common.Manifest.Id, common.Manifest.Name, common.Manifest.Version,
-                false, common.Manifest.Category == BundledPlugin.GpuCategory, [], null);
+            AddInstalled(common.PackagePath, common.Sha256, common.Manifest.Id, common.Manifest.Name,
+                common.Manifest.Version, false, common.Manifest.Category == BundledPlugin.GpuCategory, [], null);
         }
 
         rows.AddRange(catalog.Superseded.Select(superseded => new PluginPackageRowState(superseded.Id,
@@ -228,9 +231,12 @@ internal static class PluginPackageManager
     /// <param name="bundled">The bundled file.</param>
     /// <param name="bundle">The bundle that lists it.</param>
     /// <param name="pluginsRoot">The Plugins folder.</param>
+    /// <param name="removals">The files removed while loaded; an installed file is no longer one of them.</param>
     /// <returns>What happened, for the page.</returns>
-    internal static string Install(string bundled, BundleManifest bundle, string pluginsRoot)
+    internal static string Install(string bundled, BundleManifest bundle, string pluginsRoot,
+        PendingPluginRemovalStore removals)
     {
+        ArgumentNullException.ThrowIfNull(removals);
         ArgumentNullException.ThrowIfNull(bundle);
         if (bundle.ByHash(Hash(bundled)) is null)
         {
@@ -242,16 +248,18 @@ internal static class PluginPackageManager
         var incoming = target + ".incoming";
         File.Copy(bundled, incoming, true);
         File.Move(incoming, target, true);
-        PendingPluginRemovals.Forget(target);
+        removals.Forget(target);
         return "Installed. Restart WSGM to apply.";
     }
 
     /// <summary>Removes a package file now, or at the next start when it is loaded.</summary>
     /// <param name="path">The installed file.</param>
     /// <param name="pluginsRoot">The Plugins folder; nothing outside it is touched.</param>
+    /// <param name="removals">Where a loaded file is recorded for deletion at the next start.</param>
     /// <returns>What happened, for the page.</returns>
-    internal static string Remove(string path, string pluginsRoot)
+    internal static string Remove(string path, string pluginsRoot, PendingPluginRemovalStore removals)
     {
+        ArgumentNullException.ThrowIfNull(removals);
         if (!IsInside(path, pluginsRoot))
         {
             return "That file is not in the Plugins folder.";
@@ -265,7 +273,7 @@ internal static class PluginPackageManager
         catch (IOException)
         {
             // A loaded package is held open until WSGM exits.
-            PendingPluginRemovals.Add(path);
+            removals.Add(path);
             return "Removed at the next start. Restart WSGM to apply.";
         }
     }
@@ -339,37 +347,65 @@ internal static class PluginPackageManager
 }
 
 /// <summary>
-///     Package files the Plugins page removed while they were loaded. Deleted before the next
-///     discovery, when nothing holds them. Only files directly in the Plugins folder are ever deleted.
+///     Package files the Plugins page removed while they were loaded. WSGM deletes them once at startup,
+///     before it opens any package. Only files directly in the Plugins folder are ever deleted.
 /// </summary>
-internal static class PendingPluginRemovals
+/// <param name="path">The file the list is kept in.</param>
+internal sealed class PendingPluginRemovalStore(string path)
 {
-    internal static IReadOnlyList<string> Read(string? path = null)
+    /// <summary>Reads the list.</summary>
+    /// <param name="entries">The pending files; empty when there is no list.</param>
+    /// <returns>False when a list exists but cannot be read, so nothing may write over it.</returns>
+    internal bool TryRead(out string[] entries)
     {
+        entries = [];
         try
         {
-            var file = path ?? InstallLayout.PendingPluginRemovals;
-            return File.Exists(file)
-                ? JsonSerializer.Deserialize(File.ReadAllText(file), PendingRemovalsJsonContext.Default.StringArray) ??
-                  []
-                : [];
+            var read = JsonSerializer.Deserialize(File.ReadAllText(path),
+                PendingRemovalsJsonContext.Default.StringArray);
+            if (read is null || read.Any(entry => entry is null))
+            {
+                Log.Warn("Plugins: the pending removal list is malformed and is left as it is.");
+                return false;
+            }
+
+            entries = read;
+            return true;
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
-            return [];
+            Log.Warn("Plugins: the pending removal list could not be read and is left as it is: " + ex.Message);
+            return false;
         }
     }
 
-    internal static void Add(string packagePath)
+    /// <summary>Records a file to delete at the next start.</summary>
+    /// <param name="packagePath">The installed file.</param>
+    internal void Add(string packagePath)
     {
-        Write([.. Read().Append(packagePath).Distinct(StringComparer.OrdinalIgnoreCase)]);
+        if (TryRead(out var entries))
+        {
+            Write([.. entries.Append(packagePath).Distinct(StringComparer.OrdinalIgnoreCase)]);
+        }
     }
 
-    internal static void Forget(string packagePath)
+    /// <summary>Drops a file from the list, because it was installed again.</summary>
+    /// <param name="packagePath">The installed file.</param>
+    internal void Forget(string packagePath)
     {
-        var remaining = Read().Where(entry => !string.Equals(entry, packagePath, StringComparison.OrdinalIgnoreCase))
+        if (!TryRead(out var entries))
+        {
+            return;
+        }
+
+        var remaining = entries
+            .Where(entry => !string.Equals(entry, packagePath, StringComparison.OrdinalIgnoreCase))
             .ToArray();
-        if (remaining.Length != Read().Count)
+        if (remaining.Length != entries.Length)
         {
             Write(remaining);
         }
@@ -377,10 +413,9 @@ internal static class PendingPluginRemovals
 
     /// <summary>Deletes what can be deleted now and keeps the rest.</summary>
     /// <param name="pluginsRoot">The Plugins folder.</param>
-    internal static void Apply(string pluginsRoot)
+    internal void Apply(string pluginsRoot)
     {
-        var pending = Read();
-        if (pending.Count == 0)
+        if (!TryRead(out var pending) || pending.Length == 0)
         {
             return;
         }
@@ -398,12 +433,9 @@ internal static class PendingPluginRemovals
                 File.Delete(file);
                 Log.Info($"Plugins: removed {Path.GetFileName(file)} as asked on the Plugins page.");
             }
-            catch (IOException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                kept.Add(file);
-            }
-            catch (UnauthorizedAccessException)
-            {
+                Log.Warn($"Plugins: {Path.GetFileName(file)} could not be removed yet and stays pending: {ex.Message}");
                 kept.Add(file);
             }
         }
@@ -411,20 +443,19 @@ internal static class PendingPluginRemovals
         Write(kept);
     }
 
-    private static void Write(IReadOnlyList<string> entries)
+    private void Write(IReadOnlyList<string> entries)
     {
         try
         {
-            var file = InstallLayout.PendingPluginRemovals;
             if (entries.Count == 0)
             {
-                File.Delete(file);
+                File.Delete(path);
                 return;
             }
 
-            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
-            File.WriteAllText(file,
-                JsonSerializer.Serialize(entries.ToArray(), PendingRemovalsJsonContext.Default.StringArray));
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            AtomicFile.WriteText(path,
+                JsonSerializer.Serialize(entries.ToArray(), PendingRemovalsJsonContext.Default.StringArray), true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

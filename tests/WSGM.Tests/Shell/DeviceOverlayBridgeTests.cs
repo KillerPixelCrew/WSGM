@@ -419,7 +419,7 @@ public sealed class DeviceOverlayBridgeTests
     private static DeviceAuthoredProfile Profile(
         string id,
         string name,
-        string capabilityId = DeviceAuthoredProfileCapabilities.FanCurve)
+        string capabilityId = CapabilityIds.FanCurve)
     {
         return new DeviceAuthoredProfile
         {
@@ -450,8 +450,8 @@ public sealed class DeviceOverlayBridgeTests
     }
 
     [Theory]
-    [InlineData(DeviceAuthoredProfileCapabilities.FanCurve, "Fan curve")]
-    [InlineData(DeviceAuthoredProfileCapabilities.Lighting, "Lighting")]
+    [InlineData(CapabilityIds.FanCurve, "Fan curve")]
+    [InlineData(CapabilityIds.LightingColor, "Lighting")]
     [InlineData("future.profile", "Device profile")]
     public void AnAuthoredProfileUsesItsCapabilityKindAsTheLabel(string capabilityId, string expected)
     {
@@ -506,7 +506,7 @@ public sealed class DeviceOverlayBridgeTests
     public void ADeletedSelectionStillUsesTheAuthoredCapabilityKindAsTheLabel()
     {
         var row = DeviceOverlayBridge.AuthoredProfileView(
-            [Profile("colour", "Colour", DeviceAuthoredProfileCapabilities.Lighting)],
+            [Profile("colour", "Colour", CapabilityIds.LightingColor)],
             "deleted",
             ProfileSource.Game);
 

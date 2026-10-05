@@ -63,7 +63,10 @@ public abstract class DeviceServiceStatus(string serviceId)
     public CapabilityReason? Reason { get; private set; }
 
     /// <summary>Set when an outstanding recovery entry makes acquiring this service unsafe.</summary>
-    /// <remarks>It outlives the cycle: a service carrying it acquires and releases as faulted.</remarks>
+    /// <remarks>
+    ///     It outlives the cycle. The service itself decides how it acquires and releases while it is set; the
+    ///     lifecycle walk does not check it.
+    /// </remarks>
     public CapabilityReason? ReconciliationBlockReason { get; set; }
 
     /// <summary>Takes the state and reason a lifecycle operation returned.</summary>

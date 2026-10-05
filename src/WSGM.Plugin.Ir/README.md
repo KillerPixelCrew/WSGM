@@ -82,8 +82,10 @@ dispatches anything.
 The host stores `library.json` in its assigned private state directory. Learned signals are complete
 payloads, not firmware slot numbers. `library.backup.json` is an explicit backup in the same
 directory, so copy it somewhere else if you care about disk loss. An invalid replacement library
-never overwrites the current file, and import requires that backup to exist. The command and scene
-limits are host validation bounds rather than firmware slots.
+never overwrites the current file, and import requires that backup to exist. A library or pairing
+file that exists but cannot be read or does not parse stops the plugin from starting, with the
+reason in its health, and is left untouched. The command and scene limits are host validation bounds
+rather than firmware slots.
 
 ## Built-in remotes, from the host
 
@@ -98,13 +100,16 @@ restart.
 
 Firmware below 0.4.0, an unknown id, a climate state outside what the remote declares, and a busy
 endpoint are all refusals, and none of them emit anything. A sequence reports that it started, and
-the wait argument polls the endpoint's own `sequenceRunning` flag. Cancelling that wait sends
-`cancel`, which is its own operation and never a retry.
+the wait argument polls the endpoint's own `sequenceRunning` flag until it clears or the action's
+time runs out. Cancelling that wait sends `cancel`, which is its own operation and never a retry.
 
 Core automation can call `send` with a `command` ID or `scene` with a `scene` ID. WSGM authors those
 calls as ordered steps in Settings > Display, run at Game Mode entry and leave and at desktop
 startup and wake. Entry stops at the first step that did not succeed, nothing is retried, and a step
-the plugin rejected earns no leave-side compensation, so a refusal never emits.
+the plugin rejected earns no leave-side compensation, so a refusal never emits. Every endpoint
+status other than the expected one is a refusal, because the firmware answers them before it emits,
+and so are a missing port or pairing, an out-of-range argument and an endpoint that cannot be
+reached or identified.
 
 Transmission returns `Dispatched`. An endpoint acknowledgement proves the IR went out, not that a TV
 or HDMI switch changed state. Uncertain operations are not retried, and a failed exchange drops the
@@ -142,10 +147,14 @@ sources, fails the build on any error, compresses the pages and embeds everythin
   `gapMs`.
 - `climate` declares an air conditioner: `protocol`, optional `model` and `celsius`, the supported
   `modes` and `fans`, `minDegrees`, `maxDegrees`, and `swing` as `none` or `toggle`.
-- `sequences` list steps of `{ "button": id }` and `{ "delayMs": n }`, at most 32 steps and ten
-  minutes of delay in total.
+- `sequences` list steps of `{ "button": id }` and `{ "delayMs": n }`, with at most ten minutes of
+  delay in total.
 
 Ids are lowercase letters, digits and dashes, and a custom page may only reference ids that exist.
+The build checks the literal `data-button` and `data-sequence` attributes in a custom page, not ids
+a script builds. A key repeated in `remote.json`, or an `address` without a `command`, fails the
+build. The number of remotes, buttons and steps is not limited: the endpoint serves its catalog in
+chunks.
 
 ### The web interface
 
@@ -180,8 +189,17 @@ specifies transmitter GPIO3, active-low receiver GPIO4, touch GPIO5 with pull-do
 one WS2812 GRB LED on GPIO7. Our firmware uses the IR library's standard active-low demodulating
 receiver handling and a NeoPixel driver rather than a plain GPIO LED.
 
-Firmware 0.4.0 implements protocol 1 over USB CDC at 115200 and, once paired, over TCP port 7521
+Firmware 0.5.0 implements protocol 2 over USB CDC at 115200 and, once paired, over TCP port 7521
 with mDNS advertisement as `_wsgm-ir._tcp`, and serves its built-in remotes over HTTP on port 80.
+Firmware 0.5.0 and this WSGM need each other: protocol 2 reads the built-in remote catalog in
+chunks, so a catalog of any size fits the protocol frame, and the plugin refuses earlier firmware as
+incompatible until it is reflashed.
+
+Firmware 0.5.0 also ends a network learn with `cancelled` when its connection is replaced or closed,
+answers `storage-failed` when Wi-Fi or web credentials cannot be written to flash and keeps the
+running ones, refuses an out-of-range A/C model number and a code value with anything but hex
+digits, keeps answering `protocols` during a learn or sequence, and serves no remotes if its
+built-in definitions fail to load. It has not been flashed or tested on hardware yet.
 
 Firmware 0.3.0 added `sendCode`, `sendAc` and `protocols`, so an appliance whose remote is lost can
 be driven from published codes or the library's A/C encoders. It also enlarged the USB receive queue

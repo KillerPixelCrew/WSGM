@@ -171,9 +171,6 @@ internal sealed class PowerService(
             _journal,
             state => ClawRecoveryValues.TryPower(state, out var snapshot) ? snapshot : null,
             _capability.RestoreAsync,
-            "power",
-            "journalled power restoration",
-            "The captured power pair or scenario could not be verified after restoration.",
             cancellationToken);
     }
 
@@ -287,9 +284,6 @@ internal sealed class FanService(
             _journal,
             state => ClawRecoveryValues.TryFans(state, out var snapshot) ? snapshot : null,
             _capability.RestoreAsync,
-            "fan",
-            "journalled fan restoration",
-            "The captured left/right fan tables or flags could not be verified after restoration.",
             cancellationToken);
     }
 }

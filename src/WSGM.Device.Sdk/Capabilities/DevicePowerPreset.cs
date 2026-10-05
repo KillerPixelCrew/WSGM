@@ -69,7 +69,7 @@ public sealed record DevicePowerPreset(
             var sustained = descriptors.Where(d => d.Role == CapabilityRole.PowerSustainedLimit).ToArray();
             var slow = descriptors.Where(d => d.Role == CapabilityRole.PowerSlowLimit).ToArray();
             if (sustained.Length != 1 || slow.Length != 1 || sustained[0] != descriptor
-                || !IsPowerLimit(descriptor) || !IsPowerLimit(slow[0]))
+                || !DevicePowerPair.IsLimit(descriptor) || !DevicePowerPair.IsLimit(slow[0]))
             {
                 return false;
             }
@@ -80,7 +80,8 @@ public sealed record DevicePowerPreset(
                                    || preset.Id == "custom" ||
                                    !ids.Add(preset.Id) || !PlainText.TryValidate(preset.Name, "preset name", out _)
                                    || !Enum.IsDefined(preset.WindowsMode) || preset.SustainedWatts > preset.SlowWatts
-                                   || !Fits(preset.SustainedWatts, descriptor) || !Fits(preset.SlowWatts, slow[0])
+                                   || !DevicePowerPair.Fits(preset.SustainedWatts, descriptor)
+                                   || !DevicePowerPair.Fits(preset.SlowWatts, slow[0])
                                    || !ValidScenario(preset, descriptors)))
             {
                 return false;
@@ -89,20 +90,6 @@ public sealed record DevicePowerPreset(
 
         error = null;
         return true;
-    }
-
-    private static bool IsPowerLimit(CapabilityDescriptor descriptor)
-    {
-        return descriptor is
-               {
-                   InstanceId: null,
-                   SupportsWrite: true,
-                   ValueKind: CapabilityValueKind.Integer,
-                   Unit: CapabilityUnit.Watt,
-                   Minimum: > 0,
-                   Step: > 0
-               }
-               && descriptor.Maximum >= descriptor.Minimum;
     }
 
     private static bool ValidScenario(DevicePowerPreset preset, IReadOnlyList<CapabilityDescriptor> descriptors)
@@ -128,11 +115,5 @@ public sealed record DevicePowerPreset(
                && !string.IsNullOrEmpty(preset.ScenarioOnAc) && !string.IsNullOrEmpty(preset.ScenarioOnDc)
                && scenario.Choices.Any(choice => choice.Value == preset.ScenarioOnAc)
                && scenario.Choices.Any(choice => choice.Value == preset.ScenarioOnDc);
-    }
-
-    private static bool Fits(int watts, CapabilityDescriptor descriptor)
-    {
-        return watts >= descriptor.Minimum && watts <= descriptor.Maximum
-                                           && (watts - descriptor.Minimum) % descriptor.Step == 0;
     }
 }

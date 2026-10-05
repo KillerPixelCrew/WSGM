@@ -129,11 +129,22 @@ public sealed partial class SettingsViewModel
         }
     }
 
-    /// <summary>Fills the Plugins page: installed files, and what the installed release bundles.</summary>
-    /// <param name="catalog">The installed packages.</param>
-    private void LoadPluginPackages(PluginPackageCatalog catalog)
+    /// <summary>
+    ///     Reads the Plugins folder and the installed release's bundle on a worker, then fills the Plugins
+    ///     page, the integration instances and the plugin settings of the installed device plugin.
+    /// </summary>
+    internal async Task LoadPluginPackagesAsync()
     {
-        var page = _services.ReadPackages(catalog);
+        var page = await Task.Run(_services.ReadPackages);
+        LoadPluginPackages(page);
+        LoadCommonPlugins(page);
+        LoadPluginSettings(_config, page.Catalog.InstalledDevicePluginId, true);
+    }
+
+    /// <summary>Fills the Plugins page: installed files, and what the installed release bundles.</summary>
+    /// <param name="page">The page read on a worker.</param>
+    private void LoadPluginPackages(PluginPackagePage page)
+    {
         InstalledPackages.Clear();
         AvailablePackages.Clear();
         UnavailablePackages.Clear();
@@ -150,10 +161,13 @@ public sealed partial class SettingsViewModel
     }
 
     /// <summary>Reads the installed packages and what the installed release bundles for this machine.</summary>
-    /// <param name="catalog">The installed packages.</param>
-    /// <returns>The bundle, when it could be read, and the page's rows.</returns>
-    internal static PluginPackagePage ReadPluginPackagePage(PluginPackageCatalog catalog)
+    /// <returns>The catalog, the adapters, the bundle when it could be read, and the page's rows.</returns>
+    /// <remarks>Opens and hashes every package and enumerates the display adapters: call it on a worker.</remarks>
+    internal static PluginPackagePage ReadPluginPackagePage()
     {
+        var catalog = PluginPackageCatalog.Discover(InstallLayout.Plugins);
+        // One adapter read serves both the offers and which graphics package runs by default.
+        var adapters = CommonPluginEnablement.ReadAdapters();
         BundleManifest? bundle = null;
         PluginOffers? offers = null;
         try
@@ -166,8 +180,7 @@ public sealed partial class SettingsViewModel
                     .. catalog.Common.Select(package => package.Manifest.Id),
                     .. catalog.Device.InstalledPackage?.Manifest is { } device ? [device.Id] : Array.Empty<string>()
                 ];
-                offers = PluginOffers.Compute(bundle, DeviceMachineIdentity.Collect(),
-                    DisplayAdapterInventory.Collect(), installed);
+                offers = PluginOffers.Compute(bundle, DeviceMachineIdentity.Collect(), adapters, installed);
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
@@ -175,8 +188,9 @@ public sealed partial class SettingsViewModel
             Log.Warn("Plugins: the installed bundle could not be read: " + ex.Message);
         }
 
-        return new PluginPackagePage(bundle,
-            PluginPackageManager.Rows(catalog, bundle, InstallLayout.SetupPackages, offers));
+        return new PluginPackagePage(catalog, adapters, bundle,
+            PluginPackageManager.Rows(catalog, bundle, InstallLayout.SetupPackages, offers,
+                new PendingPluginRemovalStore(InstallLayout.PendingPluginRemovals)));
     }
 
     /// <summary>Installs or removes one package on a worker and returns the row's notice.</summary>
@@ -187,13 +201,15 @@ public sealed partial class SettingsViewModel
     {
         return Task.Run(() =>
         {
+            PendingPluginRemovalStore removals = new(InstallLayout.PendingPluginRemovals);
             try
             {
                 return row.Action switch
                 {
                     PluginPackageAction.Install when bundle is not null => PluginPackageManager.Install(
-                        row.PackagePath, bundle, InstallLayout.Plugins),
-                    PluginPackageAction.Remove => PluginPackageManager.Remove(row.PackagePath, InstallLayout.Plugins),
+                        row.PackagePath, bundle, InstallLayout.Plugins, removals),
+                    PluginPackageAction.Remove => PluginPackageManager.Remove(row.PackagePath, InstallLayout.Plugins,
+                        removals),
                     _ => ""
                 };
             }
@@ -207,9 +223,9 @@ public sealed partial class SettingsViewModel
         });
     }
 
-    private void LoadCommonPlugins(PluginPackageCatalog catalog)
+    private void LoadCommonPlugins(PluginPackagePage page)
     {
-        LoadPluginPackages(catalog);
+        var catalog = page.Catalog;
         CommonPlugins.Clear();
         foreach (var package in catalog.Common)
         {
@@ -217,10 +233,10 @@ public sealed partial class SettingsViewModel
             if (configured.Length == 0)
             {
                 // A graphics package runs by default on a machine with an adapter it serves, from the
-                // adapter list WSGM already read for the same decision.
+                // adapter list this page read for its offers.
                 CommonPlugins.Add(new CommonPluginInstanceRow(package.Manifest.Id,
                     CommonPluginEnablement.DefaultInstanceId, package.Manifest.Name,
-                    CommonPluginEnablement.EnabledByDefault(package.Manifest), true));
+                    CommonPluginEnablement.EnabledByDefault(package.Manifest, page.Adapters), true));
             }
 
             foreach (var instance in configured)
@@ -414,11 +430,6 @@ public sealed partial class SettingsViewModel
             PluginSettingsEmptyReason =
                 "The installed device plugin declares no settings.";
         }
-    }
-
-    private static string? ReadInstalledPluginId()
-    {
-        return PluginPackageCatalog.InstalledDevicePluginId();
     }
 
     private void LoadDeviceProfiles(PluginSettingsScope scope)

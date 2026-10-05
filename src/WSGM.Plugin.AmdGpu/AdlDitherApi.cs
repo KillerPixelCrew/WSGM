@@ -67,9 +67,9 @@ internal sealed unsafe class AdlDitherApi : IDisposable
         return state;
     }
 
-    internal void Write(int adapter, int display, int state)
+    internal void Write(int adapter, int display, int state, WriteAdmission admission)
     {
-        DriverWriteScope.Check();
+        admission.Check();
         Check(_set(_context, adapter, display, state), "Display_DitherState_Set", true);
     }
 
@@ -78,7 +78,7 @@ internal sealed unsafe class AdlDitherApi : IDisposable
     {
         try
         {
-            return size is > 0 and <= 64 * 1024 * 1024 ? Marshal.AllocCoTaskMem(size) : 0;
+            return size > 0 ? Marshal.AllocCoTaskMem(size) : 0;
         }
         catch
         {

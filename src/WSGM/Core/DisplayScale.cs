@@ -20,13 +20,14 @@ namespace WSGM.Core;
 internal static class DisplayScale
 {
     /// <summary>
-    ///     Game mode: capture ALL current per-display scalings into the config
+    ///     Game mode: capture ALL current per-display scalings into the stored config
     ///     (unless a crashed session already left captured values there), persist them,
     ///     and only then drop every display to 100% — capture-then-set ordering so a
     ///     crash between the two can never lose the originals. When the save fails,
-    ///     scaling is left untouched.
+    ///     scaling is left untouched. The snapshot lives in the store only; the session's
+    ///     configuration picks it up through its reload.
     /// </summary>
-    public static void ApplyGameMode(ConfigStore store, AppConfig config)
+    public static void ApplyGameMode(ConfigStore store)
     {
         var sources = GetActiveSources();
         if (sources.Count == 0)
@@ -35,7 +36,18 @@ internal static class DisplayScale
             return;
         }
 
-        var freshCapture = config.SavedDisplayScaleEntries.Count == 0;
+        List<DisplayScaleEntry> saved;
+        try
+        {
+            saved = store.Read().RequireConfig().SavedDisplayScaleEntries;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Display scale: could not read saved values — leaving scaling unchanged: {ex.Message}");
+            return;
+        }
+
+        var freshCapture = saved.Count == 0;
         var captured = new List<DisplayScaleEntry>();
         var toLower = new List<(ActiveDisplayPath Display, int Current)>();
         foreach (var source in sources)
@@ -64,7 +76,7 @@ internal static class DisplayScale
             // 100% without first owning its desktop-scale snapshot.  Existing named
             // entries are safe to lower again because their original value is still
             // recoverable.
-            if (ShouldLowerDisplay(freshCapture, config.SavedDisplayScaleEntries, name))
+            if (ShouldLowerDisplay(freshCapture, saved, name))
             {
                 toLower.Add((source, current));
             }
@@ -75,7 +87,6 @@ internal static class DisplayScale
             try
             {
                 PersistScaleEntries(store, captured);
-                config.SavedDisplayScaleEntries = captured;
             }
             catch (Exception ex)
             {

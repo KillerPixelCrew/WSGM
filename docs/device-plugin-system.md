@@ -31,7 +31,7 @@ retained failed slots and generation-checked health are in
   │ ShellSession ── creates at most one DeviceCoordinator (Shell\DeviceCoordinator.cs)    │
   │   ├─ Global\WSGM.DeviceOwner marker (process lifetime)                               │
   │   ├─ DevicePluginRuntime (Shell\DevicePluginRuntime.cs)                              │
-  │   │    ├─ PluginPackageLoader + PluginLoadContext (Shell\PluginPackageLoader.cs)     │
+  │   │    ├─ PluginLoader + PluginLoadContext (Shell\PluginLoader.cs)                   │
   │   │    ├─ DirectPluginHostAdapter  ← the plugin's IPluginHostAdapter                 │
   │   │    └─ IDevicePlugin instance   ← the package's entry type                        │
   │   ├─ DeviceCapabilityRouter (Shell\DeviceCapabilityRouter.cs)   descriptors/state/commands│
@@ -83,14 +83,13 @@ Every installed package, device and common alike, is a file directly in
 the file there, which only an administrator can do. A blank Program Files answer from Windows throws
 rather than falling back.
 
-Budgets applied when a package is opened (`Core\PluginPackageFile.cs`) and when Device Lab validates
-or packs one (`PluginPackageWorkflow`):
+Rules applied when a package is opened (`Core\PluginPackageFile.cs`), when Device Lab validates or
+packs one (`PluginPackageWorkflow`) and when `eng\package-plugin.ps1` packs a common one, all from
+the Device SDK's `PluginPackageLayout`. Nothing limits how many files a package holds:
 
 | Budget        | Value                                                             |
 | ------------- | ----------------------------------------------------------------- |
 | Archive       | 512 MiB on disk                                                   |
-| ZIP entries   | 1024                                                              |
-| Files         | 512                                                               |
 | One file      | 128 MiB                                                           |
 | Whole package | 512 MiB uncompressed                                              |
 | Manifest      | the SDK's 256 KiB document limit                                  |
@@ -104,8 +103,10 @@ resolves it through the normal system search path.
 
 ## 3. Discovery
 
-`Core\PluginPackageCatalog.Discover` reads every `*.wsgmpkg` directly in the Plugins folder, at most
-128, and never loads code. Each file is opened and validated (§5), then closed again.
+`Core\PluginPackageCatalog.Discover` reads every `*.wsgmpkg` directly in the Plugins folder and
+never loads code. Each file is opened, validated (§5) and hashed for the Plugins page, then closed
+again. Discovery runs off the UI thread and changes nothing on disk: package files the Plugins page
+removed while they were loaded are deleted once at startup, before any package is opened.
 
 - The manifest's shape decides the category: a manifest with a `category` member is a common plugin
   (`plugin-system.md`); one without is a device package read by the Device SDK.
@@ -157,7 +158,7 @@ The catalog then validates the selected device package and reports it with a sta
 
 | Check                                                                     | Code                       |
 | ------------------------------------------------------------------------- | -------------------------- |
-| `apiVersion` equals `DeviceApi.Version` (11)                              | `api-incompatible`         |
+| `apiVersion` equals `DeviceApi.Version` (12)                              | `api-incompatible`         |
 | Entry is an AMD64 image with a CLR header, metadata and assembly manifest | `architecture-unsupported` |
 
 Several device ids yield `multiple-device-packages`; none yields `no-package-installed`. An invalid
@@ -175,16 +176,17 @@ installed release bundles (`%ProgramFiles%\WSGM\Setup\Packages`, checked against
 `%ProgramData%\WSGM\bundle.json`) into the Plugins folder, and offers a device package only when its
 hardware rules match this machine and no other device package is installed. Remove deletes the file;
 a loaded file cannot be deleted, so it is listed in `%ProgramData%\WSGM\plugin-removals.json` and
-deleted before the next discovery. Both apply at the next start. A package that needs a missing
-system component points to setup's repair, which installs it.
+deleted at the next start, before any package is opened, whether or not Device Integration is on. A
+list that cannot be read is left as it is rather than overwritten. Both apply at the next start. A
+package that needs a missing system component points to setup's repair, which installs it.
 
 `eng\dev-deploy.ps1` stages the Claw package from this checkout, copies it in from an elevated child
 beside the target, renames it into place and deletes every other build of the same id.
 
 ## 7. Loading the plugin
 
-`Shell\PluginPackageLoader.cs` reopens the selected file, requires its manifest to equal the one
-discovery admitted (a file swapped in between is refused), and loads the package into a collectible
+`Shell\PluginLoader.cs` reopens the selected file, requires its manifest to equal the one discovery
+admitted (a file swapped in between is refused), and loads the package into a collectible
 `AssemblyLoadContext` named `WSGM.Plugin:<package id>`.
 
 - The file stays open with `FileShare.Read` until the context is unloaded, so it cannot be replaced
@@ -198,7 +200,7 @@ discovery admitted (a file swapped in between is refused), and loads the package
   once. Native resolution is left to the system. The reason is in `device-integration.md`,
   "Host-first dependency resolution".
 - A load failure disposes the plugin if it was created, unloads the context, closes the file and
-  rethrows.
+  reports whether that cleanup was confirmed. When the disposal fails the context stays loaded.
 - Glyph profiles are imported from the package file through the SDK's `IGlyphPackageSource`
   contract.
 - Unload is requested, not verified. `DevicePluginRuntime.DisposeAsync` calls `Unload()` only when
@@ -878,7 +880,7 @@ file. Levels and key style are in [logging](logging.md).
 ## 18. Worked example: the built-in MSI Claw package
 
 `src\WSGM.Device.Msi.Claw` (MIT) is the reference plugin and the shape every rule above was tested
-against. Its manifest is `wsgm.device.msi.claw`, API 11, entry `WSGM.Device.Msi.Claw.ClawPlugin`. It
+against. Its manifest is `wsgm.device.msi.claw`, API 12, entry `WSGM.Device.Msi.Claw.ClawPlugin`. It
 targets `net10.0-windows10.0.19041.0`, references only the SDK and `System.Management`, ships its
 licence and notices beside the assembly, declares no settings manifest, and keeps every vendor
 address inside the package.

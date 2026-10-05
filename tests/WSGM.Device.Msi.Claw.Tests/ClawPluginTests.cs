@@ -93,10 +93,10 @@ public sealed class ClawPluginTests
     public async Task OptionalFirmwareReadTimeoutKeepsTheWmiProviderAvailable()
     {
         FakeWmiTransport wmi = new() { GetterTimeout = true };
-        WindowsClawIdentityReader reader = new(wmi, ExactIdentity, () => [], () => true);
+        WindowsClawIdentityReader reader = new(wmi, ExactIdentity, () => [], () => true, () => null);
         var identity = await reader.ReadAsync(CancellationToken.None);
         Assert.True(identity.WmiAvailable);
-        Assert.Equal("ec:unknown;msi-acpi:unknown", identity.WmiFirmwareIdentity);
+        Assert.Equal("ec:unknown;msi-acpi:unknown", identity.LegacyRecoveryBinding);
     }
 
     [Fact]
@@ -117,7 +117,7 @@ public sealed class ClawPluginTests
         Assert.Equal(CapabilityReasonCode.Quiescing, result.Reason?.Code);
         Assert.Equal(RollbackResult.NotRequired, result.Rollback);
         Assert.Empty(wmi.Writes);
-        await using var journal = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
+        var journal = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
         Assert.Empty(journal.OutstandingEntries);
         _ = await plugin.StopAsync(new PluginStopContext(PluginStopReason.IntegrationDisabled,
             Deadline.After(TimeSpan.FromSeconds(10))), CancellationToken.None);
@@ -210,7 +210,8 @@ public sealed class ClawPluginTests
             {
                 acPowerCalled = true;
                 throw new InvalidOperationException("The AC-power query must remain unreachable.");
-            });
+            },
+            () => throw new InvalidOperationException("The MCU collection must remain unreachable."));
 
         var result = await reader.ReadAsync(CancellationToken.None);
 
@@ -423,7 +424,7 @@ public sealed class ClawPluginTests
             BlockControllerSamples = !rearOemEvent,
             BlockOemEvents = rearOemEvent
         };
-        await using var journal = await ClawRecoveryJournal.OpenAsync(
+        var journal = await ClawRecoveryJournal.OpenAsync(
             state.Root,
             CancellationToken.None);
         ControllerService controller = new(
@@ -509,10 +510,8 @@ public sealed class ClawPluginTests
         Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
         Assert.Equal(25, result.ReadbackValue?.IntegerValue);
         Assert.Equal(25, wmi.ReadData(ClawHardwareFacts.PowerSustainedAddress));
-        await using (var pending = await ClawRecoveryJournal.OpenAsync(
-                         state.Root,
-                         CancellationToken.None))
         {
+            var pending = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
             var entry = Assert.Single(pending.OutstandingEntries);
             Assert.Equal(ServiceIds.Power, entry.ServiceId);
             Assert.Equal(DeviceRecoveryStatus.Pending, entry.Status);
@@ -534,7 +533,7 @@ public sealed class ClawPluginTests
                 .Where(write => write.Method == "Set_Data"
                                 && write.Package[0] == ClawHardwareFacts.PowerSustainedAddress)
                 .Select(write => BinaryPrimitives.ReadInt32LittleEndian(write.Package.AsSpan(1, sizeof(int)))));
-        await using var completed = await ClawRecoveryJournal.OpenAsync(
+        var completed = await ClawRecoveryJournal.OpenAsync(
             state.Root,
             CancellationToken.None);
         Assert.Empty(completed.OutstandingEntries);
@@ -720,7 +719,7 @@ public sealed class ClawPluginTests
         using TemporaryDirectory state = new();
         FakeControllerSource source = new() { Topology = DirectInputTopology(), FailNextRumble = true };
         TestPluginHostAdapter host = new(CycleGeneration);
-        await using var journal = await ClawRecoveryJournal.OpenAsync(
+        var journal = await ClawRecoveryJournal.OpenAsync(
             state.Root,
             CancellationToken.None);
         ControllerService controller = new(
@@ -760,7 +759,7 @@ public sealed class ClawPluginTests
         using TemporaryDirectory state = new();
         FakeControllerSource source = new() { Topology = DirectInputTopology(), FailStop = true };
         TestPluginHostAdapter host = new(CycleGeneration);
-        await using var journal = await ClawRecoveryJournal.OpenAsync(
+        var journal = await ClawRecoveryJournal.OpenAsync(
             state.Root,
             CancellationToken.None);
         ControllerService controller = new(
@@ -793,10 +792,8 @@ public sealed class ClawPluginTests
     public async Task BeginAsync_UnfinishedWrite_RetainsFirstOriginalAcrossReopen()
     {
         using TemporaryDirectory state = new();
-        await using (var journal = await ClawRecoveryJournal.OpenAsync(
-                         state.Root,
-                         CancellationToken.None))
         {
+            var journal = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
             var operation = await journal.BeginAsync(
                 ServiceIds.Power,
                 "ec:1T52EMS1.109;msi-acpi:8.0",
@@ -807,7 +804,7 @@ public sealed class ClawPluginTests
             Assert.Single(journal.OutstandingEntries);
         }
 
-        await using var reopened = await ClawRecoveryJournal.OpenAsync(
+        var reopened = await ClawRecoveryJournal.OpenAsync(
             state.Root,
             CancellationToken.None);
         var entry = Assert.Single(reopened.OutstandingEntries);
@@ -828,10 +825,8 @@ public sealed class ClawPluginTests
     public async Task StartAsync_OutstandingCompactPowerEntry_RestoresBeforeNewOwnership()
     {
         using TemporaryDirectory state = new();
-        await using (var journal = await ClawRecoveryJournal.OpenAsync(
-                         state.Root,
-                         CancellationToken.None))
         {
+            var journal = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
             _ = await journal.BeginAsync(
                 ServiceIds.Power,
                 "ec:1T52EMS1.109;msi-acpi:8.0",
@@ -850,23 +845,21 @@ public sealed class ClawPluginTests
         Assert.Contains(host.CapabilityStates, capability =>
             capability is
                 { CapabilityId: CapabilityIds.PowerSustained, Available: true, ObservedValue.IntegerValue: 30 });
-        await using var reconciled = await ClawRecoveryJournal.OpenAsync(
+        var reconciled = await ClawRecoveryJournal.OpenAsync(
             state.Root,
             CancellationToken.None);
         Assert.Empty(reconciled.OutstandingEntries);
     }
 
     [Fact]
-    public async Task StartAsync_RestoreFailureIsRetriedAndRecoveredInTheNextCycle()
+    public async Task StartAsync_AFailedRestoreIsNotRewrittenUntilACommandRearmsIt()
     {
         using TemporaryDirectory state = new();
-        await using (var journal = await ClawRecoveryJournal.OpenAsync(
-                         state.Root,
-                         CancellationToken.None))
         {
+            var journal = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
             _ = await journal.BeginAsync(
                 ServiceIds.Power,
-                "ec:1T52EMS1.109;msi-acpi:8.0",
+                "bios:E1T52IMS.114",
                 ClawRecoveryValues.Power(new PowerPair(30, 37, 0xC1)),
                 CancellationToken.None);
         }
@@ -882,7 +875,7 @@ public sealed class ClawPluginTests
             var diagnostics = await firstCycle.GetDiagnosticsAsync(CancellationToken.None);
 
             Assert.Equal("pending", diagnostics.Values["recovery"]);
-            Assert.Equal(nameof(DeviceServiceState.Faulted), diagnostics.Values[ServiceIds.Power]);
+            Assert.Equal(nameof(DeviceServiceState.Owned), diagnostics.Values[ServiceIds.Power]);
             _ = await firstCycle.StopAsync(
                 new PluginStopContext(
                     PluginStopReason.IntegrationDisabled,
@@ -890,6 +883,9 @@ public sealed class ClawPluginTests
                 CancellationToken.None);
         }
 
+        var failed = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
+        Assert.Equal(DeviceRecoveryStatus.RestoreFailed, failed.EntryFor(ServiceIds.Power)?.Status);
+        wmi.Writes.Clear();
         await using (ClawPlugin secondCycle = new(CreateServices(wmi)))
         {
             TestPluginHostAdapter secondHost = new(CycleGeneration + 1);
@@ -898,18 +894,25 @@ public sealed class ClawPluginTests
                 CancellationToken.None);
             var diagnostics = await secondCycle.GetDiagnosticsAsync(CancellationToken.None);
 
-            Assert.Equal(30, wmi.ReadData(ClawHardwareFacts.PowerSustainedAddress));
-            Assert.Equal("healthy", diagnostics.Values["recovery"]);
-            await using var reconciled = await ClawRecoveryJournal.OpenAsync(
-                state.Root,
-                CancellationToken.None);
-            Assert.Empty(reconciled.OutstandingEntries);
+            // Not written again automatically, and the service stays usable.
+            Assert.Empty(wmi.Writes);
+            Assert.Equal(nameof(DeviceServiceState.Owned), diagnostics.Values[ServiceIds.Power]);
+            var result = await secondCycle.ExecuteCommandAsync(
+                Command(CapabilityIds.PowerSustained, null, CapabilityValue.Integer(20)) with
+                {
+                    PairedPowerLimitWatts = 20
+                }, CancellationToken.None);
+            Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
 
+            // The command re-armed the entry, so stop writes its first original.
             _ = await secondCycle.StopAsync(
                 new PluginStopContext(
                     PluginStopReason.IntegrationDisabled,
                     Deadline.After(TimeSpan.FromSeconds(10))),
                 CancellationToken.None);
+            Assert.Equal(30, wmi.ReadData(ClawHardwareFacts.PowerSustainedAddress));
+            var reconciled = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
+            Assert.Empty(reconciled.OutstandingEntries);
         }
     }
 
@@ -1039,6 +1042,6 @@ public sealed class ClawPluginTests
             BaseboardManufacturer = ClawHardwareFacts.Manufacturer,
             BaseboardProduct = ClawModels.Claw8A2Vm.BoardProduct,
             SystemSku = "1T52.1"
-        }, () => [], readPower);
+        }, () => [], readPower, () => null);
     }
 }

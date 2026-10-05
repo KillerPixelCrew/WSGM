@@ -14,8 +14,6 @@ namespace WSGM.Device.Asus.RogAlly;
 // The capability surface: overlay sections, descriptors and the published states.
 public sealed partial class RogAllyPlugin
 {
-    private static readonly string[] SourceOwnershipChoices = ["device", "plugin", "unavailable"];
-
     private static readonly IReadOnlyList<CapabilitySection> OverlaySections =
     [
         DeviceSections.Power with
@@ -117,8 +115,8 @@ public sealed partial class RogAllyPlugin
             Color(CapabilityInstances.Left, "Left stick ring", 0),
             Color(CapabilityInstances.Right, "Right stick ring", 1),
             Choice(CapabilityIds.Controller, CapabilityRole.ControllerSource, DisplayKey.Controller,
-                SourceOwnershipChoices, true, false, SectionIds.Info, CategoryIds.Ownership, 0),
-            Choice(CapabilityIds.Motion, CapabilityRole.MotionSource, DisplayKey.Motion, SourceOwnershipChoices, true,
+                SourceOwnership.Choices, true, false, SectionIds.Info, CategoryIds.Ownership, 0),
+            Choice(CapabilityIds.Motion, CapabilityRole.MotionSource, DisplayKey.Motion, SourceOwnership.Choices, true,
                 false, SectionIds.Info, CategoryIds.Ownership, 1),
             new()
             {
@@ -353,30 +351,12 @@ public sealed partial class RogAllyPlugin
             Effects.Breathing => "Breathing",
             Effects.ColorCycle => "Colour cycle",
             Effects.Rainbow => "Rainbow",
-            "device" => "Device",
-            "plugin" => "Plugin",
-            "unavailable" => "Unavailable",
+            SourceOwnership.Device => "Device",
+            SourceOwnership.Plugin => "Plugin",
+            SourceOwnership.Unavailable => "Unavailable",
             _ => choice
         };
     }
-}
-
-internal static class CapabilityIds
-{
-    public const string PowerSustained = "power.primary-limit";
-    public const string PowerBoost = "power.boost-limit";
-    public const string Scenario = "power.scenario";
-    public const string ChargeLimit = "battery.charge-limit";
-    public const string FanMode = "fan.mode";
-    public const string FanCurve = "fan.curve";
-    public const string FanReading = "fan.reading";
-    public const string LightingBrightness = "lighting.brightness";
-    public const string LightingEffect = "lighting.effect";
-    public const string LightingSpeed = "lighting.effect-speed";
-    public const string LightingColor = "lighting.zone-color";
-    public const string Controller = "controller.source";
-    public const string Motion = "motion.source";
-    public const string Rumble = "haptic.rumble";
 }
 
 internal static class CapabilityInstances

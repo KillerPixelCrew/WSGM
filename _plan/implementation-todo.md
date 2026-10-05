@@ -121,6 +121,33 @@ checker advised against; B130 leaves DisplayModeView's own WDC read/apply defaul
 select-and-persist code in the overlay picker and the Quick Access service. Profile editor UI
 baselines changed on purpose (B129) and need a refresh and review.
 
+Batch 4 was committed as 5f925156 (WDC b14c704, toolkit 8b03384, both local). Batch 5 is source
+applied for session (B115, B116, B124, B140 shutdown order, B141), SDK (B052, B142, B146 to B149),
+packages (B143 to B145), GPU (B150 to B153) and IR (B154 to B156, protocol 2 catalog paging), and
+closed the reopened B074, B078, B082, B098 (DisplayProfiles renamed PrimaryDisplayModes) and B102.
+The 24-entry access point cap in the Quick Access network projection is gone.
+
+Reopened after verification of the batch 3 Steam items:
+
+- B047: checks still slice adjacent declarations instead of whole fragments (TOOLKITJS-011).
+- B051: module resolver keeps 16-token, 512-character and 32,768-id bounds (TOOLKITJS-005); an
+  rpc.ts comment names a webpack module id (TOOLKITJS-007); check-ownership-claims still uses its
+  private helper (TOOLKITJS-036); no registerSteamPage check case (TOOLKITJS-V-003).
+- B056: toolkit reference still documents removed caps (TOOLKITCS-031).
+- B136: card services still live in the Steam UI partial (STEAMHOST-046, placement).
+- B138: ThemeService still does loader file I/O under its state lock (STEAMHOST-030).
+- B139: download sort is still a C# raw-string script outside the asset pipeline (STEAMHOST-018);
+  themes and animations keep duplicate page helpers (STEAMHOST-034).
+
+Batch 5 notes: IR firmware 0.5.0 is not compiled here (PlatformIO venv missing); build it before
+flashing. Removing `CommandResults.Unverified(command, value)` makes applied-but-unconfirmed GPU
+writes carry a TransportFaulted reason, the noise GPUIR-008 complained about; check it. Shutdown
+now bounds the mode transition, boot worker and gate loop by the deadline and disposes UI-built
+owners on the dispatcher; the boot cover arms only when the launch sequence asks Steam. These need
+the shutdown and boot manual rows. The overlay Display layout test attaches brightness after the
+window opened, so its baseline is unfolded unlike production. Intel's lifecycle was not merged onto
+DriverRuntime (GPUIR-007), by choice.
+
 - [x] Simplify the active plan: remove prescribed owner/port proliferation, serial dependency chains,
   per-item review/validation ceremonies and duplicated architecture prose. Keep all 188 item IDs,
   statuses and finding dispositions. Findings remain evidence; their proposed designs are optional.

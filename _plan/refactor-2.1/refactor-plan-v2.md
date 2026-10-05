@@ -169,16 +169,16 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B044 | sdk | Contain native callback and poll exceptions, dispose replaced reconnect sources and avoid per-sample tracing. | Source applied |
 | B045 | sdk | Reject oversized or excessively nested manifests before parsing, including package manifests. Use the existing reader. | Source applied |
 | B046 | wdc | Make WDC build independently and keep its tests off live hardware. Pin native layouts with meaningful byte fixtures. | Source applied |
-| B047 | toolkit | Keep one Steam fragment list and run existing script checks against the composed asset at final validation. | Source applied |
+| B047 | toolkit | Keep one Steam fragment list and run existing script checks against the composed asset at final validation. | In progress |
 | B048 | toolkit | Fix transport connection, cancellation and teardown races in the existing connection code. | Source applied |
 | B049 | toolkit | Resolve known Steam modules without invoking unknown exports; validate bridge payloads and keep command handlers off the pump. Fix the remaining parsing and logging defects locally. | In progress |
 | B050 | toolkit | Handle interleaved bridge deliveries independently, clear disposed state and allow module resolution to recover after a transient failure. | Source applied |
-| B051 | toolkit | Restore displaced gate state on removal, refuse malformed updates and remove silent content caps. Extend the existing checks. | Source applied |
-| B052 | sdk | Remove redundant plugin text types, make manifests immutable and expose plugin tracing where needed. Update all consumers and the contract version together. | Pending |
+| B051 | toolkit | Restore displaced gate state on removal, refuse malformed updates and remove silent content caps. Extend the existing checks. | In progress |
+| B052 | sdk | Remove redundant plugin text types, make manifests immutable and expose plugin tracing where needed. Update all consumers and the contract version together. | Source applied |
 | B053 | toolkit | Report whether a Steam write was sent, refused, applied or uncertain. Pass the existing client explicitly and serialize writes; preserve recovery records after uncertain results. | Source applied |
 | B054 | toolkit | Use one patch synchronization loop; apply the bridge first and remove it last. Remove failed patches without blind retries, isolate faulty modules and support ready-plugin module changes. | Source applied |
 | B055 | toolkit | Simplify duplicated QAM rendering code while preserving output. Split fragments only where it makes the source easier to read. | Source applied |
-| B056 | toolkit | Remove redundant toolkit wrappers and unused public APIs, fix payload contracts and update consumers/version together. Preserve useful read and error detail. | Source applied |
+| B056 | toolkit | Remove redundant toolkit wrappers and unused public APIs, fix payload contracts and update consumers/version together. Preserve useful read and error detail. | In progress |
 | B057 | toolkit | Let WSGM supply QAM labels, layout and library names. Preserve existing layout and fold IDs; fix custom choices and raw OSD watt values. | Source applied |
 | B058 | toolkit | Keep uncommitted row drafts across unrelated updates; clear only the affected draft and show its write refusal. | Source applied |
 | B059 | toolkit | Enumerate picker folders off the UI thread, honour cancellation and ignore stale results. Keep the whole-list UI, supported path forms and one request timeout. | Source applied |
@@ -196,15 +196,15 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B071 | wdc | Attempt every applicable wake and standby restore, collect failures and fix native registration/layout defects. Remove arbitrary buffer caps; preserve secure default restore behaviour. | Source applied |
 | B072 | wdc | Update WDC docs and metadata to actual behaviour; independently validate both supported frameworks at the end. | Pending |
 | B073 | input | Remove per-sample controller allocations and duplicate routing state. Preserve capture/forwarding guards, neutral publication and safe backend disposal. | Source applied |
-| B074 | input | Make controller and HidHide ownership explicit at composition, remove duplicated tool setup and expose coherent status. | In progress |
+| B074 | input | Make controller and HidHide ownership explicit at composition, remove duplicated tool setup and expose coherent status. | Source applied |
 | B075 | input | Pass the existing managed pad to overlay-launched Settings so controller navigation works. | Source applied |
 | B076 | input | Track one Steam Input shim apply path and dispose its state with the session. Remove redundant reload tasks. | Source applied |
 | B077 | input | Keep the Steam Input lease reachable from Program through normal exit and panic. Balance overlapping UI claims using the concrete lease owner. | Source applied |
-| B078 | input | Do not replace a newer guide-chord binding with an old size-limited copy. Dispose existing subscriptions properly. | In progress |
+| B078 | input | Do not replace a newer guide-chord binding with an old size-limited copy. Dispose existing subscriptions properly. | Source applied |
 | B079 | input | Share one raw-touch registration between subscribers, separate gesture recognition from native input and release it after the last subscriber. | Source applied |
 | B080 | input | Escape, timeout and recorder failure retain the old binding; only Clear clears it. Fix local navigation/recorder duplication without new options plumbing. | Source applied |
 | B081 | device | Call the device runtime directly and delete the forwarding adapter. Bound lifecycle waits without unloading plugin code that is still running. | Source applied |
-| B082 | device | Ignore stale command results, check cancellation immediately before dispatch and use active-time deadlines. Keep one router and log outside locks. | In progress |
+| B082 | device | Ignore stale command results, check cancellation immediately before dispatch and use active-time deadlines. Keep one router and log outside locks. | Source applied |
 | B083 | device | Stop accepting device work when stopping, join one shutdown task within the deadline and retain running work safely. Track existing tasks; remove the failure-tracker wrapper. | Source applied |
 | B084 | steamhost | Snapshot storage on the UI thread, derive switches consistently, avoid config IO under state locks and fix command-result/refusal defects. | Source applied |
 | B085 | steamhost | Apply Steam surface switches consistently through one path, preserving immediate cancellation and existing edge effects. | Source applied |
@@ -220,11 +220,11 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B095 | winsvc | Deduplicate console execution with clear refused/uncertain/success results. Refuse manager restore after unreadable config and bound the existing startup task at exit. | Source applied |
 | B096 | winsvc | Reuse one storage snapshot across eject, format, Steam and library paths. Keep card-swap checks; do not build a revision/cache subsystem. | Source applied |
 | B097 | winsvc | Preserve every identity recheck around formatting, use volume identity for library writes and report uncertain diskpart outcomes truthfully. Isolate only destructive calls for tests. | Source applied |
-| B098 | winsvc | Remove test-only production display branches by supplying the real required inputs or test fakes. Preserve revision guards and original-mode recovery. | In progress |
+| B098 | winsvc | Remove test-only production display branches by supplying the real required inputs or test fakes. Preserve revision guards and original-mode recovery. | Source applied |
 | B099 | winsvc | Restore the audio endpoint actually muted, move volume writes off the UI thread and dispose feedback. Share endpoint access only where it removes duplication. | Source applied |
 | B100 | winsvc | Remove arbitrary RTSS/LHM enumeration caps and use limited process-path queries. Keep frametime reads independent of OSD write access. | Source applied |
 | B101 | winsvc | Join service loops on disposal, fix card-monitor triggers and keep preview compositions hardware-free. Add missing behaviour coverage at the end. | Source applied |
-| B102 | library | Use fakeable HTTP handlers in existing artwork providers, compute HasMore before filtering and deduplicate slot rules. Remove expired failures and redundant overloads. | In progress |
+| B102 | library | Use fakeable HTTP handlers in existing artwork providers, compute HasMore before filtering and deduplicate slot rules. Remove expired failures and redundant overloads. | Source applied |
 | B103 | library | Keep artwork browsing across unrelated config reloads, handle cancellation/disposal safely and share apply/clear/find filename rules, including icons. | Source applied |
 | B104 | library | Delete dead library code and deduplicate pure entry/projection rules. Do not create new classes just to shorten a file. | Source applied |
 | B105 | library | Keep library disk work off the UI thread, preserve edit/write ordering, copy saved records and join background work within the caller's deadline. Extract workers only to untangle actual shared state. | Source applied |
@@ -237,8 +237,8 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B112 | session | Share Explorer launch/path probing, dispose partial starts and honour cancellation/UAC refusal. Never start a competing process after an uncertain launch or kill Explorer. | Source applied |
 | B113 | overlay | Dispose overlay activation subscriptions correctly and do not construct them for an in-session preview. Keep overlay-test reopen controls. | Source applied |
 | B114 | session | Own one message window, contain native callbacks and dispose it last. Verify tray retirement and fix activation/window-finder races; preserve the relay. | Source applied |
-| B115 | session | Simplify existing Game Mode entry/recovery hooks, keep one pending-return record and undo monitor pauses on refusal. Remove duplicate Steam discovery/control work only where useful. | Pending |
-| B116 | session | Fix power-event coalescing and watcher shutdown races in the current session code. Keep the last good config and isolate reload steps so one failure does not skip the rest. | Pending |
+| B115 | session | Simplify existing Game Mode entry/recovery hooks, keep one pending-return record and undo monitor pauses on refusal. Remove duplicate Steam discovery/control work only where useful. | Source applied |
+| B116 | session | Fix power-event coalescing and watcher shutdown races in the current session code. Keep the last good config and isolate reload steps so one failure does not skip the rest. | Source applied |
 | B117 | settings | Supply Settings dependencies explicitly, remove hidden production fallbacks and apply external settings only when changed. Reuse existing save/apply paths. | Source applied |
 | B118 | settings | Discover displays off the UI thread in every composition; tests await the same discovery task. | Source applied |
 | B119 | settings | Wait for a Settings save on ordinary close without blocking OS shutdown. Report committed-but-apply-failed accurately and still apply after later splash/boot errors. | Source applied |
@@ -246,7 +246,7 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B121 | settings | Route update/package work through existing Settings dependencies and cancel downloads when the window closes. | Source applied |
 | B122 | overlay | Keep test/preview power actions isolated from the machine, release overlay claims synchronously and chain pin writes without mutating shared config. | Source applied |
 | B123 | settings | Open or activate one Settings window per process with the current session mode and supplied actions. | Source applied |
-| B124 | session | Isolate optional startup failures, preserve desktop recovery and stop worker mutation of shared config. Extract transition logic only where it clarifies actual ownership. | Pending |
+| B124 | session | Isolate optional startup failures, preserve desktop recovery and stop worker mutation of shared config. Extract transition logic only where it clarifies actual ownership. | Source applied |
 | B125 | overlay | Move session relaunch and reload policy out of overlay views into the existing session owner. | Source applied |
 | B126 | overlay | Share duplicated capability-row and commit-on-close code; recheck write eligibility at invocation. Preserve layout. | Source applied |
 | B127 | overlay | Fix reattached plugin panels, avoid whole-tree pin scans and simplify page code locally. A controller class per page is not required. | Source applied |
@@ -258,27 +258,27 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B133 | settings | Show config read failures in Settings and keep IO off the UI thread. Use the existing strict store write path without a read-only mode. | Source applied |
 | B134 | settings | Raise backdrop changes only when changed and handle late native callbacks after stop. Use a few internal delegates for lifecycle tests. | Source applied |
 | B135 | settings | Remove the wake-source display cap, fix recorder/task continuations and retain bindings on failure. Deduplicate Settings helpers and preserve palette/layout values. | Source applied |
-| B136 | steamhost | Keep Steam readiness, enable/disable and Big Picture transitions ordered in the existing host. Cancel commands at shutdown start; retract patches after device cleanup. | Source applied |
+| B136 | steamhost | Keep Steam readiness, enable/disable and Big Picture transitions ordered in the existing host. Cancel commands at shutdown start; retract patches after device cleanup. | In progress |
 | B137 | steamhost | Write library tabs/badges only when changed, preserve press order and track sync work. Remove static state only where it breaks ownership. | Source applied |
-| B138 | steamhost | Fix content work cleanup and strict-save failures, remove silent media caps and return Steam's startup-movie choice at exit/uninstall. Restore only WSGM-owned files/links. | Source applied |
-| B139 | steamhost | Compute the asset hash from the asset, remove builder source rewriting and duplicate gate wrapping, and keep WSGM patch IDs separate. Preserve fold IDs. | Source applied |
-| B140 | session | Use the safety-first shutdown order below, one deadline and one task. Attempt later cleanup after failures; remove the repeated cleanup block without a shutdown framework. | Pending |
-| B141 | session | Fix splash timing and dead session wiring; update docs after the actual ownership changes. | Pending |
-| B142 | sdk | Remove SDK content caps and host-only types, fix manifest/identity validation and dispose all package owners. Update API version and every consumer together. | Pending |
-| B143 | packages | Keep package recovery rules local and explicit: no automatic replay of uncertain Claw restores; Ally writes through without readbacks. Preserve originals, handle changed bindings and migrate old records safely. | Pending |
-| B144 | packages | Deduplicate package value checks, write-budget checks and capability IDs where implementations truly match. Vendor-specific motion/lifecycle code can stay local. | Pending |
-| B145 | packages | Snapshot Claw identity at start/resume, remove redundant command probes and fix transport descriptor/handle ownership. Preserve HC behaviour and timeouts. | Pending |
-| B146 | sdk | Delete the plugin forwarding wrapper, report cleanup failure clearly and fix registration state/threading. Share loading code only where it reduces duplication. | Pending |
-| B147 | sdk | Discover manifests off the UI thread, apply pending removals once at startup and fix package validation/SDK versions. Remove count caps; keep existing manager unless a split removes real coupling. | Pending |
-| B148 | sdk | Keep GPU revision state per instance, supply AC state explicitly and await refresh/disposal work. Honour active-time command cancellation. | Pending |
-| B149 | sdk | Remove only duplicate SDK tests; keep API boundary/native-import guards and add missing behavioural cases at the end. | Pending |
-| B150 | gpu | Never reset unreadable GPU journals or disable unrelated/global controls because one per-app record failed. Report save failures without claiming the driver write was undone. | Pending |
-| B151 | gpu | Pass GPU write admission explicitly, cache only real support outcomes, reuse native discovery within a pass and contain publication failures. Fix existing shared runtime rather than adding another layer. | Pending |
-| B152 | gpu | Remove NVIDIA readback/pending machinery, clear records after dispatched restore and preserve them on failed writes. Size NVIDIA/AMD buffers from native counts and fix revision guards. | Pending |
-| B153 | gpu | Move Intel writes off the UI thread and fix admission/support-cache/loop lifetime defects. Reuse shared GPU code where it reduces duplication; preserve written-value UI and reopen backoff. | Pending |
-| B154 | ir | Classify IR refusals before emission, retain uncertain outcomes after emission and never overwrite unreadable libraries. Dispose a failed serial open and keep sequence status truthful. | Pending |
-| B155 | ir | Simplify IR session/storage/publication code without changing IDs or labels. A three-class split is not an acceptance requirement. | Pending |
-| B156 | ir | Fix firmware learn retirement, validation and storage errors; add protocol-2 catalog pages and matching host reassembly so large catalogs work. Build only; flashing remains attended. | Pending |
+| B138 | steamhost | Fix content work cleanup and strict-save failures, remove silent media caps and return Steam's startup-movie choice at exit/uninstall. Restore only WSGM-owned files/links. | In progress |
+| B139 | steamhost | Compute the asset hash from the asset, remove builder source rewriting and duplicate gate wrapping, and keep WSGM patch IDs separate. Preserve fold IDs. | In progress |
+| B140 | session | Use the safety-first shutdown order below, one deadline and one task. Attempt later cleanup after failures; remove the repeated cleanup block without a shutdown framework. | Source applied |
+| B141 | session | Fix splash timing and dead session wiring; update docs after the actual ownership changes. | Source applied |
+| B142 | sdk | Remove SDK content caps and host-only types, fix manifest/identity validation and dispose all package owners. Update API version and every consumer together. | Source applied |
+| B143 | packages | Keep package recovery rules local and explicit: no automatic replay of uncertain Claw restores; Ally writes through without readbacks. Preserve originals, handle changed bindings and migrate old records safely. | Source applied |
+| B144 | packages | Deduplicate package value checks, write-budget checks and capability IDs where implementations truly match. Vendor-specific motion/lifecycle code can stay local. | Source applied |
+| B145 | packages | Snapshot Claw identity at start/resume, remove redundant command probes and fix transport descriptor/handle ownership. Preserve HC behaviour and timeouts. | Source applied |
+| B146 | sdk | Delete the plugin forwarding wrapper, report cleanup failure clearly and fix registration state/threading. Share loading code only where it reduces duplication. | Source applied |
+| B147 | sdk | Discover manifests off the UI thread, apply pending removals once at startup and fix package validation/SDK versions. Remove count caps; keep existing manager unless a split removes real coupling. | Source applied |
+| B148 | sdk | Keep GPU revision state per instance, supply AC state explicitly and await refresh/disposal work. Honour active-time command cancellation. | Source applied |
+| B149 | sdk | Remove only duplicate SDK tests; keep API boundary/native-import guards and add missing behavioural cases at the end. | Source applied |
+| B150 | gpu | Never reset unreadable GPU journals or disable unrelated/global controls because one per-app record failed. Report save failures without claiming the driver write was undone. | Source applied |
+| B151 | gpu | Pass GPU write admission explicitly, cache only real support outcomes, reuse native discovery within a pass and contain publication failures. Fix existing shared runtime rather than adding another layer. | Source applied |
+| B152 | gpu | Remove NVIDIA readback/pending machinery, clear records after dispatched restore and preserve them on failed writes. Size NVIDIA/AMD buffers from native counts and fix revision guards. | Source applied |
+| B153 | gpu | Move Intel writes off the UI thread and fix admission/support-cache/loop lifetime defects. Reuse shared GPU code where it reduces duplication; preserve written-value UI and reopen backoff. | Source applied |
+| B154 | ir | Classify IR refusals before emission, retain uncertain outcomes after emission and never overwrite unreadable libraries. Dispose a failed serial open and keep sequence status truthful. | Source applied |
+| B155 | ir | Simplify IR session/storage/publication code without changing IDs or labels. A three-class split is not an acceptance requirement. | Source applied |
+| B156 | ir | Fix firmware learn retirement, validation and storage errors; add protocol-2 catalog pages and matching host reassembly so large catalogs work. Build only; flashing remains attended. | Source applied |
 | B157 | lab | Fix Lab watchdog locking, EOF cleanup, wrong-token release and pending-client races. Stop per-sample logs and expose only the seams the worker tests need. | Pending |
 | B158 | lab | Refuse unreadable machine records, attempt every startup recovery item under the owner reservation and start the worker only when needed. Preserve existing record locations. | Pending |
 | B159 | lab | Deduplicate MSI_ACPI calls, handle null arguments/timeouts and validate every power limit before the first write. Preserve checkpoints when observations fail. | Pending |

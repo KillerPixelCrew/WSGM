@@ -185,6 +185,12 @@ internal abstract class IntelControl
     /// <summary>The name trace lines use, built once.</summary>
     public string Name { get; }
 
+    /// <summary>
+    ///     The driver structure a support probe exercises. Controls sharing a structure share the key, so the
+    ///     plugin probes it once and keeps that one outcome.
+    /// </summary>
+    public virtual string SupportKey => Key;
+
     /// <summary>The offered members of a choice, in offer order; empty for other kinds.</summary>
     public IReadOnlyList<EnumMember> Members { get; }
 

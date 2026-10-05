@@ -104,6 +104,17 @@ internal sealed class ControllerManager : IAsyncDisposable
         new ProfileConfig(),
         "Controller management has not started.");
 
+    /// <summary>The published projection: built under <see cref="_stateGate" />, read without it.</summary>
+    /// <remarks>
+    ///     One immutable record, so a reader never pairs one transition's state with another's target.
+    /// </remarks>
+    private ControllerManagerStatus _status = new(
+        ControllerManagementState.Off,
+        null,
+        ProfileSource.None,
+        null,
+        "Controller management has not started.");
+
     private CanonicalButtons _syntheticButtons;
 
     internal ControllerManager(
@@ -127,12 +138,6 @@ internal sealed class ControllerManager : IAsyncDisposable
         _sampleDrain = DrainSamplesAsync();
     }
 
-    /// <summary>Current state of controller management.</summary>
-    internal ControllerManagementState State { get; private set; } = ControllerManagementState.Off;
-
-    /// <summary>Why the current state holds, for logs and the overlay.</summary>
-    private string Detail { get; set; } = "Controller management has not started.";
-
     /// <summary>The managed controller as WSGM's own surfaces read it.</summary>
     /// <remarks>
     ///     Active only while a target is being driven; in every other state the UI reads SDL with the
@@ -140,8 +145,8 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// </remarks>
     internal ManagedUiPad UiPad { get; } = new();
 
-    /// <summary>The target in effect and the layer that chose it.</summary>
-    private ResolvedControllerTarget? Effective { get; set; }
+    /// <summary>Current state of controller management.</summary>
+    internal ControllerManagementState State => Volatile.Read(ref _status).State;
 
     /// <summary>Targets the backend on this machine can create, once it has been discovered.</summary>
     /// <remarks>
@@ -277,12 +282,8 @@ internal sealed class ControllerManager : IAsyncDisposable
 
     internal event Action<string>? TargetLost;
 
-    internal void ReportTargetFault(string detail)
-    {
-        SetState(ControllerManagementState.Faulted, detail);
-    }
-
     /// <summary>Raised when the projection changes, for the overlay and Settings.</summary>
+    /// <remarks>Raised on any thread; handlers must not touch UI state directly.</remarks>
     internal event Action<ControllerManagerStatus>? StatusChanged;
 
     /// <summary>Every physical sample, for diagnostics only.</summary>
@@ -293,12 +294,7 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// <returns>The controller-management projection.</returns>
     internal ControllerManagerStatus Snapshot()
     {
-        return new ControllerManagerStatus(
-            State,
-            Effective?.Target,
-            Effective?.Source ?? ProfileSource.None,
-            Effective?.ApplicationId,
-            Detail);
+        return Volatile.Read(ref _status);
     }
 
     /// <summary>
@@ -756,7 +752,7 @@ internal sealed class ControllerManager : IAsyncDisposable
     {
         var buttons = !quickAccess
             ? CanonicalButtons.Guide
-            : Effective?.Target is ManagedControllerTarget.SteamDeckComposite
+            : Snapshot().Target is ManagedControllerTarget.SteamDeckComposite
                 ? CanonicalButtons.QuickAccess
                 : CanonicalButtons.Guide | CanonicalButtons.A;
         return PulseButtonsAsync(buttons, cancellationToken);
@@ -847,6 +843,10 @@ internal sealed class ControllerManager : IAsyncDisposable
     ///     A fault restart takes the pad again at once, so the pad stays hidden and Steam cannot grab it in
     ///     between; every other release shows it again.
     /// </param>
+    /// <param name="faultDetail">
+    ///     Set when the release answers a lost target: the release then ends Faulted with this detail
+    ///     instead of Off or Idle, so observers see one fault rather than a fault, an idle and a fault.
+    /// </param>
     /// <returns>A task completing once every step was attempted.</returns>
     /// <remarks>
     ///     The order is HC's: silence the virtual pad, have the plugin let go, remove the virtual pad, show
@@ -858,7 +858,8 @@ internal sealed class ControllerManager : IAsyncDisposable
         Func<CancellationToken, Task> releasePhysicalAsync,
         Deadline deadline,
         CancellationToken cancellationToken,
-        bool keepPhysicalHidden = false)
+        bool keepPhysicalHidden = false,
+        string? faultDetail = null)
     {
         ArgumentNullException.ThrowIfNull(releasePhysicalAsync);
         using var bounded = deadline.CreateCancellationSource(cancellationToken);
@@ -939,11 +940,19 @@ internal sealed class ControllerManager : IAsyncDisposable
 
             if (entered)
             {
-                SetState(
-                    scope is HandoffScope.FullDeactivation
-                        ? ControllerManagementState.Off
-                        : ControllerManagementState.Idle,
-                    "Controller management released the controller.");
+                if (faultDetail is not null)
+                {
+                    SetState(ControllerManagementState.Faulted, faultDetail);
+                }
+                else
+                {
+                    SetState(
+                        scope is HandoffScope.FullDeactivation
+                            ? ControllerManagementState.Off
+                            : ControllerManagementState.Idle,
+                        "Controller management released the controller.");
+                }
+
                 Log.Info($"Controller released: scope={scope}, physicalKeptHidden={keepPhysicalHidden}.");
                 _transition.Release();
             }
@@ -1022,9 +1031,9 @@ internal sealed class ControllerManager : IAsyncDisposable
             return Snapshot();
         }
 
-        if (Effective is { } current && current.Target == resolved.Target)
+        if (Snapshot().Target == resolved.Target)
         {
-            Effective = resolved;
+            SetEffective(resolved);
             return Snapshot();
         }
 
@@ -1072,7 +1081,7 @@ internal sealed class ControllerManager : IAsyncDisposable
                         .ConfigureAwait(false)
                     : await _router.CreateAsync(resolved.Target, cancellationToken)
                         .ConfigureAwait(false);
-            Effective = resolved;
+            SetEffective(resolved);
             bool captured;
             lock (_stateGate)
             {
@@ -1101,21 +1110,34 @@ internal sealed class ControllerManager : IAsyncDisposable
         }
     }
 
-    private ControllerManagerStatus SetState(ControllerManagementState state, string detail)
+    /// <summary>Records the target in effect and the layer that chose it, without raising <see cref="StatusChanged" />.</summary>
+    /// <param name="resolved">The resolved target.</param>
+    private void SetEffective(ResolvedControllerTarget resolved)
     {
         lock (_stateGate)
         {
-            State = state;
-            Detail = detail;
+            Volatile.Write(ref _status, _status with
+            {
+                Target = resolved.Target,
+                TargetSource = resolved.Source,
+                ApplicationId = resolved.ApplicationId
+            });
+        }
+    }
+
+    private ControllerManagerStatus SetState(ControllerManagementState state, string detail)
+    {
+        ControllerManagerStatus status;
+        lock (_stateGate)
+        {
             _processPriority.SetActive(!_disposed && state is ControllerManagementState.Active);
             UiPad.SetActive(!_disposed && state is ControllerManagementState.Active);
-            if (state is not (ControllerManagementState.Active or ControllerManagementState.Idle))
-            {
-                Effective = null;
-            }
+            status = state is ControllerManagementState.Active or ControllerManagementState.Idle
+                ? _status with { State = state, Detail = detail }
+                : new ControllerManagerStatus(state, null, ProfileSource.None, null, detail);
+            Volatile.Write(ref _status, status);
         }
 
-        var status = Snapshot();
         StatusChanged?.Invoke(status);
         return status;
     }

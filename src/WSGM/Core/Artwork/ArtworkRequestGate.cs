@@ -269,4 +269,4 @@ internal sealed class ArtworkRequestGate
 
 /// <summary>An artwork provider could not answer: a failure the user should see, never "no images".</summary>
 /// <param name="message">What went wrong, in words the page shows.</param>
-public class ArtworkProviderException(string message) : Exception(message);
+internal class ArtworkProviderException(string message) : Exception(message);

@@ -1,5 +1,5 @@
-using System.Text.Json;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Plugin.Gpu;
 using WSGM.Plugin.Sdk;
 using WSGM.Testing;
@@ -10,6 +10,8 @@ namespace WSGM.Plugin.NvidiaGpu.Tests;
 public sealed class NvProfilesTests
 {
     private const uint Setting = 0x1057eb71;
+    private static readonly WriteAdmission Admitted = new(CancellationToken.None, Deadline.Never, () => true);
+    private static readonly Action<string, string> Ignore = (_, _) => { };
 
     [Fact]
     public void SupportProbeDoesNotMaterializeAnInheritedDrsSetting()
@@ -17,7 +19,7 @@ public sealed class NvProfilesTests
         var api = new Drs();
         api.Values[123] = 99;
         var control = Controls(api).Values.Single();
-        control.ProbeSupport(control.Read());
+        control.ProbeSupport(control.Read(), Admitted);
         Assert.Equal(0, api.Saves);
         Assert.False(api.Values.ContainsKey(Setting));
         Assert.Equal(99u, api.Values[123]);
@@ -30,7 +32,7 @@ public sealed class NvProfilesTests
         api.Values[Setting] = 9;
         api.Values[123] = 99;
         var control = Controls(api).Values.Single();
-        control.ProbeSupport(control.Read());
+        control.ProbeSupport(control.Read(), Admitted);
         Assert.Equal(1, api.Saves);
         Assert.Equal(9u, api.Values[Setting]);
         Assert.Equal(99u, api.Values[123]);
@@ -43,10 +45,10 @@ public sealed class NvProfilesTests
         var api = new Drs();
         api.Values[Setting] = 7;
         api.Values[123] = 99;
-        var profiles = new NvProfiles(api, directory.Root);
-        Assert.Empty(profiles.Sync(Sync(1, 9), Controls(api), CancellationToken.None).Failures);
+        var profiles = new NvProfiles(api, directory.Root, Ignore);
+        Assert.Empty(profiles.Sync(Sync(1, 9), Controls(api), Admitted, CancellationToken.None).Failures);
         Assert.Equal(9u, api.Values[Setting]);
-        Assert.Equal(1, profiles.Sync(Empty(2), Controls(api), CancellationToken.None).Removed);
+        Assert.Equal(1, profiles.Sync(Empty(2), Controls(api), Admitted, CancellationToken.None).Removed);
         Assert.Equal(7u, api.Values[Setting]);
         Assert.Equal(99u, api.Values[123]);
     }
@@ -56,10 +58,10 @@ public sealed class NvProfilesTests
     {
         using var directory = new TemporaryDirectory();
         var api = new Drs();
-        var profiles = new NvProfiles(api, directory.Root);
-        profiles.Sync(Sync(1, 9), Controls(api), CancellationToken.None);
+        var profiles = new NvProfiles(api, directory.Root, Ignore);
+        profiles.Sync(Sync(1, 9), Controls(api), Admitted, CancellationToken.None);
         api.Global = 12;
-        profiles.Sync(Empty(2), Controls(api), CancellationToken.None);
+        profiles.Sync(Empty(2), Controls(api), Admitted, CancellationToken.None);
         Assert.False(api.Values.ContainsKey(Setting));
         Assert.Equal((12u, false), api.Get(2, Setting));
     }
@@ -69,56 +71,57 @@ public sealed class NvProfilesTests
     {
         using var directory = new TemporaryDirectory();
         var api = new Drs();
-        var profiles = new NvProfiles(api, directory.Root);
-        profiles.Sync(Sync(1, 9), Controls(api), CancellationToken.None);
+        var profiles = new NvProfiles(api, directory.Root, Ignore);
+        profiles.Sync(Sync(1, 9), Controls(api), Admitted, CancellationToken.None);
         api.Values[Setting] = 12;
-        Assert.Single(profiles.Sync(Sync(2, 9), Controls(api), CancellationToken.None).Failures);
-        profiles.Sync(Empty(3), Controls(api), CancellationToken.None);
+        Assert.Single(profiles.Sync(Sync(2, 9), Controls(api), Admitted, CancellationToken.None).Failures);
+        profiles.Sync(Empty(3), Controls(api), Admitted, CancellationToken.None);
         Assert.Equal(12u, api.Values[Setting]);
         Assert.Equal(1, api.Saves);
     }
 
     [Fact]
-    public void UnconfirmedSaveIsNotRepeatedAfterReloadOrProcessRestart()
+    public void FailedSaveRestoresTheJournalAndTheNextRevisionWritesAgain()
     {
         using var directory = new TemporaryDirectory();
         var api = new Drs { FailSave = true };
-        var profiles = new NvProfiles(api, directory.Root);
-        Assert.Single(profiles.Sync(Sync(1, 9), Controls(api), CancellationToken.None).Failures);
+        var profiles = new NvProfiles(api, directory.Root, Ignore);
+        Assert.Single(profiles.Sync(Sync(1, 9), Controls(api), Admitted, CancellationToken.None).Failures);
+        Assert.Empty(DriverStateFile.Read(Path.Combine(directory.Root, "nvidia-profiles.v1.json"),
+            new NvProfileJournal([])).Entries);
         api.FailSave = false;
-        profiles = new NvProfiles(api, directory.Root);
-        Assert.Single(profiles.Sync(Sync(2, 9), Controls(api), CancellationToken.None).Failures);
-        Assert.Equal(1, api.Saves);
-        Assert.False(api.Values.ContainsKey(Setting));
+        Assert.Empty(profiles.Sync(Sync(2, 9), Controls(api), Admitted, CancellationToken.None).Failures);
+        Assert.Equal(2, api.Saves);
+        Assert.Equal(9u, api.Values[Setting]);
     }
 
     [Fact]
-    public void SaveThatCommittedBeforeFailureIsConfirmedWithoutAnotherWrite()
+    public void SaveThatCommittedDespiteAFailureIsAdoptedWithoutAnotherWrite()
     {
         using var directory = new TemporaryDirectory();
         var api = new Drs { FailAfterSave = true };
-        var profiles = new NvProfiles(api, directory.Root);
-        Assert.Single(profiles.Sync(Sync(1, 9), Controls(api), CancellationToken.None).Failures);
+        var profiles = new NvProfiles(api, directory.Root, Ignore);
+        Assert.Single(profiles.Sync(Sync(1, 9), Controls(api), Admitted, CancellationToken.None).Failures);
         api.FailAfterSave = false;
-        Assert.Empty(profiles.Sync(Sync(2, 9), Controls(api), CancellationToken.None).Failures);
+        Assert.Empty(profiles.Sync(Sync(2, 9), Controls(api), Admitted, CancellationToken.None).Failures);
         Assert.Equal(1, api.Saves);
         Assert.Equal(9u, api.Values[Setting]);
     }
 
     [Fact]
-    public void UnconfirmedRestorationIsNotRepeated()
+    public void FailedRestorationKeepsTheEntryAndTheNextSyncRestoresAgain()
     {
         using var directory = new TemporaryDirectory();
         var api = new Drs();
         api.Values[Setting] = 7;
-        var profiles = new NvProfiles(api, directory.Root);
-        profiles.Sync(Sync(1, 9), Controls(api), CancellationToken.None);
+        var profiles = new NvProfiles(api, directory.Root, Ignore);
+        profiles.Sync(Sync(1, 9), Controls(api), Admitted, CancellationToken.None);
         api.FailSave = true;
-        Assert.Single(profiles.Sync(Empty(2), Controls(api), CancellationToken.None).Failures);
+        Assert.Single(profiles.Sync(Empty(2), Controls(api), Admitted, CancellationToken.None).Failures);
         api.FailSave = false;
-        Assert.Single(profiles.Sync(Empty(3), Controls(api), CancellationToken.None).Failures);
-        Assert.Equal(2, api.Saves);
-        Assert.Equal(9u, api.Values[Setting]);
+        Assert.Equal(1, profiles.Sync(Empty(3), Controls(api), Admitted, CancellationToken.None).Removed);
+        Assert.Equal(3, api.Saves);
+        Assert.Equal(7u, api.Values[Setting]);
     }
 
     [Fact]
@@ -126,10 +129,10 @@ public sealed class NvProfilesTests
     {
         using var directory = new TemporaryDirectory();
         var api = new Drs();
-        var profiles = new NvProfiles(api, directory.Root);
+        var profiles = new NvProfiles(api, directory.Root, Ignore);
         var sync = new ApplicationProfileSync(1, 1,
             [Game("one", "one.exe", 9), Game("two", "two.exe", 10)]);
-        Assert.Equal(2, profiles.Sync(sync, Controls(api), CancellationToken.None).Failures.Count);
+        Assert.Equal(2, profiles.Sync(sync, Controls(api), Admitted, CancellationToken.None).Failures.Count);
         Assert.Equal(0, api.Saves);
     }
 
@@ -138,10 +141,10 @@ public sealed class NvProfilesTests
     {
         using var directory = new TemporaryDirectory();
         var api = new Drs();
-        var profiles = new NvProfiles(api, directory.Root);
+        var profiles = new NvProfiles(api, directory.Root, Ignore);
         var sync = new ApplicationProfileSync(1, 1,
             [Game("one", "one.exe", 9), Game("two", "two.exe", 9)]);
-        Assert.Equal(2, profiles.Sync(sync, Controls(api), CancellationToken.None).Written);
+        Assert.Equal(2, profiles.Sync(sync, Controls(api), Admitted, CancellationToken.None).Written);
         Assert.Equal(1, api.Saves);
     }
 
@@ -150,19 +153,26 @@ public sealed class NvProfilesTests
     {
         using var directory = new TemporaryDirectory();
         var api = new Drs();
-        var profiles = new NvProfiles(api, directory.Root);
-        profiles.Sync(Sync(2, 9), Controls(api), CancellationToken.None);
-        profiles.Sync(Empty(1), Controls(api), CancellationToken.None);
+        var profiles = new NvProfiles(api, directory.Root, Ignore);
+        profiles.Sync(Sync(2, 9), Controls(api), Admitted, CancellationToken.None);
+        profiles.Sync(Empty(1), Controls(api), Admitted, CancellationToken.None);
         Assert.Equal(9u, api.Values[Setting]);
     }
 
     [Fact]
-    public void CorruptJournalAbortsWithoutReplacingIt()
+    public void CorruptJournalFailsEverySyncWithoutReplacingIt()
     {
         using var directory = new TemporaryDirectory();
         var path = Path.Combine(directory.Root, "nvidia-profiles.v1.json");
         File.WriteAllText(path, "broken");
-        Assert.Throws<JsonException>(() => new NvProfiles(new Drs(), directory.Root));
+        var api = new Drs();
+        var reports = new List<string>();
+        var profiles = new NvProfiles(api, directory.Root, (key, detail) => reports.Add(key + ": " + detail));
+        var failure = Assert.Single(profiles.Sync(Sync(1, 9), Controls(api), Admitted, CancellationToken.None)
+            .Failures);
+        Assert.Equal("game.exe", failure.Executable);
+        Assert.Equal(0, api.Saves);
+        Assert.Single(reports);
         Assert.Equal("broken", File.ReadAllText(path));
     }
 
@@ -210,7 +220,7 @@ public sealed class NvProfilesTests
             _pending = new Dictionary<uint, uint>(Values);
         }
 
-        public void Save()
+        public void Save(WriteAdmission admission)
         {
             Saves++;
             if (FailSave)
@@ -257,12 +267,12 @@ public sealed class NvProfilesTests
                 : (Global, false);
         }
 
-        public void Set(nint profile, uint setting, uint value)
+        public void Set(nint profile, uint setting, uint value, WriteAdmission admission)
         {
             _pending[setting] = value;
         }
 
-        public void Inherit(nint profile, uint setting)
+        public void Inherit(nint profile, uint setting, WriteAdmission admission)
         {
             _pending.Remove(setting);
         }

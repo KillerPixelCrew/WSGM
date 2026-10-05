@@ -61,7 +61,7 @@ internal sealed unsafe class IgclSource<T>
     private readonly IgclSession _session;
     private readonly delegate* unmanaged[Cdecl]<nint, T*, int> _set;
     private PassCache<T> _cache;
-    private ControlWrite? _support;
+    private string? _supportKey;
 
     /// <summary>Binds a structure to its calls.</summary>
     /// <param name="session">The session.</param>
@@ -86,23 +86,26 @@ internal sealed unsafe class IgclSource<T>
         _prepareProbe = prepareProbe;
     }
 
-    /// <summary>Reads and writes the same native settings once; only get/set operation selectors change.</summary>
+    /// <summary>
+    ///     The structure's support key: the key of the first control built on it, stable across rebuilds.
+    /// </summary>
+    /// <param name="key">The key of a control built on it.</param>
+    /// <returns>The key every control of the structure shares.</returns>
+    public string Claim(string key)
+    {
+        return _supportKey ??= key;
+    }
+
+    /// <summary>Reads and writes the same native settings; only get/set operation selectors change.</summary>
     public ControlWrite ProbeSupport()
     {
-        if (_support is { } cached)
-        {
-            return cached;
-        }
-
         var result = Read(out var current);
         if (result == IgclResult.Success)
         {
             result = Write(_prepareProbe is null ? current : _prepareProbe(current));
         }
 
-        var support = ControlWrite.From(result, "support discovery");
-        _support = support;
-        return support;
+        return ControlWrite.From(result, "support discovery");
     }
 
     /// <summary>Reads the structure, once per pass.</summary>

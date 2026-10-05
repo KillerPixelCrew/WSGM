@@ -29,11 +29,14 @@ hardware; every fact is source evidence, and each per-model fact lives in one ro
 - Provider and gates: HC binds `MSI_ACPI.InstanceName='ACPI\PNP0C14\0_0'` (`ClawA1M.WmiPath`); the
   plugin binds that path and falls back to the first active instance only when it does not resolve.
   HC calls `Get_WMI` (block 1) only to compute an unused `isNew_EC` and never calls `Get_EC`, so the
-  plugin reads both for the recovery binding alone and a refusal of either changes nothing. The
-  binding is the EC version where it decodes, otherwise the BIOS version (MSI ships EC updates in
-  its BIOS packages); the reference unit's stays `ec:1T52EMS1.109;msi-acpi:8.0`, the value earlier
-  journals carry. An entry bound to another firmware, or to one that could not be told apart, is
-  dropped with a warning instead of restored; a failed restore still blocks.
+  plugin reads both for diagnostics alone and a refusal of either changes nothing. Power and fan
+  recovery entries bind to the SMBIOS BIOS version (MSI ships EC updates in its BIOS packages),
+  which reads the same on every start. Earlier builds bound to the EC and MSI_ACPI versions; the
+  reference unit's read `ec:1T52EMS1.109;msi-acpi:8.0`. Such an entry is restored once when a start
+  reads that binding again and dropped otherwise. An entry bound to another BIOS is dropped with a
+  warning; a failed restore is kept and written again only after an explicit command.
+- MCU revision: HC reads the HID collection's `Attributes.Version`; the plugin takes the MCU
+  collection's release number the same way, and records the PnP `REV_` field for diagnostics only.
 - Power: each class's `cTDP` and `TDPOverrideValues` (`{PL1, PL1, PL2}`), after
   `PerformanceManager.RequestTDP`'s clamp to `cTDP`. ClawA1M 20-45 W with 20/20, 30/30 and 35/35;
   ClawA2VM 8-37 W; ClawBZ2EM 15-35 W with 15/15, 20/20 and 28/28; ClawCG3EM 20-37 W with 20/20 (its

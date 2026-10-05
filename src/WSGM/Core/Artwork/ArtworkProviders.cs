@@ -13,7 +13,7 @@ namespace WSGM.Core;
 ///     empty grid tells the user their game has no artwork when the truth is that a source was never
 ///     asked. That distinction is the whole reason this is a first-class state.
 /// </remarks>
-public enum ArtworkProviderReadiness
+internal enum ArtworkProviderReadiness
 {
     /// <summary>Configured and usable.</summary>
     Ready,
@@ -28,7 +28,7 @@ public enum ArtworkProviderReadiness
 /// <summary>Whether a provider can be searched, and what to say when it cannot.</summary>
 /// <param name="Readiness">The provider's current state.</param>
 /// <param name="Detail">A user-facing sentence when it is not <see cref="ArtworkProviderReadiness.Ready" />.</param>
-public readonly record struct ArtworkProviderStatus(ArtworkProviderReadiness Readiness, string Detail = "")
+internal readonly record struct ArtworkProviderStatus(ArtworkProviderReadiness Readiness, string Detail = "")
 {
     /// <summary>Whether the provider may be searched.</summary>
     public bool IsReady => Readiness == ArtworkProviderReadiness.Ready;
@@ -48,7 +48,7 @@ public readonly record struct ArtworkProviderStatus(ArtworkProviderReadiness Rea
 /// <param name="Humor">Whether humor-tagged results are included.</param>
 /// <param name="Epilepsy">Whether flashing/epilepsy-tagged results are included.</param>
 /// <param name="Untagged">Whether results without those tags are included.</param>
-public sealed record ArtworkQuery(
+internal sealed record ArtworkQuery(
     int Page = 0,
     IReadOnlyList<string>? Styles = null,
     IReadOnlyList<string>? Dimensions = null,
@@ -75,7 +75,7 @@ public sealed record ArtworkQuery(
 /// <param name="Nsfw">Whether the provider marks the result as adult content.</param>
 /// <param name="Humor">Whether the provider marks the result as humor.</param>
 /// <param name="Epilepsy">Whether the provider marks the result as flashing content.</param>
-public sealed record ArtworkCandidate(
+internal sealed record ArtworkCandidate(
     string Url,
     string Thumb,
     int Width,
@@ -96,7 +96,7 @@ public sealed record ArtworkCandidate(
 /// <param name="Id">The provider's own game id.</param>
 /// <param name="Name">The matched name.</param>
 /// <param name="Exact">Whether the provider reports this as an exact rather than fuzzy match.</param>
-public sealed record ArtworkGameMatch(string ProviderId, string Id, string Name, bool Exact);
+internal sealed record ArtworkGameMatch(string ProviderId, string Id, string Name, bool Exact);
 
 /// <summary>One artwork source.</summary>
 /// <remarks>
@@ -105,7 +105,7 @@ public sealed record ArtworkGameMatch(string ProviderId, string Id, string Name,
 ///     what keeps the picker free of provider knowledge. Applying a chosen image is deliberately not
 ///     here — that is one Steam client call and is the same whichever source supplied the bytes.
 /// </remarks>
-public interface IArtworkProvider
+internal interface IArtworkProvider
 {
     /// <summary>Stable identifier, used in attribution and configuration.</summary>
     string Id { get; }
@@ -164,19 +164,19 @@ public interface IArtworkProvider
 /// <param name="ProviderName">The provider's display name.</param>
 /// <param name="Status">Whether it was searched at all.</param>
 /// <param name="Failure">The user-facing failure, or null when the provider answered.</param>
-public sealed record ArtworkProviderOutcome(
+internal sealed record ArtworkProviderOutcome(
     string ProviderName,
     ArtworkProviderStatus Status,
     string? Failure);
 
 /// <summary>One provider page, including whether its raw answer has another page.</summary>
-public sealed record ArtworkPage(IReadOnlyList<ArtworkCandidate> Candidates, bool HasMore);
+internal sealed record ArtworkPage(IReadOnlyList<ArtworkCandidate> Candidates, bool HasMore);
 
 /// <summary>The merged result of asking every provider.</summary>
 /// <param name="Candidates">Every candidate, ranked.</param>
 /// <param name="Outcomes">One entry per provider, in declaration order.</param>
 /// <param name="HasMore">Whether any provider's raw answer has another page.</param>
-public sealed record ArtworkSearchResult(
+internal sealed record ArtworkSearchResult(
     IReadOnlyList<ArtworkCandidate> Candidates,
     IReadOnlyList<ArtworkProviderOutcome> Outcomes, bool HasMore = false)
 {

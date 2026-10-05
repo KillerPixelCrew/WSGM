@@ -86,11 +86,12 @@ public sealed partial class ShellSession
     ///     What this install has, of the things a device package needs.
     ///     Read live rather than cached: the Plugins folder is one an administrator can copy a
     ///     package into while WSGM is running, which is the whole case this exists for. An unreadable
-    ///     folder is not evidence of a package, so the banner does not guess.
+    ///     folder is not evidence of a package, so the banner does not guess. The overlay calls it on a
+    ///     worker.
     /// </summary>
     private DevicePrerequisiteState ReadDevicePrerequisiteState()
     {
-        var catalog = PluginPackageCatalog.DiscoverInstalled();
+        var catalog = PluginPackageCatalog.Discover(InstallLayout.Plugins);
         foreach (var error in catalog.Errors)
         {
             Log.Warn("Reading the Plugins folder for the overlay banner: " + error);
@@ -107,14 +108,17 @@ public sealed partial class ShellSession
             SetupComponents.Required(roles));
     }
 
-    private Task EnableDeviceIntegrationAsync()
+    private async Task EnableDeviceIntegrationAsync()
     {
-        return Task.Run(() =>
+        await Task.Run(() => _store.Update(fresh =>
         {
-            _store.Update(fresh => { fresh.DeviceIntegration.Enabled = true; return true; });
-            _config.DeviceIntegration.Enabled = true;
-            Log.Info("Device Integration enabled from the overlay's prerequisites banner.");
-        });
+            fresh.DeviceIntegration.Enabled = true;
+            return true;
+        })).ConfigureAwait(false);
+        // The live configuration belongs to the UI thread. The banner reads the flag right after the
+        // click, so it is set here rather than left to the reload that follows the write.
+        await Dispatcher.UIThread.InvokeAsync(() => _config.DeviceIntegration.Enabled = true);
+        Log.Info("Device Integration enabled from the overlay's prerequisites banner.");
     }
 
     /// <summary>

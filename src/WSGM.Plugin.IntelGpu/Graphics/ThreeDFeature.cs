@@ -50,7 +50,7 @@ internal sealed unsafe class ThreeDFeature
     private bool _globalWasDefault;
     private RawFeatureValue _lastGlobal;
     private bool _lastGlobalKnown;
-    private ControlWrite? _support;
+    private string? _supportKey;
 
     public ThreeDFeature(
         IgclSession session,
@@ -99,23 +99,24 @@ internal sealed unsafe class ThreeDFeature
     /// <summary>Whether a change reaches a running game.</summary>
     public bool LiveChange => (Details.FeatureMiscSupport & ThreeDFeatureCatalog.MiscLiveChange) != 0;
 
-    /// <summary>Returns the whole global native value unchanged, once per feature.</summary>
+    /// <summary>The feature's support key: the key of its first control, stable across rebuilds.</summary>
+    /// <param name="key">The key of a control of this feature.</param>
+    /// <returns>The key every control of the feature shares.</returns>
+    public string Claim(string key)
+    {
+        return _supportKey ??= key;
+    }
+
+    /// <summary>Returns the whole global native value unchanged.</summary>
     public ControlWrite ProbeSupport()
     {
-        if (_support is { } cached)
-        {
-            return cached;
-        }
-
         var result = Read(null, out var current);
         if (result == IgclResult.Success && _globalWasDefault)
         {
             // DATA_NOT_FOUND is inheritance/default state, not a returned value. Writing our
             // synthesized default would create an override rather than round-trip native state.
-            var declared = new ControlWrite(WriteStatus.Applied,
+            return new ControlWrite(WriteStatus.Applied,
                 Detail: "driver-advertised default; no stored override to round-trip");
-            _support = declared;
-            return declared;
         }
 
         if (result == IgclResult.Success)
@@ -123,9 +124,7 @@ internal sealed unsafe class ThreeDFeature
             result = Write(null, current);
         }
 
-        var support = ControlWrite.From(result, Info.Label + " support discovery");
-        _support = support;
-        return support;
+        return ControlWrite.From(result, Info.Label + " support discovery");
     }
 
     /// <summary>What the driver means when it has no stored value: the defaults its table reports.</summary>
@@ -357,7 +356,7 @@ internal sealed unsafe class ThreeDFeature
 /// </remarks>
 internal sealed class ThreeDFeatureControl : IntelControl
 {
-    /// <summary>The largest target frame rate the live state row shows; anything above reads as it.</summary>
+    /// <summary>The largest target frame rate the live state row shows; anything above reads as unknown.</summary>
     private const int MaxLiveFps = 1000;
 
     private readonly Decoder _decode;
@@ -375,9 +374,13 @@ internal sealed class ThreeDFeatureControl : IntelControl
         Feature = feature;
         _decode = decode;
         _encode = encode;
+        SupportKey = feature.Claim(Key);
     }
 
     public ThreeDFeature Feature { get; }
+
+    /// <inheritdoc />
+    public override string SupportKey { get; }
 
     /// <inheritdoc />
     public override ControlWrite ProbeSupport()
@@ -559,7 +562,9 @@ internal sealed class ThreeDFeatureControl : IntelControl
             Descriptors.ReadOnlyRange("graphics.live-target-fps", instance, "Frame pacing target (FPS)",
                 IntegerRange.Linear(0, MaxLiveFps), CapabilityUnit.None, placement.Plus(1)),
             feature,
-            static (_, raw) => CapabilityValue.Integer((int)Math.Min(raw.LiveState.TargetFps, MaxLiveFps)),
+            static (_, raw) => raw.LiveState.TargetFps > MaxLiveFps
+                ? null
+                : CapabilityValue.Integer((int)raw.LiveState.TargetFps),
             null));
         controls.Add(new ThreeDFeatureControl(
             Descriptors.ReadOnlyChoice("graphics.live-frame-pacing", instance, "Frame pacing status",

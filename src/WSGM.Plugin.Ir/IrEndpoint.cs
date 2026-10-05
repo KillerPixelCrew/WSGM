@@ -71,7 +71,7 @@ internal interface IIrEndpoint : IAsyncDisposable
     Task<IrEndpointIdentity> ConfigureNetworkAsync(string ssid, string password, string networkToken,
         CancellationToken token);
 
-    /// <summary>Reads the remotes built into the firmware. Firmware before 0.4.0 has none.</summary>
+    /// <summary>Reads the remotes built into the firmware, one catalog chunk per exchange.</summary>
     Task<IrRemoteCatalog> ListRemotesAsync(CancellationToken token);
 
     /// <summary>Presses one button of a built-in remote.</summary>
@@ -115,7 +115,15 @@ internal sealed class SerialIrLink : IIrLink
             Encoding = Encoding.UTF8,
             NewLine = "\n"
         };
-        _port.Open();
+        try
+        {
+            _port.Open();
+        }
+        catch
+        {
+            _port.Dispose();
+            throw;
+        }
     }
 
     public void WriteLine(string frame)
@@ -228,6 +236,9 @@ internal sealed class TcpIrLink : IIrLink
 internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open, string? pairingToken = null)
     : IIrEndpoint
 {
+    /// <summary>The endpoint protocol this plugin speaks; firmware 0.5.0 is the first to speak protocol 2.</summary>
+    internal const int ProtocolVersion = 2;
+
     private const int MaxFrame = 32768;
     private static readonly JsonSerializerOptions WireJson = new(JsonSerializerDefaults.Web) { MaxDepth = 16 };
     private readonly SemaphoreSlim _lane = new(1, 1);
@@ -277,10 +288,35 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
 
     public async Task<IrRemoteCatalog> ListRemotesAsync(CancellationToken token)
     {
-        using var response = await ExchangeAsync("remotes", new { }, TimeSpan.FromSeconds(5), token)
-            .ConfigureAwait(false);
-        return response.RootElement.GetProperty("data").Deserialize<IrRemoteCatalog>(WireJson)
-               ?? throw new InvalidDataException("Missing built-in remote catalog.");
+        // A catalog can outgrow one frame, so the endpoint serves its JSON text in chunks cut on UTF-8
+        // boundaries. Each chunk is its own read; a reply that disagrees with the request fails the read.
+        StringBuilder text = new();
+        var count = 1;
+        try
+        {
+            for (var chunk = 0; chunk < count; chunk++)
+            {
+                using var response = await ExchangeAsync("remotes", new { chunk }, TimeSpan.FromSeconds(5), token)
+                    .ConfigureAwait(false);
+                var data = response.RootElement.GetProperty("data");
+                var total = data.GetProperty("count").GetInt32();
+                if (data.GetProperty("index").GetInt32() != chunk || total < 1 || (chunk > 0 && total != count))
+                {
+                    throw new InvalidDataException("The IR endpoint answered another built-in remote catalog chunk.");
+                }
+
+                count = total;
+                text.Append(data.GetProperty("chunk").GetString());
+            }
+
+            return JsonSerializer.Deserialize<IrRemoteCatalog>(text.ToString(), WireJson)
+                   ?? throw new InvalidDataException("Missing built-in remote catalog.");
+        }
+        catch
+        {
+            await DropAsync().ConfigureAwait(false);
+            throw;
+        }
     }
 
     public async Task PressAsync(string remote, string button, CancellationToken token)
@@ -366,10 +402,11 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
     {
         var identity = response.RootElement.GetProperty("data").Deserialize<IrEndpointIdentity>(WireJson)
                        ?? throw new InvalidDataException("Missing IR endpoint identity.");
-        if (identity.Protocol != 1 || identity.MaxTimings != 1024 || string.IsNullOrWhiteSpace(identity.Identity))
+        if (identity.Protocol != ProtocolVersion || identity.MaxTimings != 1024
+                                                  || string.IsNullOrWhiteSpace(identity.Identity))
         {
             throw new InvalidDataException(
-                $"IR endpoint protocol {identity.Protocol} is incompatible; this plugin requires protocol 1.");
+                $"IR endpoint protocol {identity.Protocol} is incompatible; this plugin requires protocol {ProtocolVersion}. Flash firmware 0.5.0.");
         }
 
         return identity;
@@ -413,17 +450,7 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
         token.ThrowIfCancellationRequested();
         _link ??= open(token);
         var id = Guid.NewGuid().ToString("N");
-        var request = JsonSerializer.Deserialize<Dictionary<string, object?>>(
-            JsonSerializer.Serialize(arguments, IrLibrary.Json))!;
-        request["v"] = 1;
-        request["id"] = id;
-        request["op"] = operation;
-        if (pairingToken is not null)
-        {
-            request["token"] = pairingToken;
-        }
-
-        var frame = JsonSerializer.Serialize(request); // One compact line, regardless of library formatting.
+        var frame = Request(operation, id, arguments);
         if (Encoding.UTF8.GetByteCount(frame) > MaxFrame)
         {
             throw new InvalidDataException("IR request exceeds frame limit.");
@@ -477,14 +504,7 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
             // then discarded; firmware also has its own bounded learning deadline.
             try
             {
-                Dictionary<string, object?> cancel = new()
-                    { ["v"] = 1, ["id"] = Guid.NewGuid().ToString("N"), ["op"] = "cancel" };
-                if (pairingToken is not null)
-                {
-                    cancel["token"] = pairingToken;
-                }
-
-                _link.WriteLine(JsonSerializer.Serialize(cancel));
+                _link.WriteLine(Request("cancel", Guid.NewGuid().ToString("N"), new { }));
             }
             catch (IOException)
             {
@@ -497,6 +517,29 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
         }
     }
 
+    /// <summary>
+    ///     One compact request line: the operation's arguments, then the envelope fields. The request token
+    ///     replaces an argument of the same name, which only the USB-only wifi operation carries.
+    /// </summary>
+    private string Request(string operation, string id, object arguments)
+    {
+        var request = JsonSerializer.SerializeToNode(arguments, IrLibrary.Json)!.AsObject();
+        request["v"] = ProtocolVersion;
+        request["id"] = id;
+        request["op"] = operation;
+        if (pairingToken is not null)
+        {
+            request["token"] = pairingToken;
+        }
+
+        return request.ToJsonString();
+    }
+
+    /// <summary>
+    ///     Reads one reply line. Another request's reply returns null. A matching reply in this protocol is
+    ///     either the operation's success status or a refusal: the endpoint answers every other status before it
+    ///     emits anything. A reply in another protocol is not understood, unless it says the protocols differ.
+    /// </summary>
     private static JsonDocument? ReadReply(string text, string id, string operation)
     {
         var response = JsonDocument.Parse(text, new JsonDocumentOptions { MaxDepth = 16 });
@@ -510,17 +553,13 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
 
             var version = response.RootElement.GetProperty("v").GetInt32();
             var status = response.RootElement.GetProperty("status").GetString() ?? "unknown";
-            if (version == 1 && status == ExpectedStatus(operation))
+            if (version == ProtocolVersion && status == ExpectedStatus(operation))
             {
                 transferred = true;
                 return response;
             }
 
-            var knownRefusal = version == 1
-                               && status is "busy" or "unauthorized" or "unknown-remote" or "unknown-button"
-                                   or "unknown-sequence" or "unknown-climate" or "invalid-ac-state"
-                                   or "unsupported-operation" or "usb-only";
-            if (knownRefusal)
+            if (version == ProtocolVersion || status == "protocol-mismatch")
             {
                 throw new IrRejectedException(Describe(operation, status));
             }
@@ -572,7 +611,10 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
             "capture-overflow" =>
                 "The signal was too long to capture in one payload. Press the remote button briefly instead of holding it.",
             "timing-limit" => "The captured signal contains a gap longer than one payload can represent.",
-            "protocol-mismatch" => "The endpoint firmware speaks a different protocol version than this plugin.",
+            "protocol-mismatch" =>
+                "The IR endpoint speaks another protocol; flash the firmware that ships with this WSGM.",
+            "storage-failed" =>
+                "The endpoint could not save the setting to its flash, and part of it may be stored. Set it again.",
             "unauthorized" => "The endpoint rejected the pairing token. Pair it again over USB.",
             "usb-only" => "Wi-Fi setup is only accepted over the USB connection.",
             "unsupported-operation" when operation == "wifi" =>

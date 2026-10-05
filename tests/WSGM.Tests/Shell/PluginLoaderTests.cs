@@ -9,10 +9,10 @@ using WSGM.Tests.Fakes;
 
 namespace WSGM.Tests.Shell;
 
-public sealed class CommonPluginPackageTests
+public sealed class PluginLoaderTests
 {
     [Fact]
-    public async Task RealIrPackageLoadsAlongsideDeviceCategoryAndPersistsLibraryWithoutHardware()
+    public async Task RealIrPackageLoadsAndPersistsLibraryWithoutHardware()
     {
         using TemporaryDirectory temporary = new();
         var path = WritePackage(temporary.GetPath("ir.wsgmpkg"), $$"""
@@ -21,20 +21,15 @@ public sealed class CommonPluginPackageTests
                                                                    """, typeof(IrPlugin).Assembly.Location,
             "WSGM.Plugin.Ir.dll");
         var manifest = Assert.Single(PluginPackageCatalog.Discover(temporary.Root).Common).Manifest;
-        var package = await CommonPluginPackage.LoadAsync(path, manifest, CancellationToken.None);
+        var package = await PluginLoader.LoadCommonAsync(path, manifest, CancellationToken.None);
         PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
-        var deviceState = temporary.GetPath("device-state");
         var irState = temporary.GetPath("ir-state");
-        Directory.CreateDirectory(deviceState);
         Directory.CreateDirectory(irState);
-        var device = host.Admit(new CommonPluginFixture(), new PluginInstanceIdentity("test.common-fixture", "device"),
-            PluginCategories.Device, PluginCategoryPolicy.Device, true, 1, deviceState);
-        var ir = host.Admit(package, new PluginInstanceIdentity(package.Id, "one"), manifest.Category,
+        var ir = host.Admit(package.Plugin, new PluginInstanceIdentity(package.Plugin.Id, "one"), manifest.Category,
             PluginCategoryPolicy.Multiple, false, 1, irState);
         var deadline = Deadline.After(TimeSpan.FromSeconds(10));
-        await device.StartAsync(deadline, CancellationToken.None);
         await ir.StartAsync(deadline, CancellationToken.None);
-        Assert.Equal(2, host.Snapshot().Length);
+        Assert.Single(host.Snapshot());
         Assert.Contains(ir.Actions!.Actions, action => action.Id == "save-scene");
         var backup = await host.InvokeActionAsync(ir.Identity, 1, "export", new Dictionary<string, PluginValue>(),
             PluginActionOrigin.User, deadline, CancellationToken.None);
@@ -43,9 +38,7 @@ public sealed class CommonPluginPackageTests
         await host.SetModeAsync(PluginSessionMode.Game, deadline, CancellationToken.None);
         Assert.True(await ir.StopAsync(deadline, CancellationToken.None));
         await ir.DisposeAsync();
-        Assert.Single(host.Snapshot());
-        Assert.True(await device.StopAsync(deadline, CancellationToken.None));
-        await device.DisposeAsync();
+        package.Unload();
         Assert.Empty(host.Snapshot());
     }
 
@@ -60,12 +53,12 @@ public sealed class CommonPluginPackageTests
                                                                          "entryAssembly":"{{name}}","entryType":"WSGM.Tests.Fakes.CommonPluginFixture","wsgmVersion":"{{PluginPackageFile.HostVersion.ToString(3)}}"}
                                                                         """, assembly, name);
         var manifest = Assert.Single(PluginPackageCatalog.Discover(temporary.Root).Common).Manifest;
-        var package = await CommonPluginPackage.LoadAsync(path, manifest, CancellationToken.None);
+        var package = await PluginLoader.LoadCommonAsync(path, manifest, CancellationToken.None);
         PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         var state = temporary.GetPath("state");
         Directory.CreateDirectory(state);
-        var registration = host.Admit(package, new PluginInstanceIdentity(package.Id, "one"), manifest.Category,
-            PluginCategoryPolicy.Multiple, false, 1, state);
+        var registration = host.Admit(package.Plugin, new PluginInstanceIdentity(package.Plugin.Id, "one"),
+            manifest.Category, PluginCategoryPolicy.Multiple, false, 1, state);
         var deadline = Deadline.After(TimeSpan.FromSeconds(5));
         await registration.StartAsync(deadline, CancellationToken.None);
         Assert.True(host.StateSnapshot(registration.Identity).Single(value => value.Key == "collectible").Value
@@ -81,6 +74,7 @@ public sealed class CommonPluginPackageTests
         Assert.Single(registration.Actions!.Contributions);
         Assert.True(await registration.StopAsync(deadline, CancellationToken.None));
         await registration.DisposeAsync();
+        package.Unload();
         Assert.Empty(host.Snapshot());
         Assert.True(File.Exists(Path.Combine(state, "disposed.txt")));
     }

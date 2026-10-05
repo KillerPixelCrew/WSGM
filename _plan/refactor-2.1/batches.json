@@ -442,7 +442,7 @@
     "id": "B047",
     "domain": "toolkit",
     "submodule": "steam-ui-toolkit",
-    "status": "Source applied",
+    "status": "In progress",
     "outcome": "Keep one Steam fragment list and run existing script checks against the composed asset at final validation.",
     "findings": "TOOLKITJS-009, TOOLKITJS-010, TOOLKITJS-011, TOOLKITJS-012, TOOLKITJS-038."
   },
@@ -474,7 +474,7 @@
     "id": "B051",
     "domain": "toolkit",
     "submodule": "steam-ui-toolkit",
-    "status": "Source applied",
+    "status": "In progress",
     "outcome": "Restore displaced gate state on removal, refuse malformed updates and remove silent content caps. Extend the existing checks.",
     "findings": "TOOLKITJS-005, TOOLKITJS-007, TOOLKITJS-008, TOOLKITJS-026, TOOLKITJS-036, TOOLKITJS-V-003, TOOLKITJS-V-004."
   },
@@ -482,7 +482,7 @@
     "id": "B052",
     "domain": "sdk",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Remove redundant plugin text types, make manifests immutable and expose plugin tracing where needed. Update all consumers and the contract version together.",
     "findings": "SDK-018, SDK-019, SDK-020, SDK-030, SDK-V-006, A02-F002, TOOLKITCS-V-001."
   },
@@ -514,7 +514,7 @@
     "id": "B056",
     "domain": "toolkit",
     "submodule": "steam-ui-toolkit",
-    "status": "Source applied",
+    "status": "In progress",
     "outcome": "Remove redundant toolkit wrappers and unused public APIs, fix payload contracts and update consumers/version together. Preserve useful read and error detail.",
     "findings": "TOOLKITCS-031, TOOLKITCS-046, TOOLKITCS-049, TOOLKITCS-050, TOOLKITCS-053, TOOLKITCS-056, TOOLKITCS-057, TOOLKITCS-058, TOOLKITCS-059, TOOLKITCS-060, TOOLKITCS-061, TOOLKITCS-062, TOOLKITCS-063, TOOLKITCS-V-004, STEAMHOST-044."
   },
@@ -658,7 +658,7 @@
     "id": "B074",
     "domain": "input",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Make controller and HidHide ownership explicit at composition, remove duplicated tool setup and expose coherent status.",
     "findings": "INPUT-008, INPUT-014, INPUT-018, INPUT-031, INPUT-036."
   },
@@ -690,7 +690,7 @@
     "id": "B078",
     "domain": "input",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Do not replace a newer guide-chord binding with an old size-limited copy. Dispose existing subscriptions properly.",
     "findings": "INPUT-013, INPUT-022, INPUT-023."
   },
@@ -722,7 +722,7 @@
     "id": "B082",
     "domain": "device",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Ignore stale command results, check cancellation immediately before dispatch and use active-time deadlines. Keep one router and log outside locks.",
     "findings": "DEVICE-006, DEVICE-007, DEVICE-021, DEVICE-028, DEVICE-038, SDK-048."
   },
@@ -849,7 +849,7 @@
     "id": "B098",
     "domain": "winsvc",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Remove test-only production display branches by supplying the real required inputs or test fakes. Preserve revision guards and original-mode recovery.",
     "findings": "WINSVC-012, WINSVC-027, CONFIG-028, CONFIG-029."
   },
@@ -881,7 +881,7 @@
     "id": "B102",
     "domain": "library",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Use fakeable HTTP handlers in existing artwork providers, compute HasMore before filtering and deduplicate slot rules. Remove expired failures and redundant overloads.",
     "findings": "LIBRARY-010, LIBRARY-011, LIBRARY-015, LIBRARY-016, LIBRARY-037, LIBRARY-039."
   },
@@ -985,7 +985,7 @@
     "id": "B115",
     "domain": "session",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Simplify existing Game Mode entry/recovery hooks, keep one pending-return record and undo monitor pauses on refusal. Remove duplicate Steam discovery/control work only where useful.",
     "findings": "SESSION-016, SESSION-022, SESSION-023, SESSION-024, SESSION-025, SESSION-029, SESSION-056, SESSION-059, SESSION-060, SESSION-063, WINSVC-037."
   },
@@ -993,7 +993,7 @@
     "id": "B116",
     "domain": "session",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Fix power-event coalescing and watcher shutdown races in the current session code. Keep the last good config and isolate reload steps so one failure does not skip the rest.",
     "findings": "SESSION-018, SESSION-026, CONFIG-046, CONFIG-V-006."
   },
@@ -1057,7 +1057,7 @@
     "id": "B124",
     "domain": "session",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Isolate optional startup failures, preserve desktop recovery and stop worker mutation of shared config. Extract transition logic only where it clarifies actual ownership.",
     "findings": "SESSION-010, SESSION-011, SESSION-013, SESSION-014, SESSION-015."
   },
@@ -1153,7 +1153,7 @@
     "id": "B136",
     "domain": "steamhost",
     "submodule": null,
-    "status": "Source applied",
+    "status": "In progress",
     "outcome": "Keep Steam readiness, enable/disable and Big Picture transitions ordered in the existing host. Cancel commands at shutdown start; retract patches after device cleanup.",
     "findings": "STEAMHOST-001, STEAMHOST-011, STEAMHOST-012, STEAMHOST-028, STEAMHOST-039, STEAMHOST-040, STEAMHOST-046, SESSION-020, SESSION-021."
   },
@@ -1169,7 +1169,7 @@
     "id": "B138",
     "domain": "steamhost",
     "submodule": null,
-    "status": "Source applied",
+    "status": "In progress",
     "outcome": "Fix content work cleanup and strict-save failures, remove silent media caps and return Steam's startup-movie choice at exit/uninstall. Restore only WSGM-owned files/links.",
     "findings": "STEAMHOST-015, STEAMHOST-029, STEAMHOST-030, STEAMHOST-031, STEAMHOST-032, STEAMHOST-V-004, CRIT-002, CRIT-006."
   },
@@ -1177,7 +1177,7 @@
     "id": "B139",
     "domain": "steamhost",
     "submodule": null,
-    "status": "Source applied",
+    "status": "In progress",
     "outcome": "Compute the asset hash from the asset, remove builder source rewriting and duplicate gate wrapping, and keep WSGM patch IDs separate. Preserve fold IDs.",
     "findings": "STEAMHOST-017, STEAMHOST-018, STEAMHOST-019, STEAMHOST-020, STEAMHOST-033, STEAMHOST-034, STEAMHOST-042, STEAMHOST-043."
   },
@@ -1185,7 +1185,7 @@
     "id": "B140",
     "domain": "session",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Use the safety-first shutdown order below, one deadline and one task. Attempt later cleanup after failures; remove the repeated cleanup block without a shutdown framework.",
     "findings": "SESSION-019, SESSION-030, SESSION-033."
   },
@@ -1193,7 +1193,7 @@
     "id": "B141",
     "domain": "session",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Fix splash timing and dead session wiring; update docs after the actual ownership changes.",
     "findings": "SESSION-028, SESSION-057, SESSION-058, SESSION-061, SESSION-062."
   },
@@ -1201,7 +1201,7 @@
     "id": "B142",
     "domain": "sdk",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Remove SDK content caps and host-only types, fix manifest/identity validation and dispose all package owners. Update API version and every consumer together.",
     "findings": "SDK-007, SDK-011, SDK-016, SDK-026, SDK-027, SDK-028, SDK-029, SDK-042, SDK-043, SDK-046, SDK-047, SDK-V-004, SDK-V-005, SDK-V-007, PACKAGES-026, PACKAGES-034."
   },
@@ -1209,7 +1209,7 @@
     "id": "B143",
     "domain": "packages",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Keep package recovery rules local and explicit: no automatic replay of uncertain Claw restores; Ally writes through without readbacks. Preserve originals, handle changed bindings and migrate old records safely.",
     "findings": "PACKAGES-001, PACKAGES-008, PACKAGES-009, PACKAGES-010, PACKAGES-035, PACKAGES-036, PACKAGES-037, PACKAGES-V-002, A02-F010."
   },
@@ -1217,7 +1217,7 @@
     "id": "B144",
     "domain": "packages",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Deduplicate package value checks, write-budget checks and capability IDs where implementations truly match. Vendor-specific motion/lifecycle code can stay local.",
     "findings": "PACKAGES-014, PACKAGES-015, PACKAGES-027, PACKAGES-028, PACKAGES-030."
   },
@@ -1225,7 +1225,7 @@
     "id": "B145",
     "domain": "packages",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Snapshot Claw identity at start/resume, remove redundant command probes and fix transport descriptor/handle ownership. Preserve HC behaviour and timeouts.",
     "findings": "PACKAGES-017, PACKAGES-018, PACKAGES-021, PACKAGES-032, PACKAGES-033, PACKAGES-038."
   },
@@ -1233,7 +1233,7 @@
     "id": "B146",
     "domain": "sdk",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Delete the plugin forwarding wrapper, report cleanup failure clearly and fix registration state/threading. Share loading code only where it reduces duplication.",
     "findings": "SDK-004, SDK-013, SDK-014, SDK-025, SDK-033, SDK-049."
   },
@@ -1241,7 +1241,7 @@
     "id": "B147",
     "domain": "sdk",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Discover manifests off the UI thread, apply pending removals once at startup and fix package validation/SDK versions. Remove count caps; keep existing manager unless a split removes real coupling.",
     "findings": "SDK-008, SDK-009, SDK-012, SDK-031, SDK-032, SDK-V-001, SDK-V-003, BUILD-014, BUILD-027, A02-F021."
   },
@@ -1249,7 +1249,7 @@
     "id": "B148",
     "domain": "sdk",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Keep GPU revision state per instance, supply AC state explicitly and await refresh/disposal work. Honour active-time command cancellation.",
     "findings": "SDK-022, SDK-023, SDK-024, GPUIR-040."
   },
@@ -1257,7 +1257,7 @@
     "id": "B149",
     "domain": "sdk",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Remove only duplicate SDK tests; keep API boundary/native-import guards and add missing behavioural cases at the end.",
     "findings": "SDK-039."
   },
@@ -1265,7 +1265,7 @@
     "id": "B150",
     "domain": "gpu",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Never reset unreadable GPU journals or disable unrelated/global controls because one per-app record failed. Report save failures without claiming the driver write was undone.",
     "findings": "GPUIR-002, GPUIR-003, GPUIR-021, GPUIR-V-002, GPUIR-V-006."
   },
@@ -1273,7 +1273,7 @@
     "id": "B151",
     "domain": "gpu",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Pass GPU write admission explicitly, cache only real support outcomes, reuse native discovery within a pass and contain publication failures. Fix existing shared runtime rather than adding another layer.",
     "findings": "GPUIR-006, GPUIR-008, GPUIR-015, GPUIR-017, GPUIR-018, GPUIR-019, GPUIR-V-001, GPUIR-V-003, GPUIR-V-005."
   },
@@ -1281,7 +1281,7 @@
     "id": "B152",
     "domain": "gpu",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Remove NVIDIA readback/pending machinery, clear records after dispatched restore and preserve them on failed writes. Size NVIDIA/AMD buffers from native counts and fix revision guards.",
     "findings": "GPUIR-012, GPUIR-020, GPUIR-022, GPUIR-023, GPUIR-038, GPUIR-V-007."
   },
@@ -1289,7 +1289,7 @@
     "id": "B153",
     "domain": "gpu",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Move Intel writes off the UI thread and fix admission/support-cache/loop lifetime defects. Reuse shared GPU code where it reduces duplication; preserve written-value UI and reopen backoff.",
     "findings": "GPUIR-001, GPUIR-005, GPUIR-007, GPUIR-010, GPUIR-011, GPUIR-024, GPUIR-026, GPUIR-036."
   },
@@ -1297,7 +1297,7 @@
     "id": "B154",
     "domain": "ir",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Classify IR refusals before emission, retain uncertain outcomes after emission and never overwrite unreadable libraries. Dispose a failed serial open and keep sequence status truthful.",
     "findings": "GPUIR-013, GPUIR-028, GPUIR-029, GPUIR-030, GPUIR-033, GPUIR-V-004, A02-F017, A02-F018."
   },
@@ -1305,14 +1305,14 @@
     "id": "B155",
     "domain": "ir",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Simplify IR session/storage/publication code without changing IDs or labels. A three-class split is not an acceptance requirement."
   },
   {
     "id": "B156",
     "domain": "ir",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Fix firmware learn retirement, validation and storage errors; add protocol-2 catalog pages and matching host reassembly so large catalogs work. Build only; flashing remains attended.",
     "findings": "GPUIR-004, GPUIR-031, GPUIR-032, A02S01-F001, A02S01-F002, A02S01-F003, A02S01-F004, A02S01-F005, A02S01-F006, A02S01-F007, A02S01-F008, A02S01-F009, A02S01-F010, A02S01-F011, A02S01-F012, A02S01-F013, A02S01-F014."
   },

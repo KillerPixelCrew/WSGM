@@ -4,7 +4,8 @@ using System.Text.Json.Serialization;
 
 namespace WSGM.Device.Sdk.Glyphs;
 
-/// <summary>Version and resource bounds for a plugin-supplied physical glyph profile.</summary>
+/// <summary>Version and byte bounds for a plugin-supplied physical glyph profile.</summary>
+/// <remarks>Counts and lengths are not limited: the byte and decode bounds below are the only ones.</remarks>
 public static class GlyphProfileLimits
 {
     /// <summary>Schema version understood by this runtime.</summary>
@@ -27,45 +28,6 @@ public static class GlyphProfileLimits
 
     /// <summary>Largest accepted decoded raster area.</summary>
     public const int MaxRasterPixels = 4 * 1024 * 1024;
-
-    /// <summary>Maximum assets in one profile.</summary>
-    public const int MaxAssets = 128;
-
-    /// <summary>Maximum glyph profiles in one package.</summary>
-    /// <remarks>
-    ///     A package source enumerates at most one identifier beyond this, so the importer can tell a
-    ///     conforming package from one that exceeds the limit. A source that truncated at exactly this
-    ///     number made the importer's over-limit check unreachable, and an oversized package validated
-    ///     as conforming after silently dropping the extra profiles.
-    /// </remarks>
-    public const int MaxProfiles = 32;
-
-    /// <summary>Maximum control-map entries in one profile.</summary>
-    public const int MaxControls = 64;
-
-    /// <summary>Maximum aliases in one profile.</summary>
-    public const int MaxAliases = 64;
-
-    /// <summary>Maximum exact device identities assigned to one profile.</summary>
-    public const int MaxExactDevices = 32;
-
-    /// <summary>Maximum stable identifier length.</summary>
-    public const int MaxIdentifierLength = 128;
-
-    /// <summary>Maximum display-name length.</summary>
-    public const int MaxDisplayNameLength = 128;
-
-    /// <summary>Maximum physical control-label length.</summary>
-    public const int MaxPhysicalLabelLength = 32;
-
-    /// <summary>Maximum normalized paths in one SVG.</summary>
-    public const int MaxSvgPaths = 256;
-
-    /// <summary>Maximum commands in one normalized SVG.</summary>
-    public const int MaxSvgCommands = 4096;
-
-    /// <summary>Maximum characters in one SVG path-data value.</summary>
-    public const int MaxPathDataLength = 64 * 1024;
 }
 
 /// <summary>A plugin-owned, schema-versioned physical-controller presentation profile.</summary>

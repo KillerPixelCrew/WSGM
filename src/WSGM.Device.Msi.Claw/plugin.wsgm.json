@@ -2,7 +2,7 @@
   "id": "wsgm.device.msi.claw",
   "name": "MSI Claw",
   "version": "1.4.0",
-  "apiVersion": 11,
+  "apiVersion": 12,
   "entryAssembly": "WSGM.Device.Msi.Claw.dll",
   "entryType": "WSGM.Device.Msi.Claw.ClawPlugin",
   "hardware": [

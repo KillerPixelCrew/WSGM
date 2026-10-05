@@ -140,7 +140,7 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
             throw new ArgumentOutOfRangeException(nameof(mode));
         }
 
-        ClawWriteBudget.Require(deadline, "controller re-enumeration");
+        DeviceWriteBudget.Require(deadline, "controller re-enumeration");
 
         await Serializer.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -284,7 +284,6 @@ internal sealed class WindowsClawControllerSource(OemButtonLatch oemButtons)
         oemButtons ?? throw new ArgumentNullException(nameof(oemButtons));
 
     private readonly SemaphoreSlim _writeSerializer = new(1, 1);
-    private HidDescriptorGamepad? _descriptor;
     private HidCollection? _endpoint;
     private CancellationTokenSource? _readerCancellation;
     private Task? _readerTask;
@@ -320,11 +319,14 @@ internal sealed class WindowsClawControllerSource(OemButtonLatch oemButtons)
                             "The DirectInput gamepad collection was unavailable.");
             _stream = HidDevices.OpenStream(_endpoint);
             _rumbleReport = new byte[Math.Max(11, (int)_endpoint.OutputLength)];
+
+            // Handed to the reader, which frees it when it exits.
+            HidDescriptorGamepad? descriptor = null;
             if (!model.MeasuredControllerReport)
             {
                 try
                 {
-                    _descriptor = HidDescriptorGamepad.Create(_stream.SafeFileHandle);
+                    descriptor = HidDescriptorGamepad.Create(_stream.SafeFileHandle);
                 }
                 catch
                 {
@@ -335,13 +337,13 @@ internal sealed class WindowsClawControllerSource(OemButtonLatch oemButtons)
                 }
 
                 PluginTrace.Info("controller",
-                    $"DirectInput pad decoded through its HID descriptor ({_descriptor.InputLength}-byte reports).");
+                    $"DirectInput pad decoded through its HID descriptor ({descriptor.InputLength}-byte reports).");
             }
 
             _readerCancellation = new CancellationTokenSource();
             _readerTask = ReadLoopAsync(
                 _stream,
-                _descriptor,
+                descriptor,
                 publish,
                 firstSample,
                 _readerCancellation.Token);
@@ -410,8 +412,6 @@ internal sealed class WindowsClawControllerSource(OemButtonLatch oemButtons)
 
             lock (_gate)
             {
-                _descriptor?.Dispose();
-                _descriptor = null;
                 _readerCancellation?.Dispose();
                 _endpoint = null;
                 _readerCancellation = null;
@@ -490,6 +490,25 @@ internal sealed class WindowsClawControllerSource(OemButtonLatch oemButtons)
     }
 
     private async Task ReadLoopAsync(
+        FileStream stream,
+        HidDescriptorGamepad? descriptor,
+        Func<CanonicalControllerSample, CancellationToken, ValueTask> publish,
+        TaskCompletionSource firstSample,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await ReadReportsAsync(stream, descriptor, publish, firstSample, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            // Freed here, after the last HidP_* call, because only the reader knows when that was. A stop
+            // whose wait for the reader was cancelled no longer frees it under a decode in progress.
+            descriptor?.Dispose();
+        }
+    }
+
+    private async Task ReadReportsAsync(
         FileStream stream,
         HidDescriptorGamepad? descriptor,
         Func<CanonicalControllerSample, CancellationToken, ValueTask> publish,
@@ -620,10 +639,6 @@ internal static class HidEndpointEnumerator
         return new ControllerTopology(mode, productId, mcu.PhysicalLocation, physical, observed);
     }
 
-    internal static bool IsSupportedDevicePath(string path)
-    {
-        return HidDevices.MatchesProduct(path, ClawHardwareFacts.UsbVendorId, ProductIds);
-    }
 
     private static bool IsMcu(HidCollection endpoint)
     {

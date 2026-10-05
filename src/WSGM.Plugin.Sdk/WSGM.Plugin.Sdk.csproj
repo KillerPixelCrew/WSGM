@@ -7,7 +7,7 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <WarningsAsErrors>$(WarningsAsErrors);CS1573;CS1591</WarningsAsErrors>
     <PackageId>WSGM.Plugin.Sdk</PackageId>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <Description>Common WSGM plugin identity, lifecycle and host contracts.</Description>
@@ -17,7 +17,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\external\steam-ui-toolkit\src\SteamUiToolkit\SteamUiToolkit.csproj"/>
-    <!-- For the lifecycle Deadline and its active clock, shared with device plugins. -->
+    <!-- For the lifecycle Deadline, the capability model, PlainText and DeviceTraceLevel, shared with device plugins. -->
     <ProjectReference Include="..\WSGM.Device.Sdk\WSGM.Device.Sdk.csproj"/>
   </ItemGroup>
 </Project>

@@ -85,7 +85,7 @@ public sealed class ControllerNavigationTests
             Visible = false,
             Capabilities = [],
             Controller = null,
-            PluginSections = DeviceOverlayBridge.ProjectSections(DeviceSections.IncludePredefined([]))
+            PluginSections = DeviceOverlayBridge.ProjectSections(DeviceSectionLayout.IncludePredefined([]))
         };
         using FakeDevice device = new();
         device.SampleSource = source;

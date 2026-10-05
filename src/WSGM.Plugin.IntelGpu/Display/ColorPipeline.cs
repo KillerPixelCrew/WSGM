@@ -1,5 +1,6 @@
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Plugin;
+using WSGM.Plugin.Gpu;
 using WSGM.Plugin.IntelGpu.Controls;
 using WSGM.Plugin.IntelGpu.Igcl;
 
@@ -9,7 +10,8 @@ namespace WSGM.Plugin.IntelGpu.Display;
 /// <remarks>
 ///     The driver hands back the LUT and matrix it holds, not the settings behind them, and no inverse
 ///     is exact. So the plugin records what it wrote and, at start, accepts that record only when the
-///     driver's current LUT and matrix match what the record produces. Anything else is unknown.
+///     driver's current LUT and matrix match what the record produces. Anything else is unknown. A record
+///     that cannot be read is never overwritten; colour then reads as unknown and writes still apply.
 /// </remarks>
 internal sealed class ColorStore
 {
@@ -29,13 +31,26 @@ internal sealed class ColorStore
     public static ColorStore Load(string? directory, IntelLog log)
     {
         var path = directory is null ? null : Path.Combine(directory, "color.v1.json");
-        var loaded = StateFile.TryLoad<Dictionary<string, ColorSettings>>(path, log, Scope, What);
-        return new ColorStore(
-            path,
-            loaded is null
-                ? new Dictionary<string, ColorSettings>(StringComparer.Ordinal)
-                : new Dictionary<string, ColorSettings>(loaded, StringComparer.Ordinal),
-            log);
+        var settings = new Dictionary<string, ColorSettings>(StringComparer.Ordinal);
+        if (path is null)
+        {
+            return new ColorStore(path, settings, log);
+        }
+
+        try
+        {
+            foreach (var (display, recorded) in DriverStateFile.Read(path, new Dictionary<string, ColorSettings>()))
+            {
+                settings[display] = recorded;
+            }
+        }
+        catch (DriverFailure failure)
+        {
+            log.Warn(Scope, $"{failure.Message} The {What} is left as it is and not written this session.");
+            path = null;
+        }
+
+        return new ColorStore(path, settings, log);
     }
 
     public ColorSettings? Get(string display)
@@ -43,10 +58,23 @@ internal sealed class ColorStore
         return _settings.TryGetValue(display, out var settings) ? settings : null;
     }
 
+    /// <summary>Records what a write applied; a failed save is logged and costs only recognition later.</summary>
     public void Set(string display, ColorSettings settings)
     {
         _settings[display] = settings;
-        StateFile.Save(_path, _settings, _log, Scope, What);
+        if (_path is null)
+        {
+            return;
+        }
+
+        try
+        {
+            DriverStateFile.Write(_path, _settings);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            _log.Error(Scope, $"The {What} could not be saved: {IntelLog.Describe(error)}");
+        }
     }
 }
 
@@ -156,9 +184,7 @@ internal sealed unsafe class ColorPipeline
     private readonly IgclSession _session;
     private readonly ColorStore _store;
     private ColorSettings? _curve;
-    private ControlWrite? _curveSupport;
     private ColorSettings? _matrix;
-    private ControlWrite? _matrixSupport;
     private long _observedPass;
     private ColorSettings? _recorded;
     private int _result;
@@ -191,15 +217,16 @@ internal sealed unsafe class ColorPipeline
     /// <summary>Whether hue and saturation can be offered.</summary>
     public bool HasMatrix => _matrixBlock is not null;
 
-    /// <summary>Returns the raw current LUT or matrix unchanged, once per block, without rebuilding it.</summary>
+    /// <summary>The support key of the LUT or the matrix: the plugin probes each block once.</summary>
+    public string SupportKey(bool matrix)
+    {
+        return matrix ? _matrixKey : _curveKey;
+    }
+
+    /// <summary>Returns the raw current LUT or matrix unchanged, without rebuilding it.</summary>
+    /// <remarks>A block the driver holds nothing for is its neutral default; nothing is written for it.</remarks>
     public ControlWrite ProbeSupport(bool matrix)
     {
-        var cached = matrix ? _matrixSupport : _curveSupport;
-        if (cached is { } support)
-        {
-            return support;
-        }
-
         var block = matrix ? _matrixBlock!.Value : _lutBlock;
         block.Size = (uint)sizeof(CtlPixTxBlockConfig);
         int result;
@@ -212,23 +239,19 @@ internal sealed unsafe class ColorPipeline
             }
 
             result = Query(&block);
+            if (result == IgclResult.DataNotFound)
+            {
+                return new ControlWrite(WriteStatus.Applied,
+                    Detail: "no stored block; the driver's neutral default is retained");
+            }
+
             if (result == IgclResult.Success)
             {
                 result = Apply(&block, 0);
             }
         }
 
-        var outcome = ControlWrite.From(result, "colour pipe support discovery");
-        if (matrix)
-        {
-            _matrixSupport = outcome;
-        }
-        else
-        {
-            _curveSupport = outcome;
-        }
-
-        return outcome;
+        return ControlWrite.From(result, "colour pipe support discovery");
     }
 
     /// <summary>Queries the pipe and builds the pipeline when an SDR 1D LUT is available.</summary>
@@ -260,7 +283,7 @@ internal sealed unsafe class ColorPipeline
         CtlPixTxPipeGetConfig caps = default;
         caps.QueryType = QueryCapability;
         var result = session.Call(api.PixTxGetConfig, output.Handle, ref caps);
-        if (result != IgclResult.Success || caps.NumBlocks is 0 or > 32)
+        if (result != IgclResult.Success || caps.NumBlocks == 0)
         {
             log.Info("color", $"{display} reports no colour pipe ({IgclResult.Describe(result)}).");
             return null;
@@ -549,7 +572,11 @@ internal sealed class ColorControl : IntelControl
     {
         _pipeline = pipeline;
         _field = field;
+        SupportKey = pipeline.SupportKey(field.InMatrix);
     }
+
+    /// <inheritdoc />
+    public override string SupportKey { get; }
 
     /// <inheritdoc />
     public override ControlWrite ProbeSupport()

@@ -52,7 +52,7 @@ internal static class SettingsTestServices
             DownloadUpdate: (_, _, _) => Task.FromResult(""),
             RunSetup: _ => calls?.Add("run-setup"),
             ReadUpdateFailure: () => null,
-            ReadPackages: _ => new PluginPackagePage(null, []),
+            ReadPackages: () => new PluginPackagePage(PluginPackageCatalog.Empty, [], null, []),
             ActOnPackage: (_, _) => Task.FromResult(""),
             RepairAvailable: () => false,
             StartRepair: () => calls?.Add("repair"),

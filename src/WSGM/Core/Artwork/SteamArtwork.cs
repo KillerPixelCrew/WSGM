@@ -15,7 +15,7 @@ namespace WSGM.Core;
 ///     "restart Steam").
 /// </param>
 /// <param name="Succeeded">Whether Steam accepted the requested change.</param>
-public readonly record struct ArtworkResult(string Detail, bool Succeeded = false);
+internal readonly record struct ArtworkResult(string Detail, bool Succeeded = false);
 
 /// <summary>
 ///     WSGM's artwork changer. Grid/Hero/Logo/Wide go to the live client through
@@ -26,7 +26,7 @@ public readonly record struct ArtworkResult(string Detail, bool Succeeded = fals
 ///     and <see cref="ArtworkDownload" />, and their format is read from the bytes themselves;
 ///     finding what is currently applied is local file work and stays here.
 /// </summary>
-public static class SteamArtwork
+internal static class SteamArtwork
 {
     // Steam persists SetCustomArtworkForApp into userdata\<account>\config\grid using
     // the unsigned app id plus a per-slot suffix. Filenames per slot:

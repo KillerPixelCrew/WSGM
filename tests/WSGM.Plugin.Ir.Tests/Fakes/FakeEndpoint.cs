@@ -102,7 +102,8 @@ internal sealed class FakeEndpoint : IIrEndpoint
 
     private IrEndpointIdentity Describe()
     {
-        return new IrEndpointIdentity("test", "fake", Firmware, 1, 1024, "wsgm-ir-abc123", 7521,
+        return new IrEndpointIdentity("test", "fake", Firmware, IrEndpointConnection.ProtocolVersion, 1024,
+            "wsgm-ir-abc123", 7521,
             Network is { Ssid.Length: > 0 }, Network is { Ssid.Length: > 0 },
             Network is { Ssid.Length: > 0 } ? "192.0.2.7" : "",
             80, false, Catalog.Remotes.Length, SequencePolls > 0);

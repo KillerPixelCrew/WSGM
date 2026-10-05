@@ -11,14 +11,14 @@ namespace WSGM.Plugin.NvidiaGpu;
 internal interface INvProfiles
 {
     void Load();
-    void Save();
+    void Save(WriteAdmission admission);
     nint GlobalProfile();
     nint Application(string executable, bool create, string profileName);
     nint FindProfile(string name);
     string ProfileName(nint profile);
     (uint Value, bool Explicit) Get(nint profile, uint setting);
-    void Set(nint profile, uint setting, uint value);
-    void Inherit(nint profile, uint setting);
+    void Set(nint profile, uint setting, uint value, WriteAdmission admission);
+    void Inherit(nint profile, uint setting, WriteAdmission admission);
 }
 
 internal sealed record NvOwnedSetting(
@@ -28,9 +28,7 @@ internal sealed record NvOwnedSetting(
     string ProfileId,
     uint Original,
     bool OriginalExplicit,
-    uint Written,
-    bool Pending,
-    bool Restoring = false)
+    uint Written)
 {
     internal string Key => Identity(Profile, Setting);
 
@@ -43,23 +41,50 @@ internal sealed record NvOwnedSetting(
 internal sealed record NvProfileJournal(IReadOnlyList<NvOwnedSetting> Entries);
 
 /// <summary>DRS owns application values. The journal owns only the individual values WSGM changed.</summary>
+/// <remarks>
+///     A write is dispatched once SaveSettings returns and failed when SetSetting, DeleteProfileSetting or
+///     SaveSettings throws; nothing waits for the driver to report a value. An unreadable journal leaves every
+///     per-application value alone and fails each sync; the global controls keep working.
+/// </remarks>
 internal sealed class NvProfiles
 {
     private readonly INvProfiles _api;
     private readonly Dictionary<string, NvOwnedSetting> _owned;
     private readonly string _path;
+    private readonly string? _unreadable;
     private long _revision;
 
-    internal NvProfiles(INvProfiles api, string stateDirectory)
+    internal NvProfiles(INvProfiles api, string stateDirectory, Action<string, string> report)
     {
         _api = api;
         _path = Path.Combine(stateDirectory, "nvidia-profiles.v1.json");
-        _owned = DriverStateFile.Read(_path, new NvProfileJournal([])).Entries.ToDictionary(entry => entry.Key);
+        try
+        {
+            _owned = DriverStateFile.Read(_path, new NvProfileJournal([])).Entries.ToDictionary(entry => entry.Key);
+        }
+        catch (Exception failure) when (failure is DriverFailure or ArgumentException)
+        {
+            // The record is never replaced: without it nothing WSGM wrote could be restored. A journal that
+            // names one setting twice is as corrupt as one that does not parse.
+            _owned = [];
+            _unreadable = failure.Message;
+            report("profiles", failure.Message + " Per-application NVIDIA settings are left unchanged.");
+        }
     }
 
     internal ApplicationProfileSyncResult Sync(ApplicationProfileSync sync,
-        IReadOnlyDictionary<string, NvSettingControl> controls, CancellationToken token)
+        IReadOnlyDictionary<string, NvSettingControl> controls, WriteAdmission admission, CancellationToken token)
     {
+        if (_unreadable is not null)
+        {
+            return new ApplicationProfileSyncResult(0, 0,
+            [
+                .. sync.Profiles.SelectMany(game => game.Executables.Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Select(executable => new ApplicationProfileFailure(game.ProfileId, executable, "",
+                        $"The NVIDIA per-application record could not be read ({_unreadable}); nothing was changed.")))
+            ]);
+        }
+
         if (sync.Revision <= _revision)
         {
             return new ApplicationProfileSyncResult(0, 0, []);
@@ -124,7 +149,7 @@ internal sealed class NvProfiles
             var request = list[0];
             try
             {
-                Apply(key, request);
+                Apply(key, request, admission);
                 written += list.Count;
             }
             catch (Exception error) when (error is not OperationCanceledException &&
@@ -159,36 +184,21 @@ internal sealed class NvProfiles
                                           && (!entry.OriginalExplicit || current.Value == entry.Original);
                     if (current.Explicit && current.Value == entry.Written && !alreadyRestored)
                     {
-                        if (entry.Restoring)
-                        {
-                            throw new DriverFailure(
-                                "An earlier NVIDIA restoration is unconfirmed; it was not repeated.");
-                        }
-
-                        _owned[entry.Key] = entry with { Restoring = true };
-                        Persist();
                         if (entry.OriginalExplicit)
                         {
-                            _api.Set(handle, entry.Setting, entry.Original);
+                            _api.Set(handle, entry.Setting, entry.Original, admission);
                         }
                         else
                         {
-                            _api.Inherit(handle, entry.Setting);
+                            _api.Inherit(handle, entry.Setting, admission);
                         }
 
-                        _api.Save();
-                        _api.Load();
-                        handle = _api.FindProfile(entry.Profile);
-                        var restored = _api.Get(handle, entry.Setting);
-                        if (restored.Explicit != entry.OriginalExplicit
-                            || (entry.OriginalExplicit && restored.Value != entry.Original))
-                        {
-                            throw new DriverFailure("The NVIDIA profile restoration was not confirmed.", true);
-                        }
+                        _api.Save(admission);
                     }
                     // A different current value belongs to an external editor and is preserved.
                 }
 
+                // The restore was dispatched, or nothing of WSGM's was left to restore.
                 _owned.Remove(entry.Key);
                 Persist();
                 removed++;
@@ -196,6 +206,7 @@ internal sealed class NvProfiles
             catch (Exception error) when (error is not OperationCanceledException &&
                                           error is not DriverFailure { Lost: true })
             {
+                // The entry stays; the next sync compares the driver's value with it again.
                 failures.Add(new ApplicationProfileFailure(entry.ProfileId, entry.Executable,
                     "driver." + entry.Setting.ToString("x8"), error.Message));
                 _api.Load();
@@ -205,7 +216,7 @@ internal sealed class NvProfiles
         return new ApplicationProfileSyncResult(written, removed, failures);
     }
 
-    private void Apply(string key, Request request)
+    private void Apply(string key, Request request, WriteAdmission admission)
     {
         _api.Load();
         var handle = _api.Application(request.Executable, true, request.Profile);
@@ -216,45 +227,49 @@ internal sealed class NvProfiles
 
         var current = _api.Get(handle, request.Setting);
         _owned.TryGetValue(key, out var previous);
-        if (previous is not null && previous.Written == request.Value && !previous.Restoring)
+        if (previous is not null && previous.Written == request.Value)
         {
             if (current.Explicit && current.Value == request.Value)
             {
-                _owned[key] = previous with { Pending = false, ProfileId = request.ProfileId };
+                _owned[key] = previous with { ProfileId = request.ProfileId };
                 Persist();
                 return;
             }
 
-            throw new DriverFailure(previous.Pending
-                ? "An earlier NVIDIA write is unconfirmed. Change the override or use global before trying again."
-                : "An external editor changed this NVIDIA setting. Its value was preserved.");
+            throw new DriverFailure("An external editor changed this NVIDIA setting. Its value was preserved.");
         }
 
         var retainOriginal = previous is not null && current.Explicit && current.Value == previous.Written;
-        var entry = new NvOwnedSetting(request.Profile, request.Setting, request.Executable, request.ProfileId,
+        _owned[key] = new NvOwnedSetting(request.Profile, request.Setting, request.Executable, request.ProfileId,
             retainOriginal ? previous!.Original : current.Value,
-            retainOriginal ? previous!.OriginalExplicit : current.Explicit, request.Value, true);
-        _owned[key] = entry;
+            retainOriginal ? previous!.OriginalExplicit : current.Explicit, request.Value);
         Persist(); // Durable intent precedes the first native mutation and its commit.
         if (current.Explicit && current.Value == request.Value)
         {
-            _owned[key] = entry with { Pending = false };
-            Persist();
             return;
         }
 
-        _api.Set(handle, request.Setting, request.Value);
-        _api.Save();
-        _api.Load();
-        handle = _api.FindProfile(request.Profile);
-        var readback = _api.Get(handle, request.Setting);
-        if (!readback.Explicit || readback.Value != request.Value)
+        try
         {
-            throw new DriverFailure("NVIDIA accepted the profile write but did not confirm its value.", true);
+            _api.Set(handle, request.Setting, request.Value, admission);
+            _api.Save(admission);
         }
+        catch
+        {
+            // Not dispatched: the journal goes back to what this request found. A driver that committed anyway
+            // holds the value at the next sync, which adopts it as found.
+            if (previous is null)
+            {
+                _owned.Remove(key);
+            }
+            else
+            {
+                _owned[key] = previous;
+            }
 
-        _owned[key] = entry with { Pending = false };
-        Persist();
+            Persist();
+            throw;
+        }
     }
 
     private void Persist()

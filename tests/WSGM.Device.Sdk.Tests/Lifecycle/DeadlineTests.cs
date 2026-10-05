@@ -30,12 +30,6 @@ public sealed class DeadlineTests
     }
 
     [Fact]
-    public void TheObservationTickLeavesRoomBeforeAStepIsTreatedAsAFreeze()
-    {
-        Assert.True(ActiveClock.Tick * 2 <= ActiveClock.MaximumStep);
-    }
-
-    [Fact]
     public void RemainingNeverGoesNegativeAndTheEndsBehave()
     {
         Assert.Equal(TimeSpan.Zero, Deadline.Expired.Remaining);

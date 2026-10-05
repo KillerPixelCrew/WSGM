@@ -11,9 +11,15 @@ using WSGM.Install;
 namespace WSGM.Settings;
 
 /// <summary>What the Plugins page shows: the installed release's bundle, when readable, and every card.</summary>
+/// <param name="Catalog">The installed packages the cards were read from.</param>
+/// <param name="Adapters">The display adapters read for this page, for offers and default enablement alike.</param>
 /// <param name="Bundle">The installed release's bundle, or null when it is missing or unreadable.</param>
 /// <param name="Rows">The cards, each naming its section.</param>
-internal sealed record PluginPackagePage(BundleManifest? Bundle, IReadOnlyList<PluginPackageRowState> Rows);
+internal sealed record PluginPackagePage(
+    PluginPackageCatalog Catalog,
+    IReadOnlyList<DisplayAdapterIdentity> Adapters,
+    BundleManifest? Bundle,
+    IReadOnlyList<PluginPackageRowState> Rows);
 
 /// <summary>One badge on a plugin card, with its tone as flags the page's badge classes bind to.</summary>
 public sealed class PluginBadgeView(PluginBadge badge)

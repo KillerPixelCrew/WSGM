@@ -60,11 +60,6 @@ internal static unsafe class AdlxNative
     internal static List<AdlxObject> Items(nint list)
     {
         var count = ((delegate* unmanaged[Stdcall]<nint, uint>)Function(list, 3))(list);
-        if (count > 1024)
-        {
-            throw new DriverFailure("The ADLX object list exceeds its enumeration bound.");
-        }
-
         var result = new List<AdlxObject>();
         try
         {
@@ -143,25 +138,25 @@ internal static unsafe class AdlxNative
         return value;
     }
 
-    internal static void SetInteger(nint instance, int slot, int value)
+    internal static void SetInteger(nint instance, int slot, int value, WriteAdmission admission)
     {
-        DriverWriteScope.Check();
-        Check(((delegate* unmanaged[Stdcall]<nint, int, int>)Function(instance, slot))(instance, value), "SetInteger",
-            true);
+        var function = (delegate* unmanaged[Stdcall]<nint, int, int>)Function(instance, slot);
+        admission.Check();
+        Check(function(instance, value), "SetInteger", true);
     }
 
-    internal static void SetBoolean(nint instance, int slot, bool value)
+    internal static void SetBoolean(nint instance, int slot, bool value, WriteAdmission admission)
     {
-        DriverWriteScope.Check();
-        Check(
-            ((delegate* unmanaged[Stdcall]<nint, byte, int>)Function(instance, slot))(instance,
-                value ? (byte)1 : (byte)0), "SetBoolean", true);
+        var function = (delegate* unmanaged[Stdcall]<nint, byte, int>)Function(instance, slot);
+        admission.Check();
+        Check(function(instance, value ? (byte)1 : (byte)0), "SetBoolean", true);
     }
 
-    internal static void Call(nint instance, int slot)
+    internal static void Call(nint instance, int slot, WriteAdmission admission)
     {
-        DriverWriteScope.Check();
-        Check(((delegate* unmanaged[Stdcall]<nint, int>)Function(instance, slot))(instance), "Apply", true);
+        var function = (delegate* unmanaged[Stdcall]<nint, int>)Function(instance, slot);
+        admission.Check();
+        Check(function(instance), "Apply", true);
     }
 
     internal static void Check(int status, string operation, bool attempted = false)

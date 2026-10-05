@@ -243,18 +243,25 @@
 
     <script>
       const statusLine = document.getElementById("status");
+      // Only the latest press may write the status line, so a late reply never hides a newer one.
+      let latest = 0;
 
       async function press(button) {
+        const request = ++latest;
         statusLine.textContent = "Sending...";
+        let text;
         try {
           const response = await fetch(`buttons/${button}`, {
             method: "POST",
             headers: { "X-WSGM-IR": "1" },
           });
           const result = await response.json();
-          statusLine.textContent = result.status === "transmitted" ? "" : result.status;
+          text = result.status === "transmitted" ? "" : result.status;
         } catch {
-          statusLine.textContent = "Endpoint unreachable";
+          text = "Endpoint unreachable";
+        }
+        if (request === latest) {
+          statusLine.textContent = text;
         }
       }
 

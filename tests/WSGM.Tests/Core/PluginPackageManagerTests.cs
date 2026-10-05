@@ -8,6 +8,11 @@ namespace WSGM.Tests.Core;
 
 public sealed class PluginPackageManagerTests
 {
+    private static PendingPluginRemovalStore Removals(TemporaryDirectory temporary)
+    {
+        return new PendingPluginRemovalStore(temporary.GetPath("plugin-removals.json"));
+    }
+
     private static BundledPlugin Bundled(string id, string origin, string validation)
     {
         return new BundledPlugin
@@ -31,7 +36,7 @@ public sealed class PluginPackageManagerTests
         PluginPackageBuilders.WriteCommonFixture(temporary.Root, "test.local");
 
         var row = Assert.Single(PluginPackageManager.Rows(PluginPackageCatalog.Discover(temporary.Root), null,
-            temporary.GetPath("bundled"), null));
+            temporary.GetPath("bundled"), null, Removals(temporary)));
 
         Assert.Equal(PluginPackageSection.Installed, row.Section);
         Assert.False(row.IsDevice);
@@ -62,7 +67,7 @@ public sealed class PluginPackageManagerTests
         var catalog = PluginPackageCatalog.Discover(temporary.GetPath("plugins"));
 
         var rows = PluginPackageManager.Rows(catalog, bundle, temporary.GetPath("bundled"),
-            PluginOffers.Compute(bundle, new DeviceIdentitySnapshot(), [], []));
+            PluginOffers.Compute(bundle, new DeviceIdentitySnapshot(), [], []), Removals(temporary));
 
         var community = rows.Single(row => row.Id == "example.community");
         Assert.Equal(PluginPackageSection.Available, community.Section);
@@ -102,7 +107,7 @@ public sealed class PluginPackageManagerTests
         IReadOnlyList<DisplayAdapterIdentity> intel = [new("8086", "7D55", @"PCI\VEN_8086")];
 
         var rows = PluginPackageManager.Rows(catalog, bundle, temporary.GetPath("bundled"),
-            PluginOffers.Compute(bundle, new DeviceIdentitySnapshot(), intel, []));
+            PluginOffers.Compute(bundle, new DeviceIdentitySnapshot(), intel, []), Removals(temporary));
 
         var available = rows.Single(row => row.Id == "wsgm.gpu.intel");
         Assert.Equal(PluginPackageSection.Available, available.Section);

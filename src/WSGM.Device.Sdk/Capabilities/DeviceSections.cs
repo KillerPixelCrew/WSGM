@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using WSGM.Device.Sdk.Settings;
 
 namespace WSGM.Device.Sdk.Capabilities;
@@ -37,26 +36,10 @@ public static class DeviceSections
         { SectionId = InfoId, Key = SettingSectionKey.Diagnostics, Icon = SectionIcon.Gauge, SortOrder = 3 };
 
     /// <summary>The four shared page declarations in their default presentation order.</summary>
+    /// <remarks>
+    ///     Descriptors may reference these IDs without declaring the sections; WSGM adds every shared page a
+    ///     plugin did not declare. Custom sections still require explicit declarations.
+    /// </remarks>
     public static IReadOnlyList<CapabilitySection> All { get; } =
         Array.AsReadOnly<CapabilitySection>([Power, Rgb, Controller, Info]);
-
-    /// <summary>Adds predefined sections omitted by a plugin, preserving its category declarations.</summary>
-    /// <param name="declared">A validated plugin section list.</param>
-    /// <returns>The complete layout, including empty shared pages a host may populate.</returns>
-    /// <remarks>
-    ///     Descriptors may reference these predefined IDs without declaring their sections.
-    ///     Empty pages need not be rendered. Custom sections still require explicit declarations.
-    /// </remarks>
-    public static IReadOnlyList<CapabilitySection> IncludePredefined(IReadOnlyList<CapabilitySection> declared)
-    {
-        return
-        [
-            .. All.Select(section => section with
-                {
-                    Categories = declared.FirstOrDefault(item => item.SectionId == section.SectionId)?.Categories ??
-                                 section.Categories
-                })
-                .Concat(declared.Where(item => All.All(section => section.SectionId != item.SectionId)))
-        ];
-    }
 }

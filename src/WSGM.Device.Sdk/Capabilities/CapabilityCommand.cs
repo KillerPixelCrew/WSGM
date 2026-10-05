@@ -62,7 +62,11 @@ public sealed record CapabilityCommand
 [JsonConverter(typeof(JsonStringEnumConverter<CommandOutcome>))]
 public enum CommandOutcome
 {
-    /// <summary>Validated and queued. Nothing has reached the hardware yet.</summary>
+    /// <summary>
+    ///     Validated and kept for a later apply; nothing has reached the hardware yet. WSGM returns it for a
+    ///     native per-application value saved to the running game's profile, which the driver applies from the
+    ///     next sync.
+    /// </summary>
     Accepted,
 
     /// <summary>Written, with no readback available to confirm it.</summary>
@@ -96,11 +100,11 @@ public sealed record CapabilityCommandResult
     public CapabilityReason? Reason { get; init; }
 
     /// <summary>
-    ///     The value read back from hardware after applying.
+    ///     The value the device now holds as WSGM should publish it.
     /// </summary>
     /// <remarks>
-    ///     Present only for <see cref="CommandOutcome.AppliedVerified" />. This field, not the absence of
-    ///     an error, is what lets WSGM report a value as verified.
+    ///     The readback for <see cref="CommandOutcome.AppliedVerified" />, the written value for
+    ///     <see cref="CommandOutcome.AppliedUnverified" />. Absent when nothing was applied.
     /// </remarks>
     public CapabilityValue? ReadbackValue { get; init; }
 

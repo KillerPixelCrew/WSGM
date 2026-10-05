@@ -220,6 +220,14 @@ internal sealed class ArcSyncDisplay
     /// <summary>What a Custom profile may use, or null when the monitor's range does not allow one.</summary>
     public ArcSyncBounds? Bounds { get; }
 
+    /// <summary>The profile's support key, shared by every Arc Sync row of the display.</summary>
+    /// <param name="key">The key of a row of this display.</param>
+    /// <returns>The key every row shares.</returns>
+    public string Claim(string key)
+    {
+        return _profile.Claim(key);
+    }
+
     /// <summary>Returns the exact current profile, including OFF and every custom parameter.</summary>
     public ControlWrite ProbeSupport()
     {
@@ -405,7 +413,11 @@ internal sealed class VariableRefreshControl : IntelControl
             semantic ? CapabilityRole.VariableRefreshRate : CapabilityRole.GenericToggle))
     {
         _display = display;
+        SupportKey = display.Claim(Key);
     }
+
+    /// <inheritdoc />
+    public override string SupportKey { get; }
 
     /// <inheritdoc />
     public override ControlWrite ProbeSupport()
@@ -463,7 +475,11 @@ internal sealed class ArcSyncProfileControl : IntelControl
             profiles)
     {
         _display = display;
+        SupportKey = display.Claim(Key);
     }
+
+    /// <inheritdoc />
+    public override string SupportKey { get; }
 
     /// <inheritdoc />
     public override ControlWrite ProbeSupport()
@@ -518,9 +534,13 @@ internal sealed class ArcSyncParameterControl : IntelControl
         : base(descriptor)
     {
         _display = display;
+        SupportKey = display.Claim(Key);
         _bounds = bounds;
         _field = field;
     }
+
+    /// <inheritdoc />
+    public override string SupportKey { get; }
 
     /// <inheritdoc />
     public override ControlWrite ProbeSupport()

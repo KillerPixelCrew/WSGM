@@ -68,32 +68,15 @@ internal sealed class DeviceLabPackageSnapshot : IDisposable
         {
             Stack<string> pending = new();
             pending.Push(source.RootPath);
-            var entryCount = 0;
-            var fileCount = 0;
             long totalBytes = 0;
             while (pending.Count > 0)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var directory = pending.Pop();
-                var entries = TakeBoundedEntries(
-                    Directory.EnumerateFileSystemEntries(directory),
-                    PluginPackageWorkflow.MaximumPackageEntries - entryCount,
-                    cancellationToken,
-                    out var exceeded);
-                if (exceeded)
-                {
-                    var relative = Path.GetRelativePath(source.RootPath, directory).Replace('\\', '/');
-                    issues.Add(new PluginPackageValidationIssue(
-                        "package-too-many-entries",
-                        relative is "." ? string.Empty : relative,
-                        $"Package contains more than {PluginPackageWorkflow.MaximumPackageEntries} filesystem entries."));
-                    return snapshot;
-                }
-
-                foreach (var path in entries.OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+                foreach (var path in Directory.EnumerateFileSystemEntries(directory)
+                             .Order(StringComparer.OrdinalIgnoreCase))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    entryCount++;
                     var relative = Path.GetRelativePath(source.RootPath, path).Replace('\\', '/');
                     using var entry = source.OpenEntry(path);
                     if (entry.IsReparsePoint)
@@ -113,7 +96,6 @@ internal sealed class DeviceLabPackageSnapshot : IDisposable
                     }
 
                     var violation = PluginPackageWorkflow.PackageBudgetViolation(
-                        fileCount,
                         totalBytes,
                         entry.Length);
                     if (violation is not null)
@@ -137,7 +119,6 @@ internal sealed class DeviceLabPackageSnapshot : IDisposable
                         continue;
                     }
 
-                    fileCount++;
                     totalBytes += entry.Length;
                 }
             }
@@ -157,35 +138,6 @@ internal sealed class DeviceLabPackageSnapshot : IDisposable
         return _files.TryGetValue(relativePath.Replace('\\', '/'), out file!);
     }
 
-    /// <summary>
-    ///     Takes at most the remaining entry budget plus one overflow observation before sorting.
-    /// </summary>
-    internal static IReadOnlyList<string> TakeBoundedEntries(
-        IEnumerable<string> entries,
-        int remaining,
-        CancellationToken cancellationToken,
-        out bool exceeded)
-    {
-        ArgumentNullException.ThrowIfNull(entries);
-        ArgumentOutOfRangeException.ThrowIfNegative(remaining);
-        List<string> accepted = [];
-        using var enumerator = entries.GetEnumerator();
-        while (accepted.Count < remaining)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (!enumerator.MoveNext())
-            {
-                exceeded = false;
-                return accepted;
-            }
-
-            accepted.Add(enumerator.Current);
-        }
-
-        cancellationToken.ThrowIfCancellationRequested();
-        exceeded = enumerator.MoveNext();
-        return accepted;
-    }
 }
 
 /// <summary>One regular package file retained with write and delete sharing denied.</summary>

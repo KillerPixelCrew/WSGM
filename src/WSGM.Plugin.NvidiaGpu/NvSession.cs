@@ -14,6 +14,11 @@ internal sealed class NvSession : IDriverSession
     private readonly NvApi _api;
     private readonly NvProfiles _profiles;
     private readonly Action<string, string> _report;
+
+    /// <summary>The driver's value tables, which do not change within one session.</summary>
+    private readonly Dictionary<uint, uint[]> _values = [];
+
+    private HashSet<uint>? _settingIds;
     private Dictionary<string, NvSettingControl> _settings = [];
 
     internal NvSession(string stateDirectory, Action<string, string> report)
@@ -22,7 +27,7 @@ internal sealed class NvSession : IDriverSession
         _api = new NvApi();
         try
         {
-            _profiles = new NvProfiles(_api, stateDirectory);
+            _profiles = new NvProfiles(_api, stateDirectory, report);
         }
         catch
         {
@@ -31,11 +36,16 @@ internal sealed class NvSession : IDriverSession
         }
     }
 
+    /// <summary>Loads the DRS database once; the pass's reads and the command's write use that state.</summary>
+    public void BeginPass()
+    {
+        _api.Load();
+    }
+
     public DriverModel Discover()
     {
         var outputs = _api.Displays(); // NVIDIA present does not imply that it drives the laptop panel.
-        _api.Load();
-        var ids = _api.SettingIds();
+        var ids = _settingIds ??= _api.SettingIds();
         var sections = new List<CapabilitySection>();
         var controls = new List<DriverControl>();
         var settings = new Dictionary<string, NvSettingControl>();
@@ -47,7 +57,12 @@ internal sealed class NvSession : IDriverSession
             {
                 Try("driver." + setting.Id.ToString("x8"), () =>
                 {
-                    var values = _api.Values(setting.Id);
+                    if (!_values.TryGetValue(setting.Id, out var values))
+                    {
+                        values = _api.Values(setting.Id);
+                        _values[setting.Id] = values;
+                    }
+
                     if (values.Length == 0 && setting.Documented)
                     {
                         values = setting.Values.Select(value => value.Value).Distinct().ToArray();
@@ -117,9 +132,10 @@ internal sealed class NvSession : IDriverSession
         return new DriverModel(sections, controls);
     }
 
-    public ApplicationProfileSyncResult Sync(ApplicationProfileSync sync, CancellationToken token)
+    public ApplicationProfileSyncResult Sync(ApplicationProfileSync sync, WriteAdmission admission,
+        CancellationToken token)
     {
-        return _profiles.Sync(sync, _settings, token);
+        return _profiles.Sync(sync, _settings, admission, token);
     }
 
     public void Dispose()
@@ -225,9 +241,48 @@ internal sealed class NvSession : IDriverSession
     }
 }
 
+/// <summary>One DWORD setting of the global DRS profile, shared by the choice and G-SYNC controls.</summary>
+/// <remarks>Reads and writes use the state the pass loaded (<see cref="NvSession.BeginPass" />).</remarks>
+internal sealed class NvDrsSetting(INvProfiles api, uint id)
+{
+    internal uint Read()
+    {
+        return api.Get(api.GlobalProfile(), id).Value;
+    }
+
+    /// <summary>Writes and commits, then reloads so the readback sees the committed store.</summary>
+    internal void Write(uint value, WriteAdmission admission)
+    {
+        api.Set(api.GlobalProfile(), id, value, admission);
+        api.Save(admission);
+        api.Load();
+    }
+
+    internal void Probe(WriteAdmission admission)
+    {
+        // Save identical explicit values. Reload discards staged inherited/default values without
+        // materializing a persistent user override.
+        api.Load();
+        try
+        {
+            var profile = api.GlobalProfile();
+            var native = api.Get(profile, id);
+            api.Set(profile, id, native.Value, admission);
+            if (native.Explicit)
+            {
+                api.Save(admission);
+            }
+        }
+        finally
+        {
+            api.Load();
+        }
+    }
+}
+
 internal sealed class NvSettingControl : DriverControl
 {
-    private readonly INvProfiles _api;
+    private readonly NvDrsSetting _drs;
 
     internal NvSettingControl(INvProfiles api, NvSettingDefinition setting, string section, IEnumerable<uint> values)
         : base(DriverDescriptors.Choice("driver." + setting.Id.ToString("x8"), "driver", setting.Label, section,
@@ -235,54 +290,25 @@ internal sealed class NvSettingControl : DriverControl
             values.Select(value => (Encode(value), setting.Values.FirstOrDefault(option => option.Value == value).Label
                                                    ?? "Driver value 0x" + value.ToString("X8")))))
     {
-        _api = api;
+        _drs = new NvDrsSetting(api, setting.Id);
         Setting = setting;
     }
 
     internal NvSettingDefinition Setting { get; }
 
-    internal override void ProbeSupport(CapabilityValue current)
+    internal override void ProbeSupport(CapabilityValue current, WriteAdmission admission)
     {
-        // Save identical explicit values. Reload discards staged inherited/default values without
-        // materializing a persistent user override.
-        _api.Load();
-        try
-        {
-            var profile = _api.GlobalProfile();
-            var native = _api.Get(profile, Setting.Id);
-            _api.Set(profile, Setting.Id, native.Value);
-            if (native.Explicit)
-            {
-                _api.Save();
-            }
-        }
-        finally
-        {
-            _api.Load();
-        }
+        _drs.Probe(admission);
     }
 
     internal override CapabilityValue Read()
     {
-        _api.Load();
-        return CapabilityValue.Choice(Encode(_api.Get(_api.GlobalProfile(), Setting.Id).Value));
+        return CapabilityValue.Choice(Encode(_drs.Read()));
     }
 
-    internal override void Write(CapabilityValue value)
+    internal override void Write(CapabilityValue value, WriteAdmission admission)
     {
-        _api.Load();
-        var profile = _api.GlobalProfile();
-        try
-        {
-            _api.Get(profile, Setting.Id);
-        }
-        catch (DriverFailure failure) when (!failure.Lost)
-        {
-            // Support/type came from the driver table; a failed optional read cannot gate the write.
-        }
-
-        _api.Set(profile, Setting.Id, Decode(value));
-        _api.Save();
+        _drs.Write(Decode(value), admission);
     }
 
     internal static string Encode(uint value)
@@ -304,7 +330,7 @@ internal sealed class NvReadOnlyControl(CapabilityDescriptor descriptor, Func<st
         return CapabilityValue.Choice(read());
     }
 
-    internal override void Write(CapabilityValue value)
+    internal override void Write(CapabilityValue value, WriteAdmission admission)
     {
         throw new DriverFailure("This NVIDIA state is read only.");
     }

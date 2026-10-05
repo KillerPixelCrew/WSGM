@@ -63,15 +63,10 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
     private static readonly TimeSpan CommandTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan SyncBudget = TimeSpan.FromSeconds(15);
 
-    /// <summary>
-    ///     The last per-application sync revision, shared by every publisher and every open of one, so a
-    ///     plugin that is stopped and started again within the process never sees a revision repeat.
-    /// </summary>
-    private static long _syncRevision;
-
     private readonly Lock _gate = new();
     private readonly PluginHost _host;
     private readonly CancellationTokenSource _lifetime = new();
+    private readonly Func<bool?> _onAcPower;
     private readonly Action<Action> _postToUi;
     private readonly ProfileService _profiles;
     private readonly List<GpuPublisher> _publishers = [];
@@ -81,19 +76,27 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
     /// <summary>Saves a user-originated variable-refresh write to the performance profile.</summary>
     private readonly Action<bool>? _manualVariableRefresh;
 
+    /// <summary>
+    ///     The last per-application sync revision of this coordinator. One coordinator serves the graphics
+    ///     plugins of a session, so a plugin stopped and started again within it never sees a revision repeat.
+    /// </summary>
+    private long _syncRevision;
+
     /// <param name="postToUi">Posts work to the UI dispatcher.</param>
     /// <param name="profiles">The profile owner values are stored in.</param>
     /// <param name="host">The plugin host, for each publisher's health.</param>
+    /// <param name="onAcPower">Reads whether the machine runs on AC power; null when unknown.</param>
     /// <param name="manualVariableRefresh">
     ///     Saves a variable-refresh state the user set on a graphics package's control, as the device
     ///     coordinator does for the device's; null when no profile owner exists.
     /// </param>
     internal GpuCoordinator(Action<Action> postToUi, ProfileService profiles, PluginHost host,
-        Action<bool>? manualVariableRefresh = null)
+        Func<bool?> onAcPower, Action<bool>? manualVariableRefresh = null)
     {
         _postToUi = postToUi ?? throw new ArgumentNullException(nameof(postToUi));
         _profiles = profiles ?? throw new ArgumentNullException(nameof(profiles));
         _host = host ?? throw new ArgumentNullException(nameof(host));
+        _onAcPower = onAcPower ?? throw new ArgumentNullException(nameof(onAcPower));
         _manualVariableRefresh = manualVariableRefresh;
         _host.HealthChanged += OnHealthChanged;
     }
@@ -488,7 +491,7 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
         {
             // Unknown power reads as AC here, as it does for the device: only a confirmed battery state
             // selects battery values.
-            Router.UpdateDesiredContext(ProfileKey, snapshot.Layers, DeviceCoordinator.ReadOnAcPower() ?? true);
+            Router.UpdateDesiredContext(ProfileKey, snapshot.Layers, _owner._onAcPower() ?? true);
         }
 
         /// <summary>Reconciles desired values, then syncs the per-application set when it changed.</summary>
@@ -564,7 +567,7 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
             // Forgotten until the plugin confirms this set, so a sync that failed, timed out or was refused
             // in part never lets a later pass skip the same set as already applied.
             _lastSyncFingerprint = null;
-            ApplicationProfileSync sync = new(Interlocked.Increment(ref _syncRevision), Channel.CycleGeneration,
+            ApplicationProfileSync sync = new(Interlocked.Increment(ref _owner._syncRevision), Channel.CycleGeneration,
                 profiles);
             try
             {

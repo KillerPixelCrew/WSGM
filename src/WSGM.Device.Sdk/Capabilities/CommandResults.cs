@@ -22,26 +22,14 @@ public static class CommandResults
         };
     }
 
-    /// <summary>A write the device accepted whose readback did not confirm it; the written value stands.</summary>
-    /// <param name="command">The command the result answers.</param>
-    /// <param name="written">The value written.</param>
-    /// <returns>An <see cref="CommandOutcome.AppliedUnverified" /> result carrying the written value.</returns>
-    public static CapabilityCommandResult Unverified(CapabilityCommand command, CapabilityValue written)
-    {
-        ArgumentNullException.ThrowIfNull(command);
-        return new CapabilityCommandResult
-        {
-            CommandId = command.CommandId,
-            Outcome = CommandOutcome.AppliedUnverified,
-            ReadbackValue = written,
-            CompletedAt = DateTimeOffset.UtcNow
-        };
-    }
-
-    /// <summary>A write the device accepted but that nothing can read back.</summary>
+    /// <summary>A write the device accepted whose readback could not confirm it.</summary>
     /// <param name="command">The command the result answers.</param>
     /// <param name="detail">Why the write cannot be confirmed.</param>
-    /// <returns>An <see cref="CommandOutcome.AppliedUnverified" /> result with that reason.</returns>
+    /// <returns>An <see cref="CommandOutcome.AppliedUnverified" /> result with that reason and no readback.</returns>
+    /// <remarks>
+    ///     The written value stands for the cycle; the plugin publishes it as the capability's observed
+    ///     state, never as a readback.
+    /// </remarks>
     public static CapabilityCommandResult Unverified(CapabilityCommand command, string detail)
     {
         ArgumentNullException.ThrowIfNull(command);

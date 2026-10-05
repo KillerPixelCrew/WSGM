@@ -129,7 +129,10 @@ public static class HardwareMatcher
             return true;
         }
 
-        if (observed?.Contains(expected.Trim(), StringComparison.OrdinalIgnoreCase) != true)
+        // Both sides normalized the way IdentityText.Matches compares, so the two rules cannot disagree.
+        if (IdentityText.Normalize(observed) is not { } value
+            || IdentityText.Normalize(expected) is not { } part
+            || !value.Contains(part, StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
@@ -145,7 +148,7 @@ public static class HardwareMatcher
             return true;
         }
 
-        if (!string.Equals(expected.Trim(), observed?.Trim(), StringComparison.OrdinalIgnoreCase))
+        if (!IdentityText.Matches(observed, expected))
         {
             return false;
         }

@@ -95,33 +95,6 @@ public sealed class DeviceLabPackagingTests
     }
 
     [Fact]
-    public void BoundedEntryCapture_StopsAfterOneOverflowObservationBeforeSorting()
-    {
-        var observed = 0;
-        var accepted = DeviceLabPackageSnapshot.TakeBoundedEntries(
-            Entries(),
-            4,
-            CancellationToken.None,
-            out var exceeded);
-
-        Assert.True(exceeded);
-        Assert.Equal(4, accepted.Count);
-        Assert.Equal(5, observed);
-
-        return;
-
-        IEnumerable<string> Entries()
-        {
-            // Unbounded in practice: the capture must stop on its own after one overflow entry.
-            while (observed < int.MaxValue)
-            {
-                observed++;
-                yield return $"entry-{observed}";
-            }
-        }
-    }
-
-    [Fact]
     public void Pack_PinsValidatedSourceBytesAgainstReplacementUntilArchivePublication()
     {
         using TemporaryDirectory temporary = new();
@@ -166,29 +139,18 @@ public sealed class DeviceLabPackagingTests
     }
 
     [Fact]
-    public void PackageBudget_RejectsFileCountSingleFileAndAggregateOverflow()
+    public void PackageBudget_RejectsSingleFileAndAggregateOverflow()
     {
-        Assert.True(PluginPackageWorkflow.PackageEntryBudgetExceeded(
-            PluginPackageWorkflow.MaximumPackageEntries));
-        Assert.False(PluginPackageWorkflow.PackageEntryBudgetExceeded(
-            PluginPackageWorkflow.MaximumPackageEntries - 1));
-        Assert.Equal(
-            "package-too-many-files",
-            PluginPackageWorkflow.PackageBudgetViolation(
-                PluginPackageWorkflow.MaximumPackageFiles,
-                0,
-                0));
+        Assert.Null(PluginPackageWorkflow.PackageBudgetViolation(0, PluginPackageLayout.MaxFileBytes));
         Assert.Equal(
             "file-too-large",
             PluginPackageWorkflow.PackageBudgetViolation(
                 0,
-                0,
-                PluginPackageWorkflow.MaximumPackageFileBytes + 1));
+                PluginPackageLayout.MaxFileBytes + 1));
         Assert.Equal(
             "package-too-large",
             PluginPackageWorkflow.PackageBudgetViolation(
-                1,
-                PluginPackageWorkflow.MaximumPackageBytes,
+                PluginPackageLayout.MaxPackageBytes,
                 1));
     }
 

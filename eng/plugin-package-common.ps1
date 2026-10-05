@@ -72,13 +72,16 @@ function Remove-HostProvidedFiles {
         WSGM answers these from its own copy whatever the package carries (PluginLoadContext.HostOwned
         and host-first resolution), so a packaged copy is never loaded. The Windows SDK projection
         alone is 24 MB. Symbols and XML documentation of every assembly go too: they are not package
-        content.
+        content. The names come from the Device SDK's PluginPackageLayout through plugin-manifest.cs.
     #>
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Directory)
 
-    $hostProvided = @('WSGM.Device.Sdk', 'WSGM.Plugin.Sdk', 'SteamUiToolkit', 'WinRT.Runtime',
-        'Microsoft.Windows.SDK.NET')
+    $hostProvided = @(& dotnet run --file (Join-Path $PSScriptRoot 'plugin-manifest.cs') -- host-provided 2>&1)
+    if ($LASTEXITCODE -ne 0 -or $hostProvided.Count -eq 0) {
+        throw "Reading the host-provided assemblies from the SDK failed:`n$($hostProvided -join [Environment]::NewLine)"
+    }
+    $hostProvided = @($hostProvided | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
     $assemblies = @(Get-ChildItem -LiteralPath $Directory -Filter '*.dll' -File | ForEach-Object { $_.BaseName })
     foreach ($file in @(Get-ChildItem -LiteralPath $Directory -File)) {
         $isHostProvided = $file.BaseName -in $hostProvided -and $file.Extension -in @('.dll', '.xml', '.pdb')

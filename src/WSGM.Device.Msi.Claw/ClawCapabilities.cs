@@ -26,7 +26,7 @@ internal static class ClawApplied
     {
         return confirmed
             ? CommandResults.Verified(command, written)
-            : CommandResults.Unverified(command, written);
+            : CommandResults.Unverified(command, "The write went through but did not read back; the written value stands.");
     }
 
     public static CapabilityCommandResult Failed(CapabilityCommand command, string operation, Exception exception,
@@ -250,8 +250,8 @@ internal sealed class ClawPowerCapability(
     }
 
     /// <summary>Writes the captured scenario, then the captured pair, as HC applies a profile.</summary>
-    /// <returns>True once every write went through; the values are not read back.</returns>
-    public async ValueTask<bool> RestoreAsync(PowerPair snapshot, CancellationToken cancellationToken)
+    /// <remarks>Complete once every write went through; the values are not read back.</remarks>
+    public async ValueTask RestoreAsync(PowerPair snapshot, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         await WriteDataAsync(ClawHardwareFacts.ScenarioAddress, snapshot.Scenario, cancellationToken)
@@ -266,7 +266,6 @@ internal sealed class ClawPowerCapability(
 
         _target = null;
         _targetScenario = null;
-        return true;
     }
 
     private static int ShiftTarget(byte current, int mode)
@@ -595,8 +594,8 @@ internal sealed class ClawFanCapability(IMsiWmiTransport transport)
     }
 
     /// <summary>Writes the captured tables and flags back.</summary>
-    /// <returns>True once every write went through; the values are not read back.</returns>
-    public async ValueTask<bool> RestoreAsync(FanSnapshot snapshot, CancellationToken cancellationToken)
+    /// <remarks>Complete once every write went through; the values are not read back.</remarks>
+    public async ValueTask RestoreAsync(FanSnapshot snapshot, CancellationToken cancellationToken)
     {
         await WriteTableAsync(1, snapshot.Left.TemperatureBuffer, snapshot.Left.DutyBuffer, cancellationToken)
             .ConfigureAwait(false);
@@ -608,7 +607,6 @@ internal sealed class ClawFanCapability(IMsiWmiTransport transport)
             .ConfigureAwait(false);
         _writtenCurve = null;
         _writtenMode = null;
-        return true;
     }
 
     private static bool TryValidateCurve(IReadOnlyList<CurvePoint> curve, out string? error)
@@ -898,23 +896,6 @@ internal sealed class ClawLightingCapability(IClawMcuTransport transport, ushort
     {
         return color is >= 0 and <= 0xFFFFFF;
     }
-}
-
-internal static class CapabilityIds
-{
-    public const string PowerSustained = "power.primary-limit";
-    public const string PowerBoost = "power.boost-limit";
-    public const string ChargeLimit = "battery.charge-limit";
-    public const string Scenario = "power.scenario";
-    public const string FanMode = "fan.mode";
-    public const string FanCurve = "fan.curve";
-    public const string FanRpm = "fan.measured-rpm";
-    public const string Temperature = "telemetry.temperature";
-    public const string LightingBrightness = "lighting.brightness";
-    public const string LightingColor = "lighting.zone-color";
-    public const string Controller = "controller.source";
-    public const string Motion = "motion.source";
-    public const string Rumble = "haptic.rumble";
 }
 
 internal static class CapabilityInstances

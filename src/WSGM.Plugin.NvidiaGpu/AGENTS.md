@@ -8,9 +8,11 @@ entry points and enum values. Read README.md and PROVENANCE.md first.
 - Load only the installed driver's System32 `nvapi64.dll`; do not redistribute it.
 - DRS is authoritative for global/native application values. Change one setting at a time, never
   restore/delete entire profiles, and preserve external edits and prior explicit values.
-- The journal records durable intent before SaveSettings. An unconfirmed write is reconciled by
-  readback and never blindly repeated. Profiles sharing executables/native profiles cannot request
-  conflicting values for one setting.
+- The journal records durable intent before SaveSettings. A write is dispatched when SaveSettings
+  returns and failed when Set, Delete or Save throws; a failed write puts the journal back and a
+  failed restore keeps its entry. Nothing waits on readback and nothing is repeated automatically.
+  An unreadable journal is never replaced: per-application sync fails, global controls keep working.
+  Profiles sharing executables/native profiles cannot request conflicting values for one setting.
 - Enumerate NVIDIA-connected active display IDs. Hybrid systems may have no NVIDIA-driven panel.
   Revalidate topology before writes; map Windows display identity through the driver, not numbering.
 - Check complete color combinations through IS_SUPPORTED_COLOR and preserve every unedited field.

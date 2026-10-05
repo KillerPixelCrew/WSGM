@@ -31,7 +31,7 @@ internal sealed class NativeQamResolutionService : ISteamResolutionBackend
     /// <summary>The row's current state.</summary>
     internal SteamResolutionState Current => Project(
         _display.Options(),
-        DisplayProfiles.ReadCurrentResolution());
+        PrimaryDisplayModes.ReadCurrentResolution());
 
     /// <inheritdoc />
     /// <remarks>

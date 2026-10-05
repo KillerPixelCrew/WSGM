@@ -79,8 +79,7 @@ public sealed class DriverRuntimeTests
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
             using var cancelled = new CancellationTokenSource();
             cancelled.Cancel();
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-                runtime.StopAsync(context, cancelled.Token).AsTask());
+            Assert.False(await runtime.StopAsync(context, cancelled.Token));
             await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
                 runtime.StartAsync(host, context, cancelled.Token).AsTask());
             Assert.Single(sessions);
@@ -109,9 +108,9 @@ public sealed class DriverRuntimeTests
             return CapabilityValue.Boolean(false);
         }
 
-        internal override void Write(CapabilityValue value)
+        internal override void Write(CapabilityValue value, WriteAdmission admission)
         {
-            DriverWriteScope.Check();
+            admission.Check();
             events.Add(name + ".write:" + value.BooleanValue);
             if (refused)
             {
@@ -131,7 +130,7 @@ public sealed class DriverRuntimeTests
             return CapabilityValue.Boolean(_value);
         }
 
-        internal override void Write(CapabilityValue value)
+        internal override void Write(CapabilityValue value, WriteAdmission admission)
         {
             if (value.BooleanValue == true)
             {
@@ -147,12 +146,17 @@ public sealed class DriverRuntimeTests
     {
         internal bool Disposed { get; private set; }
 
+        public void BeginPass()
+        {
+        }
+
         public DriverModel Discover()
         {
             return new DriverModel([DriverDescriptors.Section("graphics", "Graphics")], controls);
         }
 
-        public ApplicationProfileSyncResult Sync(ApplicationProfileSync sync, CancellationToken token)
+        public ApplicationProfileSyncResult Sync(ApplicationProfileSync sync, WriteAdmission admission,
+            CancellationToken token)
         {
             return new ApplicationProfileSyncResult(0, 0, []);
         }

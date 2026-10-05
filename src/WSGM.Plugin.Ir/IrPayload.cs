@@ -1,6 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using WSGM.Plugin.Sdk;
+using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Plugin.Ir;
 
@@ -104,22 +104,14 @@ internal sealed record IrLibrary(int Version, IrCommand[] Commands, IrScene[] Sc
 
     private static bool ValidName(string? value)
     {
-        return PluginText.TryValidate(value, "name", out _);
+        return PlainText.TryValidate(value, "name", out _);
     }
 
+    /// <summary>Loads the library, or an empty one when the file does not exist. An unreadable file throws.</summary>
     internal static async Task<IrLibrary> LoadAsync(string path, CancellationToken token)
     {
-        if (!File.Exists(path))
-        {
-            return Empty;
-        }
-
-
-        await using var stream = File.OpenRead(path);
-        var library = await JsonSerializer.DeserializeAsync<IrLibrary>(stream, Json, token).ConfigureAwait(false)
-                      ?? throw new InvalidDataException("IR library is empty.");
-        library.Validate();
-        return library;
+        return await JsonFile.ReadAsync<IrLibrary>(path, library => library.Validate(), token).ConfigureAwait(false)
+               ?? Empty;
     }
 
     internal Task SaveAsync(string path, CancellationToken token)
@@ -144,19 +136,10 @@ internal sealed record IrPairing(string Token, string Hostname, string Ip)
         }
     }
 
-    internal static async Task<IrPairing?> LoadAsync(string path, CancellationToken token)
+    /// <summary>Loads the pairing, or null when the file does not exist. An unreadable file throws.</summary>
+    internal static Task<IrPairing?> LoadAsync(string path, CancellationToken token)
     {
-        if (!File.Exists(path))
-        {
-            return null;
-        }
-
-        await using var stream = File.OpenRead(path);
-        var pairing = await JsonSerializer.DeserializeAsync<IrPairing>(stream, IrLibrary.Json, token)
-                          .ConfigureAwait(false)
-                      ?? throw new InvalidDataException("IR endpoint pairing is empty.");
-        pairing.Validate();
-        return pairing;
+        return JsonFile.ReadAsync<IrPairing>(path, pairing => pairing.Validate(), token);
     }
 
     internal Task SaveAsync(string path, CancellationToken token)
@@ -168,6 +151,50 @@ internal sealed record IrPairing(string Token, string Hostname, string Ip)
 
 internal static class JsonFile
 {
+    /// <summary>
+    ///     Reads a state file. Only a missing file or folder reads as absent. A file that cannot be read, or that
+    ///     does not parse or validate, throws and stays as it is, so no later save replaces it.
+    /// </summary>
+    internal static async Task<T?> ReadAsync<T>(string path, Action<T> validate, CancellationToken token)
+        where T : class
+    {
+        var name = Path.GetFileName(path);
+        FileStream stream;
+        try
+        {
+            stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096,
+                FileOptions.Asynchronous);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            throw new IOException($"{name} could not be read, and nothing was changed: {ex.Message}", ex);
+        }
+
+        await using (stream)
+        {
+            try
+            {
+                var value = await JsonSerializer.DeserializeAsync<T>(stream, IrLibrary.Json, token)
+                                .ConfigureAwait(false)
+                            ?? throw new InvalidDataException("The file is empty.");
+                validate(value);
+                return value;
+            }
+            catch (Exception ex) when (ex is JsonException or InvalidDataException)
+            {
+                throw new InvalidDataException($"{name} is corrupt, and nothing was changed: {ex.Message}", ex);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                throw new IOException($"{name} could not be read, and nothing was changed: {ex.Message}", ex);
+            }
+        }
+    }
+
     /// <summary>Writes through a temporary sibling and moves it into place, so a failure leaves the previous file intact.</summary>
     internal static async Task WriteAsync<T>(string path, T value, CancellationToken token)
     {

@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Device.Sdk.Lifecycle;
+using WSGM.Device.Sdk.Plugin;
 using WSGM.Plugin.Sdk;
 
 namespace WSGM.Shell;
@@ -208,6 +209,12 @@ internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationSt
                 return;
             }
 
+            // A plugin that republishes unchanged health on every observation raises nothing.
+            if (owner.Health == publication)
+            {
+                return;
+            }
+
             owner.Health = publication;
         }
 
@@ -307,6 +314,22 @@ internal sealed class PluginRegistration(
     public void PublishState(PluginStatePublication publication)
     {
         host.PublishState(this, publication);
+    }
+
+    public void Trace(DeviceTraceLevel level, string scope, string message)
+    {
+        if (!_disposed)
+        {
+            PluginLogLine.Write("plugin/" + Identity.PluginId, level, scope, message);
+        }
+    }
+
+    public void TraceChange(DeviceTraceLevel level, string scope, string key, string message)
+    {
+        if (!_disposed)
+        {
+            PluginLogLine.WriteChange("plugin/" + Identity.PluginId, level, scope, key, message);
+        }
     }
 
     internal Task<PluginHealth> StartAsync(Deadline deadline, CancellationToken cancellationToken)
@@ -535,8 +558,7 @@ internal sealed class PluginRegistration(
             }
 
             _disposed = true;
-            // A disposed Device runtime gives back its slot even when hardware cleanup reported a failure.
-            // Common plugins keep their reservation until they confirm release.
+            // A plugin keeps its reservation until it confirms release.
             if (_released is true)
             {
                 host.Retire(this);

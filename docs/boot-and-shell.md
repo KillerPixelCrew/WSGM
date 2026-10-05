@@ -279,14 +279,30 @@ failed creation or verification preserves the existing desktop.
 
 ### Shutdown keeps the anchor alive until the desktop is verified
 
-Application shutdown rejects new mode and Steam-launch commands and waits for the in-flight
-transition and boot worker under one outer deadline. Device cleanup runs before that wait. The
-process runtime owns one cleanup attempt before forcing the Avalonia lifetime to exit. Tray Exit,
-restore-shell, update, uninstall and startup failure use that owner. Startup failure keeps exit code
+The process runtime owns one cleanup attempt before forcing the Avalonia lifetime to exit. Tray
+Exit, restore-shell, update, uninstall and startup failure use that owner, and startup failure keeps
+exit code 1. OS session end runs the five-second cleanup without cancelling Windows' request,
+starting Explorer or closing Big Picture. A session end during another exit only tightens its
+deadline and sets the sticky flag that suppresses desktop restoration before dispatch.
 
-1. OS session end runs the five-second cleanup without cancelling Windows' request, starting
-   Explorer or closing Big Picture. Session end during another exit tightens its deadline and
-   suppresses desktop restoration before dispatch.
+The cleanup itself is one ordered routine, `ShellSession.RunShutdownAsync`, under that one deadline.
+Every step runs even when an earlier one failed, and every wait gives up at the deadline:
+
+1. Stop new work: mode and Steam-launch commands, Steam's Quick Access commands, overlay input,
+   profile passes, the library importer and the power queue; cancel the session token.
+2. Join the startup task and a running device power transition. One queued but not started never
+   runs.
+3. Device cleanup: AutoTDP's original limit first, then controller release with the physical pad
+   shown again, then the device package stops.
+4. Common plugins, then the graphics router.
+5. Join the in-flight mode transition, the boot worker and the transport gate loop.
+6. Retire the tray, then the session's event sources.
+7. Restore Explorer, only when the reason allows it and the tray is verifiably gone.
+8. Steam: join the Steam UI work, hand Steam's startup-movie choice back, retract the patches and
+   close the transport.
+9. Feature owners. Synchronous disposals run on the UI thread that built them.
+10. Native providers: the Steam storage bridge and the drive manager.
+11. The message window, last.
 
 The anchor stays alive if the deadline or the desktop verification fails, so owner-loss recovery
 still has a launch path that is jobless whenever the original shell was. Before retiring the anchor,
@@ -403,11 +419,19 @@ the gate itself are in [the Steam CEF system](steam-cef-system.md#3-the-transpor
 
 ## Big Picture occlusion and the splash
 
-### Entry must arm detection before requesting Steam
+### Detection is armed when Steam is asked
 
-The entry splash starts unarmed so waiting for a switched-off TV has no deadline. After the display
-layout is applied, the transaction awaits `ArmSteamDetectionAsync` on the UI dispatcher before
-requesting Big Picture, which enables both window detection and the 120-second Steam timeout.
+Every splash starts unarmed, so a wait before Steam is asked has no deadline. Arming enables both
+window detection and the 120-second Steam timeout. The entry splash waits for a switched-off TV:
+after the display layout is applied, the transaction awaits `ArmSteamDetectionAsync` on the UI
+dispatcher before requesting Big Picture. The boot cover waits for the input desktop, Explorer's
+readiness and exit, and the startup apps: the launch sequence arms it on the UI thread just before
+it requests Big Picture. The takeover also arms it when Big Picture appears under the cover during
+the readiness wait, so the cover fades off that live window, and a launch sequence that ends without
+asking Steam arms it anyway, so the cover never stays up without its timeout.
+
+Opening Quick Access dismisses the boot cover. It leaves an entry splash up, because the entry is
+still running behind it and the splash carries its status and its Cancel button.
 
 The 2026-09-13 desktop log showed the missing handoff: Explorer exited cleanly and Steam's Big
 Picture window was recognized at 14:32:35, but the unarmed cover stayed until the user chose Desktop

@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Device.Sdk.Lifecycle;
+using WSGM.Device.Sdk.Plugin;
 
 namespace WSGM.Plugin.Sdk;
 
@@ -73,6 +74,23 @@ public interface IPluginHost
     /// <summary>Publishes effective state without altering desired configuration.</summary>
     /// <param name="publication">Origin-tagged observation with an increasing generation-scoped sequence.</param>
     void PublishState(PluginStatePublication publication)
+    {
+    }
+
+    /// <summary>Writes one diagnostic line into WSGM's log, prefixed with the plugin's identity. Never throws.</summary>
+    /// <param name="level">How much the line matters.</param>
+    /// <param name="scope">Subsystem producing it, used as the log prefix.</param>
+    /// <param name="message">The line, recorded whole.</param>
+    void Trace(DeviceTraceLevel level, string scope, string message)
+    {
+    }
+
+    /// <summary>Records a polled state, writing only when that key's value changed. Never throws.</summary>
+    /// <param name="level">Level for the line when it is written.</param>
+    /// <param name="scope">Subsystem producing the line.</param>
+    /// <param name="key">Stable identity of the thing observed, unique within <paramref name="scope" />.</param>
+    /// <param name="message">The current state.</param>
+    void TraceChange(DeviceTraceLevel level, string scope, string key, string message)
     {
     }
 }

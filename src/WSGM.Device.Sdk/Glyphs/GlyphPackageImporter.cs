@@ -17,14 +17,14 @@ namespace WSGM.Device.Sdk.Glyphs;
 /// </remarks>
 public interface IGlyphPackageSource
 {
-    /// <summary>Returns bounded profile identifiers from the fixed profiles directory.</summary>
+    /// <summary>Returns every profile identifier in the fixed profiles directory.</summary>
     /// <returns>Package profile identifiers, never paths.</returns>
     IReadOnlyList<string> EnumerateProfileIds();
 
     /// <summary>Reads one loader-approved relative package path under a byte budget.</summary>
     /// <param name="relativePath">A fixed or validated relative package path.</param>
     /// <param name="maximumBytes">Maximum accepted byte count.</param>
-    /// <param name="bytes">Stable owned bytes when the read succeeds.</param>
+    /// <param name="bytes">Stable bytes the caller owns when the read succeeds; the importer keeps this array.</param>
     /// <returns>True only when the file exists and was read within the budget.</returns>
     bool TryRead(string relativePath, int maximumBytes, out byte[] bytes);
 }
@@ -84,8 +84,6 @@ public sealed record GlyphPackageImportResult(
 /// </summary>
 public static class GlyphPackageImporter
 {
-    private const int MaxProfiles = GlyphProfileLimits.MaxProfiles;
-    private const int MaxNoticePathLength = 256;
     private const int MaxJsonDepth = 12;
 
     private static readonly DeviceJsonContext ReadContext = new(
@@ -122,7 +120,7 @@ public static class GlyphPackageImporter
             return new GlyphPackageImportResult([], errors);
         }
 
-        foreach (var profileId in discovered.Take(MaxProfiles).Order(StringComparer.Ordinal))
+        foreach (var profileId in discovered.Order(StringComparer.Ordinal))
         {
             if (!IsIdentifier(profileId))
             {
@@ -130,7 +128,7 @@ public static class GlyphPackageImporter
                     profileId ?? string.Empty,
                     "glyphs/profiles",
                     GlyphPackageImportCode.ProfileManifestInvalid,
-                    "The profile filename is not a bounded identifier."));
+                    "The profile filename is not an identifier."));
                 continue;
             }
 
@@ -145,15 +143,6 @@ public static class GlyphPackageImporter
             }
 
             LoadProfile(profileId, source, profiles, errors);
-        }
-
-        if (discovered.Count > MaxProfiles)
-        {
-            errors.Add(new GlyphPackageImportError(
-                string.Empty,
-                "glyphs/profiles",
-                GlyphPackageImportCode.ProfileManifestInvalid,
-                $"The package contains more than {MaxProfiles} glyph profiles."));
         }
 
         return new GlyphPackageImportResult(
@@ -246,11 +235,12 @@ public static class GlyphPackageImporter
                 continue;
             }
 
-            var bytes = suppliedBytes.ToArray();
+            // The source hands out an array the importer owns, so it is used as it is.
+            var bytes = suppliedBytes;
 
-            // The aggregate budget is measured against what the package actually supplied. Every read
-            // is already capped at MaxAssetBytes and the manifest is capped at MaxAssets, so the worst
-            // case before this trips stays bounded.
+            // The aggregate budget is measured against what the package actually supplied, and it is
+            // the bound: every read is already capped at MaxAssetBytes, and the import stops at the
+            // first asset that takes the profile past MaxProfileBytes.
             totalBytes += bytes.Length;
             if (totalBytes > GlyphProfileLimits.MaxProfileBytes)
             {
@@ -315,16 +305,12 @@ public static class GlyphPackageImporter
 
         if (!IsIdentifier(manifest.ProfileId))
         {
-            Invalid("profileId", "A bounded identifier is required.");
+            Invalid("profileId", "An identifier is required.");
         }
 
-        if (!PlainText.TryValidate(
-                manifest.DisplayName,
-                GlyphProfileLimits.MaxDisplayNameLength,
-                "displayName",
-                out _))
+        if (!PlainText.TryValidate(manifest.DisplayName, "displayName", out _))
         {
-            Invalid("displayName", "A bounded plain display name is required.");
+            Invalid("displayName", "A plain display name is required.");
         }
 
         if (manifest.Revision <= 0)
@@ -334,7 +320,7 @@ public static class GlyphPackageImporter
 
         if (!IsIdentifier(manifest.SourceRevision))
         {
-            Invalid("sourceRevision", "A bounded immutable source revision is required.");
+            Invalid("sourceRevision", "An immutable source revision identifier is required.");
         }
 
         if (!IsNoticePath(manifest.NoticePath))
@@ -343,18 +329,13 @@ public static class GlyphPackageImporter
         }
 
         var exactDeviceIds = manifest.ExactDeviceIds ?? [];
-        if (exactDeviceIds.Count > GlyphProfileLimits.MaxExactDevices)
-        {
-            Invalid("exactDeviceIds", $"At most {GlyphProfileLimits.MaxExactDevices} entries are accepted.");
-        }
-
         HashSet<string> deviceIds = new(StringComparer.Ordinal);
         for (var index = 0; index < exactDeviceIds.Count; index++)
         {
             var deviceId = exactDeviceIds[index];
             if (!IsIdentifier(deviceId))
             {
-                Invalid($"exactDeviceIds[{index}]", "A bounded identifier is required.");
+                Invalid($"exactDeviceIds[{index}]", "An identifier is required.");
             }
             else if (!deviceIds.Add(deviceId))
             {
@@ -363,11 +344,6 @@ public static class GlyphPackageImporter
         }
 
         var assets = manifest.Assets ?? [];
-        if (assets.Count > GlyphProfileLimits.MaxAssets)
-        {
-            Invalid("assets", $"At most {GlyphProfileLimits.MaxAssets} entries are accepted.");
-        }
-
         Dictionary<string, GlyphAssetEntry> assetsById = new(StringComparer.Ordinal);
         for (var index = 0; index < assets.Count; index++)
         {
@@ -381,7 +357,7 @@ public static class GlyphPackageImporter
 
             if (!IsIdentifier(asset.AssetId))
             {
-                Invalid($"{path}.assetId", "A bounded identifier is required.");
+                Invalid($"{path}.assetId", "An identifier is required.");
             }
             else if (!assetsById.TryAdd(asset.AssetId, asset))
             {
@@ -417,11 +393,6 @@ public static class GlyphPackageImporter
             Invalid);
 
         var controls = manifest.Controls ?? [];
-        if (controls.Count > GlyphProfileLimits.MaxControls)
-        {
-            Invalid("controls", $"At most {GlyphProfileLimits.MaxControls} entries are accepted.");
-        }
-
         Dictionary<GlyphControlId, GlyphControlMapping> controlsById = [];
         for (var index = 0; index < controls.Count; index++)
         {
@@ -445,14 +416,9 @@ public static class GlyphPackageImporter
                 Invalid($"{path}.control", "The control is mapped more than once.");
             }
 
-            if (control.PhysicalLabel is { } label
-                && !PlainText.TryValidate(
-                    label,
-                    GlyphProfileLimits.MaxPhysicalLabelLength,
-                    "physicalLabel",
-                    out _))
+            if (control.PhysicalLabel is { } label && !PlainText.TryValidate(label, "physicalLabel", out _))
             {
-                Invalid($"{path}.physicalLabel", "The physical label is not bounded plain text.");
+                Invalid($"{path}.physicalLabel", "The physical label is not plain text.");
             }
 
             if (control.Presence is GlyphControlPresence.Absent && control.AssetId is not null)
@@ -507,11 +473,6 @@ public static class GlyphPackageImporter
         }
 
         var aliases = manifest.Aliases ?? [];
-        if (aliases.Count > GlyphProfileLimits.MaxAliases)
-        {
-            Invalid("aliases", $"At most {GlyphProfileLimits.MaxAliases} entries are accepted.");
-        }
-
         var aliasSources = aliases
             .Where(alias => alias is not null)
             .Select(alias => alias.LogicalControl)
@@ -673,14 +634,12 @@ public static class GlyphPackageImporter
 
     private static bool IsIdentifier(string? value)
     {
-        // Identifiers name files in the imported package, so the package layout's bound applies.
-        return value?.Length <= GlyphProfileLimits.MaxIdentifierLength && PlainText.IsIdentifier(value);
+        return PlainText.IsIdentifier(value);
     }
 
     private static bool IsNoticePath(string? value)
     {
         if (string.IsNullOrWhiteSpace(value)
-            || value.Length > MaxNoticePathLength
             || value[0] == '/'
             || value.Contains('\\', StringComparison.Ordinal)
             || value.Contains(':', StringComparison.Ordinal)

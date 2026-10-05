@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Services;
 
@@ -48,7 +49,7 @@ public sealed partial class RogAllyPlugin
         {
             result = await ApplyAsync(command, identity, cancellationToken).ConfigureAwait(false);
         }
-        catch (AllyBudgetException ex)
+        catch (DeviceWriteBudgetException ex)
         {
             // Thrown before any write, so nothing needs restoring and the service stays healthy.
             return CommandResults.Rejected(command, CapabilityReasonCode.Quiescing, ex.Message, true);
@@ -73,9 +74,7 @@ public sealed partial class RogAllyPlugin
             _written[(command.CapabilityId, command.InstanceId)] = requested;
         }
 
-        return result.Outcome is not CommandOutcome.AppliedVerified && result.ReadbackValue is not null
-            ? result with { ReadbackValue = null }
-            : result;
+        return result;
     }
 
     private async ValueTask<CapabilityCommandResult> ApplyAsync(
@@ -94,7 +93,7 @@ public sealed partial class RogAllyPlugin
         };
         if (prepare is not null)
         {
-            AllyWriteBudget.Require(command.Deadline, "command preparation");
+            DeviceWriteBudget.Require(command.Deadline, "command preparation");
             try
             {
                 await prepare(identity, cancellationToken).ConfigureAwait(false);
@@ -219,7 +218,7 @@ public sealed partial class RogAllyPlugin
                 "The command targets a descriptor or device generation that is no longer current.", true);
         }
 
-        if (!AllyWriteBudget.IsAvailable(command.Deadline))
+        if (!DeviceWriteBudget.IsAvailable(command.Deadline))
         {
             return new CapabilityReason(CapabilityReasonCode.Quiescing,
                 "The command deadline leaves too little time for a hardware write.", true);
@@ -249,21 +248,9 @@ public sealed partial class RogAllyPlugin
                 $"Value kind {value.Kind} does not match {descriptor.ValueKind}.");
         }
 
-        var invalid = descriptor.ValueKind switch
+        if (!CapabilityValueValidation.ValueMatches(value, descriptor, out var invalid))
         {
-            CapabilityValueKind.Integer when value.IntegerValue is not { } integer
-                                             || integer < descriptor.Minimum || integer > descriptor.Maximum =>
-                OutOfRange("The value is outside the declared range."),
-            CapabilityValueKind.Choice when descriptor.Choices.All(choice => choice.Value != value.ChoiceValue) =>
-                OutOfRange("The choice is not one of the declared options."),
-            CapabilityValueKind.Color when value.ColorValue is not (>= 0 and <= 0xFFFFFF) =>
-                OutOfRange("The colour must be 24-bit RGB."),
-            CapabilityValueKind.Curve when value.CurveValue.Count == 0 => OutOfRange("The curve has no points."),
-            _ => null
-        };
-        if (invalid is not null)
-        {
-            return invalid;
+            return OutOfRange(invalid!);
         }
 
         // WSGM decides both limits of the pair; a command that does not carry a valid one is refused.

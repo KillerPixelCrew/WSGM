@@ -17,7 +17,7 @@ internal enum GameModeEntryOutcome
     /// <summary>The user cancelled. The desktop is as it was.</summary>
     Cancelled,
 
-    /// <summary>Entry failed; the warning includes any recovery failure.</summary>
+    /// <summary>Entry failed. The desktop either never changed or went through the desktop return.</summary>
     Failed,
 
     /// <summary>Explorer could not be removed, so the desktop was deliberately kept.</summary>
@@ -26,19 +26,25 @@ internal enum GameModeEntryOutcome
 
 /// <summary>The result of one entry attempt.</summary>
 /// <param name="Outcome">How it ended.</param>
-/// <param name="Warning">User-facing warning, or null when there is nothing to say.</param>
+/// <param name="Warning">
+///     User-facing warning, or null when there is nothing to say. Also null when the desktop return
+///     failed, because the return has already shown the pending-desktop warning.
+/// </param>
 internal sealed record GameModeEntryResult(GameModeEntryOutcome Outcome, string? Warning = null);
 
 /// <summary>
-///     Everything the entry transaction can do to the machine. The transaction owns the order
-///     and the compensation; the backend owns the effects.
+///     Everything the entry transaction and the desktop return can do to the machine. The
+///     transaction owns the order and the compensation; the backend owns the effects.
 /// </summary>
 internal interface IGameModeEntryBackend
 {
-    Task<bool> RestorePendingReturnAsync(CancellationToken cancellationToken)
-    {
-        return Task.FromResult(true);
-    }
+    /// <summary>
+    ///     Restores a desktop state an earlier session still owes, and clears its record once
+    ///     restored. A refusal leaves the desktop untouched and lets Steam be watched again.
+    /// </summary>
+    /// <param name="cancellationToken">Stops waiting for the restore.</param>
+    /// <returns>Whether nothing is owed any more.</returns>
+    Task<bool> RestorePendingReturnAsync(CancellationToken cancellationToken);
 
     /// <summary>Shows one status line on the splash.</summary>
     /// <param name="line">What is happening now.</param>
@@ -82,10 +88,27 @@ internal interface IGameModeEntryBackend
     /// <summary>Applies the scaling posture Default entry uses.</summary>
     Task ApplyDefaultPostureAsync();
 
-    /// <summary>Runs the configured entry actions, stopping at the first failure.</summary>
+    /// <summary>Runs the entry actions, stopping at the first failure.</summary>
+    /// <param name="steps">The configured entry actions.</param>
     /// <param name="cancellationToken">Cancels the sequence.</param>
     /// <returns>One result per step that ran.</returns>
-    Task<IReadOnlyList<PluginActionStepResult>> RunEnterActionsAsync(CancellationToken cancellationToken);
+    Task<IReadOnlyList<PluginActionStepResult>> RunEnterActionsAsync(
+        IReadOnlyList<PluginActionStep> steps, CancellationToken cancellationToken);
+
+    /// <summary>Runs every configured leave action, reporting failures.</summary>
+    /// <returns>One result per step.</returns>
+    Task<IReadOnlyList<PluginActionStepResult>> RunLeaveActionsAsync();
+
+    /// <summary>
+    ///     Puts the desktop layout back when Game Mode ends: the layout recorded at entry, or the
+    ///     configured Desktop layout, whichever this configuration owes.
+    /// </summary>
+    /// <returns>A warning when it could not be restored, otherwise null.</returns>
+    Task<string?> ApplyReturnLayoutAsync();
+
+    /// <summary>Restores desktop audio after the return display layout has settled.</summary>
+    /// <returns>A warning when it could not be restored, otherwise null.</returns>
+    Task<string?> ApplyReturnAudioAsync();
 
     /// <summary>Captures the Explorer anchor that a later restore needs.</summary>
     /// <returns>Whether the desktop can be safely taken over.</returns>
@@ -124,17 +147,15 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
         IReadOnlyList<PluginActionStepResult> entered = [];
         DisplayLayout? returnLayout = null;
         AudioProfilePreference? returnAudio = null;
-        var recoveryAttempted = false;
+        bool? recovered = null;
 
-        async Task RecoverAsync()
+        // Whether the desktop came back. The return shows its own pending-desktop warning when it
+        // did not, so a caller then reports its outcome without a second warning.
+        async Task<bool> RecoverAsync()
         {
-            if (recoveryAttempted)
-            {
-                return;
-            }
-
-            recoveryAttempted = true;
-            await RecoverDesktopAsync(entered, returnLayout).ConfigureAwait(false);
+            recovered ??= await backend.ReturnToDesktopAsync(returnLayout,
+                PluginActionSequence.NeedsCompensation(entered)).ConfigureAwait(false);
+            return recovered.Value;
         }
 
         try
@@ -165,12 +186,14 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
             if (launch.EnterActions.Count > 0)
             {
                 backend.SetStatus("Running the configured entry actions");
-                entered = await backend.RunEnterActionsAsync(cancellationToken).ConfigureAwait(false);
+                entered = await backend.RunEnterActionsAsync(launch.EnterActions, cancellationToken)
+                    .ConfigureAwait(false);
                 if (entered.FirstOrDefault(step => !step.Succeeded) is { } failed)
                 {
-                    await RecoverAsync().ConfigureAwait(false);
                     return new GameModeEntryResult(GameModeEntryOutcome.Failed,
-                        $"Game Mode entry action: {failed.Detail}");
+                        await RecoverAsync().ConfigureAwait(false)
+                            ? $"Game Mode entry action: {failed.Detail}"
+                            : null);
                 }
             }
 
@@ -193,9 +216,8 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
             var prepared = await backend.PrepareExplorerExitAsync().ConfigureAwait(false);
             if (!prepared)
             {
-                await RecoverAsync().ConfigureAwait(false);
                 return new GameModeEntryResult(GameModeEntryOutcome.DesktopPreserved,
-                    SessionModes.ExplorerTakeoverRefusedWarning);
+                    await RecoverAsync().ConfigureAwait(false) ? SessionModes.ExplorerTakeoverRefusedWarning : null);
             }
 
             // A display can drop out again between the wait and here, and re-entering the wait is
@@ -218,9 +240,8 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
             var exited = await backend.ExitExplorerAndWaitAsync().ConfigureAwait(false);
             if (!exited)
             {
-                await RecoverAsync().ConfigureAwait(false);
                 return new GameModeEntryResult(GameModeEntryOutcome.DesktopPreserved,
-                    SessionModes.ExplorerExitFailedWarning);
+                    await RecoverAsync().ConfigureAwait(false) ? SessionModes.ExplorerExitFailedWarning : null);
             }
 
             cancellationToken.ThrowIfCancellationRequested();
@@ -276,8 +297,8 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
         catch (Exception ex)
         {
             Log.Error("Game Mode entry failed", ex);
-            await RecoverAsync().ConfigureAwait(false);
-            return new GameModeEntryResult(GameModeEntryOutcome.Failed, "Game Mode entry failed: " + ex.Message);
+            return new GameModeEntryResult(GameModeEntryOutcome.Failed,
+                await RecoverAsync().ConfigureAwait(false) ? "Game Mode entry failed: " + ex.Message : null);
         }
     }
 
@@ -310,14 +331,4 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
         ]);
     }
 
-    private async Task RecoverDesktopAsync(
-        IReadOnlyList<PluginActionStepResult> entered, DisplayLayout? returnLayout)
-    {
-        var restored = await backend.ReturnToDesktopAsync(returnLayout,
-            PluginActionSequence.NeedsCompensation(entered)).ConfigureAwait(false);
-        if (!restored)
-        {
-            throw new InvalidOperationException(SessionModes.ExplorerDesktopPendingWarning);
-        }
-    }
 }

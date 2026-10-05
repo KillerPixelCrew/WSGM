@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.IO.Compression;
 using System.Linq;
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
+using System.Security.Cryptography;
 using System.Text.Json;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Device.Sdk.Packaging;
@@ -28,10 +28,6 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
 {
     internal const string Extension = ".wsgmpkg";
     internal const string ManifestName = "plugin.wsgm.json";
-    internal const int MaxPackageEntries = 1024;
-    internal const int MaxPackageFiles = 512;
-    internal const long MaxPackageFileBytes = 128L * 1024 * 1024;
-    internal const long MaxPackageBytes = 512L * 1024 * 1024;
 
     private readonly Dictionary<string, byte[]> _entries;
     private readonly FileStream _handle;
@@ -106,9 +102,6 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
                 .Select(id => id!)
                 .Distinct(StringComparer.Ordinal)
                 .Order(StringComparer.Ordinal)
-                // One past the limit, as the directory source does, so the importer can see an
-                // over-limit package instead of a silently truncated one.
-                .Take(GlyphProfileLimits.MaxProfiles + 1)
         ];
     }
 
@@ -117,7 +110,7 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
     {
         bytes = [];
         if (maximumBytes <= 0
-            || !TryNormalizeEntryName(relativePath, out var name)
+            || !PluginPackageLayout.TryNormalizeEntryName(relativePath, out var name)
             || !_entries.TryGetValue(name, out var stored)
             || stored.Length == 0
             || stored.Length > maximumBytes)
@@ -127,6 +120,14 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
 
         bytes = [.. stored];
         return true;
+    }
+
+    /// <summary>The SHA-256 of the package file, as upper-case hex, read through the handle already open.</summary>
+    internal string HashFile()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        _handle.Position = 0;
+        return Convert.ToHexString(SHA256.HashData(_handle));
     }
 
     /// <summary>Whether a stamped version names this host's release, with an omitted patch read as zero.</summary>
@@ -149,7 +150,8 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         assembly = null!;
         symbols = null;
-        if (!TryNormalizeEntryName(fileName, out var name) || !_entries.TryGetValue(name, out var image))
+        if (!PluginPackageLayout.TryNormalizeEntryName(fileName, out var name)
+            || !_entries.TryGetValue(name, out var image))
         {
             return false;
         }
@@ -186,12 +188,7 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
             FileOptions.RandomAccess);
         try
         {
-            if (handle.Length > MaxPackageBytes)
-            {
-                throw new InvalidDataException("The package exceeds the bounded size limit.");
-            }
-
-            var entries = ReadEntries(handle);
+            var entries = PluginPackageLayout.ReadEntries(handle);
             if (!entries.TryGetValue(ManifestName, out var manifestBytes))
             {
                 throw new InvalidDataException($"The package has no {ManifestName} at its root.");
@@ -199,7 +196,7 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
 
             var (device, common) = ReadManifest(manifestBytes);
             var entryAssembly = device?.EntryAssembly ?? common!.EntryAssembly;
-            if (!TryNormalizeEntryName(entryAssembly, out var entryName)
+            if (!PluginPackageLayout.TryNormalizeEntryName(entryAssembly, out var entryName)
                 || entryName.Contains('/')
                 || !entries.TryGetValue(entryName, out var entryImage))
             {
@@ -216,77 +213,6 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
             handle.Dispose();
             throw;
         }
-    }
-
-    private static Dictionary<string, byte[]> ReadEntries(FileStream handle)
-    {
-        Dictionary<string, byte[]> entries = new(StringComparer.Ordinal);
-        HashSet<string> folded = new(StringComparer.OrdinalIgnoreCase);
-        long totalBytes = 0;
-        ZipArchive archive;
-        try
-        {
-            archive = new ZipArchive(handle, ZipArchiveMode.Read, true);
-        }
-        catch (InvalidDataException ex)
-        {
-            throw new InvalidDataException("The package is not a readable ZIP archive.", ex);
-        }
-
-        using (archive)
-        {
-            if (archive.Entries.Count > MaxPackageEntries)
-            {
-                throw new InvalidDataException("The package exceeds the bounded entry limit.");
-            }
-
-            foreach (var entry in archive.Entries)
-            {
-                if (entry.FullName.EndsWith('/'))
-                {
-                    continue;
-                }
-
-                if (!TryNormalizeEntryName(entry.FullName, out var name)
-                    || !string.Equals(name, entry.FullName, StringComparison.Ordinal))
-                {
-                    throw new InvalidDataException($"The package contains an unsafe path: {entry.FullName}");
-                }
-
-                if (!folded.Add(name))
-                {
-                    throw new InvalidDataException($"The package contains {name} more than once.");
-                }
-
-                if (entries.Count >= MaxPackageFiles
-                    || entry.Length > MaxPackageFileBytes
-                    || entry.Length > MaxPackageBytes - totalBytes)
-                {
-                    throw new InvalidDataException("The package exceeds the bounded file or size limit.");
-                }
-
-                var bytes = new byte[entry.Length];
-                using (var stream = entry.Open())
-                {
-                    stream.ReadExactly(bytes);
-                    if (stream.ReadByte() >= 0)
-                    {
-                        throw new InvalidDataException($"The package entry {name} is longer than it declares.");
-                    }
-                }
-
-                if (IsImageName(name) && !IsManagedImage(bytes))
-                {
-                    throw new InvalidDataException(
-                        $"The package carries a native image ({name}); packages may hold managed assemblies only.");
-                }
-
-                totalBytes += bytes.Length;
-                entries.Add(name, bytes);
-            }
-        }
-
-        return entries;
     }
 
     /// <summary>Routes the manifest to the reader of its category; a common manifest names one.</summary>
@@ -339,45 +265,6 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
         }
 
         return (read.Manifest, null);
-    }
-
-    private static bool TryNormalizeEntryName(string? name, out string normalized)
-    {
-        normalized = string.Empty;
-        if (string.IsNullOrWhiteSpace(name) || name.Length > 260 || name.Contains('\\') || name.Contains(':')
-            || name.StartsWith('/'))
-        {
-            return false;
-        }
-
-        var segments = name.Split('/');
-        if (segments.Any(segment => segment.Length == 0 || segment is "." or ".."))
-        {
-            return false;
-        }
-
-        normalized = name;
-        return true;
-    }
-
-    private static bool IsImageName(string name)
-    {
-        return name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-               || name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
-               || name.EndsWith(".sys", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool IsManagedImage(byte[] bytes)
-    {
-        try
-        {
-            using PEReader pe = new(new MemoryStream(bytes, false));
-            return pe.PEHeaders.CorHeader is not null && pe.HasMetadata;
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException)
-        {
-            return false;
-        }
     }
 
     private static bool IsX64ManagedAssembly(byte[] bytes)

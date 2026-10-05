@@ -79,9 +79,9 @@ internal sealed unsafe partial class NvApi : INvProfiles, IDisposable
         Check(((delegate* unmanaged[Cdecl]<nint, int>)Function(0x375dbd6b))(Drs), "DRS LoadSettings");
     }
 
-    public void Save()
+    public void Save(WriteAdmission admission)
     {
-        DriverWriteScope.Check();
+        admission.Check();
         Check(((delegate* unmanaged[Cdecl]<nint, int>)Function(0xfcbc7e14))(Drs), "DRS SaveSettings", true);
     }
 
@@ -111,21 +111,21 @@ internal sealed unsafe partial class NvApi : INvProfiles, IDisposable
         return (Number(buffer, CurrentValueOffset), Number(buffer, 4108) == 0 && Number(buffer, 4112) == 0);
     }
 
-    public void Set(nint profile, uint setting, uint value)
+    public void Set(nint profile, uint setting, uint value, WriteAdmission admission)
     {
-        DriverWriteScope.Check();
         var buffer = NewSetting(setting);
         Number(buffer, CurrentValueOffset, value);
         fixed (byte* pointer = buffer)
         {
+            admission.Check();
             Check(((delegate* unmanaged[Cdecl]<nint, nint, byte*, int>)Function(0x577dd202))(Drs, profile, pointer),
                 "DRS SetSetting", true);
         }
     }
 
-    public void Inherit(nint profile, uint setting)
+    public void Inherit(nint profile, uint setting, WriteAdmission admission)
     {
-        DriverWriteScope.Check();
+        admission.Check();
         // Delete this one user override. Predefined settings and every unrelated setting remain.
         var status = ((delegate* unmanaged[Cdecl]<nint, nint, uint, int>)Function(0xe4a26362))(Drs, profile, setting);
         if (status != -160)
@@ -144,6 +144,8 @@ internal sealed unsafe partial class NvApi : INvProfiles, IDisposable
             throw new DriverFailure("A native NVIDIA profile requires a plain executable filename.");
         }
 
+        // Creating a profile or an application only stages it in the session; Save, which checks admission,
+        // is what commits it.
         var app = new byte[ApplicationSize];
         Number(app, 0, Version(ApplicationSize, 4));
         Unicode(app, 8, executable);
@@ -243,20 +245,27 @@ internal sealed unsafe partial class NvApi : INvProfiles, IDisposable
 
     internal HashSet<uint> SettingIds()
     {
-        uint count = 4096;
-        var values = new uint[count];
-        fixed (uint* pointer = values)
+        var values = new uint[4096];
+        while (true)
         {
-            Check(((delegate* unmanaged[Cdecl]<uint*, uint*, int>)Function(0xf020614a))(pointer, &count),
-                "DRS EnumAvailableSettingIds");
-        }
+            var count = (uint)values.Length;
+            int status;
+            fixed (uint* pointer = values)
+            {
+                status = ((delegate* unmanaged[Cdecl]<uint*, uint*, int>)Function(0xf020614a))(pointer, &count);
+            }
 
-        if (count > values.Length)
-        {
-            throw new DriverFailure("The NVIDIA setting table exceeds the supplied buffer.");
-        }
+            // NVAPI_END_ENUMERATION: the buffer cannot hold every id. Size it from the reported count when that
+            // is larger, else double it, and ask again; this is a read.
+            if (status == -7 || (status == 0 && count > values.Length))
+            {
+                values = new uint[Math.Max(count, (uint)values.Length * 2)];
+                continue;
+            }
 
-        return values.Take((int)count).ToHashSet();
+            Check(status, "DRS EnumAvailableSettingIds");
+            return values.Take((int)count).ToHashSet();
+        }
     }
 
     internal uint[] Values(uint setting)
@@ -418,23 +427,37 @@ internal sealed unsafe partial class NvApi : INvProfiles, IDisposable
         return Number(data, 4);
     }
 
+    /// <summary>Reads the colour block (command 1) or asks whether one is supported (command 3).</summary>
     internal byte[] Color(uint display, byte command, byte[]? input = null)
+    {
+        var buffer = ColorBuffer(command, input);
+        fixed (byte* pointer = buffer)
+        {
+            Check(((delegate* unmanaged[Cdecl]<uint, byte*, int>)Function(0x92f9d80d))(display, pointer),
+                "Disp_ColorControl");
+        }
+
+        return buffer;
+    }
+
+    /// <summary>Writes a colour block, checking admission immediately before the native call.</summary>
+    internal void SetColor(uint display, byte[] data, WriteAdmission admission)
+    {
+        var buffer = ColorBuffer(2, data);
+        fixed (byte* pointer = buffer)
+        {
+            admission.Check();
+            Check(((delegate* unmanaged[Cdecl]<uint, byte*, int>)Function(0x92f9d80d))(display, pointer),
+                "Disp_ColorControl", true);
+        }
+    }
+
+    private static byte[] ColorBuffer(byte command, byte[]? input)
     {
         var buffer = input is null ? new byte[ColorSize] : (byte[])input.Clone();
         Number(buffer, 0, Version(ColorSize, 5));
         BinaryPrimitives.WriteUInt16LittleEndian(buffer.AsSpan(4), ColorSize);
         buffer[6] = command;
-        fixed (byte* pointer = buffer)
-        {
-            if (command == 2)
-            {
-                DriverWriteScope.Check();
-            }
-
-            Check(((delegate* unmanaged[Cdecl]<uint, byte*, int>)Function(0x92f9d80d))(display, pointer),
-                "Disp_ColorControl", command == 2);
-        }
-
         return buffer;
     }
 

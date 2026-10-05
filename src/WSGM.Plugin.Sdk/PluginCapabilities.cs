@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Sdk.Plugin;
 
 namespace WSGM.Plugin.Sdk;
 
@@ -32,19 +31,6 @@ public interface ICapabilityHost
     /// <param name="cancellationToken">Cancels publication.</param>
     /// <returns>A task completing after WSGM accepted it.</returns>
     ValueTask PublishCapabilityStateAsync(CapabilityState state, CancellationToken cancellationToken);
-
-    /// <summary>Writes one diagnostic line into WSGM's log. Never throws.</summary>
-    /// <param name="level">How much the line matters.</param>
-    /// <param name="scope">Subsystem producing it, used as the log prefix.</param>
-    /// <param name="message">The line, recorded whole.</param>
-    void Trace(DeviceTraceLevel level, string scope, string message);
-
-    /// <summary>Records a polled state, writing only when that key's value changed. Never throws.</summary>
-    /// <param name="level">Level for the line when it is written.</param>
-    /// <param name="scope">Subsystem producing the line.</param>
-    /// <param name="key">Stable identity of the thing observed, unique within <paramref name="scope" />.</param>
-    /// <param name="message">The current state.</param>
-    void TraceChange(DeviceTraceLevel level, string scope, string key, string message);
 }
 
 /// <summary>

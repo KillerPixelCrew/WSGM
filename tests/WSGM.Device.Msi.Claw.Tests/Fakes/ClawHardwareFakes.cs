@@ -15,6 +15,18 @@ internal sealed class FakeIdentityReader : IClawIdentityReader
     /// <summary>The MCU revision the snapshot reports, when a test needs another one.</summary>
     public string? McuRevision { get; init; }
 
+    /// <summary>The power source each command reads.</summary>
+    public bool OnAcPower { get; set; } = true;
+
+    /// <summary>How often a command read the power source.</summary>
+    public int AcPowerReads { get; private set; }
+
+    public bool ReadOnAcPower()
+    {
+        AcPowerReads++;
+        return OnAcPower;
+    }
+
     public ValueTask<ClawIdentityState> ReadAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -41,6 +53,7 @@ internal sealed class FakeIdentityReader : IClawIdentityReader
                 BaseboardManufacturer = ClawHardwareFacts.Manufacturer,
                 BaseboardProduct = ClawModels.Claw8A2Vm.BoardProduct,
                 SystemSku = "1T52.1",
+                BiosVersion = "E1T52IMS.114",
                 EcFirmwareVersion = "1T52EMS1.1091204202509:10:47",
                 // A revision the plugin was never reviewed against, on purpose: controller and
                 // lighting ownership must not depend on it.
@@ -57,7 +70,8 @@ internal sealed class FakeIdentityReader : IClawIdentityReader
             },
             ExactMachineMatch = true,
             Model = ClawModels.Claw8A2Vm,
-            WmiFirmwareIdentity = "ec:1T52EMS1.109;msi-acpi:8.0",
+            WmiAvailable = true,
+            LegacyRecoveryBinding = "ec:1T52EMS1.109;msi-acpi:8.0",
             OnAcPower = true
         };
     }
@@ -220,6 +234,16 @@ internal sealed class FakeWmiTransport : IMsiWmiTransport
 internal sealed class FakeOemEventSource : IMsiOemEventSource
 {
     private Func<byte, DateTimeOffset, ValueTask>? _callback;
+
+    /// <summary>How often the plugin asked for the MSI_Event repair.</summary>
+    public int RepairRequests { get; private set; }
+
+    public ValueTask EnsureEventClassAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        RepairRequests++;
+        return ValueTask.CompletedTask;
+    }
 
     public ValueTask<bool> StartAsync(
         Func<byte, DateTimeOffset, ValueTask> callback,

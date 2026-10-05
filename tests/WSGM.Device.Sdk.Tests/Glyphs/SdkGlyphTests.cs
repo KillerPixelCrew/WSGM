@@ -97,9 +97,9 @@ public sealed class SdkGlyphTests
     }
 
     [Fact]
-    public void Import_ValidatesTheWholeSvgAfterThePathProjectionLimit()
+    public void Import_ValidatesTheWholeSvgAfterManyPaths()
     {
-        var paths = string.Concat(Enumerable.Repeat("<path d=\"M0 0\"/>", GlyphProfileLimits.MaxSvgPaths));
+        var paths = string.Concat(Enumerable.Repeat("<path d=\"M0 0\"/>", 300));
         var svg = Svg(paths + "<broken");
 
         var result = GlyphPackageImporter.Import(Source(svg));
@@ -109,17 +109,17 @@ public sealed class SdkGlyphTests
     }
 
     [Fact]
-    public void Import_RejectsMorePathCommandsThanTheDeclaredRendererLimit()
+    public void Import_ProjectsEveryPathAndKeepsLongPathData()
     {
-        var commands = string.Concat(Enumerable.Repeat("M0 0 ", GlyphProfileLimits.MaxSvgCommands + 1));
-        var svg = Svg($"<path d=\"{commands}\"/>");
+        var commands = string.Concat(Enumerable.Repeat("L1 1 ", 20_000));
+        var svg = Svg(string.Concat(Enumerable.Repeat("<path d=\"M0 0\"/>", 300)) + $"<path d=\"M0 0 {commands}\"/>");
 
         var result = GlyphPackageImporter.Import(Source(svg));
 
-        Assert.Empty(result.Profiles);
-        Assert.Contains(result.Errors, error => error.Message.Contains(
-            $"more than {GlyphProfileLimits.MaxSvgCommands}",
-            StringComparison.Ordinal));
+        Assert.True(result.IsValid, Describe(result));
+        var asset = Assert.Single(Assert.Single(result.Profiles).Assets).Value;
+        Assert.Equal(301, asset.Vector!.Paths.Count);
+        Assert.Equal("M0 0 " + commands, asset.Vector.Paths[^1].Data);
     }
 
     [Fact]
@@ -198,43 +198,29 @@ public sealed class SdkGlyphTests
     }
 
     [Fact]
-    public void Import_MoreProfilesThanTheLimit_IsReportedRatherThanSilentlyTruncated()
+    public void Import_EveryProfileIsReadWhateverTheCount()
     {
-        // A source that cut its enumeration at exactly the limit made this unreachable, so a
-        // package carrying more profiles than the format allows validated as conforming with the
-        // extras quietly dropped — indistinguishable, in the installed-package diagnostics, from
-        // one that never had them.
-        string[] identifiers =
-        [
-            .. Enumerable.Range(0, GlyphProfileLimits.MaxProfiles + 1)
-                .Select(index => $"profile-{index:D2}")
-        ];
+        string[] identifiers = [.. Enumerable.Range(0, 40).Select(index => $"profile-{index:D2}")];
 
-        var result = GlyphPackageImporter.Import(
-            new EmptyGlyphSource(identifiers));
+        var result = GlyphPackageImporter.Import(new EmptyGlyphSource(identifiers));
 
-        Assert.False(result.IsValid);
-        Assert.Contains(
-            result.Errors,
-            error => error.Message.Contains(
-                $"more than {GlyphProfileLimits.MaxProfiles} glyph profiles",
-                StringComparison.Ordinal));
+        Assert.Equal(identifiers, result.Errors.Select(error => error.ProfileId).Distinct().Order());
     }
 
     [Fact]
-    public void DirectorySource_EnumeratesOnePastTheLimitSoTheImporterCanSeeIt()
+    public void DirectorySource_EnumeratesEveryProfile()
     {
         using TemporaryDirectory root = new();
         var profiles = Path.Combine(root.Root, "glyphs", "profiles");
         Directory.CreateDirectory(profiles);
-        for (var index = 0; index < GlyphProfileLimits.MaxProfiles + 5; index++)
+        for (var index = 0; index < 40; index++)
         {
             File.WriteAllText(Path.Combine(profiles, $"profile-{index:D2}.json"), "{}");
         }
 
         ImmutableGlyphPackageDirectorySource source = new(root.Root);
 
-        Assert.Equal(GlyphProfileLimits.MaxProfiles + 1, source.EnumerateProfileIds().Count);
+        Assert.Equal(40, source.EnumerateProfileIds().Count);
     }
 
     private static byte[] Svg(string content)

@@ -38,6 +38,9 @@ Every command revalidates identity, service state, generations, deadline and ran
   they can be read; otherwise write anyway and return the fans to HC's factory tables on stop. Keep a
   failed restore Pending in the recovery record, with no status write. The next start attempts that
   original once. A failed command performs no rollback and leaves the service usable.
+- Recovery entries bind to the BIOS version (the controller's to `mcu`). At start an entry from another BIOS is
+  dropped, one whose transport is not there yet waits, and nothing blocks a service. An entry an earlier build
+  marked unverified is complete; one it marked failed is pending again.
 - A write refused for lack of deadline budget has touched nothing: reject it, never fault the service
   or mark a recovery entry failed for it.
 - Charge limit and Aura are persistent user choices: never journalled, never reverted on stop.

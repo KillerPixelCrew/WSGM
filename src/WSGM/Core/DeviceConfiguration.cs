@@ -4,16 +4,6 @@ using WSGM.Device.Sdk.Settings;
 
 namespace WSGM.Core;
 
-/// <summary>Capability ids the authored-profile chain targets.</summary>
-public static class DeviceAuthoredProfileCapabilities
-{
-    /// <summary>The fan-curve capability authored curve profiles apply to.</summary>
-    public const string FanCurve = "fan.curve";
-
-    /// <summary>The lighting zone-colour capability authored colour profiles apply to.</summary>
-    public const string Lighting = "lighting.zone-color";
-}
-
 /// <summary>Persisted settings for the optional production device platform.</summary>
 public sealed class DeviceIntegrationConfig
 {

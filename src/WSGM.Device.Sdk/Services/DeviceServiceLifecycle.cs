@@ -313,9 +313,10 @@ public static class DeviceServiceLifecycle
     {
         return state switch
         {
-            DeviceServiceState.Owned or DeviceServiceState.Releasing => "plugin",
-            DeviceServiceState.Idle or DeviceServiceState.Passive or DeviceServiceState.Acquiring => "device",
-            _ => "unavailable"
+            DeviceServiceState.Owned or DeviceServiceState.Releasing => SourceOwnership.Plugin,
+            DeviceServiceState.Idle or DeviceServiceState.Passive or DeviceServiceState.Acquiring =>
+                SourceOwnership.Device,
+            _ => SourceOwnership.Unavailable
         };
     }
 

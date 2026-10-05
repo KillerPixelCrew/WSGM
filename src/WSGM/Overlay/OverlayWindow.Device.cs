@@ -49,8 +49,48 @@ public partial class OverlayWindow
     /// <summary>Renders what a device package on this install is missing, if anything.</summary>
     private void RefreshDevicePrerequisites()
     {
-        var advice = _devicePrerequisites?.Read()
-                     ?? new DevicePrerequisiteAdvice("", false, false);
+        // The read opens every package in the Plugins folder, so it runs on a worker and the banner
+        // fills in when it lands. One read runs at a time; a refresh asked for meanwhile reads once
+        // more after it.
+        if (_devicePrerequisites is not { } source)
+        {
+            ShowDevicePrerequisites(new DevicePrerequisiteAdvice("", false, false));
+            return;
+        }
+
+        if (_devicePrerequisitesReading)
+        {
+            _devicePrerequisitesStale = true;
+            return;
+        }
+
+        _devicePrerequisitesReading = true;
+        Log.Observe(ReadDevicePrerequisitesAsync(source), "Overlay device prerequisites");
+    }
+
+    private async Task ReadDevicePrerequisitesAsync(DevicePrerequisiteSource source)
+    {
+        try
+        {
+            var advice = await Task.Run(() => source.Read());
+            if (ReferenceEquals(_devicePrerequisites, source))
+            {
+                ShowDevicePrerequisites(advice);
+            }
+        }
+        finally
+        {
+            _devicePrerequisitesReading = false;
+            if (_devicePrerequisitesStale)
+            {
+                _devicePrerequisitesStale = false;
+                RefreshDevicePrerequisites();
+            }
+        }
+    }
+
+    private void ShowDevicePrerequisites(DevicePrerequisiteAdvice advice)
+    {
         // No page check: the banner is a child of PanelDevice, so that panel's own visibility is
         // the gate. It stays up on the Device sub-pages too, which is where someone hunting a dead
         // device most likely ends up.
@@ -815,9 +855,10 @@ public partial class OverlayWindow
     /// <summary>Marshals one physical sample onto the UI thread and lights what it presses.</summary>
     /// <param name="sample">The unfiltered sample the plugin reported.</param>
     /// <remarks>
-    ///     The set is compared before posting, so a controller sitting still — which is most samples —
-    ///     costs one set comparison on the sampling thread and nothing on the UI thread. Without that,
-    ///     a 250 Hz stream would post 250 dispatcher items a second to change nothing.
+    ///     The sample's pressed-input key is compared with the last one before posting, so a controller
+    ///     sitting still, which is most samples, costs one integer comparison on the sampling thread and
+    ///     nothing on the UI thread. Without that, a 250 Hz stream would post 250 dispatcher items a
+    ///     second to change nothing.
     /// </remarks>
     private void OnPhysicalGlyphSample(CanonicalControllerSample sample)
     {

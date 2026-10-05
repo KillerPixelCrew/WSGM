@@ -11,7 +11,7 @@ internal static class DriverDescriptors
     {
         return new CapabilitySection
         {
-            SectionId = id, Key = SettingSectionKey.Custom, CustomTitle = Label(title, 48),
+            SectionId = id, Key = SettingSectionKey.Custom, CustomTitle = Label(title),
             Icon = display ? SectionIcon.Display : SectionIcon.Gauge
         };
     }
@@ -29,7 +29,7 @@ internal static class DriverDescriptors
         return Base(id, instance, label, section, scope, CapabilityValueKind.Choice, CapabilityRole.GenericChoice) with
         {
             Choices = options.Select(option => new CapabilityChoice(option.Id,
-                new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = Label(option.Label, 64) })).ToArray()
+                new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = Label(option.Label) })).ToArray()
         };
     }
 
@@ -58,7 +58,7 @@ internal static class DriverDescriptors
         return new CapabilityDescriptor
         {
             CapabilityId = id, InstanceId = instance, SectionId = section, Role = role, ValueKind = kind,
-            Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = Label(label, 64) },
+            Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = Label(label) },
             SupportsRead = true, SupportsWrite = true, ProfileScope = scope,
             Persistence = CapabilityPersistence.DevicePersistent,
             ApplyTiming = scope == CapabilityProfileScope.NativePerApplication
@@ -67,8 +67,8 @@ internal static class DriverDescriptors
         };
     }
 
-    private static string Label(string text, int max)
+    private static string Label(string text)
     {
-        return new string(text.Where(character => !PlainText.IsUnsafe(character)).Take(max).ToArray());
+        return new string(text.Where(character => !PlainText.IsUnsafe(character)).ToArray());
     }
 }

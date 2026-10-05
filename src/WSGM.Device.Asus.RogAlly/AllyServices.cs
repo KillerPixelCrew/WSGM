@@ -7,6 +7,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Services;
 
@@ -36,9 +37,6 @@ internal sealed class PowerService(
     public AllyPowerCapability? Capability { get; private set; }
 
     public AllyPowerState? LastObserved { get; private set; }
-
-    /// <summary>Whether this cycle journalled an original that stop restores.</summary>
-    public bool HasJournalledOriginal => journal.PendingOriginalFor(ServiceId) is not null;
 
     public override ValueTask<DeviceServiceResult> AcquireAsync(
         DeviceCycleContext<AllyIdentityState> context,
@@ -82,7 +80,7 @@ internal sealed class PowerService(
     /// </remarks>
     public async ValueTask PrepareWriteAsync(AllyIdentityState identity, CancellationToken cancellationToken)
     {
-        if (HasJournalledOriginal)
+        if (journal.HoldsOriginal(ServiceId, identity.FirmwareIdentity))
         {
             return;
         }
@@ -95,7 +93,7 @@ internal sealed class PowerService(
             return;
         }
 
-        await journal.ArmAsync(ServiceId, identity.FirmwareIdentity, AllyRecoveryState.Power(original),
+        _ = await journal.BeginAsync(ServiceId, identity.FirmwareIdentity, AllyRecoveryState.Power(original),
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -116,7 +114,11 @@ internal sealed class PowerService(
 
         if (journal.PendingOriginalFor(ServiceId)?.ToPower() is { } original)
         {
-            AllyWriteBudget.Require(context.Deadline, "power restoration");
+            if (!DeviceWriteBudget.IsAvailable(context.Deadline))
+            {
+                return Set(DeviceServiceState.ReleasedUnverified, NoTimeToRestore());
+            }
+
             try
             {
                 await Capability.RestoreAsync(original, cancellationToken).ConfigureAwait(false);
@@ -133,6 +135,13 @@ internal sealed class PowerService(
 
         return Set(DeviceServiceState.Idle);
     }
+
+    /// <summary>A release refused for lack of time: nothing was written and the entry stays pending.</summary>
+    internal static CapabilityReason NoTimeToRestore()
+    {
+        return new CapabilityReason(CapabilityReasonCode.Quiescing,
+            "Not enough time to restore; the original stays recorded for the next start.");
+    }
 }
 
 /// <summary>Fan curves and fan readings.</summary>
@@ -148,9 +157,6 @@ internal sealed class FanService(
     public (int? Cpu, int? Gpu) LastFans { get; private set; }
 
     public AllyFanSnapshot? Original => journal.OriginalStateFor(ServiceId)?.ToFans();
-
-    /// <summary>Whether this cycle journalled an original that stop restores.</summary>
-    public bool HasJournalledOriginal => journal.PendingOriginalFor(ServiceId) is not null;
 
     public override ValueTask<DeviceServiceResult> AcquireAsync(
         DeviceCycleContext<AllyIdentityState> context,
@@ -200,7 +206,7 @@ internal sealed class FanService(
     /// </remarks>
     public async ValueTask PrepareWriteAsync(AllyIdentityState identity, CancellationToken cancellationToken)
     {
-        if (HasJournalledOriginal)
+        if (journal.HoldsOriginal(ServiceId, identity.FirmwareIdentity))
         {
             return;
         }
@@ -213,7 +219,7 @@ internal sealed class FanService(
             return;
         }
 
-        await journal.ArmAsync(ServiceId, identity.FirmwareIdentity, AllyRecoveryState.Fans(original),
+        _ = await journal.BeginAsync(ServiceId, identity.FirmwareIdentity, AllyRecoveryState.Fans(original),
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -236,7 +242,11 @@ internal sealed class FanService(
             return await ReleaseToFactoryAsync(context, cancellationToken).ConfigureAwait(false);
         }
 
-        AllyWriteBudget.Require(context.Deadline, "fan restoration");
+        if (!DeviceWriteBudget.IsAvailable(context.Deadline))
+        {
+            return Set(DeviceServiceState.ReleasedUnverified, PowerService.NoTimeToRestore());
+        }
+
         try
         {
             await Capability.RestoreAsync(original, cancellationToken).ConfigureAwait(false);
@@ -264,7 +274,12 @@ internal sealed class FanService(
             return Set(DeviceServiceState.Idle);
         }
 
-        AllyWriteBudget.Require(context.Deadline, "fan restoration");
+        if (!DeviceWriteBudget.IsAvailable(context.Deadline))
+        {
+            return Set(DeviceServiceState.ReleasedUnverified, new CapabilityReason(CapabilityReasonCode.Quiescing,
+                "Not enough time to write the factory fan tables back."));
+        }
+
         try
         {
             await Capability.WriteFactoryAsync(cancellationToken).ConfigureAwait(false);

@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -70,7 +69,6 @@ internal sealed class SteamGuideChordMirror : IDisposable
     private Timer? _debounce;
     private bool _disposed;
     private bool _enabled = true;
-    private string? _overflowHash;
     private int _retries;
     private bool _targetActive;
     private FileSystemWatcher? _templateWatcher;
@@ -110,7 +108,7 @@ internal sealed class SteamGuideChordMirror : IDisposable
             _disposed = true;
         }
 
-        Apply(false, false);
+        Update();
     }
 
     /// <summary>Raised when <see cref="Active" /> changed.</summary>
@@ -133,21 +131,42 @@ internal sealed class SteamGuideChordMirror : IDisposable
         return mirror.RestoreDefault(true);
     }
 
-    /// <summary>Applies the setting and the managed target's state.</summary>
-    /// <param name="enabled">The "keep guide button chord edits" setting.</param>
-    /// <param name="steamDeckTargetActive">Whether the managed target is a Steam Deck type and active.</param>
+    /// <summary>Applies the "keep guide button chord edits" setting.</summary>
+    /// <param name="keepGuideChordEdits">The setting.</param>
     /// <remarks>
     ///     Turning off restores Valve's template: with the mirror gone, Steam would otherwise keep
     ///     loading a layout nothing maintains any more.
     /// </remarks>
-    public void Apply(bool enabled, bool steamDeckTargetActive)
+    public void SetEnabled(bool keepGuideChordEdits)
+    {
+        lock (_gate)
+        {
+            _enabled = keepGuideChordEdits;
+        }
+
+        Update();
+    }
+
+    /// <summary>Applies the managed target's state.</summary>
+    /// <param name="active">Whether the managed target is a Steam Deck type and active.</param>
+    /// <remarks>Safe on any thread: the controller status event that drives it is raised on any thread.</remarks>
+    public void SetSteamDeckTargetActive(bool active)
+    {
+        lock (_gate)
+        {
+            _targetActive = active;
+        }
+
+        Update();
+    }
+
+    /// <summary>Starts or stops the mirror from the stored setting and target state.</summary>
+    private void Update()
     {
         bool changed;
         lock (_gate)
         {
-            _enabled = enabled;
-            _targetActive = steamDeckTargetActive;
-            var wanted = !_disposed && enabled && steamDeckTargetActive;
+            var wanted = !_disposed && _enabled && _targetActive;
             if (wanted == _watcher is not null)
             {
                 return;
@@ -261,8 +280,6 @@ internal sealed class SteamGuideChordMirror : IDisposable
             _templateWatcher.Dispose();
             _templateWatcher = null;
         }
-
-        _overflowHash = null;
     }
 
     private void OnAutosaveChanged(object sender, FileSystemEventArgs e)
@@ -355,19 +372,15 @@ internal sealed class SteamGuideChordMirror : IDisposable
             var revision = Revision.Match(text) is { Success: true } match ? match.Groups[1].Value : "?";
             if (mirror is null)
             {
-                var hash = Hash(text);
-                if (hash != _overflowHash)
-                {
-                    _overflowHash = hash;
-                    Log.Warn(
-                        $"Guide chord layout (revision {revision}) does not fit Steam's {size}-byte template even " +
-                        "without whitespace; not mirrored, or Steam would reinstall its package on every start.");
-                }
-
+                // Shares the key of the mirrored line, so a mirror in between logs this again.
+                Log.Change(
+                    "steam-chord-mirror",
+                    $"Guide chord layout (revision {revision}) does not fit Steam's {size}-byte template even " +
+                    "without whitespace; not mirrored, or Steam would reinstall its package on every start.",
+                    LogLevel.Warn);
                 return;
             }
 
-            _overflowHash = null;
             if (File.Exists(_template) && File.ReadAllText(_template, Encoding.UTF8) == mirror)
             {
                 return;
@@ -399,7 +412,8 @@ internal sealed class SteamGuideChordMirror : IDisposable
             return;
         }
 
-        if (File.Exists(backup) && Hash(File.ReadAllText(backup, Encoding.UTF8)) == Hash(current))
+        if (File.Exists(backup)
+            && string.Equals(File.ReadAllText(backup, Encoding.UTF8), current, StringComparison.Ordinal))
         {
             return;
         }
@@ -611,10 +625,5 @@ internal sealed class SteamGuideChordMirror : IDisposable
     internal static bool IsMirror(string text)
     {
         return text.Contains("\"progenitor\"", StringComparison.Ordinal);
-    }
-
-    private static string Hash(string text)
-    {
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
     }
 }

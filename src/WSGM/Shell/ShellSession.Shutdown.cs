@@ -33,10 +33,21 @@ public sealed partial class ShellSession
     }
 
     /// <summary>Runs session cleanup with the device protocol reason and one outer deadline.</summary>
+    /// <remarks>
+    ///     One ordered routine: safety first, every step attempted whatever failed before it, and every
+    ///     wait bounded by the same deadline. A SessionEnd that arrives meanwhile only tightens the
+    ///     runtime's deadline and sets the sticky flag that keeps Explorer from being started.
+    /// </remarks>
     private async Task RunShutdownAsync(
         ApplicationShutdownReason reason,
         DateTimeOffset deadline)
     {
+        // Failures are collected and reported once at the end, so the outer coordinator records the
+        // shutdown as unverified without any step having been skipped.
+        List<Exception> failures = [];
+
+        // 0. Stop new work. This runs on the UI thread, where startup builds the owners, so a startup
+        //    that has not reached the UI thread yet sees _disposed and builds nothing.
         _disposed = true;
         _shutdownRequested = true;
         _libraryImport?.CloseAdmission();
@@ -45,370 +56,163 @@ public sealed partial class ShellSession
         _steamUi?.CloseAdmission();
         CancelTabBootSync();
         var libraryTabWork = LibraryTabManager.CloseAsync();
-        if (_controllerStatusSource is not null && _controllerStatusChanged is not null)
+        if (_controllerStatusSource is not null)
         {
-            _controllerStatusSource.StatusChanged -= _controllerStatusChanged;
+            _controllerStatusSource.StatusChanged -= OnControllerStatusChanged;
             _controllerStatusSource = null;
-            _controllerStatusChanged = null;
         }
         _profiles.Close();
         _profileFanOut?.Close();
-        // ReSharper disable once MethodHasAsyncOverload
-        _shutdownCancellation.Cancel();
-        _brightness?.Dispose();
-        // Every cleanup step still runs after an earlier one fails; the collected
-        // failures are reported once at the end so the outer coordinator records the
-        // shutdown as unverified without any step having been skipped.
-        List<Exception> failures = [];
-        if (_startupTask is not null)
-        {
-            try
-            {
-                await _startupTask;
-            }
-            catch (OperationCanceledException) when (_shutdownCancellation.IsCancellationRequested)
-            {
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                RecordShutdownFailure(failures, "Shell startup failed before shutdown cleanup", ex);
-            }
-        }
-
         _bootTakeover?.RequestShutdown();
         _modes?.RequestShutdown();
-        try
-        {
-            _splash?.Dismiss("application shutdown");
-        }
-        catch (Exception ex)
-        {
-            RecordShutdownFailure(failures, "Dismissing the boot splash during application shutdown failed", ex);
-        }
-
-        // Close input admission on the UI thread before any safety-critical asynchronous cleanup.
-        try
+        // ReSharper disable once MethodHasAsyncOverload
+        _shutdownCancellation.Cancel();
+        Step(failures, "Dismissing the boot splash during application shutdown failed",
+            () => _splash?.Dismiss("application shutdown"));
+        Step(failures, "Closing overlay command admission during application shutdown failed", () =>
         {
             _overlay?.Dispose();
-        }
-        catch (Exception ex)
-        {
-            RecordShutdownFailure(failures, "Closing overlay command admission during application shutdown failed", ex);
-        }
-        finally
-        {
             _overlay = null;
+        });
+        Step(failures, "Disposing the brightness service during application shutdown failed",
+            () => _brightness?.Dispose());
+
+        // 1. Join the startup task and the device power queue, so neither still commands the device when
+        //    it stops. An unadopted coordinator is disposed by startup's own finally, and a power
+        //    transition that has not started yet never runs: the device stops below either way.
+        await JoinAsync(failures, "Shell startup", _startupTask ?? Task.CompletedTask, deadline)
+            .ConfigureAwait(false);
+        Task powerWork;
+        lock (_devicePowerGate)
+        {
+            if (_latestPowerTransition is { Started: false } queued)
+            {
+                queued.Cancelled = true;
+            }
+
+            powerWork = _devicePowerWork;
         }
 
-        // Device cleanup is the safety-critical part of the outer application budget.
-        // Run it before waiting on shell transitions or doing Explorer/CEF/RTSS teardown.
-        // If the outer owner reaches its deadline, process exit still unloads the in-process
-        // runtime while the shell anchor remains available for owner-loss desktop recovery.
-        // The coordinator's shutdown restores AutoTDP's original limit first, through its still-open
-        // capability path, and only then stops the device.
+        await JoinAsync(failures, "Device power transition", powerWork, deadline).ConfigureAwait(false);
+
+        // 2 and 3. The coordinator's shutdown restores AutoTDP's original limit first, through its still
+        //    open capability path, then releases the controller, shows the pad again and stops the device.
+        //    If the deadline passes, process exit unloads the in-process runtime while the shell anchor
+        //    stays available for owner-loss desktop recovery.
         DetachOsdPowerStatus();
         _autoTdp = null;
-        if (_deviceCoordinator is not null)
+        if (_deviceCoordinator is { } coordinator)
         {
             var deviceReason = reason switch
             {
-                ApplicationShutdownReason.Update =>
-                    PluginStopReason.Updating,
-                ApplicationShutdownReason.SessionEnd =>
-                    PluginStopReason.SessionEnding,
-                ApplicationShutdownReason.Uninstall =>
-                    PluginStopReason.Uninstalling,
+                ApplicationShutdownReason.Update => PluginStopReason.Updating,
+                ApplicationShutdownReason.SessionEnd => PluginStopReason.SessionEnding,
+                ApplicationShutdownReason.Uninstall => PluginStopReason.Uninstalling,
                 _ => PluginStopReason.WsgmExiting
             };
-            _deviceCoordinator.PhysicalGlyphCatalog.Changed -= OnPhysicalGlyphProfilesChanged;
-            try
-            {
-                await _deviceCoordinator.ShutdownAsync(deviceReason, Deadline.At(deadline)).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                RecordShutdownFailure(failures, "Device cleanup was unverified; remaining shell cleanup continues", ex);
-            }
-            finally
-            {
-                _deviceCoordinator = null;
-            }
+            coordinator.PhysicalGlyphCatalog.Changed -= OnPhysicalGlyphProfilesChanged;
+            _deviceCoordinator = null;
+            await StepAsync(failures, "Device cleanup was unverified; remaining shell cleanup continues",
+                () => coordinator.ShutdownAsync(deviceReason, Deadline.At(deadline)).AsTask()).ConfigureAwait(false);
         }
 
-        // Profile consumers cannot hold up controller safety. Join them only after device cleanup,
-        // within the existing outer deadline; retain a hung pass rather than free its state.
-        try
-        {
-            var completion = Task.WhenAll(_profiles.Completion,
-                _profileFanOut?.Completion ?? Task.CompletedTask);
-            if (completion.IsCompleted)
-            {
-                await completion.ConfigureAwait(false);
-            }
-            else
-            {
-                var remaining = deadline - DateTimeOffset.UtcNow;
-                if (remaining <= TimeSpan.Zero)
-                {
-                    throw new TimeoutException("Profile work remains active at the shutdown deadline.");
-                }
+        // Work that cannot hold up controller safety, joined after it: profile passes (a hung pass is
+        // retained rather than freed), the other-manager reconciliation, and the Steam Input shim and
+        // management applies, which rename files in Steam's folder.
+        await JoinAsync(failures, "Profile work",
+            Task.WhenAll(_profiles.Completion, _profileFanOut?.Completion ?? Task.CompletedTask),
+            deadline).ConfigureAwait(false);
+        await JoinAsync(failures, "Other-manager startup work", _managerStartup, deadline).ConfigureAwait(false);
+        await JoinAsync(failures, "Steam Input shim reconcile", _steamInputReconcile, deadline).ConfigureAwait(false);
+        await JoinAsync(failures, "Steam Input management apply",
+            _wsgmSettings?.SteamInputApplyCompletion ?? Task.CompletedTask, deadline).ConfigureAwait(false);
 
-                await completion.WaitAsync(remaining).ConfigureAwait(false);
-            }
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            RecordShutdownFailure(failures, "Profile work did not finish during shutdown", ex);
-        }
-
-        try
-        {
-            var remaining = deadline - DateTimeOffset.UtcNow;
-            if (_managerStartup.IsCompleted)
-            {
-                await _managerStartup.ConfigureAwait(false);
-            }
-            else if (remaining > TimeSpan.Zero)
-            {
-                await _managerStartup.WaitAsync(remaining).ConfigureAwait(false);
-            }
-            else
-            {
-                Log.Warn("Other-manager startup work remains active at the shutdown deadline.");
-            }
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            RecordShutdownFailure(failures, "Other-manager startup work did not finish during shutdown", ex);
-        }
-
-        // A Steam Input shim reconcile a config reload started is renaming files in Steam's folder.
-        try
-        {
-            var remaining = deadline - DateTimeOffset.UtcNow;
-            if (_steamInputReconcile.IsCompleted)
-            {
-                await _steamInputReconcile.ConfigureAwait(false);
-            }
-            else if (remaining > TimeSpan.Zero)
-            {
-                await _steamInputReconcile.WaitAsync(remaining).ConfigureAwait(false);
-            }
-            else
-            {
-                Log.Warn("Steam Input shim reconcile remains active at the shutdown deadline.");
-            }
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            RecordShutdownFailure(failures, "Steam Input shim reconcile did not finish during shutdown", ex);
-        }
-
-        // The same for a Steam Input change made from WSGM's settings page in Steam.
-        if (_wsgmSettings is { } wsgmSettings)
-        {
-            try
-            {
-                await JoinWithinDeadlineAsync(wsgmSettings.SteamInputApplyCompletion, deadline,
-                    "Steam Input management apply").ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                RecordShutdownFailure(failures, "Steam Input management apply did not finish during shutdown", ex);
-            }
-        }
-
+        // 4. Common plugins, then the graphics router, so no graphics channel is open when it goes.
         if (_commonPlugins is { } commonPlugins)
         {
-            try
-            {
-                await commonPlugins.StopAsync(Deadline.At(deadline)).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                RecordShutdownFailure(failures,
-                    "Common plugin cleanup was unconfirmed; remaining shell cleanup continues", ex);
-            }
+            await StepAsync(failures, "Common plugin cleanup was unconfirmed; remaining shell cleanup continues",
+                () => commonPlugins.StopAsync(Deadline.At(deadline))).ConfigureAwait(false);
         }
 
-        // After the graphics plugins stopped, so no channel is still open when its router goes.
         if (_gpu is { } gpu)
         {
-            try
-            {
-                await gpu.DisposeAsync().ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                RecordShutdownFailure(failures, "Graphics capability cleanup failed", ex);
-            }
+            await StepAsync(failures, "Graphics capability cleanup failed",
+                () => gpu.DisposeAsync().AsTask()).ConfigureAwait(false);
         }
 
-        // From here on every step is independently guarded: a throw from any one of them,
-        // Steam UI, AutoTDP-adjacent handoff, performance, display restore, or a manager
-        // disposal, must not skip the ones after it. A single shared try around this whole
-        // stretch previously let one failure stop everything below it, contradicting the
-        // invariant above and, on an Update reason, leaving the audio, radio and drive
-        // managers holding endpoints and device notifications while the installer replaces
-        // files underneath them.
-        try
-        {
-            // Shutdown rejects every new transition before reaching this point. Let the one
-            // existing transition and the separately-rooted boot worker cross their Explorer/UI
-            // boundaries before disposing anything they can still access. The application
-            // coordinator owns the only deadline; a nested timeout here could retire the recovery
-            // anchor underneath them.
-            if (_modes is not null)
-            {
-                await _modes.WaitForTransitionAsync().ConfigureAwait(false);
-            }
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            RecordShutdownFailure(failures,
-                "Waiting for the in-flight mode transition during application shutdown failed", ex);
-        }
+        // 5. Shutdown already refuses new transitions. Let the running one, the boot worker and the
+        //    transport gate loop cross their Explorer and UI boundaries before anything they use goes.
+        //    One still running at the deadline is left behind; Explorer is then not restored below, and
+        //    the retained anchor recovers the desktop after process exit.
+        await JoinAsync(failures, "The in-flight mode transition",
+            _modes?.WaitForTransitionAsync() ?? Task.CompletedTask, deadline).ConfigureAwait(false);
+        await JoinAsync(failures, "The boot worker", _bootWork ?? Task.CompletedTask, deadline).ConfigureAwait(false);
+        await JoinAsync(failures, "The transport gate", _transportGateWork ?? Task.CompletedTask, deadline)
+            .ConfigureAwait(false);
 
-        try
-        {
-            if (_bootWork is not null)
-            {
-                await _bootWork.ConfigureAwait(false);
-            }
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            RecordShutdownFailure(failures, "Waiting for the boot worker during application shutdown failed", ex);
-        }
-        finally
-        {
-            _bootWork = null;
-        }
-
-        try
-        {
-            // Ends on the cancelled session token; awaited so it can never re-decide the
-            // transport after the disposal below has begun.
-            if (_transportGateWork is not null)
-            {
-                await _transportGateWork.ConfigureAwait(false);
-            }
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            RecordShutdownFailure(failures, "Waiting for the transport gate during application shutdown failed", ex);
-        }
-        finally
-        {
-            _transportGateWork = null;
-        }
-
+        // 6. Retire the tray, then the session's event sources. Explorer may only come back once WSGM's
+        //    taskbar is verifiably gone.
         var trayRetired = false;
-        try
-        {
-            trayRetired = await Dispatcher.UIThread.InvokeAsync(() => RetireTrayHostForShutdown(failures));
-        }
-        catch (Exception ex)
-        {
-            RecordShutdownFailure(failures, "Retiring the tray host during application shutdown failed", ex);
-        }
+        await StepAsync(failures, "Retiring the tray host during application shutdown failed", async () =>
+            trayRetired = await Dispatcher.UIThread.InvokeAsync(() => RetireTrayHostForShutdown(failures)))
+            .ConfigureAwait(false);
+        await UiStepAsync(failures, "UI-owned shell cleanup failed during application shutdown",
+            () => DisposeUiOwnedSessionResources(failures)).ConfigureAwait(false);
 
-        try
-        {
-            await Dispatcher.UIThread.InvokeAsync(() => DisposeUiOwnedSessionResources(failures));
-        }
-        catch (Exception ex)
-        {
-            RecordShutdownFailure(failures, "UI-owned shell cleanup failed during application shutdown", ex);
-        }
-
+        // 7. Explorer, only when the reason allows it and the tray is gone. Otherwise the retained shell
+        //    anchor recovers the desktop after process exit.
         var desktopVerified = false;
-        try
-        {
+        await StepAsync(failures, "Restoring the desktop during application shutdown failed", async () =>
             desktopVerified = trayRetired
                               && await RestoreDesktopBeforeShutdownAsync(reason, deadline, failures)
-                                  .ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
+                                  .ConfigureAwait(false)).ConfigureAwait(false);
+        await StepAsync(failures, "Disposing the desktop host during application shutdown failed", async () =>
         {
-            RecordShutdownFailure(failures, "Restoring the desktop during application shutdown failed", ex);
-        }
-
-        try
-        {
-            if (desktopVerified && !ApplicationShutdownRequest.SessionEnding && _desktopHost is not null)
-            {
-                await _desktopHost.DisposeAsync().ConfigureAwait(false);
-            }
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            RecordShutdownFailure(failures, "Disposing the desktop host during application shutdown failed", ex);
-        }
-        finally
-        {
+            var desktopHost = _desktopHost;
             _desktopHost = null;
-        }
-
-        // AutoTDP is already gone: the device coordinator stopped it first, above, because its
-        // restoration needs that coordinator's write path.
-        try
-        {
-            if (_runningApplicationTargets is not null)
+            if (desktopVerified && !ApplicationShutdownRequest.SessionEnding && desktopHost is not null)
             {
-                await _runningApplicationTargets.DisposeAsync().ConfigureAwait(false);
+                await desktopHost.DisposeAsync().ConfigureAwait(false);
             }
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            RecordShutdownFailure(failures, "Disposing running-application targets during application shutdown failed",
-                ex);
-        }
-        finally
-        {
-            _runningApplicationTargets = null;
-        }
+        }).ConfigureAwait(false);
 
-        try
-        {
-            if (_foregroundWindows is not null)
+        // Owners the Steam host no longer reaches; AutoTDP already stopped with the device.
+        await StepAsync(failures, "Disposing running-application targets during application shutdown failed",
+            async () =>
             {
-                _foregroundWindows.ApplicationChanged -= OnForegroundApplicationChanged;
-                _foregroundWindows.Dispose();
-            }
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            RecordShutdownFailure(failures,
-                "Disposing the foreground window watcher during application shutdown failed", ex);
-        }
-        finally
-        {
-            _foregroundWindows = null;
-        }
-
-        try
-        {
-            if (_runningApplications is not null)
+                var targets = _runningApplicationTargets;
+                _runningApplicationTargets = null;
+                if (targets is not null)
+                {
+                    await targets.DisposeAsync().ConfigureAwait(false);
+                }
+            }).ConfigureAwait(false);
+        await UiStepAsync(failures, "Disposing the foreground window watcher during application shutdown failed",
+            () =>
             {
-                await _runningApplications.DisposeAsync().ConfigureAwait(false);
-            }
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
+                if (_foregroundWindows is { } foreground)
+                {
+                    _foregroundWindows = null;
+                    foreground.ApplicationChanged -= OnForegroundApplicationChanged;
+                    foreground.Dispose();
+                }
+            }).ConfigureAwait(false);
+        await StepAsync(failures, "Disposing running applications during application shutdown failed", async () =>
         {
-            RecordShutdownFailure(failures, "Disposing running applications during application shutdown failed", ex);
-        }
-        finally
-        {
+            var running = _runningApplications;
             _runningApplications = null;
-        }
+            if (running is not null)
+            {
+                await running.DisposeAsync().ConfigureAwait(false);
+            }
 
-        // After the monitor, which is the only thing that reads it.
-        _pairingFrametimes?.Dispose();
-        _pairingFrametimes = null;
+            // After the monitor, which is the only thing that reads it.
+            _pairingFrametimes?.Dispose();
+            _pairingFrametimes = null;
+        }).ConfigureAwait(false);
 
-        // The master-switch applies, the Big Picture restore, the tab boot sync and the library-tab
-        // work started before shutdown: none starts again, so join what is left within the deadline.
+        // 8. Steam. The master-switch applies, the Big Picture restore, the tab boot sync and the
+        //    library-tab work started before shutdown and none starts again; join what is left.
         Task steamUiWork;
         lock (_steamUiWorkGate)
         {
@@ -421,385 +225,179 @@ public sealed partial class ShellSession
             tabBootWorker = _tabBootWorker ?? Task.CompletedTask;
         }
 
-        try
-        {
-            await JoinWithinDeadlineAsync(Task.WhenAll(steamUiWork, tabBootWorker, libraryTabWork), deadline,
-                "Steam UI and library tab work").ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            // The Big Picture restore stops at shutdown start; nothing was left running.
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            RecordShutdownFailure(failures, "Steam UI work did not finish during shutdown", ex);
-        }
+        await JoinAsync(failures, "Steam UI and library tab work",
+            Task.WhenAll(steamUiWork, tabBootWorker, libraryTabWork), deadline).ConfigureAwait(false);
 
         // Steam's own Startup Movie choice goes back while the transport is still open: at every exit
         // when no WSGM movie is chosen, and at uninstall whatever is chosen.
         if (_animations is { } bootMovies)
         {
-            try
-            {
-                await bootMovies.HandBackSteamChoiceAsync(
-                        reason is ApplicationShutdownReason.Uninstall, Deadline.At(deadline))
-                    .ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                RecordShutdownFailure(failures, "Handing back Steam's startup movie choice failed", ex);
-            }
+            await StepAsync(failures, "Handing back Steam's startup movie choice failed",
+                () => bootMovies.HandBackSteamChoiceAsync(
+                    reason is ApplicationShutdownReason.Uninstall, Deadline.At(deadline))).ConfigureAwait(false);
         }
 
-        // Bounded: a retraction wedged in Steam must not hold shutdown past its deadline. Without the
-        // gate the host is left undisposed and the transport disposal below ends its traffic.
-        var gateRemaining = deadline - DateTimeOffset.UtcNow;
-        var gateHeld = gateRemaining > TimeSpan.Zero
-                       && await _cefMasterGate.WaitAsync(gateRemaining).ConfigureAwait(false);
-        if (!gateHeld)
-        {
-            failures.Add(new TimeoutException(
-                "A Steam UI retraction was still running at the shutdown deadline; its patches were not retracted."));
-            Log.Warn("Steam UI: a retraction held the gate at the shutdown deadline; skipping the host's retraction.");
-        }
-        else
-        {
-            try
+        await StepAsync(failures, "Disposing the Steam UI session during application shutdown failed",
+            () => RetractSteamUiAsync(failures, deadline)).ConfigureAwait(false);
+        await UiStepAsync(failures, "Disposing the Steam graphics and plugin projections during shutdown failed",
+            () =>
             {
-                if (_steamUi is not null)
+                // After the host that read them; they only unsubscribe from their sources.
+                _steamGraphics?.Dispose();
+                _steamGraphics = null;
+                if (_pluginSteamUi is { } pluginSteamUi)
                 {
-                    // The toolkit's runtime and patch manager stop waiting at the deadline and name
-                    // what they left, rather than holding shutdown behind a hung renderer.
-                    var steamUiRemaining = deadline - DateTimeOffset.UtcNow;
-                    using var steamUiDeadline = new CancellationTokenSource(
-                        steamUiRemaining > TimeSpan.Zero ? steamUiRemaining : TimeSpan.Zero);
-                    await _steamUi.StopAsync(steamUiDeadline.Token).ConfigureAwait(false);
+                    _pluginSteamUi = null;
+                    if (_wsgmSettings is { } settingsService)
+                    {
+                        pluginSteamUi.Changed -= settingsService.Refresh;
+                    }
+
+                    pluginSteamUi.Dispose();
                 }
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                RecordShutdownFailure(failures, "Disposing the Steam UI session during application shutdown failed",
-                    ex);
-            }
-            finally
-            {
-                _steamUi = null;
-                _cefMasterGate.Release();
-            }
-        }
-
-        // After the host that read it; it only unsubscribes from the graphics coordinator.
-        _steamGraphics?.Dispose();
-        _steamGraphics = null;
-
-        // The plugin projection is the session's too: created beside the host, disposed after it.
-        if (_pluginSteamUi is { } pluginSteamUi)
+            }).ConfigureAwait(false);
+        await StepAsync(failures, "Disposing the Steam UI transport during application shutdown failed", async () =>
         {
-            if (_wsgmSettings is { } settingsService)
-            {
-                pluginSteamUi.Changed -= settingsService.Refresh;
-            }
-
-            pluginSteamUi.Dispose();
-            _pluginSteamUi = null;
-        }
-
-        try
-        {
-            if (_steamUiTransport is not null)
-            {
-                await _steamUiTransport.DisposeAsync().ConfigureAwait(false);
-            }
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            RecordShutdownFailure(failures, "Disposing the Steam UI transport during application shutdown failed", ex);
-        }
-        finally
-        {
+            var transport = _steamUiTransport;
             _steamUiTransport = null;
-        }
-
-        try
-        {
-            if (_performance is not null)
+            if (transport is not null)
             {
-                _performance.StateChanged -= OnPerformanceStateForPairing;
-                await _performance.DisposeAsync().ConfigureAwait(false);
+                await transport.DisposeAsync().ConfigureAwait(false);
             }
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
+        }).ConfigureAwait(false);
+
+        // 9. Feature owners. Synchronous disposals run on the UI thread that built them; stops and joins
+        //    are awaited within the deadline.
+        await StepAsync(failures, "Disposing performance monitoring during application shutdown failed", async () =>
         {
-            RecordShutdownFailure(failures, "Disposing performance monitoring during application shutdown failed", ex);
-        }
-        finally
-        {
+            var performance = _performance;
             _performance = null;
-        }
-
-        // Before the session ends, not after: the applied rate is transient and would
-        // heal on its own eventually, but leaving the desktop at 48 Hz until something
-        // else resets it is a change the user never made and would have to hunt for.
-        try
-        {
-            if (_refreshPairing is not null && !_refreshPairing.Restore())
+            if (performance is not null)
             {
-                failures.Add(new InvalidOperationException(
-                    "The pre-game display refresh rate could not be restored."));
+                performance.StateChanged -= OnPerformanceStateForPairing;
+                await performance.DisposeAsync().ConfigureAwait(false);
             }
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
+        }).ConfigureAwait(false);
+
+        // The applied refresh rate and a resolution picked from the menu are transient, but leaving the
+        // desktop at a game's 48 Hz or resolution is a change the user never made and would have to hunt for.
+        Step(failures, "Restoring the pre-game display refresh rate during application shutdown failed", () =>
         {
-            RecordShutdownFailure(failures,
-                "Restoring the pre-game display refresh rate during application shutdown failed", ex);
-        }
-        finally
-        {
+            var pairing = _refreshPairing;
             _refreshPairing = null;
-        }
-
-        // Same reasoning, and separately owned: a resolution the user picked from the menu
-        // is transient too, and leaving the desktop at a game's resolution is the more
-        // visible of the two changes to be left with.
-        try
-        {
-            if (_resolutions is not null && !_resolutions.Restore())
+            if (pairing is not null && !pairing.Restore())
             {
-                failures.Add(new InvalidOperationException(
-                    "The pre-game display resolution could not be restored."));
+                failures.Add(new InvalidOperationException("The pre-game display refresh rate could not be restored."));
             }
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
+        });
+        Step(failures, "Restoring the pre-game display resolution during application shutdown failed", () =>
         {
-            RecordShutdownFailure(failures,
-                "Restoring the pre-game display resolution during application shutdown failed", ex);
-        }
-        finally
-        {
+            var resolutions = _resolutions;
             _resolutions = null;
-        }
+            if (resolutions is not null && !resolutions.Restore())
+            {
+                failures.Add(new InvalidOperationException("The pre-game display resolution could not be restored."));
+            }
+        });
 
-        // After the Steam host and the overlay, both of which hold them.
-        try
+        // After the Steam host and the overlay, both of which hold them. Valve's chord template goes back
+        // when WSGM leaves; the next start mirrors again.
+        await UiStepAsync(failures, "Disposing the chord mirror during application shutdown failed", () =>
         {
-            // Valve's chord template goes back when WSGM leaves; the next start mirrors again.
             _chordMirror?.Dispose();
-            if (_audioProfiles is not null)
+            _chordMirror = null;
+        }).ConfigureAwait(false);
+        await StepAsync(failures, "Disposing the audio profile service during application shutdown failed",
+            async () =>
             {
-                await _audioProfiles.DisposeAsync();
-            }
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
+                var audioProfiles = _audioProfiles;
+                _audioProfiles = null;
+                if (audioProfiles is not null)
+                {
+                    await audioProfiles.DisposeAsync().ConfigureAwait(false);
+                }
+            }).ConfigureAwait(false);
+        await UiStepAsync(failures, "Disposing the audio manager during application shutdown failed", () =>
         {
-            RecordShutdownFailure(failures, "Disposing the audio profile service during application shutdown failed",
-                ex);
-        }
-        finally
-        {
-            _audioProfiles = null;
-        }
-
-        try
-        {
-            await Dispatcher.UIThread.InvokeAsync(() => _audio?.Dispose());
-            await Task.Run(VolumeFeedback.Dispose);
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            RecordShutdownFailure(failures, "Disposing the audio manager during application shutdown failed", ex);
-        }
-        finally
-        {
+            _audio?.Dispose();
             _audio = null;
-        }
-
-        try
+        }).ConfigureAwait(false);
+        await StepAsync(failures, "Disposing the volume feedback during application shutdown failed",
+            () => Task.Run(VolumeFeedback.Dispose)).ConfigureAwait(false);
+        await UiStepAsync(failures, "Disposing the radio manager during application shutdown failed", () =>
         {
-            await Dispatcher.UIThread.InvokeAsync(() => _radios?.Dispose());
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            RecordShutdownFailure(failures, "Disposing the radio manager during application shutdown failed", ex);
-        }
-        finally
-        {
+            _radios?.Dispose();
             _radios = null;
-        }
+        }).ConfigureAwait(false);
 
-        if (_formats is { } formats)
+        // The format manager holds no timer or handle; its work is a task cancelled with the session.
+        await JoinAsync(failures, "Format work", _formats?.Completion ?? Task.CompletedTask, deadline)
+            .ConfigureAwait(false);
+        _formats = null;
+        // Before the drive manager, whose collection the importer's bridge is subscribed to.
+        await StepAsync(failures, "Disposing the library importer during application shutdown failed", async () =>
         {
-            try
-            {
-                var remaining = deadline - DateTimeOffset.UtcNow;
-                if (formats.Completion.IsCompleted)
-                {
-                    await formats.Completion.ConfigureAwait(false);
-                }
-                else if (remaining > TimeSpan.Zero)
-                {
-                    await formats.Completion.WaitAsync(remaining).ConfigureAwait(false);
-                }
-                else
-                {
-                    Log.Warn("Format work remains active at the shutdown deadline.");
-                }
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                RecordShutdownFailure(failures, "Format work did not finish during shutdown", ex);
-            }
-        }
-
-        // Before the drive manager, whose collection the bridge is subscribed to. The format
-        // manager holds no timer or handle to release; its work is a task already cancelled
-        // with the session, so only the drive manager is disposed after it.
-        try
-        {
-            if (_libraryImport is not null)
-            {
-                await _libraryImport.StopAsync(Deadline.At(deadline)).ConfigureAwait(false);
-            }
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            RecordShutdownFailure(failures, "Disposing the library importer during application shutdown failed", ex);
-        }
-        finally
-        {
+            var libraryImport = _libraryImport;
             _libraryImport = null;
-        }
-
-        try
+            if (libraryImport is not null)
+            {
+                await libraryImport.StopAsync(Deadline.At(deadline)).ConfigureAwait(false);
+            }
+        }).ConfigureAwait(false);
+        await UiStepAsync(failures, "Disposing the library artwork stage during application shutdown failed", () =>
         {
             _libraryArtwork?.Dispose();
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            RecordShutdownFailure(failures, "Disposing the library artwork stage during application shutdown failed",
-                ex);
-        }
-        finally
-        {
             _libraryArtwork = null;
-        }
+        }).ConfigureAwait(false);
 
-        try
+        // Disposing cancels the store and repository reads, installs, downloads, update checks and Steam
+        // choice work; the joins wait for them.
+        var themes = _themes;
+        _themes = null;
+        await UiStepAsync(failures, "Disposing the themes during application shutdown failed",
+            () => themes?.Dispose()).ConfigureAwait(false);
+        await JoinAsync(failures, "Theme work", themes?.Completion ?? Task.CompletedTask, deadline)
+            .ConfigureAwait(false);
+        await StepAsync(failures, "Disposing sound packs during application shutdown failed", async () =>
         {
-            if (_themes is { } themes)
-            {
-                // Cancels the store reads, installs and update checks, then joins them.
-                themes.Dispose();
-                await JoinWithinDeadlineAsync(themes.Completion, deadline, "Theme work").ConfigureAwait(false);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // Cancelled work is finished work.
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            RecordShutdownFailure(failures, "Disposing the themes during application shutdown failed", ex);
-        }
-        finally
-        {
-            _themes = null;
-        }
-
-        try
-        {
-            if (_sounds is { } sounds)
-            {
-                await sounds.DisposeAsync();
-            }
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            RecordShutdownFailure(failures, "Disposing sound packs during application shutdown failed", ex);
-        }
-        finally
-        {
+            var sounds = _sounds;
             _sounds = null;
-        }
-
-        try
-        {
-            if (_animations is { } animations)
+            if (sounds is not null)
             {
-                // Cancels the repository reads, downloads and Steam choice work, then joins them.
-                animations.Dispose();
-                await JoinWithinDeadlineAsync(animations.Completion, deadline, "Animation work")
-                    .ConfigureAwait(false);
+                await sounds.DisposeAsync().ConfigureAwait(false);
             }
-        }
-        catch (OperationCanceledException)
-        {
-            // Cancelled work is finished work.
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            RecordShutdownFailure(failures, "Disposing the animations during application shutdown failed", ex);
-        }
-        finally
-        {
-            _animations = null;
-        }
-
-        try
+        }).ConfigureAwait(false);
+        var animations = _animations;
+        _animations = null;
+        await UiStepAsync(failures, "Disposing the animations during application shutdown failed",
+            () => animations?.Dispose()).ConfigureAwait(false);
+        await JoinAsync(failures, "Animation work", animations?.Completion ?? Task.CompletedTask, deadline)
+            .ConfigureAwait(false);
+        await UiStepAsync(failures, "Disposing the artwork browser during application shutdown failed", () =>
         {
             _artwork?.Dispose();
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            RecordShutdownFailure(failures, "Disposing the artwork browser during application shutdown failed", ex);
-        }
-        finally
-        {
             _artwork = null;
-        }
+        }).ConfigureAwait(false);
 
-        try
+        // 10. Native providers: the Steam storage bridge, then the drive manager with its message-window
+        //     registration.
+        await UiStepAsync(failures, "Disposing the Steam storage bridge during application shutdown failed", () =>
         {
-            await Dispatcher.UIThread.InvokeAsync(() => _steamStorage?.Dispose());
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            RecordShutdownFailure(failures, "Disposing the Steam storage bridge during application shutdown failed",
-                ex);
-        }
-        finally
-        {
+            _steamStorage?.Dispose();
             _steamStorage = null;
-        }
-
-        try
+        }).ConfigureAwait(false);
+        await UiStepAsync(failures, "Disposing the drive manager during application shutdown failed", () =>
         {
-            await Dispatcher.UIThread.InvokeAsync(() => _drives?.Dispose());
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            RecordShutdownFailure(failures, "Disposing the drive manager during application shutdown failed", ex);
-        }
-        finally
-        {
+            _drives?.Dispose();
             _drives = null;
-        }
+        }).ConfigureAwait(false);
 
-        _formats = null;
-        try
-        {
-            await Dispatcher.UIThread.InvokeAsync(() => CleanupUiResource(failures, "message window", () =>
-            {
-                _messageWindow?.Dispose();
-                _messageWindow = null;
-            }));
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            RecordShutdownFailure(failures, "Disposing the message window during shutdown failed", ex);
-        }
+        // 11. The message window last: until here a session end still sets the sticky SessionEnd flag.
+        await UiStepAsync(failures, "Disposing the message window during shutdown failed", DisposeMessageWindow)
+            .ConfigureAwait(false);
 
-        _shutdownCancellation.Dispose();
-
+        // The cancellation source stays undisposed: work left behind at the deadline may still read its
+        // token, and process exit follows.
         if (!desktopVerified)
         {
             failures.Add(new InvalidOperationException(
@@ -810,6 +408,43 @@ public sealed partial class ShellSession
         if (ShutdownFailure(failures) is { } unverified)
         {
             throw unverified;
+        }
+    }
+
+    /// <summary>
+    ///     Retracts Steam's patches and stops the host. Bounded: a retraction wedged in Steam must not hold
+    ///     shutdown past its deadline. Without the gate the host is left undisposed and the transport
+    ///     disposal ends its traffic.
+    /// </summary>
+    /// <param name="failures">The shutdown's collected failures.</param>
+    /// <param name="deadline">The shutdown's one deadline.</param>
+    private async Task RetractSteamUiAsync(List<Exception> failures, DateTimeOffset deadline)
+    {
+        var gateRemaining = deadline - DateTimeOffset.UtcNow;
+        if (gateRemaining <= TimeSpan.Zero || !await _cefMasterGate.WaitAsync(gateRemaining).ConfigureAwait(false))
+        {
+            failures.Add(new TimeoutException(
+                "A Steam UI retraction was still running at the shutdown deadline; its patches were not retracted."));
+            Log.Warn("Steam UI: a retraction held the gate at the shutdown deadline; skipping the host's retraction.");
+            return;
+        }
+
+        try
+        {
+            if (_steamUi is { } steamUi)
+            {
+                // The toolkit's runtime and patch manager stop waiting at the deadline and name what they
+                // left, rather than holding shutdown behind a hung renderer.
+                var remaining = deadline - DateTimeOffset.UtcNow;
+                using CancellationTokenSource steamUiDeadline =
+                    new(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero);
+                await steamUi.StopAsync(steamUiDeadline.Token).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            _steamUi = null;
+            _cefMasterGate.Release();
         }
     }
 
@@ -834,6 +469,67 @@ public sealed partial class ShellSession
         await work.WaitAsync(remaining).ConfigureAwait(false);
     }
 
+    /// <summary>Joins work within the deadline as one step; work that ended by cancellation is finished.</summary>
+    /// <param name="failures">The shutdown's collected failures.</param>
+    /// <param name="name">What the work is, for the log.</param>
+    /// <param name="work">The work to join.</param>
+    /// <param name="deadline">The shutdown's one deadline.</param>
+    private static Task JoinAsync(List<Exception> failures, string name, Task work, DateTimeOffset deadline)
+    {
+        return StepAsync(failures, $"{name} failed or did not finish during application shutdown", async () =>
+        {
+            try
+            {
+                await JoinWithinDeadlineAsync(work, deadline, name).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Shutdown cancelled it, and cancelled work is finished work.
+            }
+        });
+    }
+
+    /// <summary>Runs one shutdown step, keeping its failure so every later step still runs.</summary>
+    /// <param name="failures">The shutdown's collected failures.</param>
+    /// <param name="message">What to log when the step fails.</param>
+    /// <param name="step">The step.</param>
+    private static void Step(List<Exception> failures, string message, Action step)
+    {
+        try
+        {
+            step();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, message, ex);
+        }
+    }
+
+    /// <summary>Runs one asynchronous shutdown step, keeping its failure so every later step still runs.</summary>
+    /// <param name="failures">The shutdown's collected failures.</param>
+    /// <param name="message">What to log when the step fails.</param>
+    /// <param name="step">The step.</param>
+    private static async Task StepAsync(List<Exception> failures, string message, Func<Task> step)
+    {
+        try
+        {
+            await step().ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            RecordShutdownFailure(failures, message, ex);
+        }
+    }
+
+    /// <summary>Runs one synchronous shutdown step on the UI thread, where the owner was built.</summary>
+    /// <param name="failures">The shutdown's collected failures.</param>
+    /// <param name="message">What to log when the step fails.</param>
+    /// <param name="step">The step.</param>
+    private static Task UiStepAsync(List<Exception> failures, string message, Action step)
+    {
+        return StepAsync(failures, message, async () => await Dispatcher.UIThread.InvokeAsync(step));
+    }
+
     /// <summary>Keeps a failed shutdown step for the final report and logs it now.</summary>
     private static void RecordShutdownFailure(List<Exception> failures, string message, Exception ex)
     {
@@ -845,8 +541,8 @@ public sealed partial class ShellSession
     /// <remarks>
     ///     The single-failure case keeps that exception as the inner one rather than burying it in a
     ///     one-element aggregate, because the log line a maintainer reads is the inner message. That
-    ///     every step still ran is guaranteed by the straight-line shutdown above, which has no early
-    ///     return — this only decides how what failed is reported.
+    ///     every step still ran is guaranteed by the step helpers above; this only decides how what
+    ///     failed is reported.
     /// </remarks>
     internal static Exception? ShutdownFailure(IReadOnlyList<Exception> failures)
     {
@@ -860,7 +556,7 @@ public sealed partial class ShellSession
 
     private void DisposeUiOwnedSessionResources(List<Exception> failures)
     {
-        CleanupUiResource(failures, "config watcher", () =>
+        Step(failures, "Disposing config watcher failed", () =>
         {
             lock (_configDebounceGate)
             {
@@ -872,78 +568,62 @@ public sealed partial class ShellSession
             _configWatcher = null;
         });
         _splash = null;
-        var messageWindow = _messageWindow;
-        if (messageWindow is not null)
-        {
-            messageWindow.SessionEnding -= OnSessionEnding;
-            messageWindow.SessionLocked -= OnSessionLocked;
-            messageWindow.SessionUnlocked -= OnSessionUnlocked;
-            messageWindow.SystemSuspending -= OnSystemSuspending;
-            messageWindow.SystemResumed -= OnSystemResumed;
-            messageWindow.PowerSourceChanged -= OnPowerSourceChanged;
-        }
-
-        CleanupUiResource(failures, "_overlay", () =>
-        {
-            _overlay?.Dispose();
-            _overlay = null;
-        });
-        CleanupUiResource(failures, "_performanceOverlay", () =>
+        Step(failures, "Disposing _performanceOverlay failed", () =>
         {
             _performanceOverlay?.Dispose();
             _performanceOverlay = null;
         });
-        CleanupUiResource(failures, "_deviceOverlay", () =>
+        Step(failures, "Disposing _deviceOverlay failed", () =>
         {
             _deviceOverlay?.Dispose();
             _deviceOverlay = null;
         });
-        CleanupUiResource(failures, "_graphicsOverlay", () =>
+        Step(failures, "Disposing _graphicsOverlay failed", () =>
         {
             _graphicsOverlay?.Dispose();
             _graphicsOverlay = null;
         });
-        CleanupUiResource(failures, "_standbyGuard", () =>
+        Step(failures, "Disposing _standbyGuard failed", () =>
         {
             _standbyGuard?.Dispose();
             _standbyGuard = null;
         });
-        CleanupUiResource(failures, "_displayMute", () =>
+        Step(failures, "Disposing _displayMute failed", () =>
         {
             _displayMute?.Dispose();
             _displayMute = null;
         });
-        CleanupUiResource(failures, "_updates", () =>
+        Step(failures, "Disposing _updates failed", () =>
         {
             _updates?.Dispose();
             _updates = null;
         });
-        CleanupUiResource(failures, "_volumeButtons", () =>
+        Step(failures, "Disposing _volumeButtons failed", () =>
         {
             _volumeButtons?.Dispose();
             _volumeButtons = null;
         });
-        CleanupUiResource(failures, "_cardVolumes", () =>
+        Step(failures, "Disposing _cardVolumes failed", () =>
         {
             _cardVolumes?.Dispose();
             _cardVolumes = null;
         });
-        CleanupUiResource(failures, "_cardAcfWatcher", () =>
+        Step(failures, "Disposing _cardAcfWatcher failed", () =>
         {
             _cardAcfWatcher?.Dispose();
             _cardAcfWatcher = null;
         });
-        CleanupUiResource(failures, "_startupWatcher", () =>
+        Step(failures, "Disposing _startupWatcher failed", () =>
         {
             _startupWatcher?.Dispose();
             _startupWatcher = null;
         });
-        CleanupUiResource(failures, "_displayChangeWindow", () =>
+        Step(failures, "Disposing _displayChangeWindow failed", () =>
         {
             _displayChangeWindow?.Dispose();
             _displayChangeWindow = null;
         });
-        CleanupUiResource(failures, "keep awake", () =>
+        Step(failures, "Disposing keep awake failed", () =>
         {
             if (_keepAwake is not null)
             {
@@ -952,39 +632,61 @@ public sealed partial class ShellSession
                 _keepAwake = null;
             }
         });
-        CleanupUiResource(failures, "Steam monitor", () =>
+        Step(failures, "Disposing Steam monitor failed", () =>
         {
             _monitor?.Dispose();
             _monitor = null;
         });
     }
 
+    /// <summary>
+    ///     Disposes the process's one message window, last. Its power notifications are refused since
+    ///     shutdown began, and its session-end notification keeps setting the sticky SessionEnd flag until
+    ///     here.
+    /// </summary>
+    private void DisposeMessageWindow()
+    {
+        if (_messageWindow is not { } messageWindow)
+        {
+            return;
+        }
+
+        _messageWindow = null;
+        messageWindow.SessionEnding -= OnSessionEnding;
+        messageWindow.SessionLocked -= OnSessionLocked;
+        messageWindow.SessionUnlocked -= OnSessionUnlocked;
+        messageWindow.SystemSuspending -= OnSystemSuspending;
+        messageWindow.SystemResumed -= OnSystemResumed;
+        messageWindow.PowerSourceChanged -= OnPowerSourceChanged;
+        messageWindow.Dispose();
+    }
+
     private bool RetireTrayHostForShutdown(List<Exception> failures)
     {
-        CleanupUiResource(failures, "Settings activation", () =>
+        Step(failures, "Disposing Settings activation failed", () =>
         {
             _settingsActivation?.Dispose();
             _settingsActivation = null;
         });
-        CleanupUiResource(failures, "desktop tray", () =>
+        Step(failures, "Disposing desktop tray failed", () =>
         {
             _desktopTray?.Dispose();
             _desktopTray = null;
         });
         // A save still running finishes before the window closes itself; the session's own exit
         // (application shutdown) is never held up by it.
-        CleanupUiResource(failures, "Settings window", () =>
+        Step(failures, "Disposing Settings window failed", () =>
         {
             _settingsSurface?.Close();
             _settingsSurface = null;
         });
-        CleanupUiResource(failures, "activation", () =>
+        Step(failures, "Disposing activation failed", () =>
         {
             _activation?.Dispose();
             _activation = null;
         });
         var retired = false;
-        CleanupUiResource(failures, "tray host", () =>
+        Step(failures, "Disposing tray host failed", () =>
         {
             if (_trayHost is not null && !_trayHost.Retire())
             {
@@ -995,18 +697,6 @@ public sealed partial class ShellSession
             retired = true;
         });
         return retired;
-    }
-
-    private static void CleanupUiResource(List<Exception> failures, string name, Action dispose)
-    {
-        try
-        {
-            dispose();
-        }
-        catch (Exception ex) when (ex is not OutOfMemoryException)
-        {
-            RecordShutdownFailure(failures, $"Disposing {name} failed", ex);
-        }
     }
 
     private async Task<bool> RestoreDesktopBeforeShutdownAsync(

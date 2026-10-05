@@ -8,6 +8,9 @@ namespace WSGM.Device.Msi.Claw.Tests;
 [Collection("plugin-trace")]
 public sealed class ClawCapabilitiesTests
 {
+    /// <summary>The RGB profile address on the reference unit's MCU.</summary>
+    private const ushort ReferenceLightingProfileAddress = 0x024A;
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -113,7 +116,7 @@ public sealed class ClawCapabilitiesTests
     public async Task McuTimeoutLeavesInitialLightingUnknownAndAcceptedWriteUnverified()
     {
         FakeMcuTransport mcu = new() { ReadFailure = new OperationCanceledException("MCU timeout") };
-        ClawLightingCapability lighting = new(mcu, ClawHardwareFacts.DefaultLightingProfileAddress);
+        ClawLightingCapability lighting = new(mcu, ReferenceLightingProfileAddress);
         Assert.Null(await lighting.ReadAsync(CancellationToken.None));
         var result = await lighting.ApplyAsync(
             Command(CapabilityIds.LightingBrightness, null, CapabilityValue.Integer(75)),
@@ -201,7 +204,7 @@ public sealed class ClawCapabilitiesTests
         var read = await power.ReadAsync(CancellationToken.None);
 
         Assert.Equal(CommandOutcome.AppliedUnverified, result.Outcome);
-        Assert.Equal(12, result.ReadbackValue?.IntegerValue);
+        Assert.Null(result.ReadbackValue);
         Assert.Equal(RollbackResult.NotRequired, result.Rollback);
         Assert.Equal(13, read.BoostWatts);
         Assert.Equal((12, 12), (power.Observe(read).SustainedWatts, power.Observe(read).BoostWatts));
@@ -263,7 +266,7 @@ public sealed class ClawCapabilitiesTests
     public async Task ApplyLighting_WritesWithoutAReadableProfile()
     {
         FakeMcuTransport mcu = new() { ReadFailure = new IOException("no answer") };
-        ClawLightingCapability lighting = new(mcu, ClawHardwareFacts.DefaultLightingProfileAddress);
+        ClawLightingCapability lighting = new(mcu, ReferenceLightingProfileAddress);
         Assert.Null(await lighting.ReadAsync(CancellationToken.None));
 
         var result = await lighting.ApplyAsync(
@@ -284,7 +287,7 @@ public sealed class ClawCapabilitiesTests
         original[0] = 0xA5;
         original[3] = 0x7E;
         FakeMcuTransport mcu = new() { Profile = original };
-        ClawLightingCapability lighting = new(mcu, ClawHardwareFacts.DefaultLightingProfileAddress);
+        ClawLightingCapability lighting = new(mcu, ReferenceLightingProfileAddress);
         _ = await lighting.ReadAsync(CancellationToken.None);
         var command = Command(
             CapabilityIds.LightingBrightness,
@@ -319,7 +322,7 @@ public sealed class ClawCapabilitiesTests
                 return payload;
             }
         };
-        ClawLightingCapability lighting = new(mcu, ClawHardwareFacts.DefaultLightingProfileAddress);
+        ClawLightingCapability lighting = new(mcu, ReferenceLightingProfileAddress);
         _ = await lighting.ReadAsync(CancellationToken.None);
         var command = Command(
             CapabilityIds.LightingBrightness,

@@ -186,7 +186,7 @@ public sealed class IrRemoteActionTests
             var result = await InvokeAutomated(plugin, context, "remote-press",
                 ("remote", new PluginValue(Text: "hdmi-switch")), ("button", new PluginValue(Text: "power")),
                 ("delay-ms", new PluginValue(Number: delay)));
-            Assert.Equal(PluginActionOutcome.Unconfirmed, result.Outcome);
+            Assert.Equal(PluginActionOutcome.Rejected, result.Outcome);
             Assert.Empty(endpoint.RemoteCalls);
         });
     }

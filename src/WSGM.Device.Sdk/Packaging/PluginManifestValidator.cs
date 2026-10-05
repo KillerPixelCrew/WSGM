@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Identity;
@@ -26,13 +25,14 @@ internal static class PluginManifestValidator
                 $"Plugin API {manifest.ApiVersion} does not equal runtime API {DeviceApi.Version}.");
         }
 
-        ValidateRelativeAssemblyPath(errors, manifest.EntryAssembly);
+        ValidateEntryAssembly(errors, manifest.EntryAssembly);
         ValidateEntryType(errors, manifest.EntryType);
         ValidateHardware(errors, manifest.Hardware);
         ValidateCapabilities(errors, manifest.Capabilities);
-        if (manifest.WsgmVersion is not null)
+        if (manifest.WsgmVersion is not null && !ManifestRules.IsCanonicalVersion(manifest.WsgmVersion))
         {
-            ValidateDottedVersion(errors, "wsgmVersion", manifest.WsgmVersion);
+            Add(errors, "wsgmVersion", ManifestValidationCode.InvalidVersion,
+                "Versions must be canonical dotted numeric versions.");
         }
 
         return errors;
@@ -87,19 +87,6 @@ internal static class PluginManifestValidator
         }
     }
 
-    private static void ValidateDottedVersion(
-        ICollection<ManifestValidationError> errors,
-        string path,
-        string value)
-    {
-        if (!Version.TryParse(value, out var parsed)
-            || parsed.ToString(parsed.Revision >= 0 ? 4 : parsed.Build >= 0 ? 3 : 2) != value)
-        {
-            Add(errors, path, ManifestValidationCode.InvalidVersion,
-                "Versions must be canonical dotted numeric versions.");
-        }
-    }
-
     private static void ValidateIdentifier(
         ICollection<ManifestValidationError> errors,
         string path,
@@ -111,10 +98,11 @@ internal static class PluginManifestValidator
             return;
         }
 
-        if (!PlainText.IsIdentifier(value))
+        if (!ManifestRules.IsPackageIdentifier(value))
         {
             Add(errors, path, ManifestValidationCode.InvalidIdentifier,
-                "Package identifiers may contain only ASCII letters, digits, '.', '-', and '_'.");
+                "Package identifiers may contain only lowercase ASCII letters, digits, '.', '-', and '_', "
+                + "starting with a letter or digit.");
         }
     }
 
@@ -126,6 +114,13 @@ internal static class PluginManifestValidator
         if (string.IsNullOrWhiteSpace(value))
         {
             Add(errors, path, ManifestValidationCode.MissingField, "A package name is required.");
+            return;
+        }
+
+        if (!ManifestRules.TryValidateName(value, out _))
+        {
+            Add(errors, path, ManifestValidationCode.InvalidText,
+                "The package name contains control or formatting characters.");
         }
     }
 
@@ -139,15 +134,14 @@ internal static class PluginManifestValidator
             return;
         }
 
-        if (!Version.TryParse(value, out var parsed)
-            || parsed.ToString(parsed.Revision >= 0 ? 4 : parsed.Build >= 0 ? 3 : 2) != value)
+        if (!ManifestRules.IsCanonicalVersion(value))
         {
             Add(errors, "version", ManifestValidationCode.InvalidVersion,
                 "Package versions must be canonical dotted numeric versions.");
         }
     }
 
-    private static void ValidateRelativeAssemblyPath(
+    private static void ValidateEntryAssembly(
         ICollection<ManifestValidationError> errors,
         string? value)
     {
@@ -158,13 +152,10 @@ internal static class PluginManifestValidator
             return;
         }
 
-        if (Path.IsPathRooted(value)
-            || value.Contains(':', StringComparison.Ordinal)
-            || value.Split('/', '\\').Any(segment => segment is "" or "." or "..")
-            || !string.Equals(Path.GetExtension(value), ".dll", StringComparison.OrdinalIgnoreCase))
+        if (!ManifestRules.IsRootAssemblyFileName(value))
         {
             Add(errors, "entryAssembly", ManifestValidationCode.UnsafePath,
-                "The entry assembly must be a relative DLL path without traversal.");
+                "The entry assembly must be a DLL file name at the package root.");
         }
     }
 
@@ -178,8 +169,7 @@ internal static class PluginManifestValidator
             return;
         }
 
-        if (value.Any(character => !(char.IsAsciiLetterOrDigit(character)
-                                        || character is '.' or '_' or '+' or '`')))
+        if (!ManifestRules.IsEntryTypeName(value))
         {
             Add(errors, "entryType", ManifestValidationCode.InvalidIdentifier,
                 "The entry type must be a namespace-qualified CLR type name.");

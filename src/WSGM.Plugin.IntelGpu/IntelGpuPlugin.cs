@@ -1,6 +1,7 @@
 using System.Globalization;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Plugin;
+using WSGM.Plugin.Gpu;
 using WSGM.Plugin.IntelGpu.Controls;
 using WSGM.Plugin.IntelGpu.Display;
 using WSGM.Plugin.IntelGpu.Graphics;
@@ -21,7 +22,8 @@ namespace WSGM.Plugin.IntelGpu;
 ///     <para>
 ///         One IGCL session belongs to one plugin cycle. It opens at start and on resume, is reopened
 ///         when the driver reports the device lost (a driver update or reset), and closes on suspend
-///         and stop. Every IGCL call runs on one lane, so reads never race writes.
+///         and stop. Every IGCL call runs on one lane, so reads never race writes, and off the caller's
+///         thread, so a command from the overlay never holds its UI thread for a driver call.
 ///     </para>
 /// </remarks>
 public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
@@ -34,9 +36,6 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
     ///     generic observation after 30 seconds.
     /// </summary>
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(20);
-
-    /// <summary>How long stop waits for the observation loop, and then for the lane.</summary>
-    private static readonly TimeSpan StopBudget = TimeSpan.FromSeconds(5);
 
     /// <summary>The longest wait between attempts to open a driver that is missing or refused.</summary>
     private static readonly TimeSpan MaxReopenDelay = TimeSpan.FromMinutes(5);
@@ -111,10 +110,19 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
                     error ?? "The value is not accepted.");
             }
 
-            // A command is its own pass: the fields a write carries are read afresh, and so is the readback.
-            _session?.BeginPass();
             var requested = command.RequestedValue!;
-            var write = GuardWrite(control, requested);
+            var admission = new WriteAdmission(cancellationToken, command.Deadline,
+                () => _running && _session is not null);
+
+            // Admission may come from the overlay's UI thread; the driver work runs off it.
+            if (await Task.Run(() => WriteAndRead(control, requested, admission), CancellationToken.None)
+                    .ConfigureAwait(false) is not { } outcome)
+            {
+                return CommandResults.Rejected(command, new CapabilityReason(CapabilityReasonCode.Quiescing,
+                    "The command was cancelled or expired before its driver write.", true));
+            }
+
+            var (write, readback) = outcome;
             switch (write.Status)
             {
                 case WriteStatus.Refused:
@@ -132,7 +140,6 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
                         RollbackResult.NotRequired);
             }
 
-            var readback = GuardRead(control);
             var verified = readback.Value is not null && readback.Value == requested;
             _written[control.Key] = new WrittenValue(requested, readback.Value);
             _log.Info(
@@ -147,7 +154,7 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
 
             return verified
                 ? CommandResults.Verified(command, readback.Value!)
-                : CommandResults.Unverified(command, requested);
+                : CommandResults.Unverified(command, "The driver accepted the write; the written value stands.");
         }
         finally
         {
@@ -164,7 +171,7 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
         await _lane.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!_running || _model is not { } model || _synchronizer is null)
+            if (!_running || _model is not { } model || _synchronizer is not { } synchronizer)
             {
                 return new ApplicationProfileSyncResult(0, 0,
                 [
@@ -174,8 +181,12 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
 
             try
             {
-                _session?.BeginPass();
-                return _synchronizer.Apply(sync, model.FindTarget, cancellationToken);
+                var session = _session;
+                return await Task.Run(() =>
+                {
+                    session?.BeginPass();
+                    return synchronizer.Apply(sync, model.FindTarget, cancellationToken);
+                }, CancellationToken.None).ConfigureAwait(false);
             }
             catch (Exception error) when (error is not OperationCanceledException and not OutOfMemoryException)
             {
@@ -206,13 +217,13 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         _host = host;
         _context = context;
+        _log = new IntelLog(host);
         _capabilities = host.Capabilities;
         if (_capabilities is null)
         {
             return Health(PluginHealth.Unavailable, "WSGM admitted the plugin without a capability host.");
         }
 
-        _log = new IntelLog(_capabilities);
         PluginHealth health;
         await _lane.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -226,7 +237,10 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
             _memory = new IntelGraphicsMemoryTransport(_log);
             _running = true;
             ResetReopen();
-            health = await OpenCycleGuardedAsync(true, cancellationToken).ConfigureAwait(false);
+
+            // Opening probes setters, so it runs off the caller's thread like every other driver call.
+            health = await Task.Run(() => OpenCycleGuardedAsync(true, cancellationToken), CancellationToken.None)
+                .ConfigureAwait(false);
             ScheduleReopen();
         }
         catch
@@ -258,7 +272,7 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
     public async ValueTask SuspendAsync(PluginContext context, CancellationToken cancellationToken)
     {
         _context = context;
-        await StopLoopAsync().ConfigureAwait(false);
+        await StopLoopAsync(cancellationToken).ConfigureAwait(false);
         await _lane.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -289,7 +303,8 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
             }
 
             ResetReopen();
-            _ = await OpenCycleGuardedAsync(true, cancellationToken).ConfigureAwait(false);
+            _ = await Task.Run(() => OpenCycleGuardedAsync(true, cancellationToken), CancellationToken.None)
+                .ConfigureAwait(false);
             ScheduleReopen();
         }
         finally
@@ -302,20 +317,20 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
 
     /// <inheritdoc />
     /// <remarks>
-    ///     Bounded: the loop and the lane each get <see cref="StopBudget" />. When another thread is still
-    ///     inside a driver call after that, the session and <c>ControlLib.dll</c> are not pulled out from
-    ///     under it; stop reports itself unconfirmed and the thread holding the lane closes them when its
-    ///     call returns.
+    ///     Bounded by the caller's token. When another thread is still inside a driver call after that,
+    ///     the session and <c>ControlLib.dll</c> are not pulled out from under it; stop reports itself
+    ///     unconfirmed and the thread holding the lane closes them when its call returns.
     /// </remarks>
     public async ValueTask<bool> StopAsync(PluginContext context, CancellationToken cancellationToken)
     {
         _context = context;
         _running = false;
-        var loopStopped = await StopLoopAsync().ConfigureAwait(false);
+        var loopStopped = await StopLoopAsync(cancellationToken).ConfigureAwait(false);
         bool acquired;
         try
         {
-            acquired = await _lane.WaitAsync(StopBudget, cancellationToken).ConfigureAwait(false);
+            await _lane.WaitAsync(cancellationToken).ConfigureAwait(false);
+            acquired = true;
         }
         catch (OperationCanceledException)
         {
@@ -356,7 +371,9 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
 
         if (_context is { } context)
         {
-            _ = await StopAsync(context, CancellationToken.None).ConfigureAwait(false);
+            // Dispose has no budget of its own: it closes what is free now, and a running driver call closes
+            // the rest when it returns.
+            _ = await StopAsync(context, new CancellationToken(true)).ConfigureAwait(false);
         }
 
         _host = null;
@@ -441,7 +458,7 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
                 continue;
             }
 
-            if (!_supportResults.TryGetValue(control.Key, out var support))
+            if (!_supportResults.TryGetValue(control.SupportKey, out var support))
             {
                 try
                 {
@@ -454,8 +471,9 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
                         IntelLog.Describe(error));
                 }
 
-                // Failed and uncertain probes are never automatically retried during this plugin lifetime.
-                _supportResults[control.Key] = support;
+                // One outcome per structure. Failed and uncertain probes are never automatically retried
+                // during this plugin lifetime.
+                _supportResults[control.SupportKey] = support;
                 _log.Info("support",
                     $"{control.Name}: {support.Status}; {support.Detail ?? "native state returned unchanged"}.");
             }
@@ -669,34 +687,57 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
 
     private void StartLoop()
     {
-        if (!_running || _loopTask is not null)
+        if (!_running || _loop is not null)
         {
             return;
         }
 
         _loop = new CancellationTokenSource();
         var token = _loop.Token;
-        _loopTask = Task.Run(() => RunLoopAsync(token), CancellationToken.None);
+
+        // A stopped loop still in its pass finishes first, so two passes never overlap.
+        var previous = _loopTask;
+        _loopTask = Task.Run(async () =>
+        {
+            if (previous is not null)
+            {
+                await previous.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+            }
+
+            await RunLoopAsync(token).ConfigureAwait(false);
+        }, CancellationToken.None);
     }
 
-    private async Task<bool> StopLoopAsync()
+    /// <summary>Cancels the loop and waits for it within the caller's budget.</summary>
+    /// <param name="cancellationToken">The caller's budget.</param>
+    /// <returns><see langword="true" /> when the loop finished.</returns>
+    /// <remarks>A loop still in its pass stays recorded, so the next start runs after it.</remarks>
+    private async Task<bool> StopLoopAsync(CancellationToken cancellationToken)
     {
-        if (_loopTask is not { } task)
-        {
-            return true;
-        }
-
-        await _loop!.CancelAsync().ConfigureAwait(false);
-        var finished = await Task.WhenAny(task, Task.Delay(StopBudget)).ConfigureAwait(false) == task;
-        if (!finished)
-        {
-            _log.Warn("lifecycle", "The observation loop did not stop within its budget.");
-        }
-
-        _loop.Dispose();
+        var loop = _loop;
         _loop = null;
-        _loopTask = null;
-        return finished;
+        if (loop is not null)
+        {
+            await loop.CancelAsync().ConfigureAwait(false);
+        }
+
+        if (_loopTask is { } task)
+        {
+            try
+            {
+                await task.WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                _log.Warn("lifecycle", "The observation loop is still in a pass; it ends when the pass does.");
+                return false;
+            }
+
+            _loopTask = null;
+        }
+
+        loop?.Dispose();
+        return true;
     }
 
     private async Task RunLoopAsync(CancellationToken cancellationToken)
@@ -834,6 +875,24 @@ public sealed class IntelGpuPlugin : IPlugin, ICapabilityPlugin
         }
 
         return health;
+    }
+
+    /// <summary>One command's driver work, off the caller's thread: a last admission check, write, readback.</summary>
+    /// <returns>The write and its readback, or null when the command was no longer admitted.</returns>
+    private (ControlWrite Write, ControlRead Readback)? WriteAndRead(
+        IntelControl control,
+        CapabilityValue value,
+        WriteAdmission admission)
+    {
+        // A command is its own pass: the fields a write carries are read afresh, and so is the readback.
+        _session?.BeginPass();
+        if (!admission.Admitted)
+        {
+            return null;
+        }
+
+        var write = GuardWrite(control, value);
+        return (write, write.Status == WriteStatus.Applied ? GuardRead(control) : default);
     }
 
     /// <summary>Reads one control, turning an exception into a failed read that names it.</summary>
