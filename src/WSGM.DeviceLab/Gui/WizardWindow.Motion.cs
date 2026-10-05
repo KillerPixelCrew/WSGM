@@ -219,21 +219,23 @@ internal sealed partial class WizardWindow
             line.Text = "Done.";
             var text = LabMotionAnalysis.StepResult(step, result, recorder.Sampled);
             page.Children.Add(result.Empty ? Warning(text) : Status(text));
-            var choice = await AskAsync(page, "Continue", "Do it again", "It slipped, do it again");
+            var choice = (MotionStepAnswer)await AskAsync(page, "Continue", "Do it again", "It slipped, do it again");
             result = result with
             {
                 Outcome = choice switch
                 {
-                    0 => "kept",
-                    1 => "redo",
+                    MotionStepAnswer.Keep => "kept",
+                    MotionStepAnswer.Again => "redo",
                     _ => "slipped"
                 }
             };
-            var status = choice == 0 && !result.Empty ? LabSegmentStatus.Completed : LabSegmentStatus.Failed;
+            var status = choice == MotionStepAnswer.Keep && !result.Empty
+                ? LabSegmentStatus.Completed
+                : LabSegmentStatus.Failed;
             var summary = choice switch
             {
-                0 => text,
-                1 => "Done again at the tester's request.",
+                MotionStepAnswer.Keep => text,
+                MotionStepAnswer.Again => "Done again at the tester's request.",
                 _ => "The device slipped; done again."
             };
             await Task.Run(() =>
@@ -241,11 +243,19 @@ internal sealed partial class WizardWindow
                 project.WriteEvidence(stepAttempt, $"motion-{step.Id}", result);
                 project.Finish(segment, status, summary, DateTimeOffset.UtcNow);
             });
-            if (choice == 0)
+            if (choice == MotionStepAnswer.Keep)
             {
                 return result;
             }
         }
+    }
+
+    // A motion step's answers, in the order of its labels.
+    private enum MotionStepAnswer
+    {
+        Keep,
+        Again,
+        Slipped
     }
 
     // The kept rest step's readings: its gyro means are the zero that movement is measured from.

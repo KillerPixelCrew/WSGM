@@ -4,7 +4,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Device.Sdk.Windows;
-using WSGM.DeviceLab.Capture.Live;
+using WSGM.DeviceLab.Knowledge;
+using WSGM.DeviceLab.Wizard;
 using WSGM.DeviceLab.Worker;
 
 namespace WSGM.DeviceLab.Transports;
@@ -24,13 +25,26 @@ internal interface ILabClawLighting : IDisposable
 /// <summary>Worker-owned MCU profile transport for the reviewed Claw collection.</summary>
 internal sealed class LabClawLighting : ILabClawLighting
 {
+    private readonly LabClawLightingLayout _layout;
     private DateTime _lastWrite;
+
+    private LabClawLighting(LabClawLightingLayout layout)
+    {
+        _layout = layout;
+    }
 
     /// <summary>The worker registration.</summary>
     public static LabWorkerService Service { get; } = new("claw-lighting", typeof(ILabClawLighting),
-        (args, _) => LabWorkerService.Arg<string>(args, 0) == "wsgm.claw-8-a2vm"
-            ? new LabClawLighting()
-            : throw new InvalidOperationException("No Claw lighting profile for this device."));
+        (args, _) => Open(LabWorkerService.Arg<string>(args, 0)));
+
+    // The worker takes the collections from its own copy of the curated record, never from the caller.
+    private static LabClawLighting Open(string? recordId)
+    {
+        var record = DeviceKnowledgeBase.Default.Records.FirstOrDefault(item => item.Id == recordId);
+        return LabPowerPlan.For(record).ClawLighting is { } layout
+            ? new LabClawLighting(layout)
+            : throw new InvalidOperationException("No Claw lighting profile for this device.");
+    }
 
     /// <inheritdoc />
     public void Dispose()
@@ -105,12 +119,11 @@ internal sealed class LabClawLighting : ILabClawLighting
         return request;
     }
 
-    private static byte[] Exchange(byte[] request, byte replyCommand)
+    private byte[] Exchange(byte[] request, byte replyCommand)
     {
-        var endpoint = LabRumbleNative.HidEndpoints(0x0DB0).SingleOrDefault(item =>
-                           item.OutputLength == 64 &&
-                           ((item.ProductId == 0x1902 && item.UsagePage == 0xFFF0 && item.Usage == 0x0040)
-                            || (item.ProductId == 0x1901 && item.UsagePage == 0xFFA0 && item.Usage == 1)))
+        var endpoint = LabHid.HidEndpoints(_layout.VendorId).SingleOrDefault(item =>
+                           _layout.Collections.Contains(new LabHidCollectionId(item.ProductId, item.UsagePage,
+                               item.Usage, item.OutputLength)))
                        ?? throw new IOException("The Claw MCU lighting collection was not found.");
         using var stream = HidDevices.OpenStream(endpoint.Collection);
         return ExchangeAsync(stream, request, replyCommand).GetAwaiter().GetResult();

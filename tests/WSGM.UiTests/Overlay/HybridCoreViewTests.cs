@@ -6,7 +6,7 @@ using Avalonia.VisualTree;
 using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Overlay;
-using WSGM.Tests.Fakes;
+using WSGM.Testing;
 using WSGM.UiTests.Fakes;
 using WSGM.UiTests.Infrastructure;
 

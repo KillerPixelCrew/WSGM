@@ -72,7 +72,9 @@ internal static partial class LabSystemDump
         }
     }
 
-    private static string CpuVendor()
+    /// <summary>The CPUID vendor string, such as AuthenticAMD or GenuineIntel, or "unknown" off x86.</summary>
+    /// <returns>The vendor.</returns>
+    internal static string CpuVendor()
     {
         if (!X86Base.IsSupported)
         {

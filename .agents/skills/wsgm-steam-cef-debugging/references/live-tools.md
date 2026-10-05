@@ -29,38 +29,26 @@ screenshots, select MainWindow by URL shape (`about:blank?`, `createflags`, `min
 
 ## Tool classification
 
-| Tool or action                                   | Classification                                             | Important limits                                                                                                       |
-| ------------------------------------------------ | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| MCP target listing                               | read-only after preflight                                  | Configuration alone does not prove port ownership                                                                      |
-| bounded MCP evaluation of a literal value/module | read-only only if the expression is read-only              | navigation, focus, click, capture, and `close_page` are not generic observation                                        |
-| `run-file.mjs`, `run-file-target.mjs`            | depends entirely on the JavaScript file or its `--section` | may print `undefined` and exit zero even when evaluation returned `exceptionDetails`                                   |
-| `cdp-eval.mjs list`                              | read-only after preflight                                  | `raw` depends on expression; `add` and `remove` mutate install folders                                                 |
-| `qam-harness.mjs status`                         | attended live change                                       | connection calls `Runtime.addBinding` before reporting status                                                          |
-| `qam-harness.mjs install` or `publish`           | mutating                                                   | bypasses the patch manager; follow with `remove` and verify the visible result                                         |
-| `qam-harness.mjs remove`                         | partial cleanup                                            | removes its gates/bridge, not the installed runtime binding                                                            |
-| `qam-harness.mjs screenshot`                     | capture                                                    | may expose user-visible Steam content                                                                                  |
-| `run-prod-sort.mjs enable` or `disable`          | mutating                                                   | can reorder or resume downloads; source paths resolve relative to the script                                           |
-| `art-test.mjs`                                   | mutating                                                   | applies artwork and needs `SGDB_KEY`                                                                                   |
-| `capture-steam-window.ps1 -OutputPath <png>`     | attended                                                   | restores and focuses the Big Picture window, then captures its screen rectangle; may expose user-visible Steam content |
+| Tool or action                                   | Classification                                | Important limits                                                                                                       |
+| ------------------------------------------------ | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| MCP target listing                               | read-only after preflight                     | Configuration alone does not prove port ownership                                                                      |
+| bounded MCP evaluation of a literal value/module | read-only only if the expression is read-only | navigation, focus, click, capture, and `close_page` are not generic observation                                        |
+| `run-file.mjs`, `run-file-target.mjs`            | depends entirely on the JavaScript file       | may print `undefined` and exit zero even when evaluation returned `exceptionDetails`                                   |
+| `cdp-eval.mjs list`                              | read-only after preflight                     | `raw` depends on expression; `add` and `remove` mutate install folders                                                 |
+| `qam-harness.mjs status`                         | attended live change                          | connection calls `Runtime.addBinding` before reporting status                                                          |
+| `qam-harness.mjs install` or `publish`           | mutating                                      | bypasses the patch manager; follow with `remove` and verify the visible result                                         |
+| `qam-harness.mjs remove`                         | partial cleanup                               | removes its gates/bridge, not the installed runtime binding                                                            |
+| `qam-harness.mjs screenshot`                     | capture                                       | may expose user-visible Steam content                                                                                  |
+| `run-prod-sort.mjs enable` or `disable`          | mutating                                      | can reorder or resume downloads; source paths resolve relative to the script                                           |
+| `art-test.mjs`                                   | mutating                                      | applies artwork and needs `SGDB_KEY`                                                                                   |
+| `capture-steam-window.ps1 -OutputPath <png>`     | attended                                      | restores and focuses the Big Picture window, then captures its screen rectangle; may expose user-visible Steam content |
 
 Both `.codex/config.toml` and `.mcp.json` attach their `steam-cef` client to the same loopback
 endpoint. Neither relaxes these rules.
 
-## Do not run these as probes
-
-- The mutating sections of the `probe-*.js` family scripts. Each header lists them apart from the
-  read-only sections, and a run without `--section` only prints that list.
-  - `click` in `probe-misc.js` and `settings-change` in `probe-qam.js` interact with the live UI.
-  - `audio-gate` and `audio-install` in `probe-audio.js`, and `nightmode-gate` in `probe-gates.js`
-    install, override or invoke live gates.
-
-The `probe-` prefix and a read-only label are historical classification, not a guarantee. Inspect
-every section before execution.
-
 ## Safe query shape
 
-Prefer existing read-only sections such as `probe-register.js --section token-exists` only after
-reviewing their current contents. For a new query:
+For a query:
 
 1. Read the current implementation or generated asset to obtain one explicit module id or unique
    source token.

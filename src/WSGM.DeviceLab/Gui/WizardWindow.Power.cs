@@ -49,7 +49,21 @@ internal sealed partial class WizardWindow
     /// </remarks>
     public bool PowerRestorationPending()
     {
-        return LabPowerChanges.PowerPending(_machine.Read().Power);
+        try
+        {
+            return LabPowerChanges.PowerPending(_machine.Read().Power);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // An unreadable record may still hold originals, so closing asks first instead of failing.
+            return true;
+        }
+    }
+
+    // The same check for the stage, with the record read off the UI thread.
+    private Task<bool> PowerPendingAsync()
+    {
+        return Task.Run(() => LabPowerChanges.PowerPending(_machine.Read().Power));
     }
 
     private async Task RunPowerAsync(LabProject project, StackPanel page)
@@ -74,9 +88,10 @@ internal sealed partial class WizardWindow
         {
             // The BIOS, EC and vendor endpoint facts every later write is checked against.
             var fingerprint = await Task.Run(() => LabPowerIdentity.Begin(curated));
-            await Task.Run(() => WriteEvidenceOnce(project, attempt, "identity-baseline", fingerprint));
+            await Task.Run(() => project.WriteEvidence(attempt, "identity-baseline", fingerprint));
         }
 
+        string? stageError = null;
         try
         {
             // Every device: LibreHardwareMonitor's fan RPM and temperatures, opened once for the stage
@@ -95,14 +110,10 @@ internal sealed partial class WizardWindow
                 ShowEmbeddedControllerNote(page, plan);
             }
 
-            if (plan.HasDeviceTests)
+            // Without a curated interface, an elevated run tests the processor's own power limit through
+            // the SMU or KX.
+            if (plan.HasDeviceTests || _options.Elevated)
             {
-                await RunDeviceTestsAsync(project, attempt, page, plan, log, tests, telemetry, "ac-or-battery");
-                await RunPowerSourceRepeatAsync(project, attempt, page, plan, log, tests, telemetry);
-            }
-            else if (_options.Elevated)
-            {
-                // No curated interface: the processor's own power limit, through the SMU or KX.
                 await RunDeviceTestsAsync(project, attempt, page, plan, log, tests, telemetry, "ac-or-battery");
                 await RunPowerSourceRepeatAsync(project, attempt, page, plan, log, tests, telemetry);
             }
@@ -126,11 +137,12 @@ internal sealed partial class WizardWindow
                     + ". They are recorded for the maintainer."));
             }
 
-            // Lighting: generic Dynamic Lighting for any device, plus the curated Aura endpoint.
+            // Lighting: generic Dynamic Lighting for any device, plus a curated Aura or Claw mechanism.
             lightingFound = await RunLightingAsync(page, plan, log, lighting);
         }
         catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
         {
+            stageError = ex.Message;
             page.Children.Add(Warning($"Something went wrong: {ex.Message}"));
             log.Add("stage-error", ex.Message);
         }
@@ -154,12 +166,13 @@ internal sealed partial class WizardWindow
             });
         }
 
+        // A stage error, or a setting not confirmed as put back, fails the stage; nothing is retried.
+        var pending = await PowerPendingAsync();
         var summary = $"{LabPowerSummary.Power(tests, "power, temperatures and fans measured")}. "
                       + $"{LabPowerSummary.Lighting(lighting, lightingFound)}.";
-        await Task.Run(() =>
-            project.Finish(LabStages.Power, LabSegmentStatus.Completed, summary, DateTimeOffset.UtcNow));
+        var status = stageError is null && !pending ? LabSegmentStatus.Completed : LabSegmentStatus.Failed;
+        await Task.Run(() => project.Finish(LabStages.Power, status, summary, DateTimeOffset.UtcNow));
 
-        var pending = LabPowerChanges.PowerPending(_machine.Read().Power);
         page.Children.Add(Buttons(
             Action("Run again", () => StartStage(LabStages.Power)),
             Action(pending ? "Continue anyway" : "Continue", () => ContinueResult(LabStages.Power))));
@@ -261,12 +274,12 @@ internal sealed partial class WizardWindow
 
         // The recovery gate: a change an earlier test could not put back blocks every later write on this
         // device until the tester confirms they restored it.
-        if (LabPowerChanges.PowerPending(_machine.Read().Power))
+        if (await PowerPendingAsync())
         {
             page.Children.Add(Warning(
                 "An earlier test could not confirm it put the settings back, so no further power or fan test runs until they are restored."));
             await RestorePendingAsync(page, tests);
-            if (LabPowerChanges.PowerPending(_machine.Read().Power))
+            if (await PowerPendingAsync())
             {
                 return;
             }
@@ -274,7 +287,7 @@ internal sealed partial class WizardWindow
 
         // The pre-write checks: live identity, no competing manager, charger known, battery at least 30 %.
         var gate = await Task.Run(() => LabPowerGate.Check(plan.Record!));
-        await Task.Run(() => WriteContext(project, attempt, $"context-{passLabel}", gate.Context));
+        await Task.Run(() => project.WriteEvidence(attempt, $"context-{passLabel}", gate.Context));
         _pinnedAcLine = gate.AcLine;
         if (!gate.Ok)
         {
@@ -298,12 +311,12 @@ internal sealed partial class WizardWindow
     private async Task RunPowerSourceRepeatAsync(LabProject project, string attempt, StackPanel page,
         LabPowerPlan plan, LabPowerLog log, List<LabPowerTestResult> tests, List<LabPowerSample> telemetry)
     {
-        if (!_options.Elevated || LabPowerChanges.PowerPending(_machine.Read().Power))
+        if (!_options.Elevated || await PowerPendingAsync())
         {
             return;
         }
 
-        var wasAc = LabPowerTelemetry.AcLine();
+        var wasAc = await Task.Run(LabPowerTelemetry.AcLine);
         if (wasAc is not (0 or 1))
         {
             return;
@@ -321,7 +334,7 @@ internal sealed partial class WizardWindow
             return;
         }
 
-        if (LabPowerTelemetry.AcLine() == wasAc)
+        if (await Task.Run(LabPowerTelemetry.AcLine) == wasAc)
         {
             page.Children.Add(Warning("The charger state did not change, so the second power source was skipped."));
             return;
@@ -353,7 +366,7 @@ internal sealed partial class WizardWindow
         {
             // Read-only first: every getter on its own, and both fan curves for all three modes.
             var getters = await Task.Run(acpi.ReadAllGetters);
-            await Task.Run(() => WriteEvidenceOnce(project, attempt, $"asus-getters-{passLabel}", getters));
+            await Task.Run(() => project.WriteEvidence(attempt, $"asus-getters-{passLabel}", getters));
             if (!layout.CanSnapshot && layout.Charge is null)
             {
                 return;
@@ -367,14 +380,16 @@ internal sealed partial class WizardWindow
             {
                 (original, token) = await Task.Run(() => worker.Checkpoint<LabAsusOriginal>(acpi, captured =>
                 {
+                    // Evidence first: a failed write leaves nothing recorded and fails the checkpoint, so
+                    // the worker accepts no write.
+                    project.WriteEvidence(attempt, $"original-asus-{passLabel}",
+                        new { _pinnedAcLine, State = captured });
                     LabPowerRecovery.Record(_machine, plan.Record!.Id, changes => changes with
                     {
                         AcLine = _pinnedAcLine,
                         AsusPower = captured.Power ?? changes.AsusPower,
                         AsusChargeLimit = captured.ChargeLimit ?? changes.AsusChargeLimit
                     });
-                    WriteEvidenceOnce(project, attempt, $"original-asus-{passLabel}",
-                        new { _pinnedAcLine, State = captured });
                 }));
             }
             catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException)
@@ -584,7 +599,9 @@ internal sealed partial class WizardWindow
         {
             Power = restored && changes.Power is not null ? changes.Power with { AsusPower = null } : changes.Power
         }));
-        foreach (var test in tests.Where(test => test.Transport == "atkacpi" && test.Feature != "charge-limit")
+        // Only this pass's results: an earlier power source's results keep their own restore outcome.
+        foreach (var test in tests
+                     .Where(test => test is { Transport: "atkacpi", Restored: null } && test.Feature != "charge-limit")
                      .ToArray())
         {
             tests[tests.IndexOf(test)] = test with { Restored = restored };
@@ -710,6 +727,10 @@ internal sealed partial class WizardWindow
             {
                 (original, token) = await Task.Run(() => worker.Checkpoint<LabMsiOriginal>(wmi, captured =>
                 {
+                    // Evidence first: a failed write leaves nothing recorded and fails the checkpoint, so
+                    // the worker accepts no write.
+                    project.WriteEvidence(attempt, $"original-msi-{passLabel}",
+                        new { _pinnedAcLine, State = captured });
                     LabPowerRecovery.Record(_machine, plan.Record!.Id, changes => changes with
                     {
                         AcLine = _pinnedAcLine,
@@ -717,8 +738,6 @@ internal sealed partial class WizardWindow
                         MsiChargeRaw = captured.ChargeRaw ?? changes.MsiChargeRaw,
                         MsiFans = captured.Fans ?? changes.MsiFans
                     });
-                    WriteEvidenceOnce(project, attempt, $"original-msi-{passLabel}",
-                        new { _pinnedAcLine, State = captured });
                 }));
             }
             catch (Exception ex) when (LabMsiWmi.IsTransportFailure(ex))
@@ -732,6 +751,11 @@ internal sealed partial class WizardWindow
             if (original.Fans is { } fans)
             {
                 restored &= await RunMsiFansAsync(page, wmi, fans, tests);
+            }
+            else if (original.FansUnavailable is { } fansUnavailable)
+            {
+                page.Children.Add(
+                    Muted($"The fan mode could not be read, so the fans were not tested: {fansUnavailable}"));
             }
 
             if (layout.HasTdp)
@@ -768,7 +792,8 @@ internal sealed partial class WizardWindow
             Status("Both fans will run at full speed for five seconds, then return to their original mode."));
         if (await AskAsync(page, "Test full speed", "Skip") == 1)
         {
-            _machine.Update(changes => changes with { Power = changes.Power! with { MsiFans = null } });
+            // Nothing was written, so the recorded original is no longer needed.
+            await ForgetRecordedAsync(changes => changes with { MsiFans = null });
             return true;
         }
 
@@ -794,7 +819,7 @@ internal sealed partial class WizardWindow
                 restored = await Task.Run(() => wmi.WriteFans(original));
                 if (restored)
                 {
-                    _machine.Update(changes => changes with { Power = changes.Power! with { MsiFans = null } });
+                    await ForgetRecordedAsync(changes => changes with { MsiFans = null });
                 }
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -1087,15 +1112,10 @@ internal sealed partial class WizardWindow
 
         using (aura)
         {
-            // Lighting prep: the tester turns the lights off first so a flash is obvious, and on the Xbox
-            // Ally X also turns off Windows Dynamic Lighting so Windows does not repaint the lights.
-            var xbox = plan.Record!.Id.Contains("xbox", StringComparison.OrdinalIgnoreCase);
+            // Lighting prep: the tester turns the lights off first so a flash is obvious.
             page.Children.Add(Status(
                 "This device's lights are write-only, so the colour cannot be read. "
-                + "Turn the lights off in Armoury Crate first"
-                + (xbox
-                    ? ", and turn off Dynamic Lighting in Windows Settings under Personalization, "
-                    : ", ")
+                + "Turn the lights off in Armoury Crate first, "
                 + "then press Ready. Set your colour again in Armoury Crate when the test is done."));
             var prep = await AskAsync(page, "Ready", "Skip lighting");
             if (prep == 1)
@@ -1110,7 +1130,7 @@ internal sealed partial class WizardWindow
             {
                 await Task.Run(() => worker.Checkpoint<LabAuraOriginal>(aura, captured =>
                 {
-                    LabPowerRecovery.Record(_machine, plan.Record.Id,
+                    LabPowerRecovery.Record(_machine, plan.Record!.Id,
                         changes => changes with { AuraWrittenAt = DateTimeOffset.UtcNow });
                     log.Add("aura-checkpoint", captured);
                 }));
@@ -1121,16 +1141,12 @@ internal sealed partial class WizardWindow
                 return true;
             }
 
-            string[] zones =
-            [
-                "both rings", "left ring outer half", "left ring inner half", "right ring inner half",
-                "right ring outer half"
-            ];
+            var zones = LabAuraLighting.ZoneNames;
             string[] colours = ["red", "green", "blue"];
             var stopped = false;
             try
             {
-                for (var zone = 0; zone < zones.Length && !stopped; zone++)
+                for (var zone = 0; zone < zones.Count && !stopped; zone++)
                 {
                     for (var channel = 0; channel < colours.Length; channel++)
                     {
@@ -1149,9 +1165,14 @@ internal sealed partial class WizardWindow
                         // Hold the colour for two seconds, as AllyXLab does, then ask.
                         await Task.Delay(2000, Lifetime);
                         page.Children.Add(Status($"Showing {shown}. Did the light match?"));
-                        var answer = await AskAsync(page, "Matched", "Different", "Still on / stop");
-                        lighting.Add(($"{colours[channel]}:{zones[zone]}", AuraAnswer(answer)));
-                        if (answer == 2)
+                        var answer = (AuraAnswer)await AskAsync(page, "Matched", "Different", "Still on / stop");
+                        lighting.Add(($"{colours[channel]}:{zones[zone]}", answer switch
+                        {
+                            AuraAnswer.Matched => "matched",
+                            AuraAnswer.Different => "different",
+                            _ => "still on"
+                        }));
+                        if (answer == AuraAnswer.StillOn)
                         {
                             stopped = true;
                             break;
@@ -1180,19 +1201,17 @@ internal sealed partial class WizardWindow
         }
     }
 
-    private static string AuraAnswer(int index)
+    // The Aura question's answers, in the order of its labels.
+    private enum AuraAnswer
     {
-        return index switch
-        {
-            0 => "matched",
-            1 => "different",
-            _ => "still on"
-        };
+        Matched,
+        Different,
+        StillOn
     }
 
     private async Task RestorePendingAsync(StackPanel page, List<LabPowerTestResult> tests)
     {
-        if (!LabPowerChanges.PowerPending(_machine.Read().Power))
+        if (!await PowerPendingAsync())
         {
             return;
         }
@@ -1302,24 +1321,6 @@ internal sealed partial class WizardWindow
         {
             Power = changes.Power is null ? null : clear(changes.Power)
         }));
-    }
-
-    private static void WriteContext(LabProject project, string attempt, string name, LabPowerContext context)
-    {
-        WriteEvidenceOnce(project, attempt, name, context);
-    }
-
-    // Writes one evidence file, ignoring a repeat name so a second pass or a retry does not throw.
-    private static void WriteEvidenceOnce<T>(LabProject project, string attempt, string name, T value)
-    {
-        try
-        {
-            project.WriteEvidence(attempt, name, value);
-        }
-        catch (IOException)
-        {
-            // The file already exists from an earlier pass; the first write is the one that matters.
-        }
     }
 
     private static string SourceName(string passLabel)

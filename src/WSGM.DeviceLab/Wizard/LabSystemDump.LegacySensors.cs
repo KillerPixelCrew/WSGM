@@ -96,13 +96,13 @@ internal static partial class LabSystemDump
             var result = manager.GetSensorsByCategory(ref all, out collection);
             if (result < 0 || collection is null)
             {
-                AddIssue(issues, $"legacy sensors: none listed (0x{result:X8})");
+                issues.Add($"legacy sensors: none listed (0x{result:X8})");
                 return sensors;
             }
 
             if (collection.GetCount(out var count) < 0)
             {
-                AddIssue(issues, "legacy sensors: could not be counted");
+                issues.Add("legacy sensors: could not be counted");
                 return sensors;
             }
 
@@ -131,7 +131,7 @@ internal static partial class LabSystemDump
         }
         catch (Exception ex) when (ex is COMException or InvalidCastException)
         {
-            AddIssue(issues, $"legacy sensors: {ex.Message}");
+            issues.Add($"legacy sensors: {ex.Message}");
         }
         finally
         {

@@ -11,12 +11,6 @@ using WSGM.Device.Sdk.Input;
 
 namespace WSGM.Shell;
 
-internal enum HidHideEntryKind
-{
-    Application,
-    Device
-}
-
 /// <summary>One entry WSGM added to HidHide, remembered so exit and uninstall take exactly that back out.</summary>
 internal sealed class HidHideOwnedDelta
 {
@@ -175,7 +169,7 @@ internal sealed class HidHideOwnership
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var state = await Task.Run(_control.Read, cancellationToken).ConfigureAwait(false);
+            var state = _control.Read();
             if (!state.Succeeded || state.Inverse)
             {
                 return "HidHide is not available; nothing to allow.";
@@ -219,7 +213,7 @@ internal sealed class HidHideOwnership
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var state = await Task.Run(_control.Read, cancellationToken).ConfigureAwait(false);
+            var state = _control.Read();
             if (!state.Succeeded)
             {
                 return new HidHideResult(false, $"HidHide is not available (Win32 error {state.Error}).");
@@ -280,8 +274,7 @@ internal sealed class HidHideOwnership
                     }
                 }
 
-                var error = await Task.Run(() => _control.WriteActive(true), cancellationToken)
-                    .ConfigureAwait(false);
+                var error = _control.WriteActive(true);
                 if (error != 0)
                 {
                     return new HidHideResult(false, $"HidHide cloak could not be turned on (Win32 error {error}).");
@@ -344,7 +337,7 @@ internal sealed class HidHideOwnership
         CancellationToken cancellationToken)
     {
         List<string> problems = [];
-        var cloakError = await Task.Run(() => _control.WriteActive(false), cancellationToken).ConfigureAwait(false);
+        var cloakError = _control.WriteActive(false);
         if (HidHideControlState.IsNotInstalled(cloakError))
         {
             await _store.DeleteAsync(cancellationToken).ConfigureAwait(false);
@@ -360,7 +353,7 @@ internal sealed class HidHideOwnership
             Log.Info("HidHide cloak turned off; the physical controller is visible again.");
         }
 
-        var state = await Task.Run(_control.Read, cancellationToken).ConfigureAwait(false);
+        var state = _control.Read();
         if (!state.Succeeded)
         {
             if (!HidHideControlState.IsNotInstalled(state.Error))
@@ -440,8 +433,7 @@ internal sealed class HidHideOwnership
         int error;
         try
         {
-            error = await Task.Run(() => _control.Write(kind, [.. current, .. missing]), cancellationToken)
-                .ConfigureAwait(false);
+            error = _control.Write(kind, [.. current, .. missing]);
         }
         catch (ArgumentException ex)
         {

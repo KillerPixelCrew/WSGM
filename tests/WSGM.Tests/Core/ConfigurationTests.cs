@@ -5,6 +5,7 @@ using WSGM.Device.Sdk.Capabilities;
 using WSGM.Input;
 using WSGM.Plugin.Sdk;
 using WSGM.Testing;
+using WSGM.Tests.Builders;
 using WSGM.Tests.Fakes;
 
 namespace WSGM.Tests.Core;

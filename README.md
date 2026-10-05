@@ -338,10 +338,11 @@ WSGM is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY
 implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
 License for more details.
 
-The Plugin SDK, Device SDK, Device Lab, Claw reference plugin, ROG Ally plugin and Handheld
-Companion scaffold, including their test projects, keep their MIT licenses under `src` and `tests`,
-so external packages can implement the contracts. See
-[device plugin authoring](docs/device-plugin-authoring.md) for paths and build commands.
+The Plugin SDK, Device SDK, Claw reference plugin, ROG Ally plugin and Handheld Companion scaffold,
+including their test projects, keep their MIT licenses under `src` and `tests`, so external packages
+can implement the contracts. Device Lab compiles WSGM's own interop sources and is GPL-3.0-or-later
+like WSGM. See [device plugin authoring](docs/device-plugin-authoring.md) for paths and build
+commands.
 
 Bundled third-party components keep their own licenses; their notices ship beside the executable and
 with the installer.

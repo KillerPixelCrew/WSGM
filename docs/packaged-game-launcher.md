@@ -22,7 +22,7 @@ ordinary Steam games and holds input leases, and is deliberately kept small.
 ## The shortcut contract
 
 The [Game Library](game-library.md) writes the shortcut; the launcher reads it. Both compile the
-same `Core\PackagedLaunchCommand.cs`, so the two cannot drift.
+same `src\Shared\Launch\PackagedLaunchCommand.cs`, so the two cannot drift.
 
 ```text
 WSGM.PackagedLaunch.exe --aumid <PackageFamilyName>!<AppId> --mode steam-overlay|controller-only
@@ -122,10 +122,10 @@ layout goes with the running state. So the follow mode stays alive instead:
 - It starts the program with Explorer, or WSGM when Explorer is not running, as its parent, and with
   that parent's own user environment, so a launcher that stays in the tray is not in Steam's tree
   and does not hand Steam's launch variables to the games it starts later. This is the same
-  parent-process start WSGM uses for its shell work (`Interop\ParentProcessStart.cs`, linked into
-  the launcher). When neither parent can be used it starts the program as its own child, with
-  `SDL_GAMECONTROLLER_IGNORE_DEVICES` removed as for every child WSGM's launchers start, and says
-  so.
+  parent-process start WSGM uses for its shell work (`src\Shared\Process\ParentProcessStart.cs`,
+  linked into the launcher). When neither parent can be used it starts the program as its own child,
+  with `SDL_GAMECONTROLLER_IGNORE_DEVICES` removed as for every child WSGM's launchers start, and
+  says so.
 - It finds the game as any process whose image is inside `--dir`, or, for Minecraft, a Java process
   whose command line names the `--marker` folder as a whole path: `instances\Pack` never matches
   `instances\Pack 2`. Forward slashes, the 8.3 form and the folder's real location behind a junction

@@ -1,5 +1,6 @@
+extern alias launch;
 using System.Diagnostics;
-using WSGM.Launch;
+using launch::WSGM.Launch;
 
 namespace WSGM.Tests.Launch;
 

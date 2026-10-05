@@ -128,6 +128,21 @@ internal sealed record LabMsiLayout
 /// <param name="Usage">Top-level usage.</param>
 internal sealed record LabAuraLayout(ushort VendorId, ushort ProductId, ushort UsagePage, ushort Usage);
 
+/// <summary>One HID top-level collection by product, usage and output report length.</summary>
+/// <param name="ProductId">USB product ID.</param>
+/// <param name="UsagePage">Top-level usage page.</param>
+/// <param name="Usage">Top-level usage.</param>
+/// <param name="OutputLength">Output report length in bytes.</param>
+internal sealed record LabHidCollectionId(ushort ProductId, ushort UsagePage, ushort Usage, int OutputLength);
+
+/// <summary>
+///     The MCU collections a curated Claw lighting mechanism writes its RGB profile through: the
+///     record's lighting vendor and report length on the controller-mode command collections.
+/// </summary>
+/// <param name="VendorId">USB vendor ID.</param>
+/// <param name="Collections">The command collection of each controller mode.</param>
+internal sealed record LabClawLightingLayout(ushort VendorId, IReadOnlyList<LabHidCollectionId> Collections);
+
 /// <summary>What the power stage may test on the confirmed device, derived from its knowledge record.</summary>
 internal sealed record LabPowerPlan
 {
@@ -148,6 +163,9 @@ internal sealed record LabPowerPlan
 
     /// <summary>ASUS Aura lighting.</summary>
     public LabAuraLayout? Aura { get; init; }
+
+    /// <summary>MSI Claw RGB profile lighting.</summary>
+    public LabClawLightingLayout? ClawLighting { get; init; }
 
     /// <summary>Embedded controller mechanisms, which this build only records.</summary>
     public IReadOnlyList<DeviceMechanismKnowledge> EmbeddedController { get; init; } = [];
@@ -186,6 +204,7 @@ internal sealed record LabPowerPlan
         var asus = AsusLayout(relevant);
         var msi = MsiLayout(relevant);
         var aura = AuraLayout(relevant);
+        var claw = ClawLightingLayout(relevant, record.Mechanisms);
         List<DeviceMechanismKnowledge> untested = [];
         foreach (var mechanism in relevant.Where(mechanism => mechanism.Transport != "superio-ec"))
         {
@@ -196,7 +215,8 @@ internal sealed record LabPowerPlan
                 { Transport: "wmi-method", Feature: "charge-limit" } => msi?.Charge is not null,
                 { Transport: "wmi-method", Feature: "fan" } => msi is { FanCustom: not null, FanFullSpeed: not null }
                                                                && (msi.HasTdp || msi.Charge is not null),
-                { Transport: "hid-output", Feature: "lighting" } => aura is not null && IsAura(mechanism),
+                { Transport: "hid-output", Feature: "lighting" } =>
+                    (aura is not null && IsAura(mechanism)) || (claw is not null && IsClawLighting(mechanism)),
                 _ => false
             };
             if (!covered)
@@ -211,6 +231,7 @@ internal sealed record LabPowerPlan
             Asus = asus,
             Msi = msi,
             Aura = aura,
+            ClawLighting = claw,
             EmbeddedController = ec,
             Untested = untested
         };
@@ -485,6 +506,44 @@ internal sealed record LabPowerPlan
                                            && IsAura(mechanism))
             ? new LabAuraLayout(0x0B05, 0x1B4C, 0xFF31, 0x0080)
             : null;
+    }
+
+    private static bool IsClawLighting(DeviceMechanismKnowledge mechanism)
+    {
+        // The RGB profile transport ported from the Claw plugin writes MSI's MCU at this profile address.
+        var p = mechanism.Parameters;
+        return string.Equals(p.GetValueOrDefault("vendorId"), "0DB0", StringComparison.OrdinalIgnoreCase)
+               && Number(p, "profileAddress") == 0x024A
+               && Number(p, "reportLength") is > 0;
+    }
+
+    // The lighting mechanism names the vendor and report length; the controller-mode mechanism names the
+    // MCU command collection of each mode, which is where the profile is read and written.
+    private static LabClawLightingLayout? ClawLightingLayout(
+        IReadOnlyList<DeviceMechanismKnowledge> relevant,
+        IReadOnlyList<DeviceMechanismKnowledge> all)
+    {
+        var lighting = relevant.FirstOrDefault(mechanism =>
+            mechanism is { Feature: "lighting", Transport: "hid-output" } && IsClawLighting(mechanism));
+        var mode = all.FirstOrDefault(mechanism =>
+            mechanism is { Feature: "controller-mode", Transport: "hid-output" }
+            && string.Equals(mechanism.Parameters.GetValueOrDefault("vendorId"), "0DB0",
+                StringComparison.OrdinalIgnoreCase));
+        if (lighting is null || mode is null || Number(lighting.Parameters, "reportLength") is not { } length)
+        {
+            return null;
+        }
+
+        List<LabHidCollectionId> collections = [];
+        foreach (var (product, page, usage) in LabControllerInit.Endpoints(mode.Parameters))
+        {
+            if (ushort.TryParse(product, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var productId))
+            {
+                collections.Add(new LabHidCollectionId(productId, page, usage, (int)length));
+            }
+        }
+
+        return collections.Count > 0 ? new LabClawLightingLayout(0x0DB0, collections) : null;
     }
 }
 

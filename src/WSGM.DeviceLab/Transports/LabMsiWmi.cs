@@ -2,11 +2,9 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Management;
 using System.Runtime.InteropServices;
 using System.Threading;
-using System.Threading.Tasks;
 using WSGM.DeviceLab.Wizard;
 using WSGM.DeviceLab.Worker;
 
@@ -31,6 +29,9 @@ internal sealed record LabMsiOriginal(
 {
     /// <summary>Raw fan flags before testing.</summary>
     public LabMsiFanState? Fans { get; init; }
+
+    /// <summary>Why <see cref="Fans" /> is missing, when the record declares both fan flags.</summary>
+    public string? FansUnavailable { get; init; }
 }
 
 /// <summary>Raw custom and full-speed flags, including firmware-owned bits.</summary>
@@ -52,6 +53,7 @@ internal interface ILabMsiWmi : IDisposable
 
     /// <summary>Reads both fans' RPM.</summary>
     /// <returns>Readings, or none.</returns>
+    [LabWorkerSampled]
     IReadOnlyList<LabFanReading> FanSpeeds();
 
     /// <summary>The checkpoint snapshot: the stable power state and the raw charge limit.</summary>
@@ -193,9 +195,24 @@ internal sealed class LabMsiWmi : ILabMsiWmi
             }
         }
 
+        LabMsiFanState? fans = null;
+        string? fansUnavailable = null;
+        if (_layout.FanCustom is not null && _layout.FanFullSpeed is not null)
+        {
+            try
+            {
+                fans = ReadFans();
+            }
+            catch (Exception ex) when (IsTransportFailure(ex))
+            {
+                fansUnavailable = ex.Message;
+            }
+        }
+
         return new LabMsiOriginal(power, powerUnavailable, charge, chargeUnavailable)
         {
-            Fans = _layout.FanCustom is not null && _layout.FanFullSpeed is not null ? ReadFans() : null
+            Fans = fans,
+            FansUnavailable = fansUnavailable
         };
     }
 
@@ -352,7 +369,7 @@ internal sealed class LabMsiWmi : ILabMsiWmi
     /// <returns>The transport.</returns>
     public static LabMsiWmi Open(LabMsiLayout layout, LabPowerLog log)
     {
-        var channel = WmiChannel.Open();
+        var channel = MsiAcpiChannel.Open();
         try
         {
             var version = channel.Get("Get_WMI", 0);
@@ -445,152 +462,6 @@ internal sealed class LabMsiWmi : ILabMsiWmi
         {
             _log.Add("wmi-write-failed", new { Address = $"0x{package[0]:X2}", ex.Message });
             throw new IOException("The MSI write failed; its effect is unknown and it was not tried again.", ex);
-        }
-    }
-
-    private sealed class WmiChannel : ILabMsiWmiChannel
-    {
-        private static readonly TimeSpan CallTimeout = TimeSpan.FromSeconds(3);
-        private readonly ManagementObject _instance;
-        private readonly ManagementClass _packageClass;
-        private bool _stuck;
-
-        private WmiChannel(ManagementObject instance, ManagementClass packageClass)
-        {
-            _instance = instance;
-            _packageClass = packageClass;
-        }
-
-        public byte[] Get(string method, byte selector)
-        {
-            if (!method.StartsWith("Get_", StringComparison.Ordinal))
-            {
-                throw new ArgumentException("Only Get_* methods read.", nameof(method));
-            }
-
-            var package = new byte[PackageLength];
-            package[0] = selector;
-            return Invoke(method, package);
-        }
-
-        public void Set(string method, byte[] package)
-        {
-            if (!method.StartsWith("Set_", StringComparison.Ordinal) || package.Length != PackageLength)
-            {
-                throw new ArgumentException("Only 32-byte Set_* calls write.", nameof(method));
-            }
-
-            _ = Invoke(method, [.. package]);
-        }
-
-        public void Dispose()
-        {
-            if (_stuck)
-            {
-                // A call is still inside WMI; it keeps the objects alive and they are collected later.
-                return;
-            }
-
-            _packageClass.Dispose();
-            _instance.Dispose();
-        }
-
-        public static WmiChannel Open()
-        {
-            using (ManagementClass definition = new(Namespace, ClassName, null))
-            {
-                if (definition.Methods.Cast<MethodData>().All(method => method.Name != "Get_WMI"))
-                {
-                    throw new FileNotFoundException("MSI_ACPI has no Get_WMI method.");
-                }
-            }
-
-            ManagementObject? found = null;
-            using (ManagementObjectSearcher searcher = new(Namespace, $"SELECT * FROM {ClassName} WHERE Active = TRUE"))
-            using (var candidates = searcher.Get())
-            {
-                foreach (var candidate in candidates)
-                {
-                    if (found is not null)
-                    {
-                        candidate.Dispose();
-                        found.Dispose();
-                        throw new InvalidDataException("More than one active MSI_ACPI instance.");
-                    }
-
-                    found = (ManagementObject)candidate;
-                }
-            }
-
-            if (found is null)
-            {
-                throw new FileNotFoundException("No active MSI_ACPI instance.");
-            }
-
-            try
-            {
-                return new WmiChannel(found, new ManagementClass(Namespace, "Package_32", null));
-            }
-            catch
-            {
-                found.Dispose();
-                throw;
-            }
-        }
-
-        // A call that does not return in time may still reach the firmware, so the channel refuses
-        // every later call rather than stacking another on top of an unknown one.
-        private byte[] Invoke(string method, byte[] request)
-        {
-            if (_stuck)
-            {
-                throw new IOException("An earlier MSI call did not finish, so no further call is made.");
-            }
-
-            var call = Task.Run(() => InvokeCore(method, request));
-            if (Task.WhenAny(call, Task.Delay(CallTimeout)).GetAwaiter().GetResult() != call)
-            {
-                _stuck = true;
-                throw new TimeoutException($"{method} did not answer within three seconds; its effect is unknown.");
-            }
-
-            return call.GetAwaiter().GetResult();
-        }
-
-        private byte[] InvokeCore(string method, byte[] request)
-        {
-            // Get_WMI takes no input package; every addressed accessor does (see MsiWmiPlatform).
-            using var input = _instance.GetMethodParameters(method);
-            using var package = input is null ? null : _packageClass.CreateInstance();
-            if (input is not null)
-            {
-                if (package is null)
-                {
-                    throw new IOException("The Package_32 request could not be created.");
-                }
-
-                package["Bytes"] = request;
-                input["Data"] = package;
-            }
-
-            using var output = _instance.InvokeMethod(method, input, null)
-                               ?? throw new IOException($"{method} returned no response.");
-            if (output["Data"] is not ManagementBaseObject returned)
-            {
-                throw new InvalidDataException($"{method} returned no Package_32 response.");
-            }
-
-            using (returned)
-            {
-                if (returned["Bytes"] is not byte[] { Length: PackageLength } response)
-                {
-                    throw new InvalidDataException($"{method} returned an invalid response.");
-                }
-
-                return response[0] == 0x01
-                    ? response
-                    : throw new InvalidDataException($"{method} returned status 0x{response[0]:X2}.");
-            }
         }
     }
 }

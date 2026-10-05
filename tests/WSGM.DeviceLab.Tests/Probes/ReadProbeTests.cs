@@ -94,16 +94,6 @@ public sealed class ReadProbeTests
     }
 
     [Fact]
-    public void ReadProbeSupervisor_OutlivesTheWorkersSemanticDeadline()
-    {
-        var metadata = MsiClawReadProbes.Family.Probes[0];
-
-        Assert.True(
-            ReadProbeWorkerSupervisor.ProcessDeadline(metadata)
-            > TimeSpan.FromMilliseconds(metadata.TimeoutMilliseconds));
-    }
-
-    [Fact]
     public void ReadProbeResponse_MutationOrMissingCrossCheck_IsRejected()
     {
         var metadata = MsiClawReadProbes.Family.Probes

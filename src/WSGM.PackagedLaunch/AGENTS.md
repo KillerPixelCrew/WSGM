@@ -36,8 +36,8 @@ behavior.
   job lets children break away silently, so nothing it did not recognise, such as a launcher the
   game starts, is ever killed with the game.
 - The follow mode starts its program under Explorer or WSGM through the shared
-  `WSGM\Interop\ParentProcessStart.cs`, with that parent's user environment. Do not grow a second
-  copy of the parent-process start here.
+  `src\Shared\Process\ParentProcessStart.cs`, with that parent's user environment. Do not grow a
+  second copy of the parent-process start here.
 - Nothing polls the whole machine on a timer once the game is established. Lifetime comes from the
   containment job's own active count; discovery slows down as soon as the game appears, and the
   machine is looked at again only while the job is empty, for as long as the exit grace lasts.
@@ -58,10 +58,10 @@ nothing is a defect.
 
 ## Shared source
 
-`Core\PackagedLaunchCommand.cs` is compiled into both WSGM and this project, so the importer and the
-launcher cannot drift. `Interop\ParentProcessStart.cs` and `Interop\Win32Common.cs` come from WSGM,
-and `SteamControllerExclusion.cs` and `RotatingFileLog.cs` from WSGM.Launch, the same way. That
-means two copies of those types exist at runtime, so this project deliberately declares no
+`src\Shared\Launch\PackagedLaunchCommand.cs` is compiled into both WSGM and this project, so the
+importer and the launcher cannot drift. `ParentProcessStart.cs` and `Win32Common.cs` (shared with
+WSGM) and `SteamControllerExclusion.cs` and `RotatingFileLog.cs` (shared with WSGM.Launch) come from
+`src\Shared\Process` the same way. That means two copies of those types exist at runtime, so this project deliberately declares no
 `InternalsVisibleTo`: the types worth testing are public, and the public surface uses this project's
 own vocabulary rather than the shortcut's.
 

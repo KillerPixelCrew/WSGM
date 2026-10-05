@@ -15,18 +15,14 @@ using Avalonia.Platform.Storage;
 using WSGM.DeviceLab.Application;
 using WSGM.DeviceLab.Capture;
 using WSGM.DeviceLab.Preflight;
+using WSGM.DeviceLab.Reports;
 using WSGM.DeviceLab.Scaffolding;
 using WSGM.DeviceLab.Testing;
-using WSGM.DeviceLab.Wizard;
 
 namespace WSGM.DeviceLab.Gui;
 
 internal sealed class MainWindow : Window
 {
-    private const int MaximumRecentPathsBytes = 64 * 1024;
-    private const int MaximumRememberedPathCharacters = 4096;
-    private const int MaximumRecentPathCount = 32;
-
     private static readonly JsonSerializerOptions DisplayJson = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -50,11 +46,9 @@ internal sealed class MainWindow : Window
     private TaskCompletionSource<bool>? _operationFinished;
     private string? _reviewedRecipeHash;
 
-    public MainWindow()
+    public MainWindow(DeviceLabApplication application, DeviceLabPathBoundaries boundaries)
     {
-        var repositoryRoot = DeviceLabRepositoryLocator.Find(Environment.CurrentDirectory)
-                             ?? DeviceLabRepositoryLocator.Find(AppContext.BaseDirectory);
-        _application = new DeviceLabApplication(repositoryRoot, DeviceLabExecutable.CurrentPath);
+        _application = application;
 
         Title = "WSGM Device Lab";
         Width = 1180;
@@ -79,7 +73,7 @@ internal sealed class MainWindow : Window
         var workbench = BuildWorkbenchTab();
         var scaffold = BuildScaffoldTab();
         var package = BuildPackageTab();
-        var labReport = BuildLabReportTab(DeviceLabPathBoundaries.ForCurrentUser(repositoryRoot));
+        var labReport = BuildLabReportTab(boundaries);
         _ownerTabs = [safety, candidates, capture, workbench];
         _developerTabs = [safety, candidates, capture, workbench, scaffold, package, labReport];
         _tabs = new TabControl { ItemsSource = _ownerTabs };
@@ -675,10 +669,13 @@ internal sealed class MainWindow : Window
         {
             // Async workflows can validate packages, load plugins, or enumerate the machine before
             // their first await. Start every workflow on a worker so that synchronous prefix never
-            // stalls Avalonia's UI thread.
-            var result = await Task.Run(() => operation(current.Token), current.Token);
-            current.Token.ThrowIfCancellationRequested();
-            var serialized = JsonSerializer.Serialize(display?.Invoke(result) ?? result, DisplayJson);
+            // stalls Avalonia's UI thread; the result is serialized there too. A result that arrives
+            // after a late Cancel is kept: an operation that stopped early throws its own cancellation.
+            var (result, serialized) = await Task.Run(async () =>
+            {
+                var value = await operation(current.Token).ConfigureAwait(false);
+                return (value, JsonSerializer.Serialize(display?.Invoke(value) ?? value, DisplayJson));
+            }, current.Token);
             accepted?.Invoke(result);
             ApplyDisplayState(DeviceLabGuiOperationState.Succeeded(serialized));
         }
@@ -719,11 +716,7 @@ internal sealed class MainWindow : Window
 
     private static string OperationFailureMessage(Exception exception)
     {
-        const int maximumCharacters = 1024;
-        var message = string.IsNullOrWhiteSpace(exception.Message)
-            ? exception.GetType().Name
-            : exception.Message;
-        return message.Length <= maximumCharacters ? message : message[..maximumCharacters];
+        return string.IsNullOrWhiteSpace(exception.Message) ? exception.GetType().Name : exception.Message;
     }
 
     // ReSharper disable once AsyncVoidEventHandlerMethod
@@ -939,8 +932,7 @@ internal sealed class MainWindow : Window
 
     private void RememberPath(PathTextBox input)
     {
-        if (string.IsNullOrWhiteSpace(input.Text)
-            || input.Text.Length > MaximumRememberedPathCharacters)
+        if (string.IsNullOrWhiteSpace(input.Text))
         {
             return;
         }
@@ -985,8 +977,7 @@ internal sealed class MainWindow : Window
         try
         {
             var path = RecentPathsFile();
-            FileInfo file = new(path);
-            if (!file.Exists || file.Length is <= 0 or > MaximumRecentPathsBytes)
+            if (!File.Exists(path))
             {
                 return new Dictionary<string, string>(StringComparer.Ordinal);
             }
@@ -996,11 +987,7 @@ internal sealed class MainWindow : Window
             return loaded is null
                 ? new Dictionary<string, string>(StringComparer.Ordinal)
                 : loaded
-                    .Where(pair => !string.IsNullOrWhiteSpace(pair.Key)
-                                   && pair.Key.Length <= 128
-                                   && !string.IsNullOrWhiteSpace(pair.Value)
-                                   && pair.Value.Length <= MaximumRememberedPathCharacters)
-                    .Take(MaximumRecentPathCount)
+                    .Where(pair => !string.IsNullOrWhiteSpace(pair.Key) && !string.IsNullOrWhiteSpace(pair.Value))
                     .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
         }
         catch (Exception exception) when (exception is IOException
@@ -1020,22 +1007,7 @@ internal sealed class MainWindow : Window
             var directory = Path.GetDirectoryName(path)!;
             Directory.CreateDirectory(directory);
             temporary = Path.Combine(directory, $"recent-paths.{Guid.NewGuid():N}.tmp");
-            var bounded = paths
-                .Where(pair => !string.IsNullOrWhiteSpace(pair.Key)
-                               && pair.Key.Length <= 128
-                               && !string.IsNullOrWhiteSpace(pair.Value)
-                               && pair.Value.Length <= MaximumRememberedPathCharacters)
-                .Take(MaximumRecentPathCount)
-                .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
-            var json = JsonSerializer.SerializeToUtf8Bytes(bounded);
-            while (json.Length > MaximumRecentPathsBytes && bounded.Count > 0)
-            {
-                var longest = bounded.MaxBy(pair => pair.Value.Length);
-                bounded.Remove(longest.Key);
-                json = JsonSerializer.SerializeToUtf8Bytes(bounded);
-            }
-
-            File.WriteAllBytes(temporary, json);
+            File.WriteAllBytes(temporary, JsonSerializer.SerializeToUtf8Bytes(paths));
             File.Move(temporary, path, true);
             temporary = null;
         }

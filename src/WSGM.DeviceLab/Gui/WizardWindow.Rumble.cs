@@ -50,19 +50,33 @@ internal sealed partial class WizardWindow
         var record = ConfirmedRecord(project);
         var discovery = await Task.Run(() => LabRumbleRoutes.Discover(record));
         RumbleSession session = new(discovery, worker, record?.Id, _machine);
+        var stopped = false;
         try
         {
             await RumbleFlowAsync(page, session);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
+        catch (OperationCanceledException)
+        {
+            stopped = true;
+            throw;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             session.Failure = ex.Message;
         }
         finally
         {
-            // Runs on success, failure and window close alike: every opened route gets a final zero.
+            // Runs on success, failure, Stop and window close alike: every opened route gets one final zero.
             session.ZeroFailures = await Task.Run(() => session.Close());
             await Task.Run(() => WriteRumbleEvidence(project, attempt, record?.Id, session));
+
+            // A stopped stage stays not done, unless its final zero failed: that is an unverified cleanup.
+            if (stopped && session.ZeroFailures.Count > 0)
+            {
+                var unverified = session.Summary();
+                await Task.Run(() =>
+                    project.Finish(LabStages.Rumble, LabSegmentStatus.Failed, unverified, DateTimeOffset.UtcNow));
+            }
         }
 
         // A final zero that failed is an unverified cleanup, so the stage fails even if the tester finished.
@@ -835,8 +849,9 @@ internal sealed partial class WizardWindow
                         workerOutput.Complete();
                     }
                 }
-                catch (Exception ex) when (ex is InvalidOperationException or IOException)
+                catch (Exception ex) when (ex is not OutOfMemoryException)
                 {
+                    // The checkpoint or the record stays, so the next start zeroes the route again.
                     failed.Add(output.Route.Id);
                 }
                 finally

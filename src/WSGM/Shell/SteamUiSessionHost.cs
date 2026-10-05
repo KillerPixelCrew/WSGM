@@ -1487,7 +1487,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
             var enabled = patch.Id switch
             {
-                SteamDownloadSortPatch.PatchId => switches.DownloadSort,
+                SteamDownloadSort.PatchId => switches.DownloadSort,
                 SteamLibraryBadgeSurface.PatchId or SteamLibraryBadgeSurface.DetailsPatchId => switches.LibraryBadge,
                 SteamHomeCarouselSurface.PatchId => switches.HomeCarousel,
                 SteamScreensaverSurface.PatchId => switches.ScreensaverRows,

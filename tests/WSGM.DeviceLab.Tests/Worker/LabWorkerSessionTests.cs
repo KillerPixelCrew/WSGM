@@ -294,35 +294,41 @@ public sealed class LabWorkerSessionTests
     }
 
     [Fact]
-    public void HardwareWorker_RegistersRumbleAndCuratedInitWithCheckpointedWrites()
+    public void EveryRegisteredServiceResolvesItsMethodsOnce()
     {
-        var rumble = LabWorkerServices.All[LabRumbleWorker.Service.Name];
+        foreach (var service in LabWorkerServices.All.Values)
+        {
+            Assert.NotEmpty(service.Methods);
+            Assert.DoesNotContain(nameof(IDisposable.Dispose), service.Methods.Keys);
+        }
+
         var init = LabWorkerServices.All[LabCuratedInitWorker.Service.Name];
-
-        Assert.Equal(typeof(ILabRumbleWorker), rumble.Interface);
-        Assert.Equal(typeof(ILabCuratedInitWorker), init.Interface);
-        Assert.NotNull(typeof(ILabRumbleWorker).GetMethod(nameof(ILabRumbleWorker.Original))!
-            .GetCustomAttribute<LabWorkerSnapshotAttribute>());
-        Assert.NotNull(typeof(ILabRumbleWorker).GetMethod(nameof(ILabRumbleWorker.Write))!
-            .GetCustomAttribute<LabWorkerWriteAttribute>());
-        Assert.NotNull(typeof(ILabRumbleWorker).GetMethod(nameof(ILabRumbleWorker.SetIntensity))!
-            .GetCustomAttribute<LabWorkerStreamAttribute>());
-        Assert.NotNull(typeof(ILabRumbleWorker).GetMethod(nameof(ILabRumbleWorker.Zero))!
-            .GetCustomAttribute<LabWorkerZeroAttribute>());
-        Assert.NotNull(typeof(ILabCuratedInitWorker).GetMethod(nameof(ILabCuratedInitWorker.Original))!
-            .GetCustomAttribute<LabWorkerSnapshotAttribute>());
-        Assert.NotNull(typeof(ILabCuratedInitWorker).GetMethod(nameof(ILabCuratedInitWorker.Send))!
-            .GetCustomAttribute<LabWorkerWriteAttribute>());
-        Assert.NotNull(typeof(ILabCuratedInitWorker).GetMethod(nameof(ILabCuratedInitWorker.RecoverControllerMode))!
-            .GetCustomAttribute<LabWorkerWriteAttribute>());
-
-        // The re-enumeration wait stays cancellable through the worker.
-        Assert.Equal(typeof(CancellationToken), typeof(ILabCuratedInitWorker)
-            .GetMethod(nameof(ILabCuratedInitWorker.Send))!.GetParameters().Single().ParameterType);
-        Assert.Equal(typeof(CancellationToken), typeof(ILabCuratedInitWorker)
-            .GetMethod(nameof(ILabCuratedInitWorker.RecoverControllerMode))!.GetParameters().Single().ParameterType);
+        Assert.NotNull(init.Snapshot);
+        Assert.True(init.Methods[nameof(ILabCuratedInitWorker.Send)].Write);
+        Assert.True(init.Methods[nameof(ILabCuratedInitWorker.RecoverControllerMode)].Write);
+        Assert.NotNull(LabWorkerServices.All[LabRumbleWorker.Service.Name].Zero);
     }
 
+    [Fact]
+    public void AnOverloadedServiceMethodIsRefusedAtRegistration()
+    {
+        Assert.Throws<InvalidOperationException>(() =>
+            new LabWorkerService("overloaded", typeof(IOverloadedService), (_, _) => new object()));
+    }
+
+    [Fact]
+    public void Release_RefusesATokenThatIsNotArmed()
+    {
+        var (session, _) = Open();
+        var (token, _) = session.Checkpoint();
+        session.Acknowledge(token);
+
+        Assert.Throws<InvalidOperationException>(() => session.Release("wrong"));
+        Assert.True(session.Armed);
+
+        session.Release(token);
+        Assert.Throws<InvalidOperationException>(() => session.Release(token));
+    }
     private (LabWorkerSession Session, FakeService Service) Open()
     {
         FakeService service = new();
@@ -352,6 +358,12 @@ public sealed class LabWorkerSessionTests
         bool Wait(int value, CancellationToken cancellationToken);
     }
 
+    internal interface IOverloadedService : IDisposable
+    {
+        int Read();
+
+        int Read(int value);
+    }
     internal interface IFakeNullService : IDisposable
     {
         [LabWorkerSnapshot]

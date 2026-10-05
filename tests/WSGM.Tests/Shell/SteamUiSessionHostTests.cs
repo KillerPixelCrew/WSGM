@@ -3,6 +3,7 @@ using SteamUiToolkit;
 using WSGM.Core;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Shell;
+using WSGM.Testing;
 using WSGM.Tests.Builders;
 using WSGM.Tests.Fakes;
 using static WSGM.Testing.AsyncConditions;
@@ -490,15 +491,14 @@ public sealed class SteamUiSessionHostTests : IDisposable
             {
                 value = "{\"ok\":true,\"runtime\":true,\"owned\":false}";
             }
-            else if (expression.Contains("dlSortInstall", StringComparison.Ordinal))
+            else if (expression.Contains("wsgmDownloadSort", StringComparison.Ordinal))
             {
-                var count = Interlocked.Increment(ref _downloadInstallations);
-                (count == 1 ? FirstDownloadInstall : SecondDownloadInstall).TrySetResult();
-                value = "{\"ok\":true}";
-            }
-            else if (expression.Contains("dlSortPatched", StringComparison.Ordinal)
-                     || expression.Contains("dlSortRemove", StringComparison.Ordinal))
-            {
+                if (expression.Contains("bridge.install()", StringComparison.Ordinal))
+                {
+                    var count = Interlocked.Increment(ref _downloadInstallations);
+                    (count == 1 ? FirstDownloadInstall : SecondDownloadInstall).TrySetResult();
+                }
+
                 value = "{\"ok\":true}";
             }
             else if (expression.Contains("styleSheets", StringComparison.Ordinal)

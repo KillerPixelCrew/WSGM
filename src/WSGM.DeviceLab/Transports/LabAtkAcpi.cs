@@ -78,6 +78,7 @@ internal interface ILabAtkAcpi : IDisposable
 
     /// <summary>The fan speed readings.</summary>
     /// <returns>Readings that could be taken.</returns>
+    [LabWorkerSampled]
     IReadOnlyList<LabFanReading> FanSpeeds();
 
     /// <summary>The checkpoint snapshot: the stable power state and the charge limit.</summary>

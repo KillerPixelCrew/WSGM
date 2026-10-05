@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using System.Reflection;
-using System.Security.Principal;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,7 +17,8 @@ namespace WSGM.DeviceLab.Application;
 ///     the hardware worker share the file: each line is one append under a named mutex, tagged with the
 ///     process id and role. Lines name steps, sections, services and methods, never device paths, serials
 ///     or user folders; the file is not part of the redacted report. Nothing high-rate is logged: no input
-///     samples, rumble frames or sensor readings. When the executable's folder cannot be written, or is a
+///     samples, rumble frames or sensor readings, so the file only grows with steps and is never rotated
+///     or overwritten: earlier sessions stay in it. When the executable's folder cannot be written, or is a
 ///     drive root, the log goes to the temp folder instead. A failed write never stops the tool.
 /// </remarks>
 internal static class LabTrace
@@ -26,7 +26,6 @@ internal static class LabTrace
     /// <summary>The log's file name.</summary>
     public const string FileName = "wsgm-device.log";
 
-    private const long MaxBytes = 4L * 1024 * 1024;
     private const string MutexName = @"Local\WSGM.DeviceLab.Log";
     private static readonly Lock Gate = new();
     private static string _role = "cli";
@@ -45,10 +44,10 @@ internal static class LabTrace
             return;
         }
 
-        RotateIfLarge(Path);
         var version = typeof(LabTrace).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
             ?.InformationalVersion ?? "unknown";
-        Write($"start {role}: Device Lab {version}, elevated={Elevated()}, {Environment.OSVersion.VersionString}");
+        Write($"start {role}: Device Lab {version}, elevated={DeviceLabEnvironment.IsElevated()}, "
+              + Environment.OSVersion.VersionString);
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
             Write($"unhandled {Describe(args.ExceptionObject as Exception)}");
         TaskScheduler.UnobservedTaskException += (_, args) =>
@@ -145,26 +144,5 @@ internal static class LabTrace
         {
             return false;
         }
-    }
-
-    // One previous file is kept, so a long session cannot grow the log without bound.
-    private static void RotateIfLarge(string path)
-    {
-        try
-        {
-            if (new FileInfo(path).Length > MaxBytes)
-            {
-                File.Move(path, System.IO.Path.ChangeExtension(path, ".previous.log"), true);
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-        }
-    }
-
-    private static bool Elevated()
-    {
-        using var identity = WindowsIdentity.GetCurrent();
-        return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
     }
 }

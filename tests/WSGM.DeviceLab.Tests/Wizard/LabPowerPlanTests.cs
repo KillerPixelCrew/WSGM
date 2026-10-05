@@ -20,6 +20,7 @@ public sealed class LabPowerPlanTests
         Assert.Equal(25, plan.Asus.MaximumWatts);
         Assert.NotNull(plan.Asus.Charge);
         Assert.Null(plan.Msi);
+        Assert.Null(plan.ClawLighting);
     }
 
     [Fact]
@@ -37,6 +38,13 @@ public sealed class LabPowerPlanTests
         Assert.NotNull(plan.Msi.Charge);
         Assert.NotNull(plan.Msi.FanGetter);
         Assert.Null(plan.Asus);
+        LabHidCollectionId[] collections =
+        [
+            new(0x1901, 0xFFA0, 0x0001, 64),
+            new(0x1902, 0xFFF0, 0x0040, 64)
+        ];
+        Assert.Equal(collections, plan.ClawLighting?.Collections);
+        Assert.DoesNotContain(plan.Untested, mechanism => mechanism.Feature == "lighting");
     }
 
     [Fact]

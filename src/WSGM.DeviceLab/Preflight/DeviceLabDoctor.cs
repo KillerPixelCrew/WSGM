@@ -3,8 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
-using System.Security;
-using System.Security.Principal;
 using WSGM.DeviceLab.Application;
 
 namespace WSGM.DeviceLab.Preflight;
@@ -176,7 +174,7 @@ internal static class DeviceLabDoctor
                 RuntimeMajorVersion = Environment.Version.Major,
                 RuntimeDescription = RuntimeInformation.FrameworkDescription,
                 RuntimeIdentifier = RuntimeInformation.RuntimeIdentifier,
-                IsElevated = IsElevated(),
+                IsElevated = DeviceLabEnvironment.IsElevated(),
                 IsUserInteractive = Environment.UserInteractive,
                 IsContinuousIntegration = DeviceLabEnvironment.IsContinuousIntegration(),
                 RequiredApis = [.. RequiredWindowsApis.Select(ProbeApi)],
@@ -218,18 +216,6 @@ internal static class DeviceLabDoctor
             };
         }
 
-        private static bool IsElevated()
-        {
-            try
-            {
-                using var identity = WindowsIdentity.GetCurrent(TokenAccessLevels.Query);
-                return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
-            }
-            catch (Exception exception) when (exception is SecurityException or UnauthorizedAccessException)
-            {
-                return false;
-            }
-        }
 
         private static (bool Writable, string? Detail) ProbeOutputAccess(
             DeviceLabOutputPathDecision outputDecision)

@@ -67,7 +67,7 @@ internal static partial class LabSystemDump
         var sensors = LabLhmSensors.ReadOnce(token);
         if (sensors.Problem is { } sensorProblem)
         {
-            AddIssue(issues, $"LibreHardwareMonitor: {sensorProblem}");
+            issues.Add($"LibreHardwareMonitor: {sensorProblem}");
         }
 
         object schemes;
@@ -77,7 +77,7 @@ internal static partial class LabSystemDump
         }
         catch (Exception ex) when (ex is Win32Exception or EntryPointNotFoundException or DllNotFoundException)
         {
-            AddIssue(issues, $"Power plans: {ex.Message}");
+            issues.Add($"Power plans: {ex.Message}");
             schemes = new { Problem = ex.Message };
         }
 

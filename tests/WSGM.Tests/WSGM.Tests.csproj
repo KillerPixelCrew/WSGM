@@ -24,7 +24,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj"/>
-    <ProjectReference Include="../../src/WSGM.Launch/WSGM.Launch.csproj"/>
+    <ProjectReference Include="../../src/WSGM.Launch/WSGM.Launch.csproj" Aliases="launch"/>
     <ProjectReference Include="../../src/WSGM.PackagedLaunch/WSGM.PackagedLaunch.csproj"/>
     <ProjectReference Include="../../src/WSGM.Plugin.Ir/WSGM.Plugin.Ir.csproj"/>
     <ProjectReference Include="../../src/WSGM/WSGM.csproj"/>
@@ -33,11 +33,12 @@
     <ProjectReference Include="../../external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiToolkit.csproj"/>
   </ItemGroup>
   <ItemGroup>
-    <!-- The service reference is aliased because it compiles its own shared BootManifest type. -->
+    <!-- The service and launch wrapper references are aliased because they compile their own copies
+         of the src\Shared types; unqualified names resolve to WSGM's copy. -->
     <Compile Include="../Shared/AsyncConditions.cs" Link="Shared/AsyncConditions.cs"/>
+    <Compile Include="../Shared/FakeHybridCoreApi.cs" Link="Shared/FakeHybridCoreApi.cs"/>
     <Compile Include="../Shared/RepositoryFiles.cs" Link="Shared/RepositoryFiles.cs"/>
     <Compile Include="../Shared/SettingsTestServices.cs" Link="Shared/SettingsTestServices.cs"/>
-    <Compile Include="../Shared/SplashConfigBuilder.cs" Link="Shared/SplashConfigBuilder.cs"/>
     <Compile Include="../Shared/TemporaryDirectory.cs" Link="Shared/TemporaryDirectory.cs"/>
   </ItemGroup>
   <ItemGroup>

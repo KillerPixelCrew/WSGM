@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using WSGM.Core;
 using WSGM.Testing;
+using WSGM.Tests.Builders;
 
 namespace WSGM.Tests.Core;
 

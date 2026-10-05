@@ -1,4 +1,32 @@
-# Shared release build helpers. Callers own their output directories.
+# Shared release build helpers. A script deletes only what it created in this run or the one fixed
+# output directory it owns, which Reset-OwnedOutput clears.
+
+function Reset-OwnedOutput {
+    <#
+    .SYNOPSIS
+        Empties and recreates a repository-owned output directory under publish\ or artifacts\.
+    .DESCRIPTION
+        Refuses any path that is not strictly below <repo>\publish\ or <repo>\artifacts\. The
+        contents are removed rather than the folder, as build.ps1 does for publish\, so a process
+        holding it as its working directory does not stop the reset.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Path)
+
+    $repository = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot)).TrimEnd([IO.Path]::DirectorySeparatorChar)
+    $resolved = [IO.Path]::GetFullPath($Path).TrimEnd([IO.Path]::DirectorySeparatorChar)
+    $owned = @("publish", "artifacts") | Where-Object {
+        $resolved.StartsWith((Join-Path $repository $_) + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
+    }
+    if (@($owned).Count -eq 0) {
+        throw "Output must be a directory below publish\ or artifacts\ in this repository: $resolved"
+    }
+    if (Test-Path -LiteralPath $resolved) {
+        Get-ChildItem -LiteralPath $resolved -Force | Remove-Item -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $resolved -Force | Out-Null
+    return $resolved
+}
 
 function Get-PinnedAsset {
     [CmdletBinding()]

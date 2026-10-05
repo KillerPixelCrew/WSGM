@@ -7,8 +7,9 @@ line that repeats costs every other line around it.
 
 ## Levels
 
-`Log.Debug/Info/Warn/Error`, and `PluginTrace.Debug/Info/Warn/Error` on the plugin side. The
-threshold is `Info` unless verbose diagnostics are on.
+`Log.Debug/Info/Warn/Error`, `PluginTrace.Debug/Info/Warn/Error` in a device plugin, and
+`IPluginHost.Trace(level, scope, message)` in a common plugin, which WSGM writes under
+`plugin/<id>`. The threshold is `Info` unless verbose diagnostics are on.
 
 | Level   | Write it when                                                                                                       | Not when                                                                                                                 |
 | ------- | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
@@ -25,8 +26,9 @@ warnings are routine is the same as reading one with no warnings at all.
 ## Poll loops use a key
 
 Anything observed repeatedly goes through `Log.Change(key, message, level)`, or
-`PluginTrace.Change(scope, key, message, level)` from a plugin. It writes only when that key's
-message differs, and counts what it suppressed so the next line that does change carries
+`PluginTrace.Change(scope, key, message, level)` from a device plugin, or
+`IPluginHost.TraceChange(level, scope, key, message)` from a common plugin. It writes only when that
+key's message differs, and counts what it suppressed so the next line that does change carries
 `(previous state held for N more polls)`. A silent drop would be worse than the repetition, because
 a stalled timer and a steady state would look identical.
 

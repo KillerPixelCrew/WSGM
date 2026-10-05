@@ -289,6 +289,16 @@ internal static class DeviceLabRepositoryLocator
     /// <summary>The solution file that marks the WSGM source checkout.</summary>
     private static readonly string[] SolutionMarkers = ["WSGM.slnx"];
 
+    /// <summary>
+    ///     The one repository-root rule every Device Lab role uses: the launch folder's checkout, else the
+    ///     executable's.
+    /// </summary>
+    /// <returns>The repository root, or <see langword="null" /> outside a checkout.</returns>
+    public static string? ForThisProcess()
+    {
+        return Find(Environment.CurrentDirectory) ?? Find(AppContext.BaseDirectory);
+    }
+
     /// <summary>Walks upward for a solution marker.</summary>
     /// <param name="startPath">File or directory path to start from.</param>
     /// <returns>The repository root, or <see langword="null" /> outside a checkout.</returns>

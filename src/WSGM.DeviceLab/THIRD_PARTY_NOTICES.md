@@ -31,7 +31,7 @@ Device Lab redistributes the following third-party components:
   Its terms are upstream at <https://github.com/namazso/PawnIO.Modules>.
 - `KX.exe`, the Intel register tool Handheld Companion 1.3.1.6 bundles, embedded unmodified and
   pinned by SHA-256 in `external/kx`. It is unsigned and names no author or licence, so its terms
-  are unknown; it is not covered by this project's MIT licence.
+  are unknown; it is not covered by this project's licence.
 - `av_libglesv2.dll` from the ANGLE Project. Copyright 2018 The ANGLE Project Authors. Licensed
   under the BSD 3-Clause terms reproduced below.
 

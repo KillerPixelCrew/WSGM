@@ -1,5 +1,6 @@
+extern alias launch;
 using System.Collections;
-using WSGM.Launch;
+using launch::WSGM.Launch;
 
 namespace WSGM.Tests.Launch;
 
@@ -11,8 +12,8 @@ public sealed class LaunchWrapperTests
     public void TheDisabledUacFailureMessageCarriesTheMarkerTheParentMatches()
     {
         Assert.Contains(
-            WSGM.Launch.Program.NoMediumTokenMarker,
-            WSGM.Launch.Program.DisabledUacFailureMessage,
+            launch::WSGM.Launch.Program.NoMediumTokenMarker,
+            launch::WSGM.Launch.Program.DisabledUacFailureMessage,
             StringComparison.Ordinal);
     }
 
@@ -172,8 +173,8 @@ public sealed class LaunchWrapperTests
     [Fact]
     public void ShouldFailOpen_MarkerReportedWhileThisProcessHasASplitToken_RefusesToLaunch()
     {
-        Assert.False(WSGM.Launch.Program.ShouldFailOpen(
-            WSGM.Launch.Program.DisabledUacFailureMessage, true));
+        Assert.False(launch::WSGM.Launch.Program.ShouldFailOpen(
+            launch::WSGM.Launch.Program.DisabledUacFailureMessage, true));
     }
 
     // UAC off, and equally a built-in Administrator or a standard user: no linked
@@ -182,8 +183,8 @@ public sealed class LaunchWrapperTests
     [Fact]
     public void ShouldFailOpen_MarkerReportedWithoutALinkedLimitedToken_LaunchesTheGame()
     {
-        Assert.True(WSGM.Launch.Program.ShouldFailOpen(
-            WSGM.Launch.Program.DisabledUacFailureMessage, false));
+        Assert.True(launch::WSGM.Launch.Program.ShouldFailOpen(
+            launch::WSGM.Launch.Program.DisabledUacFailureMessage, false));
     }
 
     // An unqueryable token is not evidence of an attack; keep failing open so a
@@ -191,8 +192,8 @@ public sealed class LaunchWrapperTests
     [Fact]
     public void ShouldFailOpen_MarkerReportedWithAnUnqueryableToken_LaunchesTheGame()
     {
-        Assert.True(WSGM.Launch.Program.ShouldFailOpen(
-            WSGM.Launch.Program.DisabledUacFailureMessage, null));
+        Assert.True(launch::WSGM.Launch.Program.ShouldFailOpen(
+            launch::WSGM.Launch.Program.DisabledUacFailureMessage, null));
     }
 
     [Theory]
@@ -202,7 +203,7 @@ public sealed class LaunchWrapperTests
     public void ShouldFailOpen_OrdinaryFailureWithAnyTokenState_RefusesToLaunch(
         bool? hasLinkedLimitedToken)
     {
-        Assert.False(WSGM.Launch.Program.ShouldFailOpen(
+        Assert.False(launch::WSGM.Launch.Program.ShouldFailOpen(
             "Process.Start returned no process.", hasLinkedLimitedToken));
     }
 
@@ -214,7 +215,7 @@ public sealed class LaunchWrapperTests
     public void ShouldFailOpen_ForgedMarkerInSurroundingTextWithASplitToken_RefusesToLaunch(
         string error)
     {
-        Assert.Contains(WSGM.Launch.Program.NoMediumTokenMarker, error, StringComparison.Ordinal);
-        Assert.False(WSGM.Launch.Program.ShouldFailOpen(error, true));
+        Assert.Contains(launch::WSGM.Launch.Program.NoMediumTokenMarker, error, StringComparison.Ordinal);
+        Assert.False(launch::WSGM.Launch.Program.ShouldFailOpen(error, true));
     }
 }

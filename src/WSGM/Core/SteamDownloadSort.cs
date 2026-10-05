@@ -1,6 +1,4 @@
-using System.Globalization;
 using System.Text.Json;
-using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
 
@@ -9,259 +7,48 @@ namespace WSGM.Core;
 /// <summary>
 ///     Adds Name / Size / Type sort buttons to the header of Big Picture's
 ///     download queue ("Up Next"), reordering the queue through Steam's own
-///     <c>SteamClient.Downloads.SetQueueIndex</c>. The device-verified findings this
-///     script rests on — the <c>Focusable</c> requirement, the JSX-runtime injection
-///     point, the tight component predicates, the whole-pending-list scope and the
-///     unknown-size ranking — are in <c>docs\steam-cef.md</c> §12; re-probe with
-///     <c>tools/WsgmLibTest/run-prod-sort.mjs</c> before shipping a change here.
+///     <c>SteamClient.Downloads.SetQueueIndex</c>. The script is the
+///     <c>wsgmDownloadSort</c> gate in <c>SteamUiAssets\Source\download-sort.ts</c>.
+///     The device-verified findings it rests on — the <c>Focusable</c> requirement,
+///     the JSX-runtime injection point, the tight component predicates, the
+///     whole-pending-list scope and the unknown-size ranking — are in
+///     <c>docs\steam-cef.md</c> §12; re-probe with
+///     <c>tools/WsgmLibTest/run-prod-sort.mjs</c> before shipping a change there.
 /// </summary>
 internal static class SteamDownloadSort
 {
-    internal const string RemoveExpression =
-        "(()=>{try{var W=window.__wsgm;if(W&&W.dlSortRemove)W.dlSortRemove();"
-        + "return JSON.stringify({ok:true});}"
-        + "catch(e){return JSON.stringify({ok:false,err:String(e)});}})()";
+    /// <summary>The download sorter's stable patch id.</summary>
+    internal const string PatchId = "wsgm.download-sort";
 
-    /// <summary>
-    ///     The resident script's version, which is also the patch version. The script is guarded by it
-    ///     so re-running only refreshes the functions: bump it whenever the script text changes, or a
-    ///     live Steam session keeps running the old functions until the client restarts.
-    /// </summary>
-    internal const int ScriptVersion = 5;
+    /// <summary>The gate: installed while the sort switch is on.</summary>
+    /// <remarks>
+    ///     The queue is rendered into the Big Picture document, but it is rendered BY SharedJSContext:
+    ///     the JSX-runtime claim the gate's transform registers on, the module registry and the React
+    ///     reconciler that re-renders the queue all live there, and the Big Picture window carries the
+    ///     DOM and no webpack global at all.
+    /// </remarks>
+    internal static ISteamUiPatch Patch { get; } = new SteamGatePatch(
+        PatchId,
+        "wsgmDownloadSort",
+        "download-sort-v1:jsx-runtime+focusable+queue-header",
+        "(()=>{try{return JSON.stringify({ok:true,runtime:!!window.webpackChunksteamui});}"
+        + "catch(e){return JSON.stringify({ok:false,error:String(e)});}})()",
+        root => SteamUiPatchEvaluation.Flag(root, "ok") && SteamUiPatchEvaluation.Flag(root, "runtime"),
+        "status.installed&&status.registered",
+        "!status.installed&&!status.registered",
+        "Download queue sort");
 
-    // The resident script, run after InstallExpression declares dlSortVersion. Every shape decision
-    // in the script is a device-verified finding: docs\steam-cef.md §12.
-    //
-    // The header is intercepted through the toolkit's shared JSX-runtime claim, registered through
-    // the bridge's "elements" gate, rather than by wrapping jsx and jsxs here: the library stat on a
-    // game's page claims the same runtime, and two wrappers would each hand back the other on
-    // removal.
-    private const string ResidentSetup = """
-                                         var W=window.__wsgm=window.__wsgm||{};
-                                         if(W.dlSortVer!==dlSortVersion){
-                                           if(W.dlSortRemove)W.dlSortRemove();
-                                           W.dlSortVer=dlSortVersion;
-                                           W.dlSortToken='#Downloads_Section_Current';
-                                           W.dlSortState={key:null,dir:1,busy:false};
-                                           W.dlSortSrc=function(v){try{var f=typeof v==='function'?v:(v&&v.render?v.render:null);return f?Function.prototype.toString.call(f):'';}catch(e){return '';}};
-                                           W.dlSortModule=steamModules.resolve;
-                                           W.dlSortScan=function(){
-                                             if(W._react&&W._focusable&&W._dlIdx!==undefined)return;
-                                             var react=W.dlSortModule(['react.transitional.element','useState','cloneElement','createElement']);
-                                             if(!react||!react.createElement||!react.useMemo||!react.version)throw new Error('React exports unavailable');
-                                             var focusTokens=['"flow-children"','onActivate:','focusClassName','focusWithinClassName'];
-                                             var focusables=Object.values(W.dlSortModule(focusTokens)).filter(function(v){
-                                               var s=W.dlSortSrc(v);return typeof v==='function'&&s.length<1500&&s.indexOf('class')!==0
-                                                 &&focusTokens.every(function(token){return s.includes(token);});});
-                                             if(focusables.length!==1)throw new Error('Focusable export is absent or ambiguous');
-                                             var enums=Object.values(W.dlSortModule(['k_EAppUpdateProgress_Preallocating=','k_EAppUpdateProgress_Download='])).filter(function(v){
-                                               return v&&typeof v==='object'&&Number.isInteger(v.k_EAppUpdateProgress_Download);});
-                                             if(enums.length!==1)throw new Error('Download progress enum is absent or ambiguous');
-                                             W._react=react;W._focusable=focusables[0];W._dlIdx=enums[0].k_EAppUpdateProgress_Download;
-                                           };
-                                           // Bytes LEFT to download, not the total: the queue is about what is still
-                                           // coming down the wire. Returns -1 for "Steam has not planned this app yet"
-                                           // (every bytes_total still 0, which is what a freshly restarted client
-                                           // reports for a queued-but-not-started app) so those can be parked instead
-                                           // of being ranked as the smallest download.
-                                           W.dlSortBytes=function(t){
-                                             var i=W._dlIdx,total=0,done=0;
-                                             for(var x of (t.update_type_info||[])){
-                                               var p=x.progress&&x.progress[i];
-                                               if(!p)continue;
-                                               total+=p.bytes_total||0;done+=p.bytes_in_progress||0;
-                                             }
-                                             if(total<=0)return -1;
-                                             return Math.max(0,total-done);
-                                           };
-                                           W.dlSortName=function(t){var o=window.appStore&&appStore.GetAppOverviewByAppID(t.appid);return (o&&o.display_name?o.display_name:String(t.appid)).toLocaleLowerCase();};
-                                           W.dlSortKind=function(t){return t.buildid===0?0:1;};
-                                           // Direction is applied INSIDE each comparator: items with an unknown size
-                                           // must stay at the end in both directions, which an outer sign flip cannot
-                                           // express.
-                                           W.dlSortKeys=[
-                                             {id:'name',label:'NAME',cmp:function(a,b,d){return d*W.dlSortName(a).localeCompare(W.dlSortName(b));}},
-                                             {id:'size',label:'SIZE',cmp:function(a,b,d){
-                                               var x=W.dlSortBytes(a),y=W.dlSortBytes(b);
-                                               if(x<0&&y<0)return W.dlSortName(a).localeCompare(W.dlSortName(b));
-                                               if(x<0)return 1;
-                                               if(y<0)return -1;
-                                               return d*(x-y)||W.dlSortName(a).localeCompare(W.dlSortName(b));
-                                             }},
-                                             {id:'type',label:'TYPE',cmp:function(a,b,d){return d*(W.dlSortKind(a)-W.dlSortKind(b))||W.dlSortName(a).localeCompare(W.dlSortName(b));}}
-                                           ];
-                                           // The whole pending list, not just the running queue: scheduled and
-                                           // unqueued entries are part of what the user sees on the page, so they are
-                                           // sorted in with everything else. Assigning them a queue index is what
-                                           // dragging them into the queue does in Steam's own UI.
-                                           W.dlSortQueue=function(){
-                                             if(!window.downloadsStore)return [];
-                                             var s=downloadsStore,seen={},out=[];
-                                             var add=function(list){
-                                               for(var t of (list||[])){
-                                                 if(!t||t.completed)continue;
-                                                 if(seen[t.appid])continue;
-                                                 seen[t.appid]=1;out.push(t);
-                                               }
-                                             };
-                                             add(s.QueuedTransfers);add(s.UnqueuedTransfers);add(s.ScheduledTransfers);
-                                             // Stable starting point: queued entries keep their order, everything
-                                             // unqueued follows in the order Steam listed it.
-                                             return out.sort(function(a,b){
-                                               var x=a.queue_index<0?1e9:a.queue_index,y=b.queue_index<0?1e9:b.queue_index;
-                                               return x-y;
-                                             });
-                                           };
-                                           W.applyDownloadSort=function(keyId){
-                                             var st=W.dlSortState;
-                                             if(st.busy)return;
-                                             st.dir=st.key===keyId?-st.dir:1;
-                                             st.key=keyId;
-                                             st.busy=true;
-                                             W.dlSortRerender();
-                                             var items=W.dlSortQueue();
-                                             if(items.length<2){st.busy=false;W.dlSortRerender();return;}
-                                             // Always renumber from 0: the list now includes unqueued/scheduled entries
-                                             // whose queue_index is -1, so seeding from items[0] could hand
-                                             // SetQueueIndex a negative index.
-                                             var start=0;
-                                             var def=W.dlSortKeys.filter(function(k){return k.id===keyId;})[0];
-                                             var sorted=items.slice().sort(function(a,b){return def.cmp(a,b,st.dir);});
-                                             // One SetQueueIndex per pace, as on the device pass (docs\steam-cef.md §12):
-                                             // a fifty-entry re-queue takes about 6 s with the buttons dimmed. A rejected
-                                             // index does not stop the run; the run ends by telling WSGM how many Steam
-                                             // refused, through the bridge that carries every other injected report.
-                                             var paceMs=120;
-                                             var i=0,failed=0,firstError='';
-                                             var fail=function(e){failed++;if(!firstError)firstError=String((e&&e.message)||e);};
-                                             var step=function(){
-                                               if(i>=sorted.length){
-                                                 st.busy=false;W.dlSortRerender();
-                                                 if(failed)W.dlSortReport({refused:failed,total:sorted.length,first:firstError});
-                                                 return;
-                                               }
-                                               try{
-                                                 var moved=SteamClient.Downloads.SetQueueIndex(sorted[i].appid,start+i,downloadsStore.CurrentViewingRemoteClientID);
-                                                 if(moved&&typeof moved.catch==='function')moved.catch(fail);
-                                               }catch(e){fail(e);}
-                                               i++;
-                                               setTimeout(step,paceMs);
-                                             };
-                                             step();
-                                           };
-                                           W.dlSortBar=function(){
-                                             var R=W._react,F=W._focusable,st=W.dlSortState;
-                                             var kids=[R.createElement('span',{key:'cap',style:{fontSize:'11px',letterSpacing:'.5px',color:'#8ba6b8',marginRight:'2px'}},'SORT:')];
-                                             W.dlSortKeys.forEach(function(k){
-                                               var on=st.key===k.id;
-                                               kids.push(R.createElement(F,{
-                                                 key:k.id,
-                                                 onActivate:function(){W.applyDownloadSort(k.id);},
-                                                 style:{font:'inherit',fontSize:'11px',letterSpacing:'.5px',lineHeight:'1',padding:'5px 9px',
-                                                   border:'1px solid '+(on?'rgba(103,193,245,.55)':'rgba(255,255,255,.18)'),borderRadius:'2px',
-                                                   background:on?'rgba(103,193,245,.20)':'rgba(255,255,255,.07)',
-                                                   color:on?'#67c1f5':'#c6d4df',cursor:'pointer',opacity:st.busy?0.5:1}
-                                               },k.label+(on?(st.dir>0?' ↑':' ↓'):'')));
-                                             });
-                                             return R.createElement(F,{key:'wsgm-sort','flow-children':'row',
-                                               style:{display:'flex',alignItems:'center',gap:'6px',flex:'0 0 auto',paddingLeft:'12px'}},kids);
-                                           };
-                                           // One element transform on the toolkit's shared JSX-runtime claim: the queue header, and
-                                           // nothing else, comes back inside a row with the sort bar. Undefined leaves every other
-                                           // element to the runtime.
-                                           W.dlSortTransform=function(create,type,props,key){
-                                             if(!(props&&props.sectionTitle===W.dlSortToken&&props.count!==undefined&&props.labelId!==undefined))return undefined;
-                                             var hdr=create(type,Object.assign({},props,{style:Object.assign({},props.style,{flex:'1 1 auto',minWidth:0})}),key);
-                                             // paddingRight matches the header's own 16px gutter so the bar lines
-                                             // up with the right edge of the rows, not the window edge.
-                                             return W._react.createElement('div',
-                                               {style:{display:'flex',alignItems:'center',width:'100%',paddingRight:'16px',boxSizing:'border-box'}},
-                                               hdr,W.dlSortBar());
-                                           };
-                                           W.dlSortGate=function(){
-                                             var bridge=window[bridgeNamespace];
-                                             return bridge&&typeof bridge.gate==='function'?bridge.gate('elements'):null;
-                                           };
-                                           // The page has no log that reaches wsgm.log, so a run's refusals go to the host as the
-                                           // patch's one command. Only a bridge replaced mid-run loses the report, and then the
-                                           // console is the one place left to say so.
-                                           W.dlSortReport=function(report){
-                                             var say=function(e){console.warn('WSGM download sort: Steam refused '+report.refused+' of '+report.total
-                                               +' queue positions (first: '+report.first+'); the report did not reach WSGM: '+String((e&&e.message)||e));};
-                                             try{window[bridgeNamespace].request('wsgm.download-sort','refused',report).catch(say);}
-                                             catch(e){say(e);}
-                                           };
-                                           // A best-effort repaint of the queue's storage-keyed list sections after the order
-                                           // changed under them. The walk recurses on child and sibling alike, so depth counts
-                                           // every earlier sibling as well; maxDepth keeps that recursion far inside the
-                                           // engine's stack. The download page has few such sections, and maxUpdates stops the
-                                           // walk from repainting every storage-keyed component elsewhere in the popup.
-                                           W.dlSortRerender=function(){
-                                             var maxDepth=500,maxUpdates=12;
-                                             try{
-                                               var mgr=window.g_PopupManager;
-                                               if(!mgr)return;
-                                               for(var p of Array.from(mgr.GetPopups())){
-                                                 var d=p.m_popup&&p.m_popup.document;
-                                                 if(!d)continue;
-                                                 var row=d.querySelector('[data-rbd-draggable-id]');
-                                                 if(!row)continue;
-                                                 var fk=Object.keys(row).filter(function(k){return k.indexOf('__reactFiber$')===0;})[0];
-                                                 if(!fk)continue;
-                                                 var f=row[fk];
-                                                 while(f.return)f=f.return;
-                                                 var seen=0;
-                                                 (function visit(n,depth){
-                                                   if(!n||depth>maxDepth||seen>maxUpdates)return;
-                                                   var t=n.type;
-                                                   if(n.stateNode&&typeof t==='function'&&t.prototype&&t.prototype.GetStorageKey){
-                                                     try{n.stateNode.forceUpdate();seen++;}catch(e){}
-                                                   }
-                                                   visit(n.child,depth+1);visit(n.sibling,depth+1);
-                                                 })(f,0);
-                                               }
-                                             }catch(e){}
-                                           };
-                                           W.dlSortInstall=function(){
-                                             W.dlSortScan();
-                                             if(!W._react)return JSON.stringify({ok:false,err:'React not found'});
-                                             if(!W._focusable)return JSON.stringify({ok:false,err:'Focusable not found'});
-                                             var gate=W.dlSortGate();
-                                             if(!gate)return JSON.stringify({ok:false,err:'bridge unavailable'});
-                                             var registered=gate.register('wsgm.download-sort',W.dlSortTransform);
-                                             if(!registered||!registered.ok)return JSON.stringify({ok:false,err:(registered&&registered.error)||'element transform refused'});
-                                             W.dlSortPatched=true;
-                                             W.dlSortRerender();
-                                             return JSON.stringify({ok:true});
-                                           };
-                                           W.dlSortRemove=function(){
-                                             var gate=W.dlSortGate();
-                                             if(gate){try{gate.unregister('wsgm.download-sort');}catch(x){}}
-                                             W.dlSortPatched=null;
-                                             W.dlSortState={key:null,dir:1,busy:false};
-                                             W.dlSortRerender();
-                                           };
-                                         }
-                                         """;
-
-    internal static string InstallExpression =>
-        "(()=>{try{const steamModules=" + SteamUiModuleResolver.CreateExpression("download-sort") + ";"
-        + "const bridgeNamespace=" + SteamCef.JsString(SteamUiBridgeIdentity.Namespace) + ";"
-        + "const dlSortVersion=" + ScriptVersion.ToString(CultureInfo.InvariantCulture) + ";" + ResidentSetup
-        + "return W.dlSortInstall();}"
-        + "catch(e){return JSON.stringify({ok:false,err:String((e&&e.stack)||e)});}})()";
-
-    /// <summary>Declares the sort patch and the one report its resident script sends back.</summary>
+    /// <summary>Declares the sort gate and the one report it sends back.</summary>
     /// <returns>The module.</returns>
     internal static ISteamUiModule Module()
     {
         return new SteamUiModule(
             "download-sort",
-            [new SteamDownloadSortPatch()],
+            [Patch],
             commands:
             [
                 SteamUiModuleBuilder.Command<(int Refused, int Total, string First)>(
-                    SteamDownloadSortPatch.PatchId,
+                    PatchId,
                     "refused",
                     TryReadRefused,
                     (report, _) => Task.FromResult(LogRefused(report)),
@@ -290,88 +77,5 @@ internal static class SteamDownloadSort
         Log.Warn($"Download queue sort: Steam refused {report.Refused} of {report.Total} queue positions; "
                  + $"first: {report.First}");
         return new SteamUiCommandResult(true, null);
-    }
-}
-
-/// <summary>Owns the download-queue header transform through the shared patch lifecycle.</summary>
-internal sealed class SteamDownloadSortPatch : ISteamUiPatch
-{
-    /// <summary>The download sorter's stable patch id.</summary>
-    internal const string PatchId = "wsgm.download-sort";
-
-    public string Id => PatchId;
-
-    // The queue is rendered into the Big Picture document, but it is rendered BY SharedJSContext:
-    // the jsx-runtime claim this patch's transform registers on, the module registry and the React
-    // reconciler that re-renders the queue all live there, and the Big Picture window carries the
-    // DOM and no webpack global at all. Addressing the window instead leaves the probe's runtime
-    // check permanently false, so the sorter reports Incompatible and never installs.
-    public SteamUiTargetRole TargetRole => SteamUiTargetRole.SharedJsContext;
-
-    public Task<SteamUiPatchProbeResult> ProbeAsync(
-        SteamUiPatchContext context,
-        CancellationToken cancellationToken)
-    {
-        return SteamUiPatchEvaluation.EvaluateProbeAsync(
-            context,
-            TargetRole,
-            "(()=>{try{const W=window.__wsgm;return JSON.stringify({ok:true,"
-            + "runtime:!!window.webpackChunksteamui,"
-            + "owned:!!(W&&W.dlSortPatched)});"
-            + "}catch(e){return JSON.stringify({ok:false,error:String(e)});}})()",
-            root => SteamUiPatchEvaluation.Flag(root, "ok")
-                    && SteamUiPatchEvaluation.Flag(root, "runtime"),
-            "download-sort-v1:jsx-runtime+focusable+queue-header",
-            "SharedJSContext is unavailable.",
-            cancellationToken);
-    }
-
-    public Task<SteamUiPatchOperationResult> ApplyAsync(
-        SteamUiPatchContext context,
-        CancellationToken cancellationToken)
-    {
-        return EvaluateAsync(
-            context,
-            SteamDownloadSort.InstallExpression,
-            "Download queue sort installation failed.",
-            cancellationToken);
-    }
-
-    public Task<SteamUiPatchOperationResult> VerifyAsync(
-        SteamUiPatchContext context,
-        CancellationToken cancellationToken)
-    {
-        return EvaluateAsync(
-            context,
-            "(()=>{const W=window.__wsgm;const b=window[" + SteamCef.JsString(SteamUiBridgeIdentity.Namespace) + "];"
-            + "const g=b&&typeof b.gate==='function'?b.gate('elements'):null;"
-            + "return JSON.stringify({ok:!!(W&&W.dlSortPatched&&g&&g.registered('wsgm.download-sort'))});})()",
-            "Download queue sort verification failed.",
-            cancellationToken);
-    }
-
-    public Task<SteamUiPatchOperationResult> RemoveAsync(
-        SteamUiPatchContext context,
-        CancellationToken cancellationToken)
-    {
-        return EvaluateAsync(
-            context,
-            SteamDownloadSort.RemoveExpression,
-            "Download queue sort removal failed.",
-            cancellationToken);
-    }
-
-    private static Task<SteamUiPatchOperationResult> EvaluateAsync(
-        SteamUiPatchContext context,
-        string expression,
-        string fallback,
-        CancellationToken cancellationToken)
-    {
-        return SteamUiPatchEvaluation.EvaluateOutcomeAsync(
-            context,
-            SteamUiTargetRole.SharedJsContext,
-            expression,
-            fallback,
-            cancellationToken);
     }
 }

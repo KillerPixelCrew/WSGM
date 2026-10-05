@@ -156,7 +156,7 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B031 | install | Keep shared process names and native declarations consistent across the launcher, setup and app. | Source applied |
 | B032 | build | Fix checks that mutate files, missing build inputs and CI mistakes. Keep one final gate. | Source applied |
 | B033 | build | Ship the right notices and controller payloads, using the existing dependency lock. | Source applied |
-| B034 | build | Check real forbidden project references at final validation; avoid a second project graph framework. | Pending |
+| B034 | build | Check real forbidden project references at final validation; avoid a second project graph framework. | Source applied |
 | B035 | build | Compile the actual plugin templates so examples cannot silently rot. | Source applied |
 | B036 | build | Deduplicate pinned downloads and verify the real exported symbols without a new packaging layer. | Source applied |
 | B037 | config | Give config users the same explicit root and store. Remove hidden path fallbacks; keep composition straightforward. | Source applied |
@@ -169,16 +169,16 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B044 | sdk | Contain native callback and poll exceptions, dispose replaced reconnect sources and avoid per-sample tracing. | Source applied |
 | B045 | sdk | Reject oversized or excessively nested manifests before parsing, including package manifests. Use the existing reader. | Source applied |
 | B046 | wdc | Make WDC build independently and keep its tests off live hardware. Pin native layouts with meaningful byte fixtures. | Source applied |
-| B047 | toolkit | Keep one Steam fragment list and run existing script checks against the composed asset at final validation. | In progress |
+| B047 | toolkit | Keep one Steam fragment list and run existing script checks against the composed asset at final validation. | Source applied |
 | B048 | toolkit | Fix transport connection, cancellation and teardown races in the existing connection code. | Source applied |
 | B049 | toolkit | Resolve known Steam modules without invoking unknown exports; validate bridge payloads and keep command handlers off the pump. Fix the remaining parsing and logging defects locally. | In progress |
 | B050 | toolkit | Handle interleaved bridge deliveries independently, clear disposed state and allow module resolution to recover after a transient failure. | Source applied |
-| B051 | toolkit | Restore displaced gate state on removal, refuse malformed updates and remove silent content caps. Extend the existing checks. | In progress |
+| B051 | toolkit | Restore displaced gate state on removal, refuse malformed updates and remove silent content caps. Extend the existing checks. | Source applied |
 | B052 | sdk | Remove redundant plugin text types, make manifests immutable and expose plugin tracing where needed. Update all consumers and the contract version together. | Source applied |
 | B053 | toolkit | Report whether a Steam write was sent, refused, applied or uncertain. Pass the existing client explicitly and serialize writes; preserve recovery records after uncertain results. | Source applied |
 | B054 | toolkit | Use one patch synchronization loop; apply the bridge first and remove it last. Remove failed patches without blind retries, isolate faulty modules and support ready-plugin module changes. | Source applied |
 | B055 | toolkit | Simplify duplicated QAM rendering code while preserving output. Split fragments only where it makes the source easier to read. | Source applied |
-| B056 | toolkit | Remove redundant toolkit wrappers and unused public APIs, fix payload contracts and update consumers/version together. Preserve useful read and error detail. | In progress |
+| B056 | toolkit | Remove redundant toolkit wrappers and unused public APIs, fix payload contracts and update consumers/version together. Preserve useful read and error detail. | Source applied |
 | B057 | toolkit | Let WSGM supply QAM labels, layout and library names. Preserve existing layout and fold IDs; fix custom choices and raw OSD watt values. | Source applied |
 | B058 | toolkit | Keep uncommitted row drafts across unrelated updates; clear only the affected draft and show its write refusal. | Source applied |
 | B059 | toolkit | Enumerate picker folders off the UI thread, honour cancellation and ignore stale results. Keep the whole-list UI, supported path forms and one request timeout. | Source applied |
@@ -194,7 +194,7 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B069 | wdc | Return display write results with native detail and map wording in WSGM. Remove confirming reads and retain recovery only for writes that failed to dispatch. | Source applied |
 | B070 | wdc | Deduplicate the two display-settle waits with existing timing and cancellation. Avoid a general topology service. | Source applied |
 | B071 | wdc | Attempt every applicable wake and standby restore, collect failures and fix native registration/layout defects. Remove arbitrary buffer caps; preserve secure default restore behaviour. | Source applied |
-| B072 | wdc | Update WDC docs and metadata to actual behaviour; independently validate both supported frameworks at the end. | Pending |
+| B072 | wdc | Update WDC docs and metadata to actual behaviour; independently validate both supported frameworks at the end. | Source applied |
 | B073 | input | Remove per-sample controller allocations and duplicate routing state. Preserve capture/forwarding guards, neutral publication and safe backend disposal. | Source applied |
 | B074 | input | Make controller and HidHide ownership explicit at composition, remove duplicated tool setup and expose coherent status. | Source applied |
 | B075 | input | Pass the existing managed pad to overlay-launched Settings so controller navigation works. | Source applied |
@@ -210,7 +210,7 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B085 | steamhost | Apply Steam surface switches consistently through one path, preserving immediate cancellation and existing edge effects. | Source applied |
 | B086 | steamhost | Construct and dispose Steam backends in one place; avoid subscriptions during partial construction. Add/remove plugin modules on readiness without rebuilding the session host. | Source applied |
 | B087 | steamhost | Deduplicate QAM projections and subscriptions. Preserve observed and desired OSD watts; file splits are optional. | Source applied |
-| B088 | device | Fix device lifecycle serialization, partial startup and integration-off behaviour in the existing coordinator. Extract lifecycle code only if it removes tangled ownership. | Source applied |
+| B088 | device | Fix device lifecycle serialization, partial startup and integration-off behaviour in the existing coordinator. Extract lifecycle code only if it removes tangled ownership. | In progress |
 | B089 | device | Keep PL2 in the device entry and migrate old BoostWatts once. Share existing user-write rules and restore ordering without adding a policy framework. | Source applied |
 | B090 | winsvc | Serialize machine-wide power changes using the existing scheme lock and make lifetime dependencies clear. No extra power scheduler. | Source applied |
 | B091 | device | Serialize sustained, boost, preset and AutoTDP writes through one existing owner. Restore AutoTDP originals before stopping the device; contain power callbacks. | Source applied |
@@ -219,11 +219,11 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B094 | winsvc | Capture format targets before awaits, fix RTSS/card/audio races and grow insufficient native buffers. Dispose UI-bound services before their message window. | Source applied |
 | B095 | winsvc | Deduplicate console execution with clear refused/uncertain/success results. Refuse manager restore after unreadable config and bound the existing startup task at exit. | Source applied |
 | B096 | winsvc | Reuse one storage snapshot across eject, format, Steam and library paths. Keep card-swap checks; do not build a revision/cache subsystem. | Source applied |
-| B097 | winsvc | Preserve every identity recheck around formatting, use volume identity for library writes and report uncertain diskpart outcomes truthfully. Isolate only destructive calls for tests. | Source applied |
+| B097 | winsvc | Preserve every identity recheck around formatting, use volume identity for library writes and report uncertain diskpart outcomes truthfully. Isolate only destructive calls for tests. | In progress |
 | B098 | winsvc | Remove test-only production display branches by supplying the real required inputs or test fakes. Preserve revision guards and original-mode recovery. | Source applied |
 | B099 | winsvc | Restore the audio endpoint actually muted, move volume writes off the UI thread and dispose feedback. Share endpoint access only where it removes duplication. | Source applied |
 | B100 | winsvc | Remove arbitrary RTSS/LHM enumeration caps and use limited process-path queries. Keep frametime reads independent of OSD write access. | Source applied |
-| B101 | winsvc | Join service loops on disposal, fix card-monitor triggers and keep preview compositions hardware-free. Add missing behaviour coverage at the end. | Source applied |
+| B101 | winsvc | Join service loops on disposal, fix card-monitor triggers and keep preview compositions hardware-free. Add missing behaviour coverage at the end. | In progress |
 | B102 | library | Use fakeable HTTP handlers in existing artwork providers, compute HasMore before filtering and deduplicate slot rules. Remove expired failures and redundant overloads. | Source applied |
 | B103 | library | Keep artwork browsing across unrelated config reloads, handle cancellation/disposal safely and share apply/clear/find filename rules, including icons. | Source applied |
 | B104 | library | Delete dead library code and deduplicate pure entry/projection rules. Do not create new classes just to shorten a file. | Source applied |
@@ -245,7 +245,7 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B120 | settings | Move shared hardware facts and accent values out of UI files to their actual consumers. Keep moves small. | Source applied |
 | B121 | settings | Route update/package work through existing Settings dependencies and cancel downloads when the window closes. | Source applied |
 | B122 | overlay | Keep test/preview power actions isolated from the machine, release overlay claims synchronously and chain pin writes without mutating shared config. | Source applied |
-| B123 | settings | Open or activate one Settings window per process with the current session mode and supplied actions. | Source applied |
+| B123 | settings | Open or activate one Settings window per process with the current session mode and supplied actions. | In progress |
 | B124 | session | Isolate optional startup failures, preserve desktop recovery and stop worker mutation of shared config. Extract transition logic only where it clarifies actual ownership. | Source applied |
 | B125 | overlay | Move session relaunch and reload policy out of overlay views into the existing session owner. | Source applied |
 | B126 | overlay | Share duplicated capability-row and commit-on-close code; recheck write eligibility at invocation. Preserve layout. | Source applied |
@@ -258,10 +258,10 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B133 | settings | Show config read failures in Settings and keep IO off the UI thread. Use the existing strict store write path without a read-only mode. | Source applied |
 | B134 | settings | Raise backdrop changes only when changed and handle late native callbacks after stop. Use a few internal delegates for lifecycle tests. | Source applied |
 | B135 | settings | Remove the wake-source display cap, fix recorder/task continuations and retain bindings on failure. Deduplicate Settings helpers and preserve palette/layout values. | Source applied |
-| B136 | steamhost | Keep Steam readiness, enable/disable and Big Picture transitions ordered in the existing host. Cancel commands at shutdown start; retract patches after device cleanup. | In progress |
+| B136 | steamhost | Keep Steam readiness, enable/disable and Big Picture transitions ordered in the existing host. Cancel commands at shutdown start; retract patches after device cleanup. | Source applied |
 | B137 | steamhost | Write library tabs/badges only when changed, preserve press order and track sync work. Remove static state only where it breaks ownership. | Source applied |
-| B138 | steamhost | Fix content work cleanup and strict-save failures, remove silent media caps and return Steam's startup-movie choice at exit/uninstall. Restore only WSGM-owned files/links. | In progress |
-| B139 | steamhost | Compute the asset hash from the asset, remove builder source rewriting and duplicate gate wrapping, and keep WSGM patch IDs separate. Preserve fold IDs. | In progress |
+| B138 | steamhost | Fix content work cleanup and strict-save failures, remove silent media caps and return Steam's startup-movie choice at exit/uninstall. Restore only WSGM-owned files/links. | Source applied |
+| B139 | steamhost | Compute the asset hash from the asset, remove builder source rewriting and duplicate gate wrapping, and keep WSGM patch IDs separate. Preserve fold IDs. | Source applied |
 | B140 | session | Use the safety-first shutdown order below, one deadline and one task. Attempt later cleanup after failures; remove the repeated cleanup block without a shutdown framework. | Source applied |
 | B141 | session | Fix splash timing and dead session wiring; update docs after the actual ownership changes. | Source applied |
 | B142 | sdk | Remove SDK content caps and host-only types, fix manifest/identity validation and dispose all package owners. Update API version and every consumer together. | Source applied |
@@ -279,26 +279,26 @@ No status was promoted by this plan rewrite. Detailed evidence stays in the trac
 | B154 | ir | Classify IR refusals before emission, retain uncertain outcomes after emission and never overwrite unreadable libraries. Dispose a failed serial open and keep sequence status truthful. | Source applied |
 | B155 | ir | Simplify IR session/storage/publication code without changing IDs or labels. A three-class split is not an acceptance requirement. | Source applied |
 | B156 | ir | Fix firmware learn retirement, validation and storage errors; add protocol-2 catalog pages and matching host reassembly so large catalogs work. Build only; flashing remains attended. | Source applied |
-| B157 | lab | Fix Lab watchdog locking, EOF cleanup, wrong-token release and pending-client races. Stop per-sample logs and expose only the seams the worker tests need. | Pending |
-| B158 | lab | Refuse unreadable machine records, attempt every startup recovery item under the owner reservation and start the worker only when needed. Preserve existing record locations. | Pending |
-| B159 | lab | Deduplicate MSI_ACPI calls, handle null arguments/timeouts and validate every power limit before the first write. Preserve checkpoints when observations fail. | Pending |
-| B160 | lab | Fix failed KX-open cleanup and duplicated HID/pin helpers. Keep transport structure simple. | Pending |
-| B161 | lab | Keep complete capture evidence, finish cancelled steps and fix shortcut state/serializer races. Join capture before freeing its signal; refuse probes when quarantine recording fails. | Pending |
-| B162 | lab | Use one Lab root, elevation check and worker launch path; preserve previous trace logs and remove duplicate staging tests. | Pending |
-| B163 | lab | Reuse the existing Lab archive reader, retain full persisted detail and deduplicate button/report helpers. | Pending |
-| B164 | lab | Export all evidence with cancellation and the project lock. Keep the existing in-memory export; bounds belong only on untrusted archive reads. | Pending |
-| B165 | lab | Fix developer-runner cancellation, process-handle leaks and duplicate help windows. Reuse options/root and keep complete messages/recent paths. | Pending |
-| B166 | lab | Track one wizard operation and close once in order: cancel/await, undo HidHide, dispose capture/worker, release reservation. Keep result pages outside the running operation. | Pending |
-| B167 | lab | Complete dumps before prompting, report abandoned/evidence-write failures and make Finish viewing read-only. Separate stage code only when easier to maintain. | Pending |
-| B168 | lab | Remove extra-button caps, replace magic answer indices and share pointer filtering. Keep mode commands under the existing reservation. | Pending |
-| B169 | lab | Record rumble routes before writing and zero once on success/failure/cancel. A failed zero fails the stage; never replay a failed pulse. | Pending |
-| B170 | lab | Keep power stage order/values, update records off the UI thread and fail closed on checkpoint writes. Preserve Lab readback-before-clear rules. | Pending |
-| B171 | lab | Gate lighting on actual mechanisms, preserve exact restore after cancellation and finish skipped sleep stages as Skipped. | Pending |
-| B172 | input | Share the existing HidHide adapter without relicensing GPL sources; fix IOCTL threading and remove duplicate tests. | Pending |
-| B173 | build | Move only genuinely shared sources, fix single-consumer homes and relicense Device Lab as GPL per D3. SDKs stay MIT and VIIPER stays fixed. | Pending |
-| B174 | build | Replace fragile source scrapers with existing assets/behaviour tests, delete the two retired tools and compile remaining tools in final validation. | Pending |
-| B175 | build | Replace staging ceremony with one rule: recreate repository-owned output and refuse paths outside it. No staging framework. | Pending |
-| B176 | build | Remove duplicated test helpers and stale build guidance; use completion signals where timing tests are flaky. Keep documentation proportional. | Pending |
+| B157 | lab | Fix Lab watchdog locking, EOF cleanup, wrong-token release and pending-client races. Stop per-sample logs and expose only the seams the worker tests need. | Source applied |
+| B158 | lab | Refuse unreadable machine records, attempt every startup recovery item under the owner reservation and start the worker only when needed. Preserve existing record locations. | Source applied |
+| B159 | lab | Deduplicate MSI_ACPI calls, handle null arguments/timeouts and validate every power limit before the first write. Preserve checkpoints when observations fail. | Source applied |
+| B160 | lab | Fix failed KX-open cleanup and duplicated HID/pin helpers. Keep transport structure simple. | Source applied |
+| B161 | lab | Keep complete capture evidence, finish cancelled steps and fix shortcut state/serializer races. Join capture before freeing its signal; refuse probes when quarantine recording fails. | Source applied |
+| B162 | lab | Use one Lab root, elevation check and worker launch path; preserve previous trace logs and remove duplicate staging tests. | Source applied |
+| B163 | lab | Reuse the existing Lab archive reader, retain full persisted detail and deduplicate button/report helpers. | Source applied |
+| B164 | lab | Export all evidence with cancellation and the project lock. Keep the existing in-memory export; bounds belong only on untrusted archive reads. | Source applied |
+| B165 | lab | Fix developer-runner cancellation, process-handle leaks and duplicate help windows. Reuse options/root and keep complete messages/recent paths. | Source applied |
+| B166 | lab | Track one wizard operation and close once in order: cancel/await, undo HidHide, dispose capture/worker, release reservation. Keep result pages outside the running operation. | Source applied |
+| B167 | lab | Complete dumps before prompting, report abandoned/evidence-write failures and make Finish viewing read-only. Separate stage code only when easier to maintain. | Source applied |
+| B168 | lab | Remove extra-button caps, replace magic answer indices and share pointer filtering. Keep mode commands under the existing reservation. | Source applied |
+| B169 | lab | Record rumble routes before writing and zero once on success/failure/cancel. A failed zero fails the stage; never replay a failed pulse. | Source applied |
+| B170 | lab | Keep power stage order/values, update records off the UI thread and fail closed on checkpoint writes. Preserve Lab readback-before-clear rules. | Source applied |
+| B171 | lab | Gate lighting on actual mechanisms, preserve exact restore after cancellation and finish skipped sleep stages as Skipped. | Source applied |
+| B172 | input | Share the existing HidHide adapter without relicensing GPL sources; fix IOCTL threading and remove duplicate tests. | Source applied |
+| B173 | build | Move only genuinely shared sources, fix single-consumer homes and relicense Device Lab as GPL per D3. SDKs stay MIT and VIIPER stays fixed. | Source applied |
+| B174 | build | Replace fragile source scrapers with existing assets/behaviour tests, delete the two retired tools and compile remaining tools in final validation. | In progress |
+| B175 | build | Replace staging ceremony with one rule: recreate repository-owned output and refuse paths outside it. No staging framework. | Source applied |
+| B176 | build | Remove duplicated test helpers and stale build guidance; use completion signals where timing tests are flaky. Keep documentation proportional. | Source applied |
 | B177 | docs | Update docs for actual behaviour, recovery and remaining acceptance gaps. Inventory public APIs only as needed to account for removals and contract changes. | Pending |
 | B178 | docs | Reconcile every finding and existing coverage gap against applied fixes or evidenced no-change. Keep unresolved work visible; no new audit programme or micro-batch graph. | Pending |
 | B179 | docs | Run the final automated validation and report failures, then hand off the existing manual matrix. No release/deploy without explicit direction. | Pending |

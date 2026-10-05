@@ -24,12 +24,17 @@ internal interface ILabCuratedInitWorker : IDisposable
     /// <summary>Reads the current mode after sleep.</summary>
     int? CurrentMode();
 
-    /// <summary>Restores a pending reversible mode change.</summary>
+    /// <summary>
+    ///     Restores a pending reversible mode change the wizard recorded. The worker reads and writes no
+    ///     record; the wizard clears it after a null result.
+    /// </summary>
+    /// <param name="pending">The recorded change.</param>
     /// <param name="cancellationToken">
     ///     Ends the wait for the controller to come back; a command already sent stays sent and is not retried.
     /// </param>
+    /// <returns>Null when the original mode reads back; otherwise the problem.</returns>
     [LabWorkerWrite]
-    string? RecoverControllerMode(CancellationToken cancellationToken);
+    string? RecoverControllerMode(LabPendingControllerMode pending, CancellationToken cancellationToken);
 }
 
 /// <summary>Resolves a curated init from the worker's own reviewed knowledge base.</summary>
@@ -77,9 +82,9 @@ internal sealed class LabCuratedInitWorker : ILabCuratedInitWorker
     }
 
     /// <inheritdoc />
-    public string? RecoverControllerMode(CancellationToken cancellationToken)
+    public string? RecoverControllerMode(LabPendingControllerMode pending, CancellationToken cancellationToken)
     {
-        return LabControllerInit.RecoverControllerMode(cancellationToken);
+        return LabControllerInit.RecoverControllerMode(pending, cancellationToken);
     }
 
     private LabControllerInitPlan Plan()

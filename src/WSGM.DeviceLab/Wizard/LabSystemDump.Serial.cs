@@ -95,12 +95,12 @@ internal static partial class LabSystemDump
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
                                        or SecurityException)
         {
-            AddIssue(issues, $"SERIALCOMM: {ex.Message}");
+            issues.Add($"SERIALCOMM: {ex.Message}");
         }
 
         if (context.Devices.Count == 0)
         {
-            AddIssue(issues, "The device list was not read, so only SERIALCOMM is listed.");
+            issues.Add("The device list was not read, so only SERIALCOMM is listed.");
         }
 
         context.Write("serial-ports", new { Ports = ports, SerialComm = serialComm, Issues = issues });
@@ -119,7 +119,7 @@ internal static partial class LabSystemDump
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
                                        or SecurityException or ArgumentException)
         {
-            AddIssue(issues, $"{instanceId}: {ex.Message}");
+            issues.Add($"{instanceId}: {ex.Message}");
             return null;
         }
     }

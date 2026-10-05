@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
@@ -10,28 +11,6 @@ using WSGM.DeviceLab.Application;
 using WSGM.DeviceLab.Wizard;
 
 namespace WSGM.DeviceLab.Worker;
-
-/// <summary>A hardware service the worker may host: its interface, which is the call allowlist, and how to open it.</summary>
-/// <param name="Name">Service name used by <c>open</c>.</param>
-/// <param name="Interface">Interface whose methods are the only ones callable.</param>
-/// <param name="Open">Opens the service from its arguments, logging into the given log.</param>
-internal sealed record LabWorkerService(
-    string Name,
-    Type Interface,
-    Func<IReadOnlyList<JsonElement>, LabPowerLog, object> Open)
-{
-    /// <summary>Reads one open argument as its declared type.</summary>
-    /// <typeparam name="T">The argument type.</typeparam>
-    /// <param name="args">The open arguments.</param>
-    /// <param name="index">Which one.</param>
-    /// <returns>The argument.</returns>
-    public static T Arg<T>(IReadOnlyList<JsonElement> args, int index)
-    {
-        return index < args.Count
-            ? args[index].Deserialize<T>(LabProject.JsonOptions)!
-            : throw new ArgumentException($"The service needs open argument {index}.");
-    }
-}
 
 /// <summary>
 ///     The elevated hardware worker the wizard starts once per session. Every hardware write the wizard
@@ -46,7 +25,15 @@ internal sealed record LabWorkerService(
 ///     arguments bound to their declared types; there is no generic register or report access. Streamed
 ///     outputs are put back to rest when frames stop for <see cref="StreamTimeout" />.
 /// </remarks>
-internal static class LabWorkerHost
+/// <param name="input">Requests, one JSON line each, after the greeting.</param>
+/// <param name="output">Replies, one JSON line each.</param>
+/// <param name="services">The services that can be opened, by name.</param>
+/// <param name="time">The clock and timer for the stream watchdog and the checkpoint deadline.</param>
+internal sealed class LabWorkerHost(
+    TextReader input,
+    TextWriter output,
+    IReadOnlyDictionary<string, LabWorkerService> services,
+    TimeProvider time)
 {
     /// <summary>Command-line mode.</summary>
     public const string Mode = "__lab-worker";
@@ -57,20 +44,40 @@ internal static class LabWorkerHost
     /// <summary>How long the wizard has to acknowledge a checkpoint.</summary>
     public static readonly TimeSpan AcknowledgeTimeout = TimeSpan.FromSeconds(5);
 
-    private static readonly Lock Output = new();
+    private static readonly TimeSpan WatchdogInterval = TimeSpan.FromMilliseconds(100);
+
+    private readonly LabWorkerCalls _calls = new();
+    private readonly Lock _output = new();
+
+    // Changed only on the request thread, which holds this lock while it runs a request. The watchdog
+    // takes it with TryEnter and skips a tick while a request runs.
+    private readonly Dictionary<long, LabWorkerSession> _sessions = [];
+    private long _next;
 
     /// <summary>One-line JSON for the pipe, with the project's naming.</summary>
     internal static JsonSerializerOptions WireOptions { get; } = new(LabProject.JsonOptions) { WriteIndented = false };
 
-    /// <summary>Runs the worker until its input closes.</summary>
+    /// <summary>Authenticates the worker and runs it over the console until its input closes.</summary>
     /// <param name="args">Worker arguments.</param>
     /// <returns>Exit code.</returns>
     public static int Run(IReadOnlyList<string> args)
     {
         var handle = Option(args, "--authorization-handle");
-        var secret = handle is null
-            ? null
-            : SelfWorkerAuthorization.ReadSecretAsync(handle, CancellationToken.None).GetAwaiter().GetResult();
+        byte[]? secret = null;
+        if (handle is not null)
+        {
+            using CancellationTokenSource authorization = new(SelfWorkerAuthorization.AuthorizationDeadline);
+            try
+            {
+                secret = SelfWorkerAuthorization.ReadSecretAsync(handle, authorization.Token).GetAwaiter()
+                    .GetResult();
+            }
+            catch (OperationCanceledException)
+            {
+                // The supervisor never delivered the secret; refuse like a wrong one.
+            }
+        }
+
         if (secret is null)
         {
             return 64;
@@ -84,14 +91,19 @@ internal static class LabWorkerHost
             return 64;
         }
 
+        return new LabWorkerHost(Console.In, Console.Out, LabWorkerServices.All, TimeProvider.System).Serve();
+    }
+
+    /// <summary>Greets the wizard and serves requests until the input closes.</summary>
+    /// <returns>Exit code.</returns>
+    public int Serve()
+    {
         Write(new LabWorkerResponse { Id = 0, Ok = true });
-        Dictionary<long, LabWorkerSession> sessions = [];
-        LabWorkerCalls calls = new();
         using BlockingCollection<LabWorkerRequest> queue = new();
-        using Timer watchdog = new(_ => ZeroStale(sessions), null, 100, 100);
+        using var watchdog = time.CreateTimer(_ => ZeroStale(), null, WatchdogInterval, WatchdogInterval);
 
         // Requests run in order on one thread, so this loop can still read a cancel while a call waits.
-        Thread dispatcher = new(() => Dispatch(queue, sessions, calls))
+        Thread dispatcher = new(() => Dispatch(queue))
         {
             IsBackground = true,
             Name = "Device Lab worker requests"
@@ -99,7 +111,7 @@ internal static class LabWorkerHost
         dispatcher.Start();
         try
         {
-            while (Console.In.ReadLine() is { } line)
+            while (input.ReadLine() is { } line)
             {
                 LabWorkerRequest? request;
                 try
@@ -120,7 +132,7 @@ internal static class LabWorkerHost
 
                 if (request.Op == "cancel")
                 {
-                    calls.Cancel(request.Id);
+                    _calls.Cancel(request.Id);
                     continue;
                 }
 
@@ -129,43 +141,76 @@ internal static class LabWorkerHost
         }
         finally
         {
-            // Input closed: the wizard is done or gone. End any wait, finish what was queued, then put
-            // every streamed output at rest and close.
-            calls.CancelAll();
+            // Input closed: the wizard is done or gone. End any wait and drop what is still queued, so no
+            // write reaches the hardware after the wizard left. Then put every streamed output at rest
+            // and close; a lane is never zeroed under a running call.
+            _calls.CancelAll();
             queue.CompleteAdding();
             dispatcher.Join();
-            lock (sessions)
+            lock (_sessions)
             {
-                foreach (var session in sessions.Values)
+                foreach (var session in _sessions.Values)
                 {
                     session.ZeroQuietly();
                     session.Dispose();
                 }
 
-                sessions.Clear();
+                _sessions.Clear();
             }
         }
 
         return 0;
     }
 
-    private static void Dispatch(BlockingCollection<LabWorkerRequest> queue,
-        Dictionary<long, LabWorkerSession> sessions, LabWorkerCalls calls)
+    /// <summary>One watchdog tick: zeroes every streamed output that went quiet, unless a request is running.</summary>
+    internal void ZeroStale()
     {
-        long next = 0;
+        // A busy lane is skipped: zeroing it would be a second write to the same device mid-call, and a
+        // tick that waited would park a thread for as long as the call runs.
+        if (!Monitor.TryEnter(_sessions))
+        {
+            return;
+        }
+
+        try
+        {
+            foreach (var session in _sessions.Values)
+            {
+                session.ZeroIfStale();
+            }
+        }
+        finally
+        {
+            Monitor.Exit(_sessions);
+        }
+    }
+
+    private void Dispatch(BlockingCollection<LabWorkerRequest> queue)
+    {
         foreach (var request in queue.GetConsumingEnumerable())
         {
-            // Streamed frames and their status polls are high-rate and never logged.
-            var logged = request.Op is not ("stream" or "stream-status");
+            if (_calls.Closed)
+            {
+                // Nobody reads a reply any more.
+                continue;
+            }
+
+            // Streamed frames, their status polls and sampled reads are high-rate and never traced.
+            var logged = request.Op switch
+            {
+                "stream" or "stream-status" => false,
+                "call" => _sessions.GetValueOrDefault(request.Session)?.IsSampled(request.Method) != true,
+                _ => true
+            };
             var what = $"{request.Op} {request.Service ?? $"session {request.Session}"} {request.Method}".TrimEnd();
             if (logged)
             {
                 LabTrace.Write($"worker {what}: start");
             }
 
-            lock (sessions)
+            lock (_sessions)
             {
-                Handle(request, sessions, calls, ref next);
+                Handle(request);
             }
 
             if (logged)
@@ -175,8 +220,7 @@ internal static class LabWorkerHost
         }
     }
 
-    private static void Handle(LabWorkerRequest request, Dictionary<long, LabWorkerSession> sessions,
-        LabWorkerCalls calls, ref long next)
+    private void Handle(LabWorkerRequest request)
     {
         LabPowerLog opening = new();
         LabWorkerSession? session = null;
@@ -186,18 +230,19 @@ internal static class LabWorkerHost
             {
                 case "open":
                 {
-                    var service = LabWorkerServices.All.GetValueOrDefault(request.Service ?? string.Empty)
+                    var service = services.GetValueOrDefault(request.Service ?? string.Empty)
                                   ?? throw new InvalidOperationException(
                                       $"Unknown worker service '{request.Service}'.");
-                    var id = ++next;
-                    session = new LabWorkerSession(service, service.Open(request.Args, opening), opening);
-                    sessions[id] = session;
+                    var id = ++_next;
+                    session = new LabWorkerSession(service, service.Open(request.Args, opening), opening,
+                        () => time.GetUtcNow().UtcDateTime);
+                    _sessions[id] = session;
                     Reply(request, session.TakeLog(), session: id);
                     return;
                 }
                 case "stream":
                 {
-                    if (sessions.TryGetValue(request.Session, out var streamed))
+                    if (_sessions.TryGetValue(request.Session, out var streamed))
                     {
                         streamed.Stream(request.Method!, request.Args);
                     }
@@ -206,13 +251,13 @@ internal static class LabWorkerHost
                 }
             }
 
-            session = sessions.GetValueOrDefault(request.Session)
+            session = _sessions.GetValueOrDefault(request.Session)
                       ?? throw new InvalidOperationException("The worker session is not open.");
             switch (request.Op)
             {
                 case "call":
                 {
-                    var call = calls.Begin(request.Id);
+                    var call = _calls.Begin(request.Id);
                     JsonElement? result;
                     try
                     {
@@ -220,7 +265,7 @@ internal static class LabWorkerHost
                     }
                     finally
                     {
-                        calls.End(call);
+                        _calls.End(call);
                     }
 
                     Reply(request, session.TakeLog(), result);
@@ -247,7 +292,7 @@ internal static class LabWorkerHost
                 case "close":
                     session.ZeroQuietly();
                     session.Dispose();
-                    sessions.Remove(request.Session);
+                    _sessions.Remove(request.Session);
                     Reply(request, session.TakeLog());
                     return;
                 default:
@@ -277,7 +322,7 @@ internal static class LabWorkerHost
         return result is { ValueKind: JsonValueKind.Null or JsonValueKind.Undefined } ? null : result;
     }
 
-    private static void Reply(LabWorkerRequest request, IReadOnlyList<LabWorkerLogEntry> log,
+    private void Reply(LabWorkerRequest request, IReadOnlyList<LabWorkerLogEntry> log,
         JsonElement? result = null, long session = 0, string? token = null)
     {
         Write(new LabWorkerResponse
@@ -291,24 +336,13 @@ internal static class LabWorkerHost
         });
     }
 
-    private static void Write(LabWorkerResponse response)
+    private void Write(LabWorkerResponse response)
     {
         var line = JsonSerializer.Serialize(response, WireOptions);
-        lock (Output)
+        lock (_output)
         {
-            Console.Out.WriteLine(line);
-            Console.Out.Flush();
-        }
-    }
-
-    private static void ZeroStale(Dictionary<long, LabWorkerSession> sessions)
-    {
-        lock (sessions)
-        {
-            foreach (var session in sessions.Values)
-            {
-                session.ZeroIfStale();
-            }
+            output.WriteLine(line);
+            output.Flush();
         }
     }
 

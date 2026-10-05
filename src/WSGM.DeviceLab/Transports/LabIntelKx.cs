@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Security.Cryptography;
-using System.Text.Json;
 using LibreHardwareMonitor.PawnIo;
 using WSGM.DeviceLab.Wizard;
 using WSGM.DeviceLab.Worker;
@@ -173,34 +172,60 @@ internal sealed class LabIntelKx : ILabIntelKx
     {
         var unit = powerUnitWatts ?? PowerUnitWatts();
         var directory = PawnIoSetup.CreateAdministratorsOnlyDirectory("kx");
-        var path = Path.Combine(directory, "KX.exe");
-        using (var resource = typeof(LabIntelKx).Assembly.GetManifestResourceStream("WSGM.DeviceLab.KX.exe")
-                              ?? throw new InvalidOperationException("This build does not include KX.exe."))
-        using (var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        FileStream? held = null;
+        LabIntelKx? kx = null;
+        try
         {
-            resource.CopyTo(file);
-        }
-
-        // Held without write or delete sharing, so nothing can replace the file after the check.
-        var held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        var digest = Convert.ToHexString(SHA256.HashData(held));
-        if (!string.Equals(digest, PinnedDigest(), StringComparison.OrdinalIgnoreCase))
-        {
-            held.Dispose();
-            throw new InvalidOperationException($"The bundled KX.exe does not match its pin ({digest}).");
-        }
-
-        LabIntelKx kx = new(directory, path, held, unit);
-        foreach (var candidate in MchbarCandidates)
-        {
-            if (kx.Return("/rdmem32", candidate) is { } value && value != uint.MaxValue)
+            var path = Path.Combine(directory, "KX.exe");
+            using (var resource = typeof(LabIntelKx).Assembly.GetManifestResourceStream("WSGM.DeviceLab.KX.exe")
+                                  ?? throw new InvalidOperationException("This build does not include KX.exe."))
+            using (var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None))
             {
-                kx.MchbarPrefix = candidate[..6];
-                break;
+                resource.CopyTo(file);
             }
-        }
 
-        return kx;
+            // Held without write or delete sharing, so nothing can replace the file after the check.
+            held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            var digest = Convert.ToHexString(SHA256.HashData(held));
+            if (!string.Equals(digest, LabPins.KxSha256(), StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException($"The bundled KX.exe does not match its pin ({digest}).");
+            }
+
+            kx = new LabIntelKx(directory, path, held, unit);
+            foreach (var candidate in MchbarCandidates)
+            {
+                if (kx.Return("/rdmem32", candidate) is { } value && value != uint.MaxValue)
+                {
+                    kx.MchbarPrefix = candidate[..6];
+                    break;
+                }
+            }
+
+            return kx;
+        }
+        catch
+        {
+            if (kx is not null)
+            {
+                // Its Dispose releases the copy and deletes the folder.
+                kx.Dispose();
+            }
+            else
+            {
+                held?.Dispose();
+                try
+                {
+                    Directory.Delete(directory, true);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    // A leftover copy in an administrators-only folder is removed with the Windows temp folder.
+                }
+            }
+
+            throw;
+        }
     }
 
     private string? WriteMem16(string address, int value)
@@ -304,13 +329,5 @@ internal sealed class LabIntelKx : ILabIntelKx
         {
             msr.Close();
         }
-    }
-
-    private static string PinnedDigest()
-    {
-        using var stream = typeof(LabIntelKx).Assembly.GetManifestResourceStream("WSGM.DeviceLab.KX.lock.json")
-                           ?? throw new InvalidOperationException("The KX lock file is not embedded.");
-        using var document = JsonDocument.Parse(stream);
-        return document.RootElement.GetProperty("component").GetProperty("sha256").GetString()!;
     }
 }

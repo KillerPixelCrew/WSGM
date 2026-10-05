@@ -58,6 +58,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
+. (Join-Path $PSScriptRoot "plugin-package-common.ps1")
 $source = if ([IO.Path]::IsPathRooted($Source)) {
     [IO.Path]::GetFullPath($Source)
 }
@@ -80,9 +81,8 @@ $outputFull = if ([IO.Path]::IsPathRooted($OutputRoot)) {
 else {
     [IO.Path]::GetFullPath((Join-Path $root $OutputRoot))
 }
-$workRoot = Join-Path $outputFull (".wsgm-pack-{0}" -f [Guid]::NewGuid().ToString("N"))
-$workMarker = Join-Path $workRoot ".wsgm-generated-output"
-$workMarkerValue = "device-package-work-v1"
+# Temporary work lives in a fresh directory of this run, removed afterwards.
+$workRoot = Join-Path ([IO.Path]::GetTempPath()) ("WSGM-Pack-" + [Guid]::NewGuid().ToString("N"))
 $restoreArguments = @()
 if ($NoRestore) {
     $restoreArguments += "--no-restore"
@@ -113,23 +113,10 @@ if ($packageId -notmatch '^[A-Za-z0-9._-]+$' -or $packageVersion -notmatch '^[0-
 
 $archiveName = "$packageId-$packageVersion.wsgmpkg"
 $archive = Join-Path $outputFull $archiveName
-$archiveMarker = "$archive.wsgm-generated-output"
-$archiveMarkerValue = "device-package-output-v1|$packageId|$packageVersion"
-if (Test-Path -LiteralPath $archiveMarker) {
-    if (-not (Test-Path -LiteralPath $archiveMarker -PathType Leaf) -or
-        (Get-Content -LiteralPath $archiveMarker -Raw).Trim() -cne $archiveMarkerValue) {
-        throw "Refusing to replace an unrecognized package output marker: $archiveMarker"
-    }
-}
-if ((Test-Path -LiteralPath $archive) -and
-    -not (Test-Path -LiteralPath $archiveMarker -PathType Leaf)) {
-    throw "Refusing to overwrite an unmarked package archive: $archive"
-}
 
 New-Item -ItemType Directory -Path $outputFull -Force | Out-Null
 try {
-    New-Item -ItemType Directory -Path $workRoot -Force | Out-Null
-    Set-Content -LiteralPath $workMarker -Value $workMarkerValue -NoNewline
+    New-Item -ItemType Directory -Path $workRoot | Out-Null
     $packageDirectory = Join-Path $workRoot $packageId
     New-Item -ItemType Directory -Path $packageDirectory -Force | Out-Null
 
@@ -151,7 +138,6 @@ try {
 
     # WSGM refuses a package built for another version, so the package names the release it belongs
     # to. The source manifest never carries this; packing is the one place that writes it.
-    . (Join-Path $PSScriptRoot "plugin-package-common.ps1")
     if ([string]::IsNullOrWhiteSpace($WsgmVersion)) {
         $WsgmVersion = Get-WsgmVersion -Root $root
     }
@@ -231,21 +217,13 @@ try {
     }
 
     $hash = (Get-FileHash -LiteralPath $stagedArchive -Algorithm SHA256).Hash
-    . (Join-Path $PSScriptRoot "plugin-package-common.ps1")
-    Publish-DevicePackageArchive -StagedArchive $stagedArchive -Archive $archive `
-        -ReplaceExisting:(Test-Path -LiteralPath $archive)
-    Set-Content -LiteralPath $archiveMarker -Value $archiveMarkerValue -NoNewline
+    # The finished archive is moved into place and replaces only the same-named package.
+    Move-Item -LiteralPath $stagedArchive -Destination $archive -Force
     Write-Host "Packed $archive"
     Write-Host "SHA-256 $hash"
 }
 finally {
     if (Test-Path -LiteralPath $workRoot) {
-        if (-not (Test-Path -LiteralPath $workMarker -PathType Leaf) -or
-            (Get-Content -LiteralPath $workMarker -Raw).Trim() -cne $workMarkerValue) {
-            Write-Warning "Refusing to delete an unmarked package work directory: $workRoot"
-        }
-        else {
-            Remove-Item -LiteralPath $workRoot -Recurse -Force
-        }
+        Remove-Item -LiteralPath $workRoot -Recurse -Force
     }
 }

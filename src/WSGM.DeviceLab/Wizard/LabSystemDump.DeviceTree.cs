@@ -77,7 +77,6 @@ internal sealed record LabDumpDevice
 
 internal static partial class LabSystemDump
 {
-    private const int MaximumDevices = 4000;
     private const int MaximumPropertyBytes = 64 * 1024;
     private const int CrSuccess = 0;
     private const int CrBufferSmall = 0x1A;
@@ -117,25 +116,20 @@ internal static partial class LabSystemDump
         List<string> issues = [];
         var ids = PresentDeviceIds();
         List<LabDumpDevice> devices = [];
-        foreach (var id in ids.Take(MaximumDevices))
+        foreach (var id in ids)
         {
             context.Cancellation.ThrowIfCancellationRequested();
             if (CM_Locate_DevNodeW(out var node, id, 0) != CrSuccess)
             {
-                AddIssue(issues, $"{id}: not found");
+                issues.Add($"{id}: not found");
                 continue;
             }
 
             devices.Add(ReadDevice(id, node));
         }
 
-        if (ids.Count > MaximumDevices)
-        {
-            AddIssue(issues, $"Only the first {MaximumDevices} of {ids.Count} devices were read.");
-        }
-
         context.Devices = devices;
-        context.Write("device-tree", new { devices.Count, Truncated = ids.Count > MaximumDevices, Devices = devices });
+        context.Write("device-tree", new { devices.Count, Devices = devices });
         return Result("device-tree", devices.Count, Plural(devices.Count, "device", "devices"), issues);
     }
 

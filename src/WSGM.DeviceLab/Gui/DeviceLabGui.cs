@@ -1,28 +1,40 @@
+using System;
 using Avalonia;
+using Avalonia.Controls;
+using WSGM.DeviceLab.Application;
+using WSGM.DeviceLab.Preflight;
 
 namespace WSGM.DeviceLab.Gui;
 
+/// <summary>Composes the developer tabs or the wizard with one set of path boundaries.</summary>
 internal static class DeviceLabGui
 {
-    /// <summary>The wizard options when the process runs the wizard, or null for the developer tabs.</summary>
-    internal static WizardOptions? Wizard { get; private set; }
-
-    internal static int Run(string[] args)
+    /// <summary>Runs the developer tabs.</summary>
+    /// <param name="args">Avalonia arguments.</param>
+    /// <param name="repositoryRoot">The root <see cref="Program" /> found, or null outside a checkout.</param>
+    /// <returns>Exit code.</returns>
+    internal static int Run(string[] args, string? repositoryRoot)
     {
-        return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+        DeviceLabApplication application = new(repositoryRoot, DeviceLabExecutable.CurrentPath);
+        return Start(() => new MainWindow(application, application.Boundaries), args);
     }
 
-    internal static int RunWizard(WizardOptions options)
+    /// <summary>Runs the tester wizard.</summary>
+    /// <param name="options">How the wizard was started.</param>
+    /// <param name="repositoryRoot">The root <see cref="Program" /> found, or null outside a checkout.</param>
+    /// <returns>Exit code.</returns>
+    internal static int RunWizard(WizardOptions options, string? repositoryRoot)
     {
-        Wizard = options;
-        return BuildAvaloniaApp().StartWithClassicDesktopLifetime([]);
+        var boundaries = DeviceLabPathBoundaries.ForCurrentUser(repositoryRoot);
+        return Start(() => new WizardWindow(options, boundaries), []);
     }
 
-    private static AppBuilder BuildAvaloniaApp()
+    private static int Start(Func<Window> mainWindow, string[] args)
     {
-        return AppBuilder.Configure<App>()
+        return AppBuilder.Configure(() => new App(mainWindow))
             .UsePlatformDetect()
             .WithInterFont()
-            .LogToTrace();
+            .LogToTrace()
+            .StartWithClassicDesktopLifetime(args);
     }
 }

@@ -27,7 +27,6 @@ internal static class SelfWorkerProtocol
     private const int ExitFailure = 70;
 
     private const int MaximumMessageLength = 16_384;
-    private static readonly TimeSpan AuthorizationDeadline = TimeSpan.FromSeconds(5);
 
     /// <summary>Parses the options and runs the worker, mapping failures to Device Lab exit codes.</summary>
     /// <param name="args">Arguments after the worker mode.</param>
@@ -85,7 +84,7 @@ internal static class SelfWorkerProtocol
         using (var authorization =
                CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
         {
-            authorization.CancelAfter(AuthorizationDeadline);
+            authorization.CancelAfter(SelfWorkerAuthorization.AuthorizationDeadline);
             secret = await SelfWorkerAuthorization.ReadSecretAsync(
                 options["--authorization-handle"],
                 authorization.Token).ConfigureAwait(false);

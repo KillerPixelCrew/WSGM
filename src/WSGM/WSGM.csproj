@@ -153,7 +153,19 @@
     <None Include="Licenses\WebView2-NOTICE.txt" Link="WebView2-NOTICE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"/>
   </ItemGroup>
   <Import Project="..\..\eng\wsgm-revision.targets"/>
+  <!-- Sources other executables compile too live under src\Shared, so an edit to one is visibly an
+       edit to every consumer its header names. -->
   <ItemGroup>
+    <Compile Include="..\Shared\Boot\AtomicFile.cs" Link="Shared\AtomicFile.cs"/>
+    <Compile Include="..\Shared\Boot\BootManifest.cs" Link="Shared\BootManifest.cs"/>
+    <Compile Include="..\Shared\Interop\HidHideControl.cs" Link="Shared\HidHideControl.cs"/>
+    <Compile Include="..\Shared\Interop\Kernel32.cs" Link="Shared\Kernel32.cs"/>
+    <Compile Include="..\Shared\Interop\NativeHidHide.cs" Link="Shared\NativeHidHide.cs"/>
+    <Compile Include="..\Shared\Launch\PackagedLaunchCommand.cs" Link="Shared\PackagedLaunchCommand.cs"/>
+    <Compile Include="..\Shared\Process\ParentProcessStart.cs" Link="Shared\ParentProcessStart.cs"/>
+    <Compile Include="..\Shared\Process\ScheduledTaskXml.cs" Link="Shared\ScheduledTaskXml.cs"/>
     <Compile Include="..\Shared\Process\SessionProtocolNames.cs" Link="Shared\SessionProtocolNames.cs"/>
+    <Compile Include="..\Shared\Process\Win32Common.cs" Link="Shared\Win32Common.cs"/>
+    <Compile Include="..\Shared\Process\WindowsCommandLine.cs" Link="Shared\WindowsCommandLine.cs"/>
   </ItemGroup>
 </Project>

@@ -23,15 +23,15 @@
   <ItemGroup>
     <!-- The command line the importer writes and this parses, compiled from one source so the two
          cannot drift. The same arrangement WSGM.Launch uses for ScheduledTaskXml. -->
-    <Compile Include="..\WSGM\Core\PackagedLaunchCommand.cs" Link="Shared\PackagedLaunchCommand.cs"/>
+    <Compile Include="..\Shared\Launch\PackagedLaunchCommand.cs" Link="Shared\PackagedLaunchCommand.cs"/>
     <!-- Starting a launcher under Explorer or WSGM, outside Steam's tree and its environment: the same
          primitive WSGM starts its shell work with, and the handle and environment calls it needs. -->
-    <Compile Include="..\WSGM\Interop\ParentProcessStart.cs" Link="Shared\ParentProcessStart.cs"/>
-    <Compile Include="..\WSGM\Interop\Win32Common.cs" Link="Shared\Win32Common.cs"/>
+    <Compile Include="..\Shared\Process\ParentProcessStart.cs" Link="Shared\ParentProcessStart.cs"/>
+    <Compile Include="..\Shared\Process\Win32Common.cs" Link="Shared\Win32Common.cs"/>
     <!-- Steam's controller exclusion, dropped from every child by the same rule WSGM.Launch uses. -->
-    <Compile Include="..\WSGM.Launch\SteamControllerExclusion.cs" Link="Shared\SteamControllerExclusion.cs"/>
+    <Compile Include="..\Shared\Process\SteamControllerExclusion.cs" Link="Shared\SteamControllerExclusion.cs"/>
     <!-- packaged-launch.log is written exactly as launch.log is. -->
-    <Compile Include="..\WSGM.Launch\RotatingFileLog.cs" Link="Shared\RotatingFileLog.cs"/>
+    <Compile Include="..\Shared\Process\RotatingFileLog.cs" Link="Shared\RotatingFileLog.cs"/>
   </ItemGroup>
   <ItemGroup>
     <!-- The overlay bridge, staged by eng\build-uwp-bridge.ps1. Generated and not committed, so a

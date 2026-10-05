@@ -14,7 +14,7 @@ using WSGM.Device.Sdk.Identity;
 using WSGM.DeviceLab.Inventory;
 using WSGM.DeviceLab.Knowledge;
 using WSGM.DeviceLab.Preflight;
-using WSGM.DeviceLab.Wizard;
+using WSGM.DeviceLab.Reports;
 
 namespace WSGM.DeviceLab.Scaffolding;
 

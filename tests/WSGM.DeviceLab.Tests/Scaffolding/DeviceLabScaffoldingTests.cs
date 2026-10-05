@@ -21,7 +21,7 @@ public sealed class DeviceLabScaffoldingTests
     [Fact]
     public void SdkReference_InWsgmCheckout_UsesTheSharedSdkProject()
     {
-        var root = Assert.IsType<string>(DeviceLabRepositoryLocator.Find(AppContext.BaseDirectory));
+        var root = RepositoryFiles.Root;
         DeviceLabPathBoundaries boundaries = new()
         {
             RepositoryRoot = root,

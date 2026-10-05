@@ -136,12 +136,12 @@ resharper_not_accessed_positional_property_local_highlighting = none
 resharper_unused_member_local_highlighting = none
 
 # P/Invoke declarations keep the native signature: BOOL returns and constants nothing reads yet.
-[{src/WSGM/Interop/**.cs,src/WSGM.LogonService/Interop/**.cs}]
+[{src/WSGM/Interop/**.cs,src/WSGM.LogonService/Interop/**.cs,src/Shared/Interop/**.cs,src/Shared/Process/{Win32Common,ParentProcessStart}.cs}]
 resharper_unused_method_return_value_global_highlighting = none
 resharper_unused_member_global_highlighting = none
 
 # Shared with the logon service by file link; the members the service uses look unused here.
-[{src/WSGM/Core/AtomicFile.cs,src/WSGM/Core/BootManifest.cs}]
+[src/Shared/Boot/**.cs]
 resharper_unused_member_global_highlighting = none
 resharper_member_can_be_private_global_highlighting = none
 resharper_unused_method_return_value_global_highlighting = none

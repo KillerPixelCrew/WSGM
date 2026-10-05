@@ -119,6 +119,15 @@ try {
     # high-core reference handheld that left dozens of idle child processes after test runs.
     dotnet restore WSGM.slnx -m:1
     if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed" }
+    # The developer tools stay out of the solution (and so out of format and the warning-free
+    # build), but a refactor that breaks them must still fail here. Tracked files only, so bin and
+    # obj never appear.
+    $toolProjects = @(git ls-files -- "tools/*.csproj")
+    if ($toolProjects.Count -eq 0) { throw "No tool projects found under tools/" }
+    foreach ($toolProject in $toolProjects) {
+        dotnet restore $toolProject -m:1
+        if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed for $toolProject" }
+    }
 
     # Rider's formatter is the layout authority. The same ReSharper engine runs here as
     # jb cleanupcode with the built-in Full Cleanup profile and the solution settings layer, and
@@ -190,6 +199,14 @@ try {
         }
         & dotnet @testArgs
         if ($LASTEXITCODE -ne 0) { throw "dotnet test failed for $testProject" }
+    }
+
+    # The same global properties as the solution build, so the project references the tools share
+    # with it (WSGM, the UI tests, LiveBackdrop) are reused rather than built a second time. Tool
+    # warnings are not product warnings, so this step only guards compilation.
+    foreach ($toolProject in $toolProjects) {
+        dotnet build $toolProject --configuration Release --no-restore -m:1
+        if ($LASTEXITCODE -ne 0) { throw "dotnet build failed for $toolProject" }
     }
 }
 finally {

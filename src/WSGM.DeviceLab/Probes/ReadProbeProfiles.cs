@@ -8,6 +8,7 @@ using System.Management;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using WSGM.DeviceLab.Transports;
 
 namespace WSGM.DeviceLab.Probes;
 
@@ -238,6 +239,11 @@ internal static class ReadProbeExecutor
         {
             return Response(ReadProbeWorkerStatus.Rejected, samples, exception.Message);
         }
+        catch (TimeoutException exception)
+        {
+            // The channel refuses every later call after a timeout, so the run ends here.
+            return Response(ReadProbeWorkerStatus.Rejected, samples, exception.Message);
+        }
         catch (ManagementException exception)
         {
             var status = exception.ErrorCode switch
@@ -276,75 +282,22 @@ internal static class ReadProbeExecutor
 // These MSI profiles compile the exact reviewed getter, request byte, response shape, board family,
 // endpoint, and rate into the disposable self-worker. The request envelope cannot substitute a method or address.
 // Get_* still crosses the vendor provider and is therefore an explicit local read; it is never
-// exposed as a production runtime command and it never falls back to a Set_* method.
-internal abstract class MsiWmiReadProbeProfile(
-    string id,
-    ReadProbeFamily family,
-    string endpoint,
-    int repetitions = 2) : IReadProbeProfile
+// exposed as a production runtime command and it never falls back to a Set_* method. The call itself
+// goes through the same MSI_ACPI channel as the wizard's worker transport.
+internal abstract class MsiWmiReadProbeProfile(string id, Func<ILabMsiWmiChannel>? open) : IReadProbeProfile
 {
-    public CompiledReadProbeDescriptor Descriptor { get; } = new(
-        id,
-        1,
-        MsiClawReadProbes.FamilyId,
-        endpoint,
-        family,
-        2,
-        5_000,
-        repetitions);
+    private readonly Func<ILabMsiWmiChannel> _open = open ?? (() => MsiAcpiChannel.Open());
+
+    public CompiledReadProbeDescriptor Descriptor { get; } = Describe(id);
 
     public abstract ValueTask<ReadProbeSample> ReadOnceAsync(CancellationToken cancellationToken);
 
-    protected static byte[] InvokeGetter(string methodName, byte firstInputByte)
+    // A primary read and its corroboration over one channel.
+    protected (byte[] Primary, byte[] Corroboration) ReadTwice(string method, byte selector)
     {
-        using ManagementObjectSearcher searcher = new(
-            "root\\WMI",
-            "SELECT * FROM MSI_ACPI WHERE Active = TRUE");
-        ManagementObject? instance = null;
-        foreach (var candidate in searcher.Get())
-        {
-            if (instance is null)
-            {
-                instance = (ManagementObject)candidate;
-            }
-            else
-            {
-                candidate.Dispose();
-                instance.Dispose();
-                throw new InvalidDataException("The reviewed MSI_ACPI profile requires exactly one active instance.");
-            }
-        }
-
-        if (instance is null)
-        {
-            throw new FileNotFoundException("The reviewed MSI_ACPI instance was not present.");
-        }
-
-        using (instance)
-        using (var input = instance.GetMethodParameters(methodName))
-        using (ManagementClass packageClass = new("root\\WMI", "Package_32", null))
-        using (var package = packageClass.CreateInstance())
-        {
-            var request = new byte[32];
-            request[0] = firstInputByte;
-            package["Bytes"] = request;
-            input["Data"] = package;
-
-            using var output = instance.InvokeMethod(methodName, input, null)
-                               ?? throw new IOException($"{methodName} returned no response.");
-            if (output["Data"] is not ManagementBaseObject returned
-                || returned["Bytes"] is not byte[] { Length: 32 } response)
-            {
-                throw new InvalidDataException($"{methodName} did not return the reviewed Package_32 shape.");
-            }
-
-            using (returned)
-            {
-                return response[0] != 0x01
-                    ? throw new InvalidDataException($"{methodName} returned status 0x{response[0]:x2}.")
-                    : response;
-            }
-        }
+        using var channel = _open();
+        var primary = Read(channel, method, selector);
+        return (primary, Read(channel, method, selector));
     }
 
     protected static ReadProbeSample Numeric(
@@ -365,10 +318,39 @@ internal abstract class MsiWmiReadProbeProfile(
             CrossCheckNumericValue = crossCheck
         };
     }
+
+    // The reviewed probe facts live once, in the family's metadata.
+    private static CompiledReadProbeDescriptor Describe(string id)
+    {
+        var metadata = MsiClawReadProbes.Family.Probes.Single(probe =>
+            string.Equals(probe.Id, id, StringComparison.Ordinal));
+        return new CompiledReadProbeDescriptor(
+            metadata.Id,
+            metadata.Version,
+            metadata.FamilyId,
+            metadata.EndpointId,
+            metadata.Family,
+            metadata.MaximumReadsPerSecond,
+            metadata.TimeoutMilliseconds,
+            metadata.Repetitions);
+    }
+
+    private static byte[] Read(ILabMsiWmiChannel channel, string method, byte selector)
+    {
+        var response = channel.Get(method, selector);
+        if (response is not { Length: LabMsiWmi.PackageLength })
+        {
+            throw new InvalidDataException($"{method} did not return the reviewed Package_32 shape.");
+        }
+
+        return response[0] != 0x01
+            ? throw new InvalidDataException($"{method} returned status 0x{response[0]:x2}.")
+            : response;
+    }
 }
 
-internal sealed class MsiWmiVersionProbe()
-    : MsiWmiReadProbeProfile(ProbeId, ReadProbeFamily.Version, "root/WMI:MSI_ACPI.Get_WMI")
+internal sealed class MsiWmiVersionProbe(Func<ILabMsiWmiChannel>? open = null)
+    : MsiWmiReadProbeProfile(ProbeId, open)
 {
     public const string ProbeId = "msi.claw-a2vm.wmi-version";
 
@@ -376,8 +358,7 @@ internal sealed class MsiWmiVersionProbe()
     {
         cancellationToken.ThrowIfCancellationRequested();
         var stopwatch = Stopwatch.StartNew();
-        var response = InvokeGetter("Get_WMI", 0);
-        var corroboration = InvokeGetter("Get_WMI", 0);
+        var (response, corroboration) = ReadTwice("Get_WMI", 0);
         var primary = $"{response[2]}.{response[3]}";
         var crossCheck = $"{corroboration[2]}.{corroboration[3]}";
         stopwatch.Stop();
@@ -391,8 +372,8 @@ internal sealed class MsiWmiVersionProbe()
     }
 }
 
-internal sealed class MsiEmbeddedControllerVersionProbe()
-    : MsiWmiReadProbeProfile(ProbeId, ReadProbeFamily.EmbeddedController, "root/WMI:MSI_ACPI.Get_EC")
+internal sealed class MsiEmbeddedControllerVersionProbe(Func<ILabMsiWmiChannel>? open = null)
+    : MsiWmiReadProbeProfile(ProbeId, open)
 {
     public const string ProbeId = "msi.claw-a2vm.ec-version";
 
@@ -400,8 +381,7 @@ internal sealed class MsiEmbeddedControllerVersionProbe()
     {
         cancellationToken.ThrowIfCancellationRequested();
         var stopwatch = Stopwatch.StartNew();
-        var response = InvokeGetter("Get_EC", 0);
-        var corroboration = InvokeGetter("Get_EC", 0);
+        var (response, corroboration) = ReadTwice("Get_EC", 0);
         var primary = Convert.ToHexString(response).ToLowerInvariant();
         var crossCheck = Convert.ToHexString(corroboration).ToLowerInvariant();
         stopwatch.Stop();
@@ -415,8 +395,8 @@ internal sealed class MsiEmbeddedControllerVersionProbe()
     }
 }
 
-internal sealed class MsiScenarioStatusProbe()
-    : MsiWmiReadProbeProfile(ProbeId, ReadProbeFamily.WmiStatus, "root/WMI:MSI_ACPI.Get_Data:0xd2")
+internal sealed class MsiScenarioStatusProbe(Func<ILabMsiWmiChannel>? open = null)
+    : MsiWmiReadProbeProfile(ProbeId, open)
 {
     public const string ProbeId = "msi.claw-a2vm.scenario-status";
 
@@ -424,15 +404,14 @@ internal sealed class MsiScenarioStatusProbe()
     {
         cancellationToken.ThrowIfCancellationRequested();
         var stopwatch = Stopwatch.StartNew();
-        long value = InvokeGetter("Get_Data", 0xd2)[1];
-        long crossCheck = InvokeGetter("Get_Data", 0xd2)[1];
+        var (response, corroboration) = ReadTwice("Get_Data", 0xd2);
         stopwatch.Stop();
-        return ValueTask.FromResult(Numeric(value, crossCheck, 2, stopwatch.ElapsedMilliseconds));
+        return ValueTask.FromResult(Numeric(response[1], corroboration[1], 2, stopwatch.ElapsedMilliseconds));
     }
 }
 
-internal sealed class MsiFanRpmProbe()
-    : MsiWmiReadProbeProfile(ProbeId, ReadProbeFamily.FanRpm, "root/WMI:MSI_ACPI.Get_Fan:0")
+internal sealed class MsiFanRpmProbe(Func<ILabMsiWmiChannel>? open = null)
+    : MsiWmiReadProbeProfile(ProbeId, open)
 {
     public const string ProbeId = "msi.claw-a2vm.fan-rpm";
 
@@ -440,8 +419,9 @@ internal sealed class MsiFanRpmProbe()
     {
         cancellationToken.ThrowIfCancellationRequested();
         var stopwatch = Stopwatch.StartNew();
-        var primary = Decode(InvokeGetter("Get_Fan", 0));
-        var crossCheck = Decode(InvokeGetter("Get_Fan", 0));
+        var (response, corroboration) = ReadTwice("Get_Fan", 0);
+        var primary = Decode(response);
+        var crossCheck = Decode(corroboration);
         stopwatch.Stop();
         return ValueTask.FromResult(ReadProbeSamples.Text(
             ReadProbeValueKind.Text,
@@ -465,8 +445,8 @@ internal sealed class MsiFanRpmProbe()
     }
 }
 
-internal sealed class MsiChargeLimitProbe()
-    : MsiWmiReadProbeProfile(ProbeId, ReadProbeFamily.ChargeState, "root/WMI:MSI_ACPI.Get_Data:0xd7")
+internal sealed class MsiChargeLimitProbe(Func<ILabMsiWmiChannel>? open = null)
+    : MsiWmiReadProbeProfile(ProbeId, open)
 {
     public const string ProbeId = "msi.claw-a2vm.charge-limit";
 
@@ -474,10 +454,9 @@ internal sealed class MsiChargeLimitProbe()
     {
         cancellationToken.ThrowIfCancellationRequested();
         var stopwatch = Stopwatch.StartNew();
-        long value = InvokeGetter("Get_Data", 0xd7)[1];
-        long crossCheck = InvokeGetter("Get_Data", 0xd7)[1];
+        var (response, corroboration) = ReadTwice("Get_Data", 0xd7);
         stopwatch.Stop();
-        return ValueTask.FromResult(Numeric(value, crossCheck, 2, stopwatch.ElapsedMilliseconds));
+        return ValueTask.FromResult(Numeric(response[1], corroboration[1], 2, stopwatch.ElapsedMilliseconds));
     }
 }
 

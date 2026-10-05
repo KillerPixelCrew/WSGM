@@ -12,8 +12,7 @@ const AnimationsPatchId = "wsgm.animations";
 
 let animationsUi: any = null;
 
-const animationsAct = (command: string, payload: any = {}) =>
-  request(AnimationsPatchId, command, payload).catch(() => undefined);
+const animationsAct = wsgmPageAct(AnimationsPatchId);
 
 const animationsTabs = [
   { id: "browse", title: "Browse" },
@@ -310,15 +309,12 @@ function AnimationsPage({ context }: any) {
   const state = context.state();
   if (!state) return renderSteamUiEmpty(react, context.refusal() ?? "Loading boot movies…");
 
-  const banner = state.error || state.notice;
   return renderSteamUiTabbedPage(ui, {
     id: "wsgm-animations",
     label: "Boot animation",
     style: animationsStyles,
     tabs: animationsTabs,
-    active: state.activeTab,
-    onTab: (tab) => void animationsAct("setTab", { tab }),
-    banner: banner ? { text: banner, error: !!state.error, onDismiss: () => void animationsAct("dismiss") } : null,
+    ...wsgmPageFrame(animationsAct, state),
     content: (id) => {
       switch (id) {
         case "library":

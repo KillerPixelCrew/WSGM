@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Management;
 using System.Runtime.InteropServices;
@@ -74,9 +75,6 @@ internal sealed record LabInputStepRecord
     /// <summary>Events in receipt order.</summary>
     public required IReadOnlyList<LabInputEvent> Events { get; init; }
 
-    /// <summary>Events not stored because a bound was reached, by source.</summary>
-    public IReadOnlyDictionary<string, int> Dropped { get; init; } = new Dictionary<string, int>();
-
     /// <summary>Unchanged or noise-only reports counted but not stored, by device.</summary>
     public IReadOnlyDictionary<string, int> Repeated { get; init; } = new Dictionary<string, int>();
 
@@ -95,37 +93,27 @@ internal sealed record LabInputStepRecord
 ///     firmware and ACPI events, shell app commands, power settings, suspend and resume, and device
 ///     arrival. Nothing is filtered by device and nothing is suppressed: attribution happens afterwards
 ///     in <see cref="LabInputAnalysis" />. A dedicated thread owns the message-only window and hooks; a
-///     second thread polls the controller APIs. Storage per step is bounded; what does not fit is
-///     counted.
+///     second thread polls the controller APIs. Every event is stored whole; only baseline-noise reports are
+///     sampled, and the rest of them are counted.
 /// </remarks>
 internal sealed partial class LabInputCapture : IDisposable
 {
-    /// <summary>Most events stored per step.</summary>
-    public const int MaximumEventsPerStep = 6000;
-
-    /// <summary>Most noise-only reports stored per device per step (one in every <see cref="NoiseSampleEvery" />).</summary>
-    public const int MaximumNoisePerDevice = 200;
-
     /// <summary>Sampling interval for noise-only reports.</summary>
     public const int NoiseSampleEvery = 50;
-
-    private const int MaximumReportBytes = 512;
 
     private readonly Dictionary<IntPtr, LabInputDevice> _byHandle = [];
     private readonly Stopwatch _clock = Stopwatch.StartNew();
     private readonly Dictionary<string, int> _deviceIds = new(StringComparer.Ordinal);
     private readonly List<LabInputDevice> _devices = [];
-    private readonly Dictionary<string, int> _dropped = new(StringComparer.Ordinal);
     private readonly List<LabInputEvent> _events = [];
     private readonly Lock _gate = new();
     private readonly Dictionary<string, byte[]> _lastReports = new(StringComparer.Ordinal);
     private readonly Dictionary<string, long[]> _motion = new(StringComparer.Ordinal);
     private readonly Dictionary<string, HashSet<int>> _noise = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, int> _noiseStored = new(StringComparer.Ordinal);
     private readonly ManualResetEventSlim _ready = new();
     private readonly Dictionary<string, int> _repeated = new(StringComparer.Ordinal);
     private readonly List<string> _unavailable = [];
-    private readonly List<ManagementEventWatcher> _watchers = [];
+    private readonly List<(string Key, ManagementEventWatcher Watcher)> _watchers = [];
     private bool _baseline;
     private volatile bool _disposed;
     private Thread? _messageThread;
@@ -200,8 +188,11 @@ internal sealed partial class LabInputCapture : IDisposable
             reader.Dispose();
         }
 
-        foreach (var watcher in _watchers)
+        // Stopping sends the disable request down the same path as the enable, so it is quarantined too. The
+        // stop runs even when the marker could not be written: a watcher is never left running.
+        foreach (var (key, watcher) in _watchers)
         {
+            LabWmiQuarantine.Begin(key);
             try
             {
                 watcher.Stop();
@@ -211,6 +202,10 @@ internal sealed partial class LabInputCapture : IDisposable
             {
                 // Stopping a watcher whose provider went away is not an error worth reporting.
             }
+            finally
+            {
+                LabWmiQuarantine.End();
+            }
         }
 
         _watchers.Clear();
@@ -219,9 +214,13 @@ internal sealed partial class LabInputCapture : IDisposable
             PostThreadMessage(_messageThreadId, WmQuit, 0, 0);
         }
 
-        _messageThread?.Join(TimeSpan.FromSeconds(5));
+        // A message thread still running after the join may yet signal readiness, so it keeps the event.
+        var joined = _messageThread is null || _messageThread.Join(TimeSpan.FromSeconds(5));
         _pollThread?.Join(TimeSpan.FromSeconds(2));
-        _ready.Dispose();
+        if (joined)
+        {
+            _ready.Dispose();
+        }
     }
 
     /// <summary>Raised on a capture thread for anything a person could have caused.</summary>
@@ -274,9 +273,7 @@ internal sealed partial class LabInputCapture : IDisposable
             _baseline = baseline;
             _stepStarted = Now;
             _events.Clear();
-            _dropped.Clear();
             _repeated.Clear();
-            _noiseStored.Clear();
             _motion.Clear();
             if (baseline)
             {
@@ -297,7 +294,6 @@ internal sealed partial class LabInputCapture : IDisposable
                 StartedMs = Math.Round(_stepStarted, 1),
                 EndedMs = Math.Round(Now, 1),
                 Events = [.. _events],
-                Dropped = new Dictionary<string, int>(_dropped),
                 Repeated = new Dictionary<string, int>(_repeated),
                 PointerMotion = _motion.ToDictionary(pair => pair.Key, IReadOnlyList<long> (pair) => [.. pair.Value])
             };
@@ -305,7 +301,6 @@ internal sealed partial class LabInputCapture : IDisposable
             _step = "idle";
             _baseline = false;
             _events.Clear();
-            _dropped.Clear();
             _repeated.Clear();
             return record;
         }
@@ -326,15 +321,7 @@ internal sealed partial class LabInputCapture : IDisposable
         bool raise;
         lock (_gate)
         {
-            if (_events.Count >= MaximumEventsPerStep)
-            {
-                _dropped[value.Source] = _dropped.GetValueOrDefault(value.Source) + 1;
-            }
-            else
-            {
-                _events.Add(value);
-            }
-
+            _events.Add(value);
             raise = activity && !_baseline;
         }
 
@@ -393,9 +380,8 @@ internal sealed partial class LabInputCapture : IDisposable
 
     // A HID report: stored whole when a byte outside the baseline noise changed, sampled when only noise
     // changed, and counted when nothing changed.
-    private void OnHidReport(LabInputDevice device, ReadOnlySpan<byte> report, string source = "raw-input")
+    private void OnHidReport(LabInputDevice device, ReadOnlySpan<byte> bytes, string source = "raw-input")
     {
-        var bytes = report.Length > MaximumReportBytes ? report[..MaximumReportBytes] : report;
         var key = device.Id + ":" + (bytes.Length > 0 ? bytes[0] : 0);
         List<int> changed = [];
         var noiseOnly = false;
@@ -437,13 +423,10 @@ internal sealed partial class LabInputCapture : IDisposable
             if (noiseOnly || _baseline)
             {
                 var seen = _repeated[device.Id] = _repeated.GetValueOrDefault(device.Id) + 1;
-                var stored = _noiseStored.GetValueOrDefault(device.Id);
-                if (seen % NoiseSampleEvery != 1 || stored >= MaximumNoisePerDevice)
+                if (seen % NoiseSampleEvery != 1)
                 {
                     return;
                 }
-
-                _noiseStored[device.Id] = stored + 1;
             }
         }
 
@@ -461,9 +444,20 @@ internal sealed partial class LabInputCapture : IDisposable
     // input, and one of them bugchecked an ROG Xbox Ally X (0x44, 2026-09-25). See LabWmiFirmwareEvents.
     private void StartWmi()
     {
-        if (LabWmiQuarantine.RecoverFromCrash() is { } crashed)
+        try
         {
-            LabTrace.Write($"capture wmi: {crashed} was being enabled when this machine last went down; blocked");
+            if (LabWmiQuarantine.RecoverFromCrash() is { } crashed)
+            {
+                LabTrace.Write(
+                    $"capture wmi: {crashed} was being enabled or disabled when this machine last went down; blocked");
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Without the record a class that crashed this machine could be enabled again, so none is.
+            MarkUnavailable("wmi", $"skipped: the quarantine record could not be read ({ex.Message})");
+            LabTrace.Write("capture wmi: skipped, the quarantine record could not be read");
+            return;
         }
 
         var firmware = LabWmiFirmwareEvents.Discover(out var problem);
@@ -494,23 +488,37 @@ internal sealed partial class LabInputCapture : IDisposable
         }
 
         var key = $@"{scope}\{className}";
-        if (LabWmiQuarantine.IsBlocked(key))
+        try
         {
-            MarkUnavailable($"wmi {key}", "skipped: enabling it crashed this machine before");
-            LabTrace.Write($"capture wmi watch {key}: skipped, it crashed this machine before");
+            if (LabWmiQuarantine.IsBlocked(key))
+            {
+                MarkUnavailable($"wmi {key}", "skipped: enabling it crashed this machine before");
+                LabTrace.Write($"capture wmi watch {key}: skipped, it crashed this machine before");
+                return;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            MarkUnavailable($"wmi {key}", $"skipped: the quarantine list could not be read ({ex.Message})");
+            LabTrace.Write($"capture wmi watch {key}: skipped, the quarantine list could not be read");
+            return;
+        }
+
+        LabTrace.Write($"capture wmi watch {key}: enable");
+        if (!LabWmiQuarantine.Begin(key))
+        {
+            MarkUnavailable($"wmi {key}", "skipped: the quarantine marker could not be written");
             return;
         }
 
         ManagementEventWatcher? watcher = null;
-        LabTrace.Write($"capture wmi watch {key}: enable");
-        LabWmiQuarantine.Begin(key);
         try
         {
             watcher = new ManagementEventWatcher(new ManagementScope(scope),
                 new WqlEventQuery($"SELECT * FROM {className}"));
             watcher.EventArrived += (_, args) => OnWmiEvent(args.NewEvent);
             watcher.Start();
-            _watchers.Add(watcher);
+            _watchers.Add((key, watcher));
             LabTrace.Write($"capture wmi watch {key}: started");
         }
         catch (Exception ex) when (ex is ManagementException or COMException or UnauthorizedAccessException)
@@ -532,18 +540,18 @@ internal sealed partial class LabInputCapture : IDisposable
             List<string> properties = [];
             foreach (var property in instance.Properties)
             {
-                if (properties.Count >= 24 || property.Value is null)
+                if (property.Value is null)
                 {
                     continue;
                 }
 
                 var text = property.Value switch
                 {
-                    byte[] raw => Convert.ToHexString(raw.AsSpan(0, Math.Min(raw.Length, 128))),
-                    Array array => string.Join(',', array.Cast<object?>().Take(32)),
+                    byte[] raw => Convert.ToHexString(raw),
+                    Array array => string.Join(',', array.Cast<object?>()),
                     _ => Convert.ToString(property.Value) ?? string.Empty
                 };
-                properties.Add($"{property.Name}={(text.Length > 256 ? text[..256] : text)}");
+                properties.Add($"{property.Name}={text}");
             }
 
             Record(new LabInputEvent(Math.Round(Now, 2), "wmi", null, $"{className}: {string.Join("; ", properties)}"),

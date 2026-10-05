@@ -6,25 +6,6 @@ namespace WSGM.DeviceLab.Tests.Wizard;
 
 public sealed class LabPowerRecoveryTests
 {
-    [Fact]
-    public void AnyPending_And_PowerPending_TrackWhatIsRecorded()
-    {
-        Assert.False(LabPowerChanges.AnyPending(null));
-
-        var withCharge = new LabPowerChanges
-            { RecordId = "r", RecordedAt = DateTimeOffset.UtcNow, MsiChargeRaw = 0xE0 };
-        Assert.True(LabPowerChanges.AnyPending(withCharge));
-        Assert.True(LabPowerChanges.PowerPending(withCharge));
-
-        var auraOnly = new LabPowerChanges
-        {
-            RecordId = "r",
-            RecordedAt = DateTimeOffset.UtcNow,
-            AuraWrittenAt = DateTimeOffset.UtcNow
-        };
-        Assert.True(LabPowerChanges.AnyPending(auraOnly));
-        Assert.False(LabPowerChanges.PowerPending(auraOnly)); // Write-only lighting is not a power change.
-    }
 
     [Fact]
     public void Record_RefusesADifferentDeviceWhileChangesAreStillPending()
@@ -39,13 +20,16 @@ public sealed class LabPowerRecoveryTests
     }
 
     [Fact]
-    public void RestoreRecorded_WithNothingRecorded_ReturnsNull()
+    public void Recovery_WithNothingRecorded_StartsNoWorkerAndReservesNothing()
     {
         using TemporaryDirectory temporary = new();
         var machine = new LabMachineState(Path.Combine(temporary.Root, "machine.json"));
 
-        // Nothing recorded: the worker is never reached, so none is started.
-        Assert.Null(LabPowerRecovery.RestoreRecorded(machine, null!));
+        var notices = LabRecovery.Run(machine, elevated: false, LabPawnIo.ForMachine(machine),
+            () => throw new InvalidOperationException("No worker may start."),
+            () => throw new InvalidOperationException("Nothing may be reserved."), CancellationToken.None);
+
+        Assert.Empty(notices);
     }
 
     [Fact]

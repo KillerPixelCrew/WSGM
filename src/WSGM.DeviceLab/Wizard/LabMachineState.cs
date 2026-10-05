@@ -36,7 +36,7 @@ internal sealed record LabMachineChanges
 
     /// <summary>
     ///     Power, fan, charge and lighting settings the power stage changed and has not seen put back, or
-    ///     null. <see cref="LabPowerRecovery.RestoreRecorded" /> undoes them on the next start.
+    ///     null. <see cref="LabRecovery" /> undoes them on the next start.
     /// </summary>
     public LabPowerChanges? Power { get; init; }
 }
@@ -50,7 +50,8 @@ internal sealed record LabPendingRumbleRoute(string? RecordId, string RouteId, s
 /// </summary>
 /// <remarks>
 ///     Each change is recorded before it is made. A record without the change is harmless (undoing an
-///     absent entry is a no-op); a change without a record would be a leak.
+///     absent entry is a no-op); a change without a record would be a leak. A record that exists but cannot
+///     be read is never written over: it may hold the only copy of the originals.
 /// </remarks>
 internal sealed class LabMachineState(string path)
 {
@@ -67,23 +68,51 @@ internal sealed class LabMachineState(string path)
     /// <summary>State file path.</summary>
     public string Path { get; } = System.IO.Path.GetFullPath(path);
 
-    /// <summary>Reads the recorded changes; a missing or unreadable file reads as none.</summary>
+    /// <summary>A file kept beside the record, such as the controller-mode or mode-command record.</summary>
+    /// <param name="fileName">The file name.</param>
+    /// <returns>Its path in the record's folder.</returns>
+    public string SidePath(string fileName)
+    {
+        return System.IO.Path.Combine(System.IO.Path.GetDirectoryName(Path)!, fileName);
+    }
+
+    /// <summary>Reads the recorded changes; a missing file reads as none, and any other failure throws.</summary>
     /// <returns>The changes.</returns>
+    /// <exception cref="IOException">The record exists but could not be read or parsed.</exception>
+    /// <exception cref="UnauthorizedAccessException">The record exists but may not be read.</exception>
     public LabMachineChanges Read()
     {
         lock (_gate)
         {
-            try
-            {
-                return File.Exists(Path)
-                    ? JsonSerializer.Deserialize<LabMachineChanges>(File.ReadAllText(Path), LabProject.JsonOptions)
-                      ?? new LabMachineChanges()
-                    : new LabMachineChanges();
-            }
-            catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
-            {
-                return new LabMachineChanges();
-            }
+            return ReadJson<LabMachineChanges>(Path, "machine record") ?? new LabMachineChanges();
+        }
+    }
+
+    /// <summary>
+    ///     Reads one of the lab's JSON records. A missing file is null; a file that cannot be parsed throws an
+    ///     <see cref="IOException" /> naming it, so the record is kept and never written over.
+    /// </summary>
+    /// <typeparam name="T">The record type.</typeparam>
+    /// <param name="path">The file.</param>
+    /// <param name="what">What it is, for the message.</param>
+    /// <returns>The record, or null when the file does not exist.</returns>
+    internal static T? ReadJson<T>(string path, string what)
+        where T : class
+    {
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        var text = File.ReadAllText(path);
+        try
+        {
+            return JsonSerializer.Deserialize<T>(text, LabProject.JsonOptions)
+                   ?? throw new JsonException("The file holds no record.");
+        }
+        catch (JsonException ex)
+        {
+            throw new IOException($"The Device Lab {what} {path} could not be read: {ex.Message}", ex);
         }
     }
 

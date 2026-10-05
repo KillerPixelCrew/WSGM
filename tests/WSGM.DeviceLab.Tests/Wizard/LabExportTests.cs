@@ -26,7 +26,7 @@ public sealed class LabExportTests
         });
         File.WriteAllText(Path.Combine(attempt, "notes.txt"), @"C:\Users\Tester\secret");
 
-        var export = LabExport.Prepare(project);
+        var export = LabExport.Prepare(project, CancellationToken.None);
 
         var preflight = Assert.Single(export.Preview.Files,
             file => file.Path.EndsWith("preflight.json", StringComparison.Ordinal));
@@ -61,7 +61,7 @@ public sealed class LabExportTests
         };
         DurableFile.WriteNewText(Path.Combine(attempt, "inventory.json"), DeviceLabJson.Serialize(inventory));
 
-        var export = LabExport.Prepare(project);
+        var export = LabExport.Prepare(project, CancellationToken.None);
 
         var file = Assert.Single(export.Preview.Files,
             file => file.Path.EndsWith("inventory.json", StringComparison.Ordinal));
@@ -75,7 +75,7 @@ public sealed class LabExportTests
     public void Write_CarriesAHashManifestAndRefusesAnExistingFile()
     {
         using TemporaryDirectory temporary = new();
-        var export = LabExport.Prepare(Project(temporary));
+        var export = LabExport.Prepare(Project(temporary), CancellationToken.None);
         var target = Written(temporary, export);
 
         using (var archive = ZipFile.OpenRead(target))

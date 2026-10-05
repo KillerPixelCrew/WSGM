@@ -21,6 +21,18 @@ internal sealed class LabWorkerCalls
     private CancellationTokenSource? _current;
     private long _currentId;
 
+    /// <summary>Whether the wizard is gone, so queued requests are dropped instead of run.</summary>
+    public bool Closed
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _closed;
+            }
+        }
+    }
+
     /// <summary>Starts a call; its token is already cancelled when a cancel came first.</summary>
     /// <param name="id">The call's request ID.</param>
     /// <returns>The call's cancellation; pass it to <see cref="End" />.</returns>

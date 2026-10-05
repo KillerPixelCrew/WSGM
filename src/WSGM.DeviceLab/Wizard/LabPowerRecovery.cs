@@ -1,11 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.IO;
 using System.Linq;
 using System.Threading;
 using WSGM.DeviceLab.Knowledge;
-using WSGM.DeviceLab.Preflight;
 using WSGM.DeviceLab.Transports;
 using WSGM.DeviceLab.Worker;
 
@@ -65,13 +62,7 @@ internal sealed record LabPowerChanges
     /// <returns>True when something is pending.</returns>
     public static bool AnyPending(LabPowerChanges? changes)
     {
-        return changes is not null
-               && (changes.AsusPower is not null || changes.AsusChargeLimit is not null
-                                                 || changes.MsiPower is not null || changes.MsiChargeRaw is not null ||
-                                                 changes.MsiFans is not null
-                                                 || changes.AmdLimits is not null || changes.IntelLimits is not null
-                                                 || changes.AuraWrittenAt is not null ||
-                                                 changes.ClawLighting is not null);
+        return PowerPending(changes) || changes?.AuraWrittenAt is not null;
     }
 
     /// <summary>Whether a readable setting is still recorded.</summary>
@@ -95,68 +86,6 @@ internal sealed record LabPowerRecoveryOutcome(bool Restored, string Message);
 /// <summary>Puts back power, fan and charge settings the power stage recorded.</summary>
 internal static class LabPowerRecovery
 {
-    /// <summary>
-    ///     The wizard start hook: undoes what a killed or crashed power stage left behind. Run it off the UI
-    ///     thread, elevated, before preflight reserves the device owner.
-    /// </summary>
-    /// <param name="machine">The machine-change record.</param>
-    /// <param name="worker">The hardware worker every write runs in.</param>
-    /// <returns>Null when nothing was recorded; otherwise what happened, for the page.</returns>
-    /// <remarks>
-    ///     It reserves <c>Global\WSGM.DeviceOwner</c> for the duration of the writes and refuses while WSGM's
-    ///     device integration holds it. Each recorded setting is written once, only when it differs, and
-    ///     read back; a failure leaves the record for the next start or the power stage's own button.
-    /// </remarks>
-    public static LabPowerRecoveryOutcome? RestoreRecorded(LabMachineState machine, LabWorkerClient worker)
-    {
-        ArgumentNullException.ThrowIfNull(machine);
-        var recorded = machine.Read().Power;
-        if (!LabPowerChanges.AnyPending(recorded))
-        {
-            if (recorded is not null)
-            {
-                machine.Update(changes => changes with { Power = null });
-            }
-
-            return null;
-        }
-
-        List<string> messages = [];
-        var restored = true;
-        if (LabPowerChanges.PowerPending(recorded))
-        {
-            var reserved = DeviceLabOwnerInspector.Reserve();
-            if (reserved.Reservation is null)
-            {
-                restored = false;
-                messages.Add(
-                    "An earlier test left power or fan settings changed. Close WSGM, then start Device Lab again to put them back.");
-            }
-            else
-            {
-                using (reserved.Reservation)
-                {
-                    var outcome = RestorePower(machine, worker, new LabPowerLog());
-                    restored = outcome.Restored;
-                    messages.Add(outcome.Restored
-                        ? "Put back the power and fan settings an earlier test left changed."
-                        : outcome.Message);
-                }
-            }
-        }
-
-        if (machine.Read().Power?.AuraWrittenAt is not null)
-        {
-            messages.Add("An earlier test changed the light colour. Set your colour again in Armoury Crate.");
-            machine.Update(changes => changes with
-            {
-                Power = changes.Power is null ? null : changes.Power with { AuraWrittenAt = null }
-            });
-        }
-
-        ClearWhenEmpty(machine);
-        return new LabPowerRecoveryOutcome(restored, string.Join(" ", messages));
-    }
 
     /// <summary>
     ///     Puts back every recorded power, fan and charge setting once, reads each back and clears what
@@ -169,7 +98,8 @@ internal static class LabPowerRecovery
     /// <remarks>
     ///     Each transport opens in the worker and takes a checkpoint before its first write. The original is
     ///     already in the machine record, so the checkpoint only arms the writes; it is released once the
-    ///     readback matches. A lost worker leaves the record for the next start.
+    ///     readback matches. Each item is attempted even when an earlier one failed, and a failed item
+    ///     leaves its record for the next start.
     /// </remarks>
     public static LabPowerRecoveryOutcome RestorePower(LabMachineState machine, LabWorkerClient worker,
         LabPowerLog log)
@@ -301,7 +231,7 @@ internal static class LabPowerRecovery
                 worker.Release(acpi, token);
             }
         }
-        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             log.Add("restore-error", ex.Message);
             problems.Add($"The ASUS settings could not be put back: {ex.Message}");
@@ -375,7 +305,7 @@ internal static class LabPowerRecovery
                 worker.Release(wmi, token);
             }
         }
-        catch (Exception ex) when (LabMsiWmi.IsTransportFailure(ex))
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             log.Add("restore-error", ex.Message);
             problems.Add($"The MSI settings could not be put back: {ex.Message}");
@@ -412,8 +342,7 @@ internal static class LabPowerRecovery
                     $"The processor power limits read back as {now.Stapm}/{now.Fast}/{now.Slow} W, not {original.Stapm}/{original.Fast}/{original.Slow} W.");
             }
         }
-        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or TimeoutException
-                                       or ArgumentOutOfRangeException)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             log.Add("restore-error", ex.Message);
             problems.Add($"The processor power limits could not be put back: {ex.Message}");
@@ -444,8 +373,7 @@ internal static class LabPowerRecovery
                 problems.Add("The processor power limits did not read back as they were.");
             }
         }
-        catch (Exception ex) when (ex is InvalidOperationException or IOException or Win32Exception
-                                       or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             log.Add("restore-error", ex.Message);
             problems.Add($"The processor power limits could not be put back: {ex.Message}");

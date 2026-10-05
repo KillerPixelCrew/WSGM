@@ -1,13 +1,13 @@
 // Shared Chrome DevTools Protocol helpers for the live Steam tools in this directory (CEF port 8080).
-// Nothing here decides whether an expression is safe to evaluate; that is the caller's file, section
-// or command. Requires Steam launched with .cef-enable-remote-debugging.
+// Nothing here decides whether an expression is safe to evaluate; that is the caller's file or
+// command. Requires Steam launched with .cef-enable-remote-debugging.
 import { readFileSync } from "node:fs";
 
 export const PORT = 8080;
 
 // Returns the websocket URL of the CEF target with this exact title.
 export async function findTarget(title = "SharedJSContext") {
-  const res = await fetch(`http://localhost:${PORT}/json`);
+  const res = await fetch(`http://127.0.0.1:${PORT}/json`);
   const targets = await res.json();
   const target = targets.find((x) => x.title === title);
   if (!target) {
@@ -66,13 +66,6 @@ export function jsStringLiteral(value) {
     .replace(/\u2029/g, "\\u2029");
 }
 
-// Runs a merged probe-*.js section by declaring __probe in a block around the file, so nothing leaks
-// onto the page's global scope and the block still evaluates to the file's result.
-export function withSection(expression, section) {
-  if (section === undefined) return expression;
-  return `{\nconst __probe = ${jsStringLiteral(section)};\n${expression}\n}`;
-}
-
 // Splits "--name value" options from positional arguments; exits with the usage line on a bad option.
 export function parseArguments(argv, optionNames, usage) {
   const positional = [];
@@ -93,8 +86,8 @@ export function parseArguments(argv, optionNames, usage) {
 
 // Evaluates a file in a target and prints the returned value. A CDP error is printed and still exits
 // zero, and a JavaScript exception prints undefined: inspect the output, not the exit code.
-export async function runFile(file, { target = "SharedJSContext", section } = {}) {
-  const expression = withSection(readFileSync(file, "utf8"), section);
+export async function runFile(file, { target = "SharedJSContext" } = {}) {
+  const expression = readFileSync(file, "utf8");
   let wsUrl;
   try {
     wsUrl = await findTarget(target);

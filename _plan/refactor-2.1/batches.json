@@ -338,7 +338,7 @@
     "id": "B034",
     "domain": "build",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Check real forbidden project references at final validation; avoid a second project graph framework.",
     "findings": "BUILD-021."
   },
@@ -442,7 +442,7 @@
     "id": "B047",
     "domain": "toolkit",
     "submodule": "steam-ui-toolkit",
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Keep one Steam fragment list and run existing script checks against the composed asset at final validation.",
     "findings": "TOOLKITJS-009, TOOLKITJS-010, TOOLKITJS-011, TOOLKITJS-012, TOOLKITJS-038."
   },
@@ -474,7 +474,7 @@
     "id": "B051",
     "domain": "toolkit",
     "submodule": "steam-ui-toolkit",
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Restore displaced gate state on removal, refuse malformed updates and remove silent content caps. Extend the existing checks.",
     "findings": "TOOLKITJS-005, TOOLKITJS-007, TOOLKITJS-008, TOOLKITJS-026, TOOLKITJS-036, TOOLKITJS-V-003, TOOLKITJS-V-004."
   },
@@ -514,7 +514,7 @@
     "id": "B056",
     "domain": "toolkit",
     "submodule": "steam-ui-toolkit",
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Remove redundant toolkit wrappers and unused public APIs, fix payload contracts and update consumers/version together. Preserve useful read and error detail.",
     "findings": "TOOLKITCS-031, TOOLKITCS-046, TOOLKITCS-049, TOOLKITCS-050, TOOLKITCS-053, TOOLKITCS-056, TOOLKITCS-057, TOOLKITCS-058, TOOLKITCS-059, TOOLKITCS-060, TOOLKITCS-061, TOOLKITCS-062, TOOLKITCS-063, TOOLKITCS-V-004, STEAMHOST-044."
   },
@@ -642,7 +642,7 @@
     "id": "B072",
     "domain": "wdc",
     "submodule": "windows-device-control",
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Update WDC docs and metadata to actual behaviour; independently validate both supported frameworks at the end.",
     "findings": "WDC-019, WDC-020."
   },
@@ -770,7 +770,7 @@
     "id": "B088",
     "domain": "device",
     "submodule": null,
-    "status": "Source applied",
+    "status": "In progress",
     "outcome": "Fix device lifecycle serialization, partial startup and integration-off behaviour in the existing coordinator. Extract lifecycle code only if it removes tangled ownership.",
     "findings": "DEVICE-014, DEVICE-029, DEVICE-041, DEVICE-042."
   },
@@ -841,7 +841,7 @@
     "id": "B097",
     "domain": "winsvc",
     "submodule": null,
-    "status": "Source applied",
+    "status": "In progress",
     "outcome": "Preserve every identity recheck around formatting, use volume identity for library writes and report uncertain diskpart outcomes truthfully. Isolate only destructive calls for tests.",
     "findings": "WINSVC-007, WINSVC-035, WINSVC-036, LIBRARY-023."
   },
@@ -873,7 +873,7 @@
     "id": "B101",
     "domain": "winsvc",
     "submodule": null,
-    "status": "Source applied",
+    "status": "In progress",
     "outcome": "Join service loops on disposal, fix card-monitor triggers and keep preview compositions hardware-free. Add missing behaviour coverage at the end.",
     "findings": "WINSVC-024, WINSVC-025, WINSVC-038, WINSVC-039, WINSVC-043, WINSVC-046, WINSVC-V-002."
   },
@@ -1049,7 +1049,7 @@
     "id": "B123",
     "domain": "settings",
     "submodule": null,
-    "status": "Source applied",
+    "status": "In progress",
     "outcome": "Open or activate one Settings window per process with the current session mode and supplied actions.",
     "findings": "SETTINGS-010, SETTINGS-011, SETTINGS-015, SETTINGS-016, OVERLAY-V-002."
   },
@@ -1153,7 +1153,7 @@
     "id": "B136",
     "domain": "steamhost",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Keep Steam readiness, enable/disable and Big Picture transitions ordered in the existing host. Cancel commands at shutdown start; retract patches after device cleanup.",
     "findings": "STEAMHOST-001, STEAMHOST-011, STEAMHOST-012, STEAMHOST-028, STEAMHOST-039, STEAMHOST-040, STEAMHOST-046, SESSION-020, SESSION-021."
   },
@@ -1169,7 +1169,7 @@
     "id": "B138",
     "domain": "steamhost",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Fix content work cleanup and strict-save failures, remove silent media caps and return Steam's startup-movie choice at exit/uninstall. Restore only WSGM-owned files/links.",
     "findings": "STEAMHOST-015, STEAMHOST-029, STEAMHOST-030, STEAMHOST-031, STEAMHOST-032, STEAMHOST-V-004, CRIT-002, CRIT-006."
   },
@@ -1177,7 +1177,7 @@
     "id": "B139",
     "domain": "steamhost",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Compute the asset hash from the asset, remove builder source rewriting and duplicate gate wrapping, and keep WSGM patch IDs separate. Preserve fold IDs.",
     "findings": "STEAMHOST-017, STEAMHOST-018, STEAMHOST-019, STEAMHOST-020, STEAMHOST-033, STEAMHOST-034, STEAMHOST-042, STEAMHOST-043."
   },
@@ -1320,7 +1320,7 @@
     "id": "B157",
     "domain": "lab",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Fix Lab watchdog locking, EOF cleanup, wrong-token release and pending-client races. Stop per-sample logs and expose only the seams the worker tests need.",
     "findings": "LABCORE-002, LABCORE-005, LABCORE-012, LABCORE-013, LABCORE-015, LABCORE-016, LABCORE-035, A02-F011, A02-F014."
   },
@@ -1328,7 +1328,7 @@
     "id": "B158",
     "domain": "lab",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Refuse unreadable machine records, attempt every startup recovery item under the owner reservation and start the worker only when needed. Preserve existing record locations.",
     "findings": "LABCORE-001, LABCORE-010, LABCORE-011, LABCORE-029, LABCORE-033, LABCORE-V-001, LABCORE-V-005, LABUI-027, LABUI-V-005."
   },
@@ -1336,7 +1336,7 @@
     "id": "B159",
     "domain": "lab",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Deduplicate MSI_ACPI calls, handle null arguments/timeouts and validate every power limit before the first write. Preserve checkpoints when observations fail.",
     "findings": "LABCORE-007, LABCORE-008, LABCORE-021, LABCORE-034, LABCORE-V-003."
   },
@@ -1344,7 +1344,7 @@
     "id": "B160",
     "domain": "lab",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Fix failed KX-open cleanup and duplicated HID/pin helpers. Keep transport structure simple.",
     "findings": "LABCORE-022, LABCORE-023, LABCORE-024."
   },
@@ -1352,7 +1352,7 @@
     "id": "B161",
     "domain": "lab",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Keep complete capture evidence, finish cancelled steps and fix shortcut state/serializer races. Join capture before freeing its signal; refuse probes when quarantine recording fails.",
     "findings": "LABCORE-027, LABCORE-031, LABCORE-V-002, LABCORE-V-004, LABUI-V-003, LABUI-V-004."
   },
@@ -1360,7 +1360,7 @@
     "id": "B162",
     "domain": "lab",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Use one Lab root, elevation check and worker launch path; preserve previous trace logs and remove duplicate staging tests.",
     "findings": "LABCORE-017, LABCORE-019, LABCORE-020, LABCORE-037, LABCORE-040."
   },
@@ -1368,7 +1368,7 @@
     "id": "B163",
     "domain": "lab",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Reuse the existing Lab archive reader, retain full persisted detail and deduplicate button/report helpers.",
     "findings": "LABUI-013, LABUI-015, LABUI-017, LABUI-022."
   },
@@ -1376,7 +1376,7 @@
     "id": "B164",
     "domain": "lab",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Export all evidence with cancellation and the project lock. Keep the existing in-memory export; bounds belong only on untrusted archive reads.",
     "findings": "LABUI-014, LABUI-030."
   },
@@ -1384,7 +1384,7 @@
     "id": "B165",
     "domain": "lab",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Fix developer-runner cancellation, process-handle leaks and duplicate help windows. Reuse options/root and keep complete messages/recent paths.",
     "findings": "LABUI-008, LABUI-010, LABUI-024, LABUI-032."
   },
@@ -1392,7 +1392,7 @@
     "id": "B166",
     "domain": "lab",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Track one wizard operation and close once in order: cancel/await, undo HidHide, dispose capture/worker, release reservation. Keep result pages outside the running operation.",
     "findings": "LABUI-001, LABUI-006, LABUI-018, LABUI-019, LABUI-025."
   },
@@ -1400,7 +1400,7 @@
     "id": "B167",
     "domain": "lab",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Complete dumps before prompting, report abandoned/evidence-write failures and make Finish viewing read-only. Separate stage code only when easier to maintain.",
     "findings": "LABUI-020, LABUI-033."
   },
@@ -1408,7 +1408,7 @@
     "id": "B168",
     "domain": "lab",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Remove extra-button caps, replace magic answer indices and share pointer filtering. Keep mode commands under the existing reservation.",
     "findings": "LABUI-009, LABUI-029."
   },
@@ -1416,14 +1416,14 @@
     "id": "B169",
     "domain": "lab",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Record rumble routes before writing and zero once on success/failure/cancel. A failed zero fails the stage; never replay a failed pulse."
   },
   {
     "id": "B170",
     "domain": "lab",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Keep power stage order/values, update records off the UI thread and fail closed on checkpoint writes. Preserve Lab readback-before-clear rules.",
     "findings": "LABUI-007, LABUI-011, LABUI-012, LABUI-023."
   },
@@ -1431,7 +1431,7 @@
     "id": "B171",
     "domain": "lab",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Gate lighting on actual mechanisms, preserve exact restore after cancellation and finish skipped sleep stages as Skipped.",
     "findings": "LABCORE-025."
   },
@@ -1439,7 +1439,7 @@
     "id": "B172",
     "domain": "input",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Share the existing HidHide adapter without relicensing GPL sources; fix IOCTL threading and remove duplicate tests.",
     "findings": "INPUT-032, INPUT-033."
   },
@@ -1447,7 +1447,7 @@
     "id": "B173",
     "domain": "build",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Move only genuinely shared sources, fix single-consumer homes and relicense Device Lab as GPL per D3. SDKs stay MIT and VIIPER stays fixed.",
     "findings": "BUILD-019, BUILD-023, INSTALL-032, LIBRARY-025, LABCORE-039, A02-F022."
   },
@@ -1455,7 +1455,7 @@
     "id": "B174",
     "domain": "build",
     "submodule": null,
-    "status": "Pending",
+    "status": "In progress",
     "outcome": "Replace fragile source scrapers with existing assets/behaviour tests, delete the two retired tools and compile remaining tools in final validation.",
     "findings": "BUILD-003, BUILD-013, BUILD-016, BUILD-017, BUILD-V-005."
   },
@@ -1463,7 +1463,7 @@
     "id": "B175",
     "domain": "build",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Replace staging ceremony with one rule: recreate repository-owned output and refuse paths outside it. No staging framework.",
     "findings": "BUILD-028, BUILD-030."
   },
@@ -1471,7 +1471,7 @@
     "id": "B176",
     "domain": "build",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Remove duplicated test helpers and stale build guidance; use completion signals where timing tests are flaky. Keep documentation proportional.",
     "findings": "BUILD-024, BUILD-025, BUILD-026, BUILD-033, BUILD-034, BUILD-036."
   },

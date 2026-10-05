@@ -133,10 +133,9 @@ const readTokens = (text, index) => {
   return null;
 };
 
-// The resolver's token-taking calls, the gates' token constants, and the resident scripts' module
-// lookups.
+// The resolver's token-taking calls and the gates' token constants.
 const opener =
-  /(?:\b(?:count|findUnique|resolve|exported|uniqueFactory|dlSortModule)\(\s*|\b\w*Tokens\s*=\s*)\[/gu;
+  /(?:\b(?:count|findUnique|resolve|exported|uniqueFactory)\(\s*|\b\w*Tokens\s*=\s*)\[/gu;
 
 const fingerprints = new Map();
 for (const sourceRoot of sourceRoots) {

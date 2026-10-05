@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
-using System.IO.Pipes;
 using System.Linq;
 using System.Reflection;
 using System.Text.Json;
@@ -99,7 +98,6 @@ internal sealed class LabWorkerClient : IDisposable
         ArgumentNullException.ThrowIfNull(launch);
         var secret = SelfWorkerAuthorization.CreateSecret();
         var job = WorkerJobObject.Create();
-        using AnonymousPipeServerStream authorization = new(PipeDirection.Out, HandleInheritability.Inheritable);
         ProcessStartInfo start = new(launch.FileName)
         {
             UseShellExecute = false,
@@ -114,24 +112,11 @@ internal sealed class LabWorkerClient : IDisposable
         }
 
         start.ArgumentList.Add(LabWorkerHost.Mode);
-        start.ArgumentList.Add("--authorization-handle");
-        start.ArgumentList.Add(authorization.GetClientHandleAsString());
         Process process = new() { StartInfo = start };
         try
         {
-            if (!process.Start())
-            {
-                throw new InvalidOperationException("The Device Lab hardware worker did not start.");
-            }
-
-            job.Assign(process);
-            authorization.DisposeLocalCopyOfClientHandle();
-            authorization.Write(secret);
-            authorization.Flush();
-            // The worker reads to EOF before accepting the secret. Close this end before waiting
-            // for its greeting, or parent and worker wait on each other forever.
-            // ReSharper disable once DisposeOnUsingVariable
-            authorization.Dispose();
+            // Returns with the authorization pipe closed, so the worker has its secret before the greeting.
+            SelfWorkerProcess.Start(process, job, secret);
         }
         catch
         {
@@ -261,6 +246,13 @@ internal sealed class LabWorkerClient : IDisposable
         var id = Interlocked.Increment(ref _next);
         TaskCompletionSource<LabWorkerResponse> reply = new(TaskCreationOptions.RunContinuationsAsynchronously);
         _pending[id] = reply;
+        if (_lost is { } gone)
+        {
+            // The reader ended between the check above and the registration, so its sweep missed this call.
+            _pending.TryRemove(id, out _);
+            throw new LabWorkerLostException(gone);
+        }
+
         var line = JsonSerializer.Serialize(request with { Id = id }, LabWorkerHost.WireOptions);
         try
         {
@@ -384,11 +376,15 @@ internal sealed class LabWorkerClient : IDisposable
         {
             // Handled below: the worker is gone.
         }
-
-        _lost ??= "The hardware worker exited.";
-        foreach (var pending in _pending.Values)
+        finally
         {
-            pending.TrySetException(new LabWorkerLostException(_lost));
+            // Whatever ended the reader, nothing answers any more: fail every waiting call now instead of
+            // at its deadline. An unexpected exception still surfaces as an unobserved task exception.
+            _lost ??= "The hardware worker exited.";
+            foreach (var pending in _pending.Values)
+            {
+                pending.TrySetException(new LabWorkerLostException(_lost));
+            }
         }
     }
 

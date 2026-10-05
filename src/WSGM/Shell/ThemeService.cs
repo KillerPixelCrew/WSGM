@@ -62,6 +62,11 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     private readonly Lock _configWrite = new();
     private readonly ThemeInstaller _installer;
     private readonly ThemeLoader _loader;
+
+    // Serializes every loader call, its file reads and writes included, so _sync only guards what
+    // readers see and a slow themes folder never holds up a publication read. Taken before _sync and
+    // never while _sync is held.
+    private readonly Lock _loaderWork = new();
     private readonly Func<ThemesConfig> _readConfig;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly Func<string?> _steamDirectory;
@@ -81,6 +86,10 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     private SteamThemesDetail? _detail;
     private bool _disposed;
     private string? _error;
+
+    // What the loader held after its last change, published under _sync for every reader.
+    private IReadOnlyList<ThemeSnapshot> _installed = [];
+    private IReadOnlyList<ThemeLoadError> _loadErrors = [];
     private string? _notice;
     private long _revision;
     private bool _steamBeta;
@@ -462,7 +471,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
             IReadOnlyCollection<string> local;
             lock (_sync)
             {
-                local = [.. _loader.Themes.Select(theme => theme.Name)];
+                local = [.. _installed.Select(theme => theme.Name)];
             }
 
             var installed = await _installer.InstallAsync(id, local, token).ConfigureAwait(false);
@@ -526,16 +535,20 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     public Task<SteamUiCommandResult> DeleteAsync(string name, CancellationToken cancellationToken)
     {
         string? error;
-        lock (_sync)
+        lock (_loaderWork)
         {
-            if (_busy)
+            if (IsBusy())
             {
                 return Task.FromResult(new SteamUiCommandResult(false, "Another theme operation is still running."));
             }
 
             error = _loader.DeleteTheme(name);
+            Capture();
+        }
+
+        lock (_sync)
+        {
             _updates.Remove(name);
-            _stylesDirty = true;
         }
 
         if (error is not null)
@@ -552,15 +565,15 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     public Task<SteamUiCommandResult> SetEnabledAsync(string name, bool enabled, CancellationToken cancellationToken)
     {
         string? error;
-        lock (_sync)
+        lock (_loaderWork)
         {
-            if (_busy)
+            if (IsBusy())
             {
                 return Task.FromResult(new SteamUiCommandResult(false, "Another theme operation is still running."));
             }
 
             error = _loader.SetThemeState(name, enabled);
-            _stylesDirty = true;
+            Capture();
         }
 
         if (error is not null)
@@ -577,15 +590,15 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         string theme, string patch, string value, CancellationToken cancellationToken)
     {
         string? error;
-        lock (_sync)
+        lock (_loaderWork)
         {
-            if (_busy)
+            if (IsBusy())
             {
                 return Task.FromResult(new SteamUiCommandResult(false, "Another theme operation is still running."));
             }
 
             error = _loader.SetPatch(theme, patch, value);
-            _stylesDirty = true;
+            Capture();
         }
 
         if (error is not null)
@@ -602,15 +615,15 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         string theme, string patch, string component, string value, CancellationToken cancellationToken)
     {
         string? error;
-        lock (_sync)
+        lock (_loaderWork)
         {
-            if (_busy)
+            if (IsBusy())
             {
                 return Task.FromResult(new SteamUiCommandResult(false, "Another theme operation is still running."));
             }
 
             error = _loader.SetComponent(theme, patch, component, value);
-            _stylesDirty = true;
+            Capture();
         }
 
         if (error is not null)
@@ -626,9 +639,9 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     public Task<SteamUiCommandResult> SetProfileAsync(string name, CancellationToken cancellationToken)
     {
         string? error = null;
-        lock (_sync)
+        lock (_loaderWork)
         {
-            if (_busy)
+            if (IsBusy())
             {
                 return Task.FromResult(new SteamUiCommandResult(false, "Another theme operation is still running."));
             }
@@ -645,7 +658,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
                 error ??= _loader.SetThemeState(name, true);
             }
 
-            _stylesDirty = true;
+            Capture();
         }
 
         if (error is not null)
@@ -667,19 +680,15 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
 
         string? error;
         int combined;
-        lock (_sync)
+        lock (_loaderWork)
         {
-            if (_busy)
+            if (IsBusy())
             {
                 return Task.FromResult(new SteamUiCommandResult(false, "Another theme operation is still running."));
             }
 
             combined = _loader.Themes.Count(theme => theme.Enabled && !theme.IsPreset);
             error = _loader.GeneratePreset(name.Trim());
-            if (error is null)
-            {
-                Reload();
-            }
         }
 
         if (error is not null)
@@ -687,6 +696,8 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
             return Task.FromResult(Refuse(error));
         }
 
+        // The folder now holds a theme the loader has not read.
+        Reload();
         SetNotice($"Profile {name.Trim()} combines {combined} theme{(combined == 1 ? "" : "s")}.");
         Publish(true);
         return Task.FromResult(SteamUiCommandResult.Applied);
@@ -702,7 +713,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
             int count;
             lock (_sync)
             {
-                count = _loader.Themes.Count;
+                count = _installed.Count;
             }
 
             return $"Read {count} theme{(count == 1 ? "" : "s")}.";
@@ -834,7 +845,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     /// <summary>Reads the folder, the saved translations and Steam's link, then looks for updates.</summary>
     internal void Start()
     {
-        lock (_sync)
+        lock (_loaderWork)
         {
             try
             {
@@ -847,34 +858,50 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
 
             LoadTranslationsFile();
             _loader.Load();
-            if (_steamDirectory() is { } steam)
-            {
-                _steamBeta = ThemePaths.IsSteamBetaActive(steam);
-                _steamLink = "Linking Steam's themes folder…";
-                // Creating the junction can wait on a child process; the session start does not.
-                Track(Task.Run(() =>
-                {
-                    var link = ThemePaths.EnsureSteamLink(steam, _loader.Root);
-                    lock (_sync)
-                    {
-                        _steamLink = link;
-                    }
+            Capture();
+        }
 
-                    Log.Info($"Themes: {link}");
-                    Publish(false);
-                }));
+        if (_steamDirectory() is { } steam)
+        {
+            var beta = ThemePaths.IsSteamBetaActive(steam);
+            lock (_sync)
+            {
+                _steamBeta = beta;
+                _steamLink = "Linking Steam's themes folder…";
             }
-            else
+
+            // Creating the junction can wait on a child process; the session start does not.
+            Track(Task.Run(() =>
+            {
+                var link = ThemePaths.EnsureSteamLink(steam, _loader.Root);
+                lock (_sync)
+                {
+                    _steamLink = link;
+                }
+
+                Log.Info($"Themes: {link}");
+                Publish(false);
+            }));
+        }
+        else
+        {
+            lock (_sync)
             {
                 _steamLink = "Steam is not installed; images in themes cannot be served.";
             }
+        }
 
-            _stylesDirty = true;
+        IReadOnlyList<ThemeSnapshot> installed;
+        int refused;
+        lock (_sync)
+        {
+            installed = _installed;
+            refused = _loadErrors.Count;
         }
 
         Log.Info(
-            $"Themes: {_loader.Themes.Count} themes read from {_loader.Root}, "
-            + $"{_loader.Themes.Count(theme => theme.Enabled)} enabled, {_loader.LastLoadErrors.Count} refused.");
+            $"Themes: {installed.Count} themes read from {_loader.Root}, "
+            + $"{installed.Count(theme => theme.Enabled)} enabled, {refused} refused.");
         Publish(true);
         Track(Task.Run(() => FetchTranslationsLoopAsync(_shutdown.Token)));
         Track(Task.Run(() => CheckUpdatesAsync(_shutdown.Token)));
@@ -908,14 +935,36 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     {
         lock (_sync)
         {
-            if (_styles is null || _stylesDirty)
+            if (_styles is not null && !_stylesDirty)
             {
-                var styles = _config.Enabled ? _loader.ActiveStyles() : [];
-                _styles = new SteamThemeState(styles, _stylesRevision);
+                return _styles;
+            }
+        }
+
+        // The stylesheets are read from disk, so the cascade is built under the loader's lock and
+        // only kept under _sync. A change published meanwhile marks it dirty again for the next read.
+        lock (_loaderWork)
+        {
+            bool enabled;
+            long revision;
+            lock (_sync)
+            {
+                if (_styles is not null && !_stylesDirty)
+                {
+                    return _styles;
+                }
+
+                enabled = _config.Enabled;
+                revision = _stylesRevision;
                 _stylesDirty = false;
             }
 
-            return _styles;
+            var styles = enabled ? _loader.ActiveStyles() : [];
+            lock (_sync)
+            {
+                _styles = new SteamThemeState(styles, revision);
+                return _styles;
+            }
         }
     }
 
@@ -927,7 +976,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
             var hidden = new HashSet<string>(_config.HiddenThemes, StringComparer.Ordinal);
             List<SteamThemesInstalled> themes = [];
             List<SteamThemesInstalled> presets = [];
-            foreach (var theme in _loader.Themes)
+            foreach (var theme in _installed)
             {
                 var projected = Project(theme, hidden.Contains(theme.Name));
                 if (theme.IsPreset)
@@ -968,7 +1017,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
                 browse,
                 _detail,
                 settings,
-                _loader.LastLoadErrors,
+                _loadErrors,
                 _busy,
                 _notice,
                 _error,
@@ -994,6 +1043,27 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         {
             _notice = notice;
             _error = null;
+        }
+    }
+
+    private bool IsBusy()
+    {
+        lock (_sync)
+        {
+            return _busy;
+        }
+    }
+
+    /// <summary>Publishes what the loader holds now for the readers. Called with <c>_loaderWork</c> held.</summary>
+    private void Capture()
+    {
+        List<ThemeSnapshot> installed = [.. _loader.Themes.Select(theme => theme.Snapshot())];
+        var errors = _loader.LastLoadErrors;
+        lock (_sync)
+        {
+            _installed = installed;
+            _loadErrors = errors;
+            _stylesDirty = true;
         }
     }
 
@@ -1072,7 +1142,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         lock (_sync)
         {
             // The theme itself is not local for this purpose: the point is to fetch it again.
-            local = [.. _loader.Themes.Where(theme => theme.Name != name).Select(theme => theme.Name)];
+            local = [.. _installed.Where(theme => theme.Name != name).Select(theme => theme.Name)];
         }
 
         await _installer.InstallAsync(id, local, cancellationToken).ConfigureAwait(false);
@@ -1081,10 +1151,10 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     /// <summary>Reads the folder again and republishes the cascade; the saved state decides what is on.</summary>
     private void Reload()
     {
-        lock (_sync)
+        lock (_loaderWork)
         {
             _loader.Load();
-            _stylesDirty = true;
+            Capture();
         }
 
         Track(Task.Run(() => CheckUpdatesAsync(_shutdown.Token)));
@@ -1173,7 +1243,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
             }
             else
             {
-                var installed = _loader.Themes.Select(theme => theme.Name).ToHashSet(StringComparer.Ordinal);
+                var installed = _installed.Select(theme => theme.Name).ToHashSet(StringComparer.Ordinal);
                 _detail = new SteamThemesDetail(
                     ProjectListing(details.Summary),
                     details.Description,
@@ -1196,7 +1266,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         List<(string Name, string Id, string Version)> installed;
         lock (_sync)
         {
-            installed = [.. _loader.Themes.Select(theme => (theme.Name, theme.Id, theme.Version))];
+            installed = [.. _installed.Select(theme => (theme.Name, theme.Id, theme.Version))];
         }
 
         if (installed.Count == 0)
@@ -1270,12 +1340,17 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
 
     private async Task<bool> FetchTranslationsOnceAsync(CancellationToken cancellationToken)
     {
-        var beta = ReadConfig().TranslationsBranch switch
+        bool beta;
+        lock (_sync)
         {
-            ThemeTranslationBranch.Beta => true,
-            ThemeTranslationBranch.Stable => false,
-            _ => _steamBeta
-        };
+            beta = _config.TranslationsBranch switch
+            {
+                ThemeTranslationBranch.Beta => true,
+                ThemeTranslationBranch.Stable => false,
+                _ => _steamBeta
+            };
+        }
+
         string text;
         try
         {
@@ -1312,9 +1387,13 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
             Log.Warn($"Themes: the class translations could not be kept: {ex.Message}");
         }
 
-        lock (_sync)
+        lock (_loaderWork)
         {
             _loader.SetMappings(mappings);
+        }
+
+        lock (_sync)
+        {
             _translationsCount = mappings.Count;
             _translationsFetched = DateTimeOffset.UtcNow;
             _stylesDirty = true;
@@ -1326,6 +1405,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         return true;
     }
 
+    /// <summary>Reads the saved class translations into the loader. Called with <c>_loaderWork</c> held.</summary>
     private void LoadTranslationsFile()
     {
         var path = Path.Combine(_loader.Root, ThemePaths.TranslationsFileName);
@@ -1337,9 +1417,13 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
             }
 
             var mappings = ThemeClassMappings.Parse(File.ReadAllText(path));
+            var fetched = File.GetLastWriteTimeUtc(path);
             _loader.SetMappings(mappings);
-            _translationsCount = mappings.Count;
-            _translationsFetched = File.GetLastWriteTimeUtc(path);
+            lock (_sync)
+            {
+                _translationsCount = mappings.Count;
+                _translationsFetched = fetched;
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
@@ -1347,10 +1431,9 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         }
     }
 
-    private SteamThemesInstalled Project(InstalledTheme theme, bool hidden)
+    private SteamThemesInstalled Project(ThemeSnapshot snapshot, bool hidden)
     {
-        var snapshot = theme.Snapshot();
-        var (status, latest, _) = _updates.TryGetValue(theme.Name, out var update) ? update : (ThemeStates.Unknown, null, null);
+        var (status, latest, _) = _updates.TryGetValue(snapshot.Name, out var update) ? update : (ThemeStates.Unknown, null, null);
         return new SteamThemesInstalled(
             snapshot.Id,
             snapshot.Name,
@@ -1380,7 +1463,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
 
     private SteamThemesStoreItem ProjectListing(ThemeStoreSummary summary)
     {
-        var local = _loader.Themes.FirstOrDefault(theme => theme.Id == summary.Id || theme.Name == summary.Name);
+        var local = _installed.FirstOrDefault(theme => theme.Id == summary.Id || theme.Name == summary.Name);
         var status = local is null
             ? ThemeStates.None
             : local.Version == summary.Version

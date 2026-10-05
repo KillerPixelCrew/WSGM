@@ -116,10 +116,16 @@ internal sealed partial class LabInputCapture
 
             LabTrace.Write("capture message thread: ready");
             _ready.Set();
-            while (GetMessage(out var message, IntPtr.Zero, 0, 0) > 0)
+
+            // A capture disposed before this thread had its ID posted no quit, so it skips the loop and goes
+            // straight to the cleanup below instead of leaving its hooks in place.
+            if (!_disposed)
             {
-                TranslateMessage(ref message);
-                DispatchMessage(ref message);
+                while (GetMessage(out var message, IntPtr.Zero, 0, 0) > 0)
+                {
+                    TranslateMessage(ref message);
+                    DispatchMessage(ref message);
+                }
             }
 
             if (_keyboardHook != IntPtr.Zero)
@@ -511,7 +517,7 @@ internal sealed partial class LabInputCapture
             var scan = (uint)Marshal.ReadInt32(lParam + 4);
             var flags = (uint)Marshal.ReadInt32(lParam + 8);
             var up = (flags & 0x80) != 0;
-            var swallow = SwallowShortcuts && Shortcut((ushort)key, up);
+            var swallow = OnKey((ushort)key, up);
             Record(new LabInputEvent(Math.Round(Now, 2), "hook", (flags & 0x10) != 0 ? "injected" : null,
                     $"key {LabKeyNames.Name((ushort)key)} (VK {key:X2}, scan {scan:X2}{((flags & 0x01) != 0 ? " E0" : string.Empty)}, flags {flags:X2}) {(up ? "up" : "down")}{((flags & 0x10) != 0 ? " injected" : string.Empty)}{((flags & 0x02) != 0 ? " lower-integrity" : string.Empty)}{(swallow ? " swallowed" : string.Empty)}"),
                 true);
@@ -522,6 +528,14 @@ internal sealed partial class LabInputCapture
         }
 
         return CallNextHookEx(IntPtr.Zero, code, wParam, lParam);
+    }
+
+    // The Windows and Alt state is tracked on every key, swallowing or not, so a key released after a
+    // step turned swallowing off is not still held when the next step turns it back on.
+    internal bool OnKey(ushort key, bool up)
+    {
+        var shortcut = Shortcut(key, up);
+        return SwallowShortcuts && shortcut;
     }
 
     // Tracks the Windows and Alt keys from the hook's own events. A Windows key is swallowed on both

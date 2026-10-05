@@ -57,7 +57,7 @@ not proof of a successful JavaScript evaluation.
 
 - Verify that loopback port 8080 belongs to `steam` or `steamwebhelper` and that the websocket URL
   is loopback port 8080 before attaching.
-- Inspect a helper's source before running it. `probe-` is not a safety classification.
+- Inspect a helper's source before running it.
 - Never sweep or execute the webpack registry, instantiate unknown exports, spoof global platform
   state, or use `close_page` as cleanup.
 - Treat every non-screenshot `qam-harness.mjs` command as an attended live change because connecting

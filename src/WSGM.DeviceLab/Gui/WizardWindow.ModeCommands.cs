@@ -57,7 +57,7 @@ internal sealed partial class WizardWindow
 
             var line = Status("Sending...");
             page.Children.Add(line);
-            var session = await Task.Run(() => LabModeCommands.Start(command, hid, Lifetime));
+            var session = await Task.Run(() => LabModeCommands.Start(command, hid, _machine, Lifetime));
             run.Sessions.Add(session);
             offered.Add(session.Evidence());
             line.Text = session.Sent
@@ -100,7 +100,7 @@ internal sealed partial class WizardWindow
         // Undone in reverse order, so a mode switch is undone after the commands sent in that mode.
         var sessions = Enumerable.Reverse(run.Sessions).ToList();
         var problems = await Task.Run(() => sessions
-            .Select(session => (session.Command.Device, Problem: LabModeCommands.Stop(session)))
+            .Select(session => (session.Command.Device, Problem: LabModeCommands.Stop(session, _machine)))
             .Where(item => item.Problem is not null)
             .Select(item => $"{item.Device}: {item.Problem}")
             .ToList());

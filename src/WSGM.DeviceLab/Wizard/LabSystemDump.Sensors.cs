@@ -130,7 +130,7 @@ internal static partial class LabSystemDump
             }
             catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
             {
-                AddIssue(issues, $"{kind}: {ex.Message}");
+                issues.Add($"{kind}: {ex.Message}");
             }
         }
 

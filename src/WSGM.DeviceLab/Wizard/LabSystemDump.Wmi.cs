@@ -95,7 +95,7 @@ internal static partial class LabSystemDump
 
         if (clock.Elapsed > WmiSectionBudget)
         {
-            AddIssue(issues, "Counting stopped at the time limit; some classes were not counted.");
+            issues.Add("Counting stopped at the time limit; some classes were not counted.");
         }
 
         context.WmiClasses = classes;
@@ -152,7 +152,7 @@ internal static partial class LabSystemDump
             catch (Exception ex) when (ex is ManagementException or UnauthorizedAccessException
                                            or COMException)
             {
-                AddIssue(issues, $@"root\cimv2 {name}: {ex.Message.Trim()}");
+                issues.Add($@"root\cimv2 {name}: {ex.Message.Trim()}");
             }
         }
 
@@ -251,7 +251,7 @@ internal static partial class LabSystemDump
         catch (Exception ex) when (ex is ManagementException or TimeoutException or UnauthorizedAccessException
                                        or COMException)
         {
-            AddIssue(issues, $"{className}: {ex.Message.Trim()}");
+            issues.Add($"{className}: {ex.Message.Trim()}");
             return new { Problem = ex.Message.Trim() };
         }
     }
@@ -265,8 +265,7 @@ internal static partial class LabSystemDump
                 or double => value,
             char character => character.ToString(),
             DateTime time => time.ToString("O", CultureInfo.InvariantCulture),
-            Array array when array.Length <= 256 => array.Cast<object?>().Select(JsonValue).ToList(),
-            Array array => $"({array.Length} values)",
+            Array array => array.Cast<object?>().Select(JsonValue).ToList(),
             _ => value.ToString()
         };
     }

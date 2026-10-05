@@ -6,29 +6,15 @@ namespace WSGM.DeviceLab.Tests.Application;
 public sealed class DurableFileTests
 {
     [Fact]
-    public void StagingPathCreatesAUniqueHiddenSibling()
+    public void StagingPathIsAUniqueHiddenSiblingOfTheTarget()
     {
         using TemporaryDirectory directory = new();
-        var target = directory.GetPath("capture.zip");
+        var target = directory.GetPath("capture.wsgmcap");
 
         var first = DurableFile.StagingPath(target);
         var second = DurableFile.StagingPath(target);
 
         Assert.Equal(directory.Root, Path.GetDirectoryName(first));
-        Assert.StartsWith(".capture.zip.", Path.GetFileName(first), StringComparison.Ordinal);
-        Assert.EndsWith(".tmp", first, StringComparison.Ordinal);
-        Assert.NotEqual(first, second);
-    }
-
-    [Fact]
-    public void StagingPathIsHiddenUniqueAndBesideTarget()
-    {
-        var target = Path.Combine("output", "capture.wsgmcap");
-
-        var first = DurableFile.StagingPath(target);
-        var second = DurableFile.StagingPath(target);
-
-        Assert.Equal("output", Path.GetDirectoryName(first));
         Assert.Matches("^\\.capture\\.wsgmcap\\.[0-9a-f]{32}\\.tmp$", Path.GetFileName(first));
         Assert.NotEqual(first, second);
     }

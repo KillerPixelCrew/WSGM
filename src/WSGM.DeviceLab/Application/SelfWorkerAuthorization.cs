@@ -12,6 +12,9 @@ internal static class SelfWorkerAuthorization
 {
     internal const int SecretBytes = 32;
 
+    /// <summary>How long a self-worker waits for its supervisor's secret.</summary>
+    internal static readonly TimeSpan AuthorizationDeadline = TimeSpan.FromSeconds(5);
+
     internal static byte[] CreateSecret()
     {
         return RandomNumberGenerator.GetBytes(SecretBytes);

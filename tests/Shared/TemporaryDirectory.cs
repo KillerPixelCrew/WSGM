@@ -10,7 +10,7 @@ internal sealed class TemporaryDirectory : IDisposable
     {
         Root = Path.Combine(
             Path.GetTempPath(),
-            "wsgm-device-tests",
+            "wsgm-tests",
             Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(Root);
     }

@@ -4,7 +4,7 @@
 
 These instructions apply to `src/WSGM.DeviceLab/**`.
 
-Device Lab is a separate MIT-licensed Windows authoring and diagnostics application, not part of the WSGM runtime. The
+Device Lab is a separate GPL-3.0-or-later Windows authoring and diagnostics application, not part of the WSGM runtime. The
 Avalonia GUI and `wsgm-device` CLI must use the same application services and produce the same results. Before changing
 behavior, read this project's `README.md`, the relevant tests, and the implementation being changed; keep all three
 aligned.
@@ -156,8 +156,9 @@ without a plugin; see the 2026-09-24 entry in `docs/decisions.md`.
 
 ## Filesystem and artifact rules
 
-- User-created workflow artifacts use new, non-reparse, owned output targets. The marked publish tree managed by
-  `eng/publish-device-lab.ps1` is the explicit exception and may be atomically replaced after ownership checks. Reject
+- User-created workflow artifacts use new, non-reparse, owned output targets. The publish tree of
+  `eng/publish-device-lab.ps1` is a build output, not a workflow artifact: the script clears and recreates its one
+  output directory, which must lie below `publish\` or `artifacts\` in the repository, and refuses any other path. Reject
   drive and filesystem roots, the broad home directories themselves, the repository root itself, and the live
   `%LOCALAPPDATA%\WSGM` tree, including its descendants.
 - Use staging plus atomic publication and create-new semantics. Never overwrite an unrelated target or follow a reparse

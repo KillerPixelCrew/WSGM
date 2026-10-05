@@ -59,10 +59,21 @@ internal sealed class ControllerManager : IAsyncDisposable
 {
     internal static ControllerManager CreateProduction(string root, IPhysicalHapticSink hapticSink)
     {
+        var reader = NativeHidHide.FromDosPath(Environment.ProcessPath
+            ?? throw new InvalidOperationException("The WSGM executable path is unavailable."));
+        if (reader.Skipped is not null)
+        {
+            Log.Warn($"NT device-path conversion skipped: {reader.Skipped}.");
+        }
+        else if (reader.Error != 0)
+        {
+            Log.Warn(
+                $"NT device-path conversion failed for {reader.Path[..2]} with Win32 error "
+                + $"{reader.Error}; HidHide readability may be unavailable.");
+        }
+
         return new ControllerManager(new ViiperControllerBackend(), hapticSink, HidHideOwnership.ForUser(root),
-            NativeHidHide.FromDosPath(Environment.ProcessPath
-                ?? throw new InvalidOperationException("The WSGM executable path is unavailable.")),
-            new ControllerProcessPriority());
+            reader.Path, new ControllerProcessPriority());
     }
 
     /// <summary>How long a synthetic press is held: HC's <c>KeyPressDelay</c>.</summary>

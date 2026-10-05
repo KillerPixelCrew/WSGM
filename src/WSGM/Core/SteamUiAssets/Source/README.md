@@ -21,7 +21,7 @@ surface. WSGM-only features keep their own fingerprints but resolve them through
 `SteamUiModuleResolver` rather than scanning the registry themselves.
 
 A fragment lives here only when it is WSGM's own feature and no other host could possibly want it.
-Nine qualify. Six are pages registered with the toolkit's `registerSteamPage`:
+Ten qualify. Six are pages registered with the toolkit's `registerSteamPage`:
 
 - `artwork-browser.ts`, the Change Artwork page.
 - `library-import.ts`, the Game Library's import page.
@@ -36,7 +36,10 @@ Nine qualify. Six are pages registered with the toolkit's `registerSteamPage`:
 - `animations.ts`, the Animations page: SteamDeckRepo's boot movies browsed, downloaded and chosen
   for Big Picture's start.
 
-Three are gates of their own, registered with `registerGate`:
+Those two share `page-kit.ts`, which is no feature of its own: the command sender and the tabbed
+frame's tab switch and banner, which differ between them only by patch id.
+
+Four are gates of their own, registered with `registerGate`:
 
 - `chord-reset.ts`, the guide-chord editor's reset hook. It claims
   `SteamClient.Input.SetSelectedConfigForApp` with the toolkit's `claimMember` and reports a reset
@@ -47,14 +50,16 @@ Three are gates of their own, registered with `registerGate`:
   capability bits the active glyph profile marks absent (trackpads, touch-sensing sticks) on WSGM's
   virtual pad, so the pages stop drawing settings for controls the handheld does not have. See
   docs/steam-cef.md, "Physical glyphs are CSS".
+- `download-sort.ts`, the Name / Size / Type buttons in the download queue's header. Its header
+  transform sits on the toolkit's shared JSX-runtime claim, and a sort renumbers the queue through
+  `SteamClient.Downloads.SetQueueIndex`, reporting the positions Steam refused to WSGM
+  (`SteamDownloadSort.cs`). See docs/steam-cef.md §12.
 - `library-tabs.ts`, the library tabs' transform on the toolkit's shared `useMemo` claim. The tabs
   themselves are the resident script in `SteamLibraryTabs.cs`, which installs through this gate.
 
-Download sorting is a resident script and patch of its own (`SteamDownloadSort.cs`) that registers
-its header transform on the toolkit's `elements` gate, and the card badge became a toolkit surface
-(`gates/library-badge.ts`) that WSGM only feeds data into. A new fragment that would draw its own
-imitation of a Steam element does not belong here: the element goes into the toolkit, resolved from
-Steam's own components, and the fragment uses it.
+The card badge became a toolkit surface (`gates/library-badge.ts`) that WSGM only feeds data into. A
+new fragment that would draw its own imitation of a Steam element does not belong here: the element
+goes into the toolkit, resolved from Steam's own components, and the fragment uses it.
 
 ## Adding one is a new file here and nothing else
 

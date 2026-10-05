@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
-using System.IO.Pipes;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -88,48 +87,19 @@ internal sealed class SystemReadProbeProcessLauncher : IReadProbeProcessLauncher
         }
 
         using var containmentScope = containment;
-        await using AnonymousPipeServerStream authorizationPipe = new(
-            PipeDirection.Out,
-            HandleInheritability.Inheritable);
-        startInfo.ArgumentList.Add("--authorization-handle");
-        startInfo.ArgumentList.Add(authorizationPipe.GetClientHandleAsString());
-
         using Process process = new();
         process.StartInfo = startInfo;
-        var assignedToContainment = false;
         try
         {
-            if (!process.Start())
-            {
-                return Failed("Device Lab's disposable self-worker did not start.");
-            }
-
-            containment.Assign(process);
-            assignedToContainment = true;
-            authorizationPipe.DisposeLocalCopyOfClientHandle();
-            await authorizationPipe.WriteAsync(authorizationSecret, cancellationToken)
-                .ConfigureAwait(false);
-            await authorizationPipe.FlushAsync(cancellationToken).ConfigureAwait(false);
-            // ReSharper disable once DisposeOnUsingVariable
-            await authorizationPipe.DisposeAsync().ConfigureAwait(false);
+            SelfWorkerProcess.Start(process, containment, authorizationSecret.Span);
         }
         catch (Exception exception) when (exception is Win32Exception
                                               or InvalidOperationException
                                               or IOException)
         {
-            var containmentVerified = assignedToContainment
-                ? await TerminateAndWaitAsync(process, containment).ConfigureAwait(false)
-                : await KillAndWaitAsync(process).ConfigureAwait(false);
+            // An empty job tears down at once, so this also covers a worker that never started or joined.
+            var containmentVerified = await TerminateAndWaitAsync(process, containment).ConfigureAwait(false);
             return Failed(exception.Message, containmentVerified);
-        }
-        catch (OperationCanceledException)
-        {
-            var containmentVerified = assignedToContainment
-                ? await TerminateAndWaitAsync(process, containment).ConfigureAwait(false)
-                : await KillAndWaitAsync(process).ConfigureAwait(false);
-            throw new DisposableWorkerCanceledException(
-                containmentVerified,
-                cancellationToken);
         }
 
         var errorRead = ReadBoundedAsync(
@@ -286,6 +256,7 @@ internal static class ReadProbeWorkerSupervisor
     /// <param name="preflight">Already evaluated ownership and safety decision.</param>
     /// <param name="executablePath">Current Device Lab executable.</param>
     /// <param name="sessionDirectory">New, explicit output directory for request and result files.</param>
+    /// <param name="boundaries">The caller's output boundaries, so the session obeys the same root.</param>
     /// <param name="launcher">Disposable process launcher.</param>
     /// <param name="cancellationToken">Caller cancellation.</param>
     /// <returns>Classified run result.</returns>
@@ -294,11 +265,13 @@ internal static class ReadProbeWorkerSupervisor
         DeviceLabPreflightDecision preflight,
         string executablePath,
         string sessionDirectory,
+        DeviceLabPathBoundaries boundaries,
         IReadProbeProcessLauncher launcher,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(metadata);
         ArgumentNullException.ThrowIfNull(preflight);
+        ArgumentNullException.ThrowIfNull(boundaries);
         ArgumentNullException.ThrowIfNull(launcher);
 
         var metadataErrors = ReadProbeMetadataPolicy.Validate(metadata);
@@ -329,8 +302,7 @@ internal static class ReadProbeWorkerSupervisor
         var output = DeviceLabOutputPathPolicy.Evaluate(
             sessionDirectory,
             DeviceLabOutputTargetKind.Directory,
-            DeviceLabPathBoundaries.ForCurrentUser(
-                DeviceLabRepositoryLocator.Find(Environment.CurrentDirectory)));
+            boundaries);
         if (!output.IsAllowed || output.FullPath is null)
         {
             return Result(ReadProbeRunStatus.Rejected, output.Reason ?? "Probe session output was rejected.");

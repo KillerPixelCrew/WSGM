@@ -313,6 +313,19 @@ internal static partial class LabInputAnalysis
     }
 
     /// <summary>
+    ///     Whether a device description (<see cref="Describe" />) names a pointer: a mouse, or a HID
+    ///     collection on the digitizer usage page (touch and pen). Used for display and review only.
+    /// </summary>
+    /// <param name="description">Device description.</param>
+    /// <returns>True for a pointer device.</returns>
+    public static bool IsPointer(string? description)
+    {
+        return description is not null
+               && (description.StartsWith("mouse", StringComparison.Ordinal)
+                   || description.Contains(" 000D:", StringComparison.Ordinal));
+    }
+
+    /// <summary>
     ///     Leaves out what the tester's own touches on the screen produce (mouse, touch and pen input), for
     ///     display only. The recorded step keeps everything.
     /// </summary>
@@ -323,8 +336,7 @@ internal static partial class LabInputAnalysis
         return
         [
             .. candidates.Where(candidate =>
-                candidate.DeviceDescription?.StartsWith("mouse", StringComparison.Ordinal) != true
-                && candidate.DeviceDescription?.Contains(" 000D:", StringComparison.Ordinal) != true
+                !IsPointer(candidate.DeviceDescription)
                 && !(candidate.Source is "hook" or "raw-input" &&
                      candidate.Evidence.All(item => item.StartsWith("mouse", StringComparison.Ordinal))))
         ];

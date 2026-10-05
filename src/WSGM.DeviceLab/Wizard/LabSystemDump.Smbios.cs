@@ -53,8 +53,6 @@ internal static partial class LabSystemDump
     /// <summary>What replaces a removed SMBIOS string.</summary>
     public const string RemovedText = "(removed)";
 
-    private const int MaximumSmbiosStructures = 2048;
-
     // Offsets of string-number fields that hold serial numbers, asset tags or part numbers.
     private static readonly Dictionary<int, int[]> SensitiveStringFields = new()
     {
@@ -144,12 +142,6 @@ internal static partial class LabSystemDump
         var offset = 0;
         while (offset + 4 <= data.Length)
         {
-            if (parsed.Count >= MaximumSmbiosStructures)
-            {
-                issues.Add($"Only the first {MaximumSmbiosStructures} structures were read.");
-                break;
-            }
-
             int type = data[offset];
             int length = data[offset + 1];
             int handle = BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(offset + 2, 2));

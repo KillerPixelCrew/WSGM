@@ -22,12 +22,7 @@ public sealed class DeviceBoundaryTests
     [Fact]
     public void SolutionBuildsTheDeviceProjectsWithOneSharedSdk()
     {
-        var projects = XDocument.Load(Path.Combine(RepositoryFiles.Root, "WSGM.slnx"))
-            .Descendants("Project")
-            .Select(project => (string?)project.Attribute("Path"))
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Select(path => path!.Replace('\\', '/'))
-            .ToArray();
+        var projects = SolutionProjects().ToArray();
 
         Assert.Contains(
             "src/WSGM.DeviceLab/WSGM.DeviceLab.csproj",
@@ -68,6 +63,92 @@ public sealed class DeviceBoundaryTests
 
         Assert.Empty(sdk.Descendants("ProjectReference"));
         Assert.Empty(sdk.Descendants("PackageReference"));
+    }
+
+    [Fact]
+    public void ProjectsReferenceOnlyWhatTheirLayerAllows()
+    {
+        const string deviceSdk = "src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj";
+        const string pluginSdk = "src/WSGM.Plugin.Sdk/WSGM.Plugin.Sdk.csproj";
+        const string toolkit = "external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiToolkit.csproj";
+        const string deviceControl =
+            "external/windows-device-control/src/WindowsDeviceControl/WindowsDeviceControl.csproj";
+        List<string> problems = [];
+        foreach (var project in SolutionProjects().Where(path => !IsTestProject(path)))
+        {
+            var name = Path.GetFileNameWithoutExtension(project);
+            string[]? allowed = name switch
+            {
+                // Reusable libraries and the small executables stand alone: the launchers and the
+                // logon service must not pull in WSGM, Avalonia or any other first-party assembly.
+                "WindowsDeviceControl" or "SteamUiToolkit" or "WSGM.Device.Sdk" or "WSGM.Launch"
+                    or "WSGM.LogonService" or "WSGM.PackagedLaunch" => [],
+                "WSGM.Plugin.Sdk" => [toolkit, deviceSdk],
+                "WSGM.Plugin.NvidiaGpu" => [pluginSdk, deviceControl],
+                "WSGM.DeviceLab" => [deviceSdk],
+                _ when name.StartsWith("WSGM.Plugin.", StringComparison.Ordinal)
+                       || name.StartsWith("WSGM.Device.", StringComparison.Ordinal) => [pluginSdk, deviceSdk],
+                _ => null
+            };
+            if (allowed is not null)
+            {
+                problems.AddRange(ResolvedProjectReferences(project)
+                    .Where(reference => !allowed.Contains(reference, StringComparer.OrdinalIgnoreCase))
+                    .Select(reference => $"{project} references {reference}"));
+            }
+
+            // A source compiled by more than one project lives under src/Shared, so an edit to it is
+            // visibly an edit to every consumer; nothing links a file out of another project's folder.
+            problems.AddRange(LinkedSources(project)
+                .Where(source => !source.StartsWith("src/Shared/", StringComparison.OrdinalIgnoreCase)
+                                 && !source.StartsWith("external/steam-input-lease/bindings/",
+                                     StringComparison.OrdinalIgnoreCase))
+                .Select(source => $"{project} compiles {source}"));
+        }
+
+        string[] pluginSdkReferences = [toolkit, deviceSdk];
+        Assert.Equal(pluginSdkReferences, ResolvedProjectReferences(pluginSdk).Order(StringComparer.Ordinal));
+        Assert.Empty(problems);
+    }
+
+    private static IEnumerable<string> SolutionProjects()
+    {
+        return XDocument.Load(Path.Combine(RepositoryFiles.Root, "WSGM.slnx"))
+            .Descendants("Project")
+            .Select(project => (string?)project.Attribute("Path"))
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(path => path!.Replace('\\', '/'));
+    }
+
+    private static bool IsTestProject(string project)
+    {
+        return project.StartsWith("tests/", StringComparison.Ordinal) || project.Contains("/tests/");
+    }
+
+    private static IEnumerable<string> ResolvedProjectReferences(string project)
+    {
+        return Resolved(project, RepositoryFiles.LoadProject(project).Descendants("ProjectReference"));
+    }
+
+    /// <summary>Compile items whose path leaves the project's own folder, repository-relative.</summary>
+    private static IEnumerable<string> LinkedSources(string project)
+    {
+        var directory = Path.GetFullPath(Path.GetDirectoryName(Path.Combine(RepositoryFiles.Root, project))!);
+        return Resolved(project, RepositoryFiles.LoadProject(project).Descendants("Compile"))
+            .Where(source => !Path.GetFullPath(Path.Combine(RepositoryFiles.Root, source))
+                .StartsWith(directory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static IEnumerable<string> Resolved(string project, IEnumerable<XElement> items)
+    {
+        var directory = Path.GetFullPath(Path.GetDirectoryName(Path.Combine(RepositoryFiles.Root, project))!);
+        return items
+            .Select(item => (string?)item.Attribute("Include"))
+            .Where(include => !string.IsNullOrWhiteSpace(include))
+            .Select(include => Path.GetRelativePath(
+                    RepositoryFiles.Root,
+                    Path.GetFullPath(Path.Combine(directory, include!.Replace('\\', Path.DirectorySeparatorChar))))
+                .Replace('\\', '/'));
     }
 
     private static IEnumerable<string> ProjectReferences(string relativePath)

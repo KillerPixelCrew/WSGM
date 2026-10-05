@@ -106,13 +106,13 @@ internal static class LabButtonPlan
                 {
                     Name = $"{button.Name} ({extras[index].Name.ToLowerInvariant()})",
                     Instruction = $"Press and release the {button.Name} button.",
-                    Known = Belief(button)
+                    Known = button.Describe()
                 };
             }
             else if (unlisted.All(control => control.Id != id))
             {
                 unlisted.Add(new LabControl(id, button.Name, $"Press and release the {button.Name} button.", true,
-                    Belief(button)));
+                    button.Describe()));
             }
         }
 
@@ -176,18 +176,6 @@ internal static class LabButtonPlan
         }
 
         return new string([.. result]).Trim('-');
-    }
-
-    private static string Belief(DeviceButtonKnowledge button)
-    {
-        return button.Source switch
-        {
-            DeviceButtonSourceKind.KeyboardChord => $"keys {string.Join("+", button.PressKeys)}",
-            DeviceButtonSourceKind.HidReport =>
-                $"HID report {button.ReportId:X2} byte {button.ByteOffset} {(button.MatchesValue ? "=" : "&")} {button.Mask:X2}",
-            DeviceButtonSourceKind.WmiEvent => $"WMI event {button.EventCode}",
-            _ => button.Source.ToString()
-        };
     }
 
     private static LabControl Extra(string id, string name, string instruction, bool detailed = false)

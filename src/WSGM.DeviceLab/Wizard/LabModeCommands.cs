@@ -10,8 +10,8 @@ using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
 using WSGM.Device.Sdk.Windows;
 using WSGM.DeviceLab.Application;
-using WSGM.DeviceLab.Capture.Live;
 using WSGM.DeviceLab.Knowledge;
+using WSGM.DeviceLab.Transports;
 
 namespace WSGM.DeviceLab.Wizard;
 
@@ -146,7 +146,7 @@ internal sealed record LabModeCommand
 /// <param name="InputLength">Input report length, report ID included.</param>
 /// <param name="FeatureLength">Feature report length, report ID included.</param>
 /// <param name="Interface">USB interface number from the path, when it has one.</param>
-internal sealed record LabModeHid(LabRumbleHidEndpoint Endpoint, int InputLength, int FeatureLength, int? Interface);
+internal sealed record LabModeHid(LabHidEndpoint Endpoint, int InputLength, int FeatureLength, int? Interface);
 
 /// <summary>One write and its result.</summary>
 /// <param name="Phase"><c>send</c> or <c>restore</c>.</param>
@@ -341,8 +341,7 @@ internal static class LabModeCommands
     private const string SteamLizardOff = "00 81 00|00 87 03 08 07 00|00 87 03 07 07 00";
     private const string SteamLizardOn = "00 85 00|00 8E 00";
 
-    private static readonly string StatePath = Path.Combine(
-        Path.GetDirectoryName(LabMachineState.ForCurrentUser.Path)!, "mode-commands.json");
+    private const string PendingFileName = "mode-commands.json";
 
     private static readonly LabModeEndpoint LegionTablet = new(0x17EF,
         [0x6182, 0x6183, 0x6184, 0x6185, 0x61EB, 0x61EC, 0x61ED, 0x61EE], 0xFFA0, 0x0001);
@@ -743,7 +742,12 @@ internal static class LabModeCommands
     ];
 
     /// <summary>Whether a mode command is waiting to be undone.</summary>
-    public static bool HasPending => File.Exists(StatePath);
+    /// <param name="machine">The machine record, whose folder holds the mode-command record.</param>
+    /// <returns>True when the mode-command record exists.</returns>
+    public static bool HasPending(LabMachineState machine)
+    {
+        return File.Exists(machine.SidePath(PendingFileName));
+    }
 
     /// <summary>The commands a stage offers for the confirmed record. Pure; touches no hardware.</summary>
     /// <param name="record">Confirmed knowledge record, or null for an unknown device.</param>
@@ -886,7 +890,7 @@ internal static class LabModeCommands
     public static (LabModeHid? Hid, string? Problem) Locate(LabModeCommand command)
     {
         List<LabModeHid> matches = [];
-        foreach (var endpoint in LabRumbleNative.HidEndpoints(command.Endpoint.VendorId))
+        foreach (var endpoint in LabHid.HidEndpoints(command.Endpoint.VendorId))
         {
             var hid = new LabModeHid(endpoint, endpoint.Collection.InputLength, endpoint.Collection.FeatureLength,
                 InterfaceOf(endpoint.Collection.DevicePath));
@@ -911,9 +915,11 @@ internal static class LabModeCommands
     /// </summary>
     /// <param name="command">The command.</param>
     /// <param name="hid">The collection from <see cref="Locate" />.</param>
+    /// <param name="machine">The machine record, whose folder holds the undo records.</param>
     /// <param name="lifetime">Ends repeating when the wizard closes.</param>
     /// <returns>The session; its evidence records every write.</returns>
-    public static LabModeSession Start(LabModeCommand command, LabModeHid hid, CancellationToken lifetime)
+    public static LabModeSession Start(LabModeCommand command, LabModeHid hid, LabMachineState machine,
+        CancellationToken lifetime)
     {
         LabModeSession session = new(command, hid);
         if (command.Withheld is not null)
@@ -931,11 +937,26 @@ internal static class LabModeCommands
                     Transport = "hid-output",
                     Parameters = command.ModeParameters
                 });
+            // An unreadable mode makes Send refuse with nothing written, so only a readable one is recorded.
+            if (LabControllerInit.CurrentMode(plan) is { } original)
+            {
+                try
+                {
+                    LabControllerInit.RecordPending(machine, plan, original);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    session.Problem = $"The undo record could not be written, so nothing was sent: {ex.Message}";
+                    return session;
+                }
+
+                session.RestoreOwed = true;
+            }
+
             var result = LabControllerInit.Send(plan, lifetime);
             session.Mode = result;
             session.Sent = result.Sent;
             session.Problem = result.Problem;
-            session.RestoreOwed = LabControllerInit.HasControllerModePending;
             return session;
         }
 
@@ -955,7 +976,7 @@ internal static class LabModeCommands
         SafeFileHandle handle;
         try
         {
-            handle = LabRumbleNative.OpenForWrite(hid.Endpoint);
+            handle = LabHid.OpenForWrite(hid.Endpoint);
         }
         catch (InvalidOperationException ex)
         {
@@ -965,7 +986,17 @@ internal static class LabModeCommands
 
         if (command.Reversible)
         {
-            AddPending(command.Id);
+            try
+            {
+                AddPending(machine, command.Id);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                handle.Dispose();
+                session.Problem = $"The undo record could not be written, so nothing was sent: {ex.Message}";
+                return session;
+            }
+
             session.RestoreOwed = true;
         }
 
@@ -999,8 +1030,9 @@ internal static class LabModeCommands
 
     /// <summary>Stops a session and undoes it when it is reversible. Blocking; call off the UI thread.</summary>
     /// <param name="session">The session.</param>
+    /// <param name="machine">The machine record the session was started with.</param>
     /// <returns>Null when there was nothing to undo or the undo was sent; otherwise the problem.</returns>
-    public static string? Stop(LabModeSession session)
+    public static string? Stop(LabModeSession session, LabMachineState machine)
     {
         if (session.Stopped)
         {
@@ -1014,9 +1046,18 @@ internal static class LabModeCommands
             return null;
         }
 
-        session.RestoreProblem = session.Command.Write == LabModeWrite.ControllerMode
-            ? LabControllerInit.RecoverControllerMode(CancellationToken.None)
-            : Undo(session.Command, session);
+        try
+        {
+            session.RestoreProblem = session.Command.Write == LabModeWrite.ControllerMode
+                ? LabControllerInit.RestorePending(machine, CancellationToken.None)
+                : Undo(session.Command, session, machine);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // The undo record could not be read or updated; it stays for the next start.
+            session.RestoreProblem = ex.Message;
+        }
+
         return session.RestoreProblem;
     }
 
@@ -1031,15 +1072,16 @@ internal static class LabModeCommands
     }
 
     /// <summary>Undoes what a killed session left recorded. Blocking; call off the UI thread.</summary>
+    /// <param name="machine">The machine record, whose folder holds the mode-command record.</param>
     /// <returns>Null when nothing was left or everything was undone; otherwise the problem.</returns>
-    public static string? RecoverPending()
+    public static string? RecoverPending(LabMachineState machine)
     {
         List<LabPendingModeCommand> pending;
         try
         {
-            pending = ReadPending();
+            pending = ReadPending(machine);
         }
-        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return $"The mode command record could not be read: {ex.Message}";
         }
@@ -1048,17 +1090,24 @@ internal static class LabModeCommands
         foreach (var item in pending)
         {
             var command = All.FirstOrDefault(entry => entry.Id == item.Id && entry.Reversible);
-            if (command is null)
+            try
             {
-                // Not a command this build knows how to undo; the record cannot be acted on.
-                RemovePending(item.Id);
-                problems.Add($"'{item.Id}' is not a command this version can undo.");
-                continue;
-            }
+                if (command is null)
+                {
+                    // Not a command this build knows how to undo; the record cannot be acted on.
+                    RemovePending(machine, item.Id);
+                    problems.Add($"'{item.Id}' is not a command this version can undo.");
+                    continue;
+                }
 
-            if (Undo(command, null) is { } problem)
+                if (Undo(command, null, machine) is { } problem)
+                {
+                    problems.Add($"{command.Device}: {problem}");
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                problems.Add($"{command.Device}: {problem}");
+                problems.Add($"'{item.Id}': the mode command record could not be updated: {ex.Message}");
             }
         }
 
@@ -1113,7 +1162,7 @@ internal static class LabModeCommands
             }
         }
 
-        var result = LabRumbleNative.WriteReport(handle, frame);
+        var result = LabHid.WriteReport(handle, frame);
         return result == 0 ? null : $"error {result}";
     }
 
@@ -1140,7 +1189,7 @@ internal static class LabModeCommands
 
     // Sends the restore reports to the collection found now. The record is cleared once they were written;
     // none of these controllers can report the state back, so the evidence says the undo was sent.
-    private static string? Undo(LabModeCommand command, LabModeSession? session)
+    private static string? Undo(LabModeCommand command, LabModeSession? session, LabMachineState machine)
     {
         var (hid, problem) = Locate(command);
         if (hid is null)
@@ -1158,7 +1207,7 @@ internal static class LabModeCommands
         var record = session ?? new LabModeSession(command, hid);
         try
         {
-            using var handle = LabRumbleNative.OpenForWrite(hid.Endpoint);
+            using var handle = LabHid.OpenForWrite(hid.Endpoint);
             if (!SendFrames(record, handle, hid.Endpoint.Collection, frames!, "restore"))
             {
                 return "The controller refused the restore. It is tried again the next time Device Lab starts.";
@@ -1169,47 +1218,47 @@ internal static class LabModeCommands
             return $"{ex.Message} It is tried again the next time Device Lab starts.";
         }
 
-        RemovePending(command.Id);
+        RemovePending(machine, command.Id);
         return null;
     }
 
-    private static List<LabPendingModeCommand> ReadPending()
+    // A missing record is none; an unreadable one throws an IOException naming it and is never written over.
+    private static List<LabPendingModeCommand> ReadPending(LabMachineState machine)
     {
-        return File.Exists(StatePath)
-            ? JsonSerializer.Deserialize<List<LabPendingModeCommand>>(File.ReadAllText(StatePath),
-                LabProject.JsonOptions) ?? []
-            : [];
+        return LabMachineState.ReadJson<List<LabPendingModeCommand>>(machine.SidePath(PendingFileName),
+            "mode-command record") ?? [];
     }
 
-    private static void AddPending(string id)
+    private static void AddPending(LabMachineState machine, string id)
     {
-        var pending = ReadPending();
+        var pending = ReadPending(machine);
         if (pending.All(item => item.Id != id))
         {
             pending.Add(new LabPendingModeCommand(id, DateTimeOffset.UtcNow));
         }
 
-        WritePending(pending);
+        WritePending(machine, pending);
     }
 
-    private static void RemovePending(string id)
+    private static void RemovePending(LabMachineState machine, string id)
     {
-        var pending = ReadPending();
+        var pending = ReadPending(machine);
         pending.RemoveAll(item => item.Id == id);
         if (pending.Count == 0)
         {
-            File.Delete(StatePath);
+            File.Delete(machine.SidePath(PendingFileName));
             return;
         }
 
-        WritePending(pending);
+        WritePending(machine, pending);
     }
 
-    private static void WritePending(List<LabPendingModeCommand> pending)
+    private static void WritePending(LabMachineState machine, List<LabPendingModeCommand> pending)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(StatePath)!);
-        var staging = DurableFile.StagingPath(StatePath);
+        var path = machine.SidePath(PendingFileName);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var staging = DurableFile.StagingPath(path);
         DurableFile.WriteNewText(staging, JsonSerializer.Serialize(pending, LabProject.JsonOptions));
-        File.Move(staging, StatePath, true);
+        File.Move(staging, path, true);
     }
 }

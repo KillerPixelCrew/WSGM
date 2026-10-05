@@ -109,8 +109,8 @@ internal static class PluginTestWorker
             }
             else
             {
-                var repositoryRoot = DeviceLabRepositoryLocator.Find(Environment.CurrentDirectory)
-                                     ?? DeviceLabRepositoryLocator.Find(AppContext.BaseDirectory);
+                // The worker inherits its supervisor's working folder, so the same rule finds the same root.
+                var repositoryRoot = DeviceLabRepositoryLocator.ForThisProcess();
                 report = await PluginTestWorkflow.RunAttendedAsync(
                     request.PackageDirectory,
                     request.Identity,

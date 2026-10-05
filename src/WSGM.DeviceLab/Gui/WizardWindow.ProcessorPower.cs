@@ -3,8 +3,6 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
-using System.Runtime.Intrinsics.X86;
-using System.Text;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using WSGM.DeviceLab.Transports;
@@ -23,12 +21,12 @@ internal sealed partial class WizardWindow
     private async Task RunProcessorPowerAsync(LabProject project, string attempt, StackPanel page,
         LabPowerPlan plan, List<LabPowerTestResult> tests, List<LabPowerSample> telemetry, string passLabel)
     {
-        if (LabPowerChanges.PowerPending(_machine.Read().Power))
+        if (await PowerPendingAsync())
         {
             page.Children.Add(Warning(
                 "An earlier test could not confirm it put the settings back, so no further power test runs until they are restored."));
             await RestorePendingAsync(page, tests);
-            if (LabPowerChanges.PowerPending(_machine.Read().Power))
+            if (await PowerPendingAsync())
             {
                 return;
             }
@@ -43,7 +41,7 @@ internal sealed partial class WizardWindow
         }
 
         _pinnedAcLine = gate.AcLine;
-        switch (CpuVendor())
+        switch (LabSystemDump.CpuVendor())
         {
             case "AuthenticAMD":
                 await RunAmdPowerAsync(project, attempt, page, plan, tests, telemetry, passLabel);
@@ -131,14 +129,15 @@ internal sealed partial class WizardWindow
                             "The processor power limits changed while they were recorded.");
                     }
 
-                    LabPowerRecovery.Record(_machine, LabPowerChanges.ProcessorRecordId,
-                        changes => changes with { AcLine = _pinnedAcLine, AmdLimits = captured });
+                    // Evidence first: a failed write leaves nothing recorded and fails the checkpoint.
                     project.WriteEvidence(attempt, $"original-amd-{passLabel}",
                         new
                         {
                             _pinnedAcLine, identity.CodeNameText, SmuVersion = $"0x{identity.SmuVersion:X8}",
                             Limits = captured
                         });
+                    LabPowerRecovery.Record(_machine, LabPowerChanges.ProcessorRecordId,
+                        changes => changes with { AcLine = _pinnedAcLine, AmdLimits = captured });
                 }));
             }
             catch (Exception ex) when (ex is InvalidOperationException or Win32Exception or TimeoutException
@@ -271,10 +270,11 @@ internal sealed partial class WizardWindow
                             "The processor power limits changed while they were recorded.");
                     }
 
-                    LabPowerRecovery.Record(_machine, LabPowerChanges.ProcessorRecordId,
-                        changes => changes with { AcLine = _pinnedAcLine, IntelLimits = captured });
+                    // Evidence first: a failed write leaves nothing recorded and fails the checkpoint.
                     project.WriteEvidence(attempt, $"original-intel-{passLabel}",
                         new { _pinnedAcLine, Limits = captured });
+                    LabPowerRecovery.Record(_machine, LabPowerChanges.ProcessorRecordId,
+                        changes => changes with { AcLine = _pinnedAcLine, IntelLimits = captured });
                 }));
             }
             catch (Exception ex) when (ex is InvalidOperationException or IOException)
@@ -372,20 +372,5 @@ internal sealed partial class WizardWindow
                 // The worker is gone; the restore it verified still stands.
             }
         });
-    }
-
-    private static string CpuVendor()
-    {
-        if (!X86Base.IsSupported)
-        {
-            return string.Empty;
-        }
-
-        var (_, ebx, ecx, edx) = X86Base.CpuId(0, 0);
-        var bytes = new byte[12];
-        BitConverter.GetBytes(ebx).CopyTo(bytes, 0);
-        BitConverter.GetBytes(edx).CopyTo(bytes, 4);
-        BitConverter.GetBytes(ecx).CopyTo(bytes, 8);
-        return Encoding.ASCII.GetString(bytes);
     }
 }

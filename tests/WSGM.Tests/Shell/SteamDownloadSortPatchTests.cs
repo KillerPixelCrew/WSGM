@@ -11,7 +11,7 @@ public sealed class SteamDownloadSortPatchTests
     {
         await using var transport = new DownloadSortTransport();
         await using var manager = new SteamUiPatchManager(transport);
-        manager.Register(new SteamDownloadSortPatch());
+        manager.Register(SteamDownloadSort.Patch);
 
         await manager.SynchronizeAsync();
         var installed = Assert.Single(manager.GetSnapshots());
@@ -41,15 +41,20 @@ public sealed class SteamDownloadSortPatchTests
     }
 
     [Fact]
-    public void ResidentScriptReportsThroughTheCommandItsModuleDeclares()
+    public void TheGateReportsThroughTheCommandItsModuleDeclares()
     {
         var command = Assert.Single(SteamDownloadSort.Module().Commands);
-
-        Assert.Equal(SteamDownloadSortPatch.PatchId, command.PatchId);
-        Assert.Contains(
-            $"request('{command.PatchId}','{command.Command}',",
-            SteamDownloadSort.InstallExpression,
+        var source = SteamUiAssetCatalog.LoadNativeQamBootstrap().Source;
+        var start = source.IndexOf("function createWsgmDownloadSort()", StringComparison.Ordinal);
+        Assert.InRange(start, 0, source.Length - 1);
+        var end = source.IndexOf("registerGate(\"wsgmDownloadSort\", createWsgmDownloadSort());", start,
             StringComparison.Ordinal);
+        Assert.InRange(end, start + 1, source.Length - 1);
+        var gate = source[start..end];
+
+        Assert.Equal(SteamDownloadSort.PatchId, command.PatchId);
+        Assert.Contains($"const patchId = \"{command.PatchId}\";", gate, StringComparison.Ordinal);
+        Assert.Contains($"request(patchId, \"{command.Command}\",", gate, StringComparison.Ordinal);
     }
 
     private sealed class DownloadSortTransport : ISteamUiTransport
@@ -82,15 +87,14 @@ public sealed class SteamDownloadSortPatchTests
             CancellationToken cancellationToken = default)
         {
             string value;
-            if (expression.Contains("dlSortRemove", StringComparison.Ordinal))
+            if (expression.Contains("bridge.remove()", StringComparison.Ordinal))
             {
                 Removed = true;
                 value = "{\"ok\":true}";
             }
-            else if (expression.Contains("dlSortPatched", StringComparison.Ordinal)
-                     || expression.Contains("runtime:!!window.webpackChunksteamui", StringComparison.Ordinal))
+            else if (expression.Contains("runtime:!!window.webpackChunksteamui", StringComparison.Ordinal))
             {
-                value = "{\"ok\":true,\"runtime\":true,\"owned\":false}";
+                value = "{\"ok\":true,\"runtime\":true}";
             }
             else
             {

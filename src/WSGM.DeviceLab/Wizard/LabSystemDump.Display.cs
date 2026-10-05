@@ -66,7 +66,7 @@ internal static partial class LabSystemDump
         }
         catch (Exception ex) when (ex is InvalidOperationException or EntryPointNotFoundException)
         {
-            AddIssue(issues, $"Display paths: {ex.Message}");
+            issues.Add($"Display paths: {ex.Message}");
             paths = new { Problem = ex.Message };
         }
 

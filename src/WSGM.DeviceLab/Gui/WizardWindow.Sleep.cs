@@ -129,7 +129,12 @@ internal sealed partial class WizardWindow
         capture.SuspendResume -= OnSuspendResume;
         capture.Activity -= OnPowerActivity;
         page.Children.Remove(row);
-        Lifetime.ThrowIfCancellationRequested();
+        if (Lifetime.IsCancellationRequested)
+        {
+            capture.EndStep();
+            Lifetime.ThrowIfCancellationRequested();
+        }
+
         if (finished != resumed.Task)
         {
             var cycle = capture.EndStep();
@@ -153,18 +158,26 @@ internal sealed partial class WizardWindow
         List<LabSleepSnapshot> after = [];
         IReadOnlyList<string> missing = [];
         var watch = Stopwatch.StartNew();
-        while (watch.Elapsed < TimeSpan.FromSeconds(30))
+        try
         {
-            var snapshot = await Task.Run(() => LabSleep.Snapshot(capture.Now));
-            after.Add(snapshot);
-            missing = LabSleep.Missing(before, snapshot);
-            if (missing.Count == 0)
+            while (watch.Elapsed < TimeSpan.FromSeconds(30))
             {
-                break;
-            }
+                var snapshot = await Task.Run(() => LabSleep.Snapshot(capture.Now));
+                after.Add(snapshot);
+                missing = LabSleep.Missing(before, snapshot);
+                if (missing.Count == 0)
+                {
+                    break;
+                }
 
-            line.Text = $"Waiting for: {string.Join(", ", missing)}";
-            await Task.Delay(500, Lifetime);
+                line.Text = $"Waiting for: {string.Join(", ", missing)}";
+                await Task.Delay(500, Lifetime);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            capture.EndStep();
+            throw;
         }
 
         var cycleRecord = capture.EndStep();
@@ -253,6 +266,11 @@ internal sealed partial class WizardWindow
             {
                 result = await pressed.Task;
             }
+        }
+        catch (OperationCanceledException)
+        {
+            capture.EndStep();
+            throw;
         }
         finally
         {

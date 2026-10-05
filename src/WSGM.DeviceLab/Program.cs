@@ -3,6 +3,7 @@ using System.Linq;
 using WSGM.DeviceLab.Application;
 using WSGM.DeviceLab.Cli;
 using WSGM.DeviceLab.Gui;
+using WSGM.DeviceLab.Preflight;
 using WSGM.DeviceLab.Probes;
 using WSGM.DeviceLab.Testing;
 using WSGM.DeviceLab.Wizard;
@@ -23,7 +24,7 @@ internal static class Program
 
         if (string.Equals(args[0], "gui", StringComparison.Ordinal))
         {
-            return DeviceLabGui.Run(args[1..]);
+            return DeviceLabGui.Run(args[1..], DeviceLabRepositoryLocator.ForThisProcess());
         }
 
         if (string.Equals(args[0], LabWorkerHost.Mode, StringComparison.Ordinal))
@@ -39,7 +40,7 @@ internal static class Program
 
         return string.Equals(args[0], PluginTestWorker.Mode, StringComparison.Ordinal)
             ? PluginTestWorker.Run(args[1..])
-            : DeviceLabCli.RunAsync(args).GetAwaiter().GetResult();
+            : DeviceLabCli.RunAsync(args, DeviceLabRepositoryLocator.ForThisProcess()).GetAwaiter().GetResult();
     }
 
     // The wizard needs an administrator token for HidHide, PawnIO and the hardware stages. It asks
@@ -53,16 +54,18 @@ internal static class Program
         var project = projectIndex >= 0 && projectIndex + 1 < rest.Length ? rest[projectIndex + 1] : null;
         var outcome = WizardElevation.EnsureElevated(["wizard", .. rest], relaunched);
         LabTrace.Write($"elevation: {outcome}");
+        var repositoryRoot = DeviceLabRepositoryLocator.ForThisProcess();
         return outcome switch
         {
             WizardElevationOutcome.Relaunched => 0,
-            WizardElevationOutcome.AlreadyElevated => DeviceLabGui.RunWizard(new WizardOptions(true, null, project)),
+            WizardElevationOutcome.AlreadyElevated => DeviceLabGui.RunWizard(new WizardOptions(true, null, project),
+                repositoryRoot),
             WizardElevationOutcome.Declined => DeviceLabGui.RunWizard(new WizardOptions(false,
                 "You declined the administrator prompt, so HidHide, PawnIO and the hardware checks are skipped. Restart Device Lab to try again.",
-                project)),
+                project), repositoryRoot),
             _ => DeviceLabGui.RunWizard(new WizardOptions(false,
                 "Device Lab could not start as administrator, so HidHide, PawnIO and the hardware checks are skipped.",
-                project))
+                project), repositoryRoot)
         };
     }
 }

@@ -907,6 +907,63 @@ public sealed partial class ShellSession
         TryStart("game library", _libraryImport.Start);
     }
 
+    /// <summary>Starts or stops the game-mode card services from one shared policy.</summary>
+    /// <remarks>
+    ///     Initial direct boot and a later desktop-to-game transition are separate entry
+    ///     paths: only the latter raises <c>GameModeEntered</c>. Keeping their activation
+    ///     here prevents one path from silently losing volume notifications again.
+    /// </remarks>
+    /// <param name="gameModeActive">Whether the destination/current mode is game mode.</param>
+    private void ApplyCardServices(bool gameModeActive)
+    {
+        var state = GameModeCardServicePolicy.Decide(
+            gameModeActive, _overlayTestOnly, _cefMasterEnabled);
+
+        if (state.WatchAppManifests && _messageWindow is { } watchWindow && _steamClient is { } steam)
+        {
+            _cardAcfWatcher ??= CardAcfWatcher.StartNew(watchWindow, _store, steam, _steamUiReadiness);
+        }
+        else
+        {
+            _cardAcfWatcher?.Dispose();
+            _cardAcfWatcher = null;
+        }
+
+        // Eject and format stand the watcher down for their whole run; its directory handles
+        // would otherwise veto their own volume lock.
+        if (_drives is not null)
+        {
+            _drives.CardWatcher = _cardAcfWatcher;
+        }
+
+        if (_formats is not null)
+        {
+            _formats.CardWatcher = _cardAcfWatcher;
+        }
+
+        if (state.ReconcileSteamLibraries && _messageWindow is { } volumeWindow)
+        {
+            // Card swaps are reconciled against Steam's install-folder list on the
+            // volume notification itself. The callback refreshes both consumers of
+            // the changed library membership after Steam accepts the reconcile.
+            _cardVolumes ??= CardVolumeMonitor.StartNew(
+                volumeWindow,
+                () => _cefMasterEnabled,
+                () =>
+                {
+                    Dispatcher.UIThread.Post(KickTabBootSync);
+                    return Task.CompletedTask;
+                },
+                _libraryPolicy,
+                _steamUiReadiness);
+        }
+        else
+        {
+            _cardVolumes?.Dispose();
+            _cardVolumes = null;
+        }
+    }
+
     /// <summary>Creates the overlay controller with its sources and routes managed controller input to WSGM's own surfaces.</summary>
     [MemberNotNull(nameof(_overlay))]
     private void StartOverlay()

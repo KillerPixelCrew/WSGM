@@ -1004,7 +1004,7 @@ when the hardware matches. `eng\dev-deploy.ps1` drops a fresh build into the Plu
 
 ## 19. Device Lab
 
-`wsgm-device` (`src\WSGM.DeviceLab`, MIT) is the authoring and diagnostic tool. No argument opens
+`wsgm-device` (`src\WSGM.DeviceLab`, GPL) is the authoring and diagnostic tool. No argument opens
 the GUI; every command prints camelCase JSON to stdout, diagnostics to stderr, and exits 0, 64
 (usage) or 70 (failure). Unknown options are rejected up front.
 

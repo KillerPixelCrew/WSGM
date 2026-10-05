@@ -8,6 +8,8 @@
     <AssemblyName>wsgm-device</AssemblyName>
     <RootNamespace>WSGM.DeviceLab</RootNamespace>
     <Version>0.1.2</Version>
+    <!-- Device Lab compiles WSGM's own interop sources from src\Shared, so it carries WSGM's licence. -->
+    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
     <SelfContained>true</SelfContained>
     <PublishSingleFile>false</PublishSingleFile>
     <!-- LibraryImport generates unsafe marshalling stubs for the cfgmgr32 inventory calls. -->
@@ -29,16 +31,14 @@
       Include="..\WSGM.Device.Sdk\WSGM.Device.Sdk.csproj"/>
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="..\WSGM\Interop\Kernel32.cs"
+    <Compile Include="..\Shared\Interop\Kernel32.cs"
              Link="Shared\Kernel32.cs"/>
     <Compile Include="..\Shared\Process\SessionProtocolNames.cs"
              Link="Shared\SessionProtocolNames.cs"/>
-    <Compile Include="..\WSGM\Interop\NativePackageSource.cs"
-             Link="Shared\NativePackageSource.cs"/>
-    <Compile Include="..\WSGM\Interop\NativePathIdentity.cs"
-             Link="Shared\NativePathIdentity.cs"/>
-    <Compile Include="..\WSGM\Interop\NativeHidHide.cs"
+    <Compile Include="..\Shared\Interop\NativeHidHide.cs"
              Link="Shared\NativeHidHide.cs"/>
+    <Compile Include="..\Shared\Interop\HidHideControl.cs"
+             Link="Shared\HidHideControl.cs"/>
   </ItemGroup>
   <!-- The wizard records the commit it was built from in every project manifest. -->
   <Target Name="StampSourceRevision" BeforeTargets="GetAssemblyVersion;GenerateAssemblyInfo"
@@ -74,7 +74,8 @@
     <!-- The wizard's "Help and licences" window shows these, so a single-file build carries them. -->
     <EmbeddedResource Include="README.md" LogicalName="WSGM.DeviceLab.Help.README.md"/>
     <EmbeddedResource Include="THIRD_PARTY_NOTICES.md" LogicalName="WSGM.DeviceLab.Help.THIRD_PARTY_NOTICES.md"/>
-    <EmbeddedResource Include="LICENSE" LogicalName="WSGM.DeviceLab.Help.LICENSE"/>
+    <!-- Device Lab is GPL-3.0-or-later like WSGM, so the help window shows the repository's own licence. -->
+    <EmbeddedResource Include="..\..\LICENSE" LogicalName="WSGM.DeviceLab.Help.LICENSE"/>
     <None Update="THIRD_PARTY_NOTICES.md"
           CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="PreserveNewest"/>

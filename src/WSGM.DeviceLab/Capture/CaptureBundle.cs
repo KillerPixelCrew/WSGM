@@ -732,9 +732,7 @@ internal static class CaptureBundleWriter
                 output,
                 hash,
                 stream.Events,
-                captureEvent => JsonSerializer.SerializeToUtf8Bytes(
-                    captureEvent,
-                    DeviceLabCompactJson.CaptureStreamEvent),
+                StreamLine,
                 token);
         }
 
@@ -747,9 +745,7 @@ internal static class CaptureBundleWriter
                 output,
                 hash,
                 analysis.Results,
-                result => JsonSerializer.SerializeToUtf8Bytes(
-                    result,
-                    DeviceLabCompactJson.CaptureAnalysisResult),
+                AnalysisLine,
                 token);
         }
 
@@ -791,6 +787,22 @@ internal static class CaptureBundleWriter
         hashesEntry.ExternalAttributes = 0;
         using var hashesOutput = hashesEntry.Open();
         WriteBytes(hashesOutput, null, hashFile, cancellationToken);
+    }
+
+    /// <summary>One stream lane line without its newline; the privacy preview hashes the same bytes.</summary>
+    /// <param name="captureEvent">Stream event.</param>
+    /// <returns>Compact UTF-8 JSON.</returns>
+    internal static byte[] StreamLine(CaptureStreamEvent captureEvent)
+    {
+        return JsonSerializer.SerializeToUtf8Bytes(captureEvent, DeviceLabCompactJson.CaptureStreamEvent);
+    }
+
+    /// <summary>One analysis lane line without its newline; the privacy preview hashes the same bytes.</summary>
+    /// <param name="result">Analysis result.</param>
+    /// <returns>Compact UTF-8 JSON.</returns>
+    internal static byte[] AnalysisLine(CaptureAnalysisResult result)
+    {
+        return JsonSerializer.SerializeToUtf8Bytes(result, DeviceLabCompactJson.CaptureAnalysisResult);
     }
 
     private static void WriteJsonFile<T>(

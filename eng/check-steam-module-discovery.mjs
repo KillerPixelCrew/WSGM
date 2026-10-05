@@ -1,42 +1,25 @@
 import assert from "node:assert/strict";
-import { sharedFragments } from "../external/steam-ui-toolkit/eng/check-harness.mjs";
+import {
+  fragment,
+  gateSource,
+  instantiate,
+  sharedFragments,
+} from "../external/steam-ui-toolkit/eng/check-harness.mjs";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-// Keep every cold Steam start wired to the configured switch before process creation. Both the
-// Big Picture start and the desktop session's windowed client go through one helper, so the check
-// follows it there. The toolkit tests the flag writer against temporary directories; never launch
-// live Steam here.
-const steam = readFileSync(resolve(root, "src/WSGM/Core/Steam.cs"), "utf8");
-const coldStart = steam.match(
-  /private static AppLauncher\.LaunchResult ColdStart\(([\s\S]*?)\n {4}\}/u,
-)[1];
-assert.match(
-  coldStart,
-  /SteamInputShim\.Reconcile\("steam-cold-start"\);[\s\S]*?SteamCef\.EnsureRemoteDebuggingEnabled\(InstallDirectory, cefEnabled\);[\s\S]*?AppLauncher\.Start\(exe, arguments,/u,
-);
-// The desktop client start must reach that helper with the user's own integrity and CEF choices.
-const sessionModes = readFileSync(resolve(root, "src/WSGM/Shell/SessionModes.cs"), "utf8");
-const desktopStart = sessionModes.match(/public void EnsureSteamDesktop\(\)([\s\S]*?)\n {4}\}/u)[1];
-assert.match(
-  desktopStart,
-  /Steam\.LaunchDesktop\(_config\.SteamLaunchUnelevated, _config\.Cef\.Enabled\)/u,
-);
+// This checks the shipped JavaScript only. The order of a cold Steam start (shim reconcile, CEF
+// flag, process start) is C# behaviour and belongs in WSGM.Tests, not in a regex over source text.
+// Never launch live Steam here.
 const resolver = readFileSync(
   resolve(
     root,
     "external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiAssets/Source/module-resolver.ts",
   ),
   "utf8",
-);
-// SteamDownloadSort.InstallExpression declares the script version before the resident body runs.
-const dlSortVersion = Number(
-  readFileSync(resolve(root, "src/WSGM/Core/SteamDownloadSort.cs"), "utf8").match(
-    /internal const int ScriptVersion = (\d+);/u,
-  )[1],
 );
 const resident = (file) =>
   readFileSync(resolve(root, "src/WSGM/Core", file), "utf8").match(
@@ -86,10 +69,9 @@ function fixture() {
   runtime.m = factories;
   const window = { webpackChunksteamui: { push: (chunk) => chunk[2](runtime) } };
   const steamModules = runInNewContext(`(${resolver})("fixture")`, { window });
-  return { window, factories, calls, cache, steamModules, dlSortVersion };
+  return { window, factories, calls, cache, steamModules };
 }
 
-const sort = resident("SteamDownloadSort.cs");
 const tabs = resident("SteamLibraryTabs.cs").replaceAll(
   "__WSGM_BRIDGE_NAMESPACE__",
   JSON.stringify("__bridge_fixture"),
@@ -98,93 +80,86 @@ const composedAsset = readFileSync(
   resolve(root, "src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js"),
   "utf8",
 );
-const libraryClaim = composedAsset.slice(
-  composedAsset.indexOf("const libraryTabsClaim ="),
-  composedAsset.indexOf('registerGate("wsgmLibraryTabs", libraryTabsClaim);'),
-);
+// WSGM's whole library-tabs fragment over the toolkit's shared fragments it builds on.
+const libraryClaim = fragment(composedAsset, "consumer/library-tabs.ts");
 const withLibraryGate = (f) => {
   const api = new Function(
+    "registerGate",
     `${sharedFragments(composedAsset)}\n${libraryClaim}\nreturn { gate: libraryTabsClaim, interceptMemo, releaseMemo };`,
-  )();
+  )(() => {});
   f.window.__bridge_fixture = { gate: (name) => (name === "wsgmLibraryTabs" ? api.gate : null) };
   return api;
 };
-// The bridge's "elements" gate, standing in for the toolkit's shared JSX-runtime claim.
-const withElementsGate = (f) => {
-  const registered = new Map();
-  f.bridgeNamespace = "__bridge_fixture";
-  f.window.__bridge_fixture = {
-    gate: (name) =>
-      name === "elements"
-        ? {
-            register: (id, transform) => {
-              registered.set(id, transform);
-              return { ok: true };
-            },
-            unregister: (id) => {
-              registered.delete(id);
-              return { ok: true };
-            },
-            registered: (id) => registered.has(id),
-          }
-        : null,
-  };
-  return registered;
-};
+// WSGM's download-sort gate, whole and without its registration, over the shared fragments it
+// builds on. The bridge's own request and module runtime are stand-ins.
+const downloadSort = gateSource(composedAsset, "consumer/download-sort.ts");
+const sortGate = (f, request = () => Promise.resolve(null)) =>
+  instantiate(
+    {
+      window: f.window,
+      getWebpackRuntime: () => f.steamModules,
+      request,
+      setTimeout: f.setTimeout ?? setTimeout,
+    },
+    `${sharedFragments(composedAsset)}\n${downloadSort}`,
+    "createWsgmDownloadSort()",
+  );
+const JsxTokens = ["react.transitional.element", ".jsx", ".jsxs"];
 {
   const f = fixture();
-  const registered = withElementsGate(f);
-  runInNewContext(sort, f);
-  const w = f.window.__wsgm;
-  assert.equal(JSON.parse(w.dlSortInstall()).ok, true);
-  assert.deepEqual(f.calls, ["react", "focus", "progress"]);
-  assert.equal(f.cache.jsx, undefined, "download sort must not resolve the runtime itself");
-  const transform = registered.get("wsgm.download-sort");
-  assert.equal(typeof transform, "function", "the header transform must be registered");
+  // The runtime's own jsx, recording what reaches it, so the claim's wrapper can be seen to pass
+  // every other element through and to hand the original back on removal.
+  const runtime = f.steamModules.resolve(JsxTokens);
   const created = [];
-  const create = (type, props, key) => {
+  const original = (type, props, key) => {
     created.push({ type, props, key });
     return { type, props };
   };
-  assert.equal(
-    transform(create, "section", { sectionTitle: "#Other", count: 1, labelId: "x" }, null),
-    undefined,
-  );
-  assert.equal(created.length, 0, "other elements must be left to the runtime");
-  transform(
-    create,
+  runtime.jsx = runtime.jsxs = original;
+  f.calls.length = 0;
+  const gate = sortGate(f);
+  assert.equal(gate.install().ok, true);
+  assert.deepEqual(f.calls, ["react", "focus", "progress", "jsx"]);
+  assert.notEqual(runtime.jsx, original, "the header transform must claim the runtime");
+  assert.equal(gate.status().registered, true);
+  const other = { sectionTitle: "#Other", count: 1, labelId: "x" };
+  runtime.jsx("section", other, null);
+  assert.equal(created.length, 1);
+  assert.equal(created[0].props, other, "other elements must be left to the runtime");
+  runtime.jsx(
     "section",
     { sectionTitle: "#Downloads_Section_Current", count: 2, labelId: "q" },
     "k",
   );
-  assert.equal(created.length, 1, "the queue header must be created once, through the runtime");
-  assert.equal(created[0].props.style.flex, "1 1 auto");
-  assert.equal(created[0].key, "k");
-  w.dlSortRemove();
-  assert.equal(registered.size, 0, "removal must withdraw the transform");
-  assert.equal(JSON.parse(w.dlSortInstall()).ok, true);
-  assert.equal(registered.size, 1);
+  assert.equal(created.length, 2, "the queue header must be created once, through the runtime");
+  assert.equal(created[1].props.style.flex, "1 1 auto");
+  assert.equal(created[1].key, "k");
+  assert.equal(gate.remove().ok, true);
+  assert.equal(runtime.jsx, original, "removal must hand the runtime back");
+  assert.equal(gate.status().registered, false);
+  assert.equal(gate.install().ok, true);
+  assert.equal(gate.status().registered, true);
 }
 {
-  // Without the bridge there is nothing to register with, and nothing is wrapped as a fallback.
+  // Without the JSX runtime there is nothing to register on, and nothing is wrapped as a fallback.
   const f = fixture();
-  runInNewContext(sort, { ...f, bridgeNamespace: "__absent" });
-  const result = JSON.parse(f.window.__wsgm.dlSortInstall());
+  delete f.factories.jsx;
+  const gate = sortGate(f);
+  const result = gate.install();
   assert.equal(result.ok, false);
-  assert.equal(result.err, "bridge unavailable");
-  assert.equal(f.cache.jsx, undefined);
+  assert.match(result.error, /absent/u);
+  assert.equal(gate.status().installed, false);
 }
 {
   // A run Steam partly refuses tells WSGM how many through the bridge, once, when it ends.
   const f = fixture();
-  withElementsGate(f);
   const requests = [];
-  f.window.__bridge_fixture.request = (patchId, command, payload) => {
+  const request = (patchId, command, payload) => {
     requests.push(JSON.parse(JSON.stringify({ patchId, command, payload })));
     return Promise.resolve(null);
   };
   f.setTimeout = (step) => step();
-  f.downloadsStore = f.window.downloadsStore = {
+  f.window.downloadsStore = {
     QueuedTransfers: [
       { appid: 1, queue_index: 0 },
       { appid: 2, queue_index: 1 },
@@ -192,15 +167,16 @@ const withElementsGate = (f) => {
     ],
     CurrentViewingRemoteClientID: 0,
   };
-  f.SteamClient = {
+  f.window.SteamClient = {
     Downloads: {
       SetQueueIndex(appid) {
         if (appid !== 1) throw new Error(`index refused for ${appid}`);
       },
     },
   };
-  runInNewContext(sort, f);
-  f.window.__wsgm.applyDownloadSort("name");
+  const gate = sortGate(f, request);
+  assert.equal(gate.install().ok, true);
+  gate.applySort("name");
   assert.deepEqual(requests, [
     {
       patchId: "wsgm.download-sort",
@@ -208,20 +184,23 @@ const withElementsGate = (f) => {
       payload: { refused: 2, total: 3, first: "index refused for 2" },
     },
   ]);
-  assert.equal(f.window.__wsgm.dlSortState.busy, false);
+  assert.equal(gate.status().sorting, false);
 }
-for (const source of [sort, tabs]) {
-  for (const state of ["missing", "ambiguous"]) {
-    const f = fixture();
-    if (state === "missing") delete f.factories.react;
-    else f.factories.duplicateReact = f.factories.react;
-    const act = () => {
-      runInNewContext(source, f);
-      if (source === sort) f.window.__wsgm.dlSortInstall();
-    };
-    assert.throws(act, /absent|ambiguous/u);
-    assert.deepEqual(f.calls, []);
-  }
+for (const state of ["missing", "ambiguous"]) {
+  const f = fixture();
+  if (state === "missing") delete f.factories.react;
+  else f.factories.duplicateReact = f.factories.react;
+  const result = sortGate(f).install();
+  assert.equal(result.ok, false);
+  assert.match(result.error, /absent|ambiguous/u);
+  assert.deepEqual(f.calls, []);
+}
+for (const state of ["missing", "ambiguous"]) {
+  const f = fixture();
+  if (state === "missing") delete f.factories.react;
+  else f.factories.duplicateReact = f.factories.react;
+  assert.throws(() => runInNewContext(tabs, f), /absent|ambiguous/u);
+  assert.deepEqual(f.calls, []);
 }
 {
   const f = fixture();

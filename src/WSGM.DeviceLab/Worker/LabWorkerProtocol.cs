@@ -26,6 +26,13 @@ internal sealed class LabWorkerStreamAttribute : Attribute;
 [AttributeUsage(AttributeTargets.Method)]
 internal sealed class LabWorkerZeroAttribute : Attribute;
 
+/// <summary>
+///     Marks a read the wizard polls at a steady rate, such as fan speeds while a fan test runs. The worker
+///     does not trace each call; a failure is still traced.
+/// </summary>
+[AttributeUsage(AttributeTargets.Method)]
+internal sealed class LabWorkerSampledAttribute : Attribute;
+
 /// <summary>One request from the wizard to the worker.</summary>
 internal sealed record LabWorkerRequest
 {

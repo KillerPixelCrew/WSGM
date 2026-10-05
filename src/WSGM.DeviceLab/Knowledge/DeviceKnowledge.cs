@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 using WSGM.Device.Sdk.Identity;
 
 namespace WSGM.DeviceLab.Knowledge;
@@ -208,6 +209,21 @@ internal sealed record DeviceButtonKnowledge
 
     /// <summary>Where this came from.</summary>
     public DeviceKnowledgeProvenance? Provenance { get; init; }
+
+    /// <summary>Describes what the record believes about this button, for the wizard and the review.</summary>
+    /// <returns>One line, for example <c>HID report 5A byte 3 &amp; 04</c>.</returns>
+    public string Describe()
+    {
+        return Source switch
+        {
+            DeviceButtonSourceKind.KeyboardChord => $"keys {string.Join("+", PressKeys)}",
+            DeviceButtonSourceKind.HidReport => string.Create(CultureInfo.InvariantCulture,
+                $"HID report {ReportId:X2} byte {ByteOffset} {(MatchesValue ? "=" : "&")} {Mask:X2}"),
+            DeviceButtonSourceKind.WmiEvent => string.Create(CultureInfo.InvariantCulture, $"WMI event {EventCode}"),
+            DeviceButtonSourceKind.Gamepad => "gamepad",
+            _ => "declared, source unknown"
+        };
+    }
 }
 
 /// <summary>Motion sensors and the axis maps believed to align them with the device.</summary>

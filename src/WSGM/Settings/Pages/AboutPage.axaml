@@ -55,7 +55,7 @@
               <StackPanel VerticalAlignment="Center" Spacing="1">
                 <TextBlock Text="Licence" Classes="setting-title" />
                 <TextBlock
-                  Text="WSGM is free software under the GPL. The plugin and device SDKs, the Device Lab and the device packages are MIT-licensed so other packages can implement their contracts."
+                  Text="WSGM and the Device Lab are free software under the GPL. The plugin and device SDKs and the device packages are MIT-licensed so other packages can implement their contracts."
                   Classes="caption" TextWrapping="Wrap" />
               </StackPanel>
               <Button Grid.Column="1" Content="Read" Click="OnOpenLink" Tag="{x:Static core:Credits.LicenseUrl}"

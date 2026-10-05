@@ -408,28 +408,25 @@ which is what HHD's Deck emulation does for every pad without a trigger click, t
 threshold came from the 0..65535 trigger scale fixed the same day, not from the threshold. The
 DualShock 4 target keeps its digital L2/R2 bits: a real DualShock 4 sets them with the analogue
 value. InputPlumber's Deck target uses the same `value > 0.8` rule and the same 32767 full-travel
-scale. `tools\DeckSpike` presents a virtual Deck on any PC with usbip-win2 and drives the triggers,
-the digital bits and the analogue scale from the keyboard, and `tools\SteamReceiver`, launched from
-Steam as a non-Steam game, shows what Steam Input makes of each frame, so such experiments no longer
-need a handheld.
+scale.
 
 Bench result of 2026-09-28, with Steam's default trigger settings (adaptive soft pull at 10000,
-analogue range 1000 to 32000, linear curve) and the receiver confirmed in front: a ramp with the bit
-rising past 80 percent fired Soft Pull at XInput 94 and Full Pull at XInput 207 on the receiver,
-which is the frame in which the bit rose. The bits forced on at rest fired Full Pull with the
-triggers at zero. Full travel at 32767 with the bits clear fired Soft Pull only. Full travel written
-as 35424 fired nothing and moved nothing, because the field is a signed short and every value above
-32767 reads negative; a value "above hardware range" cannot exist on this wire. Full travel written
-as 30309, the Xbox Ally X tester's maximum, with the bit set fired Full Pull 13 ms after the frame,
-so a pad that reaches 92.5 percent gets Full Pull as long as the bit reaches Steam. Full Pull is the
-bit and only the bit, and the 80 percent rule fires it where it should. The tester's reports of
-2026-09-28 came from 2.0.1: his wsgm.log runs 2.0.1.1429 from the 27th through the 28th, with
-HidHide active and the Deck target created, and the in-app update to 2.0.3 rolled back and restarted
-2.0.1 without telling him (see the setup notes on quiet updates). His symptom is bench run 3. Once
-an update installed, the same tester confirmed the rule on the Xbox Ally X (2026-09-28):
-ANTONBLAST's jump and ground pound on the two pulls work, and in Sonic X Shadow Generations a fast
-pull spams the Chaos Spear while a slow pull holds the multi lock-on, as the threshold trigger
-styles intend.
+analogue range 1000 to 32000, linear curve) and a bench receiver (since removed) confirmed in front:
+a ramp with the bit rising past 80 percent fired Soft Pull at XInput 94 and Full Pull at XInput 207
+on the receiver, which is the frame in which the bit rose. The bits forced on at rest fired Full
+Pull with the triggers at zero. Full travel at 32767 with the bits clear fired Soft Pull only. Full
+travel written as 35424 fired nothing and moved nothing, because the field is a signed short and
+every value above 32767 reads negative; a value "above hardware range" cannot exist on this wire.
+Full travel written as 30309, the Xbox Ally X tester's maximum, with the bit set fired Full Pull 13
+ms after the frame, so a pad that reaches 92.5 percent gets Full Pull as long as the bit reaches
+Steam. Full Pull is the bit and only the bit, and the 80 percent rule fires it where it should. The
+tester's reports of 2026-09-28 came from 2.0.1: his wsgm.log runs 2.0.1.1429 from the 27th through
+the 28th, with HidHide active and the Deck target created, and the in-app update to 2.0.3 rolled
+back and restarted 2.0.1 without telling him (see the setup notes on quiet updates). His symptom is
+bench run 3. Once an update installed, the same tester confirmed the rule on the Xbox Ally X
+(2026-09-28): ANTONBLAST's jump and ground pound on the two pulls work, and in Sonic X Shadow
+Generations a fast pull spams the Chaos Spear while a slow pull holds the multi lock-on, as the
+threshold trigger styles intend.
 
 ### Neptune motion is encoded as raw Deck counts, not normalized axes
 

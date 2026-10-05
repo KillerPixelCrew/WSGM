@@ -1,10 +1,14 @@
+using System;
+using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Styling;
 using Avalonia.Themes.Fluent;
 
 namespace WSGM.DeviceLab.Gui;
 
-internal sealed class App : Avalonia.Application
+/// <summary>The Avalonia application; it opens whichever window the entry point composed.</summary>
+/// <param name="mainWindow">Creates the main window once the framework is ready.</param>
+internal sealed class App(Func<Window> mainWindow) : Avalonia.Application
 {
     public override void Initialize()
     {
@@ -16,7 +20,7 @@ internal sealed class App : Avalonia.Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.MainWindow = DeviceLabGui.Wizard is { } wizard ? new WizardWindow(wizard) : new MainWindow();
+            desktop.MainWindow = mainWindow();
         }
 
         base.OnFrameworkInitializationCompleted();

@@ -39,12 +39,12 @@ internal sealed partial class WizardWindow
             page.Children.Add(PageTitle("Buttons"));
             page.Children.Add(Heading("Controller setup"));
             page.Children.Add(Status(init.Description));
-            var choice = init.Reversible
-                ? await AskAsync(page, "Continue", "Test without it")
-                : await AskAsync(page, "Test without it", "Do it anyway") == 1
-                    ? 0
-                    : 1;
-            if (choice == 0)
+
+            // A reversible init is the default; an irreversible one is sent only on "Do it anyway".
+            var send = init.Reversible
+                ? await AskAsync(page, "Continue", "Test without it") == 0
+                : await AskAsync(page, "Test without it", "Do it anyway") == 1;
+            if (send)
             {
                 var line = Status("Setting up the controller...");
                 page.Children.Add(line);
@@ -81,7 +81,17 @@ internal sealed partial class WizardWindow
             var countdown = Status(string.Empty);
             page.Children.Add(countdown);
             capture.BeginStep("buttons/baseline", true);
-            await CountdownAsync(countdown, "Hands off...", 4);
+            try
+            {
+                await CountdownAsync(countdown, "Hands off...", 4);
+            }
+            catch (OperationCanceledException)
+            {
+                // A stopped baseline is closed here, or later handling would be learned as noise.
+                capture.EndStep();
+                throw;
+            }
+
             var baseline = capture.EndStep();
             await Task.Run(() => project.WriteEvidence(attempt, "setup", new
             {
@@ -137,8 +147,8 @@ internal sealed partial class WizardWindow
                     }
                 }
 
-                // Buttons the plan did not know about.
-                for (var extra = 1; !skippedRest && extra <= 12; extra++)
+                // Buttons the plan did not know about, until the tester says there are no more.
+                for (var extra = 1; !skippedRest; extra++)
                 {
                     page.Children.Clear();
                     page.Children.Add(PageTitle("Any other buttons?"));
@@ -332,9 +342,7 @@ internal sealed partial class WizardWindow
                 var device = activity.Device is not null && byId.TryGetValue(activity.Device, out var known)
                     ? LabInputAnalysis.Describe(known)
                     : activity.Device;
-                if (!control.Detailed && device is not null
-                                      && (device.StartsWith("mouse", StringComparison.Ordinal)
-                                          || device.Contains(" 000D:", StringComparison.Ordinal)))
+                if (!control.Detailed && LabInputAnalysis.IsPointer(device))
                 {
                     return;
                 }
@@ -356,7 +364,7 @@ internal sealed partial class WizardWindow
             var watcher = control.QuietMs > 0
                 ? WatchQuietAsync(capture, () => Interlocked.Read(ref lastActivity), control.QuietMs, quiet)
                 : Task.CompletedTask;
-            int answer;
+            ControlAnswer answer;
             try
             {
                 var choices = canGoBack
@@ -365,7 +373,9 @@ internal sealed partial class WizardWindow
                         "Next", "Do it again", "This device does not have it", "Skip the rest", "Previous button"
                     }
                     : ["Next", "Do it again", "This device does not have it", "Skip the rest"];
-                answer = await AskAsync(page, quiet.Token, choices);
+                // The quiet window ends the wait without an answer, which counts as Next.
+                var index = await AskAsync(page, quiet.Token, choices);
+                answer = index < 0 ? ControlAnswer.Next : (ControlAnswer)index;
             }
             catch (OperationCanceledException) when (Lifetime.IsCancellationRequested)
             {
@@ -382,12 +392,7 @@ internal sealed partial class WizardWindow
                 await watcher;
             }
 
-            if (answer < 0)
-            {
-                answer = 0;
-            }
-
-            if (answer == 3)
+            if (answer == ControlAnswer.SkipRest)
             {
                 var skipped = capture.EndStep();
                 await Task.Run(() =>
@@ -398,7 +403,7 @@ internal sealed partial class WizardWindow
                 return ButtonControlResult.SkipRest;
             }
 
-            if (answer == 4)
+            if (answer == ControlAnswer.Previous)
             {
                 var previous = capture.EndStep();
                 await Task.Run(() =>
@@ -414,28 +419,28 @@ internal sealed partial class WizardWindow
             var allDevices = capture.Devices;
             var candidates = LabInputAnalysis.Candidates(step, allDevices, record);
             var shown = control.Detailed ? candidates : LabInputAnalysis.WithoutPointer(candidates);
-            var nothing = answer == 0 && shown.Count == 0;
+            var nothing = answer == ControlAnswer.Next && shown.Count == 0;
             if (nothing)
             {
                 page.Children.Add(
                     Warning("Nothing reacted to that. Try it again, or keep it as \"nothing happened\"."));
                 if (await AskAsync(page, "Try again", "Keep it") == 0)
                 {
-                    answer = 1;
+                    answer = ControlAnswer.Again;
                 }
             }
 
             var status = answer switch
             {
-                0 => LabSegmentStatus.Completed,
-                2 => LabSegmentStatus.Skipped,
+                ControlAnswer.Next => LabSegmentStatus.Completed,
+                ControlAnswer.Absent => LabSegmentStatus.Skipped,
                 _ => LabSegmentStatus.Failed
             };
             var summary = answer switch
             {
-                0 when nothing => "Nothing reacted.",
-                0 => LabInputAnalysis.Summary(shown),
-                2 => "Not on this device.",
+                ControlAnswer.Next when nothing => "Nothing reacted.",
+                ControlAnswer.Next => LabInputAnalysis.Summary(shown),
+                ControlAnswer.Absent => "Not on this device.",
                 _ => "Redone."
             };
             await Task.Run(() =>
@@ -444,7 +449,12 @@ internal sealed partial class WizardWindow
                 project.WriteEvidence(directory, "candidates", new
                 {
                     Control = control,
-                    Answer = answer switch { 0 => "done", 2 => "not-on-device", _ => "redo" },
+                    Answer = answer switch
+                    {
+                        ControlAnswer.Next => "done",
+                        ControlAnswer.Absent => "not-on-device",
+                        _ => "redo"
+                    },
                     Flagged = nothing,
                     Listening = alive,
                     Candidates = candidates,
@@ -454,7 +464,7 @@ internal sealed partial class WizardWindow
                 });
                 project.Finish(segment, status, summary, DateTimeOffset.UtcNow);
             });
-            if (answer != 1)
+            if (answer != ControlAnswer.Again)
             {
                 return ButtonControlResult.Next;
             }
@@ -518,5 +528,15 @@ internal sealed partial class WizardWindow
         Next,
         Previous,
         SkipRest
+    }
+
+    // The control step's answers, in the order of its labels.
+    private enum ControlAnswer
+    {
+        Next,
+        Again,
+        Absent,
+        SkipRest,
+        Previous
     }
 }

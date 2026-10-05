@@ -20,10 +20,8 @@ public sealed class PluginTestWorkflowSafetyTests
 {
     private static string WorkerExecutablePath()
     {
-        var repositoryRoot = Assert.IsType<string>(
-            DeviceLabRepositoryLocator.Find(AppContext.BaseDirectory));
         return Path.Combine(
-            repositoryRoot,
+            RepositoryFiles.Root,
             "src",
             "WSGM.DeviceLab",
             "bin",

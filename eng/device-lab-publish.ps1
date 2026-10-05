@@ -97,7 +97,8 @@ function Publish-DeviceLab {
         -RuntimeIdentifier $RuntimeIdentifier -Destination $Destination
 
     $copies = @(
-        @{ Source = Join-Path $deviceLabRoot "LICENSE"; Destination = "LICENSE.txt" }
+        # Device Lab is GPL-3.0-or-later like WSGM and ships the repository's own licence.
+        @{ Source = Join-Path $Root "LICENSE"; Destination = "LICENSE.txt" }
     )
     foreach ($copy in $copies) {
         if (-not (Test-Path -LiteralPath $copy.Source -PathType Leaf)) {

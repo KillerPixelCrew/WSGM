@@ -40,6 +40,9 @@ internal sealed partial class WizardWindow : Window
 {
     private const string FinishId = "finish";
 
+    private readonly DeviceLabPathBoundaries _boundaries;
+
+    // The window's token: cancelled only when the window closes. The running stage's token is Lifetime.
     private readonly CancellationTokenSource _lifetime = new();
 
     private readonly LabMachineState _machine = LabMachineState.ForCurrentUser;
@@ -49,7 +52,6 @@ internal sealed partial class WizardWindow : Window
         PlaceholderText = "Anything to add? For example: the left stick feels loose.",
         AcceptsReturn = true,
         TextWrapping = TextWrapping.Wrap,
-        MaxLength = 2000,
         Height = 80
     };
 
@@ -57,11 +59,14 @@ internal sealed partial class WizardWindow : Window
     private readonly ContentControl _page = new();
     private readonly LabPawnIo _pawnIo;
     private readonly TextBlock _projectLine = Muted(string.Empty);
+    private readonly Button _saveNote;
     private readonly ListBox _stages = new() { MinWidth = 240 };
     private bool _closeReady;
     private bool _closing;
     private bool _confirmingClose;
     private bool _navigating;
+    private string? _next;
+    private Task _noteSave = Task.CompletedTask;
     private Task _operation = Task.CompletedTask;
     private DeviceLabOwnerReservation? _owner;
     private LabProject? _project;
@@ -70,9 +75,10 @@ internal sealed partial class WizardWindow : Window
     private string? _running;
     private CancellationTokenSource _stage = new();
 
-    public WizardWindow(WizardOptions options)
+    public WizardWindow(WizardOptions options, DeviceLabPathBoundaries boundaries)
     {
         _options = options;
+        _boundaries = boundaries;
         _pawnIo = LabPawnIo.ForMachine(_machine);
         Title = "WSGM Device Lab";
         Width = 1100;
@@ -95,7 +101,8 @@ internal sealed partial class WizardWindow : Window
         side.Children.Add(stop);
         side.Children.Add(Muted("Notes for the developer"));
         side.Children.Add(_note);
-        side.Children.Add(Action("Save note", SaveNote));
+        _saveNote = Action("Save note", SaveNote);
+        side.Children.Add(_saveNote);
         side.Children.Add(Buttons(Action("Open test folder", OpenProjectFolder),
             Action("Help and licences", ShowHelp)));
         root.Children.Add(side);
@@ -148,37 +155,10 @@ internal sealed partial class WizardWindow : Window
         _page.Content = Page("Test your handheld", "Checking what an earlier session left behind...");
         Run(null, async () =>
         {
-            if (_options.Elevated)
-            {
-                await Task.Run(_pawnIo.Reconcile);
-            }
-
-            // Undo what a killed session left applied: power settings and a switched controller mode.
-            List<string> recovered = [];
-            if (_options.Elevated && await WorkerAsync() is var worker
-                                  && await Task.Run(() => LabPowerRecovery.RestoreRecorded(_machine, worker)) is
-                                      { } power)
-            {
-                recovered.Add(power.Message);
-            }
-
-            if (_options.Elevated && _machine.Read().Rumble.Count > 0)
-            {
-                var rumbleWorker = await WorkerAsync();
-                if (await Task.Run(() => LabRumbleRecovery.RestoreRecorded(_machine, rumbleWorker)) is { } rumble)
-                {
-                    recovered.Add(rumble);
-                }
-            }
-
-            if (LabControllerInit.HasPending || _machine.Read().CuratedInitRecordId is not null)
-            {
-                var problem = await RecoverControllerInitAsync(_lifetime.Token);
-                recovered.Add(problem is null
-                    ? "The controller was switched back to the mode it had before an earlier test."
-                    : $"The controller could not be switched back after an earlier test: {problem}");
-            }
-
+            // Undo what a killed session left applied: PawnIO's record, power settings, rumble routes and the
+            // controller. The worker starts only when an item needs it.
+            var recovered = await Task.Run(() => LabRecovery.Run(_machine, _options.Elevated, _pawnIo,
+                () => WorkerAsync().GetAwaiter().GetResult(), DeviceLabOwnerInspector.Reserve, _lifetime.Token));
             if (recovered.Count > 0)
             {
                 var notice = Page("Test your handheld", "An earlier test did not finish.");
@@ -224,7 +204,7 @@ internal sealed partial class WizardWindow : Window
     {
         var parent = Path.GetDirectoryName(DeviceLabExecutable.CurrentPath)!;
         var directory = Path.Combine(parent, $"Device test {DateTime.Now:yyyy-MM-dd HHmmss}");
-        var decision = DeviceLabOutputPathPolicy.Evaluate(directory, DeviceLabOutputTargetKind.Directory, Boundaries());
+        var decision = DeviceLabOutputPathPolicy.Evaluate(directory, DeviceLabOutputTargetKind.Directory, _boundaries);
         if (!decision.IsAllowed)
         {
             throw new IOException($"The test folder could not be created: {decision.Reason ?? directory}");
@@ -265,8 +245,18 @@ internal sealed partial class WizardWindow : Window
         _projectLine.Text = project.Directory;
         var next = LabStages.All.FirstOrDefault(stage =>
                 project.Segment(stage.Id).Status is LabSegmentStatus.NotStarted)
-            ?.Id ?? FinishId;
-        ShowStage(next, true);
+            ?.Id;
+
+        // Loading runs inside an operation: a stage page is only drawn, and the finish page follows as
+        // the next part of the same operation.
+        if (next is null)
+        {
+            _next = FinishId;
+        }
+        else
+        {
+            ShowStagePage(project, next);
+        }
     }
 
     private void RefreshStages(string? selected)
@@ -309,24 +299,27 @@ internal sealed partial class WizardWindow : Window
 
     // Shows a stage without changing anything: a finished stage shows its result and a "Run again"
     // button, an unstarted one a "Start" button. Only the finish page does work on selection, and that
-    // work (restoring HidHide, building the preview) changes no evidence.
-    private void ShowStage(string id, bool fromCompletedOperation = false)
+    // work (building the preview) changes nothing on the machine and no evidence.
+    private void ShowStage(string id)
     {
-        if (_project is not { } project || (!fromCompletedOperation && !_operation.IsCompleted))
+        if (_project is not { } project || !_operation.IsCompleted)
         {
             return;
         }
 
-        RefreshStages(id);
-        _stages.IsEnabled = true;
         if (id == FinishId)
         {
-            var finish = Page("Finish and share", "Preparing the report...");
-            _page.Content = finish;
-            Run(finish, () => ShowFinishAsync(project, finish), fromCompletedOperation);
+            StartStage(FinishId);
             return;
         }
 
+        ShowStagePage(project, id);
+    }
+
+    private void ShowStagePage(LabProject project, string id)
+    {
+        RefreshStages(id);
+        _stages.IsEnabled = true;
         var stage = LabStages.All.Single(item => item.Id == id);
         var page = Page(stage.Title, stage.Description);
         _page.Content = page;
@@ -392,79 +385,69 @@ internal sealed partial class WizardWindow : Window
         }
     }
 
-    private void StartStage(string id, bool fromCompletedOperation = false)
+    // Starts a stage, or the finish page, as a new operation; refused while one is running.
+    private void StartStage(string id)
     {
-        if (_project is not { } project || (!fromCompletedOperation && !_operation.IsCompleted))
+        if (_project is null || !_operation.IsCompleted)
         {
             return;
         }
 
+        if (Prepare(id) is { } stage)
+        {
+            Run(stage.Page, stage.Work);
+        }
+    }
+
+    // Draws a stage's page and returns the work that runs it, or null when a hardware stage refuses to
+    // start without the owner reservation.
+    private (StackPanel Page, Func<Task> Work)? Prepare(string id)
+    {
+        var project = _project!;
+        if (id == FinishId)
+        {
+            RefreshStages(FinishId);
+            var finish = Page("Finish and share", "Preparing the report...");
+            _page.Content = finish;
+            return (finish, () => ShowFinishAsync(project, finish));
+        }
+
         _running = id;
-        LabTrace.Write($"stage {id}: start{(fromCompletedOperation ? " (chained)" : string.Empty)}");
+        LabTrace.Write($"stage {id}: start");
         RefreshStages(id);
         var page = Page(LabStages.All.Single(stage => stage.Id == id).Title, string.Empty);
         _page.Content = page;
-        switch (id)
+        Func<Task>? work = id switch
         {
-            case LabStages.Preflight:
-                Run(page, () => RunPreflightAsync(project, page), fromCompletedOperation);
-                break;
-            case LabStages.Identity:
-                Run(page, () => RunIdentityAsync(project, page), fromCompletedOperation);
-                break;
-            case LabStages.SystemDump:
-                Run(page, () => RunSystemDumpAsync(project, page), fromCompletedOperation);
-                break;
-            case LabStages.Buttons:
-                RunHardware(page, () => RunButtonsAsync(project, page), fromCompletedOperation);
-                break;
-            case LabStages.Motion:
-                RunHardware(page, () => RunMotionAsync(project, page), fromCompletedOperation);
-                break;
-            case LabStages.Rumble:
-                RunHardware(page, () => RunRumbleAsync(project, page), fromCompletedOperation);
-                break;
-            case LabStages.Power:
-                RunHardware(page, () => RunPowerAsync(project, page), fromCompletedOperation);
-                break;
-            case LabStages.Sleep:
-                RunHardware(page, () => RunSleepAsync(project, page), fromCompletedOperation);
-                break;
-        }
+            LabStages.Preflight => () => RunPreflightAsync(project, page),
+            LabStages.Identity => () => RunIdentityAsync(project, page),
+            LabStages.SystemDump => () => RunSystemDumpAsync(project, page),
+            LabStages.Buttons => RunHardware(page, () => RunButtonsAsync(project, page)),
+            LabStages.Motion => RunHardware(page, () => RunMotionAsync(project, page)),
+            LabStages.Rumble => RunHardware(page, () => RunRumbleAsync(project, page)),
+            LabStages.Power => RunHardware(page, () => RunPowerAsync(project, page)),
+            LabStages.Sleep => RunHardware(page, () => RunSleepAsync(project, page)),
+            _ => null
+        };
+        return work is null ? null : (page, work);
     }
 
-    // Called at the end of an operation, which still counts as running until it returns.
+    private static string NextStageId(string after)
+    {
+        return LabStages.All.SkipWhile(stage => stage.Id != after).Skip(1).FirstOrDefault()?.Id ?? FinishId;
+    }
+
+    // Called at the end of a running stage: the next stage runs as the next part of the same operation,
+    // after this one has returned.
     private void Next(string after)
     {
-        var next = LabStages.All.SkipWhile(stage => stage.Id != after).Skip(1).FirstOrDefault()?.Id;
-        if (next is null)
-        {
-            ShowStage(FinishId, true);
-        }
-        else
-        {
-            StartStage(next, true);
-        }
+        _next = NextStageId(after);
     }
 
+    // A result page's Continue starts a new operation; it is refused while one is running.
     private void ContinueResult(string after)
     {
-        if (!_closing)
-        {
-            ContinueCompletedOperation(_operation, () => Next(after));
-        }
-    }
-
-    internal static bool ContinueCompletedOperation(Task operation, Action next)
-    {
-        if (!operation.IsCompleted)
-        {
-            return false;
-        }
-
-        // Next assigns the next stage's operation. A synchronous Run wrapper must not overwrite it.
-        next();
-        return true;
+        StartStage(NextStageId(after));
     }
 
     private async Task RunPreflightAsync(LabProject project, StackPanel page)
@@ -668,6 +651,8 @@ internal sealed partial class WizardWindow : Window
             case PawnIoAction.Install:
                 page.Children.Add(
                     Status($"Installing PawnIO {PawnIoSetup.Pin.Version}, which the power and fan checks need..."));
+                // PawnIO install, replace and remove wait on the window token on purpose: the installer has
+                // its own deadline, and abandoning it on Stop could leave the tester without PawnIO.
                 var installed = await _pawnIo.InstallAsync(_lifetime.Token);
                 evidence["pawnIoInstall"] = installed;
                 page.Children.Add(Outcome(installed));
@@ -716,7 +701,9 @@ internal sealed partial class WizardWindow : Window
     {
         page.Children.Add(Status("Reading the board, BIOS and firmware versions..."));
         var attempt = await Task.Run(() => project.BeginAttempt(LabStages.Identity, DateTimeOffset.UtcNow));
-        var observed = await Task.Run(() => LabIdentity.Observe(DeviceKnowledgeBase.Default, _lifetime.Token));
+        // Identity collection is read-only, so Stop ends it like any other stage work.
+        var cancellation = Lifetime;
+        var observed = await Task.Run(() => LabIdentity.Observe(DeviceKnowledgeBase.Default, cancellation));
         await Task.Run(() => DurableFile.WriteNewText(
             Path.Combine(attempt, "inventory.json"),
             DeviceLabJson.Serialize(observed.Inventory) + "\n"));
@@ -806,13 +793,8 @@ internal sealed partial class WizardWindow : Window
         page.Children.Add(PageTitle("Finish and share"));
         page.Children.Add(Status(
             "Check what will be sent. Serial numbers, account names, user folders and network addresses are replaced with placeholders."));
-        if (await Task.Run(RestoreHidHide) is { } restore)
-        {
-            page.Children.Add(Warning(
-                $"The HidHide entry could not be removed: {restore}. Remove Device Lab from HidHide's allowed programs yourself."));
-        }
-
-        var export = await Task.Run(() => LabExport.Prepare(project));
+        var cancellation = Lifetime;
+        var export = await Task.Run(() => LabExport.Prepare(project, cancellation), cancellation);
         var preview = export.Preview;
         var steps = LabStages.All.Select(stage => project.Segment(stage.Id)).ToList();
         page.Children.Add(Heading("Your test"));
@@ -885,7 +867,7 @@ internal sealed partial class WizardWindow : Window
             return;
         }
 
-        await Task.Run(() => export.Write(path, Boundaries()));
+        await Task.Run(() => export.Write(path, _boundaries));
         saved.Text = $"Saved to {path}. Send this file back.";
         if (saved.Parent is Panel panel)
         {
@@ -901,42 +883,50 @@ internal sealed partial class WizardWindow : Window
             : HidHideAllowance.ForMachine(_machine, DeviceLabExecutable.CurrentPath).RestoreRecorded();
     }
 
-    // Runs one operation at a time. The stage list is locked while it runs, and any failure that is not
-    // the window closing is shown on the page instead of ending the process or leaving it half drawn.
-    // An operation that hands over to the next stage passes chained, because it is itself still running.
-    private void Run(Panel? errors, Func<Task> work, bool chained = false)
+    // Runs one operation at a time, and _operation is that operation until its last stage returns. Any
+    // failure that is not the window closing is shown on the page instead of ending the process or
+    // leaving it half drawn.
+    private void Run(Panel? errors, Func<Task> work)
     {
-        if (_closing || (!chained && !_operation.IsCompleted))
+        if (_closing || !_operation.IsCompleted)
         {
             return;
         }
 
         _stages.IsEnabled = _project is not null;
-        if (!chained)
-        {
-            _stage.Dispose();
-            _stage = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
-        }
-
-        var operation = RunCore(errors, work);
-        if (!chained)
-        {
-            _operation = operation;
-        }
-        else
-        {
-            var outer = _operation;
-            _operation = Task.WhenAll(outer, operation);
-        }
+        _stage.Dispose();
+        _stage = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        _operation = RunCore(errors, work);
     }
 
+    // A stage that calls Next hands over to the next stage here, in order, so the operation stays one
+    // task. Stop, a stage-list click, a failure or closing ends the loop.
     private async Task RunCore(Panel? errors, Func<Task> work)
+    {
+        while (true)
+        {
+            _next = null;
+            if (!await RunStageAsync(errors, work) || _next is not { } next || _closing
+                || _stage.IsCancellationRequested || Prepare(next) is not { } stage)
+            {
+                break;
+            }
+
+            errors = stage.Page;
+            work = stage.Work;
+        }
+
+        _stages.IsEnabled = _project is not null && !_closing;
+    }
+
+    private async Task<bool> RunStageAsync(Panel? errors, Func<Task> work)
     {
         var running = _running;
         try
         {
             await work();
             LabTrace.Write($"stage {running}: operation finished");
+            return true;
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
         {
@@ -959,19 +949,10 @@ internal sealed partial class WizardWindow : Window
             {
                 errors.Children.Add(Warning(
                     $"Something went wrong: {ex.Message} Nothing is retried automatically; what was recorded is saved."));
-                if (_running is { } stage && _project is not null)
+                if (running is { } stage && _project is not null)
                 {
                     errors.Children.Add(Buttons(
-                        Action("Continue with the next step", () =>
-                        {
-                            if (!_operation.IsCompleted)
-                            {
-                                return;
-                            }
-
-                            var next = LabStages.All.SkipWhile(item => item.Id != stage).Skip(1).FirstOrDefault()?.Id;
-                            ShowStage(next ?? FinishId);
-                        }),
+                        Action("Continue with the next step", () => ShowStage(NextStageId(stage))),
                         Action("Go to Finish and share", () => ShowStage(FinishId))));
                 }
             }
@@ -982,10 +963,8 @@ internal sealed partial class WizardWindow : Window
                 _page.Content = page;
             }
         }
-        finally
-        {
-            _stages.IsEnabled = _project is not null && !_closing;
-        }
+
+        return false;
     }
 
     // A power, fan or charge setting that could not be confirmed as put back makes closing a choice.
@@ -1036,34 +1015,47 @@ internal sealed partial class WizardWindow : Window
         }
     }
 
+    // Closes once, in this order: stop the stage and wait for it, wait for a note being saved, undo the
+    // session's HidHide entry, stop the capture and the worker, then release the owner reservation. A
+    // step that fails is logged and the later steps still run.
     private async Task CloseAfterCleanupAsync()
     {
         await _lifetime.CancelAsync();
+        await CloseStepAsync("operation", () => _operation);
+        await CloseStepAsync("note", () => _noteSave);
+
+        // A failed removal keeps the record, so the next start offers to remove the entry.
+        await CloseStepAsync("hidhide", () => Task.Run(() =>
+        {
+            if (RestoreHidHide() is not null)
+            {
+                LabTrace.Write("close: the HidHide entry was not removed; the record stays for the next start");
+            }
+        }));
+        await CloseStepAsync("input capture", () => Task.Run(() => _capture?.Dispose()));
+        _capture = null;
+        await CloseStepAsync("hardware worker", () => Task.Run(() => _worker?.Dispose()));
+        _worker = null;
+        await CloseStepAsync("owner reservation", () =>
+        {
+            _owner?.Dispose();
+            return Task.CompletedTask;
+        });
+        _owner = null;
+        _closeReady = true;
+        Close();
+    }
+
+    private static async Task CloseStepAsync(string step, Func<Task> work)
+    {
         try
         {
-            await _operation;
+            await work();
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            // RunCore reports failures itself; closing only needs the operation to have stopped.
+            LabTrace.Write($"close: {step} failed, {LabTrace.Describe(ex)}");
         }
-
-        try
-        {
-            await Task.Run(RestoreHidHide);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
-        {
-            // The record stays, so the next start removes the entry.
-        }
-
-        _capture?.Dispose();
-        _capture = null;
-        _worker?.Dispose();
-        _worker = null;
-        _owner?.Dispose();
-        _closeReady = true;
-        Close();
     }
 
     private void StopStage()
@@ -1074,24 +1066,48 @@ internal sealed partial class WizardWindow : Window
         }
     }
 
-    // A note is its own attempt of the "notes" segment, so notes never overwrite each other.
+    // A note is its own attempt of the "notes" segment, so notes never overwrite each other. A note may
+    // be saved while a stage runs; the button is off while one saves, and closing waits for it.
     private void SaveNote()
     {
-        if (_project is not { } project || string.IsNullOrWhiteSpace(_note.Text))
+        if (_project is not { } project || string.IsNullOrWhiteSpace(_note.Text) || _closing
+            || !_noteSave.IsCompleted)
         {
             return;
         }
 
         var text = _note.Text.Trim();
         var stage = _running;
-        _ = Task.Run(() =>
+        _saveNote.IsEnabled = false;
+        _noteSave = SaveNoteAsync(project, stage, text);
+    }
+
+    private async Task SaveNoteAsync(LabProject project, string? stage, string text)
+    {
+        try
         {
-            var directory = project.BeginAttempt("notes", DateTimeOffset.UtcNow);
-            project.WriteEvidence(directory, "note", new { Stage = stage, Text = text, At = DateTimeOffset.UtcNow });
-            project.Finish("notes", LabSegmentStatus.Completed, "Tester notes", DateTimeOffset.UtcNow);
-        }).ContinueWith(task => OnUi(() => _note.Text = task.IsFaulted
-            ? $"The note could not be saved: {task.Exception?.GetBaseException().Message}"
-            : string.Empty), TaskScheduler.Default);
+            await Task.Run(() =>
+            {
+                var directory = project.BeginAttempt("notes", DateTimeOffset.UtcNow);
+                project.WriteEvidence(directory, "note",
+                    new { Stage = stage, Text = text, At = DateTimeOffset.UtcNow });
+                project.Finish("notes", LabSegmentStatus.Completed, "Tester notes", DateTimeOffset.UtcNow);
+            });
+
+            // Text typed while the note was being saved stays in the box.
+            if (string.Equals(_note.Text?.Trim(), text, StringComparison.Ordinal))
+            {
+                _note.Text = string.Empty;
+            }
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            _note.Text = $"The note could not be saved: {ex.Message}";
+        }
+        finally
+        {
+            _saveNote.IsEnabled = true;
+        }
     }
 
     private void OpenProjectFolder()
@@ -1104,7 +1120,7 @@ internal sealed partial class WizardWindow : Window
 
     private static void OpenInExplorer(string arguments)
     {
-        Process.Start(
+        using var explorer = Process.Start(
             new ProcessStartInfo("explorer.exe", arguments) { UseShellExecute = false });
     }
 
@@ -1130,11 +1146,6 @@ internal sealed partial class WizardWindow : Window
             }
         };
         help.Show(this);
-    }
-
-    private static DeviceLabPathBoundaries Boundaries()
-    {
-        return DeviceLabPathBoundaries.ForCurrentUser(DeviceLabRepositoryLocator.Find(Environment.CurrentDirectory));
     }
 
     private static string? ToolSha256()

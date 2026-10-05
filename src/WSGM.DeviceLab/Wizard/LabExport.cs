@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Threading;
 using WSGM.DeviceLab.Application;
 using WSGM.DeviceLab.Capture;
 using WSGM.DeviceLab.Preflight;
@@ -43,15 +44,6 @@ internal sealed record LabExportPreview(
 /// </remarks>
 internal sealed class LabExport
 {
-    /// <summary>Largest single file the report carries.</summary>
-    public const long MaximumFileBytes = 32L * 1024 * 1024;
-
-    /// <summary>Largest report the archive carries.</summary>
-    public const long MaximumTotalBytes = 256L * 1024 * 1024;
-
-    /// <summary>Most files the archive carries.</summary>
-    public const int MaximumFiles = 4096;
-
     private static readonly string[] BinaryExtensions = [".aml", ".dat"];
 
     private readonly SortedDictionary<string, (byte[] Content, bool Redacted)> _files = new(StringComparer.Ordinal);
@@ -66,29 +58,26 @@ internal sealed class LabExport
 
     /// <summary>Builds the redacted report for a project.</summary>
     /// <param name="project">Project to share.</param>
+    /// <param name="cancellationToken">Stops the build between files; nothing is written either way.</param>
     /// <returns>The report, ready to preview and write.</returns>
-    /// <exception cref="InvalidDataException">The report would exceed its size bounds.</exception>
-    public static LabExport Prepare(LabProject project)
+    public static LabExport Prepare(LabProject project, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(project);
+        // The project replaces its immutable manifest as a whole under its lock, so one read is a consistent
+        // snapshot. The shared project.json is that snapshot too, so it always agrees with analysis.json.
+        var manifest = project.Manifest;
+        var manifestJson = JsonSerializer.Serialize(manifest, LabProject.JsonOptions) + "\n";
         CaptureRedactor redactor = new();
         List<string> excluded = [];
         var export = new LabExport(new LabExportPreview([], [], [], string.Empty));
-        long total = 0;
         foreach (var file in Directory.EnumerateFiles(project.Directory, "*", SearchOption.AllDirectories)
                      .Order(StringComparer.Ordinal))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var relative = Path.GetRelativePath(project.Directory, file).Replace('\\', '/');
             if (Path.GetFileName(relative).StartsWith('.'))
             {
                 excluded.Add($"{relative}: temporary file");
-                continue;
-            }
-
-            var length = new FileInfo(file).Length;
-            if (length > MaximumFileBytes)
-            {
-                excluded.Add($"{relative}: larger than {MaximumFileBytes / (1024 * 1024)} MiB");
                 continue;
             }
 
@@ -97,7 +86,8 @@ internal sealed class LabExport
             bool redacted;
             if (extension == ".json")
             {
-                content = Encoding.UTF8.GetBytes(RedactJson(relative, File.ReadAllText(file), redactor));
+                var json = relative == LabProject.ManifestFileName ? manifestJson : File.ReadAllText(file);
+                content = Encoding.UTF8.GetBytes(RedactJson(relative, json, redactor));
                 redacted = true;
             }
             else if (BinaryExtensions.Contains(extension))
@@ -111,42 +101,30 @@ internal sealed class LabExport
                 continue;
             }
 
-            total += content.LongLength;
-            if (total > MaximumTotalBytes)
-            {
-                throw new InvalidDataException(
-                    $"The report would exceed {MaximumTotalBytes / (1024 * 1024)} MiB; nothing was written.");
-            }
-
             export._files[relative] = (content, redacted);
-            if (export._files.Count > MaximumFiles)
-            {
-                throw new InvalidDataException(
-                    $"The report would hold more than {MaximumFiles} files; nothing was written.");
-            }
         }
 
         // One table of every step for whoever opens the report: status, attempts and summary.
         var analysis = Encoding.UTF8.GetBytes(RedactJson("analysis.json", JsonSerializer.Serialize(new
         {
-            project.Manifest.Device,
-            project.Manifest.ToolVersion,
-            project.Manifest.SourceRevision,
-            Steps = project.Manifest.Segments.Select(segment => new
+            manifest.Device,
+            manifest.ToolVersion,
+            manifest.SourceRevision,
+            Steps = manifest.Segments.Select(segment => new
             {
                 segment.Id,
                 segment.Status,
                 segment.Attempts,
                 segment.Summary
             }),
-            Counts = project.Manifest.Segments.GroupBy(segment => segment.Status)
+            Counts = manifest.Segments.GroupBy(segment => segment.Status)
                 .ToDictionary(group => group.Key.ToString(), group => group.Count()),
             Limits =
                 "Candidates are what reacted during a step, never proof of cause. Stages the tester skipped or stopped are marked, never counted as measured."
         }, LabProject.JsonOptions), redactor));
         export._files["analysis.json"] = (analysis, true);
 
-        var manifest = export._files.TryGetValue(LabProject.ManifestFileName, out var entry)
+        var shared = export._files.TryGetValue(LabProject.ManifestFileName, out var entry)
             ? Encoding.UTF8.GetString(entry.Content)
             : string.Empty;
         export.Preview = new LabExportPreview(
@@ -159,7 +137,7 @@ internal sealed class LabExport
             ],
             excluded,
             redactor.Summarize(),
-            manifest);
+            shared);
         return export;
     }
 

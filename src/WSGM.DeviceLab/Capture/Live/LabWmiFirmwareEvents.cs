@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 using System.Security;
 using System.Text;
 using Microsoft.Win32;
+using WSGM.DeviceLab.Application;
 
 namespace WSGM.DeviceLab.Capture.Live;
 
@@ -39,7 +40,6 @@ internal readonly record struct LabWdgEvent(Guid Guid, int NotifyId, bool Expens
 internal static class LabWmiFirmwareEvents
 {
     private const int EntryBytes = 20;
-    private const int MaximumTables = 256;
     private const int MaximumTableBytes = 8 * 1024 * 1024;
 
     /// <summary>Decodes every <c>_WDG</c> buffer in one AML table (DSDT or SSDT).</summary>
@@ -182,11 +182,8 @@ internal static class LabWmiFirmwareEvents
         {
             foreach (var value in key.GetValueNames())
             {
-                if (found.Count < MaximumTables && key.GetValueKind(value) == RegistryValueKind.Binary
-                                                && key.GetValue(value) is byte[]
-                                                {
-                                                    Length: >= 36 and <= MaximumTableBytes
-                                                } table)
+                if (key.GetValueKind(value) == RegistryValueKind.Binary
+                    && key.GetValue(value) is byte[] { Length: >= 36 and <= MaximumTableBytes } table)
                 {
                     found.Add(table);
                 }
@@ -287,50 +284,41 @@ internal static class LabWmiQuarantine
 
     /// <summary>Moves a class left pending by a crash to the blocked list; call once per start.</summary>
     /// <returns>The class that crashed the machine last time, or null.</returns>
+    /// <exception cref="IOException">The record could not be read or moved; enable nothing.</exception>
+    /// <exception cref="UnauthorizedAccessException">The record could not be read or moved; enable nothing.</exception>
     public static string? RecoverFromCrash()
     {
-        try
-        {
-            if (!File.Exists(Pending))
-            {
-                return null;
-            }
-
-            var name = File.ReadAllText(Pending).Trim();
-            if (name.Length > 0 && !IsBlocked(name))
-            {
-                Append(Blocked, name);
-            }
-
-            File.Delete(Pending);
-            return name.Length > 0 ? name : null;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        if (!File.Exists(Pending))
         {
             return null;
         }
+
+        var name = File.ReadAllText(Pending).Trim();
+        if (name.Length > 0 && !IsBlocked(name))
+        {
+            Append(Blocked, name);
+        }
+
+        File.Delete(Pending);
+        return name.Length > 0 ? name : null;
     }
 
     /// <summary>Whether a class crashed this machine before.</summary>
     /// <param name="name">Class name.</param>
     /// <returns>True when it must not be enabled.</returns>
+    /// <exception cref="IOException">The blocked list could not be read; do not enable the class.</exception>
+    /// <exception cref="UnauthorizedAccessException">The blocked list could not be read; do not enable the class.</exception>
     public static bool IsBlocked(string name)
     {
-        try
-        {
-            return File.Exists(Blocked)
-                   && File.ReadAllLines(Blocked)
-                       .Any(line => string.Equals(line.Trim(), name, StringComparison.Ordinal));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            return false;
-        }
+        return File.Exists(Blocked)
+               && File.ReadAllLines(Blocked)
+                   .Any(line => string.Equals(line.Trim(), name, StringComparison.Ordinal));
     }
 
-    /// <summary>Records the class about to be enabled, on disk before the request is sent.</summary>
+    /// <summary>Records the class about to be enabled or disabled, on disk before the request is sent.</summary>
     /// <param name="name">Class name.</param>
-    public static void Begin(string name)
+    /// <returns>True only when the record reached the disk.</returns>
+    public static bool Begin(string name)
     {
         try
         {
@@ -339,13 +327,16 @@ internal static class LabWmiQuarantine
                 FileOptions.WriteThrough);
             stream.Write(Encoding.UTF8.GetBytes(name));
             stream.Flush(true);
+            return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
+            LabTrace.Write($"capture wmi quarantine: {name} could not be recorded ({ex.Message})");
+            return false;
         }
     }
 
-    /// <summary>Clears the pending record once the enable request returned.</summary>
+    /// <summary>Clears the pending record once the enable or disable request returned.</summary>
     public static void End()
     {
         try

@@ -210,20 +210,6 @@ internal static partial class LabSystemDump
         };
     }
 
-    // Keeps the issue list bounded when a section fails the same way for hundreds of items.
-    private static void AddIssue(List<string> issues, string issue)
-    {
-        const int maximumIssues = 50;
-        if (issues.Count < maximumIssues)
-        {
-            issues.Add(issue);
-        }
-        else if (issues.Count == maximumIssues)
-        {
-            issues.Add("More problems were not listed.");
-        }
-    }
-
     private static string Plural(int count, string one, string many)
     {
         return count == 1 ? $"1 {one}" : $"{count.ToString(CultureInfo.InvariantCulture)} {many}";

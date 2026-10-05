@@ -8,6 +8,7 @@ using System.Text.Json.Serialization;
 using System.Threading;
 using Windows.Gaming.Input;
 using WSGM.DeviceLab.Knowledge;
+using WSGM.DeviceLab.Transports;
 
 namespace WSGM.DeviceLab.Capture.Live;
 
@@ -24,7 +25,7 @@ internal sealed record LabRumbleRoute(string Id, string Kind, string Name, strin
 
     /// <summary>The collection a HID route writes to.</summary>
     [JsonIgnore]
-    public LabRumbleHidEndpoint? Endpoint { get; init; }
+    public LabHidEndpoint? Endpoint { get; init; }
 
     /// <summary>The recorded report a HID route writes.</summary>
     [JsonIgnore]
@@ -99,7 +100,7 @@ internal interface ILabRumbleOutput : IDisposable
 internal sealed record LabRumbleDiscovery(
     IReadOnlyList<LabRumbleRoute> Routes,
     IReadOnlyList<string> Notes,
-    IReadOnlyList<LabRumbleHidEndpoint> HidEndpoints);
+    IReadOnlyList<LabHidEndpoint> HidEndpoints);
 
 /// <summary>Finds and opens rumble routes, and plays bounded pulses on them.</summary>
 /// <remarks>
@@ -125,7 +126,7 @@ internal static class LabRumbleRoutes
     /// <param name="record">The confirmed knowledge record, if any.</param>
     public static LabRumbleDiscovery Discover(DeviceKnowledgeRecord? record)
     {
-        var hid = DiscoverHid(record, LabRumbleNative.HidEndpoints);
+        var hid = DiscoverHid(record, LabHid.HidEndpoints);
         List<LabRumbleRoute> routes = [.. hid.Routes];
 
         for (uint slot = 0; slot < 4; slot++)
@@ -171,7 +172,7 @@ internal static class LabRumbleRoutes
         switch (route.Kind)
         {
             case HidKind when route is { Endpoint: { } endpoint, Layout: { } layout }:
-                return new HidOutput(route, LabRumbleNative.OpenForWrite(endpoint), endpoint, layout, log);
+                return new HidOutput(route, LabHid.OpenForWrite(endpoint), endpoint, layout, log);
             case XInputKind when uint.TryParse(route.Target, CultureInfo.InvariantCulture, out var slot) && slot < 4:
                 return LabRumbleNative.XInputConnected(slot)
                     ? new XInputOutput(route, slot, log)
@@ -277,11 +278,11 @@ internal static class LabRumbleRoutes
     ///     such as a vendor control collection, is never written.
     /// </remarks>
     internal static LabRumbleDiscovery DiscoverHid(DeviceKnowledgeRecord? record,
-        Func<ushort, IReadOnlyList<LabRumbleHidEndpoint>> endpoints)
+        Func<ushort, IReadOnlyList<LabHidEndpoint>> endpoints)
     {
         List<LabRumbleRoute> routes = [];
         List<string> notes = [];
-        List<LabRumbleHidEndpoint> present = [];
+        List<LabHidEndpoint> present = [];
         if (record is null)
         {
             notes.Add("No device was confirmed, so only the standard Windows routes are tried.");
@@ -434,7 +435,7 @@ internal static class LabRumbleRoutes
     private sealed class HidOutput(
         LabRumbleRoute route,
         SafeFileHandle handle,
-        LabRumbleHidEndpoint endpoint,
+        LabHidEndpoint endpoint,
         LabRumbleHidLayout layout,
         LabRumbleLog log) : ILabRumbleOutput
     {
@@ -447,7 +448,7 @@ internal static class LabRumbleRoutes
             var report = layout.Encode(frame.Checked(), endpoint.OutputLength);
             lock (_gate)
             {
-                var code = LabRumbleNative.WriteReport(handle, report);
+                var code = LabHid.WriteReport(handle, report);
                 var error = code switch
                 {
                     0 => null,

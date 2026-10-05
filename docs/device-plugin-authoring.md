@@ -14,11 +14,12 @@ Related:
 
 ## The device projects in this repository
 
-Both tools an author needs are MIT projects in WSGM: `src\WSGM.Device.Sdk` is the contract and
-`src\WSGM.DeviceLab` is the tool. The SDK, Device Lab, the Claw plugin, the ROG Ally plugin and the
-Handheld Companion scaffold are maintained here, with source under `src`, tests under `tests`, and
-all of them in `WSGM.slnx`. Every consumer references `src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj`,
-so a contract change and its consumers build and go through review together.
+Both tools an author needs are projects in WSGM: `src\WSGM.Device.Sdk` is the MIT contract and
+`src\WSGM.DeviceLab` is the GPL-3.0-or-later tool. The SDK, Device Lab, the Claw plugin, the ROG
+Ally plugin and the Handheld Companion scaffold are maintained here, with source under `src`, tests
+under `tests`, and all of them in `WSGM.slnx`. Every consumer references
+`src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj`, so a contract change and its consumers build and go
+through review together.
 
 | Project            | Source and documentation                                                        | Status                                                         |
 | ------------------ | ------------------------------------------------------------------------------- | -------------------------------------------------------------- |
@@ -57,15 +58,17 @@ dotnet pack src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj --configuration Release -
 `eng/build-bundle.ps1` builds the bundled plugin packages and `bundle.json` from these same sources,
 listed in `plugins/curated`. `eng/pack-device.ps1 -Source <project directory>` packs any device
 project, so the Ally plugin and the HC scaffold stay packable; add `-RequireGlyphs` for a package
-that ships physical glyphs. It uses `eng/plugin-package-common.ps1` to replace an existing archive
-atomically or publish a new one without overwriting a competing file, and a failed replacement keeps
-the previous archive.
+that ships physical glyphs. It builds in a fresh temporary directory and moves the finished archive
+into the output folder, replacing only the archive of the same id and version; a failed build leaves
+the previous archive alone.
 
 The imported source trees and their test trees keep their original MIT licences, each with a
-`LICENSE` file; the ROG Ally plugin is MIT too. The packaging scripts (`eng/publish-device-lab.ps1`,
-`eng/pack-device.ps1`, which merges the former Claw and HC packers, and their shared
-`eng/plugin-package-common.ps1` and `eng/device-lab-publish.ps1` helpers) are MIT as well. WSGM's
-main application remains GPL-3.0-or-later.
+`LICENSE` file; the ROG Ally plugin is MIT too. Device Lab itself is the exception: it compiles
+WSGM's own interop sources from `src\Shared`, so it is GPL-3.0-or-later like WSGM and ships the
+repository's `LICENSE`. A plugin it scaffolds links only the MIT SDK. The packaging scripts
+(`eng/publish-device-lab.ps1`, `eng/pack-device.ps1`, which merges the former Claw and HC packers,
+and their shared `eng/plugin-package-common.ps1` and `eng/device-lab-publish.ps1` helpers) are MIT
+as well. WSGM's main application remains GPL-3.0-or-later.
 
 The consolidation of 2026-09-05 imported these merged revisions. History stays in the original
 repositories; these identifiers record the exact source baseline of the move:

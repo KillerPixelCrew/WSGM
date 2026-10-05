@@ -11,6 +11,7 @@ using WSGM.Device.Sdk.Windows;
 using WSGM.DeviceLab.Application;
 using WSGM.DeviceLab.Capture.Live;
 using WSGM.DeviceLab.Knowledge;
+using WSGM.DeviceLab.Transports;
 
 namespace WSGM.DeviceLab.Wizard;
 
@@ -55,22 +56,24 @@ internal sealed record LabPendingControllerMode(
 /// </summary>
 /// <remarks>
 ///     Two shapes exist. A <c>controller-mode</c> mechanism (the Claw) switches the controller mode
-///     with one output report; the current mode is read from which product ID is present, so it is
-///     restored at the end of the stage and, through <see cref="RecoverPending" />, after a crash. A
+///     with one output report; the current mode is read from which product ID is present, so the wizard
+///     records it (<see cref="RecordPending" />) before the switch, and it is restored at the end of the
+///     stage and, through <see cref="LabRecovery" />, after a crash. A
 ///     <c>button-init</c> mechanism (the ROG Ally X) writes button tables that cannot be read back, so
 ///     it is sent only when the tester opts in and it is never described as undone. Only Curated
 ///     records are used, and only the record's exact bytes on the record's exact collection.
 /// </remarks>
 internal static class LabControllerInit
 {
-    private static readonly string StatePath = Path.Combine(
-        Path.GetDirectoryName(LabMachineState.ForCurrentUser.Path)!, "controller-mode.json");
+    private const string PendingFileName = "controller-mode.json";
 
-    /// <summary>Whether a controller mode change or an opt-in mode command is waiting to be undone.</summary>
-    public static bool HasPending => HasControllerModePending || LabModeCommands.HasPending;
-
-    /// <summary>Whether a controller mode change is waiting to be undone.</summary>
-    public static bool HasControllerModePending => File.Exists(StatePath);
+    /// <summary>Whether a controller mode change is recorded and waiting to be undone.</summary>
+    /// <param name="machine">The machine record, whose folder holds the controller-mode record.</param>
+    /// <returns>True when the controller-mode record exists.</returns>
+    public static bool HasPending(LabMachineState machine)
+    {
+        return File.Exists(machine.SidePath(PendingFileName));
+    }
 
     /// <summary>The init the record offers, if any.</summary>
     /// <param name="record">Confirmed knowledge record.</param>
@@ -100,7 +103,10 @@ internal static class LabControllerInit
                 false, init);
     }
 
-    /// <summary>Sends the init. Blocking; call off the UI thread.</summary>
+    /// <summary>
+    ///     Sends the init. Blocking; call off the UI thread. A <c>controller-mode</c> plan must have its
+    ///     original mode recorded with <see cref="RecordPending" /> first.
+    /// </summary>
     /// <param name="plan">Plan from <see cref="For" />.</param>
     /// <param name="cancellationToken">Cancels waiting for the controller to come back.</param>
     /// <returns>What happened.</returns>
@@ -123,19 +129,18 @@ internal static class LabControllerInit
                 return new LabInitResult(true, [], before, before, null);
             }
 
-            WritePending(new LabPendingControllerMode(parameters["vendorId"], original.Value, parameters));
             return SwitchMode(parameters, vendor, target, before, cancellationToken);
         }
 
         List<string> reports = [];
         var length = int.Parse(parameters.GetValueOrDefault("reportLength") ?? "64", CultureInfo.InvariantCulture);
-        var endpoint = Endpoint(vendor, parameters, "0xFF31", "0x0080");
+        var (endpoint, problem) = Endpoint(vendor, parameters, "0xFF31", "0x0080");
         if (endpoint is null)
         {
-            return new LabInitResult(false, [], before, before, "The controller's vendor collection is not present.");
+            return new LabInitResult(false, [], before, before, problem);
         }
 
-        using var handle = LabRumbleNative.OpenForWrite(endpoint);
+        using var handle = LabHid.OpenForWrite(endpoint);
         foreach (var hex in new[] { parameters.GetValueOrDefault("gamepadMode") }
                      .Concat((parameters.GetValueOrDefault("commit") ?? string.Empty).Split(';'))
                      .Where(item => !string.IsNullOrWhiteSpace(item)))
@@ -156,57 +161,88 @@ internal static class LabControllerInit
     }
 
     /// <summary>
-    ///     Undoes everything a controller init left recorded: a switched controller mode and any opt-in mode
-    ///     command from <see cref="LabModeCommands" />. Blocking; call off the UI thread.
+    ///     Records a controller-mode plan's original mode before the switch, so a killed session can put it
+    ///     back. A record whose mode already equals the target is harmless: the restore finds the original.
     /// </summary>
-    /// <param name="cancellationToken">Cancels waiting for re-enumeration.</param>
-    /// <returns>Null when there was nothing to restore or every restore succeeded; otherwise the problems.</returns>
-    public static string? RecoverPending(CancellationToken cancellationToken)
+    /// <param name="machine">The machine record, whose folder holds the controller-mode record.</param>
+    /// <param name="plan">A <c>controller-mode</c> plan.</param>
+    /// <param name="originalMode">The mode before the switch.</param>
+    public static void RecordPending(LabMachineState machine, LabControllerInitPlan plan, int originalMode)
     {
-        var commands = LabModeCommands.HasPending ? LabModeCommands.RecoverPending() : null;
-        var mode = RecoverControllerMode(cancellationToken);
-        return commands is null ? mode : mode is null ? commands : $"{mode} {commands}";
+        ArgumentNullException.ThrowIfNull(machine);
+        ArgumentNullException.ThrowIfNull(plan);
+        var parameters = plan.Mechanism.Parameters;
+        var path = machine.SidePath(PendingFileName);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var staging = DurableFile.StagingPath(path);
+        DurableFile.WriteNewText(staging, JsonSerializer.Serialize(
+            new LabPendingControllerMode(parameters["vendorId"], originalMode, parameters), LabProject.JsonOptions));
+        File.Move(staging, path, true);
     }
 
-    /// <summary>Puts the controller mode back. Blocking; call off the UI thread.</summary>
-    /// <param name="cancellationToken">Cancels waiting for re-enumeration.</param>
-    /// <returns>Null when there was nothing to restore or the restore was verified; otherwise the problem.</returns>
-    public static string? RecoverControllerMode(CancellationToken cancellationToken)
+    /// <summary>The recorded controller-mode change; a missing record is none, an unreadable one throws.</summary>
+    /// <param name="machine">The machine record.</param>
+    /// <returns>The pending change, or null.</returns>
+    /// <exception cref="IOException">The record exists but could not be read.</exception>
+    public static LabPendingControllerMode? ReadPending(LabMachineState machine)
     {
-        LabPendingControllerMode? pending;
-        try
-        {
-            pending = File.Exists(StatePath)
-                ? JsonSerializer.Deserialize<LabPendingControllerMode>(File.ReadAllText(StatePath),
-                    LabProject.JsonOptions)
-                : null;
-        }
-        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
-        {
-            return $"The controller mode record could not be read: {ex.Message}";
-        }
+        ArgumentNullException.ThrowIfNull(machine);
+        return LabMachineState.ReadJson<LabPendingControllerMode>(machine.SidePath(PendingFileName),
+            "controller-mode record");
+    }
 
-        if (pending is null)
+    /// <summary>Forgets the controller-mode record after a verified restore.</summary>
+    /// <param name="machine">The machine record.</param>
+    public static void ClearPending(LabMachineState machine)
+    {
+        ArgumentNullException.ThrowIfNull(machine);
+        File.Delete(machine.SidePath(PendingFileName));
+    }
+
+    /// <summary>
+    ///     Puts back a recorded controller mode in this process and forgets the record once the mode reads
+    ///     back. Blocking; call off the UI thread.
+    /// </summary>
+    /// <param name="machine">The machine record.</param>
+    /// <param name="cancellationToken">Cancels waiting for re-enumeration.</param>
+    /// <returns>Null when nothing was recorded or the restore was verified; otherwise the problem.</returns>
+    public static string? RestorePending(LabMachineState machine, CancellationToken cancellationToken)
+    {
+        if (ReadPending(machine) is not { } pending)
         {
             return null;
         }
 
+        var problem = RecoverControllerMode(pending, cancellationToken);
+        if (problem is null)
+        {
+            ClearPending(machine);
+        }
+
+        return problem;
+    }
+
+    /// <summary>
+    ///     Puts a recorded controller mode back. It reads and writes no record; the caller clears the record
+    ///     after a null result. Blocking; call off the UI thread.
+    /// </summary>
+    /// <param name="pending">The recorded change.</param>
+    /// <param name="cancellationToken">Cancels waiting for re-enumeration.</param>
+    /// <returns>Null when the original mode reads back; otherwise the problem.</returns>
+    public static string? RecoverControllerMode(LabPendingControllerMode pending, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(pending);
         var vendor = ushort.Parse(pending.VendorId, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
         var before = ProductIds(vendor);
         if (CurrentMode(pending.Parameters, before) == pending.OriginalMode)
         {
-            File.Delete(StatePath);
             return null;
         }
 
         var result = SwitchMode(pending.Parameters, vendor, pending.OriginalMode, before, cancellationToken);
-        if (result.Sent && CurrentMode(pending.Parameters, result.After) == pending.OriginalMode)
-        {
-            File.Delete(StatePath);
-            return null;
-        }
-
-        return result.Problem ?? "The controller did not come back in its original mode.";
+        return result.Sent && CurrentMode(pending.Parameters, result.After) == pending.OriginalMode
+            ? null
+            : result.Problem ?? "The controller did not come back in its original mode.";
     }
 
     /// <summary>The controller mode now, for a controller-mode plan; null when it cannot be read.</summary>
@@ -238,24 +274,24 @@ internal static class LabControllerInit
     {
         // Several product IDs can share a mode (the Legion Go's 2023 and 2025 firmware); the one present is used.
         var current = CurrentMode(parameters, before);
-        var present = LabRumbleNative.HidEndpoints(vendor);
-        var endpoint = Endpoints(parameters)
+        var present = LabHid.HidEndpoints(vendor);
+        var (endpoint, problem) = Single(Endpoints(parameters)
             .Where(item => Mode(parameters, item.Product) == current)
-            .Select(spec => present.FirstOrDefault(item =>
+            .SelectMany(spec => present.Where(item =>
                 item.ProductId.ToString("X4") == spec.Product && item.UsagePage == spec.Page
-                                                              && item.Usage == spec.Usage))
-            .FirstOrDefault(item => item is not null);
+                                                              && item.Usage == spec.Usage)),
+            "The controller's command collection is not present.");
         if (endpoint is null)
         {
-            return new LabInitResult(false, [], before, before, "The controller's command collection is not present.");
+            return new LabInitResult(false, [], before, before, problem);
         }
 
         var template = parameters["report"].Replace("<mode>", mode.ToString("X2"), StringComparison.Ordinal);
         var bytes = Padded(template, endpoint.OutputLength);
         long result;
-        using (var handle = LabRumbleNative.OpenForWrite(endpoint))
+        using (var handle = LabHid.OpenForWrite(endpoint))
         {
-            result = LabRumbleNative.WriteReport(handle, bytes);
+            result = LabHid.WriteReport(handle, bytes);
         }
 
         var line = $"{template}: {(result == 0 ? "ok" : $"error {result}")}";
@@ -302,8 +338,9 @@ internal static class LabControllerInit
         return null;
     }
 
-    // "1901 FFA0:0001, 1902 FFF0:0040": the command collection in each mode.
-    private static IEnumerable<(string? Product, ushort Page, ushort Usage)> Endpoints(
+    // "1901 FFA0:0001, 1902 FFF0:0040": the command collection in each mode. The power plan reads the
+    // same list for the Claw's lighting collections.
+    internal static IEnumerable<(string? Product, ushort Page, ushort Usage)> Endpoints(
         IReadOnlyDictionary<string, string> parameters)
     {
         foreach (var pair in (parameters.GetValueOrDefault("commandEndpoints") ?? string.Empty).Split(',',
@@ -319,7 +356,7 @@ internal static class LabControllerInit
         }
     }
 
-    private static LabRumbleHidEndpoint? Endpoint(
+    private static (LabHidEndpoint? Endpoint, string? Problem) Endpoint(
         ushort vendor,
         IReadOnlyDictionary<string, string> parameters,
         string defaultPage,
@@ -327,15 +364,31 @@ internal static class LabControllerInit
     {
         var page = LabRumbleRoutes.ParseUShortHex(parameters.GetValueOrDefault("usagePage") ?? defaultPage);
         var usage = LabRumbleRoutes.ParseUShortHex(parameters.GetValueOrDefault("usage") ?? defaultUsage);
-        return LabRumbleNative.HidEndpoints(vendor)
-            .FirstOrDefault(item => item.UsagePage == page && item.Usage == usage);
+        return Single(LabHid.HidEndpoints(vendor).Where(item => item.UsagePage == page && item.Usage == usage),
+            "The controller's vendor collection is not present.");
+    }
+
+    /// <summary>The one collection a controller write may go to; several matches are refused before any write.</summary>
+    /// <param name="matches">The present collections that match.</param>
+    /// <param name="absent">The problem when none is present.</param>
+    /// <returns>The collection, or why there is none.</returns>
+    internal static (LabHidEndpoint? Endpoint, string? Problem) Single(IEnumerable<LabHidEndpoint> matches,
+        string absent)
+    {
+        var found = matches.ToList();
+        return found.Count switch
+        {
+            0 => (null, absent),
+            1 => (found[0], null),
+            _ => (null, $"{found.Count} collections match, so it is not clear which one to write to.")
+        };
     }
 
     private static IReadOnlyList<string> ProductIds(ushort vendor)
     {
         return
         [
-            .. LabRumbleNative.HidEndpoints(vendor).Select(item => item.ProductId.ToString("X4")).Distinct().Order()
+            .. LabHid.HidEndpoints(vendor).Select(item => item.ProductId.ToString("X4")).Distinct().Order()
         ];
     }
 
@@ -346,16 +399,8 @@ internal static class LabControllerInit
         return report.Length >= length ? report : [.. report, .. new byte[length - report.Length]];
     }
 
-    private static void WritePending(LabPendingControllerMode pending)
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(StatePath)!);
-        var staging = DurableFile.StagingPath(StatePath);
-        DurableFile.WriteNewText(staging, JsonSerializer.Serialize(pending, LabProject.JsonOptions));
-        File.Move(staging, StatePath, true);
-    }
-
     // The SDK pads to the collection's feature length and refuses a longer report; either failure is final.
-    private static string? SetFeature(SafeFileHandle handle, LabRumbleHidEndpoint endpoint, byte[] report)
+    private static string? SetFeature(SafeFileHandle handle, LabHidEndpoint endpoint, byte[] report)
     {
         try
         {

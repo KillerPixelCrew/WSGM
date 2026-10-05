@@ -84,16 +84,24 @@ internal sealed class LabWorkerSession(
         CancellationToken cancellationToken = default)
     {
         var method = Method(name);
-        if (method.GetCustomAttribute<LabWorkerWriteAttribute>() is not null && _armed is null)
+        if (method.Write && _armed is null)
         {
             throw new InvalidOperationException(
                 $"{service.Name}.{name} changes hardware and needs an acknowledged checkpoint first.");
         }
 
-        var result = method.Invoke(instance, Bind(method, args, cancellationToken));
-        return method.ReturnType == typeof(void)
+        var result = method.Info.Invoke(instance, Bind(method.Info, args, cancellationToken));
+        return method.Info.ReturnType == typeof(void)
             ? null
-            : JsonSerializer.SerializeToElement(result, method.ReturnType, LabProject.JsonOptions);
+            : JsonSerializer.SerializeToElement(result, method.Info.ReturnType, LabProject.JsonOptions);
+    }
+
+    /// <summary>Whether a method is a polled read that is not traced per call.</summary>
+    /// <param name="name">Method name, or null.</param>
+    /// <returns>True for a <see cref="LabWorkerSampledAttribute" /> method.</returns>
+    public bool IsSampled(string? name)
+    {
+        return name is not null && service.Methods.TryGetValue(name, out var method) && method.Sampled;
     }
 
     /// <summary>Delivers one streamed frame; a method without the stream attribute is ignored.</summary>
@@ -102,7 +110,7 @@ internal sealed class LabWorkerSession(
     public void Stream(string name, IReadOnlyList<JsonElement> args)
     {
         var method = Method(name);
-        if (method.GetCustomAttribute<LabWorkerStreamAttribute>() is null || _armed is null || StreamError is not null)
+        if (!method.Stream || _armed is null || StreamError is not null)
         {
             return;
         }
@@ -110,7 +118,7 @@ internal sealed class LabWorkerSession(
         _lastFrame = _clock();
         try
         {
-            method.Invoke(instance, Bind(method, args, CancellationToken.None));
+            method.Info.Invoke(instance, Bind(method.Info, args, CancellationToken.None));
         }
         catch (TargetInvocationException ex)
         {
@@ -130,8 +138,7 @@ internal sealed class LabWorkerSession(
             throw new InvalidOperationException("A checkpoint is already open for this service; release it first.");
         }
 
-        var snapshot = service.Interface.GetMethods()
-                           .SingleOrDefault(item => item.GetCustomAttribute<LabWorkerSnapshotAttribute>() is not null)
+        var snapshot = service.Snapshot
                        ?? throw new InvalidOperationException($"{service.Name} has no snapshot method.");
         var original = JsonSerializer.SerializeToElement(snapshot.Invoke(instance, []), snapshot.ReturnType,
             LabProject.JsonOptions);
@@ -163,12 +170,15 @@ internal sealed class LabWorkerSession(
 
     /// <summary>Ends the checkpoint after a verified restore; writes are refused again.</summary>
     /// <param name="token">The checkpoint token.</param>
+    /// <exception cref="InvalidOperationException">The token is not the armed checkpoint's.</exception>
     public void Release(string? token)
     {
-        if (_armed is not null && token == _armed)
+        if (_armed is null || token != _armed)
         {
-            _armed = null;
+            throw new InvalidOperationException("The checkpoint release does not match.");
         }
+
+        _armed = null;
     }
 
     /// <summary>Zeroes a streamed output that has gone quiet.</summary>
@@ -183,8 +193,7 @@ internal sealed class LabWorkerSession(
     /// <summary>Puts a streamed output at rest, logging a failure instead of throwing.</summary>
     public void ZeroQuietly()
     {
-        var zero = service.Interface.GetMethods()
-            .FirstOrDefault(item => item.GetCustomAttribute<LabWorkerZeroAttribute>() is not null);
+        var zero = service.Zero;
         try
         {
             zero?.Invoke(instance, []);
@@ -204,9 +213,9 @@ internal sealed class LabWorkerSession(
         }
     }
 
-    private MethodInfo Method(string name)
+    private LabWorkerMethod Method(string name)
     {
-        return service.Interface.GetMethods().SingleOrDefault(item => item.Name == name)
+        return service.Methods.GetValueOrDefault(name)
                ?? throw new InvalidOperationException($"{service.Name} has no method '{name}'.");
     }
 

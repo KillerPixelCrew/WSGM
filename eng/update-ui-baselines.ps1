@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [ValidatePattern('^(overlay-(quick-access|device-core|device-plugin|steam|tools|power|keyboard|power-menu|profiles)-(980|1280|1920|720p|720p-scaled|4k|4k-scaled)|overlay-graphics-(adapter|display)-(1280|1920)|overlay-(display|widgets|plugins|sections|about|graphics-pinned)-1280|settings-(system|quick-access|appearance|display-custom|plugins|about)-(1024|1280))$')]
+    [ValidatePattern('^[a-z0-9][a-z0-9-]*$')]
     [string[]]$Case
 )
 

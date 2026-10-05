@@ -9,7 +9,8 @@ codes, and safe to rerun.
 - eng/verify.ps1 is the canonical gate. Preserve its checks for optional Prettier formatting, Steam
   asset drift and ownership claims, AGENTS/CLAUDE link integrity, tracked PowerShell syntax,
   live-data path exclusions, version-copy agreement, controller, PawnIO and KX pins, Steam Input
-  validation, restore, warning-clean Release builds, all solution tests, and main-test coverage.
+  validation, restore, warning-clean Release builds, all solution tests, main-test coverage, and the
+  compile of every tracked `tools/*.csproj`, which stay out of the solution.
 - Analyzer rules kept for a whole scope are severity-scoped in .editorconfig, with the reason on
   each block.
 - -SkipPrettier skips only formatting. It must not skip the generated asset build, claims check,
@@ -39,9 +40,14 @@ codes, and safe to rerun.
   `viiper-controller`, so `.gitmodules` records `branch = wsgm` for `git submodule update --remote`.
 - external/ holds submodules, vendored upstream source, and dependency pins. Do not format or
   rewrite it from a main-repository gate.
-- The plugin and device packers share `plugin-package-common.ps1` for archive publication. Keep
-  staging on the destination volume, replace owned archives atomically, and use create-new semantics
-  otherwise. Never delete the previous archive before its replacement commits.
+- One output rule for every script: it deletes only what it created in this run, or the one fixed
+  output directory it owns. Temporary work goes in a fresh GUID-named directory under
+  `[IO.Path]::GetTempPath()`, removed in `finally` with no marker or path check. A packaged file is
+  written by moving the finished file into place: `pack-device.ps1` replaces only the same-named
+  archive, and `package-plugin.ps1` refuses an existing one. `publish-device-lab.ps1` is the only
+  script that clears a directory, through `Reset-OwnedOutput` in `build-common.ps1`, which refuses
+  anything not strictly below `publish\` or `artifacts\`. Add no markers, ownership files or backup
+  and restore steps.
 - `publish-device-lab.ps1` and `build-bundle.ps1` publish Device Lab through
   `device-lab-publish.ps1`, which copies the exact restored runtime notices and the licence. The
   unsafe package id and version refusal lives in `pack-device.ps1` only; staging keeps its built-in

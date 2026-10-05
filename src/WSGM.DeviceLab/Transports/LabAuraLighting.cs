@@ -1,11 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Text;
 using Microsoft.Win32.SafeHandles;
 using WSGM.Device.Sdk.Windows;
-using WSGM.DeviceLab.Capture.Live;
 using WSGM.DeviceLab.Wizard;
 using WSGM.DeviceLab.Worker;
 
@@ -63,8 +63,11 @@ internal interface ILabAura : IDisposable
 /// </summary>
 internal sealed class LabAuraLighting : ILabAura
 {
-    /// <summary>The number of lighting zones this test steps through (both rings, then the four half-rings).</summary>
-    public const int ZoneCount = 5;
+    /// <summary>The zones this test steps through, by zone number: both rings, then the four half-rings.</summary>
+    public static readonly IReadOnlyList<string> ZoneNames =
+    [
+        "both rings", "left ring outer half", "left ring inner half", "right ring inner half", "right ring outer half"
+    ];
 
     private readonly SafeFileHandle _handle;
     private readonly LabPowerLog _log;
@@ -102,7 +105,7 @@ internal sealed class LabAuraLighting : ILabAura
     /// <param name="channel">0 red, 1 green, 2 blue.</param>
     public void Colour(int zone, int channel)
     {
-        if (zone is < 0 or >= ZoneCount)
+        if (zone < 0 || zone >= ZoneNames.Count)
         {
             throw new ArgumentOutOfRangeException(nameof(zone));
         }
@@ -136,7 +139,7 @@ internal sealed class LabAuraLighting : ILabAura
     /// <returns>The lighting, or null with the reason logged.</returns>
     public static LabAuraLighting? Open(LabAuraLayout layout, LabPowerLog log)
     {
-        var matches = LabRumbleNative.HidEndpoints(layout.VendorId)
+        var matches = LabHid.HidEndpoints(layout.VendorId)
             .Where(item => item.ProductId == layout.ProductId && item.UsagePage == layout.UsagePage
                                                               && item.Usage == layout.Usage)
             .ToList();
@@ -176,7 +179,7 @@ internal sealed class LabAuraLighting : ILabAura
         var padded = new byte[Endpoint.OutputBytes];
         bytes.CopyTo(padded, 0);
         _log.Add("hid-output", new { Bytes = Convert.ToHexString(bytes) });
-        var result = LabRumbleNative.WriteReport(_handle, padded);
+        var result = LabHid.WriteReport(_handle, padded);
         if (result != 0)
         {
             // -1 is a short write; anything else is the Windows error.

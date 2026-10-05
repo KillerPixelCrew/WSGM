@@ -1,50 +1,33 @@
-// Runs the PRODUCTION download-sort script, extracted verbatim from
-// src/WSGM/Core/SteamDownloadSort.cs, against the live Steam CEF session.
-//   node run-prod-sort.mjs [enable|disable]
+// Drives the PRODUCTION download-sort gate (src/WSGM/Core/SteamUiAssets/Source/download-sort.ts)
+// through the Steam UI bridge WSGM installed in the live Steam CEF session, exactly as the
+// wsgm.download-sort patch's apply, remove and verify do.
+//   node run-prod-sort.mjs [enable|disable|status]
 import { readFileSync } from "node:fs";
 import { evaluate, findTarget, probeParams } from "./cdp.mjs";
 
 const mode = process.argv[2] || "enable";
 const root = new URL("../../", import.meta.url);
-const cs = readFileSync(new URL("src/WSGM/Core/SteamDownloadSort.cs", root), "utf8");
 const identity = readFileSync(
   new URL("external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiBridgeIdentity.cs", root),
   "utf8",
 );
-const resolver = readFileSync(
-  new URL(
-    "external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiAssets/Source/module-resolver.ts",
-    root,
-  ),
-  "utf8",
-);
 
-// InstallExpression declares these two before the resident script; read them from their sources.
+// The bridge is the window property its identity names; the gate is registered there by the asset.
 const bridgeNamespace = identity.match(/const string Namespace = ("[^"]+");/)?.[1];
 if (!bridgeNamespace) throw new Error("SteamUiBridgeIdentity.Namespace not found");
-const dlSortVersion = cs.match(/const int ScriptVersion = (\d+);/)?.[1];
-if (!dlSortVersion) throw new Error("ScriptVersion not found");
 
-const start = cs.indexOf('private const string ResidentSetup = """');
-if (start === -1) throw new Error("ResidentSetup not found");
-const bodyStart = cs.indexOf("\n", start) + 1;
-const end = cs.indexOf('""";', bodyStart);
-if (end === -1) throw new Error("ResidentSetup terminator not found");
-let body = cs.slice(bodyStart, end);
-// C# raw string literals strip the closing delimiter's indentation from every line.
-const lines = body.split("\n");
-const pad = cs.slice(cs.lastIndexOf("\n", end) + 1, end).length;
-body = lines.map((l) => (l.startsWith(" ".repeat(pad)) ? l.slice(pad) : l)).join("\n");
-
-const expression =
+const call =
   mode === "disable"
-    ? "(()=>{try{var W=window.__wsgm;if(W&&W.dlSortRemove)W.dlSortRemove();return JSON.stringify({ok:true});}catch(e){return JSON.stringify({ok:false,err:String(e)});}})()"
-    : "(()=>{try{const steamModules=(" +
-      resolver +
-      ")('download-sort');" +
-      `const bridgeNamespace=${bridgeNamespace};const dlSortVersion=${dlSortVersion};` +
-      body +
-      "\nreturn W.dlSortInstall();}catch(e){return JSON.stringify({ok:false,err:String((e&&e.stack)||e)});}})()";
+    ? "const removed=gate.remove();return JSON.stringify({...removed,status:gate.status()});"
+    : mode === "status"
+      ? "return JSON.stringify(gate.status());"
+      : "const installed=gate.install();return JSON.stringify({...installed,status:gate.status()});";
+const expression =
+  `(()=>{try{const b=window[${bridgeNamespace}];` +
+  "const gate=b&&b.gate?b.gate('wsgmDownloadSort'):null;" +
+  "if(!gate)return JSON.stringify({ok:false,error:'bridge or gate unavailable'});" +
+  call +
+  "}catch(e){return JSON.stringify({ok:false,error:String((e&&e.stack)||e)});}})()";
 
 const wsUrl = await findTarget().catch((e) => {
   console.error(e.message);

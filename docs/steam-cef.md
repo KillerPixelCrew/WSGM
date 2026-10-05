@@ -451,8 +451,8 @@ The accepted fragility is the two things that move on a major Steam UI update: t
 name and the `Library_FilteredByHeader` marker. Kill switch: `window.__wsgm.disableTabs()`; a Steam
 restart also recovers. Never prototype by sweeping and executing the webpack registry. Prototype in
 offline tests first. When the maintainer requests a live inspection, verify the port owner and
-target, then use the literal-module/source-string lookup shape in `probe-perf-components.js` or the
-`token-exists` section of `probe-register.js`; never instantiate unknown exports.
+target, then look up one literal module or source string and read it as text; never instantiate
+unknown exports.
 
 ## The Steam-page bridge on the visible window
 
@@ -923,9 +923,9 @@ transport and storage classes whose constructors and factories have real side ef
 module to evaluate is not a read-only operation.
 
 A probe is read-only only when every module it resolves is a literal and every value it constructs
-is one whose source it has already read. `tools\WsgmLibTest\probe-perf-components.js` is the shape
-to copy: it reads the named factory as text and constructs nothing. When a class cannot be reached
-that way, read its factory source (`String(runtime.m[id])`) and stop.
+is one whose source it has already read. The shape to copy reads the named factory as text and
+constructs nothing. When a class cannot be reached that way, read its factory source
+(`String(runtime.m[id])`) and stop.
 
 ### Do not set force_deck_perf_tab
 

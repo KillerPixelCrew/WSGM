@@ -132,15 +132,12 @@ internal sealed class LabAmdSmu : ILabAmdSmu
     {
         var commands = Commands ??
                        throw new InvalidOperationException($"{CodeNameText} is not a supported mobile APU.");
+        // All three are checked before the first command, so a write is all three or none.
+        Validate(limits);
         List<long> responses = [];
         foreach (var (command, watts) in new[]
                      { (commands.Stapm, limits.Stapm), (commands.Fast, limits.Fast), (commands.Slow, limits.Slow) })
         {
-            if (watts is < MinimumTestWatts or > 150)
-            {
-                throw new ArgumentOutOfRangeException(nameof(limits), $"{watts} W is outside the tested range.");
-            }
-
             var milliwatts = (long)Math.Round(watts * 1000);
             var response = WithPciBus(() =>
                 _module.Execute("ioctl_send_smu_command", [command, milliwatts, 0, 0, 0, 0, 0], 6));
@@ -181,13 +178,35 @@ internal sealed class LabAmdSmu : ILabAmdSmu
         }
     }
 
-    /// <summary>Whether limits read from the PM table look like limits, so the layout is the one expected.</summary>
+    /// <summary>
+    ///     Whether limits read from the PM table look like limits, so the layout is the one expected. The
+    ///     lower bound is the one <see cref="WriteLimits" /> accepts, so every captured original can be put back.
+    /// </summary>
     /// <param name="limits">Limits read.</param>
-    /// <returns>True when every value is between 3 and 150 W and fast is at least slow.</returns>
+    /// <returns>True when every value is between 5 and 150 W and fast is at least slow.</returns>
     public static bool Plausible(LabAmdLimits limits)
     {
-        return limits.Stapm is >= 3 and <= 150 && limits.Fast is >= 3 and <= 150 && limits.Slow is >= 3 and <= 150
+        return InRange(limits.Stapm) && InRange(limits.Fast) && InRange(limits.Slow)
                && limits.Fast + 0.5 >= limits.Slow;
+    }
+
+    /// <summary>Refuses limits <see cref="WriteLimits" /> must not write.</summary>
+    /// <param name="limits">Limits in watts.</param>
+    /// <exception cref="ArgumentOutOfRangeException">Any of the three is outside 5 to 150 W.</exception>
+    internal static void Validate(LabAmdLimits limits)
+    {
+        foreach (var watts in new[] { limits.Stapm, limits.Fast, limits.Slow })
+        {
+            if (!InRange(watts))
+            {
+                throw new ArgumentOutOfRangeException(nameof(limits), $"{watts} W is outside the tested range.");
+            }
+        }
+    }
+
+    private static bool InRange(double watts)
+    {
+        return watts is >= MinimumTestWatts and <= 150;
     }
 
     // The same machine-wide PCI mutex LibreHardwareMonitor and Handheld Companion take, so a monitoring

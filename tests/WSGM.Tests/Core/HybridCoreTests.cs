@@ -2,7 +2,7 @@ using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Overlay;
 using WSGM.Shell;
-using WSGM.Tests.Fakes;
+using WSGM.Testing;
 
 namespace WSGM.Tests.Core;
 

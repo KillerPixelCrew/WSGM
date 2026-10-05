@@ -180,7 +180,7 @@ All paths are under `src/WSGM.DeviceLab/`.
 | Correlation and fixtures | `Capture/PassiveCorrelation.cs`, `Fixtures/FixtureExtractionWorkflow.cs`                                                       |
 | Output/owner safety      | `Preflight/OutputPathPolicy.cs`, `SafetyPreflight.cs`, `WindowsPreflightInspection.cs`                                         |
 | Hardware door            | `Testing/PluginTestWorkflow.cs`, `PluginTestWorker.cs`, `AttendedPluginAction.cs`                                              |
-| Scaffolding/package      | `Scaffolding/`, `Packaging/`, `Templates/MinimalPlugin/`; package source shared from `src/WSGM/Interop/NativePackageSource.cs` |
+| Scaffolding/package      | `Scaffolding/`, `Packaging/` (also `NativePackageSource.cs` and `NativePathIdentity.cs`, Lab-only), `Templates/MinimalPlugin/` |
 
 Offline suite, run after the maintainer's manual test under the root validation policy:
 

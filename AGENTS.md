@@ -21,6 +21,8 @@ guide, plan and skill. The maintainer works alone on this repository and reviews
   validation tool, `WSGM.Device.Msi.Claw` the reference package (every MSI Claw, hardware-tested on the Claw 8 AI+ A2VM, the rest from HC), `WSGM.Device.Asus.RogAlly`
   the Ally package built blind and awaiting Device Lab evidence, `WSGM.Device.HandheldCompanion` a
   scaffold. `WSGM.Plugin.Ir` is under development; read its README and protocol.md first.
+- Projects target `net10.0-windows`; a project moves to `net10.0-windows10.0.19041.0` only when it
+  uses WinRT or references WindowsDeviceControl.
 - A dated hardware note in the docs is evidence from that day. Never present one as a fresh live
   pass unless you ran the scenario.
 
@@ -54,7 +56,9 @@ guide, plan and skill. The maintainer works alone on this repository and reviews
 - Rider's Full Cleanup profile is the C# layout authority (expanded braces, `var` for locals, no
   trailing commas in multiline lists, explicit types on `new` when the target type is not evident).
   eng/verify.ps1 runs it over src and tests and fails on any diff; `-Fix` applies it.
-  WSGM.slnx.DotSettings carries the inspection overrides; keep named arguments on literal values.
+  Rider inspection overrides live in `.editorconfig` (`resharper_*_highlighting`);
+  WSGM.slnx.DotSettings is the solution settings layer `jb cleanupcode` reads. Keep named arguments
+  on literal values.
 - CLAUDE.md files are symlinks to their sibling AGENTS.md. Edit AGENTS.md only and run
   eng/check-agent-guidance.ps1 after adding or moving a scope.
 - When moving a feature between projects, enumerate what the old home declared and account for each

@@ -60,12 +60,9 @@ $curatedRoot = Join-Path $root "plugins\curated"
 $packDevice = Join-Path $PSScriptRoot "pack-device.ps1"
 $packCommon = Join-Path $PSScriptRoot "package-plugin.ps1"
 
-$temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) (
-    "WSGM-Bundle-{0}-{1}" -f $PID, [Guid]::NewGuid().ToString("N"))
-$temporaryMarker = Join-Path $temporaryRoot ".wsgm-bundle-stage"
-$temporaryMarkerValue = "WSGM bundle stage v1"
+# Temporary work lives in a fresh directory of this run, removed afterwards.
+$temporaryRoot = Join-Path ([IO.Path]::GetTempPath()) ("WSGM-Bundle-" + [Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $temporaryRoot | Out-Null
-Set-Content -LiteralPath $temporaryMarker -Value $temporaryMarkerValue -NoNewline
 
 function Read-Manifest([string]$Path) {
     return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json -Depth 32
@@ -295,19 +292,5 @@ try {
     Write-Host ("Bundled {0} plugin(s) for WSGM {1}; {2} outdated." -f $entries.Count, $wsgmVersion, $outdated.Count)
 }
 finally {
-    if (Test-Path -LiteralPath $temporaryRoot) {
-        $resolvedTemporaryRoot = [IO.Path]::GetFullPath($temporaryRoot)
-        $systemTemporaryRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd(
-            [IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
-        $markerIsValid = (Test-Path -LiteralPath $temporaryMarker -PathType Leaf) -and
-            (Get-Content -LiteralPath $temporaryMarker -Raw).Trim() -ceq $temporaryMarkerValue
-        if ($resolvedTemporaryRoot.StartsWith($systemTemporaryRoot, [StringComparison]::OrdinalIgnoreCase) -and
-            (Split-Path -Leaf $resolvedTemporaryRoot).StartsWith("WSGM-Bundle-$PID-", [StringComparison]::Ordinal) -and
-            $markerIsValid) {
-            Remove-Item -LiteralPath $resolvedTemporaryRoot -Recurse -Force
-        }
-        else {
-            Write-Warning "Refusing to remove an unrecognized bundle staging directory: $resolvedTemporaryRoot"
-        }
-    }
+    Remove-Item -LiteralPath $temporaryRoot -Recurse -Force
 }

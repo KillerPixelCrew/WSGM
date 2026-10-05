@@ -64,10 +64,26 @@ internal sealed record DeviceLabReadProbeExecutionResult
 /// <remarks>Creates a facade rooted in the current checkout and running Device Lab executable.</remarks>
 /// <param name="repositoryRoot">Repository root, or <see langword="null" /> outside a checkout.</param>
 /// <param name="deviceLabPath">Path to the current Device Lab executable.</param>
-internal sealed class DeviceLabApplication(string? repositoryRoot, string deviceLabPath)
+/// <param name="collectInventory">
+///     Collects the live machine's inventory for the exact gates; null collects this machine.
+/// </param>
+internal sealed class DeviceLabApplication(
+    string? repositoryRoot,
+    string deviceLabPath,
+    Func<CancellationToken, MachineInventory>? collectInventory = null)
 {
     private const int MaximumInventoryBytes = 32 * 1024 * 1024;
+
+    private readonly Func<CancellationToken, MachineInventory> _collectInventory =
+        collectInventory ?? (token => WindowsInventoryCollector.Collect(
+            DateTimeOffset.UtcNow,
+            DeviceLabInventoryWorkflow.ProbedWmiClasses,
+            token));
+
     private readonly string _deviceLabPath = Path.GetFullPath(deviceLabPath);
+
+    /// <summary>The output boundaries for this facade's repository root, built once.</summary>
+    public DeviceLabPathBoundaries Boundaries { get; } = DeviceLabPathBoundaries.ForCurrentUser(repositoryRoot);
 
     /// <summary>Runs safe environment and output-path diagnostics.</summary>
     /// <param name="outputDirectory">Explicit output directory under review.</param>
@@ -163,7 +179,10 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
     }
 
     /// <summary>Runs one positively matched compiled read probe in a disposable self-worker.</summary>
-    /// <param name="inventoryPath">Inventory used for exact candidate gates.</param>
+    /// <param name="inventoryPath">
+    ///     Operator-reviewed inventory JSON. Its shape is checked, but the exact device and endpoint gates
+    ///     run on a live inventory of this machine.
+    /// </param>
     /// <param name="probeId">Reviewed built-in probe ID.</param>
     /// <param name="outputDirectory">Explicit safe root for the disposable session.</param>
     /// <param name="cancellationToken">Whole-probe cancellation.</param>
@@ -175,7 +194,10 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(probeId);
-        var inventory = ReadInventory(inventoryPath, cancellationToken);
+        // An imported inventory may describe another machine, so it cannot authorize a probe: the gates
+        // need an exact live device and endpoint match.
+        _ = ReadInventory(inventoryPath, cancellationToken);
+        var inventory = _collectInventory(cancellationToken);
         var candidateResult = Candidates(
             inventory,
             null,
@@ -226,6 +248,7 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
             preflight,
             _deviceLabPath,
             sessionDirectory,
+            Boundaries,
             new SystemReadProbeProcessLauncher(),
             cancellationToken).ConfigureAwait(false);
         return new DeviceLabReadProbeExecutionResult { Probe = probe, Preflight = preflight, Run = run };
@@ -355,7 +378,7 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
             sourceSha256,
             fixtureId,
             outputDirectory,
-            Boundaries(),
+            Boundaries,
             cancellationToken);
     }
 
@@ -374,7 +397,7 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
         return ScaffoldFromCaptureWorkflow.Run(
             capturePath,
             outputDirectory,
-            Boundaries(),
+            Boundaries,
             usbInstanceId,
             cancellationToken);
     }
@@ -427,16 +450,14 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
         // it may describe another machine or an earlier topology. Validate its shape, then recollect
         // identity from the machine that will actually run the plugin.
         _ = ReadInventory(inventoryPath, cancellationToken);
-        var liveIdentity = ToPluginIdentity(WindowsInventoryCollector.Collect(
-            DateTimeOffset.UtcNow,
-            cancellationToken: cancellationToken));
+        var liveIdentity = ToPluginIdentity(_collectInventory(cancellationToken));
         return PluginTestWorkflow.RunAttendedAsync(
             packageDirectory,
             liveIdentity,
             stateDirectory,
             action,
             confirmed,
-            Boundaries(),
+            Boundaries,
             cancellationToken);
     }
 
@@ -461,7 +482,7 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
         string outputPath,
         CancellationToken cancellationToken = default)
     {
-        return PluginPackageWorkflow.Pack(packageDirectory, outputPath, Boundaries(), cancellationToken);
+        return PluginPackageWorkflow.Pack(packageDirectory, outputPath, Boundaries, cancellationToken);
     }
 
     /// <summary>Directly imports every package glyph profile through the SDK loader.</summary>
@@ -473,11 +494,6 @@ internal sealed class DeviceLabApplication(string? repositoryRoot, string device
         CancellationToken cancellationToken = default)
     {
         return GlyphPackageImportWorkflow.Import(packageDirectory, cancellationToken);
-    }
-
-    private DeviceLabPathBoundaries Boundaries()
-    {
-        return DeviceLabPathBoundaries.ForCurrentUser(repositoryRoot);
     }
 
     private static MachineInventory ReadInventory(string path, CancellationToken cancellationToken)

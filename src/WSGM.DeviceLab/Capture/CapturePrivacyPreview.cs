@@ -43,9 +43,7 @@ internal sealed record CapturePrivacyPreview
             streams.Add(Lane(
                 descriptor.Path,
                 stream.Events,
-                value => JsonSerializer.SerializeToUtf8Bytes(
-                    value,
-                    DeviceLabCompactJson.CaptureStreamEvent),
+                CaptureBundleWriter.StreamLine,
                 ref remainingSamples));
         }
 
@@ -58,9 +56,7 @@ internal sealed record CapturePrivacyPreview
             analysis.Add(Lane(
                 descriptor.Path,
                 file.Results,
-                value => JsonSerializer.SerializeToUtf8Bytes(
-                    value,
-                    DeviceLabCompactJson.CaptureAnalysisResult),
+                CaptureBundleWriter.AnalysisLine,
                 ref remainingSamples));
         }
 

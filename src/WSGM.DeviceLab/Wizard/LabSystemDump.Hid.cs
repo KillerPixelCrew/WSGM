@@ -128,7 +128,7 @@ internal static partial class LabSystemDump
         List<LabHidCollection> collections = [];
         foreach (var collection in HidDevices.EnumerateAll((path, problem) =>
                  {
-                     AddIssue(issues, $"{path}: {problem}");
+                     issues.Add($"{path}: {problem}");
                      collections.Add(new LabHidCollection { Path = path, Problem = problem });
                  }))
         {
@@ -136,7 +136,7 @@ internal static partial class LabSystemDump
             var read = ReadHidCollection(collection);
             if (read.Problem is { } problem)
             {
-                AddIssue(issues, $"{collection.DevicePath}: {problem}");
+                issues.Add($"{collection.DevicePath}: {problem}");
             }
 
             collections.Add(read);

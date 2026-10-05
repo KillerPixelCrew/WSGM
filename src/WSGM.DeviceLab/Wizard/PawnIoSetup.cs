@@ -1,15 +1,14 @@
 using System;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.AccessControl;
 using System.Security.Cryptography;
 using System.Security.Principal;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32;
+using WSGM.DeviceLab.Transports;
 using static WSGM.Interop.Kernel32;
 
 namespace WSGM.DeviceLab.Wizard;
@@ -82,11 +81,10 @@ internal enum PawnIoAction
 /// </remarks>
 internal static class PawnIoSetup
 {
-    private const string LockResource = "WSGM.DeviceLab.PawnIO.lock.json";
     private const string InstallerResource = "WSGM.DeviceLab.PawnIO.setup.exe";
     private static readonly TimeSpan InstallerDeadline = TimeSpan.FromMinutes(3);
 
-    private static readonly Lazy<PawnIoPin> LazyPin = new(ReadPin);
+    private static readonly Lazy<PawnIoPin> LazyPin = new(LabPins.PawnIoInstaller);
 
     /// <summary>The pin compiled into this build.</summary>
     public static PawnIoPin Pin => LazyPin.Value;
@@ -273,25 +271,5 @@ internal static class PawnIoSetup
         }
 
         return process.ExitCode == 0 ? null : $"{Path.GetFileName(executable)} exited with code {process.ExitCode}.";
-    }
-
-    private static PawnIoPin ReadPin()
-    {
-        using var stream = typeof(PawnIoSetup).Assembly.GetManifestResourceStream(LockResource)
-                           ?? throw new InvalidDataException("The PawnIO lock file is not embedded.");
-        using var document = JsonDocument.Parse(stream);
-        var component = document.RootElement.GetProperty("component");
-        return new PawnIoPin
-        {
-            Version = component.GetProperty("version").GetString()!,
-            AssetSha256 = component.GetProperty("assetSha256").GetString()!,
-            SignerThumbprint = component.GetProperty("signerThumbprint").GetString()!,
-            InstallArguments =
-                [.. component.GetProperty("installArguments").EnumerateArray().Select(item => item.GetString()!)],
-            UninstallArguments =
-                [.. component.GetProperty("uninstallArguments").EnumerateArray().Select(item => item.GetString()!)],
-            UninstallKey = component.GetProperty("uninstallKey").GetString()!,
-            MinimumInstalledVersion = component.GetProperty("minimumInstalledVersion").GetString()!
-        };
     }
 }

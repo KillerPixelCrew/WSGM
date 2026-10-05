@@ -74,7 +74,6 @@ internal static partial class LabSystemDump
 {
     private const uint AcpiProvider = 0x41435049; // 'ACPI'
     private const uint RsmbProvider = 0x52534D42; // 'RSMB'
-    private const int MaximumAcpiTables = 256;
     private const int MaximumFirmwareTableBytes = 8 * 1024 * 1024;
 
     // MSDM and SLIC carry the Windows licence key and the OEM activation marker. They are never read.
@@ -156,12 +155,12 @@ internal static partial class LabSystemDump
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
                                        or SecurityException)
         {
-            AddIssue(issues, $@"HKLM\HARDWARE\ACPI: {ex.Message}");
+            issues.Add($@"HKLM\HARDWARE\ACPI: {ex.Message}");
         }
 
         // 2. GetSystemFirmwareTable, for anything the registry lacks.
         var ids = EnumerateFirmwareTables(AcpiProvider);
-        foreach (var id in ids.Take(MaximumAcpiTables))
+        foreach (var id in ids)
         {
             context.Cancellation.ThrowIfCancellationRequested();
             var signature = AcpiSignature(id);
@@ -183,7 +182,7 @@ internal static partial class LabSystemDump
             }
             catch (Win32Exception ex)
             {
-                AddIssue(issues, $"{signature}: {ex.Message}");
+                issues.Add($"{signature}: {ex.Message}");
                 tables.Add(new LabAcpiTableEntry { Signature = signature, Source = "firmware", Skipped = ex.Message });
                 continue;
             }
@@ -195,14 +194,9 @@ internal static partial class LabSystemDump
             }
         }
 
-        if (ids.Count > MaximumAcpiTables)
-        {
-            AddIssue(issues, $"Only the first {MaximumAcpiTables} of {ids.Count} firmware tables were read.");
-        }
-
         if (written == 0)
         {
-            AddIssue(issues, context.Elevated
+            issues.Add(context.Elevated
                 ? "No ACPI tables could be read."
                 : "No ACPI tables could be read; reading them may need administrator rights.");
         }
@@ -239,12 +233,6 @@ internal static partial class LabSystemDump
                 {
                     Source = source, RegistryKey = keyPath, SameAs = earlier
                 });
-                return;
-            }
-
-            if (written >= MaximumAcpiTables)
-            {
-                AddIssue(issues, $"More than {MaximumAcpiTables} tables; the rest were not saved.");
                 return;
             }
 
@@ -286,7 +274,7 @@ internal static partial class LabSystemDump
         using var root = Registry.LocalMachine.OpenSubKey(@"HARDWARE\ACPI");
         if (root is null)
         {
-            AddIssue(issues, @"HKLM\HARDWARE\ACPI is missing.");
+            issues.Add(@"HKLM\HARDWARE\ACPI is missing.");
             return found;
         }
 
@@ -311,15 +299,20 @@ internal static partial class LabSystemDump
             context.Cancellation.ThrowIfCancellationRequested();
             foreach (var name in key.GetValueNames())
             {
-                if (found.Count >= MaximumAcpiTables)
+                if (key.GetValueKind(name) != RegistryValueKind.Binary || key.GetValue(name) is not byte[] table)
                 {
-                    return;
+                    continue;
                 }
 
-                if (key.GetValueKind(name) == RegistryValueKind.Binary
-                    && key.GetValue(name) is byte[] { Length: >= 8 and <= MaximumFirmwareTableBytes } table)
+                var tablePath = name.Length == 0 ? path : $@"{path}\{name}";
+                if (table.Length > MaximumFirmwareTableBytes)
                 {
-                    found.Add((name.Length == 0 ? path : $@"{path}\{name}", table));
+                    issues.Add(
+                        $"{tablePath}: {table.Length} bytes is larger than {MaximumFirmwareTableBytes / (1024 * 1024)} MiB; not saved.");
+                }
+                else if (table.Length >= 8)
+                {
+                    found.Add((tablePath, table));
                 }
             }
 

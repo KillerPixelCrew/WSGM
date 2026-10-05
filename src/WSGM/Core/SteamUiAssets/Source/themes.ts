@@ -10,10 +10,7 @@ const ThemesPatchId = "wsgm.themes";
 
 let themesUi: any = null;
 
-// A command whose refusal the host explains in its next state; the page draws that, so nothing is
-// swallowed here.
-const themesAct = (command: string, payload: any = {}) =>
-  request(ThemesPatchId, command, payload).catch(() => undefined);
+const themesAct = wsgmPageAct(ThemesPatchId);
 
 const themesTabs = [
   { id: "browse", title: "Browse" },
@@ -537,15 +534,12 @@ function ThemesPage({ context }: any) {
   themesUi = ui;
   const state = context.state();
   if (!state) return renderSteamUiEmpty(react, context.refusal() ?? "Loading themes…");
-  const banner = state.error || state.notice;
   return renderSteamUiTabbedPage(ui, {
     id: "wsgm-themes",
     label: "Themes",
     style: themesStyles,
     tabs: themesTabs,
-    active: state.activeTab,
-    onTab: (tab) => void themesAct("setTab", { tab }),
-    banner: banner ? { text: banner, error: !!state.error, onDismiss: () => void themesAct("dismiss") } : null,
+    ...wsgmPageFrame(themesAct, state),
     content: (id) => {
       switch (id) {
         case "installed":

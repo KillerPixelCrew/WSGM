@@ -2,6 +2,7 @@ using System.Text.Json;
 using WSGM.Device.Sdk.Windows;
 using WSGM.DeviceLab.Capture.Live;
 using WSGM.DeviceLab.Knowledge;
+using WSGM.DeviceLab.Transports;
 using WSGM.DeviceLab.Wizard;
 
 namespace WSGM.DeviceLab.Tests.Wizard;
@@ -15,7 +16,7 @@ public sealed class LabRumbleRoutesTests
     public void Claw_RumbleUsesTheGamepadCollectionAndPluginReport()
     {
         var record = DeviceKnowledgeBase.Default.Records.Single(item => item.Id == "wsgm.claw-8-a2vm");
-        LabRumbleHidEndpoint[] endpoints =
+        LabHidEndpoint[] endpoints =
         [
             Hid(0x0DB0, 0x1902, 0x0001, 0x0005, 64, "gamepad"),
             Hid(0x0DB0, 0x1902, 0xFFF0, 0x0040, 64, "mcu")
@@ -49,7 +50,7 @@ public sealed class LabRumbleRoutesTests
     [Fact]
     public void AllyX_WritesOnlyToTheRecordedMotorCollections()
     {
-        LabRumbleHidEndpoint[] endpoints =
+        LabHidEndpoint[] endpoints =
         [
             Endpoint(0xFF31, 0x0080, 64, "vendor"),
             Endpoint(0x0001, 0x0005, 64, "gamepad"),
@@ -70,7 +71,7 @@ public sealed class LabRumbleRoutesTests
     [Fact]
     public void AllyX_IgnoresOtherVendorsAndProducts()
     {
-        LabRumbleHidEndpoint[] endpoints =
+        LabHidEndpoint[] endpoints =
         [
             Hid(0x045E, 0x1B4C, 0x0001, 0x0005, 64, DevicePath("other-vendor")),
             Hid(0x0B05, 0x1ABE, 0x0001, 0x0005, 64, DevicePath("other-product"))
@@ -91,7 +92,7 @@ public sealed class LabRumbleRoutesTests
     [Fact]
     public void DevicePaths_NeverReachTheEvidence()
     {
-        LabRumbleHidEndpoint[] endpoints =
+        LabHidEndpoint[] endpoints =
         [
             Hid(0x0B05, 0x1B4C, 0x0001, 0x0005, 64, SecretPath),
             Hid(0x0B05, 0x1B4C, 0xFF31, 0x0080, 64, SecretPath + "-vendor")
@@ -135,15 +136,15 @@ public sealed class LabRumbleRoutesTests
         return DeviceKnowledgeBase.Default.Records.Single(record => record.Id == "wsgm.rog-ally-x");
     }
 
-    private static LabRumbleHidEndpoint Endpoint(ushort page, ushort usage, ushort output, string name)
+    private static LabHidEndpoint Endpoint(ushort page, ushort usage, ushort output, string name)
     {
         return Hid(0x0B05, 0x1B4C, page, usage, output, DevicePath(name));
     }
 
-    private static LabRumbleHidEndpoint Hid(ushort vendor, ushort product, ushort page, ushort usage, ushort output,
+    private static LabHidEndpoint Hid(ushort vendor, ushort product, ushort page, ushort usage, ushort output,
         string path)
     {
-        return LabRumbleHidEndpoint.From(new HidCollection
+        return LabHidEndpoint.From(new HidCollection
         {
             DevicePath = path,
             InstancePath = string.Empty,

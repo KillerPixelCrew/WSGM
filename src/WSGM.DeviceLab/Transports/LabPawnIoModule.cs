@@ -4,7 +4,6 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
 using Microsoft.Win32.SafeHandles;
 using WSGM.DeviceLab.Application;
 
@@ -58,7 +57,7 @@ internal sealed class LabPawnIoModule : IDisposable
         stream.CopyTo(memory);
         var bytes = memory.ToArray();
         var digest = Convert.ToHexString(SHA256.HashData(bytes));
-        var pinned = PinnedDigest("RyzenSMU");
+        var pinned = LabPins.PawnIoModuleSha256("RyzenSMU");
         if (!string.Equals(digest, pinned, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException($"The bundled RyzenSMU module does not match its pin ({digest}).");
@@ -121,22 +120,6 @@ internal sealed class LabPawnIoModule : IDisposable
         }
 
         return new LabPawnIoModule(handle);
-    }
-
-    private static string PinnedDigest(string id)
-    {
-        using var stream = typeof(LabPawnIoModule).Assembly.GetManifestResourceStream("WSGM.DeviceLab.PawnIO.lock.json")
-                           ?? throw new InvalidOperationException("The PawnIO lock file is not embedded.");
-        using var document = JsonDocument.Parse(stream);
-        foreach (var module in document.RootElement.GetProperty("modules").EnumerateArray())
-        {
-            if (module.GetProperty("id").GetString() == id)
-            {
-                return module.GetProperty("memberSha256").GetString()!;
-            }
-        }
-
-        throw new InvalidOperationException($"The PawnIO lock file has no {id} module.");
     }
 
     [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]

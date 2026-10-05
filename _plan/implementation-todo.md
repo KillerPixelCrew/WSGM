@@ -148,6 +148,29 @@ the shutdown and boot manual rows. The overlay Display layout test attaches brig
 window opened, so its baseline is unfolded unlike production. Intel's lifecycle was not merged onto
 DriverRuntime (GPUIR-007), by choice.
 
+Batch 5 was committed as 964a17d8. Batch 6 is source applied for Device Lab (B157 to B171), build
+(B034, B172, B173 with the D3 GPL relicense, B175, B176), WDC docs (B072, new
+WindowsDeviceControl.slnx) and the reopened B047, B051, B056, B136, B138 and B139 (the download sort
+is now a gate fragment; themes and animations share a page kit). tools/DeckSpike and
+tools/SteamReceiver are deleted (D12).
+
+Open after batch 6:
+
+- B174: the cold-start order behaviour test needs a seam on the static `Steam.ColdStart`;
+  `tools/WsgmLibTest/qam-harness.mjs` still scrapes toolkit surfaces and needs a C#-emitted
+  allowlist. `eng/check-steam-module-discovery.mjs` was already failing before B174 fixed it.
+- B088: three test-only static delegate indirections remain in DeviceCoordinator (DEVICE-042),
+  tied to the deferred DEVICE-014 owner tests.
+- B097: the format run has no seam for its destructive calls (WINSVC-007), test phase.
+- B101: `ModernStandbyGuard` still borrows the mute decider's display signal (WINSVC-025).
+- B123: `PluginActionOption` is still nested in SettingsViewModel and built by Shell (SETTINGS-015).
+- LABCORE-027 process bounds (SelfWorkerProtocol, probe stderr/response/request bounds) are not
+  removed; the finding names B162 and the appendix B161, and neither did it. LABCORE-033's
+  manager flag is unowned. The sleep stage reports Completed when the curated init cannot be put
+  back. Device Lab AGENTS.md still says per-step storage is bounded (B177).
+- docs/steam-cef.md names webpack module ids and the deleted `SteamDownloadSort.ScriptVersion`
+  as dated evidence; left for the maintainer.
+
 - [x] Simplify the active plan: remove prescribed owner/port proliferation, serial dependency chains,
   per-item review/validation ceremonies and duplicated architecture prose. Keep all 188 item IDs,
   statuses and finding dispositions. Findings remain evidence; their proposed designs are optional.

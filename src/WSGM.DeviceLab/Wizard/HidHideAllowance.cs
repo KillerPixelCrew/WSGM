@@ -4,6 +4,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 using WSGM.Interop;
+using WSGM.Shell;
 
 namespace WSGM.DeviceLab.Wizard;
 
@@ -248,28 +249,23 @@ internal sealed class HidHideAllowance(IHidHideDevice device, LabMachineState st
     [DllImport("kernel32.dll", EntryPoint = "QueryDosDeviceW", SetLastError = true, CharSet = CharSet.Unicode)]
     private static extern uint QueryDosDevice(string device, [Out] char[] target, uint targetLength);
 
+    /// <summary>The lab's view of WSGM's own HidHide control adapter.</summary>
     private sealed class NativeHidHideDevice : IHidHideDevice
     {
+        private readonly NativeHidHideControl _control = new();
+
         public HidHideState Read()
         {
-            if (!NativeHidHide.TryOpen(out var handle, out var openError))
+            var state = _control.Read();
+            if (state.Succeeded)
             {
-                return new HidHideState(false, false, false, [],
-                    $"HidHide is not installed or not running (error {openError}).");
+                return new HidHideState(true, state.Active, state.Inverse, state.Applications, null);
             }
 
-            using (handle)
-            {
-                if (!NativeHidHide.TryReadBoolean(handle, NativeHidHide.GetActive, out var active, out var error)
-                    || !NativeHidHide.TryReadBoolean(handle, NativeHidHide.GetInverse, out var inverse, out error)
-                    || !NativeHidHide.TryReadMultiString(handle, NativeHidHide.GetApplications, out var applications,
-                        out error))
-                {
-                    return new HidHideState(true, false, false, [], $"HidHide could not be read (error {error}).");
-                }
-
-                return new HidHideState(true, active, inverse, applications, null);
-            }
+            return HidHideControlState.IsNotInstalled(state.Error)
+                ? new HidHideState(false, false, false, [],
+                    $"HidHide is not installed or not running (error {state.Error}).")
+                : new HidHideState(true, false, false, [], $"HidHide could not be read (error {state.Error}).");
         }
 
         public string? WriteApplications(IReadOnlyList<string> applications)
@@ -279,18 +275,8 @@ internal sealed class HidHideAllowance(IHidHideDevice device, LabMachineState st
                 return "A HidHide entry is empty or contains a NUL.";
             }
 
-            if (!NativeHidHide.TryOpen(out var handle, out var openError))
-            {
-                return $"HidHide could not be opened for writing (error {openError}).";
-            }
-
-            using (handle)
-            {
-                return NativeHidHide.TryWriteMultiString(handle, NativeHidHide.SetApplications, applications,
-                    out var error)
-                    ? null
-                    : $"HidHide refused the list; nothing was changed (error {error}).";
-            }
+            var error = _control.Write(HidHideEntryKind.Application, applications);
+            return error == 0 ? null : $"HidHide refused the list; nothing was changed (error {error}).";
         }
     }
 }
