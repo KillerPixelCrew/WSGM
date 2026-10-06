@@ -21,6 +21,10 @@ Focused C# and emitted-asset regression sources are added; their execution and t
 gate remain deferred until the maintainer's manual pass. No example plugin is installed or enabled
 automatically. Issues 201, 177, 178 and 179 are closed as implemented; their recorded manual testing
 gaps remain separate from implementation status.
+The first 2.1.0.1641 deployment exposed a live CDP requirement: resetting pause-on-exceptions requires
+Debugger to be enabled first. The corrected connection sequence enables it, sets pauses to none and
+immediately disables it before any script evaluation. The first deployment's bridge did not attach;
+it is not a successful live frontend validation.
 
 ## Steam Settings issues 209–212 and sound packs 202, 2026-10-06
 

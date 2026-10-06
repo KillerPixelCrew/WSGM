@@ -390,7 +390,8 @@ automatically clean up, and plugins register cleanup for their own external side
 error listeners are removed before plugin teardown. CDP disables Debugger and pause-on-exceptions
 before a connection becomes ready. Endless loops and renderer crashes cannot be caught here: start
 WSGM with `--shell --desktop-resident --cef-plugins-off` to recover without injecting package
-frontends.
+frontends. If Steam's renderer is already stuck, close and restart Steam with WSGM running in this
+recovery mode.
 
 The independently buildable example is in
 [examples/SteamCefPlugin](../examples/SteamCefPlugin/README.md).
