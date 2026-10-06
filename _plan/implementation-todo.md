@@ -19,7 +19,14 @@ Source is applied, with warning-free Release compilation and a current generated
 The installed native Settings source fingerprints matched uniquely. The whole-client fingerprint
 check reports the pre-existing Screensaver section unavailable on this client; the new native
 Display timeout controls use the same owner independently. Rider cleanup and formatting completed.
-WSGM and Steam remain running, so the installation has not been replaced. Rumble calibration
+Build 2.1.0.1636 from 3b9a8c5a was deployed after the maintainer authorized restart. Native Display,
+Power and Audio rendered on Windows Steam Stable build 1788652215. The Settings format write reached
+QAM; the return QAM command exposed a parser that rejected the real colon-separated format ID. The
+original 48 kHz / 24-bit PCM format was restored through the normal native Settings backend. The
+parser correction and popup-document/empty-slot refresh correction are applied for the next build.
+Installed Intel/NVIDIA archives required SDK 3, while the current host requires SDK 4; both packages
+have been rebuilt for refresh before the next live pass. Screenshots were captured through CEF.
+Rumble calibration
 feasibility is documented under Native Steam Settings; user calibration is optional in issue 212
 and has not been implemented. All five issues retain their live acceptance gaps.
 

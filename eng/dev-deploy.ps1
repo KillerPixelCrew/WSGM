@@ -260,7 +260,7 @@ $swapScript = Join-Path $root 'publish\dev-deploy-swap.ps1'
 Set-Content -LiteralPath $swapScript -Value $swap -Encoding UTF8
 $elevated = Start-Process -FilePath 'powershell.exe' `
     -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$swapScript`"", '-RequestPath', "`"$request`"") `
-    -Verb RunAs -Wait -PassThru
+    -Verb RunAs -WindowStyle Hidden -Wait -PassThru
 if ($elevated.ExitCode -ne 0) {
     throw "Elevated swap failed (exit $($elevated.ExitCode))."
 }

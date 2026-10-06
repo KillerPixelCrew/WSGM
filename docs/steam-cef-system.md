@@ -823,6 +823,10 @@ publication pump for external Windows changes; it creates no separate control ba
 signals invalidate the shared resolution discovery cache. Audio and profile row identities reject
 commands from an endpoint or editing scope that has since been replaced.
 
+Each native page retains a reactive host slot while it has no capabilities, so a controller's
+lighting can appear on an already open page. Power's sidebar visibility changes refresh the native
+root through the known SharedJSContext and popup documents, with the original hook order.
+
 - A toggle, a range with bounds and a choice are Steam's toggle, slider and dropdown. A value the
   page cannot edit is a value field, and an action is a button.
 - A GPU row that applies later says so under its label: "Applies when a game next starts" or
