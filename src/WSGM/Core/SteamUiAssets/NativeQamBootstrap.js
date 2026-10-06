@@ -2496,8 +2496,21 @@
       },
     ]);
     if (!runtime?.m) throw new Error("Steam modules unavailable");
-    // A factory's source never changes once registered, and every fingerprint match reads all of them.
-    const sources = new WeakMap();
+    // Standalone probes and the bridge inspect the same runtime. Repeating every fingerprint's
+    // text search in each probe stalls Steam's UI thread during a synchronization pass.
+    const cacheKey = Symbol.for("SteamUiToolkit.moduleResolverCache.v1");
+    let caches = Reflect.get(window, cacheKey);
+    if (!caches) {
+      caches = new WeakMap();
+      Object.defineProperty(window, cacheKey, { value: caches, configurable: true });
+    }
+    let cache = caches.get(runtime);
+    if (!cache) {
+      cache = { sources: new WeakMap(), ids: [], factories: [], matches: new Map() };
+      caches.set(runtime, cache);
+    }
+    // A factory's source is stable by function identity, including across separate evaluations.
+    const sources = cache.sources;
     const sourceOf = (factory) => {
       let source = sources.get(factory);
       if (source === undefined) {
@@ -2526,12 +2539,30 @@
         !tokens.every((token) => typeof token === "string" && token.length > 0)
       )
         throw new Error("Steam module fingerprint invalid");
-      return Object.keys(runtime.m).filter((id) => {
+      // Steam registers chunks after startup and can replace a factory without changing the
+      // module count. Check every id and factory before trusting a cached unique match.
+      const ids = Object.keys(runtime.m);
+      if (
+        ids.length !== cache.ids.length ||
+        !ids.every(
+          (id, index) => id === cache.ids[index] && runtime.m[id] === cache.factories[index],
+        )
+      ) {
+        cache.ids = ids;
+        cache.factories = ids.map((id) => runtime.m[id]);
+        cache.matches.clear();
+      }
+      const key = JSON.stringify(tokens);
+      const remembered = cache.matches.get(key);
+      if (remembered) return remembered;
+      const found = ids.filter((id) => {
         const factory = runtime.m[id];
         if (typeof factory !== "function") return false;
         const source = sourceOf(factory);
         return tokens.every((token) => source.includes(token));
       });
+      cache.matches.set(key, found);
+      return found;
     };
     requirePresent.count = (tokens) => matches(tokens).length;
     requirePresent.findUnique = (tokens) => {
