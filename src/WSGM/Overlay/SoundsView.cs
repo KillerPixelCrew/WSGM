@@ -109,7 +109,58 @@ public sealed class SoundsView : ServiceSubView
         var state = service.ReadState();
         var stack = NewStack(pack.Name);
         AddStatus(stack, state.Busy, state.Error ?? pack.Error, null);
+        stack.Children.Add(Caption(string.Join(" · ", new[] { pack.Author, pack.Version }
+            .Where(text => text.Length > 0))));
         stack.Children.Add(Caption(pack.Description));
+        if (pack.Source.Length > 0)
+        {
+            stack.Children.Add(Caption("Source: " + pack.Source));
+        }
+
+        if (pack.StoreId is { Length: > 0 })
+        {
+            stack.Children.Add(Caption("Repository: DeckThemes"));
+        }
+
+        if (pack.Compatibility is { } compatibility)
+        {
+            stack.Children.Add(Caption(compatibility.Summary));
+            var details = new StackPanel { Spacing = 8 };
+            foreach (var resource in compatibility.SupportedResources)
+            {
+                details.Children.Add(Caption("Mapped: " + resource));
+            }
+
+            foreach (var resource in compatibility.MissingResources)
+            {
+                details.Children.Add(Caption("Steam default: " + resource));
+            }
+
+            foreach (var resource in compatibility.IgnoredResources)
+            {
+                details.Children.Add(Caption("Ignored: " + resource + " (Steam default)"));
+            }
+
+            foreach (var resource in compatibility.UnknownMappings)
+            {
+                details.Children.Add(Caption("Unknown client resource: " + resource));
+            }
+
+            foreach (var problem in compatibility.AssetProblems)
+            {
+                details.Children.Add(Caption(problem));
+            }
+
+            if (compatibility.SupportedResources.Length + compatibility.MissingResources.Length
+                                                        + compatibility.IgnoredResources.Length == 0)
+            {
+                details.Children.Add(
+                    Caption("Steam sound resources are unavailable. Refresh after Steam is available."));
+            }
+
+            stack.Children.Add(Section("sounds.compatibility." + id, "Client compatibility", details));
+        }
+
         if (pack.Error is null)
         {
             stack.Children.Add(Tagged(PrimaryRow(state.Selected == id ? "Selected" : "Activate",
@@ -134,7 +185,7 @@ public sealed class SoundsView : ServiceSubView
                 () => Run(token => service.InstallAsync(storeId, token), "update")), "sounds.update"));
         }
 
-        stack.Children.Add(Tagged(DangerRow("Remove pack", "Restores defaults first if this pack is selected",
+        stack.Children.Add(Tagged(DangerRow("Remove pack", "Returns to Steam defaults if this pack is selected",
             Icons.Close,
             () => Navigate(() => RenderRemove(pack))), "sounds.remove"));
         SetContent(stack);

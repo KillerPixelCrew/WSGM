@@ -197,7 +197,7 @@ public sealed partial class ShellSession
     private Task? _startupTask;
     private StartupAppWatcher? _startupWatcher;
 
-    /// <summary>The Graphics page in Steam, with its own projection over the coordinator.</summary>
+    /// <summary>The GPU projection shared by Steam Quick Access and Display settings.</summary>
     private SteamGraphicsService? _steamGraphics;
 
     /// <summary>
@@ -622,6 +622,7 @@ public sealed partial class ShellSession
             try
             {
                 _displayChangeWindow = new DisplayChangeWindow();
+                _displayChangeWindow.DisplaysChanged += OnDisplayTopologyChanged;
             }
             catch (InvalidOperationException ex)
             {

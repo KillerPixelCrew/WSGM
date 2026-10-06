@@ -21,16 +21,13 @@ surface. WSGM-only features keep their own fingerprints but resolve them through
 `SteamUiModuleResolver` rather than scanning the registry themselves.
 
 A fragment lives here only when it is WSGM's own feature and no other host could possibly want it.
-Ten qualify. Six are pages registered with the toolkit's `registerSteamPage`:
+Nine qualify. Five are pages registered with the toolkit's `registerSteamPage`:
 
 - `artwork-browser.ts`, the Change Artwork page.
 - `library-import.ts`, the Game Library's import page.
 - `wsgm-settings.ts`, WSGM's settings page, opened from WSGM's row in Steam's main menu. It is only
   the page's data and commands: the toolkit's `renderSteamSettings` draws it with Steam's own
   Settings components, because any host could want a settings page that looks like Steam's.
-- `wsgm-graphics.ts`, the Graphics page, opened from its row in Steam's main menu while a graphics
-  package runs. Drawn by the same renderer, one sidebar page per adapter and display; a game
-  override is marked in Steam's accent blue, with no Use global control.
 - `themes.ts`, the Themes page: CSSLoader-compatible themes browsed from DeckThemes, installed and
   managed.
 - `animations.ts`, the Animations page: SteamDeckRepo's boot movies browsed, downloaded and chosen

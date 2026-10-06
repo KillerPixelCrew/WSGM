@@ -1,4 +1,5 @@
 using System.Net;
+using SteamUiToolkit;
 using WSGM.Core;
 using WSGM.Shell;
 using WSGM.Testing;
@@ -74,6 +75,57 @@ public sealed class SoundPackServiceTests : IDisposable
         }
 
         Assert.True((await browse).Succeeded);
+    }
+
+    [Fact]
+    public async Task RemovingActivePackRetractsCachedAudioEvenWhenSavingDefaultsFails()
+    {
+        var library = new SoundPackLibrary(Path.Combine(Root, "packs"));
+        var steam = Path.Combine(Root, "steam");
+        Directory.CreateDirectory(Path.Combine(steam, "steamui", "sounds"));
+        File.WriteAllText(Path.Combine(steam, "steamui", "sounds", "navigation.wav"), "stock");
+        using var archive = SoundPackLibraryTests.Archive(("pack.json", """{"name":"Test"}"""),
+            ("navigation.wav", "custom"));
+        var id = library.Install(archive);
+        await using var service = new SoundPackService(library, () => id,
+            _ => throw new IOException("Configuration is unreadable."), () => steam, _ => { });
+        Assert.True((await service.RefreshAsync(CancellationToken.None)).Succeeded);
+        Assert.Single(service.ReadOverrides().Sounds);
+        var removed = await service.DeleteAsync(id, CancellationToken.None);
+        Assert.False(removed.Succeeded);
+        Assert.Contains("Configuration is unreadable", removed.Error);
+        Assert.Empty(service.ReadOverrides().Sounds);
+        Assert.Contains("unavailable", service.ReadState().Compatibility);
+        Assert.False(Directory.Exists(library.PackPath(id)));
+    }
+
+    [Fact]
+    public async Task PlaybackReportsReflectDecodeResultsAndRejectAnOlderSelection()
+    {
+        var library = new SoundPackLibrary(Path.Combine(Root, "packs"));
+        var steam = Path.Combine(Root, "steam");
+        Directory.CreateDirectory(Path.Combine(steam, "steamui", "sounds"));
+        File.WriteAllText(Path.Combine(steam, "steamui", "sounds", "navigation.wav"), "stock");
+        using var archive = SoundPackLibraryTests.Archive(("pack.json", """{"name":"Test"}"""),
+            ("navigation.wav", "custom"));
+        var selected = library.Install(archive);
+        await using var service = new SoundPackService(library, () => selected, value => selected = value,
+            () => steam, _ => { });
+        Assert.True((await service.RefreshAsync(CancellationToken.None)).Succeeded);
+        service.SetHostState(true, new SteamUiPatchSnapshot(SteamSoundOverrideSurface.PatchId, true,
+            SteamUiPatchState.Verified, null, default!, null, DateTimeOffset.UtcNow));
+        var revision = service.Revision;
+        service.ReportPlaybackStatus(new SteamSoundOverrideStatus(revision, true, 0, null));
+        Assert.Contains("checking", service.ReadState().Integration);
+        service.ReportPlaybackStatus(new SteamSoundOverrideStatus(revision, false, 0,
+            "Unreadable sound: navigation.wav"));
+        Assert.Contains("Unreadable sound: navigation.wav", service.ReadState().Integration);
+        Assert.Contains("stock sounds", service.ReadState().Integration);
+        Assert.True((await service.SelectAsync("", CancellationToken.None)).Succeeded);
+        service.ReportPlaybackStatus(new SteamSoundOverrideStatus(revision, false, 1, null));
+        Assert.Contains("Waiting", service.ReadState().Integration);
+        service.ReportPlaybackStatus(new SteamSoundOverrideStatus(service.Revision, false, 0, null));
+        Assert.Equal("Steam defaults are active.", service.ReadState().Integration);
     }
 
     private sealed class HeldRequest : HttpMessageHandler

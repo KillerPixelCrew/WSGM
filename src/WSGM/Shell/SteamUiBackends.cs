@@ -98,7 +98,7 @@ internal sealed record SteamUiBackends
     /// <summary>The boot movie behind its page and its Quick Access section, or null.</summary>
     internal AnimationService? Animations { get; init; }
 
-    /// <summary>The graphics packages' controls behind the Graphics page, or null without a graphics coordinator.</summary>
+    /// <summary>The graphics capabilities shared by Quick Access and Steam Display, or null.</summary>
     internal SteamGraphicsService? Graphics { get; init; }
 
     /// <summary>Sound-pack assets published through the shared playback override gate, or null.</summary>

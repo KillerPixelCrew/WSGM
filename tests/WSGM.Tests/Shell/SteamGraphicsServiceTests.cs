@@ -336,15 +336,6 @@ public sealed class SteamGraphicsServiceTests
         Assert.Empty(WsgmSteamSettingsService.ReadMenu(false).Items);
     }
 
-    [Fact]
-    public void ThePayloadReadersAcceptExactlyTheirShapes()
-    {
-        Assert.True(SteamGraphicsSurface.TryReadSet(Json("""{"key":"a/b","value":3}"""), out var set));
-        Assert.Equal("a/b", set.Key);
-        Assert.False(SteamGraphicsSurface.TryReadSet(Json("""{"key":"a/b","value":{}}"""), out _));
-        Assert.False(SteamGraphicsSurface.TryReadSet(Json("""{"key":"a/b"}"""), out _));
-    }
-
     private sealed class FakeSource(GraphicsOverlaySnapshot snapshot) : IGraphicsOverlaySource
     {
         internal List<(DeviceOverlayCapability Capability, CapabilityValue? Value)> Writes { get; } = [];

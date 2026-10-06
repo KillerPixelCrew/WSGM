@@ -43,10 +43,24 @@ internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, ID
     }
 
     /// <inheritdoc />
-    public async Task<SteamUiCommandResult> SetFormatAsync(string formatId, CancellationToken cancellationToken)
+    public Task<SteamUiCommandResult> SetFormatAsync(string formatId, CancellationToken cancellationToken)
+    {
+        return SetFormatForEndpointAsync(_offered?.EndpointId ?? string.Empty, formatId, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> SetSpatialAsync(string spatialId, CancellationToken cancellationToken)
+    {
+        return SetSpatialForEndpointAsync(_offered?.EndpointId ?? string.Empty, spatialId, cancellationToken);
+    }
+
+    /// <summary>Applies a native Settings selection only to the output its row described.</summary>
+    internal async Task<SteamUiCommandResult> SetFormatForEndpointAsync(string endpointId, string formatId,
+        CancellationToken cancellationToken)
     {
         if (_audio.SelectedOutput is not { } output
             || _offered is not { } offered
+            || endpointId != output.Id
             || offered.EndpointId != output.Id
             || !offered.Formats.Contains(formatId)
             || !TryParseFormat(formatId, out var format))
@@ -59,11 +73,13 @@ internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, ID
         return new SteamUiCommandResult(result.Succeeded, result.Detail);
     }
 
-    /// <inheritdoc />
-    public async Task<SteamUiCommandResult> SetSpatialAsync(string spatialId, CancellationToken cancellationToken)
+    /// <summary>Applies a native Settings selection only to the output its row described.</summary>
+    internal async Task<SteamUiCommandResult> SetSpatialForEndpointAsync(string endpointId, string spatialId,
+        CancellationToken cancellationToken)
     {
         if (_audio.SelectedOutput is not { } output
             || _offered is not { } offered
+            || endpointId != output.Id
             || offered.EndpointId != output.Id
             || !offered.Spatial.Contains(spatialId)
             || !Guid.TryParse(spatialId, out var spatial))
@@ -82,12 +98,18 @@ internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, ID
     /// <summary>Reads the current output's bounded capability state.</summary>
     internal async ValueTask<SteamAudioFormatState?> ReadAsync()
     {
+        return (await ReadEndpointAsync().ConfigureAwait(false)).State;
+    }
+
+    /// <summary>Returns choices together with the exact endpoint that offered them.</summary>
+    internal async ValueTask<(SteamAudioFormatState State, string? EndpointId)> ReadEndpointAsync()
+    {
         var capabilities = await _profiles.ReadPlaybackCapabilitiesAsync(CancellationToken.None).ConfigureAwait(false);
         if (capabilities is null)
         {
             _offered = null;
-            return new SteamAudioFormatState(false, [], string.Empty, [], string.Empty, [], string.Empty,
-                "Advanced audio controls are unavailable for the current output.");
+            return (new SteamAudioFormatState(false, [], string.Empty, [], string.Empty, [], string.Empty,
+                "Advanced audio controls are unavailable for the current output."), null);
         }
 
         var channels = AudioPlaybackChoices.Channels(capabilities)
@@ -104,7 +126,7 @@ internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, ID
             capabilities.EndpointId,
             [.. channels.Concat(formats).Select(static option => option.Id)],
             [.. spatial.Select(static option => option.Id)]);
-        return new SteamAudioFormatState(
+        return (new SteamAudioFormatState(
             channels.Length > 0 || formats.Length > 0 || spatial.Length > 0,
             channels,
             FormatId(capabilities.CurrentFormat),
@@ -112,7 +134,7 @@ internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, ID
             FormatId(capabilities.CurrentFormat),
             spatial,
             capabilities.CurrentSpatialFormat.ToString(),
-            string.Empty);
+            string.Empty), capabilities.EndpointId);
     }
 
     private static string FormatId(CoreAudio.AudioDeviceFormat format)

@@ -38,7 +38,9 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
     private readonly ThemeStoreClient _store;
     private readonly object _sync = new();
     private bool _disposed;
+    private bool _hostConnected;
     private SteamSoundOverrideState _overrides = new(new Dictionary<string, IReadOnlyList<string>>());
+    private SteamSoundOverrideStatus? _playbackStatus;
     private long _playingPreviewEpoch;
     private AudioFilePreview? _preview;
     private long _previewEpoch;
@@ -96,7 +98,82 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
     /// <param name="soundPatch">The sound override patch after a synchronization, or null before the first one.</param>
     internal void SetHostState(bool hostOn, SteamUiPatchSnapshot? soundPatch)
     {
-        SetIntegrationStatus(IntegrationText(hostOn, soundPatch));
+        lock (_sync)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _hostConnected = hostOn && soundPatch?.State == SteamUiPatchState.Verified;
+            if (!hostOn || soundPatch is null)
+            {
+                _playbackStatus = null;
+            }
+
+            var status = _hostConnected
+                ? PlaybackText(_playbackStatus, _overrides.Sounds.Count)
+                : IntegrationText(hostOn, soundPatch);
+            if (_state.Integration == status)
+            {
+                return;
+            }
+
+            _state = _state with { Integration = status };
+        }
+
+        Changed?.Invoke();
+    }
+
+    internal void ReportPlaybackStatus(SteamSoundOverrideStatus status)
+    {
+        lock (_sync)
+        {
+            if (_disposed || status.Revision != _overrides.Revision || status.Resources > _overrides.Sounds.Count)
+            {
+                return;
+            }
+
+            _playbackStatus = status;
+            if (!_hostConnected)
+            {
+                return;
+            }
+
+            var text = PlaybackText(status, _overrides.Sounds.Count);
+            if (_state.Integration == text)
+            {
+                return;
+            }
+
+            _state = _state with { Integration = text };
+        }
+
+        Changed?.Invoke();
+    }
+
+    private static string PlaybackText(SteamSoundOverrideStatus? status, int requested)
+    {
+        if (status is null)
+        {
+            return requested == 0
+                ? "Waiting for Steam to restore stock sounds."
+                : "Waiting for Steam to check the replacement audio.";
+        }
+
+        if (status.Loading)
+        {
+            return "Steam is checking the replacement audio. Stock sounds remain active while it loads.";
+        }
+
+        if (status.Error is { Length: > 0 } error)
+        {
+            return $"{status.Resources} resources accepted by Steam. {error} Rejected events use stock sounds.";
+        }
+
+        return requested == 0
+            ? "Steam defaults are active."
+            : $"{status.Resources} resources accepted by Steam. Unmatched events use stock sounds.";
     }
 
     /// <summary>The integration line for a host switch and override patch state.</summary>
@@ -118,21 +195,6 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
         return soundPatch.State == SteamUiPatchState.Verified
             ? "Steam sound override connected. Each replacement is checked before playback."
             : soundPatch.LastFailure ?? "Steam sound overrides are unavailable; stock sounds remain in use.";
-    }
-
-    private void SetIntegrationStatus(string status)
-    {
-        lock (_sync)
-        {
-            if (_disposed || _state.Integration == status)
-            {
-                return;
-            }
-
-            _state = _state with { Integration = status };
-        }
-
-        Changed?.Invoke();
     }
 
     internal SoundPackState ReadState()
@@ -162,14 +224,14 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
 
     internal void ConfigurationChanged()
     {
-        var selected = _readSelected();
-        if (ReadState().Selected == selected)
+        if (ReadState().Selected == _readSelected())
         {
             return;
         }
 
         _ = RunAsync(() =>
         {
+            var selected = _readSelected();
             lock (_sync)
             {
                 _state = _state with { Selected = selected };
@@ -208,16 +270,24 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
             // overrides are data URIs, so nothing in Steam holds the files.
             StopPreview();
             _library.Delete(id);
-            if (ReadState().Selected == id)
+            try
             {
-                _saveSelected("");
-                lock (_sync)
+                if (ReadState().Selected == id)
                 {
-                    _state = _state with { Selected = "" };
+                    _saveSelected("");
+                    lock (_sync)
+                    {
+                        _state = _state with { Selected = "" };
+                    }
                 }
             }
+            finally
+            {
+                // Even when config is unreadable after a successful delete, retract the removed
+                // pack's cached data. Its retained saved choice is reported as unavailable.
+                Load();
+            }
 
-            Load();
             return Task.CompletedTask;
         }, token);
     }
@@ -270,7 +340,7 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
             using var archive = await _store.DownloadBlobAsync(blob, request.Token).ConfigureAwait(false);
             request.Token.ThrowIfCancellationRequested();
             StopPreview();
-            _library.Install(archive, storeId);
+            _library.Install(archive, storeId, details.Source);
             Load();
         }, token);
     }
@@ -372,6 +442,15 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
             lock (_sync)
             {
                 _overrides = new SteamSoundOverrideState(new Dictionary<string, IReadOnlyList<string>>(), ++_revision);
+                _playbackStatus = null;
+                _state = _state with
+                {
+                    Compatibility = "Sound content could not be refreshed. Steam defaults remain active."
+                };
+                if (_hostConnected)
+                {
+                    _state = _state with { Integration = PlaybackText(null, 0) };
+                }
             }
 
             throw;
@@ -380,13 +459,16 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
 
     private void LoadCore()
     {
-        var packs = _library.Read();
-        var selected = ReadState().Selected;
-        var pack = packs.FirstOrDefault(item => item.Id == selected && item.Error is null);
         var resourcesPath = Path.Combine(_steamDirectory() ?? "", "steamui", "sounds");
         var resources = Directory.Exists(resourcesPath)
-            ? Directory.EnumerateFiles(resourcesPath).Select(Path.GetFileName).OfType<string>().ToArray()
+            ? Directory.EnumerateFiles(resourcesPath).Select(Path.GetFileName).OfType<string>()
+                .Order(StringComparer.Ordinal).ToArray()
             : [];
+        var packs = _library.Read().Select(item => item.Error is null
+            ? item with { Compatibility = _library.InspectCompatibility(item, resources) }
+            : item).ToArray();
+        var selected = ReadState().Selected;
+        var pack = packs.FirstOrDefault(item => item.Id == selected && item.Error is null);
         var compatibility = pack is null ? "Steam defaults." : "";
         var sounds = pack is null
             ? new Dictionary<string, string[]>()
@@ -407,6 +489,11 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
             _overrides = new SteamSoundOverrideState(
                 sounds.ToDictionary(static sound => sound.Key, static sound => (IReadOnlyList<string>)sound.Value),
                 ++_revision);
+            _playbackStatus = null;
+            if (_hostConnected)
+            {
+                _state = _state with { Integration = PlaybackText(null, sounds.Count) };
+            }
         }
     }
 

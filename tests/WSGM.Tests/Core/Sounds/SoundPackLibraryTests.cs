@@ -78,6 +78,71 @@ public sealed class SoundPackLibraryTests : IDisposable
         Assert.Throws<InvalidDataException>(() => library.PackPath("../other"));
     }
 
+    [Fact]
+    public void EcosystemIdentityKeepsRenamedUpdatesAndSameNamedDistinctPacksSeparate()
+    {
+        var library = new SoundPackLibrary(Root);
+        using var first = Archive(("pack.json", """{"name":"First","id":"author.pack","version":"1"}"""));
+        var id = library.Install(first);
+        using var renamed = Archive(("pack.json", """{"name":"Renamed","id":"author.pack","version":"2"}"""));
+        Assert.Equal(id, library.Install(renamed));
+        Assert.Equal("Renamed", Assert.Single(library.Read()).Name);
+        using var distinct = Archive(("pack.json", """{"name":"Renamed","id":"other.pack"}"""));
+        Assert.NotEqual(id, library.Install(distinct));
+        Assert.Equal(2, library.Read().Length);
+    }
+
+    [Fact]
+    public void AddingManifestIdentityPreservesExistingSelectionAndReadsNestedPreviews()
+    {
+        var library = new SoundPackLibrary(Root);
+        using var original = Archive(("pack.json", """{"name":"Test"}"""));
+        var id = library.Install(original);
+        using var updated = Archive(("pack.json", """
+                                                  {"name":"Test","id":"author.test","source":"https://example.invalid/source","preview":"clips/preview.wav"}
+                                                  """), ("clips/preview.wav", "wave"));
+        Assert.Equal(id, library.Install(updated));
+        var pack = library.ReadPack(id);
+        Assert.Equal("author.test", pack.ManifestId);
+        Assert.Equal("https://example.invalid/source", pack.Source);
+        Assert.Equal("clips/preview.wav", Assert.Single(pack.Assets).Replace('\\', '/'));
+    }
+
+    [Fact]
+    public void CompatibilityNamesUnknownEventsMissingVariantsAndIgnoredStockResources()
+    {
+        var library = new SoundPackLibrary(Root);
+        using var archive = Archive(("pack.json", """
+                                                  {"name":"Test","mappings":{"navigation.wav":["valid.wav","missing.wav"],"other-client.wav":["valid.wav"]},"ignore":["ignored.wav"]}
+                                                  """), ("valid.wav", "wave"));
+        var id = library.Install(archive);
+        var compatibility = library.InspectCompatibility(library.ReadPack(id),
+            ["navigation.wav", "absent.wav", "ignored.wav"]);
+        Assert.Equal("navigation.wav", Assert.Single(compatibility.SupportedResources));
+        Assert.Equal("absent.wav", Assert.Single(compatibility.MissingResources));
+        Assert.Equal("ignored.wav", Assert.Single(compatibility.IgnoredResources));
+        Assert.Equal("other-client.wav", Assert.Single(compatibility.UnknownMappings));
+        Assert.Contains(compatibility.AssetProblems, problem => problem.Contains("navigation.wav: missing.wav"));
+    }
+
+    [Fact]
+    public void OneUnreadableAssetLeavesOtherEventsAndVariantsAvailable()
+    {
+        var library = new SoundPackLibrary(Root);
+        using var archive = Archive(("pack.json", """
+                                                  {"name":"Test","mappings":{"navigation.wav":["locked.wav","valid.wav"]}}
+                                                  """), ("locked.wav", "wave"), ("valid.wav", "wave"),
+            ("other.wav", "wave"));
+        var id = library.Install(archive);
+        var pack = library.ReadPack(id);
+        using var locked = new FileStream(library.AssetPath(id, "locked.wav"), FileMode.Open, FileAccess.Read,
+            FileShare.None);
+        var map = library.BuildOverrides(pack, ["navigation.wav", "other.wav"], out var detail);
+        Assert.Equal(2, map.Count);
+        Assert.Single(map["navigation.wav"]);
+        Assert.Contains("1 missing or unsupported assets", detail);
+    }
+
     internal static MemoryStream Archive(params (string Path, string Contents)[] entries)
     {
         var stream = new MemoryStream();

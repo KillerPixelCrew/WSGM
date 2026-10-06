@@ -206,10 +206,10 @@ The UI reaches graphics capabilities only through the coordinator:
 - `Changed` fires on the UI dispatcher.
 
 The overlay and Steam draw them through `GraphicsOverlayBridge`: the overlay's Device > GPU section
-([overlay and input](overlay-and-input.md#graphics-sections)) and the Graphics page in Steam's main
-menu ([Steam CEF system](steam-cef-system.md#the-graphics-page-in-steam)). Steam Quick Access also
-shows every published category in Performance through `SteamSettingsQuickAccessRow`, using the same
-rows and command backend. The Steam settings page has one page per section the package declares.
+([overlay and input](overlay-and-input.md#graphics-sections)) and Steam Settings > Display
+([Steam CEF system](steam-cef-system.md#native-steam-settings)). Steam Quick Access also shows every
+published category in Performance through `SteamSettingsQuickAccessRow`, using the same rows and
+command backend. Steam Display groups the sections by adapter, display and declared category.
 
 Variable refresh is published by a graphics package, per display. The Quick Access switch, the
 Device page's Power and thermals row and the per-application restore all use

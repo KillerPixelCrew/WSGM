@@ -6,6 +6,23 @@ Implementation follows the [simplified plan](refactor-2.1/refactor-plan-v2.md), 
 are finished. Live/manual acceptance remains outstanding; older entries below record earlier source
 and validation states.
 
+## Steam Settings issues 209–212 and sound packs 202, 2026-10-06
+
+- [x] Extend native Display, Power, Audio and Controller Settings using the existing QAM owners.
+- [x] Complete sound-pack compatibility, update identity, corrupt-asset fallback and decoder status.
+- [x] Compile and stage the development package without changing the release version.
+- [ ] Deploy after the running application is closed or the maintainer authorizes its restart.
+- [ ] Maintainer live Steam/device pass, including Stable/Beta sound restoration and navigation.
+- [ ] Run deferred focused tests and the initial gate after that manual pass.
+
+Source is applied, with warning-free Release compilation and a current generated Steam asset.
+The installed native Settings source fingerprints matched uniquely. The whole-client fingerprint
+check reports the pre-existing Screensaver section unavailable on this client; the new native
+Display timeout controls use the same owner independently. Rider cleanup and formatting completed.
+WSGM and Steam remain running, so the installation has not been replaced. Rumble calibration
+feasibility is documented under Native Steam Settings; user calibration is optional in issue 212
+and has not been implemented. All five issues retain their live acceptance gaps.
+
 ## Active continuation, 2026-10-05 to 2026-10-06
 
 Source verification used at most six concurrent agents, below the requested maximum ten, and

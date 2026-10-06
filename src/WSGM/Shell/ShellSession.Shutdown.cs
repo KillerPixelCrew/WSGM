@@ -680,6 +680,11 @@ public sealed partial class ShellSession
         });
         Step(failures, "Disposing _displayChangeWindow failed", () =>
         {
+            if (_displayChangeWindow is { } displayWindow)
+            {
+                displayWindow.DisplaysChanged -= OnDisplayTopologyChanged;
+            }
+
             _displayChangeWindow?.Dispose();
             _displayChangeWindow = null;
         });

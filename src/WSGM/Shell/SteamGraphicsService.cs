@@ -11,7 +11,7 @@ using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Shell;
 
-/// <summary>The Graphics page in Steam, reached from its row in Steam's main menu.</summary>
+/// <summary>The GPU capability projection shared by Quick Access and Steam's Display settings.</summary>
 /// <remarks>
 ///     <para>
 ///         The graphics packages' controls, drawn with Steam's own Settings components by the toolkit's
@@ -20,16 +20,12 @@ namespace WSGM.Shell;
 ///         projection as the overlay's Device GPU section, so the two cannot disagree about a row.
 ///     </para>
 ///     <para>
-///         A row the running game overrides is followed by a Use global row, the page's form of the
-///         override marker. A Global-only row never has one. A row that applies later says when, and an
+///         A row the running game overrides carries the shared override marker. A row that applies later says when, and an
 ///         unavailable row says why and cannot be changed.
 ///     </para>
 /// </remarks>
-internal sealed class SteamGraphicsService : ISteamGraphicsBackend, ISteamSettingsQuickAccessBackend, IDisposable
+internal sealed class SteamGraphicsService : ISteamSettingsQuickAccessBackend, IDisposable
 {
-    /// <summary>The main menu row's id.</summary>
-    internal const string MenuItemId = "wsgm.graphics";
-
     /// <summary>A graphics chip with its pins, in Steam's menu convention: one solid shape, holes even-odd.</summary>
     internal const string Glyph =
         "M7 7h10v10H7ZM9 9v6h6V9ZM9 3h2v3H9ZM13 3h2v3h-2ZM9 18h2v3H9ZM13 18h2v3h-2ZM3 9h3v2H3ZM3 13h3v2H3Z"
@@ -96,7 +92,7 @@ internal sealed class SteamGraphicsService : ISteamGraphicsBackend, ISteamSettin
 
     /// <summary>The page as it should be drawn now.</summary>
     /// <returns>The page model.</returns>
-    internal SteamGraphicsState ReadState()
+    internal SteamSettingsQuickAccessState ReadState()
     {
         long revision;
         lock (_gate)
@@ -104,7 +100,7 @@ internal sealed class SteamGraphicsService : ISteamGraphicsBackend, ISteamSettin
             revision = _revision;
         }
 
-        return new SteamGraphicsState(Pages(_source.Snapshot()), revision);
+        return new SteamSettingsQuickAccessState(Pages(_source.Snapshot()), revision);
     }
 
     internal SteamSettingsQuickAccessState ReadQuickAccessState()

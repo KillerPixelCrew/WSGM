@@ -21,6 +21,20 @@ internal sealed record SoundPack(
     IReadOnlySet<string> Ignore)
 {
     internal string[] Assets { get; init; } = [];
+    internal string ManifestId { get; init; } = "";
+    internal string Source { get; init; } = "";
+    internal SoundPackCompatibility? Compatibility { get; init; }
+}
+
+internal sealed record SoundPackCompatibility(
+    string[] SupportedResources,
+    string[] MissingResources,
+    string[] IgnoredResources,
+    string[] UnknownMappings,
+    string[] AssetProblems)
+{
+    internal string Summary =>
+        $"{SupportedResources.Length} mapped resources; {MissingResources.Length} missing resources; {IgnoredResources.Length} ignored resources; {AssetProblems.Length} missing or unsupported assets; {UnknownMappings.Length} unknown mappings. Unmatched events use Steam defaults.";
 }
 
 /// <summary>Reads Audio Loader manifests and installs their assets in WSGM's per-user content folder.</summary>
@@ -61,7 +75,13 @@ internal sealed class SoundPackLibrary(string root)
         CheckPath(Root, manifest);
         using var document = JsonDocument.Parse(File.ReadAllText(manifest));
         var json = document.RootElement;
-        if (json.TryGetProperty("manifest_version", out var version) && version.GetInt32() > 3)
+        if (json.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidDataException("The sound-pack manifest must be an object.");
+        }
+
+        if (json.TryGetProperty("manifest_version", out var version)
+            && (!version.TryGetInt32(out var manifestVersion) || manifestVersion is < 1 or > 3))
         {
             throw new InvalidDataException("This pack requires a newer Audio Loader manifest.");
         }
@@ -109,12 +129,47 @@ internal sealed class SoundPackLibrary(string root)
             : new HashSet<string>(StringComparer.Ordinal);
         var source = Path.Combine(directory, ".wsgm-store-id");
         CheckPath(Root, source);
+        var repositorySource = Path.Combine(directory, ".wsgm-source");
+        CheckPath(Root, repositorySource);
+        var repository = Text(json, "source");
+        if (repository.Length == 0)
+        {
+            repository = Text(json, "repository");
+        }
+
+        if (repository.Length == 0 && File.Exists(repositorySource))
+        {
+            repository = File.ReadAllText(repositorySource);
+        }
+
+        var previewAssets = new List<string>();
+        if (json.TryGetProperty("preview", out var preview) && preview.ValueKind == JsonValueKind.String)
+        {
+            previewAssets.Add(preview.GetString()!);
+        }
+
+        if (json.TryGetProperty("previews", out var previews))
+        {
+            previewAssets.AddRange(previews.EnumerateArray().Select(value => value.GetString()
+                                                                             ?? throw new InvalidDataException(
+                                                                                 "A preview has no filename.")));
+        }
+
+        foreach (var asset in previewAssets)
+        {
+            AssetPath(id, asset);
+        }
+
         return new SoundPack(id, name, Text(json, "author"), Text(json, "version"), Text(json, "description"),
             File.Exists(source) ? File.ReadAllText(source) : null, null, mappings, ignore)
         {
-            Assets = mappings.Values.SelectMany(files => files)
-                .Concat(Directory.EnumerateFiles(directory).Select(Path.GetFileName).OfType<string>())
-                .Where(file => Path.GetExtension(file).ToLowerInvariant() is ".wav" or ".mp3" or ".ogg" or ".m4a")
+            ManifestId = Text(json, "id"),
+            Source = repository,
+            Assets = previewAssets.Concat(mappings.Values.SelectMany(files => files))
+                .Concat(EnumerateAssets(directory).Select(path => Path.GetRelativePath(directory, path)))
+                .Where(file => Mime(file) is not null)
+                .Select(file => Path.GetRelativePath(directory, AssetPath(id, file))
+                    .Replace(Path.DirectorySeparatorChar, '/'))
                 .Distinct(StringComparer.Ordinal).ToArray()
         };
     }
@@ -143,7 +198,7 @@ internal sealed class SoundPackLibrary(string root)
         out string compatibility)
     {
         var result = new Dictionary<string, string[]>(StringComparer.Ordinal);
-        var missing = 0;
+        var problems = new List<string>();
         foreach (var resource in resources)
         {
             if (pack.Ignore.Contains(resource))
@@ -151,36 +206,27 @@ internal sealed class SoundPackLibrary(string root)
                 continue;
             }
 
-            var files = pack.Mappings.TryGetValue(resource, out var mapped) ? mapped : [resource];
             var urls = new List<string>();
-            foreach (var file in files)
+            foreach (var path in ResolveAssets(pack, resource, problems))
             {
-                var path = AssetPath(pack.Id, file);
-                if (!File.Exists(path))
+                try
                 {
-                    missing++;
-                    continue;
+                    // The file can disappear after compatibility inspection. One failed asset must
+                    // leave unrelated events usable, and an empty read must retain the stock event.
+                    var bytes = File.ReadAllBytes(path);
+                    if (bytes.Length > 0)
+                    {
+                        urls.Add($"data:{Mime(path)};base64,{Convert.ToBase64String(bytes)}");
+                    }
+                    else
+                    {
+                        problems.Add($"{resource}: {Path.GetRelativePath(PackPath(pack.Id), path)} is empty.");
+                    }
                 }
-
-                // An empty file is no sound. Any size plays: the toolkit delivers the set to Steam in parts.
-                if (new FileInfo(path).Length == 0)
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException)
                 {
-                    missing++;
-                    continue;
+                    problems.Add($"{resource}: {Path.GetRelativePath(PackPath(pack.Id), path)}: {error.Message}");
                 }
-
-                var mime = Path.GetExtension(path).ToLowerInvariant() switch
-                {
-                    ".wav" => "audio/wav", ".mp3" => "audio/mpeg", ".m4a" => "audio/mp4", ".ogg" => "audio/ogg",
-                    _ => null
-                };
-                if (mime is null)
-                {
-                    missing++;
-                    continue;
-                }
-
-                urls.Add($"data:{mime};base64,{Convert.ToBase64String(File.ReadAllBytes(path))}");
             }
 
             if (urls.Count > 0)
@@ -191,11 +237,77 @@ internal sealed class SoundPackLibrary(string root)
 
         var unknown = pack.Mappings.Keys.Count(key => !resources.Contains(key, StringComparer.Ordinal));
         compatibility =
-            $"{result.Count} supported resources; {missing} missing or unsupported assets; {unknown} unknown mappings. Unmatched events use Steam defaults.";
+            $"{result.Count} mapped resources; {problems.Count} missing or unsupported assets; {unknown} unknown mappings. Unmatched events use Steam defaults.";
         return result;
     }
 
-    internal string Install(Stream archive, string? storeId = null)
+    internal SoundPackCompatibility InspectCompatibility(SoundPack pack, IReadOnlyCollection<string> resources)
+    {
+        var supported = new List<string>();
+        var missing = new List<string>();
+        var ignored = new List<string>();
+        var problems = new List<string>();
+        foreach (var resource in resources)
+        {
+            if (pack.Ignore.Contains(resource))
+            {
+                ignored.Add(resource);
+            }
+            else if (ResolveAssets(pack, resource, problems).Any())
+            {
+                supported.Add(resource);
+            }
+            else
+            {
+                missing.Add(resource);
+            }
+        }
+
+        return new SoundPackCompatibility(supported.ToArray(), missing.ToArray(), ignored.ToArray(),
+            pack.Mappings.Keys.Where(key => !resources.Contains(key, StringComparer.Ordinal)).ToArray(),
+            problems.ToArray());
+    }
+
+    private List<string> ResolveAssets(SoundPack pack, string resource, List<string> problems)
+    {
+        var files = pack.Mappings.TryGetValue(resource, out var mapped) ? mapped : [resource];
+        var paths = new List<string>();
+        foreach (var file in files)
+        {
+            try
+            {
+                var path = AssetPath(pack.Id, file);
+                var problem = !File.Exists(path) ? "missing"
+                    : Mime(path) is null ? "unsupported format"
+                    : new FileInfo(path).Length == 0 ? "empty" : null;
+                if (problem is null)
+                {
+                    paths.Add(path);
+                }
+                else
+                {
+                    problems.Add($"{resource}: {file} ({problem}).");
+                }
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                problems.Add($"{resource}: {file}: {error.Message}");
+            }
+        }
+
+        return paths;
+    }
+
+    private static string? Mime(string path)
+    {
+        return Path.GetExtension(path).ToLowerInvariant() switch
+        {
+            ".wav" => "audio/wav", ".mp3" => "audio/mpeg", ".m4a" => "audio/mp4", ".ogg" => "audio/ogg",
+            _ => null
+        };
+    }
+
+    internal string Install(Stream archive, string? storeId = null, string? source = null)
     {
         Directory.CreateDirectory(Root);
         CheckPath(Root, Root);
@@ -227,12 +339,30 @@ internal sealed class SoundPackLibrary(string root)
             var content = Path.GetDirectoryName(manifests[0])!;
             var stagedLibrary = new SoundPackLibrary(Path.GetDirectoryName(content)!);
             var stagedPack = stagedLibrary.ReadPack(Path.GetFileName(content));
-            var identity = storeId ?? stagedPack.Name;
+            var identity = storeId ?? (stagedPack.ManifestId.Length > 0 ? stagedPack.ManifestId : stagedPack.Name);
             var id = (storeId is null ? "local-" : "store-")
                      + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity)))[..24].ToLowerInvariant();
+            if (storeId is null)
+            {
+                // Keep an older name-based installation's identity when its author adds an id.
+                var existing = Read().FirstOrDefault(pack => pack.StoreId is null && pack.Error is null
+                    && ((stagedPack.ManifestId.Length > 0 && pack.ManifestId == stagedPack.ManifestId)
+                        || (pack.ManifestId.Length == 0 && pack.Name == stagedPack.Name)));
+                id = existing?.Id ?? id;
+            }
+
             if (storeId is not null)
             {
                 File.WriteAllText(Path.Combine(content, ".wsgm-store-id"), storeId);
+                if (source is { Length: > 0 })
+                {
+                    File.WriteAllText(Path.Combine(content, ".wsgm-source"), source);
+                }
+            }
+            else
+            {
+                File.Delete(Path.Combine(content, ".wsgm-store-id"));
+                File.Delete(Path.Combine(content, ".wsgm-source"));
             }
 
             var destination = PackPath(id);
@@ -283,9 +413,30 @@ internal sealed class SoundPackLibrary(string root)
     private static void ValidateTree(string path)
     {
         CheckPath(path, path);
-        foreach (var child in Directory.EnumerateFileSystemEntries(path, "*", SearchOption.AllDirectories))
+        foreach (var child in EnumerateAssets(path))
         {
             CheckPath(path, child);
+        }
+    }
+
+    private static IEnumerable<string> EnumerateAssets(string root)
+    {
+        var pending = new Stack<string>();
+        pending.Push(root);
+        while (pending.TryPop(out var directory))
+        {
+            foreach (var child in Directory.EnumerateFileSystemEntries(directory))
+            {
+                CheckPath(root, child);
+                if (Directory.Exists(child))
+                {
+                    pending.Push(child);
+                }
+                else
+                {
+                    yield return child;
+                }
+            }
         }
     }
 

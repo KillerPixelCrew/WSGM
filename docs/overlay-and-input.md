@@ -109,8 +109,8 @@ Each Graphics group pins to Quick access the way a Device group does: one Pin se
 heading, and X, right-click or touch hold anywhere in the group. `GraphicsSectionPins` owns the ids:
 `section.graphics.<pluginId>/<sectionId>` for rows in no declared category and that id plus
 `.category.<categoryId>` for a category. An id is matched against the current snapshot, never
-parsed. Quick access draws a pinned group from `IGraphicsOverlaySource` with the Graphics page's
-rows, headed by the section and category titles, and refreshes it in place on every `GpuCoordinator`
+parsed. Quick access draws a pinned group from `IGraphicsOverlaySource` with Steam Display's rows,
+headed by the section and category titles, and refreshes it in place on every `GpuCoordinator`
 change, so values, the override marker, timing notes and unavailable reasons follow and commands go
 to the coordinator. The Device overview's Quick Access pins list offers the Graphics groups while a
 graphics publisher runs, with device integration off too. A pin whose publisher, section or category

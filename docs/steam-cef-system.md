@@ -799,40 +799,68 @@ The reusable parts are in the toolkit, which documents each fingerprint in its r
 navigation panel surface and `settings.ts`. WSGM's side is `WsgmSteamSettingsService`, which decides
 what is on the page and saves changes, `SteamWsgmSettingsSurface`, and the thin `wsgm-settings.ts`.
 
-### The Graphics page in Steam
+### Native Steam Settings
 
-GPU controls are exposed through the Performance QAM's vendor sections, independent of the device
-integration switch. The Graphics page renderer remains registered while graphics packages run, but
-it has no separate entry in Big Picture's left menu.
+Display, Power, Audio and Controller extend Steam's existing Settings pages through
+`SteamNativeSettingsSurface`. Native device, volume and controller rows stay in place. There is no
+separate WSGM Graphics route. These pages follow the CEF switch independently of native Quick
+Access.
 
-The page is drawn by the same toolkit settings renderer as WSGM's settings page, with a sidebar laid
-out the way Intel Graphics Software lays out its tabs: one page per adapter and one per display, as
-the package declares them. Each declared category is a Steam settings section on that page. The rows
-come from the same projection as the overlay's Device > GPU section (`GraphicsOverlayBridge`), so
-the two never disagree:
+`SteamNativeSettingsService` borrows the host's QAM adapters. Display exposes brightness,
+resolution, refresh rate, variable refresh and the shared display-off timeouts alongside GPU
+sections from `SteamGraphicsService`. Adapter, display and category headings come from
+`GraphicsOverlayBridge`; a publisher retracts its rows when it stops. Power uses the existing TDP,
+AutoTDP, power preset, Windows power scheme, CPU boost, hybrid-core and device-capability owners.
+Audio uses `NativeQamAudioFormatService` for the active endpoint's channels, default format and
+spatial sound. Controller projects the device's lighting capabilities, with explicit commits for
+persistent color changes.
+
+Profile-aware controls name the currently edited layer and use the same profile toggle and reset
+owner as Quick Access. Published rows carry supported choices, bounds, readback and unavailable
+reasons; writes are checked again against current capability state. The host's capability, profile,
+audio and GPU subscriptions update both surfaces. A host-owned two-second timer queues the same
+publication pump for external Windows changes; it creates no separate control backend. Display
+signals invalidate the shared resolution discovery cache. Audio and profile row identities reject
+commands from an endpoint or editing scope that has since been replaced.
 
 - A toggle, a range with bounds and a choice are Steam's toggle, slider and dropdown. A value the
   page cannot edit is a value field, and an action is a button.
-- A row that applies later says so under its label: "Applies when a game next starts" or "Applies
-  after restart".
-- A row the running game overrides leads its description with "Game override", the accent label
+- A GPU row that applies later says so under its label: "Applies when a game next starts" or
+  "Applies after restart".
+- A GPU row the running game overrides leads its description with "Game override", the accent label
   WSGM's layout publishes, in Steam's accent blue, as the Quick Access rows do. There is no Use
   global control on Steam's surfaces; Steam's Reset button returns the game to Global, and the
   overlay keeps its own Use global. A Global-only row is never marked.
-- An unavailable row is disabled and its line says why. A package that is not ready puts its status
-  first on each of its pages.
+- An unavailable row is disabled and its line says why. A GPU package that is not ready puts its
+  status before its controls.
 - Variable refresh is a normal row here; Valve's Performance row stays where it was.
 
-A change is sent as `set` with the row's key, `<pluginId>/<capabilityId>#<instanceId>`, and a value
-in the row's own shape. `SteamGraphicsService` checks it against the row as published now, a range
-against its bounds and step and a choice against its values, and hands it to
-`GpuCoordinator.ExecuteAsync` as the user's write, which saves it by the row's profile scope exactly
-as the overlay does. A refused or uncertain write is reported back and never retried; the page drops
-that row's draft, shows the published value again and puts the reason in the row's description.
-Drafts in other rows, including text still being typed, are kept.
+A GPU change is sent as `set` with a Settings row key qualified by the editing scope. The native
+projection delegates the underlying `<pluginId>/<capabilityId>#<instanceId>` key and primitive value
+to `SteamGraphicsService`. It checks the value against the row as published now, a range against its
+bounds and step and a choice against its values, and hands it to `GpuCoordinator.ExecuteAsync` as
+the user's write, which saves it by the row's profile scope exactly as the overlay does. A refused
+or uncertain write is reported back and never retried; the page drops that row's draft, shows the
+published value again and puts the reason in the row's description. Drafts in other rows, including
+text still being typed, are kept.
 
-WSGM's side is `SteamGraphicsService`, `SteamGraphicsSurface` and the thin `wsgm-graphics.ts`. It
-has not yet had a live pass in Big Picture.
+Native-page discovery was checked against the installed Steam bundle. Rendering, navigation,
+hotplug, cross-surface writes and Stable/Beta behavior still require the maintainer's live pass.
+
+#### Rumble calibration feasibility
+
+The Controller page currently adds device lighting. Per-user rumble calibration is feasible but has
+not been implemented. `HapticCapabilities.MinimumStartIntensity` and `MinimumPulse` describe the
+motors' hardware limits; they must remain separate from user comfort preferences.
+`ControllerOutputRouter.RunAsync` already floors and stretches bounded `StopAfter` effects while
+leaving continuous rumble untouched. A user gain and perceptual pulse floor can be applied there
+without changing device protocols. Device Lab's `WizardWindow.Rumble` has the weakest-feelable
+strength slider and 5/10/25/50/100/250/500 ms pulse choices, with motor zeroing in `finally`.
+
+An implementation needs stored user preferences and one bounded preview owner that stops on page
+close, controller loss, CEF generation change and WSGM ownership release. Device Lab's attended
+motor tests are evidence about feasibility, not an automatically safe calibration page or a fresh
+hardware pass.
 
 ### Steam themes
 

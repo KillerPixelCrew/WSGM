@@ -85,6 +85,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <summary>The library importer behind the Quick Access tab's page, or null.</summary>
     private readonly GameLibraryService? _libraryImport;
 
+    private readonly SteamNativeSettingsService _nativeSettings;
+    private readonly Timer _nativeStateRefresh;
+
     /// <summary>The Wi-Fi surface, or null when this session has no radio manager.</summary>
     private readonly NativeQamNetworkService? _network;
 
@@ -146,9 +149,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
     // Derived from the switches and the active glyph profile: whether the glyph stylesheet is on.
     private volatile bool _glyphDeliveryEnabled;
-
-    // The same for the Graphics page, whose row also needs a running graphics package.
-    private volatile bool _graphicsReady;
 
     // The registered plugin patches' ids. Replaced whole under _switchGate.
     private volatile HashSet<string> _pluginPatchIds = [];
@@ -238,6 +238,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             ? new NativeQamAudioFormatService(formatAudio, audioProfiles)
             : null;
         _brightness = backends.Brightness;
+        _nativeSettings = new SteamNativeSettingsService(_brightness, _resolution, _performance, _tdp,
+            _autoTdp, _powerProfiles, _powerPresets, _cpuBoost, _hybridCores, _audioFormat, _graphics,
+            _coordinator, _profiles, _displayTimeouts);
         _network = backends.Radios is { } radios
             ? new NativeQamNetworkService(
                 radios,
@@ -292,6 +295,16 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
 
         Subscribe();
+        // Audio formats and Windows power policy can change without a manager event. Refresh the
+        // existing shared projections, including QAM, while native Settings integration is enabled.
+        _nativeStateRefresh = new Timer(static state =>
+        {
+            var host = (SteamUiSessionHost)state!;
+            if (!host._disposed && host._switches.HostSurfaces)
+            {
+                host.QueueStatePublication();
+            }
+        }, this, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
     }
 
     /// <inheritdoc />
@@ -512,6 +525,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     internal void CloseAdmission()
     {
         _disposed = true;
+        _nativeStateRefresh.Dispose();
         ClearSwitches();
     }
 
@@ -873,11 +887,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
         var snapshots = _patches.GetSnapshots();
         var ready = WsgmSettingsPageReady(snapshots);
-        var graphicsReady = _graphics is not null && PageReady(snapshots, SteamGraphicsSurface.PatchId);
-        if (ready != _wsgmSettingsReady || graphicsReady != _graphicsReady)
+        if (ready != _wsgmSettingsReady)
         {
             _wsgmSettingsReady = ready;
-            _graphicsReady = graphicsReady;
             QueueStatePublication();
         }
     }
@@ -1080,16 +1092,14 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 wsgmSettings));
         }
 
-        // The Graphics page: the graphics packages' controls, one sidebar page per adapter and display.
+        // GPU controls in Quick Access share their projection with Steam's Display settings.
         if (_graphics is { } graphics)
         {
             modules.Add(SteamSettingsQuickAccessRow.Module(Enabled,
                 () => new ValueTask<SteamSettingsQuickAccessState?>(graphics.ReadQuickAccessState()), graphics));
-            modules.Add(SteamGraphicsSurface.Module(
-                HostSteamUiEnabled,
-                () => new ValueTask<SteamGraphicsState?>(graphics.ReadState()),
-                graphics));
         }
+
+        modules.Add(SteamNativeSettingsSurface.Module(HostSteamUiEnabled, _nativeSettings.ReadAsync, _nativeSettings));
 
         // The themes: the page they are browsed and managed on, and the cascade the toolkit installs
         // into every window. Both follow CEF itself; the cascade also follows the themes' own switch,
@@ -1110,7 +1120,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         if (_sounds is { } sounds)
         {
             modules.Add(SteamSoundOverrideSurface.Module(HostSteamUiEnabled,
-                () => new ValueTask<SteamSoundOverrideState?>(sounds.ReadOverrides()), () => sounds.Revision));
+                () => new ValueTask<SteamSoundOverrideState?>(sounds.ReadOverrides()), () => sounds.Revision,
+                reportStatus: sounds.ReportPlaybackStatus));
         }
 
         // The boot movie's page. Follows CEF itself, like the themes' page.
@@ -1256,15 +1267,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 SteamWsgmSettingsSurface.Route,
                 "WSGM",
                 Template: SteamWsgmSettingsSurface.Template));
-        }
-
-        if (_graphics is not null)
-        {
-            pages.Add(new SteamPage(
-                "wsgm-graphics",
-                SteamGraphicsSurface.Route,
-                "Graphics",
-                Template: SteamGraphicsSurface.Template));
         }
 
         if (_themes is not null)
@@ -1465,7 +1467,16 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
     private void QueueStatePublication()
     {
-        _runtime.QueuePublication();
+        if (!_disposed)
+        {
+            _runtime.QueuePublication();
+        }
+    }
+
+    /// <summary>Republishes the shared display state after a topology notification.</summary>
+    internal void RefreshDisplayState()
+    {
+        QueueStatePublication();
     }
 
     /// <summary>Sets every registered patch's switch from the given switches. The caller holds <c>_switchGate</c>.</summary>
@@ -1499,7 +1510,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                     or SteamGameContextMenuSurface.PatchId or SteamPowerMenuSurface.PatchId
                     or SteamArtworkBrowserSurface.PatchId
                     or SteamLibraryImportSurface.PatchId or SteamWsgmSettingsSurface.PatchId
-                    or SteamGraphicsSurface.PatchId or SteamNavigationPanelSurface.PatchId or SteamThemesSurface.PatchId
+                    or SteamNavigationPanelSurface.PatchId or SteamNativeSettingsSurface.PatchId
+                    or SteamThemesSurface.PatchId
                     or SteamAnimationsSurface.PatchId or SteamSoundOverrideSurface.PatchId => host,
                 // The cascade follows the themes' own switch as well; off, the gate is retracted and
                 // every owned node leaves every window.

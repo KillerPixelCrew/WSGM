@@ -57,6 +57,28 @@ public sealed class DisplayResolutionServiceTests
     }
 
     [Fact]
+    public void DisplayChangeRefreshesSupportedChoicesWithoutLosingTheRestoreSnapshot()
+    {
+        var modes = Accepted;
+        List<DisplayResolution> applied = [];
+        var original = new DisplayResolution(1920, 1200);
+        var service = new DisplayResolutionService(() => modes, (width, height) =>
+        {
+            applied.Add(new DisplayResolution(width, height));
+            return true;
+        }, () => original);
+        Assert.True(service.Apply(Accepted[0]));
+        modes = [new DisplayResolution(2560, 1440)];
+
+        service.InvalidateOptions();
+
+        Assert.Equal(modes, service.Options());
+        Assert.False(service.Apply(Accepted[0]));
+        Assert.True(service.Restore());
+        Assert.Equal(original, applied[^1]);
+    }
+
+    [Fact]
     public void AResolutionDiscoveryDidNotAcceptIsNeverSentToTheDriver()
     {
         // One that was never validated may not display at all, and recovering from a mode the user

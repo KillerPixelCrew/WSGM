@@ -15,7 +15,7 @@ namespace WSGM.Core;
 ///     captured original would let whichever restored second put back a mode the other had already
 ///     replaced.
 ///     <para>
-///         Discovery is cached for the session, because enumerating and <c>CDS_TEST</c>-ing every mode is
+///         Discovery is cached until the display changes, because enumerating and <c>CDS_TEST</c>-ing every mode is
 ///         not something to repeat while a menu is open.
 ///     </para>
 /// </remarks>
@@ -26,6 +26,8 @@ internal sealed class DisplayResolutionService
     private readonly Lock _gate = new();
     private readonly Func<DisplayResolution?> _readCurrent;
     private IReadOnlyList<DisplayResolution>? _accepted;
+    private long _acceptedRevision = -1;
+    private long _displayRevision;
     private DisplayResolution? _original;
 
     /// <summary>Creates the service against the real display.</summary>
@@ -62,9 +64,21 @@ internal sealed class DisplayResolutionService
     {
         lock (_gate)
         {
-            _accepted ??= _discover();
+            var revision = Interlocked.Read(ref _displayRevision);
+            if (_accepted is null || _acceptedRevision != revision)
+            {
+                _accepted = _discover();
+                _acceptedRevision = revision;
+            }
+
             return _accepted;
         }
+    }
+
+    /// <summary>Invalidates mode discovery after a display signal without blocking its UI thread.</summary>
+    internal void InvalidateOptions()
+    {
+        Interlocked.Increment(ref _displayRevision);
     }
 
     /// <summary>Applies a resolution, remembering the one to put back.</summary>

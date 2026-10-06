@@ -59,6 +59,17 @@ public sealed partial class ShellSession
 
     private Task? _transportGateWork;
 
+    private void OnDisplayTopologyChanged()
+    {
+        if (_shutdownRequested)
+        {
+            return;
+        }
+
+        _resolutions?.InvalidateOptions();
+        _steamUi?.RefreshDisplayState();
+    }
+
     /// <summary>
     ///     Opens or closes the Steam UI transport from the master switch, the shell mode and
     ///     the Big Picture window. Callers that can race the master switch hold <c>_cefMasterGate</c>.
