@@ -15,7 +15,7 @@ and validation states.
 - [x] Drain backend calls before unload and retire old modules during package replacement.
 - [x] Add startup recovery with `--cef-plugins-off`, source attribution and Debugger reset.
 - [x] Provide an independently buildable example covering every placement and shared backend state.
-- [ ] Complete final compilation, commit/push, development deployment and issue closure.
+- [x] Complete final compilation, commit/push, development deployment and issue closure.
 
 Focused C# and emitted-asset regression sources are added; their execution and the test-bearing
 gate remain deferred until the maintainer's manual pass. No example plugin is installed or enabled
@@ -25,6 +25,15 @@ The first 2.1.0.1641 deployment exposed a live CDP requirement: resetting pause-
 Debugger to be enabled first. The corrected connection sequence enables it, sets pauses to none and
 immediately disables it before any script evaluation. The first deployment's bridge did not attach;
 it is not a successful live frontend validation.
+The correction is deployed in 2.1.0.1642 from 137268fa with toolkit d8902b7. Release compilation
+passed with zero warnings/errors. The installed executable matches the staged SHA-256
+CFF70474AA8B35E16D0EAE4342B9AE2D457D99A6448E81FE4ABE33CDB47F6418. CEF inspection occurred only
+after native screenshots confirmed Steam had fully loaded Big Picture. The bridge reported asset
+01D389D0AC321E4BB396894629F9CB7E4205C0F8B653876623512E5621CC335E, the frontend runtime probe
+passed, and the existing native Settings gate was installed. The example archive was built without
+installing or executing it; these checks do not claim a live third-party plugin pass. Issue 119 is
+closed as implemented. Installed app backups are under publish/deployment-backups/issue-119-1639
+and issue-119-1641. Automated test execution remains deferred to the maintainer's manual pass.
 
 ## Steam Settings issues 209–212 and sound packs 202, 2026-10-06
 
