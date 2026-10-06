@@ -42,6 +42,13 @@ occurred. WSGM and Steam are still running, so their installed files were not re
 Logs/toolchains are outside the checkout; renders remain in TestResults. Requirement 16's complete
 manual regression matrix remains Pending. These checks do not establish live acceptance.
 
+Final committed-head verification, 2026-10-06: the complete eng/verify.ps1 passed on 10276262,
+including solution-wide Rider idempotence, style/analyzers, warning-as-error Release build,
+application coverage, 6,265 tests across all 16 test targets and all four tool builds. The repeat
+was warranted by the final shared UI capture infrastructure changes. The earlier failed runs above
+are preserved. B179 and the full goal remain open solely for required attended manual acceptance; no
+live operations are authorized by this verification result.
+
 ## Previous handoff to Codex, 2026-10-05
 
 Plan items: 36 Implemented, 143 Source applied, 1 No change, 7 In progress and 3 Pending (B177 to
