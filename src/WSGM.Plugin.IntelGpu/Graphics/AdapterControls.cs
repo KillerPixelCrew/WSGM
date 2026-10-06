@@ -1,4 +1,5 @@
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Plugin.Gpu;
 using WSGM.Plugin.IntelGpu.Controls;
 using WSGM.Plugin.IntelGpu.Igcl;
 
@@ -34,9 +35,9 @@ internal sealed class SharedMemoryControl : IntelControl
     }
 
     /// <inheritdoc />
-    public override ControlWrite ProbeSupport()
+    public override ControlWrite ProbeSupport(WriteAdmission admission)
     {
-        return _transport.ProbeSupport()
+        return _transport.ProbeSupport(admission)
             ? new ControlWrite(WriteStatus.Applied,
                 Detail: "registry write access verified; existing override round-tripped, absent override retained")
             : ControlWrite.Refuse("The shared-memory override is not writable.", FailureKind.Registry);
@@ -53,11 +54,11 @@ internal sealed class SharedMemoryControl : IntelControl
     }
 
     /// <inheritdoc />
-    protected override ControlWrite WriteValidated(CapabilityValue value)
+    protected override ControlWrite WriteValidated(CapabilityValue value, WriteAdmission admission)
     {
-        return _transport.TryWrite(value.IntegerValue!.Value)
+        return _transport.TryWrite(value.IntegerValue!.Value, admission, out var error)
             ? ControlWrite.Applied
-            : ControlWrite.Refuse("The driver's memory manager key could not be written; WSGM needs elevation.",
+            : ControlWrite.Refuse(error ?? "The driver's memory manager key could not be written.",
                 FailureKind.Registry);
     }
 }

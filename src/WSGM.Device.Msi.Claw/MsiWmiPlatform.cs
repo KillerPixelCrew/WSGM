@@ -583,17 +583,6 @@ internal sealed partial class WindowsClawIdentityReader : IClawIdentityReader
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool GetSystemPowerStatus(out SystemPowerStatus status);
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct SystemPowerStatus
-    {
-        public byte AcLineStatus;
-        public byte BatteryFlag;
-        public byte BatteryLifePercent;
-        public byte SystemStatusFlag;
-        public int BatteryLifeTime;
-        public int BatteryFullLifeTime;
-    }
-
     private static string? Normalize(object? value)
     {
         var text = Convert.ToString(value, CultureInfo.InvariantCulture)?.Trim();
@@ -634,6 +623,17 @@ internal sealed partial class WindowsClawIdentityReader : IClawIdentityReader
 
         var value = Encoding.ASCII.GetString(response, marker + 1, end - marker - 1).Trim();
         return string.IsNullOrEmpty(value) ? null : value;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct SystemPowerStatus
+    {
+        public byte AcLineStatus;
+        public byte BatteryFlag;
+        public byte BatteryLifePercent;
+        public byte SystemStatusFlag;
+        public int BatteryLifeTime;
+        public int BatteryFullLifeTime;
     }
 }
 

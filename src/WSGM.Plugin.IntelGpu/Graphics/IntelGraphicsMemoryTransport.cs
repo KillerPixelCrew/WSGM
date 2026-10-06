@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
 using WSGM.Device.Sdk.Plugin;
+using WSGM.Plugin.Gpu;
 
 namespace WSGM.Plugin.IntelGpu.Graphics;
 
@@ -140,7 +141,7 @@ internal sealed partial class IntelGraphicsMemoryTransport
     }
 
     /// <summary>Checks write access and returns an existing DWORD unchanged, preserving an absent override.</summary>
-    public bool ProbeSupport()
+    public bool ProbeSupport(WriteAdmission admission)
     {
         if (_adapterPath is null)
         {
@@ -160,8 +161,9 @@ internal sealed partial class IntelGraphicsMemoryTransport
             if (value is int stored)
             {
                 // A write that did not throw is support. The readback is only traced; it never decides.
+                admission.Check();
                 memory!.SetDWord(PinningLimitValue, stored);
-                if (memory.GetValue(PinningLimitValue) is not int readback || readback != stored)
+                if (!ReadbackMatches(memory, stored))
                 {
                     _log.Info("intel-memory", $"Support discovery wrote {stored}% and read back something else.");
                 }
@@ -181,6 +183,8 @@ internal sealed partial class IntelGraphicsMemoryTransport
 
     /// <summary>Writes a new split and reads it back for the trace.</summary>
     /// <param name="percent">The requested percentage, which must be within the offered range.</param>
+    /// <param name="admission">Rechecked immediately before changing the registry value.</param>
+    /// <param name="error">Why the setting could not be written, or null on success.</param>
     /// <returns>
     ///     <see langword="true" /> when the value was written; <see langword="false" /> when it was out of
     ///     range or the registry refused it.
@@ -190,10 +194,12 @@ internal sealed partial class IntelGraphicsMemoryTransport
     ///     capability says the value takes effect after a restart. Nothing is journalled for restore:
     ///     this is a persistent user choice, and putting it back on a normal stop would undo it.
     /// </remarks>
-    public bool TryWrite(int percent)
+    public bool TryWrite(int percent, WriteAdmission admission, out string? error)
     {
+        error = null;
         if (_adapterPath is null || percent is < MinimumPercent or > MaximumPercent)
         {
+            error = "The Intel adapter or requested memory percentage is not available.";
             return false;
         }
 
@@ -206,12 +212,14 @@ internal sealed partial class IntelGraphicsMemoryTransport
             using var memory = adapter?.CreateSubKey(MemoryManagerSubkey);
             if (memory is null)
             {
+                error = "The graphics memory manager key is not writable.";
                 _log.Warn("intel-memory", "The graphics memory manager key is not writable.");
                 return false;
             }
 
+            admission.Check();
             memory.SetDWord(PinningLimitValue, percent);
-            var applied = memory.GetValue(PinningLimitValue) is int stored && stored == percent;
+            var applied = ReadbackMatches(memory, percent);
             _log.Info(
                 "intel-memory",
                 applied
@@ -220,9 +228,27 @@ internal sealed partial class IntelGraphicsMemoryTransport
                     : $"Shared GPU memory limit did not read back as {percent}%.");
             return true;
         }
+        catch (Exception failure) when (AdapterClassKey.IsRegistryFailure(failure))
+        {
+            error = failure is UnauthorizedAccessException
+                ? "Registry access was denied; WSGM needs elevation."
+                : "The memory manager key could not be written: " + IntelLog.Describe(failure);
+            _log.Warn("intel-memory", $"Writing the shared-memory split failed: {IntelLog.Describe(failure)}");
+            return false;
+        }
+    }
+
+    /// <summary>A diagnostic read after an accepted write; its failure never changes the write outcome.</summary>
+    private bool ReadbackMatches(IRegistryNode memory, int written)
+    {
+        try
+        {
+            return memory.GetValue(PinningLimitValue) is int stored && stored == written;
+        }
         catch (Exception error) when (AdapterClassKey.IsRegistryFailure(error))
         {
-            _log.Warn("intel-memory", $"Writing the shared-memory split failed: {IntelLog.Describe(error)}");
+            _log.Warn("intel-memory",
+                $"The shared-memory write was accepted, but readback failed: {IntelLog.Describe(error)}");
             return false;
         }
     }

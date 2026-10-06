@@ -59,7 +59,11 @@ internal sealed class ApplicationPluginConfigurationStore(ConfigStore store) : I
     public SavedPluginConfiguration Save(PluginInstanceIdentity identity, long expectedRevision,
         IReadOnlyDictionary<string, PluginValue> changes)
     {
-        var config = store.Update(current => { SaveInto(current, identity, expectedRevision, changes); return true; });
+        var config = store.Update(current =>
+        {
+            SaveInto(current, identity, expectedRevision, changes);
+            return true;
+        });
         return ReadFrom(config, identity);
     }
 
@@ -74,8 +78,9 @@ internal sealed class ApplicationPluginConfigurationStore(ConfigStore store) : I
 
         var saved = matches.SingleOrDefault();
         if (saved is not null && (saved.Revision < 0 || saved.Values is null
-                                  || saved.Values.Any(pair =>
-                                      !PluginConfigurationRules.ValidKey(pair.Key) || !pair.Value.IsValid)))
+                                                     || saved.Values.Any(pair =>
+                                                         !PluginConfigurationRules.ValidKey(pair.Key) ||
+                                                         !pair.Value.IsValid)))
         {
             throw new InvalidOperationException(
                 "Stored plugin preferences are invalid; preserving them without overwrite.");

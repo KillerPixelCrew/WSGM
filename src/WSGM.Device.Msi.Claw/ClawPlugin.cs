@@ -24,7 +24,6 @@ public sealed partial class ClawPlugin : IDevicePlugin
     private long _cycleGeneration;
     private ClawIdentityState? _cycleIdentity;
     private ClawModel? _cycleModel;
-    private IReadOnlyList<DeviceService<ClawIdentityState>> _cycleServices = [];
     private CapabilityDescriptorSet? _descriptorSet;
     private bool _disposed;
     private ClawFanCapability? _fanCapability;
@@ -62,7 +61,7 @@ public sealed partial class ClawPlugin : IDevicePlugin
     private ClawModel Model => _cycleModel ?? throw new InvalidOperationException("No device cycle is active.");
 
     /// <summary>The cycle's services in start order; stop releases them in reverse.</summary>
-    internal IReadOnlyList<DeviceService<ClawIdentityState>> Services => _cycleServices;
+    internal IReadOnlyList<DeviceService<ClawIdentityState>> Services { get; private set; } = [];
 
     /// <inheritdoc />
     public string PackageId => ClawHardwareFacts.PackageId;
@@ -176,7 +175,7 @@ public sealed partial class ClawPlugin : IDevicePlugin
             // Start and resume acquire in this order, and stop releases in reverse. Chord suppression
             // follows the OEM event source it requires, and the controller follows the motion service
             // it was built with. ClawPluginTests pins both orders.
-            _cycleServices =
+            Services =
             [
                 _oem,
                 _power,
@@ -244,7 +243,7 @@ public sealed partial class ClawPlugin : IDevicePlugin
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(context);
-        if (_cycleServices.Count == 0)
+        if (Services.Count == 0)
         {
             return;
         }
@@ -253,7 +252,7 @@ public sealed partial class ClawPlugin : IDevicePlugin
         _serializer.StopObservation();
         await _serializer.RunAsync(
             () => DeviceServiceLifecycle.SuspendAllAsync(
-                _cycleServices,
+                Services,
                 OperationContext(context.Deadline),
                 cancellationToken),
             cancellationToken).ConfigureAwait(false);
@@ -265,7 +264,7 @@ public sealed partial class ClawPlugin : IDevicePlugin
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(context);
-        if (_cycleServices.Count == 0)
+        if (Services.Count == 0)
         {
             return new PluginStartResult
             {
@@ -324,7 +323,7 @@ public sealed partial class ClawPlugin : IDevicePlugin
             ["cycle"] = DiagnosticCycleState(),
             ["recovery"] = _journal?.DiagnosticState ?? "unavailable"
         };
-        foreach (var service in _cycleServices)
+        foreach (var service in Services)
         {
             values[service.ServiceId] = service.State.ToString();
         }
@@ -385,17 +384,17 @@ public sealed partial class ClawPlugin : IDevicePlugin
         _serializer.StopObservation();
         return await _serializer.RunAsync(async () =>
         {
-            if (_cycleServices.Count > 0)
+            if (Services.Count > 0)
             {
-                await DeviceServiceLifecycle.ReleaseAllAsync(_cycleServices, OperationContext(context.Deadline),
+                await DeviceServiceLifecycle.ReleaseAllAsync(Services, OperationContext(context.Deadline),
                     cancellationToken).ConfigureAwait(false);
             }
 
-            var result = DeviceServiceLifecycle.StopResult(_cycleServices);
+            var result = DeviceServiceLifecycle.StopResult(Services);
 
             _active = false;
             _descriptorSet = null;
-            _cycleServices = [];
+            Services = [];
             _journal = null;
             return result;
         }, cancellationToken).ConfigureAwait(false);
@@ -461,7 +460,7 @@ public sealed partial class ClawPlugin : IDevicePlugin
     {
         _serializer.StopObservation();
         await DeviceServiceLifecycle.RollBackStartAsync(
-            _cycleServices,
+            Services,
             OperationContext(Deadline.After(TimeSpan.FromSeconds(12))),
             _host,
             _descriptorSet).ConfigureAwait(false);
@@ -469,7 +468,7 @@ public sealed partial class ClawPlugin : IDevicePlugin
         _journal = null;
         _active = false;
         _descriptorSet = null;
-        _cycleServices = [];
+        Services = [];
     }
 
     private string DiagnosticCycleState()
@@ -499,8 +498,8 @@ public sealed partial class ClawPlugin : IDevicePlugin
         DeviceCycleContext<ClawIdentityState> context,
         CancellationToken cancellationToken)
     {
-        await DeviceServiceLifecycle.AcquireAllAsync(_cycleServices, context, cancellationToken).ConfigureAwait(false);
-        foreach (var service in _cycleServices)
+        await DeviceServiceLifecycle.AcquireAllAsync(Services, context, cancellationToken).ConfigureAwait(false);
+        foreach (var service in Services)
         {
             if (service.State is DeviceServiceState.Owned)
             {
@@ -521,7 +520,7 @@ public sealed partial class ClawPlugin : IDevicePlugin
     {
         // A controller WSGM asked to keep off is not a service that failed.
         return DeviceServiceLifecycle.StartResult(
-            _cycleServices,
+            Services,
             service => service != _controller || _controller.Enabled,
             "No Claw hardware service could be acquired.",
             _host);

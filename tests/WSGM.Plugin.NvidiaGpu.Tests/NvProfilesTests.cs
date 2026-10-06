@@ -125,6 +125,28 @@ public sealed class NvProfilesTests
     }
 
     [Fact]
+    public void FailedRecordSaveAfterRestorationKeepsOwnershipUntilOnlyTheRecordCanBeSaved()
+    {
+        using var directory = new TemporaryDirectory();
+        var api = new Drs();
+        api.Values[Setting] = 7;
+        var profiles = new NvProfiles(api, directory.Root, Ignore);
+        profiles.Sync(Sync(1, 9), Controls(api), Admitted, CancellationToken.None);
+        var path = Path.Combine(directory.Root, "nvidia-profiles.v1.json");
+        using (var locked = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            Assert.Single(profiles.Sync(Empty(2), Controls(api), Admitted, CancellationToken.None).Failures);
+            Assert.Equal(7u, api.Values[Setting]);
+            Assert.Equal(2, api.Saves);
+        }
+
+        Assert.Single(DriverStateFile.Read(path, new NvProfileJournal([])).Entries);
+        Assert.Equal(1, profiles.Sync(Empty(3), Controls(api), Admitted, CancellationToken.None).Removed);
+        Assert.Equal(2, api.Saves);
+        Assert.Empty(DriverStateFile.Read(path, new NvProfileJournal([])).Entries);
+    }
+
+    [Fact]
     public void GamesSharingOneNativeProfileCannotRequestConflictingValues()
     {
         using var directory = new TemporaryDirectory();
@@ -159,12 +181,16 @@ public sealed class NvProfilesTests
         Assert.Equal(9u, api.Values[Setting]);
     }
 
-    [Fact]
-    public void CorruptJournalFailsEverySyncWithoutReplacingIt()
+    [Theory]
+    [InlineData("broken")]
+    [InlineData("{}")]
+    [InlineData("{\"Entries\":null}")]
+    [InlineData("{\"Entries\":[null]}")]
+    public void CorruptJournalFailsEverySyncWithoutReplacingIt(string content)
     {
         using var directory = new TemporaryDirectory();
         var path = Path.Combine(directory.Root, "nvidia-profiles.v1.json");
-        File.WriteAllText(path, "broken");
+        File.WriteAllText(path, content);
         var api = new Drs();
         var reports = new List<string>();
         var profiles = new NvProfiles(api, directory.Root, (key, detail) => reports.Add(key + ": " + detail));
@@ -173,7 +199,7 @@ public sealed class NvProfilesTests
         Assert.Equal("game.exe", failure.Executable);
         Assert.Equal(0, api.Saves);
         Assert.Single(reports);
-        Assert.Equal("broken", File.ReadAllText(path));
+        Assert.Equal(content, File.ReadAllText(path));
     }
 
     private static ApplicationProfileSync Empty(long revision)

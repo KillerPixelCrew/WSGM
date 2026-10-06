@@ -153,6 +153,7 @@ internal sealed class ArtworkStateStore
             filter.Dimensions ??= [];
             filter.Mimes ??= [];
         }
+
         return _state;
     }
 

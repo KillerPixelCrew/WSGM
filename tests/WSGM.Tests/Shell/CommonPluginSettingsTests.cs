@@ -10,6 +10,34 @@ namespace WSGM.Tests.Shell;
 public sealed class CommonPluginSettingsTests
 {
     [Fact]
+    public async Task ClosingAdmissionRejectsADirectSettingsChangeBeforeOrderedStop()
+    {
+        PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
+        Configurable plugin = new();
+        var registration = Admit(host, plugin);
+        await registration.StartAsync(Deadline, CancellationToken.None);
+        try
+        {
+            await registration.ConfigureAsync(0,
+                new Dictionary<string, PluginValue> { ["level"] = new(Number: 35) },
+                Deadline, CancellationToken.None);
+            var delivered = plugin.Deliveries.Count;
+
+            registration.CloseAdmission();
+            await Assert.ThrowsAsync<InvalidOperationException>(() => registration.ConfigureAsync(1,
+                new Dictionary<string, PluginValue> { ["level"] = new(Number: 50) },
+                Deadline, CancellationToken.None));
+
+            Assert.Equal(delivered, plugin.Deliveries.Count);
+            Assert.Equal(new PluginValue(Number: 35), registration.Settings!.Desired!.Values["level"]);
+        }
+        finally
+        {
+            await Close(registration);
+        }
+    }
+
+    [Fact]
     public async Task DefaultsAndHardwareReadbackNeverBecomeSavedPreferences()
     {
         MemoryPluginConfigurationStore store = new();

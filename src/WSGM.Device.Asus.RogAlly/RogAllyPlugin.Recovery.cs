@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Device.Sdk.Capabilities;
@@ -107,11 +108,25 @@ public sealed partial class RogAllyPlugin
                     .ConfigureAwait(false);
                 return;
             case AllyServiceIds.Controller:
+                List<Exception> failures = [];
                 foreach (var report in AllyProtocol.DefaultConfiguration)
                 {
-                    // Acknowledged is the most the MCU can say about its tables; a refused one throws and
-                    // leaves the entry pending.
-                    await _vendor!.WriteConfigurationAsync(report, cancellationToken).ConfigureAwait(false);
+                    // HC sends every table even when one is refused. Each gets one attempt, and any
+                    // refusal leaves the recovery entry pending.
+                    try
+                    {
+                        await _vendor!.WriteConfigurationAsync(report, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (Exception ex) when (ex is not OutOfMemoryException &&
+                                               !cancellationToken.IsCancellationRequested)
+                    {
+                        failures.Add(ex);
+                    }
+                }
+
+                if (failures.Count != 0)
+                {
+                    throw new AggregateException("Controller table restoration was not complete.", failures);
                 }
 
                 return;

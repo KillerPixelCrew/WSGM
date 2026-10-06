@@ -49,7 +49,6 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
         "Only a title that is being imported or is already in Steam can be changed here.";
 
     /// <summary>How long disposal waits for a write in flight to be recorded.</summary>
-
     /// <summary>The answer to any change to the list while an apply is working through it.</summary>
     /// <remarks>
     ///     An apply composes a title's shortcut, writes it, and then records the mode and writes the
@@ -95,7 +94,6 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
     private readonly Func<string, string, ManagedControllerTarget?, bool, CancellationToken, Task<bool>>?
         _setControllerTarget;
 
-    private GameLibraryConfig _settings;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly ImportStateStore _store;
 
@@ -116,6 +114,8 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
     private bool _rescanAfterRun;
     private long _revision;
     private Task _running = Task.CompletedTask;
+
+    private GameLibraryConfig _settings;
     private CancellationTokenSource? _work;
 
     /// <summary>Creates the backend over its sources and the client calls it drives.</summary>
@@ -201,51 +201,9 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
     private bool Busy => _phase is Phase.Scanning or Phase.Applying;
 
     /// <inheritdoc />
-    public void Dispose() => CloseAdmission();
-
-    /// <summary>Refuses new commands and cancels pending work without blocking the caller.</summary>
-    internal void CloseAdmission()
-    {
-        lock (_gate)
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            _disposed = true;
-        }
-
-        if (_artwork is not null)
-        {
-            _artwork.Changed -= OnArtworkChanged;
-        }
-
-        _shutdown.Cancel();
-    }
-
-    /// <summary>Waits for active writes within the caller's shutdown deadline.</summary>
-    internal async Task StopAsync(Deadline deadline)
+    public void Dispose()
     {
         CloseAdmission();
-        Task running;
-        lock (_gate)
-        {
-            running = _running;
-        }
-
-        using var stop = deadline.CreateCancellationSource();
-        try
-        {
-            await running.WaitAsync(stop.Token).ConfigureAwait(false);
-            await _collectionSync.WaitAsync(stop.Token).ConfigureAwait(false);
-            // Every collection writer uses the cancelled lifetime or run token.
-            _collectionSync.Release();
-        }
-        catch (OperationCanceledException) when (stop.IsCancellationRequested)
-        {
-            // Active work keeps its state until it finishes; a sent write must still be recorded.
-        }
     }
 
     /// <summary>Raised when the published state changed.</summary>
@@ -1127,15 +1085,6 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
         }
     }
 
-    private GameLibraryOptionsAnswer ArtworkOptionsOf(Entry entry, ArtworkAsset type)
-    {
-        _artwork?.Prioritize(entry.Id);
-        var options = Options(entry, type);
-        var progress = Progress(entry);
-        return new GameLibraryOptionsAnswer(ArtworkAssetNames.ToId(type), StatusName(progress.Status),
-            progress.Detail, Slot(entry, type, options, ReadSettings().ArtworkPreference).Index, options);
-    }
-
     /// <summary>The state both surfaces render.</summary>
     /// <remarks>
     ///     Built once per revision and kept: the Steam bridge and the overlay both ask on every round,
@@ -1181,6 +1130,60 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
         }
     }
 
+    /// <summary>Refuses new commands and cancels pending work without blocking the caller.</summary>
+    internal void CloseAdmission()
+    {
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+        }
+
+        if (_artwork is not null)
+        {
+            _artwork.Changed -= OnArtworkChanged;
+        }
+
+        _shutdown.Cancel();
+    }
+
+    /// <summary>Waits for active writes within the caller's shutdown deadline.</summary>
+    internal async Task StopAsync(Deadline deadline)
+    {
+        CloseAdmission();
+        Task running;
+        lock (_gate)
+        {
+            running = _running;
+        }
+
+        using var stop = deadline.CreateCancellationSource();
+        try
+        {
+            await running.WaitAsync(stop.Token).ConfigureAwait(false);
+            await _collectionSync.WaitAsync(stop.Token).ConfigureAwait(false);
+            // Every collection writer uses the cancelled lifetime or run token.
+            _collectionSync.Release();
+        }
+        catch (OperationCanceledException) when (stop.IsCancellationRequested)
+        {
+            // Active work keeps its state until it finishes; a sent write must still be recorded.
+        }
+    }
+
+    private GameLibraryOptionsAnswer ArtworkOptionsOf(Entry entry, ArtworkAsset type)
+    {
+        _artwork?.Prioritize(entry.Id);
+        var options = Options(entry, type);
+        var progress = Progress(entry);
+        return new GameLibraryOptionsAnswer(ArtworkAssetNames.ToId(type), StatusName(progress.Status),
+            progress.Detail, Slot(entry, type, options, ReadSettings().ArtworkPreference).Index, options);
+    }
+
     private GameLibraryConfig ReadSettings()
     {
         lock (_gate)
@@ -1203,6 +1206,7 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
 
                 _settings = _updateSettings!(change).Copy();
             }
+
             refusal = SteamUiCommandResult.Applied;
             return true;
         }
@@ -1306,7 +1310,8 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
                 }
                 catch (ImportStateException ex)
                 {
-                    result = new SteamUiCommandResult(false, $"Changed here, but not saved for the next scan. {ex.Message}");
+                    result = new SteamUiCommandResult(false,
+                        $"Changed here, but not saved for the next scan. {ex.Message}");
                 }
             }
         }
@@ -1366,7 +1371,8 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
             }
             catch (ImportStateException ex)
             {
-                result = new SteamUiCommandResult(false, $"Changed here, but not saved for the next scan. {ex.Message}");
+                result = new SteamUiCommandResult(false,
+                    $"Changed here, but not saved for the next scan. {ex.Message}");
             }
         }
 
@@ -2180,7 +2186,7 @@ internal sealed class GameLibraryService : IGameLibraryOverlaySource, IDisposabl
         if (entry.Action is ImportAction.Add)
         {
             return existing.FirstOrDefault(shortcut => !claimedByOthers.Contains(shortcut.AppId)
-                && ImportPlan.Owns(shortcut, entry.Game, launcher))
+                                                       && ImportPlan.Owns(shortcut, entry.Game, launcher))
                 is { } appeared
                 ? plan with { Action = ImportAction.Update, AppId = appeared.AppId }
                 : plan with { Action = ImportAction.Add, AppId = 0 };

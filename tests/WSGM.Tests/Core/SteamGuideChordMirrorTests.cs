@@ -55,6 +55,52 @@ public sealed class SteamGuideChordMirrorTests
 
     private static readonly int ValveSize = Encoding.UTF8.GetByteCount(ValveTemplate);
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SettingAndTargetUpdatesConvergeAndEitherCanRestoreValvesTemplate(bool targetFirst)
+    {
+        using Rig rig = new();
+        rig.WriteAutosave(Autosave(20));
+        using var mirror = rig.Create();
+        mirror.SetEnabled(false);
+        if (targetFirst)
+        {
+            mirror.SetSteamDeckTargetActive(true);
+            Assert.Equal(ValveTemplate, rig.Template);
+            mirror.SetEnabled(true);
+        }
+        else
+        {
+            mirror.SetEnabled(true);
+            Assert.Equal(ValveTemplate, rig.Template);
+            mirror.SetSteamDeckTargetActive(true);
+        }
+
+        Assert.Equal(Mirrored(20), rig.Template);
+        mirror.SetSteamDeckTargetActive(false);
+        Assert.Equal(ValveTemplate, rig.Template);
+        mirror.SetSteamDeckTargetActive(true);
+        Assert.Equal(Mirrored(20), rig.Template);
+        mirror.SetEnabled(false);
+        Assert.Equal(ValveTemplate, rig.Template);
+    }
+
+    [Fact]
+    public void TheNewestOversizedChordLayoutNeverFallsBackToAnOlderBinding()
+    {
+        using Rig rig = new();
+        rig.WriteAutosave(Autosave(20), "old.vdf");
+        var newest = Autosave(21).Replace("gr_toggle", new string('x', 4 * 1024 * 1024),
+            StringComparison.Ordinal);
+        rig.WriteAutosave(newest, "new.vdf");
+        using var mirror = rig.Create();
+        mirror.SetEnabled(true);
+        mirror.SetSteamDeckTargetActive(true);
+
+        Assert.Equal(ValveTemplate, rig.Template);
+    }
+
     private static string Autosave(int revision)
     {
         return $$"""

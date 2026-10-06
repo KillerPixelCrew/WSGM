@@ -135,6 +135,27 @@ public sealed class NativeQamPerfProjectionTests
         Assert.False(state.PerApp?.IsFpsLimitEnabled);
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void ADisabledFrameLimitSitsAtTheHighestCapAndReadsAsOff(int cap)
+    {
+        var state = NativeQamPerfProjection.Project(
+            new PerformanceValues(cap, 1),
+            Support(options: [120, 30, 60, 0, -1]),
+            null,
+            false,
+            false,
+            null,
+            null);
+
+        Assert.Equal([30, 60, 120], state.Limits?.FpsLimitOptions);
+        Assert.Equal([30, 60, 120], state.Limits?.FpsLimitOptionsExternal);
+        Assert.Equal(120, state.PerApp?.FpsLimit);
+        Assert.Equal(120, state.PerApp?.FpsLimitExternal);
+        Assert.False(state.PerApp?.IsFpsLimitEnabled);
+    }
+
     [Fact]
     public void NoFrameLimitOptionsHidesTheSliderRatherThanShowingAnEmptyOne()
     {
@@ -205,6 +226,8 @@ public sealed class NativeQamPerfProjectionTests
     [Theory]
     [InlineData(60, true)]
     [InlineData(null, false)]
+    [InlineData(0, false)]
+    [InlineData(-1, false)]
     public void TheCapAndItsEnabledFlagAgree(int? cap, bool expected)
     {
         // Steam draws the slider from the cap and its on/off state from the flag; disagreeing

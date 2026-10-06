@@ -12,7 +12,8 @@ public static class DeviceApi
     ///     <c>DeviceRecoveryJournal</c> no longer disposable. Its <c>BeginAsync</c> re-arms an unresolved entry
     ///     instead of refusing it, <c>CheckHealthAsync</c> and the value overload of
     ///     <c>CommandResults.Unverified</c> are removed, and <c>DeviceWriteBudget</c>,
-    ///     <c>CapabilityValueValidation</c>, <c>CapabilityIds</c> and <c>SourceOwnership</c> are new. The full history is the API table in the SDK's
+    ///     <c>CapabilityValueValidation</c>, <c>CapabilityIds</c> and <c>SourceOwnership</c> are new. The full history is the
+    ///     API table in the SDK's
     ///     <c>docs/reference.md</c>.
     /// </remarks>
     public const int Version = 12;

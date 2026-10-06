@@ -273,7 +273,7 @@ public static class WindowFinder
                 }
             }
 
-            if (!MemoryExtensions.Equals(buffer[..(int)len], state.WindowClass.AsSpan(), StringComparison.OrdinalIgnoreCase))
+            if (!buffer[..(int)len].Equals(state.WindowClass.AsSpan(), StringComparison.OrdinalIgnoreCase))
             {
                 return 1;
             }
@@ -408,21 +408,6 @@ public static class WindowFinder
         NativeMethods.SetForegroundWindow(hWnd);
     }
 
-    private sealed class SearchState
-    {
-        public nint Found;
-        public required HashSet<uint> ProcessIds;
-        public string? WindowClass;
-    }
-
-    private sealed class ListState
-    {
-        public required HashSet<nint> IncludedWindows;
-        public uint OwnPid;
-        public required List<AppWindow> Result;
-        public nint ShellWindow;
-    }
-
     private static unsafe string ReadWindowTitle(nint window)
     {
         Span<char> small = stackalloc char[256];
@@ -432,7 +417,7 @@ public static class WindowFinder
             var rented = required > small.Length ? ArrayPool<char>.Shared.Rent(required) : null;
             try
             {
-                Span<char> buffer = rented is null ? small : rented.AsSpan();
+                var buffer = rented is null ? small : rented.AsSpan();
                 int length;
                 fixed (char* pointer = buffer)
                 {
@@ -454,6 +439,21 @@ public static class WindowFinder
                 }
             }
         }
+    }
+
+    private sealed class SearchState
+    {
+        public nint Found;
+        public required HashSet<uint> ProcessIds;
+        public string? WindowClass;
+    }
+
+    private sealed class ListState
+    {
+        public required HashSet<nint> IncludedWindows;
+        public uint OwnPid;
+        public required List<AppWindow> Result;
+        public nint ShellWindow;
     }
 
     /// <summary>A visible, switchable top-level window discovered during enumeration.</summary>

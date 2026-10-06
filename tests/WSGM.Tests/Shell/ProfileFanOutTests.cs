@@ -69,6 +69,7 @@ public sealed class ProfileFanOutTests
                 {
                     replacementStarted.TrySetResult();
                 }
+
                 try
                 {
                     await release.Task.WaitAsync(token);
@@ -82,9 +83,11 @@ public sealed class ProfileFanOutTests
             })
         ]);
 
-        fanOut.Queue(new ProfileSnapshot(profiles.Current.Config, profiles.Current.Active, 10), ProfileChangeKind.Values);
+        fanOut.Queue(new ProfileSnapshot(profiles.Current.Config, profiles.Current.Active, 10),
+            ProfileChangeKind.Values);
         await started.Task;
-        fanOut.Queue(new ProfileSnapshot(profiles.Current.Config, profiles.Current.Active, 11), ProfileChangeKind.Values);
+        fanOut.Queue(new ProfileSnapshot(profiles.Current.Config, profiles.Current.Active, 11),
+            ProfileChangeKind.Values);
         release.SetResult();
         await fanOut.Completion;
         Assert.Equal([(10, false), (11, false)], passes);
@@ -92,9 +95,11 @@ public sealed class ProfileFanOutTests
         passes.Clear();
         started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        fanOut.Queue(new ProfileSnapshot(profiles.Current.Config, profiles.Current.Active, 12), ProfileChangeKind.Values);
+        fanOut.Queue(new ProfileSnapshot(profiles.Current.Config, profiles.Current.Active, 12),
+            ProfileChangeKind.Values);
         await started.Task;
-        fanOut.Queue(new ProfileSnapshot(profiles.Current.Config, profiles.Current.Active, 13), ProfileChangeKind.Application);
+        fanOut.Queue(new ProfileSnapshot(profiles.Current.Config, profiles.Current.Active, 13),
+            ProfileChangeKind.Application);
         await replacementStarted.Task;
         release.SetResult();
         await fanOut.Completion;

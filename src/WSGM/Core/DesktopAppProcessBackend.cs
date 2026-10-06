@@ -80,7 +80,8 @@ internal sealed class DesktopAppProcessBackend(UserDataContext context) : IDeskt
             // PID reuse is not authority to stop a new process, even with the same filename.
             if (process.SessionId != WindowFinder.CurrentSessionId
                 || process.StartTime.ToUniversalTime() != instance.StartTime
-                || !string.Equals(NativeShellProcess.TryGetImagePath(checked((uint)process.Id)), instance.ExecutablePath,
+                || !string.Equals(NativeShellProcess.TryGetImagePath(checked((uint)process.Id)),
+                    instance.ExecutablePath,
                     StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidOperationException($"{instance.Rule.Name}'s process identity changed.");
@@ -187,7 +188,7 @@ internal sealed class DesktopAppProcessBackend(UserDataContext context) : IDeskt
         else
         {
             result = await UnelevatedLauncher.TryStartViaScheduledTaskAsync(
-                context,
+                    context,
                     instance.ExecutablePath, instance.Rule.RestartArguments, deadline,
                     Path.GetDirectoryName(instance.ExecutablePath), CancellationToken.None)
                 .ConfigureAwait(false);

@@ -108,7 +108,7 @@ internal sealed unsafe class IgclApi : IDisposable
         }
 
         IgclApi api = new(library);
-        if (api.TryBind(log))
+        if (api.TryBind(log, name => NativeLibrary.TryGetExport(library, name, out var address) ? address : 0))
         {
             log.Change(DeviceTraceLevel.Info, "igcl", "library", "ControlLib.dll is loaded.");
             return api;
@@ -118,7 +118,14 @@ internal sealed unsafe class IgclApi : IDisposable
         return null;
     }
 
-    private bool TryBind(IntelLog log)
+    /// <summary>Binds the same required and optional exports from a supplied address resolver.</summary>
+    internal static IgclApi? Bind(Func<string, nint> resolve, IntelLog log)
+    {
+        IgclApi api = new(0);
+        return api.TryBind(log, resolve) ? api : null;
+    }
+
+    private bool TryBind(IntelLog log, Func<string, nint> resolve)
     {
         // Addresses first, cast at the end: a function-pointer type cannot be a generic argument, so
         // it cannot be threaded through one shared helper.
@@ -183,7 +190,8 @@ internal sealed unsafe class IgclApi : IDisposable
 
         bool Required(string name, out nint address)
         {
-            if (NativeLibrary.TryGetExport(_library, name, out address))
+            address = resolve(name);
+            if (address != 0)
             {
                 return true;
             }
@@ -194,7 +202,7 @@ internal sealed unsafe class IgclApi : IDisposable
 
         nint Optional(string name)
         {
-            return NativeLibrary.TryGetExport(_library, name, out var address) ? address : 0;
+            return resolve(name);
         }
     }
 }

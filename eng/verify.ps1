@@ -44,6 +44,9 @@ try {
     npm run steam-assets:claims
     if ($LASTEXITCODE -ne 0) { throw "Steam UI emitted-asset checks failed" }
 
+    node --test eng/steam-fingerprints.test.mjs
+    if ($LASTEXITCODE -ne 0) { throw "Steam fingerprint reader checks failed" }
+
     & "$PSScriptRoot\check-agent-guidance.ps1"
 
     # Parse every retained PowerShell entry point in this repository and its recursive submodules.
@@ -123,7 +126,9 @@ try {
     # build), but a refactor that breaks them must still fail here. Tracked files only, so bin and
     # obj never appear.
     $toolProjects = @(git ls-files -- "tools/*.csproj")
-    if ($toolProjects.Count -eq 0) { throw "No tool projects found under tools/" }
+    if ($LASTEXITCODE -ne 0 -or $toolProjects.Count -eq 0) {
+        throw "Enumerating tracked tool projects failed"
+    }
     foreach ($toolProject in $toolProjects) {
         dotnet restore $toolProject -m:1
         if ($LASTEXITCODE -ne 0) { throw "dotnet restore failed for $toolProject" }

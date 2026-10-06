@@ -38,11 +38,6 @@ public sealed class AnimationLibrary
         Root = root;
     }
 
-    /// <summary>WSGM's animations folder.</summary>
-    /// <param name="context">The owner's explicit user data context.</param>
-    /// <returns>The owner's animation directory.</returns>
-    public static string DefaultRoot(UserDataContext context) => Path.Combine(context.Root, "animations");
-
     /// <summary>The folder.</summary>
     public string Root { get; }
 
@@ -63,6 +58,14 @@ public sealed class AnimationLibrary
 
     /// <summary>The last problem reading the folder, or null.</summary>
     public string? LoadError { get; private set; }
+
+    /// <summary>WSGM's animations folder.</summary>
+    /// <param name="context">The owner's explicit user data context.</param>
+    /// <returns>The owner's animation directory.</returns>
+    public static string DefaultRoot(UserDataContext context)
+    {
+        return Path.Combine(context.Root, "animations");
+    }
 
     /// <summary>Reads the folder.</summary>
     public void Load()

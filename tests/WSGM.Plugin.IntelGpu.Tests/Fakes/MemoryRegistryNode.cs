@@ -12,6 +12,13 @@ internal sealed class MemoryRegistryNode : IRegistryNode
     /// <summary>Makes every open of this key throw, as an adapter subkey the caller may not read does.</summary>
     public bool Unreadable { get; set; }
 
+    /// <summary>Runs during preparatory key creation, before the transport's DWORD write.</summary>
+    internal Action? BeforeCreateSubKey { get; set; }
+
+    internal Action? BeforeSetDWord { get; set; }
+    internal Action? AfterSetDWord { get; set; }
+    internal Func<string, object?, object?>? ReadValue { get; set; }
+
     public IRegistryNode? OpenSubKey(string path, bool writable = false)
     {
         return Find(path);
@@ -19,6 +26,7 @@ internal sealed class MemoryRegistryNode : IRegistryNode
 
     public IRegistryNode CreateSubKey(string name)
     {
+        BeforeCreateSubKey?.Invoke();
         return Create(name);
     }
 
@@ -34,12 +42,15 @@ internal sealed class MemoryRegistryNode : IRegistryNode
 
     public object? GetValue(string name)
     {
-        return _values.GetValueOrDefault(name);
+        var value = _values.GetValueOrDefault(name);
+        return ReadValue is null ? value : ReadValue(name, value);
     }
 
     public void SetDWord(string name, int value)
     {
+        BeforeSetDWord?.Invoke();
         _values[name] = value;
+        AfterSetDWord?.Invoke();
     }
 
     public void DeleteValue(string name)

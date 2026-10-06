@@ -38,11 +38,11 @@ public sealed class LabMotionChannelTests
     }
 
     [Fact]
-    public void Add_KeepsBoundedEvenlySpacedSamples()
+    public void Add_KeepsEveryReadingBeyondTheOldSampleCap()
     {
         LabMotionChannel channel = new(["x"]);
         channel.Begin(0);
-        const int readings = LabMotionChannel.MaximumSamples * 5;
+        const int readings = 10_000;
         for (var i = 0; i < readings; i++)
         {
             channel.Add(i, i * TimeSpan.TicksPerMillisecond, [i]);
@@ -51,10 +51,10 @@ public sealed class LabMotionChannelTests
         var record = channel.End();
 
         Assert.Equal(readings, record.Count);
-        Assert.True(record.Samples.Count <= LabMotionChannel.MaximumSamples);
-        Assert.True(record.SampleStride > 1);
+        Assert.Equal(readings, record.Samples.Count);
+        Assert.Equal(1, record.SampleStride);
         Assert.Equal(0d, record.Samples[0][2]);
-        Assert.True(record.Samples[^1][2] > readings * 0.9);
+        Assert.Equal(readings - 1d, record.Samples[^1][2]);
         Assert.Equal(1000d, record.SensorRateHz);
         Assert.All(record.Samples.Zip(record.Samples.Skip(1)),
             pair => Assert.Equal(record.SampleStride, pair.Second[2]!.Value - pair.First[2]!.Value));

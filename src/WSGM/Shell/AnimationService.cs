@@ -76,6 +76,10 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     private readonly Func<string?> _steamDirectory;
     private readonly Func<bool> _steamRunning;
     private readonly Lock _sync = new();
+
+    // Every background task this service started and has not seen finish: repository reads, movie
+    // downloads and copies, reloads and Steam choice work. Guarded by _sync; the session joins them.
+    private readonly List<Task> _work = [];
     private readonly Action<Action<AnimationsConfig>> _writeConfig;
     private string _activeTab = "browse";
     private IReadOnlyList<SteamAnimationsItem>? _browseItems;
@@ -96,10 +100,6 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
     private bool _restartNeeded;
     private long _revision;
     private CancellationTokenSource? _steamChoiceWork;
-
-    // Every background task this service started and has not seen finish: repository reads, movie
-    // downloads and copies, reloads and Steam choice work. Guarded by _sync; the session joins them.
-    private readonly List<Task> _work = [];
 
     /// <summary>Creates the service.</summary>
     /// <param name="library">The movies.</param>
@@ -151,6 +151,20 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         }
     }
 
+    /// <summary>Completes when every background task this service started has finished.</summary>
+    /// <remarks>The session joins it after <see cref="Dispose" /> cancelled the work, within its deadline.</remarks>
+    internal Task Completion
+    {
+        get
+        {
+            lock (_sync)
+            {
+                _work.RemoveAll(static task => task.IsCompleted);
+                return Task.WhenAll(_work);
+            }
+        }
+    }
+
     /// <summary>Raised on every change the page, the section or the overlay should draw.</summary>
     public event Action? Changed;
 
@@ -166,20 +180,6 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         // A Steam choice still waiting is linked to the shutdown and disposes its own source. The
         // source itself stays undisposed: work still finishing reads its token, and it holds no timer.
         _shutdown.Cancel();
-    }
-
-    /// <summary>Completes when every background task this service started has finished.</summary>
-    /// <remarks>The session joins it after <see cref="Dispose" /> cancelled the work, within its deadline.</remarks>
-    internal Task Completion
-    {
-        get
-        {
-            lock (_sync)
-            {
-                _work.RemoveAll(static task => task.IsCompleted);
-                return Task.WhenAll(_work);
-            }
-        }
     }
 
     /// <inheritdoc />
@@ -565,7 +565,11 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
         // Still synchronous, so the override written below is what Steam reads when it starts.
         if (picked is { } boot)
         {
-            ChangeConfig(config => config.Boot = boot);
+            if (!ChangeConfig(config => config.Boot = boot))
+            {
+                Publish();
+                return;
+            }
         }
 
         var report = ApplyChoice();

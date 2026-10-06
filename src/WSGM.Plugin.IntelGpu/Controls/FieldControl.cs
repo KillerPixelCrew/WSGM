@@ -1,4 +1,5 @@
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Plugin.Gpu;
 using WSGM.Plugin.IntelGpu.Igcl;
 
 namespace WSGM.Plugin.IntelGpu.Controls;
@@ -73,15 +74,16 @@ internal class FieldControl<T> : IntelControl
     }
 
     /// <inheritdoc />
-    public override ControlWrite ProbeSupport()
+    public override ControlWrite ProbeSupport(WriteAdmission admission)
     {
-        return Source.ProbeSupport();
+        return Source.ProbeSupport(admission);
     }
 
     /// <inheritdoc />
-    protected override ControlWrite WriteValidated(CapabilityValue value)
+    protected override ControlWrite WriteValidated(CapabilityValue value, WriteAdmission admission)
     {
-        return ControlWrite.From(Source.Write(Encode(value)), Descriptor.Display.CustomLabel ?? CapabilityId);
+        return ControlWrite.From(Source.Write(Encode(value), admission),
+            Descriptor.Display.CustomLabel ?? CapabilityId);
     }
 
     /// <summary>Builds the request for a validated value, reading the structure first when the row carries.</summary>

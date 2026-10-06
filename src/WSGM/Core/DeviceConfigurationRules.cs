@@ -48,8 +48,8 @@ internal static class DeviceConfigurationRules
             // would leave the user a profile that silently does nothing when chosen.
             scope.Profiles ??= [];
             scope.Profiles.RemoveAll(profile => profile is null
-                                                       || string.IsNullOrWhiteSpace(profile.ProfileId)
-                                                       || string.IsNullOrWhiteSpace(profile.CapabilityId));
+                                                || string.IsNullOrWhiteSpace(profile.ProfileId)
+                                                || string.IsNullOrWhiteSpace(profile.CapabilityId));
             HashSet<string> profileIds = new(StringComparer.Ordinal);
             scope.Profiles.RemoveAll(profile => !profileIds.Add(profile.ProfileId.Trim()));
             foreach (var profile in scope.Profiles)
@@ -109,6 +109,7 @@ internal static class DeviceConfigurationRules
         {
             assignment.ControlId = assignment.ControlId.Trim();
         }
+
         return diagnostics;
     }
 }

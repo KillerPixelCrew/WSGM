@@ -18,15 +18,8 @@ namespace WSGM.Overlay;
 /// <summary>The complete artwork workflow over a surface-scoped session of the shared owner.</summary>
 public sealed class ArtworkView : ServiceSubView
 {
-    private UserDataContext? _context;
-    private UserDataContext Context => _context ?? throw new InvalidOperationException("The media data context was not supplied.");
-
-    internal void ConfigureContext(UserDataContext context)
-    {
-        _context = context;
-    }
-
     private int _cardSize = 160;
+    private UserDataContext? _context;
     private IReadOnlyList<SteamLibraryApp> _games = [];
     private string? _gamesError;
     private bool _gamesRead;
@@ -37,8 +30,16 @@ public sealed class ArtworkView : ServiceSubView
     private int _shown = 48;
     private IArtworkBrowseSession? _source;
 
+    private UserDataContext Context =>
+        _context ?? throw new InvalidOperationException("The media data context was not supplied.");
+
     /// <inheritdoc />
     protected override string LogScope => "Artwork";
+
+    internal void ConfigureContext(UserDataContext context)
+    {
+        _context = context;
+    }
 
     internal event Action? ReturnRequested;
 

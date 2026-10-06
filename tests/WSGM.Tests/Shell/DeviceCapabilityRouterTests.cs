@@ -10,6 +10,86 @@ namespace WSGM.Tests.Shell;
 public sealed class DeviceCapabilityRouterTests
 {
     [Fact]
+    public async Task ALateOldResultCannotClearTheNewCommandsPendingValueOrReplaceItsResult()
+    {
+        await using DeviceCapabilityRouter router = new(action => action());
+        FakeCapabilityPublisher publisher = new(CapabilityRole.GenericToggle);
+        TaskCompletionSource<CapabilityCommandResult> oldCompletion =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource<DeviceCommandDispatch> newDispatch =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        publisher.Dispatch = (command, _) => publisher.Commands.Count == 1
+            ? Task.FromResult(new DeviceCommandDispatch(Result(command, CommandOutcome.TimedOut), oldCompletion.Task))
+            : newDispatch.Task;
+        router.Attach(publisher, 1);
+        publisher.Publish(CapabilityBuilders.Set(1, CapabilityBuilders.Toggle(CapabilityProfileScope.Switched)));
+        publisher.PublishState(1, CapabilityBuilders.State(1, CapabilityBuilders.Flag(false)));
+        await router.ExecuteAsync("graphics.toggle", null, CapabilityBuilders.Flag(true), TimeSpan.FromSeconds(1));
+        var observer = router.LateCommandCompletion;
+        var pending = router.ExecuteAsync("graphics.toggle", null, CapabilityBuilders.Flag(false),
+            TimeSpan.FromSeconds(1));
+        var latest = publisher.Commands[1];
+        try
+        {
+            oldCompletion.SetResult(Result(publisher.Commands[0], CommandOutcome.Indeterminate));
+            await observer;
+            var view = Assert.IsType<DeviceCapabilityView>(
+                router.TryGetView(new DeviceCapabilityKey("graphics.toggle", null)));
+            Assert.False(view.Projection.PendingValue!.BooleanValue);
+            Assert.Equal(CommandOutcome.TimedOut, view.LastResult!.Outcome);
+
+            newDispatch.SetResult(new DeviceCommandDispatch(Result(latest, CommandOutcome.AppliedVerified)));
+            await pending;
+            view = Assert.IsType<DeviceCapabilityView>(
+                router.TryGetView(new DeviceCapabilityKey("graphics.toggle", null)));
+            Assert.Null(view.Projection.PendingValue);
+            Assert.Equal(latest.CommandId, view.LastResult!.CommandId);
+            Assert.False(view.LastCommandValue!.BooleanValue);
+        }
+        finally
+        {
+            newDispatch.TrySetResult(new DeviceCommandDispatch(Result(latest, CommandOutcome.AppliedVerified)));
+            await pending;
+        }
+    }
+
+    [Fact]
+    public async Task DescriptorReplacementDropsTheOldLateResultAndTryGetViewUsesTheNewDescriptor()
+    {
+        await using DeviceCapabilityRouter router = new(action => action());
+        FakeCapabilityPublisher publisher = new(CapabilityRole.GenericToggle);
+        TaskCompletionSource<CapabilityCommandResult> late = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        publisher.Dispatch = (command, _) => Task.FromResult(
+            new DeviceCommandDispatch(Result(command, CommandOutcome.TimedOut), late.Task));
+        router.Attach(publisher, 1);
+        publisher.Publish(CapabilityBuilders.Set(1, CapabilityBuilders.Toggle(CapabilityProfileScope.Switched)));
+        publisher.PublishState(1, CapabilityBuilders.State(1, CapabilityBuilders.Flag(false)));
+        await router.ExecuteAsync("graphics.toggle", null, CapabilityBuilders.Flag(true), TimeSpan.FromSeconds(1));
+        var observer = router.LateCommandCompletion;
+        var replacement = CapabilityBuilders.Toggle(CapabilityProfileScope.GlobalOnly);
+        publisher.Publish(CapabilityBuilders.Set(2, replacement));
+        late.SetResult(Result(publisher.Commands[0], CommandOutcome.AppliedVerified));
+        await observer;
+
+        var view = Assert.IsType<DeviceCapabilityView>(
+            router.TryGetView(new DeviceCapabilityKey("graphics.toggle", null)));
+        Assert.Same(replacement, view.Descriptor);
+        Assert.Null(view.LastResult);
+        Assert.Null(view.Projection.PendingValue);
+        Assert.Null(router.TryGetView(new DeviceCapabilityKey("missing", null)));
+    }
+
+    private static CapabilityCommandResult Result(CapabilityCommand command, CommandOutcome outcome)
+    {
+        return new CapabilityCommandResult
+        {
+            CommandId = command.CommandId,
+            Outcome = outcome,
+            CompletedAt = DateTimeOffset.UtcNow
+        };
+    }
+
+    [Fact]
     public void ProductionAdmissionRejectsInvalidLayoutHints()
     {
         Assert.False(Validates(Generic() with { Prominence = (CapabilityProminence)999 }, out _));

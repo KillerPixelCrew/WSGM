@@ -9,6 +9,7 @@ using System.Security;
 using System.Text;
 using Microsoft.Win32;
 using WSGM.DeviceLab.Application;
+using WSGM.DeviceLab.Wizard;
 
 namespace WSGM.DeviceLab.Capture.Live;
 
@@ -47,6 +48,12 @@ internal static class LabWmiFirmwareEvents
     /// <returns>The events it declares; data blocks and methods are left out.</returns>
     public static List<LabWdgEvent> ParseWdgEvents(ReadOnlySpan<byte> table)
     {
+        if (table.Length > MaximumTableBytes)
+        {
+            throw new InvalidDataException(
+                $"The ACPI table is {table.Length} bytes, above the {MaximumTableBytes}-byte firmware table limit.");
+        }
+
         List<LabWdgEvent> events = [];
         var name = "_WDG"u8;
         var at = 0;
@@ -100,7 +107,7 @@ internal static class LabWmiFirmwareEvents
                 declared.AddRange(ParseWdgEvents(table));
             }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException
                                        or SecurityException)
         {
             problem = $@"HKLM\HARDWARE\ACPI: {ex.Message}";
@@ -172,26 +179,21 @@ internal static class LabWmiFirmwareEvents
             using var key = root.OpenSubKey(signature);
             if (key is not null)
             {
-                Walk(key, 0);
+                Walk(key);
             }
         }
 
         return found;
 
-        void Walk(RegistryKey key, int depth)
+        void Walk(RegistryKey key)
         {
             foreach (var value in key.GetValueNames())
             {
                 if (key.GetValueKind(value) == RegistryValueKind.Binary
-                    && key.GetValue(value) is byte[] { Length: >= 36 and <= MaximumTableBytes } table)
+                    && key.GetValue(value) is byte[] { Length: >= 36 } table)
                 {
                     found.Add(table);
                 }
-            }
-
-            if (depth >= 4)
-            {
-                return;
             }
 
             foreach (var child in key.GetSubKeyNames())
@@ -199,7 +201,7 @@ internal static class LabWmiFirmwareEvents
                 using var sub = key.OpenSubKey(child);
                 if (sub is not null)
                 {
-                    Walk(sub, depth + 1);
+                    Walk(sub);
                 }
             }
         }
@@ -272,58 +274,65 @@ internal static class LabWmiFirmwareEvents
 /// </summary>
 internal static class LabWmiQuarantine
 {
-    // wsgm-allow-live-data-path: the wizard's own "WSGM Device Lab" folder for its WMI quarantine record,
-    // never the user's WSGM data folder.
-    private static readonly string Folder = Path.Combine(
-        // wsgm-allow-live-data-path: Device Lab's own root beside WSGM's data, never inside it.
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "WSGM Device Lab", "wizard");
-
-    private static string Pending => Path.Combine(Folder, "wmi-enabling.txt");
-
-    private static string Blocked => Path.Combine(Folder, "wmi-blocked.txt");
-
     /// <summary>Moves a class left pending by a crash to the blocked list; call once per start.</summary>
+    /// <param name="machine">The machine record, or the current user's record.</param>
     /// <returns>The class that crashed the machine last time, or null.</returns>
     /// <exception cref="IOException">The record could not be read or moved; enable nothing.</exception>
     /// <exception cref="UnauthorizedAccessException">The record could not be read or moved; enable nothing.</exception>
-    public static string? RecoverFromCrash()
+    public static string? RecoverFromCrash(LabMachineState? machine = null)
     {
-        if (!File.Exists(Pending))
+        machine ??= LabMachineState.ForCurrentUser;
+        var pending = machine.SidePath("wmi-enabling.txt");
+        string name;
+        try
+        {
+            name = File.ReadAllText(pending).Trim();
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
         {
             return null;
         }
 
-        var name = File.ReadAllText(Pending).Trim();
-        if (name.Length > 0 && !IsBlocked(name))
+        if (name.Length > 0 && !IsBlocked(name, machine))
         {
-            Append(Blocked, name);
+            Append(machine.SidePath("wmi-blocked.txt"), name);
         }
 
-        File.Delete(Pending);
+        File.Delete(pending);
         return name.Length > 0 ? name : null;
     }
 
     /// <summary>Whether a class crashed this machine before.</summary>
     /// <param name="name">Class name.</param>
+    /// <param name="machine">The machine record, or the current user's record.</param>
     /// <returns>True when it must not be enabled.</returns>
     /// <exception cref="IOException">The blocked list could not be read; do not enable the class.</exception>
     /// <exception cref="UnauthorizedAccessException">The blocked list could not be read; do not enable the class.</exception>
-    public static bool IsBlocked(string name)
+    public static bool IsBlocked(string name, LabMachineState? machine = null)
     {
-        return File.Exists(Blocked)
-               && File.ReadAllLines(Blocked)
-                   .Any(line => string.Equals(line.Trim(), name, StringComparison.Ordinal));
+        var blocked = (machine ?? LabMachineState.ForCurrentUser).SidePath("wmi-blocked.txt");
+        try
+        {
+            return File.ReadAllLines(blocked)
+                .Any(line => string.Equals(line.Trim(), name, StringComparison.Ordinal));
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return false;
+        }
     }
 
     /// <summary>Records the class about to be enabled or disabled, on disk before the request is sent.</summary>
     /// <param name="name">Class name.</param>
+    /// <param name="machine">The machine record, or the current user's record.</param>
     /// <returns>True only when the record reached the disk.</returns>
-    public static bool Begin(string name)
+    public static bool Begin(string name, LabMachineState? machine = null)
     {
+        var pending = (machine ?? LabMachineState.ForCurrentUser).SidePath("wmi-enabling.txt");
         try
         {
-            Directory.CreateDirectory(Folder);
-            using FileStream stream = new(Pending, FileMode.Create, FileAccess.Write, FileShare.None, 4096,
+            Directory.CreateDirectory(Path.GetDirectoryName(pending)!);
+            using FileStream stream = new(pending, FileMode.Create, FileAccess.Write, FileShare.None, 4096,
                 FileOptions.WriteThrough);
             stream.Write(Encoding.UTF8.GetBytes(name));
             stream.Flush(true);
@@ -337,11 +346,12 @@ internal static class LabWmiQuarantine
     }
 
     /// <summary>Clears the pending record once the enable or disable request returned.</summary>
-    public static void End()
+    /// <param name="machine">The machine record, or the current user's record.</param>
+    public static void End(LabMachineState? machine = null)
     {
         try
         {
-            File.Delete(Pending);
+            File.Delete((machine ?? LabMachineState.ForCurrentUser).SidePath("wmi-enabling.txt"));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -350,7 +360,7 @@ internal static class LabWmiQuarantine
 
     private static void Append(string path, string line)
     {
-        Directory.CreateDirectory(Folder);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         using FileStream stream = new(path, FileMode.Append, FileAccess.Write, FileShare.Read, 4096,
             FileOptions.WriteThrough);
         stream.Write(Encoding.UTF8.GetBytes(line + Environment.NewLine));

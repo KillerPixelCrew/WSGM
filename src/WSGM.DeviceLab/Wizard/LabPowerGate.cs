@@ -35,14 +35,6 @@ internal static class LabPowerGate
     /// <summary>The minimum battery before any power write, as AllyXLab required.</summary>
     public const int MinimumBatteryPercent = 30;
 
-    // Managers that own the same power, fan or lighting hardware the tests write. A window close request
-    // is offered in preflight; this is the last check before a write.
-    private static readonly string[] BlockingManagers =
-    [
-        "WSGM", "HandheldCompanion", "ControllerService", "ArmouryCrate", "ArmouryCrateControlInterface",
-        "ArmourySocketServer", "GHelper", "MSI Center", "MSI.CentralServer", "AsusAppService"
-    ];
-
     /// <summary>Runs the pre-write checks.</summary>
     /// <param name="record">The confirmed record.</param>
     /// <returns>Whether a write may proceed, and the context.</returns>
@@ -65,7 +57,7 @@ internal static class LabPowerGate
     private static LabPowerGateResult Check(string recordId, bool matches)
     {
         var managers = ManagerConflicts.Running()
-            .Where(manager => BlockingManagers.Contains(manager.Manager.Process))
+            .Where(manager => manager.Manager.OwnsPowerHardware)
             .Select(manager => manager.Manager.Label)
             .Distinct()
             .Order(StringComparer.Ordinal)

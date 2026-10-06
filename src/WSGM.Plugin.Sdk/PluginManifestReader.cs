@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using WSGM.Device.Sdk.Capabilities;
 using ManifestLimits = WSGM.Device.Sdk.Packaging.ManifestLimits;
 using ManifestRules = WSGM.Device.Sdk.Packaging.ManifestRules;
@@ -12,8 +13,13 @@ namespace WSGM.Plugin.Sdk;
 /// <summary>Deterministic manifest admission before any plugin code is loaded.</summary>
 public static class PluginManifestReader
 {
-    private static readonly PluginJsonContext ReadContext = new(
-        new JsonSerializerOptions(PluginJsonContext.Default.Options) { MaxDepth = ManifestLimits.MaxDepth });
+    // Generated init-only object construction assigns zero/null to omitted optional members.
+    // Reflection metadata preserves the manifest's declared defaults without making it mutable.
+    private static readonly JsonSerializerOptions ReadOptions = new(PluginJsonContext.Default.Options)
+    {
+        MaxDepth = ManifestLimits.MaxDepth,
+        TypeInfoResolver = new DefaultJsonTypeInfoResolver()
+    };
 
     /// <summary>
     ///     Reads strict camel-case JSON and checks identity, paths, API range, dependencies, display adapters
@@ -40,7 +46,7 @@ public static class PluginManifestReader
 
         try
         {
-            var candidate = JsonSerializer.Deserialize(json, ReadContext.PluginManifest);
+            var candidate = JsonSerializer.Deserialize<PluginManifest>(json, ReadOptions);
             errors = Validate(candidate);
             if (candidate is null || errors.Count != 0)
             {

@@ -18,11 +18,10 @@ Read it together with:
 
 ## 1. Components and ownership
 
-The Shell's common `PluginHost` reserves the Device category and drives its
-`DevicePluginCompatibilityAdapter`. The coordinator keeps the device-specific controller release
-ordering shown below; the adapter delegates to the existing runtime. Common instance deadlines,
-retained failed slots and generation-checked health are in
-[common plugin contracts](plugin-system.md).
+`DeviceCoordinator` owns the sole `DevicePluginRuntime` and drives its lifecycle directly, including
+the device-specific controller release ordering shown below. The common `PluginHost` refuses the
+Device category and runs independent common plugin instances. Their deadlines, retained failed slots
+and generation-checked health are in [common plugin contracts](plugin-system.md).
 
 ```text
                      WSGM.exe (one ShellSession per interactive session)

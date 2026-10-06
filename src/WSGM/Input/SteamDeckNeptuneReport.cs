@@ -211,6 +211,4 @@ internal static class SteamDeckNeptuneReport
     {
         return (ushort)Math.Clamp(MathF.Round(value * short.MaxValue), 0, short.MaxValue);
     }
-
-
 }

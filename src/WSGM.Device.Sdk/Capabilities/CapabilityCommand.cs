@@ -100,11 +100,12 @@ public sealed record CapabilityCommandResult
     public CapabilityReason? Reason { get; init; }
 
     /// <summary>
-    ///     The value the device now holds as WSGM should publish it.
+    ///     An independently read value confirming the applied command.
     /// </summary>
     /// <remarks>
-    ///     The readback for <see cref="CommandOutcome.AppliedVerified" />, the written value for
-    ///     <see cref="CommandOutcome.AppliedUnverified" />. Absent when nothing was applied.
+    ///     Present for <see cref="CommandOutcome.AppliedVerified" /> only. For
+    ///     <see cref="CommandOutcome.AppliedUnverified" />, the plugin publishes the written value as
+    ///     observed capability state and leaves this property absent.
     /// </remarks>
     public CapabilityValue? ReadbackValue { get; init; }
 

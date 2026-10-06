@@ -11,6 +11,7 @@ using Avalonia.Threading;
 using WSGM.Core;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Install;
+using WSGM.Shared;
 using WSGM.Shell;
 
 namespace WSGM;
@@ -38,7 +39,6 @@ public static class Program
     internal const int UninstallHidHideUnverifiedExitCode = 3;
 
     private static Mutex? _shellMutex;
-    private static ConfigStore Store { get; set; } = null!;
 
     private static StartupOptions _startupOptions = StartupOptions.Parse([]);
 
@@ -47,6 +47,7 @@ public static class Program
     // Null in the one-shot modes, which never acquire a lease: it is pipe-backed, so a fresh
     // process has nothing to release and a crashed shell's lease ends when Windows closes its pipe.
     private static SteamInputBlocker? _steamInput;
+    private static ConfigStore Store { get; set; } = null!;
 
     /// <summary>Starts the selected supported application mode.</summary>
     /// <param name="args">The command-line arguments passed to the executable.</param>
@@ -104,6 +105,7 @@ public static class Program
         {
             Log.Warn($"Configuration startup read was {startupRead.Outcome}; defaults are read-only until repair.");
         }
+
         // Before anything else reads configuration, so a startup problem is captured at the
         // verbosity the device is actually set to. The flag wins over the stored choice for this
         // run, which is how a one-off reproduction is captured without persisting a setting.
@@ -160,8 +162,9 @@ public static class Program
 
         if (_startupOptions.ServiceBoot)
         {
-            Log.Info($"Run mode: {_startupOptions.Mode} (service boot, elevated={ElevationCheck.IsCurrentProcessElevated()}, " +
-                     $"session {WindowFinder.CurrentSessionId})");
+            Log.Info(
+                $"Run mode: {_startupOptions.Mode} (service boot, elevated={ElevationCheck.IsCurrentProcessElevated()}, " +
+                $"session {WindowFinder.CurrentSessionId})");
         }
         else
         {
@@ -276,7 +279,7 @@ public static class Program
         AppConfig? recoveryConfig = null;
         try
         {
-            recoveryConfig = (Store.Read().Config ?? new AppConfig());
+            recoveryConfig = Store.Read().Config ?? new AppConfig();
             BootManifestWriter.WriteSignInDisabled(recoveryConfig, Store.Context);
         }
         catch (Exception)
@@ -286,7 +289,11 @@ public static class Program
 
         try
         {
-            recoveryConfig = Store.Update(static c => { c.StartAtSignIn = false; return true; });
+            recoveryConfig = Store.Update(static c =>
+            {
+                c.StartAtSignIn = false;
+                return true;
+            });
         }
         catch (Exception)
         {
@@ -350,33 +357,59 @@ public static class Program
     /// </remarks>
     private static int? RunOneShot(HashSet<string> flags)
     {
-        (string Flag, Func<int> Run)[] oneShots =
+        return RunOneShot(flags, SetupUserIdentity.RequireCurrentSessionUser,
+            static (_, run) => run(), static message => Log.Warn(message));
+    }
+
+    /// <summary>Dispatches fixed commands through the supplied identity and execution boundaries.</summary>
+    /// <param name="flags">The command-line flags.</param>
+    /// <param name="requireSessionUser">Refuses another account before per-user recovery state is touched.</param>
+    /// <param name="execute">Runs the selected fixed command.</param>
+    /// <param name="refuse">Reports why the account check failed.</param>
+    /// <returns>The selected command's result, or null when no command matched.</returns>
+    internal static int? RunOneShot(HashSet<string> flags, Action requireSessionUser,
+        Func<string, Func<int>, int> execute, Action<string> refuse)
+    {
+        (string Flag, bool RequiresSessionUser, Func<int> Run)[] oneShots =
         [
             // Elevated one-shots for the UAC prompt-level toggle (see UacSettings).
-            ("--set-uac-silent", static () => UacSettings.ApplyDirect(Store, true) ? 0 : 1),
-            ("--restore-uac", static () => UacSettings.ApplyDirect(Store, false) ? 0 : 1),
+            ("--set-uac-silent", true, static () => UacSettings.ApplyDirect(Store, true) ? 0 : 1),
+            ("--restore-uac", true, static () => UacSettings.ApplyDirect(Store, false) ? 0 : 1),
             // Elevated one-shots for the Steam autostart takeover (see SteamAutostartService). Neither
             // takes a source name from the command line: the elevated instance rescans and decides.
-            (SteamAutostartService.DisableArgument, () => SteamAutostartService.RunElevatedDisable(Store)),
-            (SteamAutostartService.RestoreArgument, () => SteamAutostartService.RestoreAll(Store)),
+            (SteamAutostartService.DisableArgument, true, () => SteamAutostartService.RunElevatedDisable(Store)),
+            (SteamAutostartService.RestoreArgument, true, () => SteamAutostartService.RestoreAll(Store)),
             // Elevated one-shot for the other-managers takeover (see OtherManagers): Settings > System
             // runs it when WSGM is not elevated, and the elevated instance detects for itself.
-            (OtherManagers.DisableArgument, () => OtherManagers.RunElevatedDisable(Store)),
-            ("--disable-lock-on-wake", static () => LockScreenSettings.ApplyDirect(Store, true) ? 0 : 1),
-            ("--restore-lock-on-wake", static () => LockScreenSettings.ApplyDirect(Store, false) ? 0 : 1),
+            (OtherManagers.DisableArgument, false, () => OtherManagers.RunElevatedDisable(Store)),
+            ("--disable-lock-on-wake", true, static () => LockScreenSettings.ApplyDirect(Store, true) ? 0 : 1),
+            ("--restore-lock-on-wake", true, static () => LockScreenSettings.ApplyDirect(Store, false) ? 0 : 1),
             // Elevated one-shots for the Steam Input shim. Steam normally lives under
             // Program Files, which a desktop-mode Settings process cannot write, so the
             // Settings save path re-runs itself through these when a write is refused.
-            ("--apply-steam-input-shim", ApplySteamInputShim),
-            ("--remove-steam-input-shim", RemoveSteamInputShim),
-            ("--restore-steam-chord-template", RestoreSteamChordTemplate),
-            ("--restore-steam-content", RestoreSteamContent)
+            ("--apply-steam-input-shim", false, ApplySteamInputShim),
+            ("--remove-steam-input-shim", false, RemoveSteamInputShim),
+            ("--restore-steam-chord-template", false, RestoreSteamChordTemplate),
+            ("--restore-steam-content", false, RestoreSteamContent)
         ];
-        foreach (var (flag, run) in oneShots)
+        foreach (var (flag, requiresSessionUser, run) in oneShots)
         {
             if (flags.Contains(flag))
             {
-                return run();
+                try
+                {
+                    if (requiresSessionUser)
+                    {
+                        requireSessionUser();
+                    }
+
+                    return execute(flag, run);
+                }
+                catch (WrongSetupAccountException ex)
+                {
+                    refuse(ex.Message);
+                    return 1;
+                }
             }
         }
 
@@ -452,7 +485,7 @@ public static class Program
             return 1;
         }
 
-        return setAside ? WSGM.Shared.SessionProtocolNames.SteamStartupMovieStillSetAside : 0;
+        return setAside ? SessionProtocolNames.SteamStartupMovieStillSetAside : 0;
     }
 
     /// <summary>Applies setup's answers and the install-time guards once setup has placed the payload.</summary>
@@ -487,19 +520,20 @@ public static class Program
                 var answers = SetupAnswers.Parse(File.ReadAllBytes(answersPath));
                 var steamTakeover = false;
                 var managersTakeover = false;
-                config = Store.Update(fresh => {
+                config = Store.Update(fresh =>
+                {
                     steamTakeover = answers.SteamAutostartTakeover && !fresh.SteamAutostartTakeoverAccepted;
                     managersTakeover = answers.OtherManagersTakeover && !fresh.OtherManagersTakeoverAccepted;
                     answers.ApplyTo(fresh, freshInstall);
-                
-            return true;
-        });
+
+                    return true;
+                });
                 Log.Info($"Setup: applied the setup answers to a {(freshInstall ? "fresh" : "existing")} "
                          + $"configuration ({answers.Describe()}, controllerManagement={config.DeviceIntegration.ControllerManagementEnabled}).");
                 if (steamTakeover)
                 {
                     // The user consented in setup; setup never sets this for a silent fresh install.
-                    var result = SteamAutostartService.Apply(Store, 
+                    var result = SteamAutostartService.Apply(Store,
                         [.. SteamAutostartService.Scan().Where(source => source.Enabled)], false);
                     Log.Info($"Setup: Steam autostart takeover disabled {result.Disabled.Count}, "
                              + $"pending {result.Pending.Count}, needing elevation {result.NeedsElevation.Count}.");
@@ -509,7 +543,8 @@ public static class Program
                 {
                     // Chosen in setup (Full mode, or Customize). Each change is recorded before it is made,
                     // and --uninstall-restore puts it back.
-                    var result = OtherManagers.Disable(OtherManagers.Detect(), entry => OtherManagers.Record(Store, entry));
+                    var result = OtherManagers.Disable(OtherManagers.Detect(),
+                        entry => OtherManagers.Record(Store, entry));
                     if (result.Failed.Count > 0 || result.StillRunning.Count > 0)
                     {
                         Log.Warn($"Setup: other managers: failed [{string.Join(", ", result.Failed)}], still "
@@ -566,7 +601,11 @@ public static class Program
             // config.json aborts here instead of overwriting the registry
             // recovery snapshots with defaults. boot.json above already
             // disarmed the next sign-in either way.
-            recoveryConfig = Store.Update(static c => { c.StartAtSignIn = false; return true; });
+            recoveryConfig = Store.Update(static c =>
+            {
+                c.StartAtSignIn = false;
+                return true;
+            });
         }
         catch (Exception ex)
         {
@@ -642,9 +681,6 @@ public static class Program
             shutdownLifetime();
         }
     }
-
-
-
 
 
     /// <summary>Opens one https address through the Windows shell; any other input is refused.</summary>
@@ -753,7 +789,7 @@ public static class Program
 
     private static bool AcquireShellMutex()
     {
-        _shellMutex = new Mutex(true, WSGM.Shared.SessionProtocolNames.ShellMutex, out var createdNew);
+        _shellMutex = new Mutex(true, SessionProtocolNames.ShellMutex, out var createdNew);
         if (createdNew)
         {
             return true;
@@ -847,7 +883,7 @@ public static class Program
     {
         try
         {
-            DisplayScale.RestoreSaved(Store, config ?? (Store.Read().Config ?? new AppConfig()));
+            DisplayScale.RestoreSaved(Store, config ?? Store.Read().Config ?? new AppConfig());
         }
         catch
         {
@@ -882,7 +918,10 @@ public static class Program
 /// </summary>
 internal static class CrashLoopBreaker
 {
-    private static string MarkerPath(string root) => Path.Combine(root, "shell-starts.txt");
+    private static string MarkerPath(string root)
+    {
+        return Path.Combine(root, "shell-starts.txt");
+    }
 
     public static void RecordStart(string root)
     {

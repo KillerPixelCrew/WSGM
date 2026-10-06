@@ -13,9 +13,9 @@ internal static class ManagedControllerSampleValidator
     internal static bool IsValid(CanonicalControllerSample sample)
     {
         return Axis(sample.LeftStickX) && Axis(sample.LeftStickY)
-               && Axis(sample.RightStickX) && Axis(sample.RightStickY)
-               && FiniteUnit(sample.LeftTrigger) && FiniteUnit(sample.RightTrigger)
-               && Motion(sample.Motion);
+                                       && Axis(sample.RightStickX) && Axis(sample.RightStickY)
+                                       && FiniteUnit(sample.LeftTrigger) && FiniteUnit(sample.RightTrigger)
+                                       && Motion(sample.Motion);
     }
 
     internal static bool IsNeutral(CanonicalControllerSample sample)

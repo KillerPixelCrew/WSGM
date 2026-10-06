@@ -188,6 +188,19 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
     /// <summary>The route the page is served at.</summary>
     internal static string Route => SteamWsgmSettingsSurface.Route;
 
+    /// <summary>Completes when every Steam Input apply this page started has finished.</summary>
+    /// <remarks>The session joins it at shutdown, so a shim change never outlives WSGM.</remarks>
+    internal Task SteamInputApplyCompletion
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _steamInputApply;
+            }
+        }
+    }
+
     /// <inheritdoc />
     /// <remarks>
     ///     WSGM's menu row carries a route, so Valve's own entry navigates and this is never asked. An
@@ -775,19 +788,6 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
         }
 
         Refresh();
-    }
-
-    /// <summary>Completes when every Steam Input apply this page started has finished.</summary>
-    /// <remarks>The session joins it at shutdown, so a shim change never outlives WSGM.</remarks>
-    internal Task SteamInputApplyCompletion
-    {
-        get
-        {
-            lock (_gate)
-            {
-                return _steamInputApply;
-            }
-        }
     }
 
     private AppConfig CurrentConfig()

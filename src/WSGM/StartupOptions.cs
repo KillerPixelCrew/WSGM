@@ -20,7 +20,9 @@ internal sealed record StartupOptions(
             ? RunMode.Shell
             : flags.Contains("--settings")
                 ? RunMode.Settings
-                : flags.Contains("--overlay-test") ? RunMode.OverlayTest : RunMode.Settings;
+                : flags.Contains("--overlay-test")
+                    ? RunMode.OverlayTest
+                    : RunMode.Settings;
         return new StartupOptions(mode, serviceBoot, flags.Contains("--desktop-resident"),
             flags.Contains("--activate"), flags.Contains("--verbose"));
     }

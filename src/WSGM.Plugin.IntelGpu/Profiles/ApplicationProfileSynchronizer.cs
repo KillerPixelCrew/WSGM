@@ -68,8 +68,10 @@ internal interface INativeProfileTarget
     /// <summary>Writes one executable's values for this feature.</summary>
     /// <param name="executable">The executable file name.</param>
     /// <param name="values">Each capability's value; fields not listed keep the global value.</param>
+    /// <param name="admission">Rechecked immediately before the native setter.</param>
     /// <returns>Null on success, or a bounded diagnostic.</returns>
-    string? WriteForApplication(string executable, IReadOnlyList<(string CapabilityId, CapabilityValue Value)> values);
+    string? WriteForApplication(string executable, IReadOnlyList<(string CapabilityId, CapabilityValue Value)> values,
+        WriteAdmission admission);
 }
 
 /// <summary>
@@ -93,8 +95,9 @@ internal interface INativeApplicationSwitch
 
     /// <summary>Turns the executable's own values on.</summary>
     /// <param name="executable">The executable file name.</param>
+    /// <param name="admission">Rechecked immediately before the native setter.</param>
     /// <returns>Null on success, or a bounded diagnostic.</returns>
-    string? EnableFor(string executable);
+    string? EnableFor(string executable, WriteAdmission admission);
 }
 
 /// <summary>
@@ -155,7 +158,24 @@ internal sealed class ApplicationProfileSynchronizer
 
         try
         {
-            Record = DriverStateFile.Read(_path, SyncRecord.Empty);
+            var record = DriverStateFile.Read(_path, SyncRecord.Empty);
+            if (record.Entries is null || record.Entries.Any(entry => entry is null
+                                                                      || entry.Executable is null ||
+                                                                      entry.CapabilityId is null || entry.Names is null
+                                                                      || entry.Names.Any(name =>
+                                                                          name is null || name.KeyPath is null ||
+                                                                          name.Name is null)))
+            {
+                throw new DriverFailure("The Intel per-application record has incomplete ownership entries.");
+            }
+
+            if (record.Entries.Select(entry => entry.Key).Distinct(StringComparer.Ordinal).Count() !=
+                record.Entries.Count)
+            {
+                throw new DriverFailure("The Intel per-application record has duplicate ownership entries.");
+            }
+
+            Record = record;
         }
         catch (DriverFailure failure)
         {
@@ -173,11 +193,12 @@ internal sealed class ApplicationProfileSynchronizer
     /// <param name="sync">What WSGM wants.</param>
     /// <param name="resolve">Finds the writer for a capability instance, or null when it has none.</param>
     /// <param name="cancellationToken">Stops between writes.</param>
+    /// <param name="admission">Rechecked after preparatory reads and before each native setter.</param>
     /// <returns>What was written, removed and refused.</returns>
     public ApplicationProfileSyncResult Apply(
         ApplicationProfileSync sync,
         Func<string, string?, INativeProfileTarget?> resolve,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, WriteAdmission admission)
     {
         if (_unreadable is not null)
         {
@@ -237,7 +258,7 @@ internal sealed class ApplicationProfileSynchronizer
             }
 
             var error = Bracketed(applicationSwitch.RegistryKeys, executable,
-                () => applicationSwitch.EnableFor(first.Executable), out var appeared);
+                () => applicationSwitch.EnableFor(first.Executable, admission), out var appeared);
             if (error is not null)
             {
                 failures.Add(new ApplicationProfileFailure(first.ProfileId, first.Executable,
@@ -274,7 +295,7 @@ internal sealed class ApplicationProfileSynchronizer
             {
                 error = Bracketed(target.RegistryKeys, executable,
                     () => target.WriteForApplication(items[0].Executable,
-                        [.. items.Select(item => (item.Value.CapabilityId, item.Value.Value))]),
+                        [.. items.Select(item => (item.Value.CapabilityId, item.Value.Value))], admission),
                     out appeared);
             }
 
@@ -306,7 +327,7 @@ internal sealed class ApplicationProfileSynchronizer
             written += items.Count;
         }
 
-        var removed = Remove(entries, wanted, failures, cancellationToken);
+        var removed = Remove(entries, wanted, failures, cancellationToken, admission);
         _appliedRevision = sync.Revision;
         _log.Info(Scope, $"Sync {sync.Revision}: {written} written, {removed} removed, {failures.Count} refused.");
         return new ApplicationProfileSyncResult(written, removed, failures);
@@ -508,7 +529,7 @@ internal sealed class ApplicationProfileSynchronizer
         Dictionary<string, SyncEntry> entries,
         HashSet<string> wanted,
         List<ApplicationProfileFailure> failures,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, WriteAdmission admission)
     {
         HashSet<RegistryValueName> held = [];
         foreach (var (key, entry) in entries)
@@ -524,11 +545,13 @@ internal sealed class ApplicationProfileSynchronizer
         {
             cancellationToken.ThrowIfCancellationRequested();
             List<RegistryValueName> left = [];
+            string? deleteFailure = null;
             foreach (var name in entry.Names)
             {
-                if (!held.Contains(name) && !Delete(name))
+                if (!held.Contains(name) && Delete(name, admission) is { } error)
                 {
                     left.Add(name);
+                    deleteFailure ??= error;
                 }
             }
 
@@ -551,7 +574,7 @@ internal sealed class ApplicationProfileSynchronizer
             else
             {
                 failures.Add(new ApplicationProfileFailure(entry.ProfileId, entry.Executable, entry.CapabilityId,
-                    "The driver's stored value could not be deleted; WSGM needs elevation."));
+                    $"The driver's stored value could not be deleted ({deleteFailure}); its ownership record was kept."));
                 entries[entry.Key] = entry with { Names = left };
                 held.UnionWith(left);
                 _ = Save(entries);
@@ -561,18 +584,21 @@ internal sealed class ApplicationProfileSynchronizer
         return removed;
     }
 
-    private bool Delete(RegistryValueName name)
+    private string? Delete(RegistryValueName name, WriteAdmission admission)
     {
         try
         {
             using var key = _root.OpenSubKey(name.KeyPath, true);
+            admission.Check();
             key?.DeleteValue(name.Name);
-            return true;
+            return null;
         }
         catch (Exception error) when (AdapterClassKey.IsRegistryFailure(error))
         {
             _log.Warn(Scope, $"Deleting {name.Name} failed: {IntelLog.Describe(error)}");
-            return false;
+            return error is UnauthorizedAccessException
+                ? "Registry access was denied; WSGM needs elevation."
+                : IntelLog.Describe(error);
         }
     }
 

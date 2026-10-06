@@ -1,12 +1,16 @@
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Presenters;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using WSGM.Controls;
 using WSGM.Overlay;
 using WSGM.Testing;
 using WSGM.UiTests.Fakes;
 using WSGM.UiTests.Infrastructure;
 using WSGM.UiTests.Visual;
+using Path = Avalonia.Controls.Shapes.Path;
 
 namespace WSGM.UiTests.Overlay;
 
@@ -116,25 +120,100 @@ public sealed class GraphicsPageCaptureTests
 
         if (page == "display")
         {
-            window.GetVisualDescendants().OfType<SectionPinHeader>()
-                .Single(header => header.SectionId == RefreshPin).BringIntoView();
+            var list = UiFixture.Named<StackPanel>(window, "GraphicsCapabilityList");
+            var header = list.GetVisualDescendants().OfType<SectionPinHeader>()
+                .Single(candidate => candidate.SectionId == RefreshPin);
+            var group = header.GetVisualAncestors().OfType<CollapsibleSection>().First();
+            Assert.True(group.IsExpanded);
+            var scroll = UiFixture.Named<ScrollViewer>(window, "ContentScroller");
+            var viewport = scroll.GetVisualDescendants().OfType<ScrollContentPresenter>()
+                .Single(presenter => ReferenceEquals(presenter.TemplatedParent, scroll));
+            // BringIntoView on the pin only reveals the heading, leaving its editors below the fold.
+            // Align the expanded group with the viewport before capturing its display controls.
+            scroll.Offset = new Vector(scroll.Offset.X,
+                scroll.Offset.Y + group.TranslatePoint(default, viewport)!.Value.Y);
+            Dispatcher.UIThread.RunJobs();
+            AssertIntersectsViewport(group.Heading, viewport, RefreshPin);
+            foreach (var id in new[]
+                     {
+                         "display.variable-refresh", "display.arc-sync-profile", "display.arc-sync-min-refresh",
+                         "display.arc-sync-max-refresh", "display.arc-sync-frame-time-increase",
+                         "display.arc-sync-frame-time-decrease"
+                     })
+            {
+                var control = Assert.Single(Row(group, id).GetVisualDescendants().OfType<Control>(),
+                    candidate => candidate is ToggleSwitch or ComboBox or Slider);
+                AssertIntersectsViewport(control, viewport, id);
+            }
         }
 
         Dispatcher.UIThread.RunJobs();
+        AssertRestingGraphics(page == "pinned"
+            ? UiFixture.Named<Panel>(window, "PinnedSectionsGrid")
+            : UiFixture.Named<StackPanel>(window, "GraphicsCapabilityList"), graphics);
         Assert.Equal(width, window.ClientSize.Width);
         Assert.Equal(height, window.ClientSize.Height);
-        VisualBaseline.Verify(window, name);
+        Rect? rasterNoiseRegion = null;
+        if (page != "pinned")
+        {
+            var overviewIcon = UiFixture.Rail(window, "device.overview").GetVisualDescendants()
+                .OfType<Path>().Single();
+            rasterNoiseRegion = new Rect(overviewIcon.TranslatePoint(default, window)!.Value,
+                overviewIcon.Bounds.Size);
+        }
+
+        VisualBaseline.Verify(window, name, rasterNoiseRegion);
         if (page != "pinned")
         {
             // The whole page for review, beside the baselined viewport; not a regression reference.
             var scroll = UiFixture.Named<ScrollViewer>(window, "ContentScroller");
             window.Height += Math.Max(0, scroll.Extent.Height - scroll.Viewport.Height);
             Dispatcher.UIThread.RunJobs();
-            var directory = Path.Combine(RepositoryFiles.Root, "TestResults", "ui",
+            var directory = System.IO.Path.Combine(RepositoryFiles.Root, "TestResults", "ui",
                 $"graphics-{page}-{width}x{height}");
             Directory.CreateDirectory(directory);
-            DevicePageCaptureTests.Capture(window, Path.Combine(directory, "full.png"));
+            DevicePageCaptureTests.Capture(window, System.IO.Path.Combine(directory, "full.png"));
         }
+    }
+
+    private static void AssertRestingGraphics(Control root, FixtureGraphicsSource graphics)
+    {
+        var display = graphics.Snapshot().Sections
+            .Single(section => section.Key == FixtureGraphicsSource.DisplaySection);
+        Assert.True(display.Capabilities.Single(row => row.CapabilityId == "display.variable-refresh")
+            .CurrentValue?.BooleanValue);
+        Assert.Equal("custom", display.Capabilities.Single(row => row.CapabilityId == "display.arc-sync-profile")
+            .CurrentValue?.ChoiceValue);
+        foreach (var id in new[] { "display.variable-refresh", "display.arc-sync-profile" })
+        {
+            Assert.True(display.Capabilities.Single(row => row.CapabilityId == id).CanInvoke, id);
+            var editor = Assert.Single(Row(root, id).GetVisualDescendants().OfType<Control>(),
+                control => control is ToggleSwitch or ComboBox);
+            Assert.True(editor.IsEffectivelyEnabled, id);
+        }
+
+        // Native Expander animations fade a body through its template ancestors even while its
+        // editors are enabled. The capture must show the resting state configured by TestApplication.
+        foreach (var section in root.GetVisualDescendants().OfType<CollapsibleSection>()
+                     .Where(section => section.IsEffectivelyVisible && section.IsExpanded))
+        {
+            foreach (var visual in section.Body.GetVisualAncestors().Prepend(section.Body)
+                         .TakeWhile(visual => !ReferenceEquals(visual, section)))
+            {
+                Assert.True(visual.Opacity == 1,
+                    $"{section.Heading.Tag}: {visual.GetType().Name} must be fully opaque before capture.");
+            }
+        }
+    }
+
+    private static void AssertIntersectsViewport(Control control, Control viewport, string id)
+    {
+        Assert.True(control.IsEffectivelyVisible, id);
+        var origin = control.TranslatePoint(default, viewport)!.Value;
+        var bounds = new Rect(origin, control.Bounds.Size);
+        var visible = bounds.Intersect(new Rect(viewport.Bounds.Size));
+        Assert.True(visible.Width > 0 && visible.Height > 0,
+            $"{id} must intersect the capture viewport: control {bounds}, viewport {viewport.Bounds.Size}.");
     }
 
     private static DeviceCapabilityControl Row(Control root, string capabilityId)

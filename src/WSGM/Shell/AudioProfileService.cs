@@ -145,7 +145,8 @@ internal sealed class AudioProfileService : IAsyncDisposable
         try
         {
             ThrowIfDisposed();
-            return await Task.Run(() => SetPlaybackFormat(endpointId, format, ReadPlaybackCapabilities()), CancellationToken.None)
+            return await Task.Run(() => SetPlaybackFormat(endpointId, format, ReadPlaybackCapabilities()),
+                    CancellationToken.None)
                 .ConfigureAwait(false);
         }
         finally
@@ -164,7 +165,8 @@ internal sealed class AudioProfileService : IAsyncDisposable
         try
         {
             ThrowIfDisposed();
-            return await Task.Run(() => SetSpatialFormat(endpointId, format, ReadPlaybackCapabilities()), CancellationToken.None)
+            return await Task.Run(() => SetSpatialFormat(endpointId, format, ReadPlaybackCapabilities()),
+                    CancellationToken.None)
                 .ConfigureAwait(false);
         }
         finally

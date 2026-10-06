@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 using WSGM.Input;
 
 namespace WSGM.Tests.Fakes;

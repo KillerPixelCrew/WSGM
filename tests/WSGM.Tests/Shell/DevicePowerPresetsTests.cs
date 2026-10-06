@@ -533,40 +533,40 @@ public sealed class DevicePowerPresetsTests
         internal DevicePowerPresets Create(Func<bool>? automaticPowerOwner = null)
         {
             return new DevicePowerPresets(() => Views, async (id, value, cycle, generation, persist, token) =>
-            {
-                var watts = value.IntegerValue ?? 0;
-                Assert.Equal(1, cycle);
-                Assert.Equal(1, generation);
-                Calls.Add((id, watts));
-                Persistence.Add(persist);
-                OnWriteEntered?.Invoke(Calls.Count);
-                Entered.TrySetResult();
-                if (WaitForWrite is not null)
                 {
-                    await WaitForWrite.Task.WaitAsync(token);
-                }
-
-                if (FailAt == Calls.Count)
-                {
-                    return Completed(CommandOutcome.Indeterminate);
-                }
-
-                var index = Array.FindIndex(Views, view => view.Descriptor.CapabilityId == id);
-                LastScenario = value.ChoiceValue ?? LastScenario;
-                Views[index] = Views[index] with
-                {
-                    Projection = Views[index].Projection with
+                    var watts = value.IntegerValue ?? 0;
+                    Assert.Equal(1, cycle);
+                    Assert.Equal(1, generation);
+                    Calls.Add((id, watts));
+                    Persistence.Add(persist);
+                    OnWriteEntered?.Invoke(Calls.Count);
+                    Entered.TrySetResult();
+                    if (WaitForWrite is not null)
                     {
-                        State = Views[index].Projection.State with
-                        {
-                            ObservedValue = value,
-                            CycleGeneration = ReplaceGeneration ? 2 : 1
-                        }
+                        await WaitForWrite.Task.WaitAsync(token);
                     }
-                };
-                AfterDeviceWrite?.Invoke(id);
-                return Completed(CommandOutcome.AppliedVerified);
-            }, new WindowsPowerModes(new PowerSchemes(new UnusedPowerSchemeApi()), Api), () => OnAc,
+
+                    if (FailAt == Calls.Count)
+                    {
+                        return Completed(CommandOutcome.Indeterminate);
+                    }
+
+                    var index = Array.FindIndex(Views, view => view.Descriptor.CapabilityId == id);
+                    LastScenario = value.ChoiceValue ?? LastScenario;
+                    Views[index] = Views[index] with
+                    {
+                        Projection = Views[index].Projection with
+                        {
+                            State = Views[index].Projection.State with
+                            {
+                                ObservedValue = value,
+                                CycleGeneration = ReplaceGeneration ? 2 : 1
+                            }
+                        }
+                    };
+                    AfterDeviceWrite?.Invoke(id);
+                    return Completed(CommandOutcome.AppliedVerified);
+                }, new WindowsPowerModes(new PowerSchemes(new UnusedPowerSchemeApi()), Api), () => OnAc,
                 automaticPowerOwner: automaticPowerOwner);
         }
 

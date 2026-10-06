@@ -36,6 +36,82 @@ public sealed class SteamUiSessionHostTests : IDisposable
     }
 
     [Fact]
+    public async Task EmittedBridgeConfigurationMatchesTheEmbeddedAsset()
+    {
+        await using var transport = new SessionHostTransport();
+        await using var performance = PerformanceBuilders.Service();
+        await using var host = new SteamUiSessionHost(transport, _ => Task.FromResult(true), Backends(performance));
+        host.Apply(SteamUiSurfaceSwitches.Off with { NativeQuickAccess = true });
+
+        var expression = await transport.BridgeBootstrap.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var asset = SteamUiAssetCatalog.LoadNativeQamBootstrap();
+        const string token = "__STEAM_UI_CONFIGURATION_JSON__";
+        var index = asset.Source.IndexOf(token, StringComparison.Ordinal);
+        Assert.True(index >= 0);
+        var prefix = asset.Source[..index];
+        var suffix = asset.Source[(index + token.Length)..];
+        Assert.StartsWith(prefix, expression, StringComparison.Ordinal);
+        Assert.EndsWith(suffix, expression, StringComparison.Ordinal);
+        var configuration = expression.Substring(prefix.Length, expression.Length - prefix.Length - suffix.Length);
+        using var document = JsonDocument.Parse(configuration);
+        var root = document.RootElement;
+        Assert.Equal(SteamUiBridgeHost.SchemaVersion, root.GetProperty("version").GetInt32());
+        Assert.Equal(asset.Sha256, root.GetProperty("assetHash").GetString());
+        Assert.Equal(SteamUiBridgeIdentity.Namespace, root.GetProperty("namespace").GetString());
+        Assert.Equal(SteamUiBridgeIdentity.BindingName, root.GetProperty("binding").GetString());
+        Assert.False(string.IsNullOrEmpty(root.GetProperty("vocabularyRevision").GetString()));
+        var allowed = root.GetProperty("allowed");
+        Assert.Equal("refused", allowed.GetProperty(SteamDownloadSort.PatchId)[0].GetString());
+        Assert.Equal("toggleQuickAccess", allowed.GetProperty("wsgm.native-qam.shell")[0].GetString());
+        Assert.True(allowed.TryGetProperty("steam-ui.device-controls", out _));
+        Assert.False(allowed.TryGetProperty(SteamThemesSurface.PatchId, out _));
+
+        // Optional fixture export for the attended harness; normal test runs write nothing.
+        if (Environment.GetEnvironmentVariable("WSGM_QAM_CONFIGURATION") is { Length: > 0 } path)
+        {
+            Assert.True(Path.IsPathFullyQualified(path), "WSGM_QAM_CONFIGURATION must be an absolute path.");
+            await File.WriteAllTextAsync(path, configuration);
+        }
+    }
+
+    [Fact]
+    public async Task ConcurrentDisposalSharesOneCompletion()
+    {
+        await using var transport = new SessionHostTransport();
+        await using var performance = PerformanceBuilders.Service();
+        var host = new SteamUiSessionHost(transport, _ => Task.FromResult(true), Backends(performance));
+
+        var first = host.DisposeAsync().AsTask();
+        var second = host.DisposeAsync().AsTask();
+
+        Assert.Same(first, second);
+        await first.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Same(first, host.DisposeAsync().AsTask());
+    }
+
+    [Fact]
+    public async Task ClosedAdmissionCannotBeReopenedByALateApply()
+    {
+        await using var transport = new SessionHostTransport();
+        await using var performance = PerformanceBuilders.Service();
+        await using var host = new SteamUiSessionHost(transport, _ => Task.FromResult(true), Backends(performance));
+
+        host.CloseAdmission();
+        host.CloseAdmission();
+        host.Apply(SteamUiSurfaceSwitches.Off with
+        {
+            NativeQuickAccess = true,
+            HostSurfaces = true,
+            DownloadSort = true,
+            LibraryBadge = true,
+            SurfaceObservation = true
+        });
+
+        Assert.All(host.GetPatchSnapshots(), snapshot => Assert.False(snapshot.Enabled));
+        Assert.False(transport.BridgeBootstrap.Task.IsCompleted);
+    }
+
+    [Fact]
     public async Task BridgeVocabularyComesFromTheDeclaredModulesIncludingDeviceControls()
     {
         await using var transport = new SessionHostTransport();
@@ -440,6 +516,9 @@ public sealed class SteamUiSessionHostTests : IDisposable
 
         internal string? BridgeConfiguration => Volatile.Read(ref _bridgeConfiguration);
 
+        internal TaskCompletionSource<string> BridgeBootstrap { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
         internal string GlyphInstallationExpression => Volatile.Read(ref _glyphInstallationExpression)!;
 
         internal string GlyphVerificationExpression => Volatile.Read(ref _glyphVerificationExpression)!;
@@ -465,6 +544,7 @@ public sealed class SteamUiSessionHostTests : IDisposable
             if (expression.Contains("\"allowed\":", StringComparison.Ordinal))
             {
                 Volatile.Write(ref _bridgeConfiguration, expression);
+                BridgeBootstrap.TrySetResult(expression);
             }
 
             string value;

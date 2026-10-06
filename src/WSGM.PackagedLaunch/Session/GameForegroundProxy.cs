@@ -341,5 +341,4 @@ internal sealed class GameForegroundProxy : IDisposable
 
     private delegate void WinEventProc(IntPtr hook, uint eventId, IntPtr window, int objectId, int childId, uint thread,
         uint time);
-
 }

@@ -40,6 +40,8 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
     private readonly Task _worker;
     private long _dispatchSequence;
     private bool _disposed;
+
+    private int _droppedFrames;
     private long _epoch;
     private long _lastDispatchTimestamp;
     private bool _outputObserved;
@@ -60,8 +62,6 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
         _backend.OutputReceived += OnOutputReceived;
         _worker = RunAsync();
     }
-
-    private int _droppedFrames;
 
     internal int DroppedFrames => Volatile.Read(ref _droppedFrames);
 
@@ -292,7 +292,8 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
                 catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
                 {
                     Log.Change("managed-controller-output-fault",
-                        $"Managed controller output write failed; the next frame is tried: {ex.Message}", LogLevel.Warn);
+                        $"Managed controller output write failed; the next frame is tried: {ex.Message}",
+                        LogLevel.Warn);
                 }
                 finally
                 {

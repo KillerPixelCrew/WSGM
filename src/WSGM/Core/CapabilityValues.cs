@@ -33,5 +33,4 @@ internal static class CapabilityValues
             _ => false
         };
     }
-
 }

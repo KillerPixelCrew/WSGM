@@ -351,10 +351,11 @@ public sealed class DevicePowerAssignmentsTests
     }
 
     [Theory]
-    [InlineData(128, 64, true)]
-    [InlineData(129, 64, false)]
-    [InlineData(128, 65, false)]
-    public void AssignmentLengthLimitsApplyAfterTrimming(int pluginLength, int presetLength, bool valid)
+    [InlineData(128, 64)]
+    [InlineData(129, 64)]
+    [InlineData(128, 65)]
+    [InlineData(200, 200)]
+    public void AssignmentIdentifiersSurviveTrimmingAndReloadWithoutLengthCaps(int pluginLength, int presetLength)
     {
         AppConfig config = new();
         config.Profiles.Games.Add(new GameProfile
@@ -372,14 +373,13 @@ public sealed class DevicePowerAssignmentsTests
         });
         AppConfigRules.Normalize(config);
         var reference = Assert.Single(config.Profiles.Games).Values.BatteryPowerPreset;
-        Assert.Equal(valid, reference is not null);
-        if (!valid)
-        {
-            return;
-        }
+        Assert.NotNull(reference);
+        Assert.Equal(new string('p', pluginLength), reference.PluginId);
+        Assert.Equal(new string('b', presetLength), reference.PresetId);
 
-        Assert.Equal(pluginLength, reference!.PluginId.Length);
-        Assert.Equal(presetLength, reference.PresetId.Length);
+        var restored = AppConfigRules.Normalize(ConfigRepair.Deserialize(
+            JsonSerializer.Serialize(config, ConfigJsonContext.Default.AppConfig))).Value;
+        Assert.Equal(reference, Assert.Single(restored.Profiles.Games).Values.BatteryPowerPreset);
     }
 
     [Fact]

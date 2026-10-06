@@ -136,7 +136,7 @@ internal sealed class LibraryPolicy(SteamClient? steam = null)
     {
         try
         {
-            return SteamLibraryVdf.TryReadMarker(libraryPath, out var id, out _)
+            return SteamLibraryMarker.TryRead(libraryPath, out var id, out _)
                 ? id ?? ""
                 : "";
         }

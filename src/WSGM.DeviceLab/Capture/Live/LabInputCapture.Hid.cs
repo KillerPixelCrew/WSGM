@@ -65,7 +65,8 @@ internal sealed partial class LabInputCapture
             }
         }
 
-        var name = $"{collection.VendorId:X4}:{collection.ProductId:X4} {collection.UsagePage:X4}:{collection.Usage:X4}";
+        var name =
+            $"{collection.VendorId:X4}:{collection.ProductId:X4} {collection.UsagePage:X4}:{collection.Usage:X4}";
         LabTrace.Write($"capture hid {name}: open for reading ({collection.InputLength} bytes)");
         var handle = Kernel32.CreateFileW(path, Kernel32.GenericRead,
             Kernel32.FileShareRead | Kernel32.FileShareWrite, 0, Kernel32.OpenExisting, 0x40000000, 0);

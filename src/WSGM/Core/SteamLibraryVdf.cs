@@ -20,8 +20,7 @@ namespace WSGM.Core;
 ///     path/volume/machine, accepts third-party-invented ids, and self-heals empty
 ///     ones. The same value goes into the card marker and the config registration.
 ///     Everything here is pure string work so the exact bytes are unit-testable;
-///     file I/O lives in <see cref="Shell.SdFormatManager" />, except the one shared card-marker
-///     read (<see cref="TryReadMarker" />), which only loads the file for <see cref="TryParseMarker" />.
+///     file I/O belongs to the storage owners and <see cref="Shell.SteamLibraryMarker" />.
 /// </summary>
 public static class SteamLibraryVdf
 {
@@ -577,33 +576,6 @@ public static class SteamLibraryVdf
             appIds.Clear();
             appsPending = inApps = false;
         }
-    }
-
-    /// <summary>
-    ///     Reads both values a card's <c>libraryfolder.vdf</c> marker holds:
-    ///     its content id and its label. The marker is the only copy of either that
-    ///     travels with the media, which is why it, and not
-    ///     <c>config\libraryfolders.vdf</c>, names a card (see <c>docs\sd-cards.md</c>).
-    ///     This is the one file read shared by the card features. Deliberately does NOT catch IO
-    ///     failures: the callers' policies for an unreadable marker differ (skip the volume, refuse
-    ///     a restore), so the exception is theirs to handle.
-    /// </summary>
-    /// <param name="libraryPath">The library root, e.g. <c>E:\SteamLibrary</c>.</param>
-    /// <param name="contentId">The first non-whitespace content id, or null.</param>
-    /// <param name="label">The marker's label, empty when it carries none.</param>
-    /// <returns>True when the marker exists and holds a usable content id.</returns>
-    public static bool TryReadMarker(
-        string libraryPath, out string? contentId, out string label)
-    {
-        var marker = Path.Combine(libraryPath, "libraryfolder.vdf");
-        if (!File.Exists(marker))
-        {
-            contentId = null;
-            label = "";
-            return false;
-        }
-
-        return TryParseMarker(File.ReadAllText(marker), out contentId, out label);
     }
 
     /// <summary>Parses the content id and label out of <c>libraryfolder.vdf</c> marker text.</summary>

@@ -210,6 +210,11 @@ internal sealed class LabWorkerHost(
 
             lock (_sessions)
             {
+                if (_calls.Closed)
+                {
+                    continue;
+                }
+
                 Handle(request);
             }
 

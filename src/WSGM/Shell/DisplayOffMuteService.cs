@@ -33,37 +33,11 @@ internal enum DisplayMuteAction
 /// </summary>
 internal static class DisplayMuteDecider
 {
-    /// <summary>MONITOR_DISPLAY_STATE: the display is off.</summary>
-    internal const int DisplayOff = 0;
-
-    /// <summary>MONITOR_DISPLAY_STATE: the display is on.</summary>
-    internal const int DisplayOn = 1;
-
-    /// <summary>MONITOR_DISPLAY_STATE: the display is dimmed (still lit).</summary>
-    internal const int DisplayDimmed = 2;
-
     /// <summary>
     ///     Grace after the last active download before audio is restored while
     ///     the screen remains dark.
     /// </summary>
     internal static readonly TimeSpan DownloadCompletionRestoreDelay = TimeSpan.FromSeconds(10);
-
-    /// <summary>
-    ///     Returns whether a MONITOR_DISPLAY_STATE value is the documented
-    ///     display-off value.
-    ///     <para>
-    ///         Every other value is treated as lit, including "dimmed" and any value
-    ///         Windows may add later. The asymmetry is deliberate and fail-safe: a dimmed
-    ///         screen is still in front of the user, and an unknown value must never be the
-    ///         reason a device stays silent.
-    ///     </para>
-    /// </summary>
-    /// <param name="state">The reported MONITOR_DISPLAY_STATE.</param>
-    /// <returns>True only for the documented off value.</returns>
-    internal static bool IsDisplayOff(int state)
-    {
-        return state == DisplayOff;
-    }
 
     /// <summary>
     ///     Reconciles the feature setting, display state, Steam download state,
@@ -98,20 +72,6 @@ internal static class DisplayMuteDecider
         return downloadActive
             ? DisplayMuteAction.NoChange
             : DisplayMuteAction.DelayRestore;
-    }
-
-    /// <summary>
-    ///     Whether a notification source may be believed when it says the screen went
-    ///     dark. Only <see cref="DisplayStateSource.Session" /> describes this session's own
-    ///     display; the console and legacy settings are registered purely as redundant WAKE
-    ///     sources, so a stale or cross-session "off" from them must never start a mute. Every
-    ///     source may report the screen coming back — that direction is the fail-safe one.
-    /// </summary>
-    /// <param name="source">The setting that delivered the notification.</param>
-    /// <returns>True when the source is authoritative for a dark screen.</returns>
-    internal static bool MayReportDark(DisplayStateSource source)
-    {
-        return source == DisplayStateSource.Session;
     }
 
     /// <summary>
@@ -198,7 +158,10 @@ public sealed class DisplayOffMuteService : IDisposable
         _enabled = false;
     }
 
-    private void OnProcessExit(object? sender, EventArgs e) => Restore();
+    private void OnProcessExit(object? sender, EventArgs e)
+    {
+        Restore();
+    }
 
     /// <summary>
     ///     Turns the feature on or off, matching a reloaded configuration. Turning
@@ -262,9 +225,9 @@ public sealed class DisplayOffMuteService : IDisposable
         // still in front of the user, so it is deliberately not treated as off.
         var name = state switch
         {
-            DisplayMuteDecider.DisplayOff => "off",
-            DisplayMuteDecider.DisplayOn => "on",
-            DisplayMuteDecider.DisplayDimmed => "dimmed",
+            DisplayPowerSignal.DisplayOff => "off",
+            DisplayPowerSignal.DisplayOn => "on",
+            DisplayPowerSignal.DisplayDimmed => "dimmed",
             _ => $"unknown ({state})"
         };
         // The source is part of the line on purpose: when a wake is missed, which of the
@@ -275,14 +238,14 @@ public sealed class DisplayOffMuteService : IDisposable
             return;
         }
 
-        if (!DisplayMuteDecider.IsDisplayOff(state))
+        if (!DisplayPowerSignal.IsDisplayOff(state))
         {
             _displayOff = false;
             ReconcileMuteState();
             return;
         }
 
-        if (!DisplayMuteDecider.MayReportDark(source))
+        if (!DisplayPowerSignal.MayReportDark(source))
         {
             return;
         }

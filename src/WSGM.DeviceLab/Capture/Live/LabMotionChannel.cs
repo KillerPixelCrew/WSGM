@@ -58,16 +58,12 @@ internal sealed record LabMotionChannelRecord
 ///     Accumulates one sensor's readings for a step without allocating per reading.
 /// </summary>
 /// <remarks>
-///     Statistics cover every reading. Raw rows are kept in a fixed buffer of
-///     <see cref="MaximumSamples" />; when it fills, every other row is dropped and the stride doubles,
-///     so the kept rows always span the whole step evenly. Readings arriving outside a step are ignored.
+///     Statistics and raw rows cover every reading. The buffer grows as needed without dropping rows.
+///     Readings arriving outside a step are ignored.
 ///     Safe to feed from one sensor thread while another thread begins and ends steps.
 /// </remarks>
 internal sealed class LabMotionChannel
 {
-    /// <summary>Most raw rows kept per step.</summary>
-    public const int MaximumSamples = 2000;
-
     private const long NoTimestamp = long.MinValue;
 
     private readonly Lock _gate = new();
@@ -77,7 +73,6 @@ internal sealed class LabMotionChannel
     private readonly double[] _mean;
     private readonly double[] _min;
     private readonly string[] _names;
-    private readonly double[] _rows;
     private readonly long[] _valid;
     private readonly int _width;
     private bool _active;
@@ -87,10 +82,10 @@ internal sealed class LabMotionChannel
     private long _firstSensor = NoTimestamp;
     private double _lastHost;
     private long _lastSensor = NoTimestamp;
+    private double[] _rows;
     private long _sensorCount;
     private double _stepStart;
     private int _stored;
-    private int _stride = 1;
 
     /// <summary>Creates a channel for a fixed set of fields.</summary>
     /// <param name="names">Field names, in the order readings supply them.</param>
@@ -98,7 +93,7 @@ internal sealed class LabMotionChannel
     {
         _names = [.. names];
         _width = 2 + _names.Length;
-        _rows = new double[MaximumSamples * _width];
+        _rows = new double[256 * _width];
         _mean = new double[_names.Length];
         _m2 = new double[_names.Length];
         _min = new double[_names.Length];
@@ -133,7 +128,6 @@ internal sealed class LabMotionChannel
             _count = 0;
             _duplicates = 0;
             _stored = 0;
-            _stride = 1;
             _sensorCount = 0;
             _firstSensor = NoTimestamp;
             _lastSensor = NoTimestamp;
@@ -192,30 +186,22 @@ internal sealed class LabMotionChannel
                 _max[i] = Math.Max(_max[i], value);
             }
 
-            if (_count % _stride == 0)
+            var row = checked(_stored * _width);
+            if (row == _rows.Length)
             {
-                if (_stored == MaximumSamples)
-                {
-                    Compact();
-                }
-
-                // Compacting doubles the stride, so this reading may no longer be on it.
-                if (_count % _stride == 0)
-                {
-                    var row = _stored * _width;
-                    _rows[row] = hostMs - _stepStart;
-                    _rows[row + 1] = sensorTicks == NoTimestamp || _firstSensor == NoTimestamp
-                        ? double.NaN
-                        : (sensorTicks - _firstSensor) / (double)TimeSpan.TicksPerMillisecond;
-                    for (var i = 0; i < _names.Length; i++)
-                    {
-                        _rows[row + 2 + i] = i < values.Length ? values[i] : double.NaN;
-                    }
-
-                    _stored++;
-                }
+                Array.Resize(ref _rows, checked(_rows.Length * 2));
             }
 
+            _rows[row] = hostMs - _stepStart;
+            _rows[row + 1] = sensorTicks == NoTimestamp || _firstSensor == NoTimestamp
+                ? double.NaN
+                : (sensorTicks - _firstSensor) / (double)TimeSpan.TicksPerMillisecond;
+            for (var i = 0; i < _names.Length; i++)
+            {
+                _rows[row + 2 + i] = i < values.Length ? values[i] : double.NaN;
+            }
+
+            _stored++;
             for (var i = 0; i < _names.Length; i++)
             {
                 _latest[i] = i < values.Length ? values[i] : double.NaN;
@@ -298,23 +284,11 @@ internal sealed class LabMotionChannel
                 DurationMs = _count > 1 ? Math.Round(duration, 2) : null,
                 HostRateHz = duration > 0 ? Math.Round((_count - 1) * 1000 / duration, 2) : null,
                 SensorRateHz = sensorSpan > 0 ? Math.Round((_sensorCount - 1) / sensorSpan, 2) : null,
-                SampleStride = _stride,
+                SampleStride = 1,
                 Fields = fields,
                 Samples = samples
             };
         }
-    }
-
-    private void Compact()
-    {
-        var kept = MaximumSamples / 2;
-        for (var row = 1; row < kept; row++)
-        {
-            Array.Copy(_rows, row * 2 * _width, _rows, row * _width, _width);
-        }
-
-        _stored = kept;
-        _stride *= 2;
     }
 
     private static double Round(double value)

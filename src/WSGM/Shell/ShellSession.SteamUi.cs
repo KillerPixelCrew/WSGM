@@ -16,6 +16,19 @@ public sealed partial class ShellSession
     // retract-then-close ordering.
     private readonly SemaphoreSlim _cefMasterGate = new(1, 1);
 
+    // The session's one readiness: the transport gate below writes it, and the boot sync, the card
+    // watchers, the keep-awake poll and Steam's startup-movie choice wait on or read it.
+    private readonly SteamUiReadiness _steamUiReadiness = new();
+
+    // The master-switch applies and the Big Picture restore still running, joined at shutdown.
+    private readonly Lock _steamUiWorkGate = new();
+
+    // The tab boot sync is one worker started with the session. A request supersedes the pass in
+    // flight; a cancel drops it and any request not yet started. Only the worker creates and disposes
+    // a pass's source, always under _tabBootGate, so a disposed source is never cancelled.
+    private readonly Lock _tabBootGate = new();
+    private readonly SemaphoreSlim _tabBootSignal = new(0, 1);
+
     // The transport's enabled flag is the one choke point every automatic CEF touch
     // passes: the patch host, the running-application probe and the static
     // evaluators. Its open/closed state is decided only by the readiness loop
@@ -39,23 +52,10 @@ public sealed partial class ShellSession
     // settles (PrepareSteamUiForBigPictureAsync / ReleaseSteamUiBigPictureHold). The request
     // rebuilds Steam's front-end, so the transport hold must begin before it fires.
     private volatile bool _gameModeCefTransitionPending;
-
-    // The session's one readiness: the transport gate below writes it, and the boot sync, the card
-    // watchers, the keep-awake poll and Steam's startup-movie choice wait on or read it.
-    private readonly SteamUiReadiness _steamUiReadiness = new();
-
-    // The tab boot sync is one worker started with the session. A request supersedes the pass in
-    // flight; a cancel drops it and any request not yet started. Only the worker creates and disposes
-    // a pass's source, always under _tabBootGate, so a disposed source is never cancelled.
-    private readonly Lock _tabBootGate = new();
-    private readonly SemaphoreSlim _tabBootSignal = new(0, 1);
+    private Task _steamUiWork = Task.CompletedTask;
     private CancellationTokenSource? _tabBootPass;
     private bool _tabBootRequested;
     private Task? _tabBootWorker;
-
-    // The master-switch applies and the Big Picture restore still running, joined at shutdown.
-    private readonly Lock _steamUiWorkGate = new();
-    private Task _steamUiWork = Task.CompletedTask;
 
     private Task? _transportGateWork;
 
@@ -69,6 +69,11 @@ public sealed partial class ShellSession
     /// </remarks>
     private void ApplySteamUiTransportGate()
     {
+        if (_shutdownRequested)
+        {
+            return;
+        }
+
         var master = _cefMasterEnabled;
         var inGameMode = _inGameMode;
         var transitionPending = _gameModeCefTransitionPending;
@@ -86,6 +91,7 @@ public sealed partial class ShellSession
         {
             // Shutdown already disposed it; there is nothing left to open or close.
         }
+
         // The one-shot jobs wait on this decision, so their ready edge is the transport's own.
         _steamUiReadiness.Observe(open);
         string state;
@@ -142,15 +148,20 @@ public sealed partial class ShellSession
     /// </remarks>
     private async Task PrepareSteamUiForBigPictureAsync()
     {
-        if (_steamUiTransport is null)
+        if (_steamUiTransport is null || _shutdownRequested)
         {
             return;
         }
 
         _gameModeCefTransitionPending = true;
-        await _cefMasterGate.WaitAsync().ConfigureAwait(false);
+        await _cefMasterGate.WaitAsync(_shutdownCancellation.Token).ConfigureAwait(false);
         try
         {
+            if (_shutdownRequested)
+            {
+                return;
+            }
+
             if (_cefMasterEnabled)
             {
                 await RetractSteamUiAsync("the Big Picture request").ConfigureAwait(false);
@@ -180,15 +191,20 @@ public sealed partial class ShellSession
     /// </remarks>
     private async Task PrepareSteamUiForDesktopAsync()
     {
-        if (_steamUiTransport is null)
+        if (_steamUiTransport is null || _shutdownRequested)
         {
             return;
         }
 
         _bigPictureExitPending = true;
-        await _cefMasterGate.WaitAsync().ConfigureAwait(false);
+        await _cefMasterGate.WaitAsync(_shutdownCancellation.Token).ConfigureAwait(false);
         try
         {
+            if (_shutdownRequested)
+            {
+                return;
+            }
+
             if (_cefMasterEnabled)
             {
                 await RetractSteamUiAsync("the Big Picture close").ConfigureAwait(false);
@@ -472,10 +488,10 @@ public sealed partial class ShellSession
         {
             TrackSteamUiWork(Task.Run(async () =>
             {
-                await _cefMasterGate.WaitAsync().ConfigureAwait(false);
+                await _cefMasterGate.WaitAsync(_shutdownCancellation.Token).ConfigureAwait(false);
                 try
                 {
-                    if (!_cefMasterEnabled)
+                    if (_shutdownRequested || !_cefMasterEnabled)
                     {
                         // Turned off again before this apply owned the gate — that
                         // apply's retraction owns the choke point now.
@@ -520,9 +536,14 @@ public sealed partial class ShellSession
         CancelTabBootSync();
         TrackSteamUiWork(Task.Run(async () =>
         {
-            await _cefMasterGate.WaitAsync().ConfigureAwait(false);
+            await _cefMasterGate.WaitAsync(_shutdownCancellation.Token).ConfigureAwait(false);
             try
             {
+                if (_shutdownRequested)
+                {
+                    return;
+                }
+
                 await RetractSteamUiAsync("the master switch").ConfigureAwait(false);
             }
             finally
@@ -531,12 +552,12 @@ public sealed partial class ShellSession
                 // a re-enable that landed during these three round-trips already
                 // reopened it, and the equality guard above means no later reload
                 // would ever repair an overwrite here.
-                if (!_cefMasterEnabled)
+                if (!_shutdownRequested && !_cefMasterEnabled)
                 {
                     ApplySteamUiTransportGate();
                     Log.Info("Steam CEF integration disabled — injected UI retracted.");
                 }
-                else
+                else if (!_shutdownRequested)
                 {
                     Log.Info("Steam CEF integration was re-enabled during the retraction — " +
                              "leaving the choke point to the enable apply.");

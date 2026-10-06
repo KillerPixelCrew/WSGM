@@ -26,21 +26,22 @@ public sealed class DevicePrerequisiteBannerTests
     ///     the tab that normally shows it needs a device coordinator or a power-scheme selection, and
     ///     neither is what these tests are about.
     /// </summary>
-    private static OverlayWindow Device(UiFixture fixture, DevicePrerequisiteSource source)
+    private static async Task<OverlayWindow> DeviceAsync(UiFixture fixture, DevicePrerequisiteSource source)
     {
         var window = fixture.Overlay();
         UiFixture.Named<Control>(window, "PanelDevice").IsVisible = true;
         window.AttachDevicePrerequisites(source);
+        await window.DevicePrerequisitesRefresh;
         return window;
     }
 
     [AvaloniaFact]
-    public void APackageOnAnInstallWithNoControllerSupportIsExplainedOnTheDevicePage()
+    public async Task APackageOnAnInstallWithNoControllerSupportIsExplainedOnTheDevicePage()
     {
         using UiFixture fixture = new();
         DevicePrerequisiteSource source = new(() => State(), () => Task.CompletedTask);
 
-        var window = Device(fixture, source);
+        var window = await DeviceAsync(fixture, source);
 
         var banner = UiFixture.Named<Border>(window, "DevicePrerequisiteBanner");
         var detail = UiFixture.Named<TextBlock>(window, "DevicePrerequisiteDetail");
@@ -50,7 +51,7 @@ public sealed class DevicePrerequisiteBannerTests
     }
 
     [AvaloniaFact]
-    public void TheBannerOffersTheHalfWSGMOwnsAndNeverOffersToInstallTheDriver()
+    public async Task TheBannerOffersTheHalfWSGMOwnsAndNeverOffersToInstallTheDriver()
     {
         // INV-020: the runtime never installs a driver. The banner may switch Device Integration
         // on, because that is WSGM's own setting, and must only point at setup for the rest.
@@ -64,7 +65,7 @@ public sealed class DevicePrerequisiteBannerTests
                 return Task.CompletedTask;
             });
 
-        var window = Device(fixture, source);
+        var window = await DeviceAsync(fixture, source);
         var enable = UiFixture.Named<Button>(window, "DevicePrerequisiteEnable");
         Assert.True(enable.IsVisible);
         Assert.Equal("Enable Device Integration", enable.Content);
@@ -73,6 +74,7 @@ public sealed class DevicePrerequisiteBannerTests
             button => button.Content is string text && text.Contains("driver", StringComparison.OrdinalIgnoreCase));
 
         UiFixture.Click(window, enable);
+        await window.DevicePrerequisitesRefresh;
 
         Assert.True(enabled);
         // The controller half is still missing, so the banner stays and only the button goes.
@@ -81,31 +83,31 @@ public sealed class DevicePrerequisiteBannerTests
     }
 
     [AvaloniaFact]
-    public void AnInstallWithNoDevicePackageShowsNothing()
+    public async Task AnInstallWithNoDevicePackageShowsNothing()
     {
         using UiFixture fixture = new();
         DevicePrerequisiteSource source = new(
             () => State(false), () => Task.CompletedTask);
 
-        var window = Device(fixture, source);
+        var window = await DeviceAsync(fixture, source);
 
         Assert.False(UiFixture.Named<Border>(window, "DevicePrerequisiteBanner").IsVisible);
     }
 
     [AvaloniaFact]
-    public void ACompleteInstallShowsNothing()
+    public async Task ACompleteInstallShowsNothing()
     {
         using UiFixture fixture = new();
         DevicePrerequisiteSource source = new(
             () => State(integration: true, library: true, hidHide: true), () => Task.CompletedTask);
 
-        var window = Device(fixture, source);
+        var window = await DeviceAsync(fixture, source);
 
         Assert.False(UiFixture.Named<Border>(window, "DevicePrerequisiteBanner").IsVisible);
     }
 
     [AvaloniaFact]
-    public void AReaderThatThrowsLeavesTheOverlayUsable()
+    public async Task AReaderThatThrowsLeavesTheOverlayUsable()
     {
         // A banner is not worth failing an overlay open over.
         using UiFixture fixture = new();
@@ -113,7 +115,7 @@ public sealed class DevicePrerequisiteBannerTests
             () => throw new InvalidOperationException("the slot is unreadable"),
             () => Task.CompletedTask);
 
-        var window = Device(fixture, source);
+        var window = await DeviceAsync(fixture, source);
 
         Assert.False(UiFixture.Named<Border>(window, "DevicePrerequisiteBanner").IsVisible);
     }

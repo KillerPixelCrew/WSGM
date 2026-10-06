@@ -27,6 +27,7 @@ public sealed class LiveBackdrop : IDisposable
     internal static CreateSession Create = NativeMethods.BackdropCreate;
     internal static Func<nint, float, int> SetBlur = NativeMethods.BackdropSetBlur;
     internal static Action<nint> Destroy = NativeMethods.BackdropDestroy;
+
     internal static Func<Window, nint> ReadWindowHandle = static window =>
         window.TryGetPlatformHandle() is { HandleDescriptor: "HWND" } handle ? handle.Handle : 0;
 
@@ -121,10 +122,6 @@ public sealed class LiveBackdrop : IDisposable
 
     /// <summary>Raised on the UI thread when active, disabled or failed state changes, and only then.</summary>
     public event EventHandler? StateChanged;
-
-    /// <summary>The native create call, with the session returned through an out parameter.</summary>
-    internal delegate int CreateSession(nint owner, float sigma, NativeMethods.FailureCallback callback,
-        out nint session);
 
     /// <summary>Attaches a single backdrop owner to a window, before or after it opens.</summary>
     /// <param name="window">The transparent Avalonia window.</param>
@@ -294,4 +291,8 @@ public sealed class LiveBackdrop : IDisposable
 
         _callback = null;
     }
+
+    /// <summary>The native create call, with the session returned through an out parameter.</summary>
+    internal delegate int CreateSession(nint owner, float sigma, NativeMethods.FailureCallback callback,
+        out nint session);
 }

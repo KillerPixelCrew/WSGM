@@ -72,9 +72,10 @@ internal static class DisplayText
     {
         return
         [
-            .. result.Warnings.Select(warning => Name(warning.Target) + ": " + (warning.Kind == DisplayOutputWarningKind.Hdr
-                ? Hdr(warning.Outcome, warning.NativeStatus)
-                : Scaling(warning.Outcome, warning.NativeStatus)))
+            .. result.Warnings.Select(warning => Name(warning.Target) + ": " +
+                                                 (warning.Kind == DisplayOutputWarningKind.Hdr
+                                                     ? Hdr(warning.Outcome, warning.NativeStatus)
+                                                     : Scaling(warning.Outcome, warning.NativeStatus)))
         ];
     }
 

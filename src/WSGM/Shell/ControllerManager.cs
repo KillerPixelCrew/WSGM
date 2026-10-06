@@ -57,25 +57,6 @@ internal sealed record ControllerManagerStatus(
 /// </remarks>
 internal sealed class ControllerManager : IAsyncDisposable
 {
-    internal static ControllerManager CreateProduction(string root, IPhysicalHapticSink hapticSink)
-    {
-        var reader = NativeHidHide.FromDosPath(Environment.ProcessPath
-            ?? throw new InvalidOperationException("The WSGM executable path is unavailable."));
-        if (reader.Skipped is not null)
-        {
-            Log.Warn($"NT device-path conversion skipped: {reader.Skipped}.");
-        }
-        else if (reader.Error != 0)
-        {
-            Log.Warn(
-                $"NT device-path conversion failed for {reader.Path[..2]} with Win32 error "
-                + $"{reader.Error}; HidHide readability may be unavailable.");
-        }
-
-        return new ControllerManager(new ViiperControllerBackend(), hapticSink, HidHideOwnership.ForUser(root),
-            reader.Path, new ControllerProcessPriority());
-    }
-
     /// <summary>How long a synthetic press is held: HC's <c>KeyPressDelay</c>.</summary>
     private static readonly TimeSpan SyntheticPressInterval = TimeSpan.FromMilliseconds(200);
 
@@ -93,9 +74,12 @@ internal sealed class ControllerManager : IAsyncDisposable
     private readonly SemaphoreSlim _routeGate = new(1, 1);
 
     private readonly ManagedControllerRouter _router;
-    private readonly Channel<CanonicalControllerSample> _samples = Channel.CreateBounded<CanonicalControllerSample>(
-        new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropOldest, AllowSynchronousContinuations = false });
     private readonly Task _sampleDrain;
+
+    private readonly Channel<CanonicalControllerSample> _samples = Channel.CreateBounded<CanonicalControllerSample>(
+        new BoundedChannelOptions(1)
+            { FullMode = BoundedChannelFullMode.DropOldest, AllowSynchronousContinuations = false });
+
     private readonly Lock _stateGate = new();
     private readonly SemaphoreSlim _transition = new(1, 1);
     private readonly UiCaptureState _uiCapture = new();
@@ -173,6 +157,26 @@ internal sealed class ControllerManager : IAsyncDisposable
         await DisposeAsync(Deadline.Never).ConfigureAwait(false);
     }
 
+    internal static ControllerManager CreateProduction(string root, IPhysicalHapticSink hapticSink)
+    {
+        var reader = NativeHidHide.FromDosPath(Environment.ProcessPath
+                                               ?? throw new InvalidOperationException(
+                                                   "The WSGM executable path is unavailable."));
+        if (reader.Skipped is not null)
+        {
+            Log.Warn($"NT device-path conversion skipped: {reader.Skipped}.");
+        }
+        else if (reader.Error != 0)
+        {
+            Log.Warn(
+                $"NT device-path conversion failed for {reader.Path[..2]} with Win32 error "
+                + $"{reader.Error}; HidHide readability may be unavailable.");
+        }
+
+        return new ControllerManager(new ViiperControllerBackend(), hapticSink, HidHideOwnership.ForUser(root),
+            reader.Path, new ControllerProcessPriority());
+    }
+
     internal async ValueTask DisposeAsync(Deadline deadline)
     {
         if (_disposed)
@@ -204,7 +208,7 @@ internal sealed class ControllerManager : IAsyncDisposable
             catch (OperationCanceledException) when (bounded.Token.IsCancellationRequested)
             {
                 Log.Warn("Controller disposal: a controller transition was still running at the deadline; "
-                    + "the virtual pad is left to process exit.");
+                         + "the virtual pad is left to process exit.");
             }
 
             if (entered && _disposed)
@@ -254,12 +258,18 @@ internal sealed class ControllerManager : IAsyncDisposable
                 }
             }
 
-            _samples.Writer.TryComplete();
-            await ShowPhysicalUnderGateAsync(CancellationToken.None).ConfigureAwait(false);
-            SetState(ControllerManagementState.Off, "Controller management disposed.");
-            if (entered)
+            try
             {
-                _transition.Release();
+                _samples.Writer.TryComplete();
+                await ShowPhysicalUnderGateAsync(CancellationToken.None).ConfigureAwait(false);
+                SetState(ControllerManagementState.Off, "Controller management disposed.");
+            }
+            finally
+            {
+                if (entered)
+                {
+                    _transition.Release();
+                }
             }
         }
     }
@@ -284,6 +294,7 @@ internal sealed class ControllerManager : IAsyncDisposable
         {
             _gameLive = false;
         }
+
         SetState(ControllerManagementState.Faulted, detail);
         Log.Observe(
             BlockForwardingAsync("source-faulted", CancellationToken.None),
@@ -897,7 +908,7 @@ internal sealed class ControllerManager : IAsyncDisposable
             catch (OperationCanceledException)
             {
                 Log.Warn("Controller release: another controller transition still held the gate at the "
-                    + "caller's deadline; the release steps were skipped.");
+                         + "caller's deadline; the release steps were skipped.");
                 return;
             }
 
@@ -944,28 +955,37 @@ internal sealed class ControllerManager : IAsyncDisposable
         }
         finally
         {
-            if (!keepPhysicalHidden)
+            try
             {
-                await ShowPhysicalUnderGateAsync(CancellationToken.None).ConfigureAwait(false);
+                if (!keepPhysicalHidden)
+                {
+                    await ShowPhysicalUnderGateAsync(CancellationToken.None).ConfigureAwait(false);
+                }
+
+                if (entered)
+                {
+                    if (faultDetail is not null)
+                    {
+                        SetState(ControllerManagementState.Faulted, faultDetail);
+                    }
+                    else
+                    {
+                        SetState(
+                            scope is HandoffScope.FullDeactivation
+                                ? ControllerManagementState.Off
+                                : ControllerManagementState.Idle,
+                            "Controller management released the controller.");
+                    }
+
+                    Log.Info($"Controller released: scope={scope}, physicalKeptHidden={keepPhysicalHidden}.");
+                }
             }
-
-            if (entered)
+            finally
             {
-                if (faultDetail is not null)
+                if (entered)
                 {
-                    SetState(ControllerManagementState.Faulted, faultDetail);
+                    _transition.Release();
                 }
-                else
-                {
-                    SetState(
-                        scope is HandoffScope.FullDeactivation
-                            ? ControllerManagementState.Off
-                            : ControllerManagementState.Idle,
-                        "Controller management released the controller.");
-                }
-
-                Log.Info($"Controller released: scope={scope}, physicalKeptHidden={keepPhysicalHidden}.");
-                _transition.Release();
             }
         }
     }
@@ -1106,6 +1126,7 @@ internal sealed class ControllerManager : IAsyncDisposable
                 await _router.NeutralizeAsync("ui-capture", cancellationToken)
                     .ConfigureAwait(false);
             }
+
             Log.Info(kept
                 ? $"Managed controller target kept: {resolved.Target} ({resolved.Source}), "
                   + $"generation={target.Generation}."

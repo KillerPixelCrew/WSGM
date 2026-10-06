@@ -47,9 +47,9 @@ internal interface ICommonPluginOverlaySource
 internal sealed class CommonPluginOverlaySource : ICommonPluginOverlaySource
 {
     private readonly PluginHost _host;
-    private readonly ConfigStore _store;
     private readonly CommonPluginManager? _manager;
     private readonly object _pinsGate = new();
+    private readonly ConfigStore _store;
     private PluginWidgetPin[] _pins;
 
     internal CommonPluginOverlaySource(ConfigStore store, CommonPluginManager? manager, PluginHost host,
@@ -141,7 +141,11 @@ internal sealed class CommonPluginOverlaySource : ICommonPluginOverlaySource
     private async Task MutatePinsAsync(Action<List<PluginWidgetPin>> mutate)
     {
         var pins = await Task.Run(() =>
-            _store.Update(config => { mutate(config.PluginWidgetPins); return true; }).PluginWidgetPins.ToArray());
+            _store.Update(config =>
+            {
+                mutate(config.PluginWidgetPins);
+                return true;
+            }).PluginWidgetPins.ToArray());
         ApplyPins(pins);
     }
 }

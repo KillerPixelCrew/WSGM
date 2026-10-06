@@ -330,5 +330,4 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
                 .Select(target => target.Current!)
         ]);
     }
-
 }

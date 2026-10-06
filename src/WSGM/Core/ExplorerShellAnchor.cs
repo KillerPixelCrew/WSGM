@@ -8,6 +8,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Interop;
+using WSGM.Shared;
 
 namespace WSGM.Core;
 
@@ -19,7 +20,7 @@ internal sealed class ExplorerShellAnchor : IAsyncDisposable
 {
     private const string AnchorArgument = "--shell-anchor";
     internal const string ExecutableFileName = "WSGM.ShellAnchor.exe";
-    internal const string RecoverySettledEventName = WSGM.Shared.SessionProtocolNames.AnchorRecoverySettled;
+    internal const string RecoverySettledEventName = SessionProtocolNames.AnchorRecoverySettled;
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan CommandTimeout = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(2);
@@ -123,7 +124,6 @@ internal sealed class ExplorerShellAnchor : IAsyncDisposable
         _process.Dispose();
         _commandGate.Dispose();
     }
-
 
 
     /// <summary>Gets whether this session currently has a WSGM-owned anchor recovery process.</summary>

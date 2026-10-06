@@ -1,5 +1,7 @@
+using WSGM.Plugin.IntelGpu.Controls;
 using WSGM.Plugin.IntelGpu.Display;
 using WSGM.Plugin.IntelGpu.Igcl;
+using WSGM.Plugin.IntelGpu.Tests.Fakes;
 using Xunit;
 
 namespace WSGM.Plugin.IntelGpu.Tests;
@@ -80,11 +82,19 @@ public sealed class ArcSyncTests
         Assert.Equal((30f, 120f), (clamped.MinimumHz, clamped.MaximumHz));
     }
 
-    [Fact]
-    public void CustomIsOfferedOnlyWhenTheRangeAllowsIt()
+    [Theory]
+    [InlineData(30, 120, true)]
+    [InlineData(60, 60, false)]
+    public void TheDriverRangeDecidesWhetherThePublishedProfileOffersCustom(float minimum, float maximum, bool custom)
     {
-        Assert.Contains(ArcSyncProfileControl.Profiles(true), profile => profile.Id == "custom");
-        Assert.DoesNotContain(ArcSyncProfileControl.Profiles(false), profile => profile.Id == "custom");
+        var driver = new FakeIgclDriver { MinimumHz = minimum, MaximumHz = maximum };
+        using var session = driver.OpenSession();
+        var output = new IgclOutput(3, Assert.Single(session.Adapters), 0, default, true);
+        var display = ArcSyncDisplay.TryCreate(session, output, IntelLog.None, "Fixture")!;
+        var control = new ArcSyncProfileControl(display, "display-fixture", new Placement("display", "refresh", 0));
+        Assert.Equal(custom, control.Descriptor.Choices.Any(choice => choice.Value == "custom"));
+        session.Dispose();
+        GC.KeepAlive(driver);
     }
 
     private static CtlArcSyncMonitorParams Monitor(float minimum, float maximum, uint increase, uint decrease)

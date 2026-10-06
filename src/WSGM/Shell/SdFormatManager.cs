@@ -34,9 +34,6 @@ public sealed class SdFormatManager(
     CancellationToken lifetime = default,
     SteamClient? steam = null) : ObservableObject
 {
-    private sealed record FormatRunTarget(string Id, int DiskNumber, string Name, long SizeBytes,
-        int BusType, char PreferredLetter);
-
     /// <summary>The volume/library label used when the user names nothing.</summary>
     internal const string DefaultLabel = "Games";
 
@@ -78,16 +75,10 @@ public sealed class SdFormatManager(
     /// </summary>
     private const int LetterProbeAttempts = 6;
 
-    /// <summary>
-    ///     The destructive diskpart runs, in the order FormatAsync issues them.
-    ///     Each one re-verifies the target's identity first; the array is what a test can
-    ///     pin, because the guards themselves sit on a device-only flow that is never
-    ///     automated. Dropping a stage here fails <c>SdFormatTests</c>.
-    /// </summary>
-    internal static readonly string[] ReverifiedStages = ["clean/partition", "format", "assign"];
-
     /// <summary>Serializes format runs: strictly one at a time.</summary>
     private readonly SemaphoreSlim _formatGate = new(1, 1);
+
+    private readonly Operations _operations = CreateOperations(store, steam);
 
     /// <summary>
     ///     Reads the candidate disks on a worker thread, projecting the storage read it is handed or a fresh
@@ -108,6 +99,13 @@ public sealed class SdFormatManager(
     {
         ArgumentNullException.ThrowIfNull(readTargets);
         _readTargets = _ => readTargets();
+    }
+
+    internal SdFormatManager(ConfigStore store, Operations operations, Func<List<FormatTarget>> readTargets,
+        CancellationToken lifetime = default)
+        : this(store, readTargets, lifetime)
+    {
+        _operations = operations ?? throw new ArgumentNullException(nameof(operations));
     }
 
     /// <summary>Gets the candidate drives, one row per physical disk.</summary>
@@ -161,6 +159,60 @@ public sealed class SdFormatManager(
 
     /// <summary>Gets whether a status line should be shown.</summary>
     public bool HasStatus => StatusText.Length > 0;
+
+    /// <summary>The most recently started format run, completed when none has started.</summary>
+    internal Task Completion { get; private set; } = Task.CompletedTask;
+
+    private static Operations CreateOperations(ConfigStore store, SteamClient? client)
+    {
+        return new Operations
+        {
+            IsElevated = ElevationCheck.IsCurrentProcessElevated,
+            ReadDiskIdentity = ReadDiskIdentity,
+            RunDiskpart = (script, token) => RunDiskpart(store, script, token),
+            WaitForVolume = (disk, token) => Task.Run(() => WaitForVolume(disk, token), token),
+            WaitForLetter = (disk, attempts, token) => Task.Run(() => WaitForLetter(disk, attempts, token), token),
+            ReadVolume = ReadVolume,
+            LettersOnDisk = LettersOnDisk,
+            LetterRoot = letter => $@"{letter}:\",
+            ReadSteam = () => (Steam.IsRunning, Steam.ExePath),
+            ReadLibraryFolders = () =>
+            {
+                Steam.TryReadLibraryFolders(out var path, out var text);
+                return (path, text);
+            },
+            ReadMarker = path =>
+            {
+                SteamLibraryMarker.TryRead(path, out var id, out var label);
+                return (id, label);
+            },
+            RemoveLibrary = (id, text, token) => client is null
+                ? Task.FromResult(new SteamLibraryRemoveResult(SteamLibraryRemoveStatus.NotSent,
+                    "No Steam client in this window."))
+                : SteamLibraryFolders.RemoveLibraryByContentIdAsync(client, id, text, token),
+            AddLibrary = (path, label, replace) => client is null
+                ? new SteamLibraryAddResult(SteamLibraryAddStatus.NotSent, "No Steam client in this window.")
+                : SteamLibraryFolders.AddLibrary(client, path, label, replace),
+            Retrim = RetrimVolume,
+            BroadcastVolumeArrival = NativeStorage.BroadcastVolumeArrival,
+            Delay = (milliseconds, token) => Task.Delay(milliseconds, token),
+            WriteLog = (level, message, exception) =>
+            {
+                if (exception is not null)
+                {
+                    Log.Error(message, exception);
+                }
+                else if (level == LogLevel.Warn)
+                {
+                    Log.Warn(message);
+                }
+                else
+                {
+                    Log.Info(message);
+                }
+            }
+        };
+    }
 
     /// <summary>
     ///     Raised on the UI thread when a format run finishes, with the
@@ -230,7 +282,7 @@ public sealed class SdFormatManager(
             }
             catch (Exception ex)
             {
-                Log.Warn($"Format: enumeration failed: {ex.Message}");
+                Warn($"Format: enumeration failed: {ex.Message}");
             }
             finally
             {
@@ -319,9 +371,9 @@ public sealed class SdFormatManager(
 
                 row = new FormatTargetEntry(target.Id, target.DiskNumber);
                 Targets.Add(row);
-                Log.Info($"Format: candidate {target.Name} disk={target.DiskNumber} "
-                         + $"bus={target.BusType} size={target.SizeBytes} "
-                         + $"letters={string.Concat(target.Letters)} linux={target.HasLinuxPartitions}");
+                Info($"Format: candidate {target.Name} disk={target.DiskNumber} "
+                     + $"bus={target.BusType} size={target.SizeBytes} "
+                     + $"letters={string.Concat(target.Letters)} linux={target.HasLinuxPartitions}");
             }
 
             row.Name = target.Name;
@@ -410,9 +462,6 @@ public sealed class SdFormatManager(
                    : "assign\r\n");
     }
 
-    /// <summary>The most recently started format run, completed when none has started.</summary>
-    internal Task Completion { get; private set; } = Task.CompletedTask;
-
     /// <summary>
     ///     Erases and formats one target and puts a Steam library on it.
     ///     Serialized; progress lands in <see cref="StatusText" />; the terminal
@@ -450,12 +499,12 @@ public sealed class SdFormatManager(
         {
             Busy = true;
             StatusText = $"Erasing {target.Name}...";
-            Log.Info($"Format: starting for {target.Name} (disk {target.DiskNumber}, "
-                     + $"{target.SizeBytes} bytes, bus {target.BusType}).");
+            Info($"Format: starting for {target.Name} (disk {target.DiskNumber}, "
+                 + $"{target.SizeBytes} bytes, bus {target.BusType}).");
 
             // Only a definite "not elevated" blocks; unknown proceeds and lets
             // diskpart's own error surface (shell mode is elevated in practice).
-            if (ElevationCheck.IsCurrentProcessElevated() == false)
+            if (_operations.IsElevated() == false)
             {
                 Finish("Formatting needs administrator rights, which WSGM does not have "
                        + "right now.", false);
@@ -488,11 +537,12 @@ public sealed class SdFormatManager(
             }
 
             var keepLetter = target.PreferredLetter;
+            lifetime.ThrowIfCancellationRequested();
 
             // Re-verify on fresh handles right before the only irreversible verb —
             // the removal above can outlast a card swap (Shell\AGENTS.md).
             var beforeErase = await Task.Run(() => ReadTargetIdentity(target));
-            LogReverification(target, beforeErase, ReverifiedStages[0]);
+            LogReverification(target, beforeErase, "clean/partition");
             if (beforeErase.Identity == TargetIdentity.Changed)
             {
                 // Nothing has been erased yet, so the registration this run removed
@@ -505,8 +555,9 @@ public sealed class SdFormatManager(
                 return;
             }
 
-            var partition = await RunDiskpart(
-                BuildDiskpartPartitionScript(target.DiskNumber));
+            lifetime.ThrowIfCancellationRequested();
+            var partition = await _operations.RunDiskpart(
+                BuildDiskpartPartitionScript(target.DiskNumber), lifetime);
             if (partition.Outcome == ConsoleToolRunOutcome.Unknown)
             {
                 await Task.Run(() => RestoreRemovedLibraryIfCardSurvived(target, removedContentId, removedLabel));
@@ -524,14 +575,14 @@ public sealed class SdFormatManager(
             {
                 await Task.Run(() => RestoreRemovedLibraryIfCardSurvived(
                     target, removedContentId, removedLabel));
-                Log.Warn($"Format: diskpart clean/partition failed (exit {partition.ExitCode}). "
-                         + $"Output:\n{partition.Output}");
+                Warn($"Format: diskpart clean/partition failed (exit {partition.ExitCode}). "
+                     + $"Output:\n{partition.Output}");
                 Finish("Formatting failed — Windows could not rebuild the drive. "
                        + "Reinsert the card and try again.", false);
                 return;
             }
 
-            Log.Info($"Format: disk {target.DiskNumber} erased and repartitioned.");
+            Info($"Format: disk {target.DiskNumber} erased and repartitioned.");
 
             // The erase destroyed the old library, so there is nothing left to
             // compensate: a later failure must not splice its identity back in beside
@@ -544,12 +595,8 @@ public sealed class SdFormatManager(
             // in the card database forever with an identity nothing can rediscover.
             if (!string.IsNullOrEmpty(retiredContentId))
             {
-                await LibraryTabManager.MutateConfigAsync<object?>(store, config =>
-                {
-                    config.CardLibraries.RemoveAll(c => string.Equals(
-                        c.ContentId, retiredContentId, StringComparison.Ordinal));
-                    return null;
-                });
+                store.Update(config => config.CardLibraries.RemoveAll(card =>
+                    string.Equals(card.ContentId, retiredContentId, StringComparison.Ordinal)) > 0);
             }
 
             // Give the volume manager time to surface the new partition's volume
@@ -557,16 +604,16 @@ public sealed class SdFormatManager(
             // a wait that runs out is logged and the format still attempted, since
             // diskpart itself may see the volume by then.
             StatusText = $"Formatting {target.Name}...";
-            var volumeWaitMs = await Task.Run(() => WaitForVolume(target.DiskNumber));
+            var volumeWaitMs = await _operations.WaitForVolume(target.DiskNumber, lifetime);
             if (volumeWaitMs < 0)
             {
-                Log.Warn($"Format: no volume appeared on disk {target.DiskNumber} within "
-                         + $"{VolumeWaitMs / 1000} s; attempting the format anyway.");
+                Warn($"Format: no volume appeared on disk {target.DiskNumber} within "
+                     + $"{VolumeWaitMs / 1000} s; attempting the format anyway.");
             }
             else
             {
-                Log.Info($"Format: volume on disk {target.DiskNumber} appeared after "
-                         + $"{volumeWaitMs} ms.");
+                Info($"Format: volume on disk {target.DiskNumber} appeared after "
+                     + $"{volumeWaitMs} ms.");
             }
 
             var formatScript = BuildDiskpartFormatScript(target.DiskNumber, label);
@@ -575,16 +622,17 @@ public sealed class SdFormatManager(
             {
                 if (attempt > 1)
                 {
-                    Log.Warn($"Format: diskpart format attempt {attempt - 1} of {FormatAttempts} "
-                             + $"failed (exit {formatExit}); retrying in {FormatRetryDelayMs} ms. "
-                             + $"Output:\n{formatOutput}");
-                    await Task.Delay(FormatRetryDelayMs, lifetime);
+                    Warn($"Format: diskpart format attempt {attempt - 1} of {FormatAttempts} "
+                         + $"failed (exit {formatExit}); retrying in {FormatRetryDelayMs} ms. "
+                         + $"Output:\n{formatOutput}");
+                    await _operations.Delay(FormatRetryDelayMs, lifetime);
                 }
 
                 // Re-verify per attempt: each is a fresh diskpart resolving
                 // `select disk N` after waits long enough for a swap (Shell\AGENTS.md).
+                lifetime.ThrowIfCancellationRequested();
                 var beforeFormat = await Task.Run(() => ReadTargetIdentity(target));
-                LogReverification(target, beforeFormat, ReverifiedStages[1]);
+                LogReverification(target, beforeFormat, "format");
                 if (beforeFormat.Identity == TargetIdentity.Changed)
                 {
                     // No compensation on this path: the erase already destroyed the old
@@ -593,7 +641,8 @@ public sealed class SdFormatManager(
                     return;
                 }
 
-                var formatted = await RunDiskpart(formatScript);
+                lifetime.ThrowIfCancellationRequested();
+                var formatted = await _operations.RunDiskpart(formatScript, lifetime);
                 formatExit = formatted.ExitCode ?? -1;
                 formatOutput = formatted.Output;
                 if (formatted.Outcome == ConsoleToolRunOutcome.Unknown)
@@ -610,46 +659,48 @@ public sealed class SdFormatManager(
 
             if (formatExit != 0)
             {
-                Log.Warn($"Format: diskpart format failed after {FormatAttempts} attempts "
-                         + $"(exit {formatExit}). Output:\n{formatOutput}");
+                Warn($"Format: diskpart format failed after {FormatAttempts} attempts "
+                     + $"(exit {formatExit}). Output:\n{formatOutput}");
                 Finish("Formatting failed — Windows could not format the new drive. "
                        + "Reinsert the card and try again.", false);
                 return;
             }
 
-            Log.Info($"Format: diskpart formatted disk {target.DiskNumber}.");
+            Info($"Format: diskpart formatted disk {target.DiskNumber}.");
 
             // Automount normally hands the new volume its letter the moment it
             // arrives — usually the card's own, freed by the erase. Only when the
             // card is not sitting on that letter now does diskpart assign it.
             StatusText = "Waiting for the new drive...";
-            var letter = await Task.Run(() => WaitForLetter(target.DiskNumber, LetterProbeAttempts));
+            var letter = await _operations.WaitForLetter(target.DiskNumber, LetterProbeAttempts, lifetime);
             if (letter is null || (keepLetter is >= 'A' and <= 'Z' && letter.Value != keepLetter))
             {
-                Log.Info($"Format: disk {target.DiskNumber} is on "
-                         + (letter is null ? "no letter" : $"{letter}:")
-                         + " after the format; assigning "
-                         + (keepLetter is >= 'A' and <= 'Z' ? $"{keepLetter}:." : "a letter."));
+                Info($"Format: disk {target.DiskNumber} is on "
+                     + (letter is null ? "no letter" : $"{letter}:")
+                     + " after the format; assigning "
+                     + (keepLetter is >= 'A' and <= 'Z' ? $"{keepLetter}:." : "a letter."));
 
                 // Last re-verify before the assign pins the old card's letter onto
                 // whatever is in the reader (Shell\AGENTS.md). No compensation here either.
+                lifetime.ThrowIfCancellationRequested();
                 var beforeAssign = await Task.Run(() => ReadTargetIdentity(target));
-                LogReverification(target, beforeAssign, ReverifiedStages[2]);
+                LogReverification(target, beforeAssign, "assign");
                 if (beforeAssign.Identity == TargetIdentity.Changed)
                 {
                     Finish(CardChangedMidRunMessage, false);
                     return;
                 }
 
-                var assigned = await RunDiskpart(
-                    BuildDiskpartAssignScript(target.DiskNumber, keepLetter));
+                lifetime.ThrowIfCancellationRequested();
+                var assigned = await _operations.RunDiskpart(
+                    BuildDiskpartAssignScript(target.DiskNumber, keepLetter), lifetime);
                 if (assigned.Outcome != ConsoleToolRunOutcome.Succeeded)
                 {
-                    Log.Warn($"Format: diskpart assign failed (exit {assigned.ExitCode}). "
-                             + $"Output:\n{assigned.Output}");
+                    Warn($"Format: diskpart assign failed (exit {assigned.ExitCode}). "
+                         + $"Output:\n{assigned.Output}");
                 }
 
-                letter = await Task.Run(() => WaitForLetter(target.DiskNumber));
+                letter = await _operations.WaitForLetter(target.DiskNumber, 30, lifetime);
             }
 
             if (letter is null)
@@ -665,8 +716,8 @@ public sealed class SdFormatManager(
             // pointing at it (emulators, libraries).
             if (keepLetter is >= 'A' and <= 'Z' && letter.Value != keepLetter)
             {
-                Log.Warn($"Format: expected to keep letter {keepLetter}: but disk "
-                         + $"{target.DiskNumber} mounted as {letter}:.");
+                Warn($"Format: expected to keep letter {keepLetter}: but disk "
+                     + $"{target.DiskNumber} mounted as {letter}:.");
                 Finish($"Formatted, but Windows could not keep drive letter {keepLetter}:. "
                        + $"It is now {letter}: — free {keepLetter}: and reformat, or reassign "
                        + $"the letter in Disk Management.", false);
@@ -680,22 +731,24 @@ public sealed class SdFormatManager(
                 return;
             }
 
-            Log.Info($"Format: disk {target.DiskNumber} mounted as {letter}: "
-                     + $"(letter preserved={keepLetter is >= 'A' and <= 'Z'}).");
+            Info($"Format: disk {target.DiskNumber} mounted as {letter}: "
+                 + $"(letter preserved={keepLetter is >= 'A' and <= 'Z'}).");
 
             // TRIM the fresh (near-empty) volume so the flash controller learns
             // almost the whole card is free — proven to restore SD write speed.
             // Best-effort: a reader that does not pass TRIM just logs and moves on.
             StatusText = "Optimizing the card...";
-            await RetrimVolume(letter.Value);
+            lifetime.ThrowIfCancellationRequested();
+            await _operations.Retrim(letter.Value, lifetime);
 
             StatusText = "Creating Steam library...";
+            lifetime.ThrowIfCancellationRequested();
             var summary = await Task.Run(() => CreateSteamLibrary(letter.Value, volumeRoot, target.SizeBytes, label));
             Finish(summary, true);
         }
         catch (Exception ex)
         {
-            Log.Error("Format: run failed.", ex);
+            Error("Format: run failed.", ex);
             try
             {
                 await Task.Run(() => RestoreRemovedLibraryIfCardSurvived(
@@ -703,7 +756,7 @@ public sealed class SdFormatManager(
             }
             catch (Exception restoreEx)
             {
-                Log.Error("Format: could not restore the removed library.", restoreEx);
+                Error("Format: could not restore the removed library.", restoreEx);
             }
 
             Finish(lifetime.IsCancellationRequested
@@ -726,7 +779,7 @@ public sealed class SdFormatManager(
     ///     aborts up front — the Unreadable-continues tolerance belongs only to the
     ///     re-verifications after `clean` (see <see cref="CompareIdentity" />).
     /// </summary>
-    private static string? VerifyTarget(FormatRunTarget entry)
+    private string? VerifyTarget(FormatRunTarget entry)
     {
         var snapshot = ReadTargetIdentity(entry);
         if (snapshot.SystemDisk)
@@ -749,9 +802,9 @@ public sealed class SdFormatManager(
             return null;
         }
 
-        Log.Warn($"Format: disk {entry.DiskNumber} changed identity "
-                 + $"(size {entry.SizeBytes}->{snapshot.SizeBytes}, "
-                 + $"bus {entry.BusType}->{snapshot.BusType}).");
+        Warn($"Format: disk {entry.DiskNumber} changed identity "
+             + $"(size {entry.SizeBytes}->{snapshot.SizeBytes}, "
+             + $"bus {entry.BusType}->{snapshot.BusType}).");
         return "The drive changed since it was listed — refresh and pick it again.";
     }
 
@@ -804,29 +857,30 @@ public sealed class SdFormatManager(
     ///     and third runs. Worker thread.
     /// </summary>
     /// <param name="entry">The target being formatted.</param>
-    private static TargetIdentitySnapshot ReadTargetIdentity(FormatRunTarget entry)
+    private TargetIdentitySnapshot ReadTargetIdentity(FormatRunTarget entry)
     {
-        var systemDisk = RemovableDriveManager.ResolveSystemDisks().Contains(entry.DiskNumber);
-        using var handle = NativeStorage.OpenDiskForRead(entry.DiskNumber);
+        var snapshot = _operations.ReadDiskIdentity(entry.DiskNumber);
+        return new TargetIdentitySnapshot(
+            CompareIdentity(snapshot.HandleOpened, snapshot.SystemDisk, snapshot.Removable,
+                snapshot.SizeBytes, snapshot.BusType, entry.SizeBytes, entry.BusType),
+            snapshot.SystemDisk, snapshot.HandleOpened, snapshot.Removable, snapshot.SizeBytes, snapshot.BusType);
+    }
+
+    private static DiskIdentitySnapshot ReadDiskIdentity(int diskNumber)
+    {
+        var systemDisk = RemovableDriveManager.ResolveSystemDisks().Contains(diskNumber);
+        using var handle = NativeStorage.OpenDiskForRead(diskNumber);
         var handleOpened = !handle.IsInvalid;
         if (!handleOpened
             || !NativeStorage.TryGetHotplugInfo(handle, out var media, out var hotplug))
         {
-            return Snapshot(false, false, 0, -1);
+            return new DiskIdentitySnapshot(systemDisk, handleOpened, false, 0, -1);
         }
 
         var removable = RemovableDriveManager.Classify(hotplug, media) is not null;
         var size = NativeStorage.GetDiskLength(handle);
         NativeStorage.TryGetDeviceDescriptor(handle, out var busType, out _);
-        return Snapshot(true, removable, size, busType);
-
-        TargetIdentitySnapshot Snapshot(bool isOpened, bool isRemovable, long length, int bus)
-        {
-            return new TargetIdentitySnapshot(
-                CompareIdentity(isOpened, systemDisk, isRemovable, length, bus,
-                    entry.SizeBytes, entry.BusType),
-                systemDisk, handleOpened, isRemovable, length, bus);
-        }
+        return new DiskIdentitySnapshot(systemDisk, handleOpened, removable, size, busType);
     }
 
     /// <summary>
@@ -837,22 +891,22 @@ public sealed class SdFormatManager(
     /// <param name="entry">The target being formatted.</param>
     /// <param name="snapshot">What the re-verification saw.</param>
     /// <param name="stage">The diskpart run that was about to be issued.</param>
-    private static void LogReverification(
+    private void LogReverification(
         FormatRunTarget entry, TargetIdentitySnapshot snapshot, string stage)
     {
         // ReSharper disable once SwitchStatementMissingSomeEnumCasesNoDefault
         switch (snapshot.Identity)
         {
             case TargetIdentity.Changed:
-                Log.Warn($"Format: disk {entry.DiskNumber} is not the card that was picked — "
-                         + $"aborting before the {stage} run (system disk {snapshot.SystemDisk}, "
-                         + $"removable {snapshot.Removable}, size {entry.SizeBytes}->{snapshot.SizeBytes}, "
-                         + $"bus {entry.BusType}->{snapshot.BusType}).");
+                Warn($"Format: disk {entry.DiskNumber} is not the card that was picked — "
+                     + $"aborting before the {stage} run (system disk {snapshot.SystemDisk}, "
+                     + $"removable {snapshot.Removable}, size {entry.SizeBytes}->{snapshot.SizeBytes}, "
+                     + $"bus {entry.BusType}->{snapshot.BusType}).");
                 break;
             case TargetIdentity.Unreadable:
-                Log.Info($"Format: disk {entry.DiskNumber} did not answer the identity re-check "
-                         + $"before the {stage} run (size {snapshot.SizeBytes}, bus {snapshot.BusType}); "
-                         + "continuing — a reader that is not ready yet is not a swapped card.");
+                Info($"Format: disk {entry.DiskNumber} did not answer the identity re-check "
+                     + $"before the {stage} run (size {snapshot.SizeBytes}, bus {snapshot.BusType}); "
+                     + "continuing — a reader that is not ready yet is not a swapped card.");
                 break;
         }
     }
@@ -885,7 +939,7 @@ public sealed class SdFormatManager(
             var values = SteamLibraryVdf.ValuesOf(File.ReadAllText(marker), "contentid");
             if (values.Count == 0 || string.IsNullOrWhiteSpace(values[0]))
             {
-                Log.Warn($"Format: existing marker at {marker} has no content id.");
+                Warn($"Format: existing marker at {marker} has no content id.");
                 return LibraryRemoval.Refused(
                     "The existing Steam library marker has no content identity. "
                     + "Formatting was stopped to avoid leaving ghost games in Steam.");
@@ -895,22 +949,22 @@ public sealed class SdFormatManager(
         }
         catch (Exception ex)
         {
-            Log.Warn($"Format: could not read existing marker {marker}: {ex.Message}");
+            Warn($"Format: could not read existing marker {marker}: {ex.Message}");
             return LibraryRemoval.Refused(
                 "Could not verify the existing Steam library on this card. "
                 + "Close Steam and try again.");
         }
 
-        if (!Steam.IsInstalled)
+        if (_operations.ReadSteam().ExePath is null)
         {
-            Log.Info("Format: Steam is not installed; no registration needs removal.");
+            Info("Format: Steam is not installed; no registration needs removal.");
             return LibraryRemoval.Nothing(contentId);
         }
 
-        if (!Steam.TryReadLibraryFolders(out var configPath, out var configText)
-            || configPath is null || configText is null)
+        var (configPath, configText) = _operations.ReadLibraryFolders();
+        if (configPath is null || configText is null)
         {
-            Log.Info($"Format: Steam has no libraryfolders config; {contentId} is not registered.");
+            Info($"Format: Steam has no libraryfolders config; {contentId} is not registered.");
             return LibraryRemoval.Nothing(contentId);
         }
 
@@ -923,8 +977,8 @@ public sealed class SdFormatManager(
         var registeredPath = SteamLibraryVdf.PathForContentId(configText, contentId);
         if (registeredPath is null)
         {
-            Log.Info($"Format: content id {contentId} is not registered with Steam; "
-                     + "nothing to remove.");
+            Info($"Format: content id {contentId} is not registered with Steam; "
+                 + "nothing to remove.");
             return LibraryRemoval.Nothing(contentId);
         }
 
@@ -933,8 +987,8 @@ public sealed class SdFormatManager(
         if (cardPath is null || registeredFullPath is null
                              || !string.Equals(registeredFullPath, cardPath, StringComparison.OrdinalIgnoreCase))
         {
-            Log.Warn($"Format: content id {contentId} is registered at "
-                     + $"{registeredPath}, not at the card path {Path.GetDirectoryName(marker)}.");
+            Warn($"Format: content id {contentId} is registered at "
+                 + $"{registeredPath}, not at the card path {Path.GetDirectoryName(marker)}.");
             return LibraryRemoval.Refused(
                 "The card marker does not match the Steam library on this drive. "
                 + "Formatting was stopped to protect your other libraries.");
@@ -944,7 +998,7 @@ public sealed class SdFormatManager(
         // with the name the user gave it, not as an unnamed library.
         var registeredLabel = SteamLibraryVdf.LabelForContentId(configText, contentId) ?? "";
 
-        if (Steam.IsRunning)
+        if (_operations.ReadSteam().Running)
         {
             var pathMatches = SteamLibraryVdf.ValuesOf(configText, "path")
                 .Count(path => string.Equals(Path.GetFullPath(path), cardPath,
@@ -956,19 +1010,16 @@ public sealed class SdFormatManager(
                     + "so WSGM can remove only this card's content identity.");
             }
 
-            var result = steam is null
-                ? new SteamLibraryRemoveResult(SteamLibraryRemoveStatus.NotSent, "No Steam client in this window.")
-                : await SteamLibraryFolders.RemoveLibraryByContentIdAsync(steam, contentId, configText)
-                    .ConfigureAwait(false);
+            var result = await _operations.RemoveLibrary(contentId, configText, lifetime).ConfigureAwait(false);
             if (result.Status == SteamLibraryRemoveStatus.Removed)
             {
-                Log.Info($"Format: removed existing live Steam library (content id {contentId}, "
-                         + $"status {result.Status}).");
+                Info($"Format: removed existing live Steam library (content id {contentId}, "
+                     + $"status {result.Status}).");
                 return new LibraryRemoval(null, contentId, registeredLabel, contentId);
             }
 
-            Log.Warn($"Format: could not remove existing live library {contentId} "
-                     + $"({result.Status}: {result.Detail ?? "no detail"}).");
+            Warn($"Format: could not remove existing live library {contentId} "
+                 + $"({result.Status}: {result.Detail ?? "no detail"}).");
             return LibraryRemoval.Refused(
                 "Steam could not remove this card's existing library. "
                 + "Close Steam completely and try again.");
@@ -979,11 +1030,11 @@ public sealed class SdFormatManager(
         if (!SteamLibraryVdf.TryRemoveContentId(configText, contentId, out var updated)
             || updated is null)
         {
-            Log.Info($"Format: no closed-Steam registration found for content id {contentId}.");
+            Info($"Format: no closed-Steam registration found for content id {contentId}.");
             return LibraryRemoval.Nothing(contentId);
         }
 
-        if (Steam.IsRunning)
+        if (_operations.ReadSteam().Running)
         {
             return LibraryRemoval.Refused(
                 "Steam started while the card library was being prepared for removal. "
@@ -992,7 +1043,7 @@ public sealed class SdFormatManager(
 
         BackupOnce(configPath);
         AtomicFile.WriteText(configPath, updated, true);
-        Log.Info($"Format: removed closed-Steam library registration for content id {contentId}.");
+        Info($"Format: removed closed-Steam library registration for content id {contentId}.");
         return new LibraryRemoval(null, contentId, registeredLabel, contentId);
     }
 
@@ -1001,7 +1052,7 @@ public sealed class SdFormatManager(
     ///     unknown so the caller refuses rather than proceeding on a bad match.
     /// </summary>
     /// <param name="path">The path to normalize.</param>
-    private static string? FullPathOrNull(string? path)
+    private string? FullPathOrNull(string? path)
     {
         if (string.IsNullOrWhiteSpace(path))
         {
@@ -1014,7 +1065,7 @@ public sealed class SdFormatManager(
         }
         catch (Exception ex)
         {
-            Log.Warn($"Format: could not normalize path '{path}': {ex.Message}");
+            Warn($"Format: could not normalize path '{path}': {ex.Message}");
             return null;
         }
     }
@@ -1037,38 +1088,37 @@ public sealed class SdFormatManager(
         return letters;
     }
 
-    private static string? FindExistingMarker(FormatRunTarget entry)
+    private string? FindExistingMarker(FormatRunTarget entry)
     {
         if (entry.PreferredLetter is < 'A' or > 'Z')
         {
             return null;
         }
 
-        var letters = LettersOnDisk(entry.DiskNumber);
+        var letters = _operations.LettersOnDisk(entry.DiskNumber);
         if (letters.Count == 0)
         {
             letters.Add(entry.PreferredLetter);
         }
 
-        var roots = letters.Select(letter => $@"{letter}:\").ToList();
+        var roots = letters.Select(_operations.LetterRoot).ToList();
         var candidates = roots
             .Select(root => Path.Combine(root, SteamLibraryVdf.CardFolderName, "libraryfolder.vdf"))
             .ToList();
-        if (Steam.TryReadLibraryFolders(out _, out var configText) && configText is not null)
+        var (_, configText) = _operations.ReadLibraryFolders();
+        if (configText is not null)
         {
             candidates.AddRange(SteamLibraryVdf.ValuesOf(configText, "path")
-                .Where(path => roots.Any(root => string.Equals(Path.GetPathRoot(path), root,
-                    StringComparison.OrdinalIgnoreCase)))
+                .Where(path => roots.Any(root => path.StartsWith(root, StringComparison.OrdinalIgnoreCase)))
                 .Select(path => Path.Combine(path, "libraryfolder.vdf")));
         }
 
         var marker = candidates.Distinct(StringComparer.OrdinalIgnoreCase).FirstOrDefault(File.Exists);
         if (marker is not null
-            && !string.Equals(Path.GetPathRoot(marker), $@"{entry.PreferredLetter}:\",
-                StringComparison.OrdinalIgnoreCase))
+            && !marker.StartsWith(_operations.LetterRoot(entry.PreferredLetter), StringComparison.OrdinalIgnoreCase))
         {
-            Log.Info($"Format: existing library marker found at {marker} — another volume of "
-                     + $"disk {entry.DiskNumber}, which the erase destroys as well.");
+            Info($"Format: existing library marker found at {marker} — another volume of "
+                 + $"disk {entry.DiskNumber}, which the erase destroys as well.");
         }
 
         return marker;
@@ -1108,36 +1158,30 @@ public sealed class SdFormatManager(
         {
             // The card can be gone by now — that is the scenario this guard exists for,
             // so an unreadable marker must refuse the restore rather than fault the run.
-            SteamLibraryVdf.TryReadMarker(libraryPath, out markerContentId, out _);
+            (markerContentId, _) = _operations.ReadMarker(libraryPath);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            Log.Warn($"Format: could not read {marker} to confirm the library identity: {ex.Message}");
+            Warn($"Format: could not read {marker} to confirm the library identity: {ex.Message}");
         }
 
         if (!string.Equals(markerContentId, contentId, StringComparison.Ordinal))
         {
-            Log.Warn(
+            Warn(
                 $"Format: not restoring library {contentId} — the marker now on disk "
                 + $"{entry.DiskNumber} reports contentid {markerContentId ?? "(none)"}.");
             return;
         }
 
-        if (Steam.IsRunning)
+        if (_operations.ReadSteam().Running)
         {
-            if (steam is null)
-            {
-                Log.Warn("Format: no Steam client in this window, so the library was not given back to Steam.");
-                return;
-            }
-
-            var liveRestore = SteamLibraryFolders.AddLibrary(steam, libraryPath, label);
-            Log.Info($"Format: compensation after diskpart failure returned {liveRestore.Status}.");
+            var liveRestore = _operations.AddLibrary(libraryPath, label, false);
+            Info($"Format: compensation after diskpart failure returned {liveRestore.Status}.");
             return;
         }
 
-        if (!Steam.TryReadLibraryFolders(out var configPath, out var current)
-            || configPath is null || current is null)
+        var (configPath, current) = _operations.ReadLibraryFolders();
+        if (configPath is null || current is null)
         {
             return;
         }
@@ -1150,7 +1194,7 @@ public sealed class SdFormatManager(
         }
 
         AtomicFile.WriteText(configPath, restored, true);
-        Log.Info($"Format: restored library registration {contentId} after diskpart failure.");
+        Info($"Format: restored library registration {contentId} after diskpart failure.");
     }
 
     /// <summary>
@@ -1159,7 +1203,10 @@ public sealed class SdFormatManager(
     ///     diskpart, deletes the script.
     /// </summary>
     /// <param name="script">The full diskpart script text.</param>
-    private async Task<ConsoleToolResult> RunDiskpart(string script)
+    /// <param name="store">The owner's script directory.</param>
+    /// <param name="lifetime">Cancels the process wait during shutdown.</param>
+    private static async Task<ConsoleToolResult> RunDiskpart(ConfigStore store, string script,
+        CancellationToken lifetime)
     {
         lifetime.ThrowIfCancellationRequested();
         Log.Info($"Format: diskpart script:\n{script.TrimEnd()}");
@@ -1226,7 +1273,8 @@ public sealed class SdFormatManager(
     ///     (the format flow already is).
     /// </summary>
     /// <param name="letter">The just-mounted drive letter.</param>
-    private static async Task<bool> RetrimVolume(char letter)
+    /// <param name="cancellationToken">Cancels the process wait during shutdown.</param>
+    private static async Task<bool> RetrimVolume(char letter, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -1238,7 +1286,7 @@ public sealed class SdFormatManager(
                 powershell,
                 "-NoProfile -NonInteractive -Command \"Optimize-Volume -DriveLetter "
                 + letter + " -ReTrim -ErrorAction Stop\"",
-                300_000);
+                300_000, cancellationToken);
             var output = result.Output;
             var exitCode = result.ExitCode ?? -1;
             if (result.Outcome == ConsoleToolRunOutcome.Succeeded)
@@ -1265,12 +1313,14 @@ public sealed class SdFormatManager(
     ///     none yet. Worker thread; <see cref="VolumeWaitMs" /> cap.
     /// </summary>
     /// <param name="diskNumber">The physical disk number.</param>
+    /// <param name="cancellationToken">Cancels enumeration waits during shutdown.</param>
     /// <returns>Milliseconds until the volume was seen, or -1 on timeout.</returns>
-    private static int WaitForVolume(int diskNumber)
+    private static async Task<int> WaitForVolume(int diskNumber, CancellationToken cancellationToken)
     {
         var started = Environment.TickCount64;
         while (true)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             foreach (var path in NativeStorage.ListVolumeInterfaces())
             {
                 using var volume = NativeStorage.OpenVolumeForQueryPath(path);
@@ -1287,7 +1337,7 @@ public sealed class SdFormatManager(
                 return -1;
             }
 
-            Thread.Sleep(250);
+            await Task.Delay(250, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -1298,17 +1348,19 @@ public sealed class SdFormatManager(
     /// </summary>
     /// <param name="diskNumber">The physical disk number.</param>
     /// <param name="attempts">How many 500 ms polls to make before giving up.</param>
-    private static char? WaitForLetter(int diskNumber, int attempts = 30)
+    /// <param name="cancellationToken">Cancels enumeration waits during shutdown.</param>
+    private static async Task<char?> WaitForLetter(int diskNumber, int attempts, CancellationToken cancellationToken)
     {
         for (var attempt = 0; attempt < attempts; attempt++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             foreach (var volume in NativeStorage.MountedVolumes()
                          .Where(candidate => candidate.Disk == diskNumber && candidate.Ready))
             {
                 return volume.Letter;
             }
 
-            Thread.Sleep(500);
+            await Task.Delay(500, cancellationToken).ConfigureAwait(false);
         }
 
         return null;
@@ -1320,18 +1372,24 @@ public sealed class SdFormatManager(
     ///     through this root, so a letter re-pointed after the wait cannot redirect them.
     /// </summary>
     /// <returns>The volume GUID root, or null when the letter no longer maps to the run's disk.</returns>
-    private static string? VerifiedVolumeRoot(FormatRunTarget target, char letter)
+    private string? VerifiedVolumeRoot(FormatRunTarget target, char letter)
+    {
+        var (root, disk) = _operations.ReadVolume(letter);
+        return disk == target.DiskNumber ? root : null;
+    }
+
+    private static (string? Root, int Disk) ReadVolume(char letter)
     {
         if (!NativeStorage.TryGetVolumeGuidPath(letter, out var root) || root is null)
         {
-            return null;
+            return (null, -1);
         }
 
         using var volume = NativeStorage.OpenVolumeForQueryPath(root);
-        return !volume.IsInvalid && NativeStorage.TryGetDeviceNumber(volume, out _, out var disk)
-                                && disk == target.DiskNumber
-            ? root
-            : null;
+        return !volume.IsInvalid && NativeStorage.TryGetDeviceNumber(volume, out var type, out var disk)
+                                 && type == NativeStorage.FileDeviceDisk
+            ? (root, disk)
+            : (null, -1);
     }
 
     /// <summary>
@@ -1344,12 +1402,12 @@ public sealed class SdFormatManager(
     /// </summary>
     private string CreateSteamLibrary(char letter, string volumeRoot, long sizeBytes, string label)
     {
-        var libraryPath = $@"{letter}:\{SteamLibraryVdf.CardFolderName}";
+        var libraryPath = Path.Combine(_operations.LetterRoot(letter), SteamLibraryVdf.CardFolderName);
         var writePath = Path.Combine(volumeRoot, SteamLibraryVdf.CardFolderName);
         Directory.CreateDirectory(Path.Combine(writePath, "steamapps"));
 
-        var steamExe = Steam.ExePath;
-        Steam.TryReadLibraryFolders(out var configPath, out var configText);
+        var steamExe = _operations.ReadSteam().ExePath;
+        var (configPath, configText) = _operations.ReadLibraryFolders();
         var taken = new HashSet<string>(StringComparer.Ordinal);
         if (configText is not null)
         {
@@ -1371,17 +1429,17 @@ public sealed class SdFormatManager(
         string? onLetter = null;
         try
         {
-            SteamLibraryVdf.TryReadMarker(libraryPath, out onLetter, out _);
+            (onLetter, _) = _operations.ReadMarker(libraryPath);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            Log.Warn($"Format: could not re-read {libraryPath} before registering it: {ex.Message}");
+            Warn($"Format: could not re-read {libraryPath} before registering it: {ex.Message}");
         }
 
         if (!string.Equals(onLetter, contentId, StringComparison.Ordinal))
         {
-            Log.Warn($"Format: {libraryPath} no longer holds library {contentId} "
-                     + $"(found {onLetter ?? "none"}); not registering it with Steam.");
+            Warn($"Format: {libraryPath} no longer holds library {contentId} "
+                 + $"(found {onLetter ?? "none"}); not registering it with Steam.");
             return $"The card was formatted, but {letter}: changed before it could be added to Steam. "
                    + "Add it in Steam under Settings > Storage.";
         }
@@ -1391,8 +1449,8 @@ public sealed class SdFormatManager(
 
         // Now that the library exists, make drive watchers look at the volume
         // again (best effort; harmless when nobody listens).
-        NativeStorage.BroadcastVolumeArrival(letter);
-        Log.Info($"Format: volume-arrival broadcast sent for {letter}:.");
+        _operations.BroadcastVolumeArrival(letter);
+        Info($"Format: volume-arrival broadcast sent for {letter}:.");
 
         return $"{letter}: is ready as a Steam library. {registration}";
     }
@@ -1416,15 +1474,13 @@ public sealed class SdFormatManager(
         // Steam adds, persists, mounts and scans the library with no restart — the
         // only thing that makes a running Steam show a library live. Falls through
         // to the config write only when the debug channel cannot be reached.
-        if (Steam.IsRunning)
+        if (_operations.ReadSteam().Running)
         {
             // replaceExisting: the library at this path was created seconds ago on a
             // freshly wiped card, so any registration Steam still holds there belongs
             // to a card that is gone. Left in place, Steam lists the previous card's
             // games beside the new card's capacity until it is restarted.
-            var live = steam is null
-                ? new SteamLibraryAddResult(SteamLibraryAddStatus.NotSent, "No Steam client in this window.")
-                : SteamLibraryFolders.AddLibrary(steam, libraryPath, label, true);
+            var live = _operations.AddLibrary(libraryPath, label, true);
             switch (live.Status)
             {
                 case SteamLibraryAddStatus.Added:
@@ -1432,19 +1488,20 @@ public sealed class SdFormatManager(
                 case SteamLibraryAddStatus.AlreadyPresent:
                     return "This library is already in Steam.";
                 case SteamLibraryAddStatus.Partial:
-                    Log.Warn($"Format: Steam added the library partly ({live.Detail}).");
+                    Warn($"Format: Steam added the library partly ({live.Detail}).");
                     return "Added to Steam.";
                 case SteamLibraryAddStatus.Rejected:
-                    Log.Warn($"Format: Steam refused the library add ({live.Detail}).");
+                    Warn($"Format: Steam refused the library add ({live.Detail}).");
                     return $"Steam did not accept it: {live.Detail}.";
                 case SteamLibraryAddStatus.Unknown:
                     // Sent, but the answer was lost: the library may be in Steam already, so the live
                     // config is not edited and the add is not repeated.
-                    Log.Warn($"Format: Steam did not answer the library add ({live.Detail}).");
-                    return "Steam did not answer. Check Settings > Storage, and add the library there if it is missing.";
+                    Warn($"Format: Steam did not answer the library add ({live.Detail}).");
+                    return
+                        "Steam did not answer. Check Settings > Storage, and add the library there if it is missing.";
                 case SteamLibraryAddStatus.NotSent:
                 default:
-                    Log.Warn("Format: Steam debug port unavailable — not editing its live config.");
+                    Warn("Format: Steam debug port unavailable — not editing its live config.");
                     return "Restart Steam, then add the library under Settings > Storage.";
             }
         }
@@ -1453,13 +1510,13 @@ public sealed class SdFormatManager(
         // read on next start.
         if (configPath is null || configText is null)
         {
-            Log.Warn("Format: Steam config not found — skipping registration.");
+            Warn("Format: Steam config not found — skipping registration.");
             return "Add it in Steam under Settings > Storage.";
         }
 
         if (SteamLibraryVdf.IsContentIdRegistered(configText, contentId))
         {
-            Log.Info($"Format: content id {contentId} already in libraryfolders.vdf.");
+            Info($"Format: content id {contentId} already in libraryfolders.vdf.");
             return "This library is already in Steam.";
         }
 
@@ -1470,21 +1527,21 @@ public sealed class SdFormatManager(
         var stale = SteamLibraryVdf.TryRemovePath(configText, libraryPath, out var purged);
         if (stale > 0 && purged is not null)
         {
-            Log.Info($"Format: dropped {stale} stale registration(s) at {libraryPath} "
-                     + "from libraryfolders.vdf before adding the new card.");
+            Info($"Format: dropped {stale} stale registration(s) at {libraryPath} "
+                 + "from libraryfolders.vdf before adding the new card.");
             configText = purged;
         }
 
         if (!SteamLibraryVdf.TrySplice(configText, libraryPath, contentId, sizeBytes,
                 out var updated, label))
         {
-            Log.Warn("Format: libraryfolders.vdf has an unexpected shape — not editing it.");
+            Warn("Format: libraryfolders.vdf has an unexpected shape — not editing it.");
             return "Add it in Steam under Settings > Storage.";
         }
 
         BackupOnce(configPath);
         AtomicFile.WriteText(configPath, updated!, true);
-        Log.Info($"Format: {libraryPath} registered in libraryfolders.vdf (backup written).");
+        Info($"Format: {libraryPath} registered in libraryfolders.vdf (backup written).");
         return "Added to Steam's library list (on next start).";
     }
 
@@ -1516,7 +1573,7 @@ public sealed class SdFormatManager(
         }
         catch (Exception ex)
         {
-            Log.Error("Format: add-library failed.", ex);
+            Error("Format: add-library failed.", ex);
             Finish("Could not add the library — see the log.", false);
         }
         finally
@@ -1545,19 +1602,19 @@ public sealed class SdFormatManager(
     private (string Message, bool Success) AddLibrary(string folderPath)
     {
         var libraryPath = ResolveLibraryRoot(folderPath);
-        Log.Info($"Format: adding library at {libraryPath} (picked: {folderPath}).");
+        Info($"Format: adding library at {libraryPath} (picked: {folderPath}).");
         try
         {
             Directory.CreateDirectory(Path.Combine(libraryPath, "steamapps"));
         }
         catch (Exception ex)
         {
-            Log.Warn($"Format: cannot create {libraryPath}: {ex.Message}");
+            Warn($"Format: cannot create {libraryPath}: {ex.Message}");
             return ($"Could not create a library at {libraryPath}.", false);
         }
 
-        var steamExe = Steam.ExePath;
-        Steam.TryReadLibraryFolders(out var configPath, out var configText);
+        var steamExe = _operations.ReadSteam().ExePath;
+        var (configPath, configText) = _operations.ReadLibraryFolders();
 
         // An existing library keeps its identity; only a fresh folder gets a
         // marker (and Steam's client dll) written.
@@ -1569,7 +1626,7 @@ public sealed class SdFormatManager(
             && existing[0].Length > 0)
         {
             contentId = existing[0];
-            Log.Info($"Format: existing library found (contentid {contentId}).");
+            Info($"Format: existing library found (contentid {contentId}).");
         }
         else
         {
@@ -1611,7 +1668,7 @@ public sealed class SdFormatManager(
     ///     Writes the marker VDF (Steam's exact dialect: UTF-8 no BOM,
     ///     LF-only) and copies Steam's client dll beside it.
     /// </summary>
-    private static void WriteMarkerAndClientDll(
+    private void WriteMarkerAndClientDll(
         string libraryPath, string contentId, string? steamExe, string label)
     {
         var utf8NoBom = new UTF8Encoding(false);
@@ -1619,7 +1676,7 @@ public sealed class SdFormatManager(
             Path.Combine(libraryPath, "libraryfolder.vdf"),
             SteamLibraryVdf.BuildMarker(contentId, steamExe ?? "", label),
             utf8NoBom);
-        Log.Info($"Format: library marker written ({libraryPath}, contentid {contentId}).");
+        Info($"Format: library marker written ({libraryPath}, contentid {contentId}).");
         if (steamExe is null)
         {
             return;
@@ -1632,7 +1689,7 @@ public sealed class SdFormatManager(
         }
         else
         {
-            Log.Warn($"Format: steam.dll not found at {sourceDll} — library still mounts.");
+            Warn($"Format: steam.dll not found at {sourceDll} — library still mounts.");
         }
     }
 
@@ -1641,14 +1698,29 @@ public sealed class SdFormatManager(
         StatusText = message;
         if (success)
         {
-            Log.Info($"Format: done — {message}");
+            Info($"Format: done — {message}");
         }
         else
         {
-            Log.Warn($"Format: failed — {message}");
+            Warn($"Format: failed — {message}");
         }
 
         Finished?.Invoke(message, success);
+    }
+
+    private void Info(string message)
+    {
+        _operations.WriteLog(LogLevel.Info, message, null);
+    }
+
+    private void Warn(string message)
+    {
+        _operations.WriteLog(LogLevel.Warn, message, null);
+    }
+
+    private void Error(string message, Exception exception)
+    {
+        _operations.WriteLog(LogLevel.Error, message, exception);
     }
 
     private static void BackupOnce(string path)
@@ -1659,6 +1731,49 @@ public sealed class SdFormatManager(
             File.Copy(path, backup, false);
         }
     }
+
+    private sealed record FormatRunTarget(
+        string Id,
+        int DiskNumber,
+        string Name,
+        long SizeBytes,
+        int BusType,
+        char PreferredLetter);
+
+    /// <summary>External operations; orchestration and library bookkeeping stay here.</summary>
+    internal sealed class Operations
+    {
+        internal required Func<bool?> IsElevated { get; init; }
+        internal required Func<int, DiskIdentitySnapshot> ReadDiskIdentity { get; init; }
+        internal required Func<string, CancellationToken, Task<ConsoleToolResult>> RunDiskpart { get; init; }
+        internal required Func<int, CancellationToken, Task<int>> WaitForVolume { get; init; }
+        internal required Func<int, int, CancellationToken, Task<char?>> WaitForLetter { get; init; }
+        internal required Func<char, (string? Root, int Disk)> ReadVolume { get; init; }
+        internal required Func<int, List<char>> LettersOnDisk { get; init; }
+        internal required Func<char, string> LetterRoot { get; init; }
+        internal required Func<(bool Running, string? ExePath)> ReadSteam { get; init; }
+        internal required Func<(string? Path, string? Text)> ReadLibraryFolders { get; init; }
+        internal required Func<string, (string? ContentId, string Label)> ReadMarker { get; init; }
+
+        internal required Func<string, string, CancellationToken, Task<SteamLibraryRemoveResult>> RemoveLibrary
+        {
+            get;
+            init;
+        }
+
+        internal required Func<string, string, bool, SteamLibraryAddResult> AddLibrary { get; init; }
+        internal required Func<char, CancellationToken, Task<bool>> Retrim { get; init; }
+        internal required Action<char> BroadcastVolumeArrival { get; init; }
+        internal required Func<int, CancellationToken, Task> Delay { get; init; }
+        internal required Action<LogLevel, string, Exception?> WriteLog { get; init; }
+    }
+
+    internal readonly record struct DiskIdentitySnapshot(
+        bool SystemDisk,
+        bool HandleOpened,
+        bool Removable,
+        long SizeBytes,
+        int BusType);
 
     /// <summary>One formattable disk as the background snapshot reports it.</summary>
     /// <param name="Id">The row identity (device instance path or "disk:N").</param>

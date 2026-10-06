@@ -240,6 +240,14 @@ public sealed class SetupShutdownContractTests
     /// <summary>Records every stop operation in order and answers as a machine with WSGM and Steam running.</summary>
     private sealed class RecordingRuntime : IRuntimeShutdown
     {
+        public List<string> Calls { get; } = [];
+
+        public ServiceState? Service { get; init; } = new ServiceState(true, true);
+        public bool ServiceStops { get; init; } = true;
+        public bool AnchorSettles { get; init; } = true;
+        public bool SteamCloses { get; init; } = true;
+        public IReadOnlyList<string> StillRunning { get; init; } = [];
+
         public string? InstalledVersion()
         {
             return null;
@@ -249,14 +257,6 @@ public sealed class SetupShutdownContractTests
         {
             Calls.Add("RestoreVersion " + version);
         }
-
-        public List<string> Calls { get; } = [];
-
-        public ServiceState? Service { get; init; } = new ServiceState(true, true);
-        public bool ServiceStops { get; init; } = true;
-        public bool AnchorSettles { get; init; } = true;
-        public bool SteamCloses { get; init; } = true;
-        public IReadOnlyList<string> StillRunning { get; init; } = [];
 
         public ServiceState? InspectService()
         {

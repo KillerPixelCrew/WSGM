@@ -209,19 +209,15 @@ public partial class OverlayWindow
             }
 
             var existing = await LaunchWrapperStore.FindAsync(_store, game.AppId);
-            var originals = existing is null
-                ? (current.ShortcutExe,
-                    game.Shortcut ? current.ShortcutLaunchOptions : current.LaunchOptions,
-                    current.ShortcutStartDir)
-                : (existing.OriginalTarget, existing.OriginalLaunchOptions, existing.OriginalStartDir);
-            var snapshot = existing ?? new LaunchWrapperConfig
+            var snapshot = CaptureLaunchSnapshot(game.AppId, game.Shortcut, current, existing);
+            if (snapshot is null)
             {
-                AppId = game.AppId,
-                IsShortcut = game.Shortcut,
-                OriginalTarget = originals.Item1,
-                OriginalLaunchOptions = originals.Item2,
-                OriginalStartDir = originals.Item3
-            };
+                button.Title = "Can't read the original program";
+                Log.Warn(
+                    $"Custom launch action refused for {game.Name} ({game.AppId}): the original target could not be recovered.");
+                return;
+            }
+
             snapshot.Kind = LaunchConfigurationKind.CustomAction;
             snapshot.Mode = LaunchWrapperMode.None;
             snapshot.CustomActionPath = path;
@@ -418,10 +414,8 @@ public partial class OverlayWindow
                 // and when there is none (the command was pasted by hand, or the
                 // config was reset) unwrap them rather than recording the wrapper as
                 // the "original", which would make Remove restore the wrapper itself.
-                var originals = SteamLaunchConfig.OriginalsFrom(isShortcut, details);
-                var wrapped = SteamLaunchConfig.ModeFor(isShortcut, details) != LaunchWrapperMode.None;
-                if (wrapped && existing is null && isShortcut
-                    && string.IsNullOrWhiteSpace(originals.Target))
+                var snapshot = CaptureLaunchSnapshot(appId, isShortcut, details, existing);
+                if (snapshot is null)
                 {
                     // A wrapped shortcut whose real program cannot be recovered has
                     // no restorable state; writing WSGM's own values as the original
@@ -432,14 +426,6 @@ public partial class OverlayWindow
                     return;
                 }
 
-                var snapshot = existing ?? new LaunchWrapperConfig
-                {
-                    AppId = appId,
-                    IsShortcut = isShortcut,
-                    OriginalTarget = originals.Target,
-                    OriginalLaunchOptions = originals.LaunchOptions,
-                    OriginalStartDir = originals.StartDir
-                };
                 snapshot.Kind = LaunchConfigurationKind.Wrapper;
                 snapshot.Mode = mode;
                 snapshot.CustomActionPath = "";
@@ -471,6 +457,32 @@ public partial class OverlayWindow
             button.Title = "Couldn't reach Steam";
             Log.Error($"Could not configure the launch fix for {appId}", ex);
         }
+    }
+
+    /// <summary>Keeps the first restoration record, unwrapping a manually configured launch fix when needed.</summary>
+    internal static LaunchWrapperConfig? CaptureLaunchSnapshot(long appId, bool isShortcut, SteamAppDetails details,
+        LaunchWrapperConfig? existing)
+    {
+        if (existing is not null)
+        {
+            return existing;
+        }
+
+        var originals = SteamLaunchConfig.OriginalsFrom(isShortcut, details);
+        if (isShortcut && SteamLaunchConfig.ModeFor(isShortcut, details) != LaunchWrapperMode.None
+                       && string.IsNullOrWhiteSpace(originals.Target))
+        {
+            return null;
+        }
+
+        return new LaunchWrapperConfig
+        {
+            AppId = appId,
+            IsShortcut = isShortcut,
+            OriginalTarget = originals.Target,
+            OriginalLaunchOptions = originals.LaunchOptions,
+            OriginalStartDir = originals.StartDir
+        };
     }
 
     private void OnLaunchFixGamePicked(SteamLibraryApp game)

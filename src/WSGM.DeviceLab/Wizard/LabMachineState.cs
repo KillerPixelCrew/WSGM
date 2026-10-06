@@ -99,12 +99,16 @@ internal sealed class LabMachineState(string path)
     internal static T? ReadJson<T>(string path, string what)
         where T : class
     {
-        if (!File.Exists(path))
+        string text;
+        try
+        {
+            text = File.ReadAllText(path);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
         {
             return null;
         }
 
-        var text = File.ReadAllText(path);
         try
         {
             return JsonSerializer.Deserialize<T>(text, LabProject.JsonOptions)

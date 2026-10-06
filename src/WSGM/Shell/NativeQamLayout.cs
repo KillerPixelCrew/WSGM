@@ -34,8 +34,8 @@ internal static class NativeQamLayout
             new SteamQuickAccessSection("Charging", "Charging", "batteryCharging", true, ["charging"]),
             new SteamQuickAccessSection("RGB lighting", "RGB lighting", "colors", true, ["lighting"])
         ],
-        HideValveFpsRows: true,
-        AccentLabel: AccentLabel);
+        true,
+        AccentLabel);
 
     /// <summary>A marked description, as the Quick Access rows draw one: the accent label, then the text.</summary>
     /// <param name="description">The row's own description, or null or empty for none.</param>

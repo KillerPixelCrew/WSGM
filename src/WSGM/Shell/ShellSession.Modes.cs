@@ -154,11 +154,16 @@ public sealed partial class ShellSession
 
     private void WatchStartupAppsAndConfig()
     {
-        _startupWatcher = new StartupAppWatcher(_config.StartupApps)
+        if (_disposed)
+        {
+            return;
+        }
+
+        TryStart("startup app watcher", () => _startupWatcher ??= new StartupAppWatcher(_config.StartupApps)
         {
             IsLaunchSuppressed = path => _desktopHost?.IsApplicationLaunchSuppressed(path) == true,
             LaunchGeneration = path => _desktopHost?.ApplicationLaunchGeneration(path) ?? 0
-        };
+        });
         WatchConfig();
     }
 
@@ -640,8 +645,7 @@ public sealed partial class ShellSession
                 return;
             }
 
-            foreach (var step in await new PluginActionSequence(
-                         new PluginHostActionInvoker(_pluginHost)).RunAllAsync(steps, _shutdownCancellation.Token))
+            foreach (var step in await ActionSequence().RunAllAsync(steps, _shutdownCancellation.Token))
             {
                 Log.Info($"Desktop {(startup ? "startup" : "wake")} action "
                          + $"{step.Step.Plugin?.PluginId}/{step.Step.Plugin?.InstanceId}:{step.Step.ActionId}: "
@@ -772,19 +776,35 @@ public sealed partial class ShellSession
         public void SetStatus(string line)
         {
             Log.Info($"Game Mode entry: {line}.");
-            Dispatcher.UIThread.Post(() => session.EnsureEntrySplash().SetStatus(line));
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (!session._shutdownRequested)
+                {
+                    session.EnsureEntrySplash().SetStatus(line);
+                }
+            });
         }
 
         public async Task ArmSteamDetectionAsync()
         {
             await Dispatcher.UIThread.InvokeAsync(() =>
-                session.EnsureEntrySplash().ArmSteamDetection());
+            {
+                if (!session._shutdownRequested)
+                {
+                    session.EnsureEntrySplash().ArmSteamDetection();
+                }
+            });
         }
 
         public void SetCancellable(bool cancellable)
         {
             Dispatcher.UIThread.Post(() =>
             {
+                if (session._shutdownRequested)
+                {
+                    return;
+                }
+
                 session._gameModeEntryActive = cancellable;
                 session.EnsureEntrySplash().SetActionLabel(
                     cancellable ? "Cancel" : "Switch to desktop");
@@ -862,10 +882,7 @@ public sealed partial class ShellSession
             {
                 // The entry stops before it changed anything, so no desktop return runs to let the
                 // monitor watch Steam again.
-                Dispatcher.UIThread.Post(() =>
-                {
-                    session._monitor?.Paused = false;
-                });
+                Dispatcher.UIThread.Post(() => { session._monitor?.Paused = false; });
             }
 
             return restored;
@@ -882,7 +899,7 @@ public sealed partial class ShellSession
         public Task<IReadOnlyList<PluginActionStepResult>> RunLeaveActionsAsync()
         {
             return session.ActionSequence()
-                .RunAllAsync(session._config.GameModeLaunch.LeaveActions, CancellationToken.None);
+                .RunAllAsync(session._config.GameModeLaunch.LeaveActions, session._shutdownCancellation.Token);
         }
 
         public Task ApplyDefaultPostureAsync()
@@ -894,7 +911,8 @@ public sealed partial class ShellSession
         {
             // The normal desktop can be recreated only if its current taskbar owner is captured while
             // it still exists. A contaminated or unknown shell is preserved instead.
-            var preparation = await DesktopHost.PrepareForExplorerExitAsync().ConfigureAwait(false);
+            var preparation = await DesktopHost.PrepareForExplorerExitAsync(session._shutdownCancellation.Token)
+                .ConfigureAwait(false);
             return preparation.Prepared;
         }
 
@@ -902,7 +920,8 @@ public sealed partial class ShellSession
         {
             try
             {
-                return await DesktopHost.ExitExplorerAndWaitAsync(SessionModes.ExplorerExitTimeout)
+                return await DesktopHost.ExitExplorerAndWaitAsync(SessionModes.ExplorerExitTimeout,
+                        session._shutdownCancellation.Token)
                     .ConfigureAwait(false);
             }
             catch (Exception ex)

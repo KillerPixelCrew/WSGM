@@ -24,35 +24,36 @@ internal sealed partial class WizardWindow
         page.Children.Clear();
         page.Children.Add(PageTitle("Sleep and wake"));
 
-        // A reversible init is applied for the cycle, so the report shows whether it survives sleep.
-        LabInitResult? initBefore = null;
-        if (init is { Reversible: true })
+        var resumed = false;
+        var problem = await LabSleep.RunAsync(project, attempt, async () =>
         {
-            page.Children.Add(Status("Setting up the controller as in the buttons step..."));
-            initBefore = await SendCuratedInitAsync(record!.Id, Lifetime);
-        }
-
-        try
-        {
-            await RunSleepCycleAsync(project, page, capture, init, initBefore, attempt);
-        }
-        finally
-        {
+            // Init belongs inside the cleanup boundary: a cancelled or failed send may have changed the mode.
+            LabInitResult? initBefore = null;
             if (init is { Reversible: true })
             {
-                var problem = await RecoverControllerInitAsync(CancellationToken.None);
-                if (problem is not null)
-                {
-                    page.Children.Add(Warning(
-                        $"The controller could not be put back: {problem} Restart the device to reset it."));
-                }
+                page.Children.Add(Status("Setting up the controller as in the buttons step..."));
+                initBefore = await SendCuratedInitAsync(record!.Id, Lifetime);
             }
+
+            var cycle = await RunSleepCycleAsync(project, page, capture, init, initBefore, attempt);
+            resumed = cycle.Resumed;
+            return (cycle.Status, cycle.Summary);
+        }, init is { Reversible: true } ? () => RecoverControllerInitAsync(CancellationToken.None) : null);
+        if (problem is not null)
+        {
+            page.Children.Add(Warning(
+                $"The controller could not be put back: {problem} Restart the device to reset it."));
+        }
+
+        if (resumed)
+        {
+            await AskAsync(page, "Continue");
         }
 
         Next(LabStages.Sleep);
     }
 
-    private async Task RunSleepCycleAsync(
+    private async Task<(LabSegmentStatus Status, string Summary, bool Resumed)> RunSleepCycleAsync(
         LabProject project,
         StackPanel page,
         LabInputCapture capture,
@@ -144,13 +145,9 @@ internal sealed partial class WizardWindow
                 : finished == skipped.Task
                     ? "The power button did not put the device to sleep."
                     : "The device did not sleep within ten minutes.";
-            await Task.Run(() =>
-            {
-                project.WriteEvidence(attempt, "sleep", new { Before = before, Cycle = cycle, Outcome = summary });
-                project.Finish(LabStages.Sleep, skippedByTester ? LabSegmentStatus.Skipped : LabSegmentStatus.Failed,
-                    summary, DateTimeOffset.UtcNow);
-            });
-            return;
+            await Task.Run(() => project.WriteEvidence(attempt, "sleep",
+                new { Before = before, Cycle = cycle, Outcome = summary }));
+            return (skippedByTester ? LabSegmentStatus.Skipped : LabSegmentStatus.Failed, summary, false);
         }
 
         // Back from sleep: watch for everything to return, for up to 30 seconds.
@@ -229,11 +226,9 @@ internal sealed partial class WizardWindow
                     : new { init.Feature, Before = initBefore, ModeAfterWake = modeAfterWake, Resent = resent },
                 Press = press
             });
-            project.Finish(LabStages.Sleep,
-                missing.Count == 0 && press.Result.Length > 0 ? LabSegmentStatus.Completed : LabSegmentStatus.Failed,
-                text + ".", DateTimeOffset.UtcNow);
         });
-        await AskAsync(page, "Continue");
+        return (missing.Count == 0 && press.Result.Length > 0 ? LabSegmentStatus.Completed : LabSegmentStatus.Failed,
+            text + ".", true);
     }
 
     private async Task<(string Result, double LatencyMs, LabInputStepRecord Record)> SleepPressAsync(

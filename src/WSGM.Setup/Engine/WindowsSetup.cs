@@ -9,6 +9,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.Marshalling;
 using System.Threading;
 using Microsoft.Win32;
+using WSGM.Shared;
 
 namespace WSGM.Setup.Engine;
 
@@ -43,11 +44,11 @@ internal enum ShutdownHandoff
 internal static class WindowsSetup
 {
     internal const string ServiceName = "WSGMLogonService";
-    internal const string ExitForUpdate = WSGM.Shared.SessionProtocolNames.ExitForUpdate;
-    internal const string ExitForUninstall = WSGM.Shared.SessionProtocolNames.ExitForUninstall;
-    internal const string ShellMutex = WSGM.Shared.SessionProtocolNames.ShellMutex;
-    internal const string DeviceOwner = WSGM.Shared.SessionProtocolNames.DeviceOwner;
-    internal const string AnchorRecoverySettled = WSGM.Shared.SessionProtocolNames.AnchorRecoverySettled;
+    internal const string ExitForUpdate = SessionProtocolNames.ExitForUpdate;
+    internal const string ExitForUninstall = SessionProtocolNames.ExitForUninstall;
+    internal const string ShellMutex = SessionProtocolNames.ShellMutex;
+    internal const string DeviceOwner = SessionProtocolNames.DeviceOwner;
+    internal const string AnchorRecoverySettled = SessionProtocolNames.AnchorRecoverySettled;
 
     // Half-second polls, the Inno installer's budgets. WSGM's update exit runs a bounded 10-second
     // Steam and wrapper pre-stop, then its own 10-second cleanup, and 44 polls leave margin for the
@@ -555,6 +556,19 @@ internal static class WindowsSetup
         {
             Marshal.Release(pointer);
         }
+    }
+
+    /// <summary>Removes setup's Start menu and desktop shortcuts and Installed apps entry.</summary>
+    internal static void RemoveSetupRegistration()
+    {
+        var programs = Environment.GetFolderPath(Environment.SpecialFolder.Programs);
+        foreach (var shortcut in new[] { "WSGM.lnk", "WSGM Settings.lnk" })
+        {
+            File.Delete(Path.Combine(programs, shortcut));
+            File.Delete(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), shortcut));
+        }
+
+        Registration.Unregister();
     }
 
     /// <summary>Deletes a file or directory now, or schedules what is left of it for the next reboot.</summary>

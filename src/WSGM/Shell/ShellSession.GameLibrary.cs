@@ -110,7 +110,8 @@ public sealed partial class ShellSession
             SteamClientWriteOutcome.NotSent => new ShortcutWriteResult(
                 0, false, "Steam is not reachable, so nothing was created."),
             SteamClientWriteOutcome.Unknown => new ShortcutWriteResult(
-                0, false, "Steam did not answer, so the shortcut may not have been created. Scan again before retrying."),
+                0, false,
+                "Steam did not answer, so the shortcut may not have been created. Scan again before retrying."),
             SteamClientWriteOutcome.Rejected => new ShortcutWriteResult(
                 0, false, added.Error ?? "Steam refused to create the shortcut."),
             _ => new ShortcutWriteResult(added.AppId, added.Confirmed,

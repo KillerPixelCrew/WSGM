@@ -1,5 +1,3 @@
-using WSGM.Device.Sdk.Capabilities;
-using WSGM.Plugin.Gpu;
 using Xunit;
 
 namespace WSGM.Plugin.NvidiaGpu.Tests;
@@ -36,33 +34,5 @@ public sealed class NvColorTests
         Assert.Equal(1, edited[8]);
         Assert.Equal(255, edited[9]);
         Assert.Equal(3u, NvApi.Number(edited, 12));
-    }
-
-    [Fact]
-    public void ActionAdmissionRequiresNullInsteadOfAValue()
-    {
-        var descriptor =
-            DriverDescriptors.Toggle("cache-reset", "gpu", "Cache", "graphics", CapabilityProfileScope.GlobalOnly)
-                with
-                {
-                    SupportsAction = true, SupportsRead = false, SupportsWrite = false,
-                    ValueKind = CapabilityValueKind.None
-                };
-        var control = new ActionControl(descriptor);
-        Assert.True(control.Accepts(null));
-        Assert.False(control.Accepts(CapabilityValue.None()));
-        Assert.False(control.Accepts(CapabilityValue.Boolean(true)));
-    }
-
-    private sealed class ActionControl(CapabilityDescriptor descriptor) : DriverControl(descriptor)
-    {
-        internal override CapabilityValue Read()
-        {
-            return CapabilityValue.None();
-        }
-
-        internal override void Write(CapabilityValue value, WriteAdmission admission)
-        {
-        }
     }
 }

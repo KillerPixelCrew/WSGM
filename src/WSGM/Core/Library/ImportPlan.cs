@@ -83,7 +83,10 @@ public sealed class ImportedEntry
     /// </remarks>
     public bool OwnsProfile { get; set; }
 
-    internal ImportedEntry Copy() => (ImportedEntry)MemberwiseClone();
+    internal ImportedEntry Copy()
+    {
+        return (ImportedEntry)MemberwiseClone();
+    }
 }
 
 /// <summary>What the user decided about one title, kept across scans.</summary>
@@ -261,6 +264,7 @@ public static class ImportPlan
     private const string AlreadyImported = "Already imported.";
 
     private const string AlreadyInSteam = "Steam already has an entry for this title.";
+
     private const string ClaimedByAnotherTitle =
         "Another imported title uses Steam's entry for this game. Add this title as a separate entry.";
 
@@ -426,7 +430,6 @@ public static class ImportPlan
     }
 
 
-
     /// <summary>Describes a title that launches through the packaged launcher.</summary>
     /// <returns>Its plan entry, or null for a title without a validated route that is not offered.</returns>
     private static ImportPlanEntry? Describe(DiscoveredGame game, ImportedEntry? record, Context context)
@@ -492,7 +495,7 @@ public static class ImportPlan
         if (context.Claimed.Any(shortcut =>
                 PackagedLauncherShortcut.Owns(shortcut, context.LauncherTarget, game.Key)))
         {
-            return Entry(ImportAction.Add, ClaimedByAnotherTitle, mode, 0, true, false);
+            return Entry(ImportAction.Add, ClaimedByAnotherTitle, mode, 0, true);
         }
 
         if (record is { ConfirmedUtc.Length: 0 })
@@ -563,7 +566,7 @@ public static class ImportPlan
         if (context.Claimed.Any(shortcut =>
                 CommandShortcut.RouteOf(shortcut, game.CommandRoutes, context.LauncherTarget) is not null))
         {
-            return Command(ImportAction.Add, ClaimedByAnotherTitle, 0, true, fallback, false);
+            return Command(ImportAction.Add, ClaimedByAnotherTitle, 0, true, fallback);
         }
 
         if (record is { ConfirmedUtc.Length: 0 })
@@ -627,11 +630,14 @@ public static class ImportPlan
         internal IEnumerable<ExistingShortcut> Claimed =>
             existing.Where(shortcut => claimed.Contains(shortcut.AppId));
 
-        internal void Claim(uint appId) => claimed.Add(appId);
-
         internal string LauncherTarget { get; } = launcherTarget;
         internal ImportMode DefaultMode { get; } = defaultMode;
         internal bool IncludeUnroutable { get; } = includeUnroutable;
+
+        internal void Claim(uint appId)
+        {
+            claimed.Add(appId);
+        }
     }
 
     /// <summary>Both halves of an identity, compared the way Windows compares package names.</summary>

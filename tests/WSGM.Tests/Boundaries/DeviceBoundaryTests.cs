@@ -74,22 +74,33 @@ public sealed class DeviceBoundaryTests
         const string deviceControl =
             "external/windows-device-control/src/WindowsDeviceControl/WindowsDeviceControl.csproj";
         List<string> problems = [];
-        foreach (var project in SolutionProjects().Where(path => !IsTestProject(path)))
+        foreach (var project in SolutionProjects())
         {
             var name = Path.GetFileNameWithoutExtension(project);
-            string[]? allowed = name switch
-            {
-                // Reusable libraries and the small executables stand alone: the launchers and the
-                // logon service must not pull in WSGM, Avalonia or any other first-party assembly.
-                "WindowsDeviceControl" or "SteamUiToolkit" or "WSGM.Device.Sdk" or "WSGM.Launch"
-                    or "WSGM.LogonService" or "WSGM.PackagedLaunch" => [],
-                "WSGM.Plugin.Sdk" => [toolkit, deviceSdk],
-                "WSGM.Plugin.NvidiaGpu" => [pluginSdk, deviceControl],
-                "WSGM.DeviceLab" => [deviceSdk],
-                _ when name.StartsWith("WSGM.Plugin.", StringComparison.Ordinal)
-                       || name.StartsWith("WSGM.Device.", StringComparison.Ordinal) => [pluginSdk, deviceSdk],
-                _ => null
-            };
+            string[]? allowed = IsTestProject(project)
+                ? null
+                : name switch
+                {
+                    // Reusable libraries and the small executables stand alone: the launchers and the
+                    // logon service must not pull in WSGM, Avalonia or any other first-party assembly.
+                    "WindowsDeviceControl" or "SteamUiToolkit" or "WSGM.Device.Sdk" or "WSGM.Launch"
+                        or "WSGM.LogonService" or "WSGM.PackagedLaunch" => [],
+                    "WSGM.Plugin.Sdk" => [toolkit, deviceSdk],
+                    "WSGM.Plugin.NvidiaGpu" => [pluginSdk, deviceControl],
+                    "WSGM.DeviceLab" => [deviceSdk],
+                    "WSGM" =>
+                    [
+                        "src/Avalonia.LiveBackdrop/Avalonia.LiveBackdrop.csproj",
+                        "src/WSGM.Install/WSGM.Install.csproj",
+                        pluginSdk,
+                        deviceSdk,
+                        toolkit,
+                        deviceControl
+                    ],
+                    _ when name.StartsWith("WSGM.Plugin.", StringComparison.Ordinal) => [pluginSdk],
+                    _ when name.StartsWith("WSGM.Device.", StringComparison.Ordinal) => [deviceSdk],
+                    _ => null
+                };
             if (allowed is not null)
             {
                 problems.AddRange(ResolvedProjectReferences(project)
@@ -102,13 +113,48 @@ public sealed class DeviceBoundaryTests
             problems.AddRange(LinkedSources(project)
                 .Where(source => !source.StartsWith("src/Shared/", StringComparison.OrdinalIgnoreCase)
                                  && !source.StartsWith("external/steam-input-lease/bindings/",
-                                     StringComparison.OrdinalIgnoreCase))
+                                     StringComparison.OrdinalIgnoreCase)
+                                 && !(IsTestProject(project)
+                                      && source.StartsWith("tests/Shared/", StringComparison.OrdinalIgnoreCase))
+                                 && !(project == "tests/WSGM.Plugin.Sdk.Tests/WSGM.Plugin.Sdk.Tests.csproj"
+                                      && source.StartsWith("eng/templates/", StringComparison.OrdinalIgnoreCase)))
                 .Select(source => $"{project} compiles {source}"));
         }
 
         string[] pluginSdkReferences = [toolkit, deviceSdk];
         Assert.Equal(pluginSdkReferences, ResolvedProjectReferences(pluginSdk).Order(StringComparer.Ordinal));
         Assert.Empty(problems);
+    }
+
+    [Fact]
+    public void DeviceLabUsesTheProductLicenseWhileTheSdkContractsStayMit()
+    {
+        var lab = RepositoryFiles.LoadProject("src/WSGM.DeviceLab/WSGM.DeviceLab.csproj");
+        Assert.Equal("GPL-3.0-or-later", Assert.Single(lab.Descendants("PackageLicenseExpression")).Value);
+        var license = Assert.Single(lab.Descendants("EmbeddedResource"), resource =>
+            (string?)resource.Attribute("LogicalName") == "WSGM.DeviceLab.Help.LICENSE");
+        Assert.Equal("LICENSE", Assert.Single(Resolved("src/WSGM.DeviceLab/WSGM.DeviceLab.csproj", [license])));
+
+        foreach (var project in new[] { "WSGM.Device.Sdk", "WSGM.Plugin.Sdk" })
+        {
+            var sdk = RepositoryFiles.LoadProject($"src/{project}/{project}.csproj");
+            Assert.Equal("MIT", Assert.Single(sdk.Descendants("PackageLicenseExpression")).Value);
+        }
+    }
+
+    [Fact]
+    public void LauncherCopiesOfSharedTypesHaveNoGlobalAliasInTheMainTests()
+    {
+        var references = RepositoryFiles.LoadProject("tests/WSGM.Tests/WSGM.Tests.csproj")
+            .Descendants("ProjectReference");
+        foreach (var name in new[] { "WSGM.Launch", "WSGM.LogonService" })
+        {
+            var reference = Assert.Single(references, item =>
+                Path.GetFileNameWithoutExtension((string)item.Attribute("Include")!) == name);
+            var aliases = ((string?)reference.Attribute("Aliases"))?.Split(',') ?? [];
+            Assert.NotEmpty(aliases);
+            Assert.DoesNotContain("global", aliases);
+        }
     }
 
     private static IEnumerable<string> SolutionProjects()

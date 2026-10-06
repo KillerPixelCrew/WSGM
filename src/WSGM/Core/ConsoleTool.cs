@@ -152,7 +152,8 @@ internal static class ConsoleTool
                     what,
                     deadline,
                     cancellationToken).ConfigureAwait(false);
-                return new ConsoleToolResult(ConsoleToolRunOutcome.Unknown, null, await ReadOutputAsync(process, deadline).ConfigureAwait(false));
+                return new ConsoleToolResult(ConsoleToolRunOutcome.Unknown, null,
+                    await ReadOutputAsync(process, deadline).ConfigureAwait(false));
             }
             catch (OperationCanceledException)
             {
@@ -173,16 +174,19 @@ internal static class ConsoleTool
                     what,
                     deadline,
                     cancellationToken).ConfigureAwait(false);
-                return new ConsoleToolResult(ConsoleToolRunOutcome.Unknown, null, await ReadOutputAsync(process, deadline).ConfigureAwait(false));
+                return new ConsoleToolResult(ConsoleToolRunOutcome.Unknown, null,
+                    await ReadOutputAsync(process, deadline).ConfigureAwait(false));
             }
 
             if (process.ExitCode == 0)
             {
-                return new ConsoleToolResult(ConsoleToolRunOutcome.Succeeded, process.ExitCode, await ReadOutputAsync(process, deadline).ConfigureAwait(false));
+                return new ConsoleToolResult(ConsoleToolRunOutcome.Succeeded, process.ExitCode,
+                    await ReadOutputAsync(process, deadline).ConfigureAwait(false));
             }
 
             Log.Warn($"{what} exited with {process.ExitCode}.");
-            return new ConsoleToolResult(ConsoleToolRunOutcome.Failed, process.ExitCode, await ReadOutputAsync(process, deadline).ConfigureAwait(false));
+            return new ConsoleToolResult(ConsoleToolRunOutcome.Failed, process.ExitCode,
+                await ReadOutputAsync(process, deadline).ConfigureAwait(false));
         }
         catch (OperationCanceledException)
         {
@@ -191,7 +195,8 @@ internal static class ConsoleTool
         catch (Exception ex)
         {
             Log.Warn($"{what} failed: {ex.Message}");
-            return new ConsoleToolResult(processStarted ? ConsoleToolRunOutcome.Unknown : ConsoleToolRunOutcome.NotStarted, null, "");
+            return new ConsoleToolResult(
+                processStarted ? ConsoleToolRunOutcome.Unknown : ConsoleToolRunOutcome.NotStarted, null, "");
         }
     }
 
@@ -208,7 +213,9 @@ internal static class ConsoleTool
             }
 
             return remaining > TimeSpan.Zero
-                ? await output.WaitAsync(TimeSpan.FromMilliseconds(Math.Min(DrainTimeoutMs, remaining.TotalMilliseconds))).ConfigureAwait(false)
+                ? await output
+                    .WaitAsync(TimeSpan.FromMilliseconds(Math.Min(DrainTimeoutMs, remaining.TotalMilliseconds)))
+                    .ConfigureAwait(false)
                 : "";
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -303,8 +310,8 @@ internal static class ConsoleTool
     private sealed class SystemConsoleToolProcess : IConsoleToolProcess
     {
         private readonly Process _process;
-        private readonly Task<string> _stdout;
         private readonly Task<string> _stderr;
+        private readonly Task<string> _stdout;
 
         internal SystemConsoleToolProcess(Process process)
         {

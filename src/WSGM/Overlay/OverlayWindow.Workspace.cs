@@ -164,7 +164,7 @@ public partial class OverlayWindow
 
         var selectedKey = SelectedSections.GetValueOrDefault(_navigation.Destination);
         if (selectedKey is not null && entries.All(entry => entry.Key != selectedKey)
-            && entries.FirstOrDefault() is { } fallback)
+                                    && entries.FirstOrDefault() is { } fallback)
         {
             // The descriptor owner retracted the open page. Retire its text-entry callback
             // before replacing the route, then land on the surviving overview rail.
@@ -249,7 +249,6 @@ public partial class OverlayWindow
         {
             SelectedSectionButton?.Focus(NavigationMethod.Directional);
         }
-
     }
 
     private void SelectRememberedSection(bool focusRail)

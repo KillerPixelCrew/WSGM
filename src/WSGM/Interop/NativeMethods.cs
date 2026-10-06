@@ -5,7 +5,6 @@ namespace WSGM.Interop;
 
 internal static partial class NativeMethods
 {
-
     // ---- Hotkey ----
     internal const uint ModAlt = 0x0001;
     internal const uint ModControl = 0x0002;
@@ -206,6 +205,11 @@ internal static partial class NativeMethods
     internal const uint NotifyForThisSession = 0;
 
     internal const uint WmLButtonDblClk = 0x0203;
+
+    // ---- Foreground WinEvent hook ----
+    internal const uint EventSystemForeground = 0x0003;
+    internal const uint WinEventOutOfContext = 0x0000;
+    internal const uint WinEventSkipOwnProcess = 0x0002;
 
     /// <summary>
     ///     GUID_SESSION_DISPLAY_STATUS {2B84C20E-AD23-4DDF-93DB-05FFBD7EFCA5}: the
@@ -415,13 +419,6 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll")]
     internal static partial void EnumChildWindows(nint parent, EnumChildProc callback, nint parameter);
 
-    internal delegate bool EnumChildProc(nint window, nint parameter);
-
-    // ---- Foreground WinEvent hook ----
-    internal const uint EventSystemForeground = 0x0003;
-    internal const uint WinEventOutOfContext = 0x0000;
-    internal const uint WinEventSkipOwnProcess = 0x0002;
-
     [LibraryImport("user32.dll", SetLastError = true)]
     internal static partial nint SetWinEventHook(
         uint eventMin,
@@ -435,15 +432,6 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool UnhookWinEvent(nint hook);
-
-    internal delegate void WinEventProc(
-        nint hook,
-        uint eventType,
-        nint window,
-        int objectId,
-        int childId,
-        uint thread,
-        uint time);
 
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -675,6 +663,17 @@ internal static partial class NativeMethods
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool IsWindow(nint hWnd);
+
+    internal delegate bool EnumChildProc(nint window, nint parameter);
+
+    internal delegate void WinEventProc(
+        nint hook,
+        uint eventType,
+        nint window,
+        int objectId,
+        int childId,
+        uint thread,
+        uint time);
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct KbdLlHookStruct

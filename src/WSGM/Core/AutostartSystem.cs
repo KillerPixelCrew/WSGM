@@ -134,8 +134,8 @@ public sealed class AutostartSystem : IAutostartSystem
     public bool SetTaskEnabled(string taskPath, bool enabled)
     {
         return ConsoleTool.RunAsync(
-            ConsoleTool.System32("schtasks.exe"),
-            $"/Change /TN \"{taskPath}\" {(enabled ? "/ENABLE" : "/DISABLE")}")
+                ConsoleTool.System32("schtasks.exe"),
+                $"/Change /TN \"{taskPath}\" {(enabled ? "/ENABLE" : "/DISABLE")}")
             .GetAwaiter().GetResult().Outcome == ConsoleToolRunOutcome.Succeeded;
     }
 

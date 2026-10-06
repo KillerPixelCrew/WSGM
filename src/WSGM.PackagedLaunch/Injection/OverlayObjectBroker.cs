@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
+using WSGM.Interop;
 
 namespace WSGM.PackagedLaunch;
 
@@ -74,7 +75,7 @@ internal sealed class OverlayObjectBroker : IDisposable
 
         for (var index = owned.Count - 1; index >= 0; index--)
         {
-            WSGM.Interop.Win32Common.CloseHandle(owned[index]);
+            Win32Common.CloseHandle(owned[index]);
         }
 
         owned.Clear();
@@ -251,7 +252,7 @@ internal sealed class OverlayObjectBroker : IDisposable
         {
             if (handle != IntPtr.Zero)
             {
-                WSGM.Interop.Win32Common.CloseHandle(handle);
+                Win32Common.CloseHandle(handle);
             }
         }
     }

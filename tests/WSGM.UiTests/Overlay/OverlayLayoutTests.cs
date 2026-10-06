@@ -242,8 +242,8 @@ public sealed class OverlayLayoutTests
     [AvaloniaFact]
     public async Task WindowsPowerPickerPinsWithoutDeviceIntegrationAndDetachesOnRemoval()
     {
-        using PowerSchemeSelection schemes = new(new PowerSchemes(new FakePower()),
-            _ => throw new InvalidOperationException("Pinning must not apply a power plan"));
+        using PowerSchemeSelection schemes = new(new NativeQamPowerProfileService(new PowerSchemes(new FakePower()),
+            _ => throw new InvalidOperationException("Pinning must not apply a power plan")));
         await schemes.RefreshAsync();
         using FakeDevice device = new();
         device.State = device.State with { Visible = false };
@@ -402,7 +402,8 @@ public sealed class OverlayLayoutTests
         DisplayModeSnapshot modes = new(new ActiveDisplayPath(target, "fixture", 0, 120, 1),
             new DisplayMode(1920, 1200, 120),
             [new DisplayMode(1920, 1200, 60), new DisplayMode(1920, 1200, 120), new DisplayMode(1280, 800, 60)]);
-        window.AttachBrightness(brightness, _ => Task.FromResult<DisplayModeSnapshot?>(modes));
+        window.AttachBrightness(brightness, UiFixture.ReadOnlyDisplayModes(modes),
+            () => modes.Path.SourceName);
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SystemDisplay));
         UiFixture.OpenSections(window);

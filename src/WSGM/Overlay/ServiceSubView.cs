@@ -133,21 +133,21 @@ public abstract class ServiceSubView : OverlaySubView
             for (var index = 0; index < desired.Length; index++)
             {
                 var fresh = desired[index];
-                var existing = fresh.Tag is string key
-                    ? target.Children.FirstOrDefault(child => Equals(child.Tag, key))
+                var existing = Key(fresh) is string key
+                    ? target.Children.FirstOrDefault(child => Equals(Key(child), key))
                     : index < target.Children.Count
                         ? target.Children[index]
                         : null;
-                if (existing?.GetType() == fresh.GetType() && Equals(existing.Tag, fresh.Tag))
+                if (existing?.GetType() == fresh.GetType() && Equals(Key(existing), Key(fresh)))
                 {
+                    if (target.Children.IndexOf(existing) != index)
+                    {
+                        target.Children.Move(target.Children.IndexOf(existing), index);
+                    }
+
                     if (existing is IOverlayRefreshable refreshable)
                     {
                         refreshable.RefreshFrom(fresh);
-                        if (target.Children.IndexOf(existing) != index)
-                        {
-                            target.Children.Move(target.Children.IndexOf(existing), index);
-                        }
-
                         continue;
                     }
 
@@ -158,7 +158,18 @@ public abstract class ServiceSubView : OverlaySubView
                         continue;
                     }
 
-                    if (existing is Panel panel && fresh is Panel newPanel)
+                    // Reconcile the mounted body, not the Grid's native Expander. Replacing that
+                    // child would leave Body and Heading pointing at detached controls.
+                    if (existing is CollapsibleSection section && fresh is CollapsibleSection nextSection
+                                                               && section.Body is Panel body &&
+                                                               nextSection.Body is Panel nextBody)
+                    {
+                        section.Summary = nextSection.Summary;
+                        Reconcile(body, nextBody);
+                        continue;
+                    }
+
+                    if (existing is Panel panel and not CollapsibleSection && fresh is Panel newPanel)
                     {
                         Reconcile(panel, newPanel);
                         continue;
@@ -172,20 +183,20 @@ public abstract class ServiceSubView : OverlaySubView
                 }
 
                 next.Children.Remove(fresh);
-                if (index < target.Children.Count)
-                {
-                    target.Children[index] = fresh;
-                }
-                else
-                {
-                    target.Children.Add(fresh);
-                }
+                // A new status row can shift keyed controls that have not been matched yet.
+                // Keep them mounted until their turn; discard unmatched children below.
+                target.Children.Insert(index, fresh);
             }
 
             while (target.Children.Count > desired.Length)
             {
                 target.Children.RemoveAt(target.Children.Count - 1);
             }
+        }
+
+        static object? Key(Control control)
+        {
+            return control is CollapsibleSection section ? section.Heading.Tag : control.Tag;
         }
     }
 
@@ -227,19 +238,27 @@ public abstract class ServiceSubView : OverlaySubView
     /// <param name="what">What it was, for the log.</param>
     private protected void Run(Func<CancellationToken, Task<SteamUiCommandResult>> operation, string what = "command")
     {
-        _ = RunSafelyAsync(RunAsync(), what);
+        _ = RunCommandAsync(operation, what);
+    }
+
+    /// <summary>Completes after the service command and its current-view notification have finished.</summary>
+    internal Task RunCommandAsync(Func<CancellationToken, Task<SteamUiCommandResult>> operation,
+        string what = "command")
+    {
+        return RunSafelyAsync(RunAsync(), what);
 
         async Task RunAsync()
         {
+            var generation = NavigationGeneration;
             var result = await Task.Run(() => operation(CancellationToken.None));
             if (!result.Succeeded)
             {
                 // The service owns its work and finishes it after the user leaves. A refusal that
                 // arrives then is only logged: a left view keeps its notice for the next open.
                 var message = result.Error ?? "That did not work.";
-                Dispatcher.UIThread.Post(() =>
+                await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    if (CurrentLevel is not null)
+                    if (CurrentLevel is not null && generation == NavigationGeneration)
                     {
                         Toast(message);
                     }

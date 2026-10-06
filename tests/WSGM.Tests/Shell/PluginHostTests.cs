@@ -11,6 +11,39 @@ namespace WSGM.Tests.Shell;
 public sealed class PluginHostTests
 {
     [Fact]
+    public async Task IdenticalHealthPostsOnceAndAChangedDetailPostsAgain()
+    {
+        ConcurrentQueue<Action> ui = new();
+        PluginHost host = new(ui.Enqueue, new MemoryPluginConfigurationStore());
+        var instance = Admit(host, new FakePlugin("test.ir", true));
+        await instance.StartAsync(Deadline, CancellationToken.None);
+        while (ui.TryDequeue(out var startup))
+        {
+            startup();
+        }
+
+        List<PluginHealthPublication> observed = [];
+        host.HealthChanged += observed.Add;
+        var health =
+            new PluginHealthPublication(instance.Identity, 1, PluginHealth.Unavailable, "Adapter unavailable.");
+        instance.PublishHealth(health);
+        instance.PublishHealth(health with { });
+
+        Assert.Single(ui);
+        Assert.True(ui.TryDequeue(out var first));
+        first!();
+        Assert.Equal(health, Assert.Single(observed));
+
+        var changed = health with { Detail = "Driver unavailable." };
+        instance.PublishHealth(changed);
+        Assert.Single(ui);
+        Assert.True(ui.TryDequeue(out var second));
+        second!();
+        Assert.Equal([health, changed], observed);
+        await Close(instance);
+    }
+
+    [Fact]
     public async Task StateReadbackKeepsOriginAndDropsReorderedOrInvalidValues()
     {
         ConcurrentQueue<Action> ui = new();

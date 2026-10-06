@@ -21,19 +21,6 @@ namespace WSGM.Overlay;
 
 public partial class OverlayWindow
 {
-    internal bool RequestText(string prompt, string initial, int maxLength, Action<string> onAccept)
-    {
-        if (_closed)
-        {
-            return false;
-        }
-
-        var keyboard = new KeyboardPanel(prompt, initial, maxLength);
-        keyboard.Accepted += onAccept;
-        ShowKeyboardSurface(keyboard);
-        return true;
-    }
-
     private readonly List<IDisposable> _powerMenuBindings = [];
     private readonly Stack<SurfaceFrame> _surfaceFrames = new();
     private NativeQamBrightnessService? _surfaceBrightness;
@@ -48,13 +35,31 @@ public partial class OverlayWindow
 
     /// <summary>Preferred focus for the current modal surface.</summary>
     internal InputElement? ActiveSurfaceFocusTarget => _surfaceFrames.TryPeek(out var frame)
-        ? frame.Content is KeyboardPanel keyboard ? keyboard.DefaultFocusTarget : frame.PreferredFocus
+        ? frame.Content switch
+        {
+            KeyboardPanel keyboard => keyboard.DefaultFocusTarget,
+            OverlayFilePicker picker => picker.DefaultFocusTarget ?? frame.PreferredFocus,
+            _ => frame.PreferredFocus
+        }
         : null;
 
     /// <summary>The active surface's directional focus boundary.</summary>
     internal InputElement? ActiveSurfaceNavigationRoot => _surfaceFrames.TryPeek(out var frame)
         ? frame.Container
         : null;
+
+    internal bool RequestText(string prompt, string initial, int maxLength, Action<string> onAccept)
+    {
+        if (_closed)
+        {
+            return false;
+        }
+
+        var keyboard = new KeyboardPanel(prompt, initial, maxLength);
+        keyboard.Accepted += onAccept;
+        ShowKeyboardSurface(keyboard);
+        return true;
+    }
 
     /// <summary>Requests the centred power menu through the surface owner.</summary>
     internal event Action? PowerMenuRequested;
@@ -248,6 +253,14 @@ public partial class OverlayWindow
 
     private void ShowSurface(Control content, SurfaceKind kind, string title, InputElement? preferredFocus)
     {
+        var settlingClose = _surfaceCloseTimer is not null;
+        if (settlingClose)
+        {
+            _surfaceCloseTimer?.Dispose();
+            _surfaceCloseTimer = null;
+            CloseTopSurface();
+        }
+
         CoverMedia(true);
         var invokingControl = FocusManager?.GetFocusedElement() as InputElement;
         if (kind != SurfaceKind.Keyboard)
@@ -260,8 +273,6 @@ public partial class OverlayWindow
             CloseTopSurface();
         }
 
-        _surfaceCloseTimer?.Dispose();
-        _surfaceCloseTimer = null;
         if (_surfaceFrames.TryPeek(out var covered))
         {
             covered.Container.IsEnabled = true;
@@ -339,6 +350,10 @@ public partial class OverlayWindow
                 (ActiveSurfaceFocusTarget ?? active.PreferredFocus).Focus(NavigationMethod.Directional);
             }
         }, DispatcherPriority.Loaded);
+        if (settlingClose)
+        {
+            SurfaceClosed?.Invoke();
+        }
     }
 
     private void CloseSurface(Control content)
@@ -346,6 +361,16 @@ public partial class OverlayWindow
         if (_surfaceFrames.TryPeek(out var frame) && ReferenceEquals(frame.Content, content))
         {
             CloseActiveSurface();
+        }
+        else
+        {
+            // A path can complete while its keyboard still covers the picker. Retire
+            // that completed surface when the keyboard's close grace settles.
+            var covered = _surfaceFrames.FirstOrDefault(candidate => ReferenceEquals(candidate.Content, content));
+            if (covered is not null)
+            {
+                covered.Container.IsEnabled = false;
+            }
         }
     }
 
@@ -370,6 +395,8 @@ public partial class OverlayWindow
 
     private void CloseTopSurface()
     {
+        var restoreFocus = IsVisible && (FocusManager?.GetFocusedElement() is not InputElement focused
+                                         || GetTopLevel(focused) == this);
         if (!_surfaceFrames.TryPop(out var frame))
         {
             return;
@@ -389,7 +416,12 @@ public partial class OverlayWindow
 
         if (_surfaceFrames.TryPeek(out var previous))
         {
-            previous.Container.IsEnabled = true;
+            if (!previous.Container.IsEnabled)
+            {
+                CloseTopSurface();
+                return;
+            }
+
             previous.Container.IsVisible = true;
         }
         else
@@ -408,7 +440,10 @@ public partial class OverlayWindow
                      && GetTopLevel(invoker) == this
             ? invoker
             : ActiveSurfaceFocusTarget ?? DefaultFocusTarget;
-        target.Focus(NavigationMethod.Directional);
+        if (restoreFocus)
+        {
+            target.Focus(NavigationMethod.Directional);
+        }
     }
 
     /// <summary>Immediately releases all transient contents during owner teardown.</summary>

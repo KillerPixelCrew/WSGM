@@ -7,6 +7,7 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization.Metadata;
 using Microsoft.Win32;
 using WindowsDeviceControl;
+using WSGM.Device.Sdk.Settings;
 
 namespace WSGM.Core;
 
@@ -101,7 +102,8 @@ internal static class ConfigRepair
                 return nullable is not null ? null : EnumNode(type, template);
             }
 
-            if (node is not JsonValue value || value.GetValueKind() is not (JsonValueKind.String or JsonValueKind.Number))
+            if (node is not JsonValue value ||
+                value.GetValueKind() is not (JsonValueKind.String or JsonValueKind.Number))
             {
                 return node;
             }
@@ -145,7 +147,7 @@ internal static class ConfigRepair
             }
         }
         else if (metadata.Kind is JsonTypeInfoKind.Enumerable && node is JsonArray array
-                 && ElementType(type) is { } element)
+                                                              && ElementType(type) is { } element)
         {
             for (var index = 0; index < array.Count; index++)
             {
@@ -158,7 +160,7 @@ internal static class ConfigRepair
             }
         }
         else if (metadata.Kind is JsonTypeInfoKind.Dictionary && node is JsonObject dictionary
-                 && DictionaryValueType(type) is { } valueType)
+                                                              && DictionaryValueType(type) is { } valueType)
         {
             var keyType = (Generic(type, typeof(IDictionary<,>)) ?? Generic(type, typeof(IReadOnlyDictionary<,>)))
                 ?.GetGenericArguments()[0];
@@ -183,14 +185,22 @@ internal static class ConfigRepair
         return node;
     }
 
-    private static void NormalizeObject(object value, Type type, object? template, HashSet<object> visited)
+    private static bool NormalizeObject(object value, Type type, object? template, HashSet<object> visited)
     {
+        // Cached SDK declarations are immutable snapshots. DeviceConfigurationRules validates
+        // the whole declaration and drops malformed ones without discarding saved settings.
+        if (value is PluginSettingsManifest)
+        {
+            return false;
+        }
+
         type = Nullable.GetUnderlyingType(type) ?? type;
         if (!visited.Add(value) || ConfigJsonContext.Tolerant.GetTypeInfo(type) is not { } metadata)
         {
-            return;
+            return false;
         }
 
+        var changed = false;
         template = Template(type, template, metadata);
         if (metadata.Kind is JsonTypeInfoKind.Object)
         {
@@ -207,44 +217,52 @@ internal static class ConfigRepair
                 var fallback = template is null ? null : property.Get?.Invoke(template);
                 if (memberType.IsEnum)
                 {
-                    if (!IsValid(memberType, current))
+                    if (!IsValid(memberType, current) && property.Set is { } set)
                     {
-                        property.Set?.Invoke(value, underlying is not null ? null
+                        set(value, underlying is not null
+                            ? null
                             : fallback ?? Activator.CreateInstance(memberType));
+                        changed = true;
                     }
                 }
                 else
                 {
-                    NormalizeObject(current, memberType, fallback, visited);
-                    if (memberType.IsValueType)
+                    var memberChanged = NormalizeObject(current, memberType, fallback, visited);
+                    // Generated setters for init-only record members throw, even for unchanged
+                    // scalars. Only a repaired boxed struct needs to be written back.
+                    if (memberChanged && memberType.IsValueType)
                     {
                         property.Set?.Invoke(value, current);
                     }
+
+                    changed |= memberChanged;
                 }
             }
         }
         else if (metadata.Kind is JsonTypeInfoKind.Enumerable && value is IEnumerable sequence
-                 && ElementType(type) is { } element)
+                                                              && ElementType(type) is { } element)
         {
             foreach (var child in sequence)
             {
                 if (child is not null)
                 {
-                    NormalizeObject(child, element, null, visited);
+                    changed |= NormalizeObject(child, element, null, visited);
                 }
             }
         }
         else if (metadata.Kind is JsonTypeInfoKind.Dictionary && value is IDictionary dictionary
-                 && DictionaryValueType(type) is { } valueType)
+                                                              && DictionaryValueType(type) is { } valueType)
         {
             foreach (var child in dictionary.Values)
             {
                 if (child is not null)
                 {
-                    NormalizeObject(child, valueType, null, visited);
+                    changed |= NormalizeObject(child, valueType, null, visited);
                 }
             }
         }
+
+        return changed;
     }
 
     private static object? Template(Type type, object? supplied, JsonTypeInfo metadata)
@@ -304,14 +322,16 @@ internal static class ConfigRepair
     internal static bool IsRecovery(Type type)
     {
         return type == typeof(SteamAutostartKind) || type == typeof(SteamAutostartScope)
-               || type == typeof(RegistryValueKind);
+                                                  || type == typeof(RegistryValueKind);
     }
 
     private static ulong Bits(Type type, object value)
     {
         var underlying = Enum.GetUnderlyingType(type);
         return underlying == typeof(ulong) || underlying == typeof(uint) || underlying == typeof(ushort)
-               || underlying == typeof(byte) ? Convert.ToUInt64(value) : unchecked((ulong)Convert.ToInt64(value));
+               || underlying == typeof(byte)
+            ? Convert.ToUInt64(value)
+            : unchecked((ulong)Convert.ToInt64(value));
     }
 
     private static Type? ElementType(Type type)

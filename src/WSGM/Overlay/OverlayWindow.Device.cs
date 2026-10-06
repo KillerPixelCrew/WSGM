@@ -23,6 +23,9 @@ namespace WSGM.Overlay;
 
 public partial class OverlayWindow
 {
+    /// <summary>Completes when the current prerequisite read has been published to the banner.</summary>
+    internal Task DevicePrerequisitesRefresh { get; private set; } = Task.CompletedTask;
+
     /// <summary>Moves focus to Device when the destination is available; otherwise leaves the current tab.</summary>
     internal void SelectDeviceDestination()
     {
@@ -65,7 +68,8 @@ public partial class OverlayWindow
         }
 
         _devicePrerequisitesReading = true;
-        Log.Observe(ReadDevicePrerequisitesAsync(source), "Overlay device prerequisites");
+        DevicePrerequisitesRefresh = ReadDevicePrerequisitesAsync(source);
+        Log.Observe(DevicePrerequisitesRefresh, "Overlay device prerequisites");
     }
 
     private async Task ReadDevicePrerequisitesAsync(DevicePrerequisiteSource source)

@@ -26,7 +26,7 @@ internal static class ClawApplied
     {
         return confirmed
             ? CommandResults.Verified(command, written)
-            : CommandResults.Unverified(command, "The write went through but did not read back; the written value stands.");
+            : CommandResults.Unverified(command);
     }
 
     public static CapabilityCommandResult Failed(CapabilityCommand command, string operation, Exception exception,

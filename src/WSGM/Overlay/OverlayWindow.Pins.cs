@@ -19,6 +19,9 @@ public partial class OverlayWindow
     /// <summary>The Tag prefix that marks a Quick access clone; X on one unpins.</summary>
     private const string PinTagPrefix = "pin:";
 
+    // Every section heading currently in the window's tree; each adds itself on attach and leaves on detach.
+    private readonly HashSet<SectionPinHeader> _pinHeaders = [];
+
     /// <summary>
     ///     Live mirrors on the Quick access root: each clone follows its source row's
     ///     title, description, badge and visibility through the source's property changes, and
@@ -32,9 +35,6 @@ public partial class OverlayWindow
     ///     Device rows are not here: they are rebuilt from the snapshot on every render.
     /// </summary>
     private readonly Dictionary<string, ActionButton> _pinnable = new(StringComparer.Ordinal);
-
-    // Every section heading currently in the window's tree; each adds itself on attach and leaves on detach.
-    private readonly HashSet<SectionPinHeader> _pinHeaders = [];
 
     // The pin list the current mirrors were built for. Mirrors follow their source rows through
     // property changes, so while the list is unchanged a render only revisits the pinned sections.

@@ -50,6 +50,7 @@ internal static class ProfileConfigRules
             game.Values ??= new ProfileValues();
             NormalizeProfileValues(game.Values, authored);
         }
+
         return [];
     }
 

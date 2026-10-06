@@ -46,7 +46,11 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot "device-lab-publish.ps1")
 . (Join-Path $PSScriptRoot "plugin-package-common.ps1")
-$outputFull = [IO.Path]::GetFullPath($OutputRoot)
+$outputFull = if ([IO.Path]::IsPathRooted($OutputRoot)) {
+    [IO.Path]::GetFullPath($OutputRoot)
+} else {
+    [IO.Path]::GetFullPath((Join-Path $root $OutputRoot))
+}
 $repositoryFull = [IO.Path]::GetFullPath($root).TrimEnd(
     [IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
 if (-not ($outputFull + [IO.Path]::DirectorySeparatorChar).StartsWith(

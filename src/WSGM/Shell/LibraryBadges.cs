@@ -41,7 +41,7 @@ internal static class LibraryBadges
         }
     }
 
-    /// <summary>Raised after <see cref="Update" /> replaced the reading with a different one.</summary>
+    /// <summary>Raised after <see cref="Update(AppConfig, IReadOnlySet{string})" /> replaced the reading.</summary>
     internal static event Action? Changed;
 
     /// <summary>
@@ -59,7 +59,17 @@ internal static class LibraryBadges
     {
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(presentContentIds);
-        var libraryFolders = ReadLibraryFolders();
+        Update(config, presentContentIds, ReadLibraryFolders());
+    }
+
+    /// <summary>Publishes a reading over the supplied registration text without reading Steam's files.</summary>
+    /// <param name="config">Tracked card libraries.</param>
+    /// <param name="presentContentIds">Attached card identities.</param>
+    /// <param name="libraryFolders">Registration text, or null when unavailable.</param>
+    internal static void Update(AppConfig config, IReadOnlySet<string> presentContentIds, string? libraryFolders)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(presentContentIds);
         lock (Gate)
         {
             var next = Build(config, presentContentIds, libraryFolders, _revision + 1);
@@ -83,7 +93,8 @@ internal static class LibraryBadges
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
-            Log.Warn($"Library badge: libraryfolders.vdf could not be read; naming card libraries only: {error.Message}");
+            Log.Warn(
+                $"Library badge: libraryfolders.vdf could not be read; naming card libraries only: {error.Message}");
             return null;
         }
     }
@@ -125,7 +136,7 @@ internal static class LibraryBadges
         var cardIds = config.CardLibraries
             .Select(static card => card.ContentId)
             .ToHashSet(StringComparer.Ordinal);
-        List<SteamLibraryVdf.LibraryRegistration> registrations =
+        var registrations =
             libraryFolders is null ? [] : SteamLibraryVdf.ReadRegistrations(libraryFolders);
         IReadOnlyList<SteamLibraryBadgeLibrary> libraries =
         [

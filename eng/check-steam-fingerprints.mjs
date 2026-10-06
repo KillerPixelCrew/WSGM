@@ -5,19 +5,22 @@
 //
 // Probes and gates find Steam's webpack modules by a conjunction of source tokens that has to match
 // exactly one module. Module ids and export names are renumbered by client builds (the September
-// 2026 beta renumbered all of them), so nothing names those. This reads every conjunction out of the
-// toolkit's and WSGM's own sources, parses the installed bundle into its module factories, and
+// 2026 beta renumbered all of them), so nothing names those. This reads the conjunctions from the
+// shipped asset, parses the installed bundle into its module factories, and
 // reports how many modules each conjunction matches. It exits non-zero when one matches none or
 // more than one.
 //
 // The bundle on disk carries every module the client ships and the live registry only those loaded
 // so far, so a unique match here is unique there and a missing match here is missing there. Export
 // shapes, rendered trees and whether a row actually draws remain questions for the running client.
+// Additional emitted JavaScript files may follow the Steam directory argument, for standalone
+// probes or plugin scripts. C# and TypeScript sources are never scraped here.
 import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as meriyah from "prettier/plugins/meriyah";
+import { readFingerprints } from "./steam-fingerprints.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const parser = (meriyah.parsers ?? meriyah.default.parsers).meriyah;
@@ -87,71 +90,23 @@ const readBundle = (steamui) => {
   return modules;
 };
 
-const sourceRoots = [
-  "external/steam-ui-toolkit/src/SteamUiToolkit/Surfaces",
-  "external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiAssets/Source",
-  "src/WSGM/Core",
-  "src/WSGM/Shell",
-  // A plugin may declare its own conjunctions, and one that nobody checks breaks silently on the
-  // next client build. Discovered rather than listed, so adding a plugin covers it.
-  ...readdirSync(resolve(root, "src"), { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && entry.name.startsWith("WSGM.Plugin."))
-    .map((entry) => `src/${entry.name}`),
+const assets = [
+  resolve(root, "src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js"),
+  ...process.argv.slice(3).map((path) => resolve(path)),
 ];
-
-const walk = (directory) =>
-  readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) return entry.name === "bin" || entry.name === "obj" ? [] : walk(path);
-    return /\.(cs|ts)$/u.test(entry.name) ? [path] : [];
-  });
-
-// A literal array of string literals starting just after its "[", or null when any element is not
-// a literal (a spread of a constant, for instance, whose own declaration is read instead).
-const readTokens = (text, index) => {
-  const tokens = [];
-  for (let at = index; at < text.length;) {
-    while (at < text.length && /[\s,]/u.test(text[at])) at++;
-    const quote = text[at];
-    if (quote === "]") return tokens.length ? tokens : null;
-    if (quote !== "'" && quote !== '"') return null;
-    let value = "";
-    let end = at + 1;
-    while (end < text.length && text[end] !== quote) {
-      if (text[end] === "\\") {
-        value += text[end + 1];
-        end += 2;
-      } else {
-        value += text[end];
-        end += 1;
-      }
-    }
-    if (end >= text.length) return null;
-    tokens.push(value);
-    at = end + 1;
-  }
-  return null;
-};
-
-// The resolver's token-taking calls and the gates' token constants.
-const opener =
-  /(?:\b(?:count|findUnique|resolve|exported|uniqueFactory)\(\s*|\b\w*Tokens\s*=\s*)\[/gu;
-
 const fingerprints = new Map();
-for (const sourceRoot of sourceRoots) {
-  for (const file of walk(resolve(root, sourceRoot))) {
-    const text = readFileSync(file, "utf8");
-    for (const match of text.matchAll(opener)) {
-      const tokens = readTokens(text, match.index + match[0].length);
-      if (!tokens) continue;
-      const key = JSON.stringify(tokens);
-      const line = text.slice(0, match.index).split("\n").length;
-      const where = `${relative(root, file).replaceAll("\\", "/")}:${line}`;
-      if (!fingerprints.has(key)) fingerprints.set(key, { tokens, locations: [] });
-      fingerprints.get(key).locations.push(where);
-    }
+for (const file of assets) {
+  if (!file.endsWith(".js")) throw new Error(`Expected emitted JavaScript: ${file}`);
+  const source = readFileSync(file, "utf8");
+  for (const { tokens, offset } of readFingerprints(source)) {
+    const key = JSON.stringify(tokens);
+    const line = source.slice(0, offset).split("\n").length;
+    const where = `${relative(root, file).replaceAll("\\", "/")}:${line}`;
+    if (!fingerprints.has(key)) fingerprints.set(key, { tokens, locations: [] });
+    fingerprints.get(key).locations.push(where);
   }
 }
+if (fingerprints.size === 0) throw new Error("The emitted assets contain no module fingerprints.");
 
 const steam = steamDirectory();
 const modules = readBundle(join(steam, "steamui"));

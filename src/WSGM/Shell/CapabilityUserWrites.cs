@@ -106,7 +106,7 @@ internal static class CapabilityUserWrites
         }
 
         await profiles.SetDeviceAsync(identityKey, view.Descriptor.CapabilityId, view.Descriptor.InstanceId, value,
-            write.Layer, cancellationToken, selectSplitMode: selectSplit).ConfigureAwait(false);
+            write.Layer, cancellationToken, selectSplit).ConfigureAwait(false);
         return true;
     }
 

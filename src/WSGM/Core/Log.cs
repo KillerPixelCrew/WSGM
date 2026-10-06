@@ -83,7 +83,7 @@ public static class Log
         try
         {
             var directory = root;
-            System.IO.Directory.CreateDirectory(directory);
+            Directory.CreateDirectory(directory);
             _name = name;
             _path = Path.Combine(directory, $"{name}.log");
         }

@@ -26,7 +26,6 @@ public enum ArtworkAsset
     Icon = 4
 }
 
-
 /// <summary>The one spelling of each artwork slot that pages, commands and stored choices use.</summary>
 /// <remarks>
 ///     The artwork page's tabs and the Game Library's commands both name slots by these ids, so the

@@ -1,5 +1,6 @@
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Lifecycle;
+using WSGM.Device.Sdk.Plugin;
 using WSGM.Device.Sdk.Services;
 using WSGM.Device.Sdk.Testing;
 
@@ -11,6 +12,78 @@ public sealed class DeviceServiceLifecycleTests
 {
     private static readonly DeviceCycleContext<string> Context = new(7, Deadline.After(TimeSpan.FromSeconds(10)), "id");
     private readonly List<string> _calls = [];
+
+    [Fact]
+    public void ADisabledControllerDoesNotDegradeAnOtherwiseOwnedCycle()
+    {
+        var services = Services();
+        services[0].ApplyResult(new DeviceServiceResult(DeviceServiceState.Owned));
+        services[1].ApplyResult(new DeviceServiceResult(DeviceServiceState.Owned));
+        services[2].ApplyResult(new DeviceServiceResult(DeviceServiceState.Passive));
+
+        var result = DeviceServiceLifecycle.StartResult(services, service => service.ServiceId != "controller",
+            "No usable service.", null);
+
+        Assert.Equal(PluginOperationalState.Active, result.State);
+        Assert.Null(result.Reason);
+    }
+
+    [Fact]
+    public void APartlyOwnedCycleReportsTheUnavailableServicesReason()
+    {
+        var services = Services();
+        var reason = new CapabilityReason(CapabilityReasonCode.TransportFaulted, "The pad is missing.");
+        services[0].ApplyResult(new DeviceServiceResult(DeviceServiceState.Owned));
+        services[1].ApplyResult(new DeviceServiceResult(DeviceServiceState.Owned));
+        services[2].ApplyResult(new DeviceServiceResult(DeviceServiceState.Degraded, reason));
+
+        var result = DeviceServiceLifecycle.StartResult(services, _ => true, "No usable service.", null);
+
+        Assert.Equal(PluginOperationalState.Degraded, result.State);
+        Assert.Same(reason, result.Reason);
+        Assert.Equal(CapabilityReasonCode.TransportFaulted, DeviceServiceLifecycle.ReasonFor(services[2].State)?.Code);
+    }
+
+    [Fact]
+    public void AnEmptyCycleIsPassiveAndExplainsItsMissingPrerequisite()
+    {
+        var result = DeviceServiceLifecycle.StartResult([], _ => true, "No supported services.", null);
+
+        Assert.Equal(PluginOperationalState.Passive, result.State);
+        Assert.Equal(CapabilityReasonCode.PrerequisiteMissing, result.Reason?.Code);
+        Assert.Equal("No supported services.", result.Reason?.Detail);
+    }
+
+    [Fact]
+    public void AFailedReleaseTakesPrecedenceOverAnUnverifiedRelease()
+    {
+        var services = Services();
+        services[0].ApplyResult(new DeviceServiceResult(DeviceServiceState.ReleasedUnverified));
+        var reason = new CapabilityReason(CapabilityReasonCode.TransportFaulted, "Power release failed.");
+        services[1].ApplyResult(new DeviceServiceResult(DeviceServiceState.Faulted, reason));
+
+        var result = DeviceServiceLifecycle.StopResult(services);
+
+        Assert.Equal(PluginStopStatus.Failed, result.Status);
+        Assert.Same(reason, result.Reason);
+        services[1].ApplyResult(new DeviceServiceResult(DeviceServiceState.Idle));
+        Assert.Equal(PluginStopStatus.Unverified, DeviceServiceLifecycle.StopResult(services).Status);
+        services[0].ApplyResult(new DeviceServiceResult(DeviceServiceState.Idle));
+        Assert.Equal(PluginStopStatus.Clean, DeviceServiceLifecycle.StopResult(services).Status);
+    }
+
+    [Fact]
+    public void OwnershipRemainsWithItsPreviousOwnerDuringAcquisitionAndRelease()
+    {
+        Assert.Equal("device", DeviceServiceLifecycle.Ownership(DeviceServiceState.Idle));
+        Assert.Equal("device", DeviceServiceLifecycle.Ownership(DeviceServiceState.Acquiring));
+        Assert.Equal("plugin", DeviceServiceLifecycle.Ownership(DeviceServiceState.Owned));
+        Assert.Equal("plugin", DeviceServiceLifecycle.Ownership(DeviceServiceState.Releasing));
+        Assert.Equal("unavailable", DeviceServiceLifecycle.Ownership(DeviceServiceState.Faulted));
+        Assert.Equal(CapabilityReasonCode.Quiescing,
+            DeviceServiceLifecycle.ReasonFor(DeviceServiceState.Releasing)?.Code);
+        Assert.Null(DeviceServiceLifecycle.ReasonFor(DeviceServiceState.Owned));
+    }
 
     [Fact]
     public async Task RollbackUsesItsActiveDeadlineAndStillAttemptsEveryService()

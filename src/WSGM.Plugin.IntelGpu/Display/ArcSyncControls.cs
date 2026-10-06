@@ -1,4 +1,5 @@
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Plugin.Gpu;
 using WSGM.Plugin.IntelGpu.Controls;
 using WSGM.Plugin.IntelGpu.Igcl;
 
@@ -229,9 +230,9 @@ internal sealed class ArcSyncDisplay
     }
 
     /// <summary>Returns the exact current profile, including OFF and every custom parameter.</summary>
-    public ControlWrite ProbeSupport()
+    public ControlWrite ProbeSupport(WriteAdmission admission)
     {
-        return _profile.ProbeSupport();
+        return _profile.ProbeSupport(admission);
     }
 
     /// <summary>Builds the state when the monitor supports Arc Sync.</summary>
@@ -285,8 +286,9 @@ internal sealed class ArcSyncDisplay
 
     /// <summary>Writes variable refresh on or off.</summary>
     /// <param name="enabled">The request.</param>
+    /// <param name="admission">Rechecked after preparatory reads and before the setter.</param>
     /// <returns>The driver result.</returns>
-    public int WriteEnabled(bool enabled)
+    public int WriteEnabled(bool enabled, WriteAdmission admission)
     {
         // The read only captures the profile to bring back; the write happens either way.
         _ = ReadProfile(out _);
@@ -294,29 +296,31 @@ internal sealed class ArcSyncDisplay
         request.Profile = enabled
             ? _restoreKnown ? _restore.Profile : ProfileRecommended
             : ProfileOff;
-        return Set(request);
+        return Set(request, admission);
     }
 
     /// <summary>Writes a named profile, or Custom with the last custom values seen.</summary>
     /// <param name="profile">The profile.</param>
+    /// <param name="admission">Rechecked after preparatory reads and before the setter.</param>
     /// <returns>The driver result.</returns>
-    public int WriteProfile(int profile)
+    public int WriteProfile(int profile, WriteAdmission admission)
     {
         var request = profile == ProfileCustom ? CustomBase() : MonitorProfile();
         request.Profile = profile;
-        return Set(request);
+        return Set(request, admission);
     }
 
     /// <summary>Writes one value of the Custom profile, carrying the others.</summary>
     /// <param name="field">The field.</param>
     /// <param name="value">The value, inside the row's range.</param>
+    /// <param name="admission">Rechecked after preparatory reads and before the setter.</param>
     /// <returns>How the driver answered.</returns>
     /// <remarks>
     ///     The other fields come from the current profile when it is Custom, else from the last Custom
     ///     values seen. The write sets the Custom profile either way; the read never decides whether to
     ///     write.
     /// </remarks>
-    public ControlWrite WriteCustom(ArcSyncField field, int value)
+    public ControlWrite WriteCustom(ArcSyncField field, int value, WriteAdmission admission)
     {
         if (Bounds is null)
         {
@@ -334,7 +338,7 @@ internal sealed class ArcSyncDisplay
         }
 
         request.Profile = ProfileCustom;
-        return ControlWrite.From(Set(request), $"the Custom Arc Sync {field}");
+        return ControlWrite.From(Set(request, admission), $"the Custom Arc Sync {field}");
     }
 
     /// <summary>What a switch to Custom starts from: the last Custom values, else what the driver uses now.</summary>
@@ -369,9 +373,9 @@ internal sealed class ArcSyncDisplay
         return profile;
     }
 
-    private int Set(CtlArcSyncProfileParams request)
+    private int Set(CtlArcSyncProfileParams request, WriteAdmission admission)
     {
-        var result = _profile.Write(request);
+        var result = _profile.Write(request, admission);
         if (result == IgclResult.Success)
         {
             Remember(request);
@@ -420,9 +424,9 @@ internal sealed class VariableRefreshControl : IntelControl
     public override string SupportKey { get; }
 
     /// <inheritdoc />
-    public override ControlWrite ProbeSupport()
+    public override ControlWrite ProbeSupport(WriteAdmission admission)
     {
-        return _display.ProbeSupport();
+        return _display.ProbeSupport(admission);
     }
 
     /// <inheritdoc />
@@ -435,9 +439,9 @@ internal sealed class VariableRefreshControl : IntelControl
     }
 
     /// <inheritdoc />
-    protected override ControlWrite WriteValidated(CapabilityValue value)
+    protected override ControlWrite WriteValidated(CapabilityValue value, WriteAdmission admission)
     {
-        return ControlWrite.From(_display.WriteEnabled(value.BooleanValue == true), "variable refresh");
+        return ControlWrite.From(_display.WriteEnabled(value.BooleanValue == true, admission), "variable refresh");
     }
 }
 
@@ -482,9 +486,9 @@ internal sealed class ArcSyncProfileControl : IntelControl
     public override string SupportKey { get; }
 
     /// <inheritdoc />
-    public override ControlWrite ProbeSupport()
+    public override ControlWrite ProbeSupport(WriteAdmission admission)
     {
-        return _display.ProbeSupport();
+        return _display.ProbeSupport(admission);
     }
 
     /// <summary>The offered profiles: the named ones, and Custom when the monitor's range allows it.</summary>
@@ -510,9 +514,10 @@ internal sealed class ArcSyncProfileControl : IntelControl
     }
 
     /// <inheritdoc />
-    protected override ControlWrite WriteValidated(CapabilityValue value)
+    protected override ControlWrite WriteValidated(CapabilityValue value, WriteAdmission admission)
     {
-        return ControlWrite.From(_display.WriteProfile((int)ValueOf(value)), $"Arc Sync profile {value.ChoiceValue}");
+        return ControlWrite.From(_display.WriteProfile((int)ValueOf(value), admission),
+            $"Arc Sync profile {value.ChoiceValue}");
     }
 }
 
@@ -543,9 +548,9 @@ internal sealed class ArcSyncParameterControl : IntelControl
     public override string SupportKey { get; }
 
     /// <inheritdoc />
-    public override ControlWrite ProbeSupport()
+    public override ControlWrite ProbeSupport(WriteAdmission admission)
     {
-        return _display.ProbeSupport();
+        return _display.ProbeSupport(admission);
     }
 
     /// <summary>Builds the four Custom profile rows, when the monitor's range allows a Custom profile.</summary>
@@ -593,8 +598,8 @@ internal sealed class ArcSyncParameterControl : IntelControl
     }
 
     /// <inheritdoc />
-    protected override ControlWrite WriteValidated(CapabilityValue value)
+    protected override ControlWrite WriteValidated(CapabilityValue value, WriteAdmission admission)
     {
-        return _display.WriteCustom(_field, value.IntegerValue!.Value);
+        return _display.WriteCustom(_field, value.IntegerValue!.Value, admission);
     }
 }

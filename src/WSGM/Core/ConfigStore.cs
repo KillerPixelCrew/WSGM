@@ -282,7 +282,7 @@ public sealed class ConfigStore
         {
             Directory.CreateDirectory(Context.Root);
             AtomicFile.WriteText(ConfigPath, JsonSerializer.Serialize(config, ConfigJsonContext.Tolerant.AppConfig),
-                durable: true, static (temp, ex) => Log.Warn($"Config temp cleanup failed for '{temp}': {ex.Message}"));
+                true, static (temp, ex) => Log.Warn($"Config temp cleanup failed for '{temp}': {ex.Message}"));
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -312,11 +312,11 @@ public sealed class ConfigStore
     /// <summary>One thread-owned writer; file promotion and boot projection may share its scope.</summary>
     public sealed class ConfigTransaction : IDisposable
     {
-        private readonly ConfigStore _store;
         private readonly MutexLease _held;
+        private readonly ConfigStore _store;
         private readonly int _thread = Environment.CurrentManagedThreadId;
-        private (byte[] Bytes, int Version)? _older;
         private bool _disposed;
+        private (byte[] Bytes, int Version)? _older;
 
         internal ConfigTransaction(ConfigStore store, MutexLease held, ConfigReadResult read,
             (byte[] Bytes, int Version)? older)
@@ -332,6 +332,20 @@ public sealed class ConfigStore
 
         /// <summary>The fresh configuration owned by this writer.</summary>
         public AppConfig Config => Read.RequireConfig();
+
+        /// <summary>Releases the writer without implicitly saving.</summary>
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            EnsureOwner();
+            _disposed = true;
+            Volatile.Write(ref _store._writerThread, 0);
+            _held.Dispose();
+        }
 
         /// <summary>Publishes configuration durably while retaining the writer scope.</summary>
         /// <param name="replacement">A merged replacement, or null to save the owned document.</param>
@@ -350,20 +364,6 @@ public sealed class ConfigStore
             }
 
             _store.WriteHeld(Config);
-        }
-
-        /// <summary>Releases the writer without implicitly saving.</summary>
-        public void Dispose()
-        {
-            if (_disposed)
-            {
-                return;
-            }
-
-            EnsureOwner();
-            _disposed = true;
-            Volatile.Write(ref _store._writerThread, 0);
-            _held.Dispose();
         }
 
         private void EnsureOwner()

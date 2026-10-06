@@ -33,43 +33,44 @@ internal sealed partial class WizardWindow
         var init = LabControllerInit.For(record);
         LabInitResult? initResult = null;
         var restoreMode = false;
-        if (init is not null)
-        {
-            page.Children.Clear();
-            page.Children.Add(PageTitle("Buttons"));
-            page.Children.Add(Heading("Controller setup"));
-            page.Children.Add(Status(init.Description));
-
-            // A reversible init is the default; an irreversible one is sent only on "Do it anyway".
-            var send = init.Reversible
-                ? await AskAsync(page, "Continue", "Test without it") == 0
-                : await AskAsync(page, "Test without it", "Do it anyway") == 1;
-            if (send)
-            {
-                var line = Status("Setting up the controller...");
-                page.Children.Add(line);
-                initResult = await SendCuratedInitAsync(record!.Id, Lifetime);
-                if (initResult.Sent)
-                {
-                    await Task.Run(capture.RescanHidCollections);
-                }
-
-                restoreMode = init.Reversible && initResult.Sent;
-                line.Text = initResult.Sent
-                    ? "The controller is set up."
-                    : $"The controller could not be set up: {initResult.Problem} The test continues without it.";
-                if (!initResult.Sent)
-                {
-                    await AskAsync(page, "Continue");
-                }
-            }
-        }
-
-        // 1b. Without a curated record, HC's own mode commands for this device, only if the tester opts in.
+        // Keep setup inside the restore boundary, including a send that fails or is cancelled.
         ModeCommandRun modes = new(project, attempt, "Buttons");
         string? restoreProblem = null;
         try
         {
+            if (init is not null)
+            {
+                page.Children.Clear();
+                page.Children.Add(PageTitle("Buttons"));
+                page.Children.Add(Heading("Controller setup"));
+                page.Children.Add(Status(init.Description));
+
+                // A reversible init is the default; an irreversible one is sent only on "Do it anyway".
+                var send = init.Reversible
+                    ? await AskAsync(page, "Continue", "Test without it") == 0
+                    : await AskAsync(page, "Test without it", "Do it anyway") == 1;
+                if (send)
+                {
+                    var line = Status("Setting up the controller...");
+                    page.Children.Add(line);
+                    restoreMode = init.Reversible;
+                    initResult = await SendCuratedInitAsync(record!.Id, Lifetime);
+                    if (initResult.Sent)
+                    {
+                        await Task.Run(capture.RescanHidCollections);
+                    }
+
+                    line.Text = initResult.Sent
+                        ? "The controller is set up."
+                        : $"The controller could not be set up: {initResult.Problem} The test continues without it.";
+                    if (!initResult.Sent)
+                    {
+                        await AskAsync(page, "Continue");
+                    }
+                }
+            }
+
+            // 1b. Without a curated record, HC's own mode commands for this device, only if the tester opts in.
             await OfferModeCommandsAsync(modes, page, record, LabModeStages.Buttons);
             // 2. Baseline: bytes that change on their own (motion sensors, counters) are learned as noise
             //    so they are not mistaken for a press. They are still recorded.
@@ -200,6 +201,16 @@ internal sealed partial class WizardWindow
                     }
 
                     restoreProblem = await RecoverControllerInitAsync(CancellationToken.None);
+                    await Task.Run(() =>
+                    {
+                        project.WriteEvidence(attempt, "controller-restore",
+                            new { Init = initResult, Restored = restoreProblem is null, Problem = restoreProblem });
+                        if (restoreProblem is not null)
+                        {
+                            project.Finish(LabStages.Buttons, LabSegmentStatus.Failed,
+                                $"The controller could not be put back: {restoreProblem}", DateTimeOffset.UtcNow);
+                        }
+                    });
                     if (restoreProblem is not null && line is not null)
                     {
                         line.Text = $"The controller could not be put back: {restoreProblem}";

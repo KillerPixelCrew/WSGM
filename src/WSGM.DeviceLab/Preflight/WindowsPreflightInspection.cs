@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
+using WSGM.Shared;
 
 namespace WSGM.DeviceLab.Preflight;
 
@@ -64,7 +65,7 @@ internal sealed record DeviceLabOwnerReservationResult
 /// <summary>Finds the production owner without starting, stopping, or contacting it.</summary>
 internal static class DeviceLabOwnerInspector
 {
-    private const string ProductionOwnerName = WSGM.Shared.SessionProtocolNames.DeviceOwner;
+    private const string ProductionOwnerName = SessionProtocolNames.DeviceOwner;
 
     /// <summary>Returns the exact machine-wide production owner object name.</summary>
     public static string OwnerObjectName()

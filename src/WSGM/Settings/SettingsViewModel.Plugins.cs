@@ -29,8 +29,8 @@ public sealed partial class SettingsViewModel
     private bool _deviceProfilesEdited;
 
     private string _pluginSettingsDevice = string.Empty;
-    private bool? _repairAvailable;
     private string _pluginSettingsPlugin = string.Empty;
+    private bool? _repairAvailable;
     private DeviceProfileRowViewModel? _selectedDeviceProfile;
 
     /// <summary>Installed common integrations and configured instances, independent of Device integration.</summary>

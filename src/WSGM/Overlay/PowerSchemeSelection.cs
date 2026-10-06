@@ -4,14 +4,15 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
+using WSGM.Shell;
 
 namespace WSGM.Overlay;
 
 /// <summary>
-///     One overlay's manual scheme workflow. Entry points and notifications belong to the
-///     UI thread; native calls and persistence run on a worker. Closing prevents late publication.
+///     One overlay's projection of the session's manual scheme workflow. Entry points and notifications
+///     belong to the UI thread. Closing prevents late publication.
 /// </summary>
-internal sealed class PowerSchemeSelection(PowerSchemes schemes, Action<Guid> persist, bool readOnly = false)
+internal sealed class PowerSchemeSelection(NativeQamPowerProfileService profiles, bool readOnly = false)
     : IDisposable
 {
     private readonly CancellationTokenSource _lifetime = new();
@@ -19,7 +20,9 @@ internal sealed class PowerSchemeSelection(PowerSchemes schemes, Action<Guid> pe
     internal IReadOnlyList<PowerScheme> Schemes { get; private set; } = [];
     internal Guid? ActiveId { get; private set; }
     internal string Status { get; private set; } = "Read Windows power profiles to choose one.";
+
     internal bool Busy { get; private set; }
+
     // An explicit choice is the user action: it never waits on a fresh read of the active profile.
     internal bool CanSelect => !readOnly && !Busy && !_disposed && Schemes.Count > 0;
 
@@ -68,41 +71,30 @@ internal sealed class PowerSchemeSelection(PowerSchemes schemes, Action<Guid> pe
         var token = _lifetime.Token;
         try
         {
-            var result = await Task.Run(() =>
+            IReadOnlyList<PowerScheme> items;
+            Guid? active;
+            string? detail;
+            if (requested is { } id)
             {
-                token.ThrowIfCancellationRequested();
-                string? saveError = null;
-                if (requested is not { } id)
-                {
-                    return (Items: schemes.Enumerate(), Active: schemes.ReadActive(), SaveError: saveError);
-                }
+                detail = await profiles.SelectAsync(id, token);
+                items = Schemes;
+                active = id;
+            }
+            else
+            {
+                (items, active, detail) = await profiles.ReadSchemesAsync(token);
+            }
 
-                using (schemes.EnterMutation())
-                {
-                    schemes.Select(id, token);
-                    // Record accepted writes even if the sheet closes meanwhile.
-                    try
-                    {
-                        persist(id);
-                    }
-                    catch (Exception ex)
-                    {
-                        saveError = $"Windows applied the profile, but WSGM could not save the reference: {ex.Message}";
-                    }
-                }
-
-                return (Items: Schemes, Active: id, SaveError: saveError);
-            }, token);
             if (_disposed)
             {
                 return;
             }
 
-            Schemes = result.Items;
-            ActiveId = result.Active;
-            var activeName = Schemes.FirstOrDefault(scheme => scheme.Id == result.Active)?.Name
-                             ?? result.Active.ToString("D");
-            Status = result.SaveError ?? (Schemes.Count == 0
+            Schemes = items;
+            ActiveId = active;
+            var activeName = Schemes.FirstOrDefault(scheme => scheme.Id == active)?.Name
+                             ?? active?.ToString("D");
+            Status = detail ?? (Schemes.Count == 0
                 ? "Windows returned no selectable power profiles. Refresh to try again."
                 : $"Active: {activeName}. Changes apply immediately and also change this profile's idle timeouts.");
             if (readOnly)

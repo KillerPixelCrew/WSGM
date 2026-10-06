@@ -14,14 +14,17 @@ namespace WSGM.Core;
 /// </summary>
 internal sealed class ExplorerDesktopHost : IAsyncDisposable
 {
+    private const uint ExitExplorerMessage = 0x05B4;
+    private const uint WmClose = 0x0010;
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan ReadinessStability = TimeSpan.FromMilliseconds(500);
 
     /// <summary>Deadline share kept for starting Explorer after a retired shell was waited for.</summary>
     private static readonly TimeSpan LaunchReserve = TimeSpan.FromSeconds(8);
 
-    private readonly DesktopAppLifecycle _desktopApps;
     private readonly UserDataContext _context;
+
+    private readonly DesktopAppLifecycle _desktopApps;
 
     // Anchor replacement, Explorer dispatch, and disposal share one owner. Disposal closes
     // admission before waiting so no caller can pass a stale disposed check and publish an anchor
@@ -29,15 +32,13 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
     private readonly SemaphoreSlim _operationGate = new(1, 1);
     private readonly int _sessionId;
     private ExplorerShellAnchor? _anchor;
-    private Process? _retired;
-    private const uint ExitExplorerMessage = 0x05B4;
-    private const uint WmClose = 0x0010;
     private int _desktopAppsGeneration;
 
     // Held from the integration stop until a verified Normal or Degraded restore restarts them; a
     // failed restore keeps it, so the launch sequence never starts a listed integration meanwhile.
     private int _desktopAppsSuspended;
     private int _disposeState;
+    private Process? _retired;
 
     /// <summary>Creates a desktop-host owner for the current interactive session.</summary>
     internal ExplorerDesktopHost(UserDataContext context)
@@ -303,6 +304,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
         TimeSpan timeout,
         CancellationToken cancellationToken = default)
     {
+        ThrowIfDesktopRestoreCancelled(cancellationToken);
         ThrowIfDisposalRequested();
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(timeout, TimeSpan.Zero);
 
@@ -337,6 +339,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
                 return CreateOperationGateTimeout(elapsed.Elapsed);
             }
 
+            ThrowIfDesktopRestoreCancelled(cancellationToken);
             var result = await RestoreDesktopUnderGateAsync(deadline, elapsed, cancellationToken)
                 .ConfigureAwait(false);
             if (result.Outcome is not (ExplorerDesktopOutcome.Normal or ExplorerDesktopOutcome.Degraded))
@@ -344,6 +347,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
                 return result;
             }
 
+            ThrowIfDesktopRestoreCancelled(cancellationToken);
             await _desktopApps.RestoreAsync(deadline).ConfigureAwait(false);
             Volatile.Write(ref _desktopAppsSuspended, 0);
             return result;
@@ -390,6 +394,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
 
         if (_anchor is not null)
         {
+            ThrowIfDesktopRestoreCancelled(cancellationToken);
             var launch = await _anchor.StartExplorerAsync(
                 Remaining(deadline),
                 cancellationToken).ConfigureAwait(false);
@@ -433,6 +438,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
         // Scheduler registration, dispatch, deletion, and the readiness observation all consume
         // this restoration's one absolute deadline. Cleanup is best effort once that budget closes.
         Log.Warn("Explorer shell anchor unavailable; using degraded scheduler recovery. " + anchorError);
+        ThrowIfDesktopRestoreCancelled(cancellationToken);
         var schedulerDisposition =
             await ExplorerLauncher.StartAsync(_context, deadline, cancellationToken).ConfigureAwait(false);
         var schedulerMayHaveDispatched =
@@ -464,6 +470,15 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
             cancellationToken).ConfigureAwait(false);
         LogResult("scheduler", scheduler);
         return scheduler;
+    }
+
+    private static void ThrowIfDesktopRestoreCancelled(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (ApplicationShutdownRequest.SessionEnding)
+        {
+            throw new OperationCanceledException("The interactive session is ending; Explorer restoration is refused.");
+        }
     }
 
     /// <summary>
@@ -813,7 +828,8 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
             var asked = CloseWindowsOf(checked((uint)retired.Id));
             Log.Info($"Waiting for retired Explorer pid {retired.Id} before restoring the desktop; "
                      + $"asked {asked} window(s) to close.");
-            if (!await NativeShellProcess.WaitForExitAsync(retired.Handle, timeout, cancellationToken).ConfigureAwait(false))
+            if (!await NativeShellProcess.WaitForExitAsync(retired.Handle, timeout, cancellationToken)
+                    .ConfigureAwait(false))
             {
                 Log.Warn($"Retired Explorer pid {retired.Id} is still running; restoring the desktop beside it.");
             }
@@ -896,7 +912,6 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
                         names.Add(module.ModuleName);
                     }
                 }
-
             }
 
             return names.Count == 0 ? "none" : string.Join(", ", names);

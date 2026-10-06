@@ -12,6 +12,37 @@ public sealed class CommonPluginActionTests
         PluginUiKind.Status, "temperature");
 
     [Fact]
+    public async Task ClosingAdmissionRejectsADirectActionBeforeOrderedStop()
+    {
+        PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
+        Provider plugin = new();
+        var registration = Admit(host, plugin);
+        await registration.StartAsync(Deadline, CancellationToken.None);
+        try
+        {
+            var arguments = new Dictionary<string, PluginValue>();
+            await registration.InvokeActionAsync(1, "send", arguments, PluginActionOrigin.User,
+                Deadline, CancellationToken.None);
+            Assert.Equal(1, plugin.Dispatches);
+
+            registration.CloseAdmission();
+            registration.CloseAdmission();
+            await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                registration.InvokeActionAsync(1, "send", arguments, PluginActionOrigin.User,
+                    Deadline, CancellationToken.None));
+
+            Assert.Equal(1, plugin.Dispatches);
+            Assert.False(plugin.Stopped);
+        }
+        finally
+        {
+            await Close(registration);
+        }
+
+        Assert.True(plugin.Stopped);
+    }
+
+    [Fact]
     public async Task SessionAutomationInvokerUsesTheAdmittedInstanceAndItsCurrentGeneration()
     {
         PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());

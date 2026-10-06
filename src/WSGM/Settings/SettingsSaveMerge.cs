@@ -21,7 +21,8 @@ internal static class SettingsSaveMerge
     ///     The merged configuration and what it changed against the disk value, measured here so every
     ///     persistence path, production or test, reports the same answer.
     /// </returns>
-    internal static (AppConfig Config, SaveChanges Changes) Apply(AppConfig fresh, SettingsViewModel.SaveRequest request,
+    internal static (AppConfig Config, SaveChanges Changes) Apply(AppConfig fresh,
+        SettingsViewModel.SaveRequest request,
         SplashConfig preparedSplash)
     {
         var config = fresh;

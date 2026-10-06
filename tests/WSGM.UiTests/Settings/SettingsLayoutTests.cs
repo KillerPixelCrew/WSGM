@@ -18,7 +18,7 @@ public sealed class SettingsLayoutTests
     [AvaloniaTheory]
     [InlineData(1024)]
     [InlineData(1280)]
-    public void DisplaySettingsShowsReadableModesAndLabeledScaling(int width)
+    public async Task DisplaySettingsShowsReadableModesAndLabeledScaling(int width)
     {
         DisplayTargetIdentity target = new("fixture", null, null, "Internal display", 0, 0, 1);
         using UiFixture fixture = new();
@@ -34,7 +34,7 @@ public sealed class SettingsLayoutTests
         UiFixture.Click(window, UiFixture.Tab(window, 6));
         var model = Assert.IsType<SettingsViewModel>(window.DataContext);
         model.GameModeLaunchKindIndex = (int)GameModeLaunchKind.Custom;
-        model.CopyCurrentLayoutCommand.Execute(null);
+        await GameModeDisplayPageTests.ExecuteDisplayCommandAsync(model.CopyCurrentLayoutCommand);
         Dispatcher.UIThread.RunJobs();
         var text = window.GetVisualDescendants().OfType<TextBlock>().Where(control => control.IsEffectivelyVisible)
             .ToArray();

@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Security.Principal;
 using System.Threading;
 using WSGM.Interop;
+using WSGM.Shared;
 
 namespace WSGM.Core;
 
@@ -30,10 +31,10 @@ public static class UpdateExitWatcher
     // actual installer run against an older build can.
 
     /// <summary>Gets the per-session event used by an updater to request a graceful exit.</summary>
-    public const string EventName = WSGM.Shared.SessionProtocolNames.ExitForUpdate;
+    public const string EventName = SessionProtocolNames.ExitForUpdate;
 
     /// <summary>Gets the per-session event used by the uninstaller for its longer cleanup budget.</summary>
-    public const string UninstallEventName = WSGM.Shared.SessionProtocolNames.ExitForUninstall;
+    public const string UninstallEventName = SessionProtocolNames.ExitForUninstall;
 
     /// <summary>
     ///     Gets the per-session event a <c>--restore-shell</c> run signals so a resident shell
@@ -199,7 +200,7 @@ public static class UpdateExitWatcher
         {
             try
             {
-                if (!Mutex.TryOpenExisting(WSGM.Shared.SessionProtocolNames.ShellMutex, out var shell))
+                if (!Mutex.TryOpenExisting(SessionProtocolNames.ShellMutex, out var shell))
                 {
                     return true;
                 }

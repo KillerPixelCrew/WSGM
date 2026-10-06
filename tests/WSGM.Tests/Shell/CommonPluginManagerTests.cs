@@ -220,6 +220,72 @@ public sealed class CommonPluginManagerTests
         await manager.StopAsync(Deadline);
     }
 
+    [Fact]
+    public async Task ClosingAdmissionCancelsAHeldLoadAndRefusesTheQueuedReconcile()
+    {
+        using TemporaryDirectory temporary = new();
+        var installed = await Catalog(temporary, "test.plugin");
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        FakePlugin plugin = new("test.plugin");
+        var loads = 0;
+        CommonPluginManager manager = new(new PluginHost(action => action(), new MemoryPluginConfigurationStore()),
+            installed, temporary.GetPath("state"), async (_, _) =>
+            {
+                loads++;
+                entered.TrySetResult();
+                await release.Task;
+                return new LoadedPluginPackage<IPlugin>(plugin);
+            });
+        CommonPluginInstanceConfig configuration = new() { PluginId = plugin.Id, Enabled = true };
+        var starting = manager.ReconcileAsync([configuration], CancellationToken.None);
+        var queued = Task.CompletedTask;
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            queued = manager.ReconcileAsync([configuration], CancellationToken.None);
+            manager.CloseAdmission();
+            manager.CloseAdmission();
+            Assert.True(manager.ReconcileAsync([configuration], CancellationToken.None).IsCompletedSuccessfully);
+            Assert.Equal(0, plugin.Stops);
+            Assert.Equal(0, plugin.Disposals);
+        }
+        finally
+        {
+            release.TrySetResult();
+            await Task.WhenAll(starting, queued).WaitAsync(TimeSpan.FromSeconds(5));
+            await manager.StopAsync(Deadline);
+        }
+
+        Assert.Equal(1, loads);
+        Assert.Equal(0, plugin.Starts);
+        Assert.Equal(1, plugin.Disposals);
+    }
+
+    [Fact]
+    public async Task ClosingAdmissionLeavesNativeStopForTheOrderedCleanupStep()
+    {
+        using TemporaryDirectory temporary = new();
+        var installed = await Catalog(temporary, "test.plugin");
+        FakePlugin plugin = new("test.plugin");
+        CommonPluginManager manager = new(new PluginHost(action => action(), new MemoryPluginConfigurationStore()),
+            installed, temporary.GetPath("state"), (_, _) => PluginBuilders.Loaded(plugin));
+        await manager.ReconcileAsync([new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true }],
+            CancellationToken.None);
+
+        manager.CloseAdmission();
+        await manager.PowerTransitionAsync(true, CancellationToken.None);
+        await manager.PowerTransitionAsync(false, CancellationToken.None);
+
+        Assert.Equal(0, plugin.Suspends);
+        Assert.Equal(0, plugin.Resumes);
+        Assert.Equal(0, plugin.Stops);
+        Assert.Equal(0, plugin.Disposals);
+        await manager.StopAsync(Deadline);
+        Assert.Equal(1, plugin.Stops);
+        Assert.Equal(1, plugin.Disposals);
+    }
+
     private static Task<string> Catalog(TemporaryDirectory temporary, params string[] ids)
     {
         var installed = temporary.GetPath("plugins");

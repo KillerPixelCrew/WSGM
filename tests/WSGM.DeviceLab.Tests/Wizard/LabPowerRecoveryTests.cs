@@ -6,7 +6,6 @@ namespace WSGM.DeviceLab.Tests.Wizard;
 
 public sealed class LabPowerRecoveryTests
 {
-
     [Fact]
     public void Record_RefusesADifferentDeviceWhileChangesAreStillPending()
     {
@@ -25,7 +24,7 @@ public sealed class LabPowerRecoveryTests
         using TemporaryDirectory temporary = new();
         var machine = new LabMachineState(Path.Combine(temporary.Root, "machine.json"));
 
-        var notices = LabRecovery.Run(machine, elevated: false, LabPawnIo.ForMachine(machine),
+        var notices = LabRecovery.Run(machine, false, LabPawnIo.ForMachine(machine),
             () => throw new InvalidOperationException("No worker may start."),
             () => throw new InvalidOperationException("Nothing may be reserved."), CancellationToken.None);
 

@@ -16,8 +16,8 @@ internal sealed class DeviceCapabilityControl : ContentControl
 {
     private readonly Control _body;
     private readonly ProfileOverrideMarker _marker;
-    private readonly Action<DeviceOverlayCapability, CapabilityValue> _write;
     private readonly InvokeButtonRow? _run;
+    private readonly Action<DeviceOverlayCapability, CapabilityValue> _write;
     private DeviceOverlayCapability _capability;
 
     internal DeviceCapabilityControl(DeviceOverlayCapability capability, string key,

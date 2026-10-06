@@ -288,13 +288,13 @@ internal static partial class LabSystemDump
             using var key = root.OpenSubKey(signature);
             if (key is not null)
             {
-                Walk(key, signature, 0);
+                Walk(key, signature);
             }
         }
 
         return found;
 
-        void Walk(RegistryKey key, string path, int depth)
+        void Walk(RegistryKey key, string path)
         {
             context.Cancellation.ThrowIfCancellationRequested();
             foreach (var name in key.GetValueNames())
@@ -316,17 +316,12 @@ internal static partial class LabSystemDump
                 }
             }
 
-            if (depth >= 4)
-            {
-                return;
-            }
-
             foreach (var child in key.GetSubKeyNames())
             {
                 using var sub = key.OpenSubKey(child);
                 if (sub is not null)
                 {
-                    Walk(sub, $@"{path}\{child}", depth + 1);
+                    Walk(sub, $@"{path}\{child}");
                 }
             }
         }
@@ -335,7 +330,7 @@ internal static partial class LabSystemDump
     private static List<uint> EnumerateFirmwareTables(uint provider)
     {
         var size = EnumSystemFirmwareTables(provider, null, 0);
-        if (size == 0 || size > MaximumFirmwareTableBytes)
+        if (size == 0)
         {
             return [];
         }

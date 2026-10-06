@@ -67,6 +67,7 @@ public sealed partial class ClawPlugin
                     break;
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
             DeviceRecoveryStatus status;
             try
             {
@@ -81,13 +82,16 @@ public sealed partial class ClawPlugin
 
                 status = DeviceRecoveryStatus.RestoredVerified;
             }
-            catch (Exception ex) when (ex is not OutOfMemoryException && !cancellationToken.IsCancellationRequested)
+            catch (Exception ex) when (ex is not OutOfMemoryException)
             {
                 PluginTrace.Failure("recovery", $"restoring the {entry.ServiceId} entry failed; it is kept", ex);
                 status = DeviceRecoveryStatus.RestoreFailed;
             }
 
+            // Preserve the attempted restore's outcome even when cancellation interrupted the writes.
+            // Leaving it pending would replay an uncertain restore at the next start.
             await _journal.SetStatusAsync(entry.ServiceId, status, CancellationToken.None).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
         }
     }
 

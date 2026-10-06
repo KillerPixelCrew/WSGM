@@ -346,7 +346,6 @@ internal static class LaunchWrapperCommand
     }
 
 
-
     private static string Quote(string path)
     {
         return string.IsNullOrWhiteSpace(path)

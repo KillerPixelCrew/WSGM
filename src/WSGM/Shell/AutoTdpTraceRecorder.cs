@@ -67,9 +67,6 @@ internal sealed class AutoTdpTraceRecorder : IAsyncDisposable
         _writerTask = Task.Run(WriteAllAsync);
     }
 
-    /// <summary>The default trace folder beside <c>wsgm.log</c>.</summary>
-    internal static string DefaultDirectory(UserDataContext context) => Path.Combine(context.Root, "autotdp-traces");
-
     /// <summary>Whether rows are currently recorded.</summary>
     internal bool Enabled => _enabled;
 
@@ -94,6 +91,12 @@ internal sealed class AutoTdpTraceRecorder : IAsyncDisposable
 
         await _writerTask.ConfigureAwait(false);
         _context?.Dispose();
+    }
+
+    /// <summary>The default trace folder beside <c>wsgm.log</c>.</summary>
+    internal static string DefaultDirectory(UserDataContext context)
+    {
+        return Path.Combine(context.Root, "autotdp-traces");
     }
 
     /// <summary>Switches recording on or off. Switching off ends the current file.</summary>

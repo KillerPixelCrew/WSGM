@@ -225,7 +225,16 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
     public async ValueTask<PluginActionResult> ExecuteActionAsync(PluginActionRequest request, PluginContext context,
         CancellationToken cancellationToken)
     {
-        await _lane.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await _lane.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return new PluginActionResult(request.OperationId, PluginActionOutcome.Rejected,
+                "The IR action was cancelled before it could start.");
+        }
+
         var emitted = false;
         try
         {
@@ -354,6 +363,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                     break;
                 case "send":
                     await SendAsync(Arg("command"), request.OperationId, cancellationToken).ConfigureAwait(false);
+                    emitted = true;
                     Publish("status", "IR emitted; appliance state is not verified.", request.OperationId);
                     return new PluginActionResult(request.OperationId, PluginActionOutcome.Dispatched,
                         "IR emitted; appliance state is not verified.");
@@ -497,22 +507,22 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
     /// </summary>
     private async Task<IIrEndpoint> EndpointAsync(Guid operation, CancellationToken token)
     {
-        _endpoint ??= _createEndpoint(Target());
-        if (_endpoint.Identity is not null)
-        {
-            return _endpoint;
-        }
-
         IrEndpointIdentity identity;
         try
         {
+            _endpoint ??= _createEndpoint(Target());
+            if (_endpoint.Identity is not null)
+            {
+                token.ThrowIfCancellationRequested();
+                return _endpoint;
+            }
+
             // The connection opens its link on this first exchange.
             identity = await _endpoint.IdentifyAsync(token).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not (OutOfMemoryException or IrRejectedException)
-                                   && !token.IsCancellationRequested)
+        catch (Exception ex) when (ex is not (OutOfMemoryException or IrRejectedException))
         {
-            // An identify that times out ends in its own cancellation; the action itself was not cancelled.
+            // Creation and identification never emit, including when the action cancels this read.
             throw new IrRejectedException("The IR endpoint could not be reached: " + ex.Message);
         }
 
@@ -537,7 +547,16 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
     private async Task RefreshRemotesAsync(Guid operation, CancellationToken token)
     {
         var endpoint = await EndpointAsync(operation, token).ConfigureAwait(false);
-        _remotes = await endpoint.ListRemotesAsync(token).ConfigureAwait(false);
+        try
+        {
+            _remotes = await endpoint.ListRemotesAsync(token).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not (OutOfMemoryException or IrRejectedException))
+        {
+            // A catalog read precedes the press/run/climate request and cannot emit anything.
+            throw new IrRejectedException("The built-in remote catalog could not be read: " + ex.Message);
+        }
+
         PublishRemotes();
     }
 
@@ -600,7 +619,11 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
                     await WaitForSequenceAsync(endpoint, token).ConfigureAwait(false);
                 }
 
-                break;
+                var detail = request.Arguments["wait"].Boolean == true
+                    ? "Sequence ended; appliance state is not verified."
+                    : "Sequence started; appliance state is not verified.";
+                Publish("status", detail, request.OperationId);
+                return new PluginActionResult(request.OperationId, PluginActionOutcome.Dispatched, detail);
             default:
                 if (remote.Climate is null)
                 {

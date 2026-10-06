@@ -9,6 +9,7 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
+using Avalonia.VisualTree;
 using SkiaSharp;
 using WSGM.Core;
 
@@ -22,6 +23,7 @@ internal sealed class OverlayPreviewImage : Border, IOverlayRefreshable
     private static readonly Dictionary<string, byte[]> Cache = [];
     private static int _cachedBytes;
     private readonly string? _source;
+    private readonly List<Visual> _visibilityOwners = [];
     private Bitmap? _bitmap;
     private CancellationTokenSource? _load;
 
@@ -36,20 +38,60 @@ internal sealed class OverlayPreviewImage : Border, IOverlayRefreshable
         };
         // The effective viewport changes when a scroll, a layout or a shown page brings the image
         // into view, and only for this control, unlike a tree-wide layout pass.
-        AttachedToVisualTree += (_, _) => EffectiveViewportChanged += LoadWhenVisible;
+        AttachedToVisualTree += (_, _) =>
+        {
+            EffectiveViewportChanged += LoadWhenVisible;
+            foreach (var owner in this.GetVisualAncestors().Prepend(this))
+            {
+                owner.PropertyChanged += OnVisibilityChanged;
+                _visibilityOwners.Add(owner);
+            }
+        };
         DetachedFromVisualTree += (_, _) =>
         {
             EffectiveViewportChanged -= LoadWhenVisible;
+            foreach (var owner in _visibilityOwners)
+            {
+                owner.PropertyChanged -= OnVisibilityChanged;
+            }
+
+            _visibilityOwners.Clear();
             _load?.Cancel();
             _load?.Dispose();
             _load = null;
             _bitmap?.Dispose();
             _bitmap = null;
+            if (Child is Image image)
+            {
+                image.Source = null;
+            }
         };
     }
 
     public void RefreshFrom(Control replacement)
     {
+    }
+
+    private void OnVisibilityChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
+    {
+        if (e.Property != IsVisibleProperty)
+        {
+            return;
+        }
+
+        // Visibility alone need not change the viewport rectangle. Re-register so the next
+        // layout reports it again after a previously hidden page has its actual bounds.
+        EffectiveViewportChanged -= LoadWhenVisible;
+        if (IsEffectivelyVisible)
+        {
+            EffectiveViewportChanged += LoadWhenVisible;
+        }
+        else if (_bitmap is null)
+        {
+            _load?.Cancel();
+            _load?.Dispose();
+            _load = null;
+        }
     }
 
     private void LoadWhenVisible(object? sender, EffectiveViewportChangedEventArgs e)
@@ -109,6 +151,7 @@ internal sealed class OverlayPreviewImage : Border, IOverlayRefreshable
 
     internal static async Task<byte[]> ReadAsync(string source, CancellationToken token)
     {
+        token.ThrowIfCancellationRequested();
         lock (CacheGate)
         {
             if (Cache.TryGetValue(source, out var cached))
@@ -120,6 +163,14 @@ internal sealed class OverlayPreviewImage : Border, IOverlayRefreshable
         await Downloads.WaitAsync(token);
         try
         {
+            lock (CacheGate)
+            {
+                if (Cache.TryGetValue(source, out var cached))
+                {
+                    return cached;
+                }
+            }
+
             byte[] bytes;
             if (source.StartsWith("data:image/", StringComparison.Ordinal) &&
                 source.Length <= ArtworkDownload.MaximumBytes * 2)
@@ -133,13 +184,16 @@ internal sealed class OverlayPreviewImage : Border, IOverlayRefreshable
             else
             {
                 var path = Uri.TryCreate(source, UriKind.Absolute, out uri) && uri.IsFile ? uri.LocalPath : source;
-                var info = new FileInfo(path);
-                if (info.Length > ArtworkDownload.MaximumBytes)
+                await using var file = new FileStream(path, FileMode.Open, FileAccess.Read,
+                    FileShare.Read | FileShare.Delete, 4096,
+                    FileOptions.Asynchronous | FileOptions.SequentialScan);
+                if (file.Length > ArtworkDownload.MaximumBytes)
                 {
                     throw new InvalidDataException("The preview file is larger than 16 MB.");
                 }
 
-                bytes = await File.ReadAllBytesAsync(path, token);
+                bytes = new byte[(int)file.Length];
+                await file.ReadExactlyAsync(bytes.AsMemory(), token);
             }
 
             if (bytes.Length > ArtworkDownload.MaximumBytes)
@@ -151,7 +205,7 @@ internal sealed class OverlayPreviewImage : Border, IOverlayRefreshable
             {
                 if (!Cache.ContainsKey(source))
                 {
-                    while (Cache.Count >= 64 || _cachedBytes + bytes.Length > 64 * 1024 * 1024)
+                    while (_cachedBytes + bytes.Length > 64 * 1024 * 1024)
                     {
                         var first = Cache.First();
                         _cachedBytes -= first.Value.Length;

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using WSGM.Interop;
 
 namespace WSGM.PackagedLaunch;
 
@@ -74,7 +75,7 @@ internal sealed class GameSessionJob : IDisposable
             {
                 PackagedLaunchLog.Warn(
                     $"Could not set kill-on-close (error {Marshal.GetLastWin32Error()}).");
-                WSGM.Interop.Win32Common.CloseHandle(_job);
+                Win32Common.CloseHandle(_job);
                 _job = IntPtr.Zero;
             }
         }
@@ -92,7 +93,7 @@ internal sealed class GameSessionJob : IDisposable
     {
         if (_job != IntPtr.Zero)
         {
-            WSGM.Interop.Win32Common.CloseHandle(_job);
+            Win32Common.CloseHandle(_job);
             _job = IntPtr.Zero;
         }
     }
@@ -175,7 +176,7 @@ internal sealed class GameSessionJob : IDisposable
         }
         finally
         {
-            WSGM.Interop.Win32Common.CloseHandle(process);
+            Win32Common.CloseHandle(process);
         }
     }
 

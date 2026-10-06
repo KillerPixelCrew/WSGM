@@ -122,7 +122,7 @@ internal sealed class PowerService(
             try
             {
                 await Capability.RestoreAsync(original, cancellationToken).ConfigureAwait(false);
-                await journal.SetStatusAsync(ServiceId, DeviceRecoveryStatus.RestoredVerified, cancellationToken)
+                await journal.SetStatusAsync(ServiceId, DeviceRecoveryStatus.RestoredVerified, CancellationToken.None)
                     .ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -250,7 +250,7 @@ internal sealed class FanService(
         try
         {
             await Capability.RestoreAsync(original, cancellationToken).ConfigureAwait(false);
-            await journal.SetStatusAsync(ServiceId, DeviceRecoveryStatus.RestoredVerified, cancellationToken)
+            await journal.SetStatusAsync(ServiceId, DeviceRecoveryStatus.RestoredVerified, CancellationToken.None)
                 .ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -428,8 +428,7 @@ internal sealed class LightingService(IAllyAuraHid aura) : DeviceService<AllyIde
         }
 
         Desired = wanted;
-        return CommandResults.Unverified(command,
-            "Aura lighting is write-only; the device cannot report what it shows.");
+        return CommandResults.Unverified(command);
     }
 
     /// <summary>The reports one lighting state needs, in HC's order.</summary>

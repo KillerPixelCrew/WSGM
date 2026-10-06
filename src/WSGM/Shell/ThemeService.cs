@@ -71,6 +71,10 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     private readonly CancellationTokenSource _shutdown = new();
     private readonly Func<string?> _steamDirectory;
     private readonly Lock _sync = new();
+
+    // Every background task this service started and has not seen finish: store reads, installs,
+    // the junction, the translations loop and update checks. Guarded by _sync; the session joins them.
+    private readonly List<Task> _work = [];
     private readonly Action<Action<ThemesConfig>> _writeConfig;
     private string _activeTab = "browse";
     private string? _browseError;
@@ -100,10 +104,6 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     private int _translationsCount;
     private DateTimeOffset? _translationsFetched;
     private Dictionary<string, (string Status, string? Latest, string? Id)> _updates = new(StringComparer.Ordinal);
-
-    // Every background task this service started and has not seen finish: store reads, installs,
-    // the junction, the translations loop and update checks. Guarded by _sync; the session joins them.
-    private readonly List<Task> _work = [];
 
     /// <summary>Creates the service.</summary>
     /// <param name="loader">The installed themes.</param>
@@ -139,22 +139,6 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     /// <summary>The themes folder.</summary>
     internal string Root => _loader.Root;
 
-    /// <summary>Raised on every change the page, the section or the overlay should draw.</summary>
-    public event Action? Changed;
-
-    /// <inheritdoc />
-    public void Dispose()
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        _disposed = true;
-        // The source stays undisposed: work still finishing reads its token, and it holds no timer.
-        _shutdown.Cancel();
-    }
-
     /// <summary>Completes when every background task this service started has finished.</summary>
     /// <remarks>The session joins it after <see cref="Dispose" /> cancelled the work, within its deadline.</remarks>
     internal Task Completion
@@ -169,14 +153,20 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         }
     }
 
-    /// <summary>Keeps a background task for <see cref="Completion" />, dropping those already finished.</summary>
-    private void Track(Task task)
+    /// <summary>Raised on every change the page, the section or the overlay should draw.</summary>
+    public event Action? Changed;
+
+    /// <inheritdoc />
+    public void Dispose()
     {
-        lock (_sync)
+        if (_disposed)
         {
-            _work.RemoveAll(static finished => finished.IsCompleted);
-            _work.Add(task);
+            return;
         }
+
+        _disposed = true;
+        // The source stays undisposed: work still finishing reads its token, and it holds no timer.
+        _shutdown.Cancel();
     }
 
     /// <inheritdoc />
@@ -747,6 +737,29 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         };
     }
 
+    /// <inheritdoc />
+    public Task<SteamUiCommandResult> DismissAsync(CancellationToken cancellationToken)
+    {
+        lock (_sync)
+        {
+            _notice = null;
+            _error = null;
+        }
+
+        Publish(false);
+        return Task.FromResult(SteamUiCommandResult.Applied);
+    }
+
+    /// <summary>Keeps a background task for <see cref="Completion" />, dropping those already finished.</summary>
+    private void Track(Task task)
+    {
+        lock (_sync)
+        {
+            _work.RemoveAll(static finished => finished.IsCompleted);
+            _work.Add(task);
+        }
+    }
+
     /// <summary>Turns installing themes into Steam on or off.</summary>
     /// <param name="enabled">Whether themes are installed.</param>
     /// <param name="cancellationToken">Unused; the change is immediate.</param>
@@ -777,19 +790,6 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
         }
 
         return Task.FromResult(result);
-    }
-
-    /// <inheritdoc />
-    public Task<SteamUiCommandResult> DismissAsync(CancellationToken cancellationToken)
-    {
-        lock (_sync)
-        {
-            _notice = null;
-            _error = null;
-        }
-
-        Publish(false);
-        return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
     /// <summary>The Quick Access key of a theme, a patch or a component.</summary>
@@ -1433,7 +1433,9 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
 
     private SteamThemesInstalled Project(ThemeSnapshot snapshot, bool hidden)
     {
-        var (status, latest, _) = _updates.TryGetValue(snapshot.Name, out var update) ? update : (ThemeStates.Unknown, null, null);
+        var (status, latest, _) = _updates.TryGetValue(snapshot.Name, out var update)
+            ? update
+            : (ThemeStates.Unknown, null, null);
         return new SteamThemesInstalled(
             snapshot.Id,
             snapshot.Name,

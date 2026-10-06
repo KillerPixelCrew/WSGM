@@ -421,7 +421,8 @@ public sealed partial class ClawPlugin
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
-                PluginTrace.Failure(serviceId, "The unused recovery entry could not be removed; release rewrites it", ex);
+                PluginTrace.Failure(serviceId, "The unused recovery entry could not be removed; release rewrites it",
+                    ex);
             }
         }
 

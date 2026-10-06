@@ -81,12 +81,12 @@ public sealed class LibraryBadgesTests
             AppConfig config = new();
             config.CardLibraries.Add(new CardLibraryConfig { ContentId = "c", Name = "Card", AppIds = [5] });
 
-            LibraryBadges.Update(config, new HashSet<string> { "c" });
+            LibraryBadges.Update(config, new HashSet<string> { "c" }, null);
             var first = LibraryBadges.Current!.Revision;
-            LibraryBadges.Update(config, new HashSet<string>());
+            LibraryBadges.Update(config, new HashSet<string>(), null);
             var second = LibraryBadges.Current!.Revision;
             // The same reading again publishes nothing new.
-            LibraryBadges.Update(config, new HashSet<string>());
+            LibraryBadges.Update(config, new HashSet<string>(), null);
 
             Assert.Equal(2, raised);
             Assert.True(second > first);

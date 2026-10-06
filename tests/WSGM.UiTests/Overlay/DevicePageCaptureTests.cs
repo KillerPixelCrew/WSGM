@@ -88,8 +88,8 @@ public sealed class DevicePageCaptureTests
             (_, _, _) => throw new InvalidOperationException("Unexpected assignment save"));
         using DevicePowerPresetSelection selection = new(presets, false, assignments);
         await selection.RefreshAsync();
-        using PowerSchemeSelection schemes = new(new PowerSchemes(new FakePower()),
-            _ => throw new InvalidOperationException("Unexpected power plan write"));
+        using PowerSchemeSelection schemes = new(new NativeQamPowerProfileService(new PowerSchemes(new FakePower()),
+            _ => throw new InvalidOperationException("Unexpected power plan write")));
         await schemes.RefreshAsync();
         var window = fixture.Overlay(width, height);
         window.AttachDeviceBridge(device);
@@ -119,6 +119,7 @@ public sealed class DevicePageCaptureTests
 
             UiFixture.Click(window, UiFixture.Tab(window, 0));
             var sectionsPanel = UiFixture.Named<Panel>(window, "PinnedSectionsGrid");
+            UiFixture.OpenSections(window, sectionsPanel);
             Assert.Equal(2, sectionsPanel.Children.Count);
             foreach (var capability in device.State.Capabilities.Where(capability =>
                          capability.CategoryId is "control" or "charging"))
@@ -174,9 +175,9 @@ public sealed class DevicePageCaptureTests
             }
 
             var planGroup = UiFixture.Named<StackPanel>(window, "DeviceWindowsPower").GetVisualAncestors()
-                .OfType<CollapsibleSection>().First();
+                .OfType<Border>().First(border => border.Classes.Contains("device-group"));
             var assignmentsGroup = UiFixture.Named<StackPanel>(window, "DevicePowerPresetContainer")
-                .GetVisualAncestors().OfType<CollapsibleSection>().First();
+                .GetVisualAncestors().OfType<Border>().First(border => border.Classes.Contains("device-group"));
             Assert.True(assignmentsGroup.TranslatePoint(default, window)!.Value.Y
                 - planGroup.TranslatePoint(new Point(0, planGroup.Bounds.Height), window)!.Value.Y >= 12,
                 "Separate power sections need a visible gap.");

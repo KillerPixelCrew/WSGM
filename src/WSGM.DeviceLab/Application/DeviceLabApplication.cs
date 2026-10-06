@@ -72,8 +72,6 @@ internal sealed class DeviceLabApplication(
     string deviceLabPath,
     Func<CancellationToken, MachineInventory>? collectInventory = null)
 {
-    private const int MaximumInventoryBytes = 32 * 1024 * 1024;
-
     private readonly Func<CancellationToken, MachineInventory> _collectInventory =
         collectInventory ?? (token => WindowsInventoryCollector.Collect(
             DateTimeOffset.UtcNow,
@@ -498,14 +496,13 @@ internal sealed class DeviceLabApplication(
 
     private static MachineInventory ReadInventory(string path, CancellationToken cancellationToken)
     {
-        var bytes = ReadBoundedFile(
-            path,
-            MaximumInventoryBytes,
-            "Inventory is absent, empty, or oversized.",
-            cancellationToken);
-        var inventory = JsonSerializer.Deserialize(
-            bytes,
-            DeviceLabJsonContext.Default.MachineInventory);
+        cancellationToken.ThrowIfCancellationRequested();
+        using FileStream input = new(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var inventory = JsonSerializer.DeserializeAsync(
+                input,
+                DeviceLabJsonContext.Default.MachineInventory,
+                cancellationToken)
+            .AsTask().GetAwaiter().GetResult();
         cancellationToken.ThrowIfCancellationRequested();
         if (inventory?.Firmware is null
             || inventory.SchemaVersion != WindowsInventoryCollector.CurrentSchemaVersion)
@@ -525,36 +522,6 @@ internal sealed class DeviceLabApplication(
         var read = CaptureBundleReader.Read(input, cancellationToken);
         EnsureCapture(read);
         return read;
-    }
-
-    private static byte[] ReadBoundedFile(
-        string path,
-        int maximumBytes,
-        string invalidMessage,
-        CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        using FileStream input = new(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-        if (input.Length <= 0 || input.Length > maximumBytes)
-        {
-            throw new InvalidDataException(invalidMessage);
-        }
-
-        var bytes = new byte[(int)input.Length];
-        var offset = 0;
-        while (offset < bytes.Length)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var read = input.Read(bytes, offset, bytes.Length - offset);
-            if (read == 0)
-            {
-                throw new EndOfStreamException(invalidMessage);
-            }
-
-            offset += read;
-        }
-
-        return bytes;
     }
 
     private static string HashStream(Stream input, CancellationToken cancellationToken)

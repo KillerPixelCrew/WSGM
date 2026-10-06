@@ -26,7 +26,7 @@ internal sealed partial class LabMotionRecorder
             ports = ListInterfaces(ComPortInterface);
         }
         catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException
-                                   or InvalidOperationException)
+                                       or InvalidOperationException)
         {
             _unavailable.Add($"serial: {ex.Message}");
             return;

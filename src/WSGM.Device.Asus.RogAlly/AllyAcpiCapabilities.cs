@@ -128,7 +128,7 @@ internal sealed class AllyPowerCapability(
             // A mode change resets the limits; the next limit command publishes its own pair.
             _written = new AllyPowerState(null, null, null, target);
             await _delay(ModeSettle, cancellationToken).ConfigureAwait(false);
-            return CommandResults.Unverified(command, "The performance mode was written.");
+            return CommandResults.Unverified(command);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -164,7 +164,7 @@ internal sealed class AllyPowerCapability(
         {
             await WriteLimitsAsync(sustained, slow, fast, cancellationToken).ConfigureAwait(false);
             _written = _written with { Sustained = sustained, Slow = slow, Fast = fast };
-            return CommandResults.Unverified(command, "The package power limits were written.");
+            return CommandResults.Unverified(command);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -236,7 +236,7 @@ internal sealed class AllyChargeLimitCapability(IAsusAcpi acpi)
         try
         {
             _ = _acpi.Write(AsusAcpiId.ChargeLimit, (uint)percent);
-            return CommandResults.Unverified(command, "The charge limit was written.");
+            return CommandResults.Unverified(command);
         }
         catch (Exception ex) when (ex is IOException or Win32Exception)
         {
@@ -406,7 +406,7 @@ internal sealed class AllyFanCapability(IAsusAcpi acpi, Func<TimeSpan, Cancellat
         {
             await WriteChannelsAsync(cpu, gpu, mid ?? cpu, cancellationToken).ConfigureAwait(false);
             WrittenCpu = cpu;
-            return CommandResults.Unverified(command, "The fan curves were written.");
+            return CommandResults.Unverified(command);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

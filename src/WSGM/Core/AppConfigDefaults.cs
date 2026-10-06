@@ -78,5 +78,4 @@ internal static class AppConfigDefaults
         Units = TimeUnit.Hours,
         CardScope = SdCardScope.Inserted
     };
-
 }

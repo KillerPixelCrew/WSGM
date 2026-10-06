@@ -75,8 +75,8 @@ internal sealed class ApplicationRuntime(
     Action<ApplicationShutdownReason, ApplicationShutdownOutcome> reportHandoff,
     Func<DateTimeOffset>? utcNow = null)
 {
-    private readonly CancellationTokenSource _timeout = new();
     private readonly Lock _sync = new();
+    private readonly CancellationTokenSource _timeout = new();
     private readonly Func<DateTimeOffset> _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
     private long _deadlineTicks;
     private volatile Task? _exit;

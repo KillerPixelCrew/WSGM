@@ -143,7 +143,8 @@ public sealed partial class GameLibraryView
                                                    && (_sourceId.Length == 0 || entry.SourceId == _sourceId) &&
                                                    entry.Name.Contains(_search, StringComparison.OrdinalIgnoreCase))
             .ToArray();
-        var selectable = entries.Where(entry => entry.Selectable && entry.Action != nameof(ImportAction.Remove)).ToArray();
+        var selectable = entries.Where(entry => entry.Selectable && entry.Action != nameof(ImportAction.Remove))
+            .ToArray();
         var allSelected = selectable.Length > 0 && selectable.All(entry => entry.Selected);
         body.Children.Add(Tagged(Row(allSelected ? "Deselect visible" : "Select visible",
             "Applies only to this source, tab and search", Icons.ListLines,

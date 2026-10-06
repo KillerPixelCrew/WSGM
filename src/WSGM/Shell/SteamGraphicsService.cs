@@ -273,7 +273,8 @@ internal sealed class SteamGraphicsService : ISteamGraphicsBackend, ISteamSettin
                 when value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out var number)
                                                              && double.IsFinite(number):
                 // Steam's slider reports a double; it lands on the row's own steps.
-                if (CapabilityProjection.ValidInteger(CapabilityValue.Integer((int)Math.Round(number)), minimum, maximum,
+                if (CapabilityProjection.ValidInteger(CapabilityValue.Integer((int)Math.Round(number)), minimum,
+                        maximum,
                         Math.Max(1, capability.Step ?? 1)) is not { } integer)
                 {
                     return false;

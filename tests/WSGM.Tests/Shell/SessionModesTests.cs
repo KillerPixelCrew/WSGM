@@ -59,4 +59,76 @@ public sealed class SessionModesTests
         modes.EndTransition();
         await waiting.WaitAsync(TimeSpan.FromSeconds(1));
     }
+
+    [Fact]
+    public void ShutdownRefusesAnEntryCommitThatWasAlreadyPosted()
+    {
+        var modes = new SessionModes(new AppConfig(), null);
+        var entered = 0;
+        modes.GameModeEntered += () => entered++;
+        modes.RequestShutdown();
+
+        Assert.ThrowsAny<OperationCanceledException>(modes.CommitGameMode);
+        Assert.Equal(0, entered);
+    }
+
+    [Fact]
+    public void DesktopSteamLaunchUsesTheCurrentConfigurationFlags()
+    {
+        var initial = new AppConfig
+        {
+            SteamInputManagementEnabled = true,
+            SteamLaunchUnelevated = false
+        };
+        initial.Cef.Enabled = false;
+        List<(bool ManageInput, bool Unelevated, bool Cef)> launches = [];
+        var modes = new SessionModes(initial, null, static () => false, static () => true,
+            (manageInput, unelevated, cef) =>
+            {
+                launches.Add((manageInput, unelevated, cef));
+                return true;
+            });
+
+        modes.EnsureSteamDesktop();
+        var current = new AppConfig
+        {
+            SteamInputManagementEnabled = false,
+            SteamLaunchUnelevated = true
+        };
+        current.Cef.Enabled = true;
+        modes.ApplyConfig(current);
+        modes.EnsureSteamDesktop();
+
+        Assert.Equal([(true, false, false), (false, true, true)], launches);
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public void DesktopSteamLaunchIsSkippedWhenRunningOrNotInstalled(bool running, bool installed)
+    {
+        var launches = 0;
+        var modes = new SessionModes(new AppConfig(), null, () => running, () => installed,
+            (_, _, _) =>
+            {
+                launches++;
+                return true;
+            });
+
+        modes.EnsureSteamDesktop();
+
+        Assert.Equal(0, launches);
+    }
+
+    [Fact]
+    public void DesktopSteamLaunchAfterShutdownSkipsProbesAndLaunch()
+    {
+        var modes = new SessionModes(new AppConfig(), null,
+            () => throw new InvalidOperationException("Shutdown must refuse the running probe."),
+            () => throw new InvalidOperationException("Shutdown must refuse the installation probe."),
+            (_, _, _) => throw new InvalidOperationException("Shutdown must refuse the launch."));
+        modes.RequestShutdown();
+
+        modes.EnsureSteamDesktop();
+    }
 }

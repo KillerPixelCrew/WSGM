@@ -21,6 +21,8 @@ public enum ProfileLayer
 /// </remarks>
 public static class ProfileEdits
 {
+    private const string NamedProfilePrefix = "profile:";
+
     /// <summary>Cycles authored profiles, with none between the last and first.</summary>
     /// <param name="profileIds">Profiles in presentation order.</param>
     /// <param name="selected">Current selection, or null.</param>
@@ -38,8 +40,6 @@ public static class ProfileEdits
 
         return profileIds.Count > 0 ? profileIds[0] : null;
     }
-
-    private const string NamedProfilePrefix = "profile:";
 
     /// <summary>The layer an edit lands in.</summary>
     /// <param name="config">The store being mutated.</param>

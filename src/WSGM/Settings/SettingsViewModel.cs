@@ -16,10 +16,6 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly AppConfig _config;
     private readonly SettingsServices _services;
     private readonly ConfigStore? _store;
-    internal ConfigStore Store => _store ?? throw new InvalidOperationException("Configuration persistence was not supplied.");
-
-    /// <summary>Whether configuration persistence was supplied; a test model has none.</summary>
-    internal bool HasStore => _store is not null;
 
     /// <summary>Builds the view model over an already loaded configuration and explicit services.</summary>
     /// <param name="config">
@@ -184,6 +180,12 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         BuildStartupSuggestions();
     }
+
+    internal ConfigStore Store =>
+        _store ?? throw new InvalidOperationException("Configuration persistence was not supplied.");
+
+    /// <summary>Whether configuration persistence was supplied; a test model has none.</summary>
+    internal bool HasStore => _store is not null;
 
     /// <summary>
     ///     Gets or sets the transient status line shown in the window's

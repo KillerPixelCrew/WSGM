@@ -66,15 +66,17 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
     private readonly Lock _gate = new();
     private readonly PluginHost _host;
     private readonly CancellationTokenSource _lifetime = new();
-    private readonly Func<bool?> _onAcPower;
-    private readonly Action<Action> _postToUi;
-    private readonly ProfileService _profiles;
-    private readonly List<GpuPublisher> _publishers = [];
-    private bool _changePosted;
-    private bool _disposed;
 
     /// <summary>Saves a user-originated variable-refresh write to the performance profile.</summary>
     private readonly Action<bool>? _manualVariableRefresh;
+
+    private readonly Func<bool?> _onAcPower;
+    private readonly Action<Action> _postToUi;
+    private readonly ProfileService _profiles;
+    private readonly List<Task> _publisherDisposals = [];
+    private readonly List<GpuPublisher> _publishers = [];
+    private bool _changePosted;
+    private volatile bool _disposed;
 
     /// <summary>
     ///     The last per-application sync revision of this coordinator. One coordinator serves the graphics
@@ -115,7 +117,17 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
 
     public async ValueTask DisposeAsync()
     {
+        try
+        {
+            CloseAdmission();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Warn($"Graphics admission closure failed; disposal continues: {ex.Message}");
+        }
+
         GpuPublisher[] publishers;
+        Task[] disposals;
         lock (_gate)
         {
             if (_disposed)
@@ -126,16 +138,21 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
             _disposed = true;
             publishers = [.. _publishers];
             _publishers.Clear();
+            disposals = [.. _publisherDisposals];
+            _publisherDisposals.Clear();
         }
 
         _host.HealthChanged -= OnHealthChanged;
         await _lifetime.CancelAsync().ConfigureAwait(false);
-        foreach (var publisher in publishers)
+        try
         {
-            await publisher.DisposeAsync().ConfigureAwait(false);
+            await Task.WhenAll(disposals.Concat(publishers.Select(publisher => publisher.DisposeAsync().AsTask())))
+                .ConfigureAwait(false);
         }
-
-        _lifetime.Dispose();
+        finally
+        {
+            _lifetime.Dispose();
+        }
     }
 
     public PluginCapabilityChannel Open(PluginInstanceIdentity identity, PluginManifest manifest,
@@ -147,13 +164,13 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
         PluginCapabilityChannel channel = new(identity, manifest.Capabilities, plugin);
         DeviceCapabilityRouter router = new(_postToUi, key);
         GpuPublisher publisher = new(this, identity, manifest.Name, key, channel, router);
-        GpuPublisher? stale = null;
+        var replaced = false;
         lock (_gate)
         {
             var existing = _publishers.FirstOrDefault(candidate => candidate.Identity == identity);
-            if (_disposed || existing is { Channel.IsClosed: false })
+            if (_disposed || _lifetime.IsCancellationRequested || existing is { Channel.IsClosed: false })
             {
-                publisher.DisposeAsync().AsTask().ObserveFaults();
+                RetirePublisher(publisher);
                 throw new InvalidOperationException("The graphics publisher is already open or the session ended.");
             }
 
@@ -162,15 +179,15 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
             if (existing is not null)
             {
                 _publishers.Remove(existing);
-                stale = existing;
+                RetirePublisher(existing);
+                replaced = true;
             }
 
             _publishers.Add(publisher);
         }
 
-        if (stale is not null)
+        if (replaced)
         {
-            stale.DisposeAsync().AsTask().ObserveFaults();
             Log.Warn($"Graphics: {identity.PluginId} replaced a registration whose channel had already ended.");
         }
 
@@ -190,6 +207,7 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
             if (publisher is not null)
             {
                 _publishers.Remove(publisher);
+                RetirePublisher(publisher);
             }
         }
 
@@ -199,9 +217,51 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
             return;
         }
 
-        publisher.DisposeAsync().AsTask().ObserveFaults();
         Log.Info($"Graphics: {publisher.Identity.PluginId} stopped publishing.");
         PostChanged();
+    }
+
+    /// <summary>Stops command and refresh admission while retaining publishers for ordered disposal.</summary>
+    internal void CloseAdmission()
+    {
+        GpuPublisher[] publishers;
+        lock (_gate)
+        {
+            if (_disposed || _lifetime.IsCancellationRequested)
+            {
+                return;
+            }
+
+            _lifetime.CancelAsync().ObserveFaults();
+            publishers = [.. _publishers];
+        }
+
+        List<Exception> failures = [];
+        foreach (var publisher in publishers)
+        {
+            try
+            {
+                publisher.Router.CloseCommandAdmission();
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                failures.Add(ex);
+            }
+        }
+
+        if (failures.Count > 0)
+        {
+            throw new AggregateException("Graphics command admission closure was incomplete.", failures);
+        }
+    }
+
+    /// <summary>Called under the coordinator gate so shutdown also joins a removed publisher's cleanup.</summary>
+    private void RetirePublisher(GpuPublisher publisher)
+    {
+        _publisherDisposals.RemoveAll(task => task.IsCompletedSuccessfully);
+        var disposal = publisher.DisposeAsync().AsTask();
+        _publisherDisposals.Add(disposal);
+        disposal.ObserveFaults();
     }
 
     /// <summary>
@@ -299,12 +359,15 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
             };
         }
 
+        using var admission = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
+        cancellationToken = admission.Token;
         var view = publisher.Router.TryGetView(new DeviceCapabilityKey(capabilityId, instanceId));
         if (origin is CapabilityCommandOrigin.User && value is not null && view is not null)
         {
             var result = await CapabilityUserWrites.HandleUserWriteAsync(_profiles, publisher.ProfileKey, view,
-                value, () => publisher.Router.ExecuteAsync(capabilityId, instanceId, value, CommandTimeout,
-                    cancellationToken: cancellationToken), _manualVariableRefresh, cancellationToken).ConfigureAwait(false);
+                    value, () => publisher.Router.ExecuteAsync(capabilityId, instanceId, value, CommandTimeout,
+                        cancellationToken: cancellationToken), _manualVariableRefresh, cancellationToken)
+                .ConfigureAwait(false);
             publisher.UpdateContext(_profiles.Current);
             return result;
         }
@@ -321,15 +384,16 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
     ///     Clears exactly that publisher's value. The typed variable-refresh field is cleared as the
     ///     performance rows clear it; a device package's own id is refused, because it is not this owner's.
     /// </remarks>
-    internal Task<bool> UseGlobalAsync(string overrideId, CancellationToken cancellationToken = default)
+    internal async Task<bool> UseGlobalAsync(string overrideId, CancellationToken cancellationToken = default)
     {
-        if (!ProfileSettingKey.TryParse(overrideId, out var key)
+        if (_disposed || _lifetime.IsCancellationRequested || !ProfileSettingKey.TryParse(overrideId, out var key)
             || (key.Field is ProfileField.Device && !ProfileSettingKey.IsGpuPublisher(key.Publisher)))
         {
-            return Task.FromResult(false);
+            return false;
         }
 
-        return _profiles.ClearGameOverrideAsync(key, key.Publisher, cancellationToken);
+        using var admission = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
+        return await _profiles.ClearGameOverrideAsync(key, key.Publisher, admission.Token).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -345,9 +409,16 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
         GpuPublisher[] publishers;
         lock (_gate)
         {
+            if (_disposed || _lifetime.IsCancellationRequested)
+            {
+                return;
+            }
+
             publishers = [.. _publishers];
         }
 
+        using var admission = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
+        cancellationToken = admission.Token;
         foreach (var publisher in publishers)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -371,6 +442,11 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
     {
         lock (_gate)
         {
+            if (_disposed || _lifetime.IsCancellationRequested)
+            {
+                return null;
+            }
+
             return _publishers.FirstOrDefault(publisher =>
                 string.Equals(publisher.Identity.PluginId, pluginId, StringComparison.Ordinal));
         }
@@ -394,7 +470,7 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
     {
         lock (_gate)
         {
-            if (_changePosted || _disposed)
+            if (_changePosted || _disposed || _lifetime.IsCancellationRequested)
             {
                 return;
             }
@@ -407,7 +483,7 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
             lock (_gate)
             {
                 _changePosted = false;
-                if (_disposed)
+                if (_disposed || _lifetime.IsCancellationRequested)
                 {
                     return;
                 }
@@ -419,6 +495,11 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
 
     private void RaiseChangedOnUi()
     {
+        if (_disposed || _lifetime.IsCancellationRequested)
+        {
+            return;
+        }
+
         // The router already raised this on the UI dispatcher.
         Changed?.Invoke();
     }
@@ -430,6 +511,7 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
         private readonly Action<long, long> _descriptorsAccepted;
         private readonly GpuCoordinator _owner;
         private readonly SemaphoreSlim _refreshGate = new(1, 1);
+        private readonly List<Task> _refreshWork = [];
         private readonly Action<IReadOnlyList<DeviceCapabilityView>> _routerChanged;
         private volatile bool _closed;
         private string? _lastApplicationId;
@@ -470,14 +552,40 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
 
         public async ValueTask DisposeAsync()
         {
-            _closed = true;
+            Task[] refreshes;
+            lock (_owner._gate)
+            {
+                _closed = true;
+                refreshes = [.. _refreshWork];
+                _refreshWork.Clear();
+            }
+
             Channel.CycleStarted -= _cycleStarted;
             Channel.AdmissionClosed -= Router.CloseCommandAdmission;
             Router.DescriptorsAccepted -= _descriptorsAccepted;
             Router.Changed -= _routerChanged;
             Channel.Dispose();
             Router.Detach();
-            await Router.DisposeAsync().ConfigureAwait(false);
+            try
+            {
+                await Task.WhenAll(refreshes).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // Queued refreshes use the session lifetime and are expected to cancel at shutdown.
+            }
+            finally
+            {
+                await _refreshGate.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    await Router.DisposeAsync().ConfigureAwait(false);
+                }
+                finally
+                {
+                    _refreshGate.Release();
+                }
+            }
         }
 
         internal GpuPublisherView Describe(IReadOnlyList<PluginHealthPublication> health)
@@ -497,15 +605,15 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
         /// <summary>Reconciles desired values, then syncs the per-application set when it changed.</summary>
         internal async Task RefreshAsync(ProfileSnapshot snapshot, string reason, CancellationToken cancellationToken)
         {
-            UpdateContext(snapshot);
             await _refreshGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                if (_closed || !Channel.IsOpen)
+                if (_closed || _owner._lifetime.IsCancellationRequested || !Channel.IsOpen)
                 {
                     return;
                 }
 
+                UpdateContext(snapshot);
                 await CapabilityDesiredReconciler.RunAsync(
                     new CapabilityReconcilePass(ProfileKey, Router.Snapshot, RestoreAsync)
                     {
@@ -544,6 +652,11 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
         /// <summary>Hands the driver every game's native values when the set, the game or the cycle changed.</summary>
         private async Task SyncAsync(ProfileSnapshot snapshot, string reason, CancellationToken cancellationToken)
         {
+            if (_owner._lifetime.IsCancellationRequested)
+            {
+                return;
+            }
+
             var descriptors = Router.Snapshot().Select(view => view.Descriptor).ToArray();
             if (!descriptors.Any(descriptor => descriptor.ProfileScope is CapabilityProfileScope.NativePerApplication))
             {
@@ -609,7 +722,21 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
         {
             // Runs on the lifecycle lane before the plugin starts or resumes, so the router is connected
             // to the new cycle before the first descriptor set of it arrives.
-            Router.Attach(Channel, generation);
+            lock (_owner._gate)
+            {
+                if (_closed || _owner._disposed || _owner._lifetime.IsCancellationRequested)
+                {
+                    return;
+                }
+
+                Router.Attach(Channel, generation);
+            }
+
+            if (_owner._lifetime.IsCancellationRequested)
+            {
+                return;
+            }
+
             UpdateContext(_owner._profiles.Current);
             _syncRequired = true;
             Log.Info($"Graphics {ProfileKey}: capability cycle {generation} began.");
@@ -640,12 +767,18 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
 
         private void Run(string reason)
         {
-            if (!TryGetLifetime(out var token))
+            lock (_owner._gate)
             {
-                return;
-            }
+                if (_owner._disposed || !TryGetLifetime(out var token))
+                {
+                    return;
+                }
 
-            Task.Run(() => RefreshAsync(_owner._profiles.Current, reason, token), token).ObserveFaults();
+                _refreshWork.RemoveAll(task => task.IsCompleted);
+                var refresh = Task.Run(() => RefreshAsync(_owner._profiles.Current, reason, token), token);
+                _refreshWork.Add(refresh);
+                refresh.ObserveFaults();
+            }
         }
 
         private bool TryGetLifetime(out CancellationToken token)
@@ -653,7 +786,7 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
             try
             {
                 token = _owner._lifetime.Token;
-                return !_closed;
+                return !_closed && !token.IsCancellationRequested;
             }
             catch (ObjectDisposedException)
             {

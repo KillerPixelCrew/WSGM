@@ -2565,6 +2565,37 @@
         throw new Error(`Steam export ${fits.size ? "ambiguous" : "absent"}: ${tokens.join(", ")}`);
       return [...fits][0];
     };
+    // Storage's installed transport module exports a zero-argument function whose entire body
+    // returns its closed-over singleton. It has no author tokens of its own. Keep this strict
+    // structural selection here so the standalone probe and the gate inspect the same shape.
+    // Only the already uniquely fingerprinted module is loaded; no provider accessor is called.
+    requirePresent.storageProvider = () => {
+      const ids = matches(["GetDefaultTransport", "m_transport"]);
+      if (ids.length !== 1) return { transportModule: ids.length, provider: 0, accessor: null };
+      const exports = requirePresent(ids[0]);
+      const fits = new Set();
+      const accessorSource =
+        /^function\s+[A-Za-z_$][\w$]*\s*\(\s*\)\s*\{\s*return[ \t]+[A-Za-z_$][\w$]*\s*;?\s*\}$/;
+      const bindingSource = /^\(\s*\)\s*=>\s*[A-Za-z_$][\w$]*\s*$/;
+      for (const descriptor of Object.values(Object.getOwnPropertyDescriptors(exports ?? {}))) {
+        let value;
+        if (Object.prototype.hasOwnProperty.call(descriptor, "value")) {
+          value = descriptor.value;
+        } else {
+          // Webpack's export bindings are getters. Read only the evidenced pure identifier
+          // return, never a getter that calls something or performs other work.
+          if (typeof descriptor.get !== "function" || !bindingSource.test(sourceOf(descriptor.get)))
+            continue;
+          value = Reflect.apply(descriptor.get, exports, []);
+        }
+        if (typeof value === "function" && accessorSource.test(sourceOf(value))) fits.add(value);
+      }
+      return {
+        transportModule: ids.length,
+        provider: fits.size,
+        accessor: fits.size === 1 ? [...fits][0] : null,
+      };
+    };
     return requirePresent;
   }
   // @steam-ui-module-resolver-end
@@ -7455,7 +7486,7 @@
     const decodeSettingsUpdate = (payload) => {
       if (typeof payload !== "string") {
         const decoded = payload?.toObject?.() ?? payload;
-        if (decoded && typeof decoded === "object") return decoded;
+        if (decoded && typeof decoded === "object" && !Array.isArray(decoded)) return decoded;
         lastError = "settings update could not be decoded: not a message";
         return null;
       }
@@ -7470,7 +7501,10 @@
         for (let index = 0; index < binary.length; index += 1) {
           bytes[index] = binary.charCodeAt(index);
         }
-        return constructor.deserializeBinary(bytes).toObject();
+        const decoded = constructor.deserializeBinary(bytes).toObject();
+        if (decoded && typeof decoded === "object" && !Array.isArray(decoded)) return decoded;
+        lastError = "settings update could not be decoded: not a message";
+        return null;
       } catch (error) {
         lastError = "settings update could not be decoded: " + String(error);
         return null;
@@ -7480,16 +7514,20 @@
     // presence and value, so removal hands back exactly that rather than an invented empty state.
     const DisplacedFields = ["limits", "settings", "current_game_id", "active_profile_game_id"];
     let displaced = null;
+    let displacedTarget = null;
     const onState = (state) => {
       if (!installed || !state) return;
       const target = store();
       if (!target || !target.m_msgState) return;
       try {
-        displaced ??= DisplacedFields.map((field) => ({
-          field,
-          present: Object.hasOwn(target.m_msgState, field),
-          value: target.m_msgState[field],
-        }));
+        if (!displaced) {
+          displacedTarget = target.m_msgState;
+          displaced = DisplacedFields.map((field) => ({
+            field,
+            present: Object.hasOwn(displacedTarget, field),
+            value: displacedTarget[field],
+          }));
+        }
         target.m_msgState.limits = state.limits ?? {};
         target.m_msgState.settings = {
           global: state.global ?? {},
@@ -7564,22 +7602,23 @@
         lastError = withdrawn.error ?? "perf namespace withdrawal failed";
         return { ok: false, error: lastError };
       }
-      installed = false;
-      unsubscribe = endSubscription(unsubscribe);
       // Back to what the store held before the first publication, so every control returns to
       // rendering what it did before the host answered rather than keeping the host's last answer.
-      const target = store();
-      if (target?.m_msgState && displaced) {
+      if (displacedTarget && displaced) {
         try {
           for (const { field, present, value } of displaced) {
-            if (present) target.m_msgState[field] = value;
-            else delete target.m_msgState[field];
+            if (present) displacedTarget[field] = value;
+            else delete displacedTarget[field];
           }
         } catch (error) {
-          lastError = String(error);
+          lastError = "perf state restoration failed: " + String(error);
+          return { ok: false, error: lastError };
         }
       }
+      installed = false;
+      unsubscribe = endSubscription(unsubscribe);
       displaced = null;
+      displacedTarget = null;
       return { ok: true, removed: true };
     };
     const status = () => {
@@ -8317,7 +8356,6 @@
       original: "__steamUiStorageOriginal",
     };
     const ServicePrefix = "StorageDeviceManager.";
-    const TransportToken = "GetDefaultTransport";
     const ServiceToken = "StorageDeviceManager.IsServiceAvailable#1";
     // Claiming the transport is not enough, and this is the part that was wrong: Steam asks each of
     // these questions exactly once. Both queries are registered with `staleTime: 1/0`, and the state
@@ -8454,29 +8492,30 @@
         lastError = "storage service module was not a unique match";
         return false;
       }
-      // The transport provider: exactly one module exports a function returning an object with
-      // GetDefaultTransport.
-      const ids = runtime.findUnique([TransportToken, "m_transport"]);
-      if (!ids) {
-        lastError = "transport provider was not a unique match";
+      const selection = runtime.storageProvider();
+      if (selection.transportModule !== 1) {
+        lastError =
+          "transport provider module was not a unique match: " + selection.transportModule;
         return false;
       }
-      const exports = runtime(ids[0]);
-      const keys = Object.keys(exports).filter((name) => typeof exports[name] === "function");
-      for (const key of keys) {
-        try {
-          const provider = exports[key]();
-          const candidate = provider?.GetDefaultTransport?.();
-          if (candidate && typeof candidate.SendMsg === "function") {
-            transport = candidate;
-            return true;
-          }
-        } catch {
-          // Not the provider; keep looking.
-        }
+      if (selection.provider !== 1) {
+        lastError = "transport provider export not identified: " + selection.provider;
+        return false;
       }
-      lastError = "no export yielded a transport";
-      return false;
+      // Call only the uniquely identified singleton accessor, once. A changed return shape is
+      // a refusal, never a reason to try another export.
+      const provider = selection.accessor();
+      if (typeof provider?.GetDefaultTransport !== "function") {
+        lastError = "transport provider has no GetDefaultTransport";
+        return false;
+      }
+      const candidate = provider.GetDefaultTransport();
+      if (!candidate || typeof candidate.SendMsg !== "function") {
+        lastError = "transport provider yielded no SendMsg transport";
+        return false;
+      }
+      transport = candidate;
+      return true;
     };
     // Never fatal. A gate that answers Steam's questions is still strictly better than one that does
     // not, and the alternative to a missed invalidation is refusing to install at all.
@@ -9935,7 +9974,7 @@
             icon: controlRuntime.icon(iconName),
             layout: "below",
             description:
-              refusal?.command === command
+              refusal && refusal.command === command
                 ? refusal.text
                 : accentDescription(controlRuntime, accent, description),
             rgOptions: options
@@ -10614,7 +10653,8 @@
         const definition = definitions.deviceControls;
         // A refusal belongs to the row whose write it answered, and shows there until the next write.
         const [refusal, setRefusal] = controlRuntime.react.useState(null);
-        const refusalFor = (command) => (refusal?.command === command ? refusal.text : "");
+        const refusalFor = (command) =>
+          refusal && refusal.command === command ? refusal.text : "";
         const send = (command, payload) => {
           setRefusal(null);
           void sendCommand(definition, command, payload).catch((reason) =>
@@ -11280,10 +11320,13 @@
       powerPresetControl = createPowerPresetControl(controlRuntime);
       resolutionControl = createResolutionControl(controlRuntime);
       audioFormatControl = createAudioFormatControl(controlRuntime);
-      settingsSectionsControl = createSettingsSectionsControl(
-        controlRuntime,
-        resolveSteamSettingsComponents(runtime),
-      );
+      let settingsRuntime = null;
+      try {
+        settingsRuntime = resolveSteamSettingsComponents(runtime);
+      } catch {
+        // Host settings need more native components than the independent QAM controls do.
+      }
+      settingsSectionsControl = createSettingsSectionsControl(controlRuntime, settingsRuntime);
       vrrControl = createVrrControl(controlRuntime);
       deviceControlsControl = createDeviceControlsControl(controlRuntime);
       powerLimitControl = createPowerLimitControl(controlRuntime);
@@ -11348,8 +11391,8 @@
         return true;
       try {
         if (!resolveControls()) return false;
-      } catch {
-        lastPatchError = "native component runtime resolution failed";
+      } catch (error) {
+        lastPatchError = "native component runtime resolution failed: " + String(error);
         return false;
       }
       function SteamUiPerformanceRoot(props) {

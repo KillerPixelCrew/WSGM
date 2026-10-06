@@ -42,7 +42,8 @@ internal sealed class TolerantEnumConverterFactory : JsonConverterFactory
             _wire.Write(writer, value, options);
         }
 
-        public override T ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        public override T ReadAsPropertyName(ref Utf8JsonReader reader, Type typeToConvert,
+            JsonSerializerOptions options)
         {
             return _wire.ReadAsPropertyName(ref reader, typeToConvert, options);
         }

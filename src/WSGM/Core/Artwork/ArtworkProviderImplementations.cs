@@ -50,7 +50,6 @@ internal sealed partial class SteamGridDbProvider : IArtworkProvider
     }
 
 
-
     /// <inheritdoc />
     public async Task<ArtworkPage> GetAssetsForGameAsync(
         ArtworkAsset asset, string gameId, ArtworkConfig config, ArtworkQuery query,
@@ -66,7 +65,6 @@ internal sealed partial class SteamGridDbProvider : IArtworkProvider
             asset, id, ResolveKey(config), query, cancellationToken).ConfigureAwait(false);
         return assets;
     }
-
 
 
     /// <inheritdoc />
@@ -137,7 +135,23 @@ internal sealed class ScreenscraperProvider : IArtworkProvider
     /// <summary>The host whose media endpoint counts against the account's allowance.</summary>
     private const string Host = "screenscraper.fr";
 
-    private readonly HttpClient Http;
+    /// <summary>How Screenscraper's media types map onto Steam's artwork slots.</summary>
+    /// <remarks>
+    ///     In preference order per slot. Screenscraper has no icon media, so that slot falls back to the
+    ///     2D box, which is the only square-ish art it reliably has.
+    /// </remarks>
+    internal static readonly IReadOnlyDictionary<ArtworkAsset, string[]> MediaTypes =
+        new Dictionary<ArtworkAsset, string[]>
+        {
+            [ArtworkAsset.Grid] = ["box-2D", "box-3D", "flyer"],
+            [ArtworkAsset.Hero] = ["fanart", "ss", "sstitle"],
+            [ArtworkAsset.Logo] = ["wheel", "wheel-hd", "screenmarquee"],
+            [ArtworkAsset.Wide] = ["screenmarquee", "marquee", "fanart"],
+            [ArtworkAsset.Icon] = ["box-2D", "wheel"]
+        };
+
+    /// <summary>Region preference: a world release first, then the common regional ones.</summary>
+    private static readonly string[] RegionPreference = ["wor", "us", "eu", "jp", "ss"];
 
     /// <summary>One request in flight, and the last 64 answers remembered for the session.</summary>
     /// <remarks>
@@ -156,30 +170,14 @@ internal sealed class ScreenscraperProvider : IArtworkProvider
     /// </remarks>
     private readonly ArtworkRequestGate Gate;
 
+    private readonly HttpClient Http;
+
     internal ScreenscraperProvider(HttpMessageHandler? handler = null, ArtworkRequestGate? gate = null)
     {
-        Http = handler is null ? new HttpClient() : new HttpClient(handler, disposeHandler: false);
+        Http = handler is null ? new HttpClient() : new HttpClient(handler, false);
         Http.Timeout = TimeSpan.FromSeconds(20);
         Gate = gate ?? new ArtworkRequestGate(1, 64);
     }
-
-    /// <summary>How Screenscraper's media types map onto Steam's artwork slots.</summary>
-    /// <remarks>
-    ///     In preference order per slot. Screenscraper has no icon media, so that slot falls back to the
-    ///     2D box, which is the only square-ish art it reliably has.
-    /// </remarks>
-    internal static readonly IReadOnlyDictionary<ArtworkAsset, string[]> MediaTypes =
-        new Dictionary<ArtworkAsset, string[]>
-        {
-            [ArtworkAsset.Grid] = ["box-2D", "box-3D", "flyer"],
-            [ArtworkAsset.Hero] = ["fanart", "ss", "sstitle"],
-            [ArtworkAsset.Logo] = ["wheel", "wheel-hd", "screenmarquee"],
-            [ArtworkAsset.Wide] = ["screenmarquee", "marquee", "fanart"],
-            [ArtworkAsset.Icon] = ["box-2D", "wheel"]
-        };
-
-    /// <summary>Region preference: a world release first, then the common regional ones.</summary>
-    private static readonly string[] RegionPreference = ["wor", "us", "eu", "jp", "ss"];
 
     /// <inheritdoc />
     public string Id => "screenscraper";
@@ -246,13 +244,15 @@ internal sealed class ScreenscraperProvider : IArtworkProvider
 
     /// <inheritdoc />
     public async Task<ArtworkPage> GetAssetsForGameAsync(
-        ArtworkAsset asset, string gameId, ArtworkConfig config, ArtworkQuery query, CancellationToken cancellationToken)
+        ArtworkAsset asset, string gameId, ArtworkConfig config, ArtworkQuery query,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(config);
         if (query.Page > 0)
         {
             return new ArtworkPage([], false);
         }
+
         var root = await GetAsync(
                 $"jeuInfos.php?gameid={Uri.EscapeDataString(gameId)}", config, cancellationToken)
             .ConfigureAwait(false);
@@ -315,7 +315,8 @@ internal sealed class ScreenscraperProvider : IArtworkProvider
     ///     so by returning nothing is correct; the user reaches it through a title search instead.
     /// </remarks>
     public Task<ArtworkPage> GetAssetsForSteamAppAsync(
-        ArtworkAsset asset, long steamAppId, ArtworkConfig config, ArtworkQuery query, CancellationToken cancellationToken)
+        ArtworkAsset asset, long steamAppId, ArtworkConfig config, ArtworkQuery query,
+        CancellationToken cancellationToken)
     {
         return Task.FromResult(new ArtworkPage([], false));
     }

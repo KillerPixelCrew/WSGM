@@ -94,7 +94,8 @@ public class RadioManagerTests
     {
         Assert.Equal(
             "The Wi-Fi connection attempt did not complete.",
-            RadioManager.DescribeConnectResult(new WindowsRadio.WifiConnectResult(WifiConnectOutcome.Pending, 0, null)));
+            RadioManager.DescribeConnectResult(
+                new WindowsRadio.WifiConnectResult(WifiConnectOutcome.Pending, 0, null)));
     }
 
     [Fact]
@@ -138,7 +139,8 @@ public class RadioEntryTests
     [Fact]
     public void ASecuredNetworkWithoutASavedProfileAsksForAPassword()
     {
-        var entry = new WifiNetworkEntry(new WifiNetworkKey("Cafe"u8, WifiSecurity.PersonalPsk)) { Security = WifiSecurity.PersonalPsk };
+        var entry = new WifiNetworkEntry(new WifiNetworkKey("Cafe"u8, WifiSecurity.PersonalPsk))
+            { Security = WifiSecurity.PersonalPsk };
         Assert.True(entry.NeedsPassword);
     }
 
@@ -156,14 +158,16 @@ public class RadioEntryTests
     [Fact]
     public void AnOpenNetworkNeverAsksForAPassword()
     {
-        var entry = new WifiNetworkEntry(new WifiNetworkKey("Cafe"u8, WifiSecurity.Open)) { Security = WifiSecurity.Open };
+        var entry = new WifiNetworkEntry(new WifiNetworkKey("Cafe"u8, WifiSecurity.Open))
+            { Security = WifiSecurity.Open };
         Assert.False(entry.NeedsPassword);
     }
 
     [Fact]
     public void NeedsPasswordRaisesChangeNotificationWhenTheSavedFlagFlips()
     {
-        var entry = new WifiNetworkEntry(new WifiNetworkKey("Cafe"u8, WifiSecurity.PersonalPsk)) { Security = WifiSecurity.PersonalPsk };
+        var entry = new WifiNetworkEntry(new WifiNetworkKey("Cafe"u8, WifiSecurity.PersonalPsk))
+            { Security = WifiSecurity.PersonalPsk };
         var raised = new List<string?>();
         entry.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
 

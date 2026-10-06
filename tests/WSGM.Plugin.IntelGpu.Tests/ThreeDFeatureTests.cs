@@ -1,4 +1,6 @@
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Lifecycle;
+using WSGM.Plugin.Gpu;
 using WSGM.Plugin.IntelGpu.Controls;
 using WSGM.Plugin.IntelGpu.Graphics;
 using WSGM.Plugin.IntelGpu.Igcl;
@@ -16,6 +18,7 @@ public sealed class ThreeDFeatureTests
         new(0, 0, 0x8086, 0x4688, 0, 2, 0, true, 0, "Intel(R) UHD Graphics", true);
 
     private static readonly Placement Placement = new("graphics", "frames", 0);
+    private static WriteAdmission Admission => new(CancellationToken.None, Deadline.Never, static () => true);
 
     [Fact]
     public void AnOrdinalMaskOffersOnlyTheMembersItSets()
@@ -58,24 +61,6 @@ public sealed class ThreeDFeatureTests
 
         Assert.Equal("graphics.feature-42", ThreeDFeatureCatalog.CapabilityId(info));
         Assert.Equal([0u, 2u], members.Select(member => member.Value));
-    }
-
-    [Theory]
-    [InlineData(ThreeDFeatureCatalog.AppProfileDetails)]
-    [InlineData(ThreeDFeatureCatalog.GlobalOrPerApp)]
-    [InlineData(ThreeDFeatureCatalog.FrameGenerationControl)]
-    public void TheFeaturesThatAreNotRowsAreSkipped(int feature)
-    {
-        Assert.NotNull(ThreeDFeatureCatalog.SkipReason(feature));
-    }
-
-    [Theory]
-    [InlineData(ThreeDFeatureCatalog.AppProfiles)]
-    [InlineData(ThreeDFeatureCatalog.VrrWindowedBlt)]
-    [InlineData(ThreeDFeatureCatalog.LiveState)]
-    public void TheFeaturesTheHeaderDescribesArePublished(int feature)
-    {
-        Assert.Null(ThreeDFeatureCatalog.SkipReason(feature));
     }
 
     [Fact]
@@ -172,8 +157,10 @@ public sealed class ThreeDFeatureTests
         Assert.False(feature.PerApplication);
         Assert.Equal("dx12", controls[0].Decode(raw)!.ChoiceValue);
         Assert.Equal(60, controls[1].Decode(raw)!.IntegerValue);
+        raw.LiveState.TargetFps = 1200;
+        Assert.Null(controls[1].Decode(raw));
         Assert.Equal("inactive", controls[2].Decode(raw)!.ChoiceValue);
-        Assert.Equal(WriteStatus.Refused, controls[0].Write(CapabilityValue.Choice("none")).Status);
+        Assert.Equal(WriteStatus.Refused, controls[0].Write(CapabilityValue.Choice("none"), Admission).Status);
     }
 
     [Theory]

@@ -168,7 +168,7 @@ public sealed partial class RogAllyPlugin
         }
 
         // There is no custom-mode firmware switch. The next curve command changes the fans.
-        return CommandResults.Unverified(command, "Custom mode is ready; send a fan curve to change the fans.");
+        return CommandResults.Unverified(command);
     }
 
     private DeviceService<AllyIdentityState>? ServiceFor(string capabilityId)

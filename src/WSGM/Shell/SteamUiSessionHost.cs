@@ -60,6 +60,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <summary>The session's display-off timeouts, shared with the overlay, or null without one.</summary>
     private readonly DisplayTimeouts? _displayTimeouts;
 
+    // Serializes the start of disposal; every caller gets the one disposal task.
+    private readonly Lock _disposeGate = new();
+
     /// <summary>The Quick Access plugin tab, which carries WSGM's own tools as well.</summary>
     private readonly SteamExtensionsTabBackend _extensionsTab;
 
@@ -70,6 +73,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
     /// <summary>Hears what Big Picture Home's carousel holds.</summary>
     private readonly HomeCarouselBackend _homeCarousel = new();
+
+    // The modules this host declares itself; the ready plugins' modules are composed beside them.
+    private readonly IReadOnlyList<ISteamUiModule> _hostModules;
 
     private readonly NativeQamHybridCoreService _hybridCores;
 
@@ -92,15 +98,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
     private readonly PerformanceService _performanceService;
 
-    // The modules this host declares itself; the ready plugins' modules are composed beside them.
-    private readonly IReadOnlyList<ISteamUiModule> _hostModules;
-
     // Serializes plugin module replacement; _composedPluginModules is the list the runtime holds.
     private readonly SemaphoreSlim _pluginModulesChange = new(1, 1);
-    private IReadOnlyList<ISteamUiModule> _composedPluginModules = [];
-
-    // The registered plugin patches' ids. Replaced whole under _switchGate.
-    private volatile HashSet<string> _pluginPatchIds = [];
     private readonly CommonPluginSteamUiSource? _pluginSteamUi;
     private readonly SteamPowerMenuBackend? _powerMenu;
     private readonly NativeQamPowerPresetService _powerPresets;
@@ -128,31 +127,32 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// </summary>
     private readonly SteamStorageBridge? _storage;
 
-    private readonly DeviceCoordinatorNativeQamTdpService _tdp;
-    private readonly ThemeService? _themes;
-    private readonly Func<CancellationToken, Task<bool>> _toggleQuickAccess;
-    private readonly ISteamUiTransport _transport;
-    private readonly WsgmSteamSettingsService? _wsgmSettings;
-
     // Every switch write takes this, so the stored switches, the derivation and the patch switches
     // move as one step and the last writer always leaves the patches matching its switches. Held
     // only around synchronous switch setters, never across an await.
     private readonly Lock _switchGate = new();
 
-    // Serializes the start of disposal; every caller gets the one disposal task.
-    private readonly Lock _disposeGate = new();
+    private readonly DeviceCoordinatorNativeQamTdpService _tdp;
+    private readonly ThemeService? _themes;
+    private readonly Func<CancellationToken, Task<bool>> _toggleQuickAccess;
+    private readonly ISteamUiTransport _transport;
+    private readonly WsgmSteamSettingsService? _wsgmSettings;
+    private IReadOnlyList<ISteamUiModule> _composedPluginModules = [];
     private Task? _disposal;
 
     // Set by CloseAdmission at shutdown start: nothing is applied, queued or answered after it.
     // Retraction still runs, until _retired marks the patch registry as gone.
     private volatile bool _disposed;
-    private volatile bool _retired;
 
     // Derived from the switches and the active glyph profile: whether the glyph stylesheet is on.
     private volatile bool _glyphDeliveryEnabled;
 
     // The same for the Graphics page, whose row also needs a running graphics package.
     private volatile bool _graphicsReady;
+
+    // The registered plugin patches' ids. Replaced whole under _switchGate.
+    private volatile HashSet<string> _pluginPatchIds = [];
+    private volatile bool _retired;
 
     // The switches the session last applied. Replaced whole under _switchGate; readers take one
     // reference and read a consistent set.
@@ -292,6 +292,13 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
 
         Subscribe();
+    }
+
+    /// <inheritdoc />
+    /// <remarks>Concurrent and repeated calls share one disposal.</remarks>
+    public ValueTask DisposeAsync()
+    {
+        return StopAsync(CancellationToken.None);
     }
 
     /// <summary>Hears every change source that moves a published state. The constructor's last step.</summary>
@@ -475,13 +482,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             _audioFormat.StateChanged -= OnSemanticStateChanged;
         }
-    }
-
-    /// <inheritdoc />
-    /// <remarks>Concurrent and repeated calls share one disposal.</remarks>
-    public ValueTask DisposeAsync()
-    {
-        return StopAsync(CancellationToken.None);
     }
 
     /// <summary>Retracts and disposes the host, no longer than the shutdown deadline allows.</summary>

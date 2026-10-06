@@ -20,6 +20,49 @@ public sealed class DevicePluginRuntimeTests
 {
     private const long InitialGeneration = 41;
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CancellationOrAnExpiredDeadlineBeforeDispatchNeverInvokesThePlugin(bool expiredDeadline)
+    {
+        using TemporaryDirectory temporary = new();
+        await using var runtime = await StartRuntimeAsync(temporary, InitialGeneration);
+        var commands = 0;
+        AppContext.SetData(RuntimeFixturePlugin.LifecycleHookKey,
+            (Func<string, CancellationToken, Task>)((call, _) =>
+            {
+                if (call == "command")
+                {
+                    commands++;
+                }
+
+                return Task.CompletedTask;
+            }));
+        using CancellationTokenSource cancellation = new();
+        if (!expiredDeadline)
+        {
+            cancellation.Cancel();
+        }
+
+        try
+        {
+            var command = Command("current-sample", InitialGeneration);
+            if (expiredDeadline)
+            {
+                command = command with { Deadline = Deadline.Expired };
+            }
+
+            var dispatch = await runtime.ExecuteCommandAsync(command, cancellation.Token);
+            Assert.Equal(CommandOutcome.Rejected, dispatch.Immediate.Outcome);
+            Assert.Null(dispatch.LateCompletion);
+            Assert.Equal(0, commands);
+        }
+        finally
+        {
+            AppContext.SetData(RuntimeFixturePlugin.LifecycleHookKey, null);
+        }
+    }
+
     [Fact]
     public async Task PassiveDetectionRetiresTheRuntimeWithoutStartingOrStoppingThePlugin()
     {
@@ -444,7 +487,6 @@ public sealed class DevicePluginRuntimeTests
             Deadline = deadline ?? Deadline.After(TimeSpan.FromSeconds(1))
         };
     }
-
 }
 
 /// <summary>Collectible package fixture used to exercise the production direct-plugin boundary.</summary>
@@ -462,6 +504,7 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
     public const string ControllerReleaseKey = "WSGM.Tests.RuntimeFixture.ControllerRelease";
     public const string StopKey = "WSGM.Tests.RuntimeFixture.Stop";
     public const string LifecycleCallsKey = "WSGM.Tests.RuntimeFixture.LifecycleCalls";
+    public const string LifecycleHookKey = "WSGM.Tests.RuntimeFixture.LifecycleHook";
 
     private long _cycleGeneration;
     private IPluginHostAdapter? _host;
@@ -504,6 +547,7 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
         _host = context.Host;
         _cycleGeneration = context.CycleGeneration;
         _stateDirectory = context.StateDirectory;
+        await LifecycleHookAsync("start", cancellationToken);
         await File.WriteAllTextAsync(
             Path.Combine(_stateDirectory, "started.txt"),
             _cycleGeneration.ToString(CultureInfo.InvariantCulture),
@@ -518,6 +562,7 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
+        await LifecycleHookAsync("command", cancellationToken);
         switch (command.CapabilityId)
         {
             case "late":
@@ -566,6 +611,7 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
         ArgumentNullException.ThrowIfNull(context);
         cancellationToken.ThrowIfCancellationRequested();
         _cycleGeneration = context.CycleGeneration;
+        await LifecycleHookAsync("resume", cancellationToken);
         await PublishSampleAsync(cancellationToken);
         await PublishLightingAsync(cancellationToken);
         return Active();
@@ -618,6 +664,7 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
         CancellationToken cancellationToken)
     {
         RecordLifecycle("stop");
+        await LifecycleHookAsync("stop", cancellationToken);
         if (AppContext.GetData(StopKey) is Task held)
         {
             await held;
@@ -654,6 +701,13 @@ public sealed class RuntimeFixturePlugin : IDevicePlugin
         {
             calls.Add(call);
         }
+    }
+
+    private static Task LifecycleHookAsync(string call, CancellationToken cancellationToken)
+    {
+        return AppContext.GetData(LifecycleHookKey) is Func<string, CancellationToken, Task> hook
+            ? hook(call, cancellationToken)
+            : Task.CompletedTask;
     }
 
     private async ValueTask PublishSampleAsync(CancellationToken cancellationToken)

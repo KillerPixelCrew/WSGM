@@ -1,19 +1,21 @@
 # WSGM IR plugin
 
 An independent `wsgm.infrared` package that owns its command library, the endpoint protocol and the
-XIAO IR Mate firmware. It uses the common Plugin SDK only, with no Device SDK dependency, so a
-Device plugin can run alongside it. Hardware acceptance for #52 passed on the reference XIAO on
-2026-09-11.
+XIAO IR Mate firmware. It implements the common Plugin SDK and uses the Device SDK's shared text
+validation types through that SDK. It is a common plugin, so a Device plugin can run alongside it.
+The dated hardware acceptance for #52 below used earlier firmware and protocol 1.
 
-What works today: endpoint identity and version checks over USB serial or the local network, bounded
-raw learn and send, cancellation, command and scene storage, backup and restore, named actions, the
-endpoint's built-in remotes exposed as host actions, USB-only Wi-Fi pairing with a per-endpoint
-token, the common-host lifecycle, and the management forms in Overlay Tools.
+The current source provides endpoint identity and version checks over USB serial or the local
+network, bounded raw learn and send, cancellation, command and scene storage, backup and restore,
+named actions, built-in remote actions, USB-only Wi-Fi pairing with a per-endpoint token, the
+common-host lifecycle, and management forms in Overlay Tools. It requires firmware 0.5.0 and
+protocol 2, including paged built-in catalogs. That firmware has not been built, flashed or accepted
+on hardware in this refactor work.
 
-The package loads collectibly alongside a Device-category fixture, and on a live network it has
-paired, identified itself and refused unpaired clients. On 2026-09-11 it learned a real HDMI switch
-remote button over Wi-Fi as a 71-timing NEC frame (address 128, command 1) and replayed it twice,
-with the switch changing to input 1 each time.
+Earlier checks loaded the package collectibly alongside a Device-category fixture, and on a live
+network paired, identified it and refused unpaired clients. On 2026-09-11 firmware 0.2.0 learned a
+real HDMI switch remote button over Wi-Fi as a 71-timing NEC frame (address 128, command 1) and
+replayed it twice, with the switch changing to input 1 each time.
 
 One thing to keep in mind: a COM port list is discovery information only. Only a successful protocol
 identity reply tells you the endpoint is compatible.
@@ -64,7 +66,8 @@ minutes. Each explicit Wi-Fi action discards the previous connection and identif
 before doing any endpoint work, so returning to the desktop later does not send through an idle
 socket. An uncertain transmission is never retried.
 
-Firmware 0.1.0 has no network support at all, and Wi-Fi setup against it says so.
+Firmware 0.1.0 had no network support. The current host refuses all protocol-1 firmware during
+identification, before Wi-Fi setup or emission.
 
 ## Library and actions
 
@@ -84,32 +87,40 @@ payloads, not firmware slot numbers. `library.backup.json` is an explicit backup
 directory, so copy it somewhere else if you care about disk loss. An invalid replacement library
 never overwrites the current file, and import requires that backup to exist. A library or pairing
 file that exists but cannot be read or does not parse stops the plugin from starting, with the
-reason in its health, and is left untouched. The command and scene limits are host validation bounds
-rather than firmware slots.
+reason in its health, and is left untouched. Commands and scenes have no count limit; payload and
+timing validation follows the endpoint's transmission limits.
 
 ## Built-in remotes, from the host
 
 Read built-in remotes asks the endpoint which remotes its firmware carries and publishes their ids,
 so the other three actions can name them: Press a built-in remote button, Run a built-in remote
-sequence, and Set a built-in air conditioner.
+sequence, and Set a built-in air conditioner. Protocol 2 reads every catalog chunk in order and
+joins them before publication. Each frame stays within 32 KiB, without a catalog size or page count
+limit. A missing, empty or inconsistent chunk fails that read; nothing is resent.
 
 Ids are free text validated against that catalog rather than a dropdown, because the SDK captures an
 action's choices before the plugin starts and cannot learn them from hardware. An id the catalog
 does not know triggers one fresh read before it is refused, so a reflashed endpoint does not need a
 restart.
 
-Firmware below 0.4.0, an unknown id, a climate state outside what the remote declares, and a busy
-endpoint are all refusals, and none of them emit anything. A sequence reports that it started, and
-the wait argument polls the endpoint's own `sequenceRunning` flag until it clears or the action's
-time runs out. Cancelling that wait sends `cancel`, which is its own operation and never a retry.
+An incompatible protocol, an unknown id, a climate state outside what the remote declares, and a
+busy endpoint are all refusals, and none of them emit anything. A sequence reports that it started,
+and the wait argument polls the endpoint's own `sequenceRunning` flag until it clears or the
+action's time runs out. A cleared flag says the sequence ended, including a failed step; it does not
+prove that every step emitted. Cancelling that wait sends `cancel`, which is its own operation and
+never a retry.
 
 Core automation can call `send` with a `command` ID or `scene` with a `scene` ID. WSGM authors those
 calls as ordered steps in Settings > Display, run at Game Mode entry and leave and at desktop
 startup and wake. Entry stops at the first step that did not succeed, nothing is retried, and a step
-the plugin rejected earns no leave-side compensation, so a refusal never emits. Every endpoint
-status other than the expected one is a refusal, because the firmware answers them before it emits,
-and so are a missing port or pairing, an out-of-range argument and an endpoint that cannot be
-reached or identified.
+the plugin rejected earns no leave-side compensation, so a refusal never emits. Every matching
+protocol-2 reply with a nonempty status other than the expected one is a refusal, because the
+firmware answers it before emission, and so are a missing port or pairing, an out-of-range argument
+and an endpoint that cannot be reached or identified. `storage-failed` is also a refusal: the
+endpoint could not persist Wi-Fi or web settings, and keeps the running credentials unchanged. Flash
+may be partly written, so the user can set the values again explicitly; the host never retries them.
+A malformed reply, transport failure or cancellation after an emitting request may have been sent
+remains `Unconfirmed`, as does a later scene failure after an earlier step emitted.
 
 Transmission returns `Dispatched`. An endpoint acknowledgement proves the IR went out, not that a TV
 or HDMI switch changed state. Uncertain operations are not retried, and a failed exchange drops the
@@ -127,10 +138,10 @@ Cancellation interrupts the pause without repeating the press.
 
 ## Firmware remotes
 
-Firmware 0.4.0 can carry complete remotes. Each one is a folder under `Firmware/remotes/` for
-tracked examples, or the untracked `Firmware/remotes.local/` for your own devices, which wins on the
-same id. The folder name is the remote's id, and the folder holds `remote.json` plus an optional
-`index.html`.
+Firmware 0.5.0 carries complete remotes, a feature introduced in 0.4.0. Each one is a folder under
+`Firmware/remotes/` for tracked examples, or the untracked `Firmware/remotes.local/` for your own
+devices, which wins on the same id. The folder name is the remote's id, and the folder holds
+`remote.json` plus an optional `index.html`.
 
 The build step `embed_remotes.py` checks every definition against the pinned IRremoteESP8266
 sources, fails the build on any error, compresses the pages and embeds everything. The tracked
@@ -252,6 +263,9 @@ A firmware build is not the same thing as a successful capture or verified appli
 hardware acceptance has to keep those apart.
 
 ## What has actually been tested
+
+These are historical checks of firmware 0.2.0, 0.3.0 and 0.4.0 with protocol 1. They do not validate
+firmware 0.5.0, protocol 2, catalog paging or the current storage and learn-retirement changes.
 
 **2026-09-11, reference XIAO, firmware 0.2.0.** Flashed as above, and the running C# plugin
 identified it as firmware 0.2.0 / protocol 1 with host name `wsgm-ir-15ef50`. Live USB checks passed

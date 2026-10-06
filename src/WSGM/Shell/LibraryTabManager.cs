@@ -119,7 +119,7 @@ internal static class LibraryTabManager
         try
         {
             var discovered = await Task.Run(ScanLibraries, cancellationToken).ConfigureAwait(false);
-            var config = await Task.Run((() => store.Read().RequireConfig()), cancellationToken).ConfigureAwait(false);
+            var config = await Task.Run(() => store.Read().RequireConfig(), cancellationToken).ConfigureAwait(false);
             MergeDiscovery(config, discovered);
 
             var (tabs, reachable, filterFailed) = await BuildTabsAsync(steam, config, discovered, cancellationToken)
@@ -350,7 +350,8 @@ internal static class LibraryTabManager
     /// </summary>
     /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
     /// <param name="cancellationToken">Cancels the scan.</param>
-    public static async Task<IReadOnlyList<CardView>> ListCardsAsync(ConfigStore store, CancellationToken cancellationToken = default)
+    public static async Task<IReadOnlyList<CardView>> ListCardsAsync(ConfigStore store,
+        CancellationToken cancellationToken = default)
     {
         var discovered = await Task.Run(ScanLibraries, cancellationToken).ConfigureAwait(false);
         var present = new HashSet<string>(
@@ -498,7 +499,7 @@ internal static class LibraryTabManager
             // Read back rather than trust the write: a replace that half-applied, or a
             // volume that went away underneath it, must not be reported as a rename the
             // next scan will contradict.
-            if (SteamLibraryVdf.TryReadMarker(libraryPath, out var written, out var name)
+            if (SteamLibraryMarker.TryRead(libraryPath, out var written, out var name)
                 && string.Equals(written, contentId, StringComparison.Ordinal)
                 && string.Equals(name, label, StringComparison.Ordinal))
             {
@@ -548,7 +549,7 @@ internal static class LibraryTabManager
                     continue;
                 }
 
-                if (SteamLibraryVdf.TryReadMarker(
+                if (SteamLibraryMarker.TryRead(
                         Path.Combine(root, SteamLibraryVdf.CardFolderName), out var id, out _)
                     && string.Equals(id, contentId, StringComparison.Ordinal))
                 {
@@ -971,7 +972,11 @@ internal static class LibraryTabManager
         return Task.Run(() =>
         {
             T result = default!;
-            store.Update(config => { result = mutate(config); return true; });
+            store.Update(config =>
+            {
+                result = mutate(config);
+                return true;
+            });
             return result;
         }, cancellationToken);
     }
@@ -1077,7 +1082,7 @@ internal static class LibraryTabManager
             try
             {
                 var root = $@"{letter}:\{SteamLibraryVdf.CardFolderName}";
-                if (!SteamLibraryVdf.TryReadMarker(root, out var contentId, out var label)
+                if (!SteamLibraryMarker.TryRead(root, out var contentId, out var label)
                     || string.IsNullOrEmpty(contentId))
                 {
                     continue;

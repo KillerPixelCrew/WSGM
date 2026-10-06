@@ -21,6 +21,82 @@ public sealed class ClawPluginTests
 {
     private static readonly JsonSerializerOptions IndentedJson = new() { WriteIndented = true };
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CanceledStartupRestoreRecordsItsOutcomeAndIsNotReplayed(bool complete)
+    {
+        using TemporaryDirectory state = new();
+        var journal = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
+        _ = await journal.BeginAsync(ServiceIds.Power, "bios:E1T52IMS.114",
+            ClawRecoveryValues.Power(new PowerPair(30, 37, 0xC1)), CancellationToken.None);
+        using CancellationTokenSource cancellation = new();
+        FakeWmiTransport wmi = new();
+        wmi.AfterSetter = (_, package) =>
+        {
+            if (package[0] == (complete ? ClawHardwareFacts.PowerBoostAddress : ClawHardwareFacts.ScenarioAddress))
+            {
+                cancellation.Cancel();
+            }
+        };
+        await using (ClawPlugin first = new(CreateServices(wmi)))
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+                await first.StartAsync(StartContext(new TestPluginHostAdapter(CycleGeneration), state.Root),
+                    cancellation.Token));
+        }
+
+        var recovered = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
+        if (complete)
+        {
+            Assert.Empty(recovered.OutstandingEntries);
+        }
+        else
+        {
+            Assert.Equal(DeviceRecoveryStatus.RestoreFailed, Assert.Single(recovered.OutstandingEntries).Status);
+        }
+
+        wmi.AfterSetter = null;
+        wmi.Writes.Clear();
+        await using ClawPlugin next = new(CreateServices(wmi));
+        _ = await next.StartAsync(StartContext(new TestPluginHostAdapter(CycleGeneration), state.Root),
+            CancellationToken.None);
+        Assert.Empty(wmi.Writes);
+        var diagnostics = await next.GetDiagnosticsAsync(CancellationToken.None);
+        Assert.Equal(nameof(DeviceServiceState.Owned), diagnostics.Values[ServiceIds.Power]);
+    }
+
+    [Fact]
+    public async Task CancellationAfterTheLastReleaseWriteStillClearsThePowerRecoveryEntry()
+    {
+        using TemporaryDirectory state = new();
+        FakeWmiTransport wmi = new();
+        await using ClawPlugin plugin = new(CreateServices(wmi));
+        _ = await plugin.StartAsync(StartContext(new TestPluginHostAdapter(CycleGeneration), state.Root),
+            CancellationToken.None);
+        _ = await plugin.ExecuteCommandAsync(
+            Command(CapabilityIds.PowerSustained, null, CapabilityValue.Integer(20)) with
+            {
+                PairedPowerLimitWatts = 20
+            }, CancellationToken.None);
+        using CancellationTokenSource cancellation = new();
+        wmi.AfterSetter = (_, package) =>
+        {
+            if (package[0] == ClawHardwareFacts.PowerBoostAddress)
+            {
+                cancellation.Cancel();
+            }
+        };
+
+        _ = await plugin.StopAsync(new PluginStopContext(PluginStopReason.WsgmExiting,
+            Deadline.After(TimeSpan.FromSeconds(10))), cancellation.Token);
+
+        var journal = await ClawRecoveryJournal.OpenAsync(state.Root, CancellationToken.None);
+        Assert.Empty(journal.OutstandingEntries);
+        Assert.Equal(30, wmi.ReadData(ClawHardwareFacts.PowerSustainedAddress));
+        Assert.Equal(37, wmi.ReadData(ClawHardwareFacts.PowerBoostAddress));
+    }
+
     [Fact]
     public async Task InitialWmiTimeoutLeavesServicesOwnedAndChargeWriteAvailable()
     {
@@ -34,6 +110,7 @@ public sealed class ClawPluginTests
         var result = await plugin.ExecuteCommandAsync(
             Command(CapabilityIds.ChargeLimit, null, CapabilityValue.Integer(60)), CancellationToken.None);
         Assert.Equal(CommandOutcome.AppliedUnverified, result.Outcome);
+        Assert.Null(result.Reason);
         Assert.Single(wmi.Writes);
     }
 
@@ -900,7 +977,8 @@ public sealed class ClawPluginTests
             var result = await secondCycle.ExecuteCommandAsync(
                 Command(CapabilityIds.PowerSustained, null, CapabilityValue.Integer(20)) with
                 {
-                    PairedPowerLimitWatts = 20
+                    PairedPowerLimitWatts = 20,
+                    ExpectedCycleGeneration = CycleGeneration + 1
                 }, CancellationToken.None);
             Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
 

@@ -94,9 +94,9 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
     internal sealed class MediaViewport : NativeControlHost
     {
         private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(60) };
+        private readonly UserDataContext _context;
         private readonly bool _image;
         private readonly string _source;
-        private readonly UserDataContext _context;
         private CoreWebView2Controller? _controller;
         private bool _covered;
         private string? _folder;
@@ -123,7 +123,7 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
                 return base.CreateNativeControlCore(parent);
             }
 
-            _handle = OverlayMediaNative.CreateWindowEx(0, "STATIC", "WSGM media", 0x4e000000,
+            _handle = NativeMethods.CreateWindowExW(0, "STATIC", "WSGM media", 0x4e000000,
                 0, 0, 1, 1, parent.Handle, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
             if (_handle == IntPtr.Zero)
             {
@@ -144,7 +144,7 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
             _handle = IntPtr.Zero;
             if (control.HandleDescriptor == "HWND")
             {
-                OverlayMediaNative.DestroyWindow(control.Handle);
+                NativeMethods.DestroyWindow(control.Handle);
             }
             else
             {

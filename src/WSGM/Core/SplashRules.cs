@@ -1,5 +1,4 @@
 using System;
-
 using static WSGM.Core.AppConfigDefaults;
 
 namespace WSGM.Core;

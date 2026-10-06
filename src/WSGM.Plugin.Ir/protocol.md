@@ -47,14 +47,16 @@ Firmware 0.4.0 added the remotes built into it, with these further operations:
   at most 8192 bytes and never ends inside a UTF-8 sequence. The host requests chunks 0 to
   `count - 1` in order, joins them and parses the catalog: each built-in remote's `id`, `name`,
   button and sequence `id` and `label` pairs and, for an air conditioner, its declared `climate`
-  capabilities. A chunk that is not an integer or is out of range answers `invalid-chunk`.
+  capabilities. A chunk that is not an integer or is out of range answers `invalid-chunk`. Empty
+  chunks or replies with a different index or count fail the host read without a retry.
 - `press` takes `remote` and `button` and answers as the button's send does, or `unknown-remote` or
   `unknown-button`.
 - `climate` takes `remote`, `power`, `mode`, `degrees`, `fan` and optional `toggleSwing`. A value
   outside the remote's declared modes, fans and temperature range, or a swing toggle on a remote
   without one, answers `invalid-ac-state`.
 - `run` takes `remote` and `sequence` and answers `started`. The endpoint then works through the
-  steps in the background, and a failed step ends the sequence. `cancel` also stops a sequence.
+  steps in the background, and a failed step ends the sequence. `cancel` also stops a sequence. A
+  cleared `sequenceRunning` flag says it ended, not that every step emitted successfully.
 - `web` takes `user` (at most 32 characters, no colon) and `password` (8–64 characters). It is
   accepted over USB only and stores both on the endpoint. Empty values disable the web remotes, and
   clearing Wi-Fi clears them too.
@@ -99,8 +101,10 @@ Payload fields:
 
 Payloads with gaps beyond representable limits or capture overflow are refused, never silently
 truncated. Oversized input is discarded through the next newline, then parsing recovers. Malformed,
-unsupported and incompatible requests receive explicit error status. Every status other than an
-operation's success status is answered before anything is emitted, so the host treats it as a
-refusal. Boot diagnostics lack a valid matching identity and cannot complete a host operation. The
-host's command library and scenes exist only on the host. Built-in remotes are fixed at build time;
-the endpoint has no operation that adds, changes or stores commands.
+unsupported and incompatible requests receive explicit error status. Every matching protocol-2 reply
+with a nonempty status other than an operation's success status is a refusal: it establishes that
+the request emitted nothing. A malformed reply or an exchange failure after an emitting request may
+have been sent stays `Unconfirmed`. Boot diagnostics lack a valid matching identity and cannot
+complete a host operation. The host's command library and scenes exist only on the host. Built-in
+remotes are fixed at build time; the endpoint has no operation that adds, changes or stores
+commands.

@@ -1,3 +1,4 @@
+using WSGM.Plugin.Gpu;
 using WSGM.Plugin.IntelGpu.Controls;
 
 namespace WSGM.Plugin.IntelGpu.Igcl;
@@ -97,12 +98,12 @@ internal sealed unsafe class IgclSource<T>
     }
 
     /// <summary>Reads and writes the same native settings; only get/set operation selectors change.</summary>
-    public ControlWrite ProbeSupport()
+    public ControlWrite ProbeSupport(WriteAdmission admission)
     {
         var result = Read(out var current);
         if (result == IgclResult.Success)
         {
-            result = Write(_prepareProbe is null ? current : _prepareProbe(current));
+            result = Write(_prepareProbe is null ? current : _prepareProbe(current), admission);
         }
 
         return ControlWrite.From(result, "support discovery");
@@ -126,10 +127,12 @@ internal sealed unsafe class IgclSource<T>
 
     /// <summary>Writes the structure and forgets the pass's read.</summary>
     /// <param name="request">The whole request.</param>
+    /// <param name="admission">Rechecked after preparatory reads and before the setter.</param>
     /// <returns>The driver result.</returns>
-    public int Write(T request)
+    public int Write(T request, WriteAdmission admission)
     {
         _cache.Invalidate();
+        admission.Check();
         return _session.Call(_set, _handle, ref request);
     }
 }

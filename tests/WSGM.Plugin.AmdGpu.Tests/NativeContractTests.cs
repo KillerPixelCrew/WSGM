@@ -11,6 +11,36 @@ public sealed unsafe class NativeContractTests
 {
     private static int _releases;
     private static nint _self;
+    private static uint _listCount;
+    private static uint _firstItem;
+    private static uint _lastItem;
+
+    [Fact]
+    public void NativeListCountAbove1024IsEnumeratedFromItsReportedBegin()
+    {
+        using var table = new Vtable();
+        _listCount = 1500;
+        _firstItem = uint.MaxValue;
+        _lastItem = 0;
+        _releases = 0;
+        var items = AdlxNative.Items(table.Instance);
+        try
+        {
+            Assert.Equal(1500, items.Count);
+            Assert.Equal(100u, _firstItem);
+            Assert.Equal(1599u, _lastItem);
+            Assert.All(items, item => Assert.Equal(table.Instance, item.Pointer));
+        }
+        finally
+        {
+            foreach (var item in items)
+            {
+                item.Dispose();
+            }
+        }
+
+        Assert.Equal(1500, _releases);
+    }
 
     [Fact]
     public void IntegerRangeUsesTheDocumentedTwelveByteLayout()
@@ -86,6 +116,31 @@ public sealed unsafe class NativeContractTests
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
+    private static uint ListSize(nint instance)
+    {
+        return _listCount;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
+    private static uint ListBegin(nint instance)
+    {
+        return 100;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
+    private static int ListAt(nint instance, uint index, nint* value)
+    {
+        if (_firstItem == uint.MaxValue)
+        {
+            _firstItem = index;
+        }
+
+        _lastItem = index;
+        *value = instance;
+        return 0;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
     private static int Release(nint instance)
     {
         _releases++;
@@ -115,7 +170,10 @@ public sealed unsafe class NativeContractTests
         {
             _table = (nint*)NativeMemory.AllocZeroed(24, (nuint)sizeof(nint));
             _table[1] = (nint)(delegate* unmanaged[Stdcall]<nint, int>)&Release;
+            _table[3] = (nint)(delegate* unmanaged[Stdcall]<nint, uint>)&ListSize;
             _table[4] = (nint)(delegate* unmanaged[Stdcall]<nint, byte*, int>)&Boolean;
+            _table[5] = (nint)(delegate* unmanaged[Stdcall]<nint, uint>)&ListBegin;
+            _table[11] = (nint)(delegate* unmanaged[Stdcall]<nint, uint, nint*, int>)&ListAt;
             _table[13] = (nint)(delegate* unmanaged[Stdcall]<nint, nuint*, int>)&Size;
             var instance = (nint*)NativeMemory.Alloc((nuint)sizeof(nint));
             *instance = (nint)_table;

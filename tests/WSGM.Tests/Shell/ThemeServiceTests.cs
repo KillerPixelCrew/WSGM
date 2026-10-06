@@ -3,7 +3,7 @@ using System.Text.Json;
 using WSGM.Core;
 using WSGM.Shell;
 using WSGM.Testing;
-using WSGM.Tests.Core.Themes;
+using WSGM.Tests.Fakes;
 
 namespace WSGM.Tests.Shell;
 
@@ -45,7 +45,7 @@ public sealed class ThemeServiceTests : IDisposable
     {
         using ThemeService service = new(new ThemeLoader(_temporary.Root),
             new ThemeStoreClient(
-                new ThemeStoreClientTests.StubHandler(_ => throw new InvalidOperationException("slot failed")),
+                new StubHttpMessageHandler(_ => throw new InvalidOperationException("slot failed")),
                 "https://store.example"), () => _config, change => change(_config), () => null);
         service.Start();
         Assert.True((await service.InstallAsync("fixture", CancellationToken.None)).Succeeded);
@@ -71,7 +71,7 @@ public sealed class ThemeServiceTests : IDisposable
     private ThemeService Service(bool started = true)
     {
         var handler =
-            new ThemeStoreClientTests.StubHandler(_ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+            new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
         var service = new ThemeService(
             new ThemeLoader(_temporary.Root),
             new ThemeStoreClient(handler, "https://store.example"),

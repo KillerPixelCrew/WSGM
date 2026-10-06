@@ -8,10 +8,13 @@ public enum ConfigReadOutcome
 {
     /// <summary>An existing document was loaded.</summary>
     Loaded,
+
     /// <summary>No document exists; defaults are available.</summary>
     Absent,
+
     /// <summary>The existing document could not be parsed.</summary>
     Corrupt,
+
     /// <summary>The file or its mutex could not be read.</summary>
     Unreadable
 }
@@ -27,8 +30,9 @@ public sealed record ConfigReadResult(ConfigReadOutcome Outcome, AppConfig? Conf
     /// <exception cref="ConfigUnavailableException">The existing state is unavailable.</exception>
     public AppConfig RequireConfig()
     {
-        return (Outcome is ConfigReadOutcome.Loaded or ConfigReadOutcome.Absent) && Config is not null
-            ? Config : throw new ConfigUnavailableException($"Configuration is {Outcome}.", Error);
+        return Outcome is ConfigReadOutcome.Loaded or ConfigReadOutcome.Absent && Config is not null
+            ? Config
+            : throw new ConfigUnavailableException($"Configuration is {Outcome}.", Error);
     }
 }
 

@@ -190,7 +190,6 @@ internal static class PackagedLaunchCommand
         }
 
 
-
         StringBuilder composed = new();
         Append(composed, AumidFlag, request.Aumid);
         Append(composed, ModeFlag, Value(request.Mode));
@@ -654,7 +653,6 @@ internal static class PackagedLaunchCommand
                 error = $"'{mode}' is not a launch mode. Use {SteamOverlayValue} or {ControllerOnlyValue}.";
                 return false;
         }
-
 
 
         // The one refusal that protects a person rather than the process. Controller-only is always

@@ -123,7 +123,7 @@
     "id": "B016",
     "domain": "winsvc",
     "submodule": null,
-    "status": "Implemented",
+    "status": "Source applied",
     "outcome": "Steam autostart takeover refuses when it cannot record the original",
     "findings": "CRIT-001."
   },
@@ -219,8 +219,9 @@
     "id": "B028",
     "domain": "install",
     "submodule": null,
-    "status": "Implemented",
-    "outcome": "Setup applies answers last and reports partial change truthfully"
+    "status": "Source applied",
+    "outcome": "Setup applies answers last and reports partial change truthfully",
+    "findings": "INSTALL-006, INSTALL-020, INSTALL-V-004, INSTALL-V-005."
   },
   {
     "id": "B029",
@@ -316,7 +317,7 @@
     "submodule": null,
     "status": "Source applied",
     "outcome": "Keep shared process names and native declarations consistent across the launcher, setup and app.",
-    "findings": "INSTALL-026, INSTALL-027, INSTALL-033, SESSION-047. B024 scope correction for INSTALL-C-001: remove the operation-1 broker size refusal while preserving the allowlist and access/type rule. Do not implement dropped INSTALL-010 hardening."
+    "findings": "INSTALL-026, INSTALL-027, INSTALL-033, SESSION-047. B024 scope correction for INSTALL-C-001: remove the operation-1 broker size refusal while preserving the allowlist and access/type rule. Do not implement dropped hardening."
   },
   {
     "id": "B032",
@@ -458,7 +459,7 @@
     "id": "B049",
     "domain": "toolkit",
     "submodule": "steam-ui-toolkit",
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Resolve known Steam modules without invoking unknown exports; validate bridge payloads and keep command handlers off the pump. Fix the remaining parsing and logging defects locally.",
     "findings": "TOOLKITCS-001, TOOLKITCS-020, TOOLKITCS-033, TOOLKITCS-034, TOOLKITCS-035, TOOLKITCS-037, TOOLKITCS-040, TOOLKITCS-041, TOOLKITCS-042, TOOLKITCS-043, TOOLKITCS-045, TOOLKITCS-048, TOOLKITCS-051, TOOLKITCS-052, TOOLKITCS-054, TOOLKITCS-V-002, TOOLKITJS-018."
   },
@@ -562,7 +563,7 @@
     "id": "B062",
     "domain": "toolkit",
     "submodule": "steam-ui-toolkit",
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Keep meaningful toolkit regression tests and check real probe execution at final validation.",
     "findings": "TOOLKITCS-064, TOOLKITCS-065, TOOLKITCS-066, TOOLKITCS-067, TOOLKITCS-068, TOOLKITCS-069, TOOLKITCS-070, TOOLKITCS-071."
   },
@@ -770,7 +771,7 @@
     "id": "B088",
     "domain": "device",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Fix device lifecycle serialization, partial startup and integration-off behaviour in the existing coordinator. Extract lifecycle code only if it removes tangled ownership.",
     "findings": "DEVICE-014, DEVICE-029, DEVICE-041, DEVICE-042."
   },
@@ -803,7 +804,8 @@
     "domain": "device",
     "submodule": null,
     "status": "Source applied",
-    "outcome": "Keep controller start/loss/release and claims in one place. Cancel pending start on suspend and show the physical pad on loss; extract only if ownership becomes clearer."
+    "outcome": "Keep controller start/loss/release and claims in one place. Cancel pending start on suspend and show the physical pad on loss; extract only if ownership becomes clearer.",
+    "findings": ""
   },
   {
     "id": "B093",
@@ -841,7 +843,7 @@
     "id": "B097",
     "domain": "winsvc",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Preserve every identity recheck around formatting, use volume identity for library writes and report uncertain diskpart outcomes truthfully. Isolate only destructive calls for tests.",
     "findings": "WINSVC-007, WINSVC-035, WINSVC-036, LIBRARY-023."
   },
@@ -873,7 +875,7 @@
     "id": "B101",
     "domain": "winsvc",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Join service loops on disposal, fix card-monitor triggers and keep preview compositions hardware-free. Add missing behaviour coverage at the end.",
     "findings": "WINSVC-024, WINSVC-025, WINSVC-038, WINSVC-039, WINSVC-043, WINSVC-046, WINSVC-V-002."
   },
@@ -1049,7 +1051,7 @@
     "id": "B123",
     "domain": "settings",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Open or activate one Settings window per process with the current session mode and supplied actions.",
     "findings": "SETTINGS-010, SETTINGS-011, SETTINGS-015, SETTINGS-016, OVERLAY-V-002."
   },
@@ -1306,7 +1308,8 @@
     "domain": "ir",
     "submodule": null,
     "status": "Source applied",
-    "outcome": "Simplify IR session/storage/publication code without changing IDs or labels. A three-class split is not an acceptance requirement."
+    "outcome": "Simplify IR session/storage/publication code without changing IDs or labels. A three-class split is not an acceptance requirement.",
+    "findings": ""
   },
   {
     "id": "B156",
@@ -1417,7 +1420,8 @@
     "domain": "lab",
     "submodule": null,
     "status": "Source applied",
-    "outcome": "Record rumble routes before writing and zero once on success/failure/cancel. A failed zero fails the stage; never replay a failed pulse."
+    "outcome": "Record rumble routes before writing and zero once on success/failure/cancel. A failed zero fails the stage; never replay a failed pulse.",
+    "findings": ""
   },
   {
     "id": "B170",
@@ -1455,7 +1459,7 @@
     "id": "B174",
     "domain": "build",
     "submodule": null,
-    "status": "In progress",
+    "status": "Source applied",
     "outcome": "Replace fragile source scrapers with existing assets/behaviour tests, delete the two retired tools and compile remaining tools in final validation.",
     "findings": "BUILD-003, BUILD-013, BUILD-016, BUILD-017, BUILD-V-005."
   },
@@ -1479,7 +1483,7 @@
     "id": "B177",
     "domain": "docs",
     "submodule": "steam-ui-toolkit",
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Update docs for actual behaviour, recovery and remaining acceptance gaps. Inventory public APIs only as needed to account for removals and contract changes.",
     "findings": "GPUIR-037, TOOLKITJS-028, LABCORE-026, LABCORE-V-006, SETTINGS-042."
   },
@@ -1487,14 +1491,14 @@
     "id": "B178",
     "domain": "docs",
     "submodule": null,
-    "status": "Pending",
+    "status": "Source applied",
     "outcome": "Reconcile every finding and existing coverage gap against applied fixes or evidenced no-change. Keep unresolved work visible; no new audit programme or micro-batch graph."
   },
   {
     "id": "B179",
     "domain": "docs",
     "submodule": null,
-    "status": "Pending",
+    "status": "In progress",
     "outcome": "Run the final automated validation and report failures, then hand off the existing manual matrix. No release/deploy without explicit direction."
   },
   {

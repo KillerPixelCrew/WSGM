@@ -65,6 +65,7 @@ public sealed class GameLibraryServiceTests
             Assert.Equal(Assert.Single(harness.Library).LaunchOptions,
                 Assert.Single(harness.Store.Entries()).LaunchOptions);
         }
+
         await source.ScanAsync(CancellationToken.None);
         await DoneAsync(source);
         Assert.Equal(landed ? "Skip" : "Update", Assert.Single(source.ReadState().Entries).Action);
@@ -1097,7 +1098,8 @@ public sealed class GameLibraryServiceTests
                         if (LandUnconfirmedUpdate)
                         {
                             Library.RemoveAll(shortcut => shortcut.AppId == appId);
-                            Library.Add(new ExistingShortcut(appId, $"\"{fields.Target}\"", $" {fields.LaunchOptions} "));
+                            Library.Add(
+                                new ExistingShortcut(appId, $"\"{fields.Target}\"", $" {fields.LaunchOptions} "));
                         }
 
                         return Task.FromResult(false);
@@ -1132,19 +1134,21 @@ public sealed class GameLibraryServiceTests
                 () => Launcher,
                 openArtwork,
                 controllerManaged,
-                settings is null ? null : change =>
-                {
-                    if (updateSettings is not null)
+                settings is null
+                    ? null
+                    : change =>
                     {
-                        updateSettings(change);
-                    }
-                    else
-                    {
-                        change(settings);
-                    }
+                        if (updateSettings is not null)
+                        {
+                            updateSettings(change);
+                        }
+                        else
+                        {
+                            change(settings);
+                        }
 
-                    return settings;
-                },
+                        return settings;
+                    },
                 folder => new FakeSource(folder.Id, []), syncCollection: SyncCollection);
         }
     }

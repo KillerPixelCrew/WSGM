@@ -21,11 +21,6 @@ internal sealed class FakeCpuBoostApi : ICpuBoostApi, IPowerSchemeApi
 
     internal List<string> Calls { get; } = [];
 
-    public Guid ReadActive()
-    {
-        return Scheme;
-    }
-
     public uint Read(Guid scheme, bool onBattery)
     {
         Calls.Add("read");
@@ -50,6 +45,11 @@ internal sealed class FakeCpuBoostApi : ICpuBoostApi, IPowerSchemeApi
     {
         Calls.Add("reveal");
         return true;
+    }
+
+    public Guid ReadActive()
+    {
+        return Scheme;
     }
 
     public Guid? Enumerate(uint index)

@@ -109,14 +109,20 @@ public sealed class OverlayToolsTests
         using var fixture = new UiFixture();
         var window = PreviewTools.Create(fixture);
         var source = new FakeThemesSource();
-        UiFixture.Named<ThemesView>(window, "ThemesHost").AttachSession(source);
+        var themes = UiFixture.Named<ThemesView>(window, "ThemesHost");
+        themes.AttachSession(source);
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SystemThemes));
         Click(window, "Browse");
-        var editor = window.GetVisualDescendants().OfType<ComboBox>().First(control => control.IsEffectivelyVisible);
+        var editor = themes.GetVisualDescendants().OfType<ComboBox>()
+            .Single(control => Equals(control.Tag, "choice:Target"));
+        Assert.True(editor.IsEffectivelyVisible);
+        Assert.True(editor.IsEffectivelyEnabled);
         Assert.True(editor.Focus());
         source.Publish();
         Dispatcher.UIThread.RunJobs();
         Assert.Same(editor, window.FocusManager!.GetFocusedElement());
+        Assert.Same(editor, themes.GetVisualDescendants().OfType<ComboBox>()
+            .Single(control => Equals(control.Tag, "choice:Target")));
         Assert.Contains(editor, window.GetVisualDescendants());
     }
 

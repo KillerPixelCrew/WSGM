@@ -48,8 +48,8 @@ internal sealed class PluginSettingsCoordinator(ConfigStore store) : IDisposable
     private readonly SemaphoreSlim _deliveryGate = new(1, 1);
 
     private readonly Lock _gate = new();
-    private readonly HashSet<Task> _work = [];
     private readonly CancellationTokenSource _lifetime = new();
+    private readonly HashSet<Task> _work = [];
     private DevicePluginRuntime? _client;
     private AppConfig? _config;
     private string _deviceDefinitionId = string.Empty;
@@ -57,6 +57,17 @@ internal sealed class PluginSettingsCoordinator(ConfigStore store) : IDisposable
     private PluginSettingsManifest? _manifest;
     private Action<PluginSettingsManifest>? _manifestHandler;
     private string _pluginId = string.Empty;
+
+    internal Task Completion
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return Task.WhenAll(_work);
+            }
+        }
+    }
 
     /// <inheritdoc />
     public void Dispose()
@@ -73,17 +84,6 @@ internal sealed class PluginSettingsCoordinator(ConfigStore store) : IDisposable
         }
 
         Log.Observe(_lifetime.CancelAsync(), "Plugin settings cancellation");
-    }
-
-    internal Task Completion
-    {
-        get
-        {
-            lock (_gate)
-            {
-                return Task.WhenAll(_work);
-            }
-        }
     }
 
     private void Track(Func<Task> operation)
@@ -217,6 +217,7 @@ internal sealed class PluginSettingsCoordinator(ConfigStore store) : IDisposable
                                 CacheDeclaration(config, device, plugin, latest);
                             }
                         }
+
                         return true;
                     });
                 }
@@ -231,6 +232,7 @@ internal sealed class PluginSettingsCoordinator(ConfigStore store) : IDisposable
                         $"Plugin settings: caching the declaration for '{plugin}' failed: "
                         + ex.Message);
                 }
+
                 return Task.CompletedTask;
             });
         }

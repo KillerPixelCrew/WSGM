@@ -1,3 +1,4 @@
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
@@ -16,6 +17,57 @@ namespace WSGM.UiTests.Overlay;
 
 public sealed class ControllerNavigationTests
 {
+    [AvaloniaFact]
+    public async Task ControllerReachesProfileNameAndAddProcessRowsInsideTheEditor()
+    {
+        var profiles = ApplicationProfilesViewTests.Profiles();
+        await using var service = ApplicationProfilesViewTests.Service(profiles);
+        using var bridge = new PerformanceOverlayBridge(service, profiles);
+        using var fixture = new UiFixture();
+        var window = fixture.Overlay();
+        window.AttachPerformanceSource(bridge);
+        UiFixture.Click(window, UiFixture.Named<Button>(window, "ManageProfiles"));
+        var editor = window.GetVisualDescendants().OfType<ApplicationProfilesView>().Single();
+        var selector = editor.GetVisualDescendants().OfType<ComboBox>().Single();
+        var name = editor.GetVisualDescendants().OfType<Button>()
+            .Single(button => AutomationProperties.GetName(button) == "Profile name");
+        var add = editor.GetVisualDescendants().OfType<Button>()
+            .Single(button => Equals(button.Content, "Add process"));
+        var buttons = new FakeButtonSource();
+        using var navigation = OverlayInput.Create(window, buttons, () => window.TryCancelSubView());
+        Assert.True(selector.Focus(NavigationMethod.Directional));
+        buttons.Press(GamepadButtons.DPadDown);
+        Assert.True(name.IsFocused);
+        buttons.Press(GamepadButtons.DPadDown);
+        Assert.True(add.IsFocused);
+        // The saved-profile selector's template owns a TextBox; editable profile fields
+        // must still be press-to-edit rows outside that selector (DECISIONS.md, B129).
+        Assert.All(editor.GetVisualDescendants().OfType<TextBox>(),
+            input => Assert.Contains(selector, input.GetVisualAncestors()));
+
+        buttons.Press(GamepadButtons.A);
+        Dispatcher.UIThread.RunJobs();
+        var processKeyboard = window.GetVisualDescendants().OfType<KeyboardPanel>().Single();
+        Assert.Equal("Process name", UiFixture.Named<TextBlock>(processKeyboard, "PromptText").Text);
+        Assert.Same(window, TopLevel.GetTopLevel(processKeyboard));
+        var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        window.SurfaceClosed += () => closed.TrySetResult();
+        buttons.Press(GamepadButtons.B);
+        await closed.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        // Closing the keyboard returns to the profile editor's containing utility surface.
+        Assert.True(window.HasActiveSurface);
+        Assert.Null(TopLevel.GetTopLevel(processKeyboard));
+        Assert.Same(window, TopLevel.GetTopLevel(editor));
+        Assert.Same(add, window.FocusManager.GetFocusedElement());
+        buttons.Press(GamepadButtons.DPadUp);
+        Assert.True(name.IsFocused);
+        buttons.Press(GamepadButtons.A);
+        Dispatcher.UIThread.RunJobs();
+        var nameKeyboard = window.GetVisualDescendants().OfType<KeyboardPanel>().Single();
+        Assert.Equal("Profile name", UiFixture.Named<TextBlock>(nameKeyboard, "PromptText").Text);
+        Assert.Same(window, TopLevel.GetTopLevel(nameKeyboard));
+    }
+
     [AvaloniaFact]
     public void RetractingTheOpenDeviceSectionSelectsAndFocusesTheSurvivingOverview()
     {
@@ -91,8 +143,8 @@ public sealed class ControllerNavigationTests
         device.SampleSource = source;
         device.State = state;
         using UiFixture fixture = new();
-        using PowerSchemeSelection schemes = new(new PowerSchemes(new FakePower()),
-            _ => throw new InvalidOperationException("Unexpected power write"));
+        using PowerSchemeSelection schemes = new(new NativeQamPowerProfileService(new PowerSchemes(new FakePower()),
+            _ => throw new InvalidOperationException("Unexpected power write")));
         await schemes.RefreshAsync();
         var window = fixture.Overlay();
         DeviceGlyphSelection? requested = null;

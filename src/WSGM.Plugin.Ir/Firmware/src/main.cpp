@@ -8,6 +8,7 @@
 #include <IRsend.h>
 #include <IRutils.h>
 #include <Preferences.h>
+#include <nvs.h>
 #include <WebServer.h>
 #include <WiFi.h>
 #include <uri/UriBraces.h>
@@ -49,7 +50,7 @@ WebServer web(WebPort);
 Channel usb{Serial, true};
 Channel network{client, false};
 decode_results captured;
-String learningId, token, webUser, webPassword;
+String learningId, token, webUser, webPassword, wifiSsid, wifiPassword;
 // Built-in remotes: full definitions for sending, and the id/label catalog hosts and pages read.
 JsonDocument remotes, catalog;
 // The catalog text the remotes operation serves in chunks: the generated one, or an empty catalog
@@ -346,7 +347,9 @@ void cancelLearn(const char* reason)
 void stopClient()
 {
     if (learningOut == &client) cancelLearn("cancelled");
-    if (client) client.stop();
+    client.stop();
+    network.input = "";
+    network.discarding = false;
 }
 
 bool authorized(const String& supplied)
@@ -362,13 +365,12 @@ String stored(const char* key) { return settings.isKey(key) ? settings.getString
 
 void connectWifi()
 {
-    String ssid = stored("ssid");
-    if (ssid.isEmpty()) return;
+    if (wifiSsid.isEmpty()) return;
     WiFi.mode(WIFI_STA);
     WiFi.setHostname(hostname);
     WiFi.setSleep(false);
     WiFi.setAutoReconnect(true);
-    WiFi.begin(ssid.c_str(), stored("pass").c_str());
+    WiFi.begin(wifiSsid.c_str(), wifiPassword.c_str());
     server.begin();
     web.begin();
 }
@@ -386,7 +388,7 @@ void describe(JsonDocument& data)
     data["uptimeMs"] = millis();
     data["hostname"] = hostname;
     data["port"] = NetworkPort;
-    data["wifiConfigured"] = !stored("ssid").isEmpty();
+    data["wifiConfigured"] = !wifiSsid.isEmpty();
     bool connected = WiFi.status() == WL_CONNECTED;
     data["wifiConnected"] = connected;
     data["ip"] = connected ? WiFi.localIP().toString() : String("");
@@ -429,12 +431,21 @@ const char* catalogChunk(JsonVariantConst requested, JsonDocument& data)
 bool storeSettings(const char* const keys[], const String values[], size_t length)
 {
     if (!storageReady) return false;
+    // Preferences::putString returns 0 both for a stored empty string and for failure. Use NVS's
+    // actual write/commit result so disabling web access or an open Wi-Fi password is truthful too.
+    nvs_handle_t handle;
+    if (nvs_open("wsgmir", NVS_READWRITE, &handle) != ESP_OK) return false;
+    bool saved = true;
     for (size_t i = 0; i < length; ++i)
     {
-        // putString answers the stored length, or 0 on failure; an empty value legitimately stores 0.
-        if (settings.putString(keys[i], values[i]) != values[i].length()) return false;
+        if (nvs_set_str(handle, keys[i], values[i].c_str()) != ESP_OK || nvs_commit(handle) != ESP_OK)
+        {
+            saved = false;
+            break;
+        }
     }
-    return true;
+    nvs_close(handle);
+    return saved;
 }
 
 void dispatch(Channel& channel, const String& line)
@@ -590,7 +601,7 @@ void dispatch(Channel& channel, const String& line)
                 reply(out, id, "storage-failed");
                 return;
             }
-            token = webUser = webPassword = "";
+            token = webUser = webPassword = wifiSsid = wifiPassword = "";
             stopClient();
             if (mdnsStarted)
             {
@@ -610,6 +621,9 @@ void dispatch(Channel& channel, const String& line)
                 return;
             }
             token = pairing;
+            wifiSsid = ssid;
+            wifiPassword = password;
+            stopClient();
             WiFi.disconnect(true, false);
             connectWifi();
         }
@@ -661,7 +675,11 @@ void serveNetwork()
         MDNS.end();
         mdnsStarted = false;
     }
-    if (!connected) return;
+    if (!connected)
+    {
+        stopClient();
+        return;
+    }
     web.handleClient();
     WiFiClient incoming = server.available();
     if (incoming)
@@ -671,11 +689,13 @@ void serveNetwork()
         stopClient();
         client = incoming;
         client.setNoDelay(true);
-        network.input = "";
-        network.discarding = false;
         clientActivity = millis();
     }
-    if (!client || !client.connected()) return;
+    if (!client || !client.connected())
+    {
+        stopClient();
+        return;
+    }
     if (client.available()) clientActivity = millis();
     pump(network);
     if (int32_t(millis() - clientActivity) > int32_t(ClientIdleMs)) stopClient();
@@ -722,7 +742,7 @@ void sendPage(const uint8_t* gzip, size_t length)
 {
     web.sendHeader("Content-Encoding", "gzip");
     web.sendHeader("Cache-Control", "no-cache");
-    web.send_P(200, "text/html", static_cast<PGM_P>(gzip), length);
+    web.send_P(200, "text/html", reinterpret_cast<PGM_P>(gzip), length);
 }
 
 void webAction(const char* operation)
@@ -798,13 +818,15 @@ void setup()
     snprintf(hostname, sizeof(hostname), "wsgm-ir-%02x%02x%02x",
              uint8_t(mac >> 24), uint8_t(mac >> 32), uint8_t(mac >> 40));
     storageReady = settings.begin("wsgmir", false);
+    wifiSsid = stored("ssid");
+    wifiPassword = stored("pass");
     token = stored("token");
     webUser = stored("webuser");
     webPassword = stored("webpass");
     // Generated and validated at build time. Should parsing still fail, for instance out of memory, the
     // endpoint serves no remotes at all rather than act on part of a definition.
-    definitionsReady = !deserializeJson(remotes, static_cast<const char*>(RemotesJson), sizeof(RemotesJson))
-                       && !deserializeJson(catalog, static_cast<const char*>(CatalogJson), sizeof(CatalogJson));
+    definitionsReady = !deserializeJson(remotes, reinterpret_cast<const char*>(RemotesJson), sizeof(RemotesJson))
+                       && !deserializeJson(catalog, reinterpret_cast<const char*>(CatalogJson), sizeof(CatalogJson));
     if (!definitionsReady)
     {
         // Not a protocol frame; the host skips lines that do not start with a brace.

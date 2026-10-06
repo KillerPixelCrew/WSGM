@@ -11,12 +11,12 @@ using WSGM.Core;
 namespace WSGM.Overlay;
 
 /// <summary>
-///     Applies committed mode selections through Windows Device Control to the display the overlay
-///     sheet is shown on.
+///     Reports committed mode selections to the composition for the display the sheet is shown on.
 /// </summary>
 internal sealed class DisplayModeView : StackPanel
 {
     private readonly Func<DisplayModeSnapshot, DisplayMode, Task<DisplayModeResult>> _apply;
+    private readonly Func<string?> _display;
 
     private readonly Func<string?, Task<DisplayModeSnapshot?>> _read;
     private readonly ComboBox _refresh = new() { HorizontalAlignment = HorizontalAlignment.Stretch };
@@ -32,21 +32,17 @@ internal sealed class DisplayModeView : StackPanel
     /// <summary>Creates the selector.</summary>
     /// <param name="read">
     ///     Reads the modes of the display with the given GDI source name, null when the sheet's display
-    ///     is unknown. By default the active path with that source name, and no other display.
+    ///     is unknown.
     /// </param>
     /// <param name="apply">Applies a mode to the display a snapshot was read from.</param>
-    internal DisplayModeView(Func<string?, Task<DisplayModeSnapshot?>>? read = null,
-        Func<DisplayModeSnapshot, DisplayMode, Task<DisplayModeResult>>? apply = null)
+    /// <param name="display">The sheet's current GDI display name, resolved again on every read.</param>
+    internal DisplayModeView(Func<string?, Task<DisplayModeSnapshot?>> read,
+        Func<DisplayModeSnapshot, DisplayMode, Task<DisplayModeResult>> apply,
+        Func<string?> display)
     {
-        _read = read ?? (source => Task.Run(() =>
-        {
-            var path = source is null
-                ? null
-                : DisplayTopology.CaptureActive().Paths.FirstOrDefault(candidate =>
-                    string.Equals(candidate.SourceName, source, StringComparison.OrdinalIgnoreCase));
-            return path is null ? null : DisplayModes.Read(path.Target);
-        }));
-        _apply = apply ?? ((snapshot, mode) => Task.Run(() => DisplayModes.Apply(snapshot, mode)));
+        _display = display;
+        _read = read;
+        _apply = apply;
         Classes.Add("overlay-control");
         Spacing = 8;
         Children.Add(new TextBlock { Text = "Display mode", Classes = { "setting-title" } });
@@ -147,11 +143,23 @@ internal sealed class DisplayModeView : StackPanel
         try
         {
             // Read per refresh, so a sheet placed on another display follows it.
-            var display = TopLevel.GetTopLevel(this) is OverlayWindow window ? window.DisplaySourceName() : null;
+            var display = _display();
             var next = await _read(display);
             if (_closed || generation != _attachmentGeneration)
             {
                 return;
+            }
+
+            if (!string.Equals(display, _display(), StringComparison.OrdinalIgnoreCase))
+            {
+                _readPending = true;
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(display) || !string.Equals(next?.Path.SourceName, display,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                next = null;
             }
 
             var changed = _snapshot?.Path != next?.Path || _snapshot?.Current != next?.Current
@@ -206,6 +214,13 @@ internal sealed class DisplayModeView : StackPanel
             return;
         }
 
+        if (!string.Equals(snapshot.Path.SourceName, _display(), StringComparison.OrdinalIgnoreCase))
+        {
+            _snapshot = null;
+            await ReadAsync();
+            return;
+        }
+
         var requested = snapshot.Supported.FirstOrDefault(mode =>
             Resolution(mode) == _resolution.SelectedItem as string && mode.RefreshHz == _refresh.SelectedItem as int?);
         if (requested is null || requested == snapshot.Current)
@@ -213,6 +228,7 @@ internal sealed class DisplayModeView : StackPanel
             return;
         }
 
+        var generation = _attachmentGeneration;
         _busy = true;
         _resolution.IsEnabled = _refresh.IsEnabled = false;
         string? detail = null;
@@ -233,9 +249,20 @@ internal sealed class DisplayModeView : StackPanel
             _busy = false;
         }
 
+        if (_closed || generation != _attachmentGeneration)
+        {
+            if (_readPending && !_closed)
+            {
+                _readPending = false;
+                await ReadAsync();
+            }
+
+            return;
+        }
+
         _snapshot = null;
         await ReadAsync();
-        if (!_closed && detail is not null)
+        if (!_closed && generation == _attachmentGeneration && detail is not null)
         {
             _status.Text += "\n" + detail;
         }

@@ -135,7 +135,7 @@ public static class SplashAssets
 
             var destination = Path.Combine(fullTarget, baseName + Path.GetExtension(fullSource));
             stagedPath = $"{destination}.{Guid.NewGuid():N}{StagedSuffix}";
-            System.IO.Directory.CreateDirectory(fullTarget);
+            Directory.CreateDirectory(fullTarget);
             stagedHandle = CopyToSidecar(fullSource, stagedPath);
             transaction.AddStaged(
                 baseName,
@@ -263,12 +263,12 @@ public static class SplashAssets
     /// </summary>
     private static void DeleteStaleSidecars(string baseName, string targetDirectory)
     {
-        if (!System.IO.Directory.Exists(targetDirectory))
+        if (!Directory.Exists(targetDirectory))
         {
             return;
         }
 
-        foreach (var file in System.IO.Directory.EnumerateFiles(targetDirectory))
+        foreach (var file in Directory.EnumerateFiles(targetDirectory))
         {
             if (!IsSidecarOf(Path.GetFileName(file), baseName) || IsHeldByALiveTransaction(file))
             {
@@ -336,12 +336,12 @@ public static class SplashAssets
     /// </summary>
     private static void DeleteCopies(string baseName, string targetDirectory, string? keep)
     {
-        if (!System.IO.Directory.Exists(targetDirectory))
+        if (!Directory.Exists(targetDirectory))
         {
             return;
         }
 
-        foreach (var file in System.IO.Directory.EnumerateFiles(targetDirectory))
+        foreach (var file in Directory.EnumerateFiles(targetDirectory))
         {
             if (
                 !string.Equals(

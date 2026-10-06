@@ -176,7 +176,7 @@ public class CardNameAuthorityTests
 
         Assert.Null(LibraryTabManager.TrySetMarkerLabel(library, "777", "Handhelds"));
 
-        Assert.True(SteamLibraryVdf.TryReadMarker(library, out var id, out var label));
+        Assert.True(SteamLibraryMarker.TryRead(library, out var id, out var label));
         Assert.Equal("777", id);
         Assert.Equal("Handhelds", label);
     }
@@ -193,7 +193,7 @@ public class CardNameAuthorityTests
         var note = LibraryTabManager.TrySetMarkerLabel(library, "9696", "Handhelds");
 
         Assert.Equal("The drive still carries its old name.", note);
-        Assert.True(SteamLibraryVdf.TryReadMarker(library, out var id, out var label));
+        Assert.True(SteamLibraryMarker.TryRead(library, out var id, out var label));
         Assert.Equal("1010", id);
         Assert.Equal("SDCard10", label);
     }
@@ -219,7 +219,7 @@ public class CardNameAuthorityTests
 
         Assert.Null(LibraryTabManager.TrySetMarkerLabel(library, "777", "Handhelds"));
 
-        Assert.True(SteamLibraryVdf.TryReadMarker(library, out _, out var label));
+        Assert.True(SteamLibraryMarker.TryRead(library, out _, out var label));
         Assert.Equal("Handhelds", label);
     }
 
@@ -234,7 +234,7 @@ public class CardNameAuthorityTests
 
         var marker = File.ReadAllText(Path.Combine(library, "libraryfolder.vdf"));
         Assert.Single(SteamLibraryVdf.ValuesOf(marker, "label"));
-        Assert.True(SteamLibraryVdf.TryReadMarker(library, out var id, out var label));
+        Assert.True(SteamLibraryMarker.TryRead(library, out var id, out var label));
         Assert.Equal("777", id);
         Assert.Equal("Retro", label);
     }
@@ -262,7 +262,7 @@ public class CardNameAuthorityTests
         var config = ConfigWith(("777", "SDCard9"));
 
         Assert.Null(LibraryTabManager.TrySetMarkerLabel(library, "777", "Handhelds"));
-        Assert.True(SteamLibraryVdf.TryReadMarker(library, out _, out var label));
+        Assert.True(SteamLibraryMarker.TryRead(library, out _, out var label));
         LibraryTabManager.MergeDiscovery(config, [Card("777", label)]);
 
         Assert.Equal("Handhelds", NameOf(config, "777"));

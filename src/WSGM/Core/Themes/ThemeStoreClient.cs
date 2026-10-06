@@ -114,6 +114,10 @@ public sealed class ThemeStoreClient
     public const int MaximumBlobBytes = 64 * 1024 * 1024;
 
     private const int MaximumJsonBytes = 8 * 1024 * 1024;
+
+    /// <summary>How many sound packs one <see cref="QuerySoundsAsync" /> page lists.</summary>
+    public const int SoundsPageSize = 24;
+
     private readonly HttpClient _http;
 
     /// <summary>Creates the client.</summary>
@@ -197,9 +201,6 @@ public sealed class ThemeStoreClient
         var json = await GetJsonAsync("/themes" + QueryString(query), cancellationToken).ConfigureAwait(false);
         return ParsePage(json);
     }
-
-    /// <summary>How many sound packs one <see cref="QuerySoundsAsync" /> page lists.</summary>
-    public const int SoundsPageSize = 24;
 
     /// <summary>Lists Audio Loader sound packs using the same bounded DeckThemes client as CSS themes.</summary>
     /// <param name="page">The one-based page.</param>

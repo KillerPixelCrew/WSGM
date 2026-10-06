@@ -12,19 +12,20 @@ namespace WSGM.Overlay;
 /// <remarks>Renders a complete native tool over a surface-scoped browser and the shared durable service.</remarks>
 public sealed partial class AnimationsView : ServiceSubView
 {
+    private IAnimationBrowseSession? _browser;
     private UserDataContext? _context;
-    private UserDataContext Context => _context ?? throw new InvalidOperationException("The media data context was not supplied.");
+    private ISteamAnimationsBackend? _service;
+
+    private UserDataContext Context =>
+        _context ?? throw new InvalidOperationException("The media data context was not supplied.");
+
+    /// <inheritdoc />
+    protected override string LogScope => "Animations";
 
     internal void ConfigureContext(UserDataContext context)
     {
         _context = context;
     }
-
-    private IAnimationBrowseSession? _browser;
-    private ISteamAnimationsBackend? _service;
-
-    /// <inheritdoc />
-    protected override string LogScope => "Animations";
 
     /// <summary>Attaches the view to the session's boot movies, or detaches it with null.</summary>
     /// <param name="service">The service, or null when the overlay closes or the session has none.</param>

@@ -88,8 +88,8 @@ internal static class NativeQamPerfProjection
         IReadOnlyList<int>? frameLimitOptions = support.FrameLimitOptions.Count > 0
             ? [.. support.FrameLimitOptions.Where(option => option > 0).Distinct().Order()]
             : null;
-        int? frameLimit = frameLimitOptions is not null
-            ? values.FrameLimit ?? HighestOption(support.FrameLimitOptions)
+        var frameLimit = frameLimitOptions is not null
+            ? values.FrameLimit is > 0 ? values.FrameLimit : HighestOption(support.FrameLimitOptions)
             : null;
         bool? frameLimitEnabled = frameLimitOptions is not null ? values.FrameLimit is > 0 : null;
         int? manualRefreshHz = support.RefreshRatesSelectable

@@ -108,8 +108,8 @@ internal static class DetachedStart
             }
             finally
             {
-                WSGM.Interop.Win32Common.CloseHandle(token);
-                WSGM.Interop.Win32Common.CloseHandle(parent);
+                Win32Common.CloseHandle(token);
+                Win32Common.CloseHandle(parent);
             }
         }
 
@@ -190,7 +190,7 @@ internal static class DetachedStart
 
             PackagedLaunchLog.Warn(
                 $"Could not read {name}'s environment (error {Marshal.GetLastWin32Error()}); trying another parent.");
-            WSGM.Interop.Win32Common.CloseHandle(process);
+            Win32Common.CloseHandle(process);
         }
 
         return false;

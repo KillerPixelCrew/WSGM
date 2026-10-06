@@ -93,7 +93,16 @@ internal sealed class DriverRuntime(string id, Func<string, Action<string, strin
     public async ValueTask<CapabilityCommandResult> ExecuteCommandAsync(CapabilityCommand command,
         CancellationToken cancellationToken)
     {
-        await _lane.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await _lane.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return CommandResults.Rejected(command, CapabilityReasonCode.Quiescing,
+                "The command was cancelled before its driver write.", true);
+        }
+
         try
         {
             if (!_running || _session is not { } session)
@@ -194,7 +203,7 @@ internal sealed class DriverRuntime(string id, Func<string, Action<string, strin
                 .ConfigureAwait(false);
             return verified
                 ? CommandResults.Verified(command, readback!)
-                : CommandResults.Unverified(command, "The driver accepted the write; the written value stands.");
+                : CommandResults.Unverified(command);
         }
         finally
         {

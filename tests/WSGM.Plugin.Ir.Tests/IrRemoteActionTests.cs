@@ -103,6 +103,131 @@ public sealed class IrRemoteActionTests
     }
 
     [Fact]
+    public async Task EndpointCreationFailureIsRejectedBeforeAnyEndpointWork()
+    {
+        using TemporaryDirectory temporary = new();
+        var context = Context(temporary.Root);
+        var creations = 0;
+        await using IrPlugin plugin = new(_ =>
+        {
+            creations++;
+            throw new IOException("endpoint creation failed");
+        });
+        await plugin.StartAsync(new RecordingPluginHost(), context, CancellationToken.None);
+        await plugin.ConfigureAsync(Configuration("COM3"), context, CancellationToken.None);
+
+        var result = await InvokeAutomated(plugin, context, "remote-press",
+            ("remote", new PluginValue(Text: "hdmi-switch")), ("button", new PluginValue(Text: "power")));
+
+        Assert.Equal(PluginActionOutcome.Rejected, result.Outcome);
+        Assert.Contains("endpoint creation failed", result.Detail);
+        Assert.Equal(1, creations);
+    }
+
+    [Fact]
+    public async Task FailedCatalogReadIsRejectedWithoutPressingOrRetrying()
+    {
+        FakeEndpoint endpoint = new() { Catalog = Catalog(), CatalogFailure = new InvalidDataException("bad chunk") };
+        await WithPlugin(endpoint, async (plugin, context) =>
+        {
+            var result = await InvokeAutomated(plugin, context, "remote-press",
+                ("remote", new PluginValue(Text: "hdmi-switch")), ("button", new PluginValue(Text: "power")));
+
+            Assert.Equal(PluginActionOutcome.Rejected, result.Outcome);
+            Assert.Contains("bad chunk", result.Detail);
+            Assert.Equal(1, endpoint.CatalogReads);
+            Assert.Empty(endpoint.RemoteCalls);
+        });
+    }
+
+    [Fact]
+    public async Task FailedLinkOpenDuringIdentificationIsRejectedWithoutRetrying()
+    {
+        using TemporaryDirectory temporary = new();
+        var context = Context(temporary.Root);
+        var opens = 0;
+        await using IrPlugin plugin = new(_ => new IrEndpointConnection(token =>
+        {
+            opens++;
+            throw new IOException("serial open failed");
+        }));
+        await plugin.StartAsync(new RecordingPluginHost(), context, CancellationToken.None);
+        await plugin.ConfigureAsync(Configuration("COM3"), context, CancellationToken.None);
+
+        var result = await InvokeAutomated(plugin, context, "remote-press",
+            ("remote", new PluginValue(Text: "hdmi-switch")), ("button", new PluginValue(Text: "power")));
+
+        Assert.Equal(PluginActionOutcome.Rejected, result.Outcome);
+        Assert.Contains("serial open failed", result.Detail);
+        Assert.Equal(1, opens);
+    }
+
+    [Fact]
+    public async Task CancellingIdentificationIsRejectedBeforeEmission()
+    {
+        using CancellationTokenSource cancellation = new();
+        FakeEndpoint endpoint = new() { Catalog = Catalog(), Identifying = cancellation.Cancel };
+        await WithPlugin(endpoint, async (plugin, context) =>
+        {
+            var arguments = Arguments(plugin, "remote-press",
+                ("remote", new PluginValue(Text: "hdmi-switch")), ("button", new PluginValue(Text: "power")));
+            var result = await plugin.ExecuteActionAsync(new PluginActionRequest(Guid.NewGuid(), "remote-press",
+                PluginActionOrigin.SessionAutomation, arguments), context, cancellation.Token);
+
+            Assert.Equal(PluginActionOutcome.Rejected, result.Outcome);
+            Assert.Equal(1, endpoint.Identifications);
+            Assert.Equal(0, endpoint.CatalogReads);
+            Assert.Empty(endpoint.RemoteCalls);
+        });
+    }
+
+    [Fact]
+    public async Task CancellingAQueuedActionIsRejectedWithoutAnotherPress()
+    {
+        FakeEndpoint endpoint = new() { Catalog = Catalog() };
+        await WithPlugin(endpoint, async (plugin, context) =>
+        {
+            using CancellationTokenSource firstCancellation = new();
+            using CancellationTokenSource queuedCancellation = new();
+            var firstArguments = Arguments(plugin, "remote-press",
+                ("remote", new PluginValue(Text: "hdmi-switch")), ("button", new PluginValue(Text: "power")),
+                ("delay-ms", new PluginValue(Number: 5000)));
+            var first = plugin.ExecuteActionAsync(new PluginActionRequest(Guid.NewGuid(), "remote-press",
+                PluginActionOrigin.SessionAutomation, firstArguments), context, firstCancellation.Token).AsTask();
+            Assert.Single(endpoint.RemoteCalls);
+            var queuedArguments = Arguments(plugin, "remote-press",
+                ("remote", new PluginValue(Text: "hdmi-switch")), ("button", new PluginValue(Text: "port-1")));
+            var queued = plugin.ExecuteActionAsync(new PluginActionRequest(Guid.NewGuid(), "remote-press",
+                PluginActionOrigin.SessionAutomation, queuedArguments), context, queuedCancellation.Token).AsTask();
+
+            await queuedCancellation.CancelAsync();
+            Assert.Equal(PluginActionOutcome.Rejected, (await queued).Outcome);
+            await firstCancellation.CancelAsync();
+            Assert.Equal(PluginActionOutcome.Unconfirmed, (await first).Outcome);
+            Assert.Single(endpoint.RemoteCalls);
+        });
+    }
+
+    [Theory]
+    [InlineData(false, "Sequence started; appliance state is not verified.")]
+    [InlineData(true, "Sequence ended; appliance state is not verified.")]
+    public async Task SequenceStatusDoesNotClaimEveryStepEmitted(bool wait, string detail)
+    {
+        FakeEndpoint endpoint = new() { Catalog = Catalog() };
+        await WithPlugin(endpoint, async (plugin, context) =>
+        {
+            var result = await InvokeAutomated(plugin, context, "remote-run",
+                ("remote", new PluginValue(Text: "hdmi-switch")),
+                ("sequence", new PluginValue(Text: "android-audio-reset")), ("wait", new PluginValue(wait)));
+
+            Assert.Equal(PluginActionOutcome.Dispatched, result.Outcome);
+            Assert.Equal(detail, result.Detail);
+            Assert.Equal(wait ? 2 : 1, endpoint.Identifications);
+            Assert.Single(endpoint.RemoteCalls);
+        });
+    }
+
+    [Fact]
     public async Task APostPressPauseKeepsTheNextButtonBehindThePowerOffInterval()
     {
         FakeEndpoint endpoint = new() { Catalog = Catalog() };
@@ -268,6 +393,7 @@ public sealed class IrRemoteActionTests
             Assert.Equal(PluginActionOutcome.Dispatched, result.Outcome);
             Assert.Equal(["run hdmi-switch/android-audio-reset"], endpoint.RemoteCalls);
             Assert.Equal(0, endpoint.SequencePolls);
+            Assert.Equal(4, endpoint.Identifications); // Initial identity, two running polls, then the ended flag.
             Assert.False(endpoint.Cancelled);
         });
     }
@@ -277,6 +403,13 @@ public sealed class IrRemoteActionTests
     {
         FakeEndpoint endpoint = new() { Catalog = Catalog(), SequencePolls = 1000 };
         using CancellationTokenSource cancellation = new();
+        endpoint.Identifying = () =>
+        {
+            if (endpoint.Identifications == 2)
+            {
+                cancellation.Cancel();
+            }
+        };
 
         await WithPlugin(endpoint, async (plugin, context) =>
         {
@@ -286,11 +419,13 @@ public sealed class IrRemoteActionTests
             var running = plugin.ExecuteActionAsync(
                 new PluginActionRequest(Guid.NewGuid(), "remote-run", PluginActionOrigin.SessionAutomation, arguments),
                 context, cancellation.Token);
-            await cancellation.CancelAsync();
             var result = await running;
 
             Assert.Equal(PluginActionOutcome.Unconfirmed, result.Outcome);
             Assert.True(endpoint.Cancelled);
+            Assert.Equal(1, endpoint.Cancels);
+            Assert.Equal(2, endpoint.Identifications);
+            Assert.Single(endpoint.RemoteCalls);
         });
     }
 

@@ -109,7 +109,7 @@ internal static class PluginPackageManager
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(removals);
         List<PluginPackageRowState> rows = [];
-        string[] pending = removals.TryRead(out var entries) ? entries : [];
+        var pending = removals.TryRead(out var entries) ? entries : [];
 
         void AddInstalled(string path, string sha256, string id, string name, string version, bool isDevice,
             bool isGpu, IReadOnlyList<SetupComponent> needs, string? refusal)

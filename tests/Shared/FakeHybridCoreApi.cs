@@ -47,11 +47,6 @@ internal sealed class FakeHybridCoreApi : IHybridCoreApi, IPowerSchemeApi
 
     internal int Refreshes { get; private set; }
 
-    public Guid ReadActive()
-    {
-        return Scheme;
-    }
-
     public HybridCoreSupport Query(Guid scheme)
     {
         return new HybridCoreSupport(Classes, Configurable, HeterogeneousPolicies, Policies, Policies);
@@ -76,6 +71,11 @@ internal sealed class FakeHybridCoreApi : IHybridCoreApi, IPowerSchemeApi
         {
             States[onBattery] = state;
         }
+    }
+
+    public Guid ReadActive()
+    {
+        return Scheme;
     }
 
     public Guid? Enumerate(uint index)

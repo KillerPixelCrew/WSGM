@@ -43,7 +43,7 @@ internal sealed class SessionActivation : IDisposable
     internal static EventWaitHandle? TryCreateSignal(string eventName = EventName)
     {
         var handle = UpdateExitWatcher.CreateOrOpenEvent(eventName, "Shell activation", null,
-            clearStaleSignal: false, manualReset: false);
+            false, false);
         if (handle == 0)
         {
             return null;
@@ -51,7 +51,7 @@ internal sealed class SessionActivation : IDisposable
 
         var signal = new EventWaitHandle(false, EventResetMode.AutoReset);
         var unnamed = signal.SafeWaitHandle;
-        signal.SafeWaitHandle = new SafeWaitHandle(handle, ownsHandle: true);
+        signal.SafeWaitHandle = new SafeWaitHandle(handle, true);
         unnamed.Dispose();
         return signal;
     }

@@ -30,7 +30,7 @@ internal static class LabRecovery
         LabMachineState machine,
         bool elevated,
         LabPawnIo pawnIo,
-        Func<LabWorkerClient> worker,
+        Func<ILabWorkerClient> worker,
         Func<DeviceLabOwnerReservationResult> reserve,
         CancellationToken cancellationToken)
     {
@@ -140,7 +140,7 @@ internal static class LabRecovery
     /// <param name="worker">Starts the hardware worker, or returns the running one.</param>
     /// <param name="cancellationToken">Ends the wait for the controller to come back.</param>
     /// <returns>Null when nothing was left or everything was put back; otherwise the problems.</returns>
-    public static string? RestoreController(LabMachineState machine, Func<LabWorkerClient> worker,
+    public static string? RestoreController(LabMachineState machine, Func<ILabWorkerClient> worker,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(machine);
@@ -170,7 +170,7 @@ internal static class LabRecovery
         return modes is null ? restored : restored is null ? modes : $"{restored} {modes}";
     }
 
-    private static string? RestoreControllerMode(LabMachineState machine, LabWorkerClient worker,
+    private static string? RestoreControllerMode(LabMachineState machine, ILabWorkerClient worker,
         LabPendingControllerMode pending, CancellationToken cancellationToken)
     {
         using var init = worker.Open<ILabCuratedInitWorker>(LabCuratedInitWorker.Service.Name, null, (string?)null);

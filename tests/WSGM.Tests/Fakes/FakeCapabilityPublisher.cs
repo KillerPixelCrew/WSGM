@@ -8,6 +8,7 @@ namespace WSGM.Tests.Fakes;
 internal sealed class FakeCapabilityPublisher(params CapabilityRole[] roles) : ICapabilityPublisher
 {
     internal List<CapabilityCommand> Commands { get; } = [];
+    internal Func<CapabilityCommand, CancellationToken, Task<DeviceCommandDispatch>>? Dispatch { get; set; }
 
     public long CycleGeneration => 1;
 
@@ -21,6 +22,11 @@ internal sealed class FakeCapabilityPublisher(params CapabilityRole[] roles) : I
         CancellationToken cancellationToken)
     {
         Commands.Add(command);
+        if (Dispatch is { } dispatch)
+        {
+            return dispatch(command, cancellationToken);
+        }
+
         return Task.FromResult(new DeviceCommandDispatch(new CapabilityCommandResult
         {
             CommandId = command.CommandId,

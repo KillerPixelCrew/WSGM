@@ -14,6 +14,7 @@ internal static class AnimationRules
             setAside.MovieId ??= string.Empty;
             setAside.LocalPath ??= string.Empty;
         }
+
         return [];
     }
 }

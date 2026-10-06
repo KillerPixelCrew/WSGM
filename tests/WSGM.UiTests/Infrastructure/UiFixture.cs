@@ -26,9 +26,9 @@ internal sealed class UiFixture : IDisposable
     private readonly BindingErrors _errors = new();
     private readonly List<IDisposable> _owned = [];
     private readonly ILogSink? _previousSink = Logger.Sink;
+    private readonly string _root = Path.Combine(Path.GetTempPath(), "wsgm-ui-" + Guid.NewGuid().ToString("N"));
     private readonly CultureInfo _uiCulture = CultureInfo.CurrentUICulture;
     private readonly List<Window> _windows = [];
-    private readonly string _root = Path.Combine(Path.GetTempPath(), "wsgm-ui-" + Guid.NewGuid().ToString("N"));
 
     internal UiFixture()
     {
@@ -75,7 +75,7 @@ internal sealed class UiFixture : IDisposable
     ///     The actions a running plugin would declare. Empty means no plugin host, which is
     ///     what a standalone Settings process sees.
     /// </summary>
-    internal IReadOnlyList<SettingsViewModel.PluginActionOption> PluginActions { get; set; } = [];
+    internal IReadOnlyList<PluginActionOption> PluginActions { get; set; } = [];
 
     private OverlayWindow.SessionState Session { get; } = new();
 
@@ -103,7 +103,7 @@ internal sealed class UiFixture : IDisposable
             CultureInfo.CurrentUICulture = _uiCulture;
             if (Directory.Exists(_root))
             {
-                Directory.Delete(_root, recursive: true);
+                Directory.Delete(_root, true);
             }
         }
     }
@@ -203,6 +203,7 @@ internal sealed class UiFixture : IDisposable
                 w.ApplyContentScale(OverlayWindow.ComputeContentScale(uiScale, renderScale, width, height));
             }, uiScale);
         window.SetPins(["home.steam", "home.desktop"]);
+        window.RefreshWindowsPolicies(false, false, false);
         Show(window);
         return window;
     }
@@ -228,6 +229,13 @@ internal sealed class UiFixture : IDisposable
         {
             visual.Transitions = null;
         }
+    }
+
+    internal static DisplayModeAccess ReadOnlyDisplayModes(DisplayModeSnapshot snapshot)
+    {
+        return new DisplayModeAccess(source => Task.FromResult(
+                string.Equals(source, snapshot.Path.SourceName, StringComparison.OrdinalIgnoreCase) ? snapshot : null),
+            (_, _) => throw new InvalidOperationException("A UI fixture must not apply a display mode."));
     }
 
     internal static T Named<T>(Control parent, string name) where T : Control
@@ -264,6 +272,13 @@ internal sealed class UiFixture : IDisposable
         foreach (var section in (scope ?? window).GetVisualDescendants().OfType<CollapsibleSection>()
                  .Where(section => section.IsEffectivelyVisible && !section.IsExpanded).ToArray())
         {
+            // Expander's page transition is separate from Animatable.Transitions and otherwise
+            // leaves a capture midway through the body's fade-in.
+            foreach (var expander in section.GetVisualDescendants().OfType<Expander>())
+            {
+                expander.ContentTransition = null;
+            }
+
             Click(window, section.Heading);
             Assert.True(section.IsExpanded);
             Dispatcher.UIThread.RunJobs();

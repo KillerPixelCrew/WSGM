@@ -46,6 +46,7 @@ internal abstract class ClawJournalledService(string serviceId) : DeviceService<
                 "Not enough time to restore; the original stays recorded for the next start."));
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
             await restoreAsync(restoreSnapshot, cancellationToken).ConfigureAwait(false);
@@ -59,7 +60,7 @@ internal abstract class ClawJournalledService(string serviceId) : DeviceService<
             throw;
         }
 
-        await journal.SetStatusAsync(ServiceId, DeviceRecoveryStatus.RestoredVerified, cancellationToken)
+        await journal.SetStatusAsync(ServiceId, DeviceRecoveryStatus.RestoredVerified, CancellationToken.None)
             .ConfigureAwait(false);
         return Set(DeviceServiceState.Idle);
     }

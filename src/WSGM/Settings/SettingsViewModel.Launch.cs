@@ -4,7 +4,6 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using WindowsDeviceControl;
 using WSGM.Core;
-using WSGM.Plugin.Sdk;
 
 namespace WSGM.Settings;
 
@@ -362,21 +361,5 @@ public sealed partial class SettingsViewModel
         launch.DesktopStartupActions = ActionLists[2].Build();
         launch.DesktopWakeActions = ActionLists[3].Build();
         launch.KnownDisplays = [.. KnownDisplays];
-    }
-
-    /// <summary>One action a running plugin instance offers, for the action lists.</summary>
-    /// <param name="Identity">The plugin instance.</param>
-    /// <param name="Action">The declared action.</param>
-    /// <param name="Label">How to name it in a picker.</param>
-    public sealed record PluginActionOption(
-        PluginInstanceIdentity Identity,
-        PluginAction Action,
-        string Label)
-    {
-        /// <inheritdoc />
-        public override string ToString()
-        {
-            return Label;
-        }
     }
 }

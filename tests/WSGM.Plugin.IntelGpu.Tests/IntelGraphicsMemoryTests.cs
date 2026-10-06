@@ -1,3 +1,5 @@
+using WSGM.Device.Sdk.Lifecycle;
+using WSGM.Plugin.Gpu;
 using WSGM.Plugin.IntelGpu.Graphics;
 using WSGM.Plugin.IntelGpu.Tests.Fakes;
 using Xunit;
@@ -20,6 +22,7 @@ public sealed class IntelGraphicsMemoryTests
     private const ulong ThirtyTwoGigabytes = 33_866_657_792;
 
     private readonly MemoryRegistryNode _hive = new();
+    private static WriteAdmission Admission => new(CancellationToken.None, Deadline.Never, static () => true);
 
     [Fact]
     public void AnIntelAdapterWithThePinningLimitIsFound()
@@ -98,11 +101,24 @@ public sealed class IntelGraphicsMemoryTests
         WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 57);
         var transport = Open();
 
-        Assert.True(transport.TryWrite(44));
+        Assert.True(transport.TryWrite(44, Admission, out _));
 
         // The stored percentage is what reads back; the size the driver reports only follows it after
         // a restart, and the transport does not read it.
         Assert.Equal(44, transport.Read());
+    }
+
+    [Fact]
+    public void CancellationDuringPreparationKeepsTheExistingMemorySetting()
+    {
+        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 57);
+        var transport = Open();
+        using var cancellation = new CancellationTokenSource();
+        var admission = new WriteAdmission(cancellation.Token, Deadline.Never, static () => true);
+        _hive.Create($@"{ClassPath}\0001").BeforeCreateSubKey = cancellation.Cancel;
+
+        Assert.Throws<DriverFailure>(() => transport.TryWrite(44, admission, out _));
+        Assert.Equal(57, transport.Read());
     }
 
     [Theory]
@@ -115,7 +131,7 @@ public sealed class IntelGraphicsMemoryTests
         WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 57);
         var transport = Open();
 
-        Assert.False(transport.TryWrite(percent));
+        Assert.False(transport.TryWrite(percent, Admission, out _));
         Assert.Equal(57, transport.Read());
     }
 
@@ -128,7 +144,7 @@ public sealed class IntelGraphicsMemoryTests
         WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 57);
         var transport = Open();
 
-        Assert.True(transport.TryWrite(percent));
+        Assert.True(transport.TryWrite(percent, Admission, out _));
         Assert.Equal(percent, transport.Read());
     }
 
@@ -171,7 +187,7 @@ public sealed class IntelGraphicsMemoryTests
 
         var transport = Open();
 
-        Assert.True(transport.TryWrite(44));
+        Assert.True(transport.TryWrite(44, Admission, out _));
         Assert.Equal(44, transport.Read());
     }
 
@@ -196,14 +212,52 @@ public sealed class IntelGraphicsMemoryTests
 
         Assert.False(transport.IsAvailable);
         Assert.Null(transport.Read());
-        Assert.False(transport.TryWrite(44));
+        Assert.False(transport.TryWrite(44, Admission, out _));
+    }
+
+    [Fact]
+    public void FailedReadbackDoesNotRefuseAnAcceptedMemoryWrite()
+    {
+        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 57);
+        var transport = Open();
+        var memory = _hive.Create($@"{ClassPath}\0001\GMM");
+        memory.ReadValue = (_, _) => throw new IOException("Fixture read failure.");
+        Assert.True(transport.TryWrite(44, Admission, out var error));
+        Assert.Null(error);
+        memory.ReadValue = null;
+        Assert.Equal(44, transport.Read());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SupportProbeRemainsAcceptedAfterDifferentOrFailedReadback(bool fails)
+    {
+        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 44);
+        var transport = Open();
+        var memory = _hive.Create($@"{ClassPath}\0001\GMM");
+        memory.AfterSetDWord = () => memory.ReadValue = (_, _) =>
+            fails ? throw new IOException("Fixture read failure.") : 57;
+        Assert.True(transport.ProbeSupport(Admission));
+        memory.ReadValue = null;
+        Assert.Equal(44, transport.Read());
+    }
+
+    [Fact]
+    public void RefusedRegistrySetterStillRefusesTheSupportProbe()
+    {
+        WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 44);
+        var transport = Open();
+        _hive.Create($@"{ClassPath}\0001\GMM").BeforeSetDWord = () => throw new UnauthorizedAccessException();
+        Assert.False(transport.ProbeSupport(Admission));
+        Assert.Equal(44, transport.Read());
     }
 
     [Fact]
     public void SupportProbePreservesAnAbsentOverride()
     {
         WriteBareAdapter("0001");
-        Assert.True(Open().ProbeSupport());
+        Assert.True(Open().ProbeSupport(Admission));
         using var adapter = _hive.OpenSubKey($@"{ClassPath}\0001");
         Assert.Null(adapter!.OpenSubKey("GMM"));
     }
@@ -212,7 +266,7 @@ public sealed class IntelGraphicsMemoryTests
     public void SupportProbePreservesTheExactStoredPercentage()
     {
         WriteAdapter("0001", "Intel Corporation", "32.0.101.8992", 44);
-        Assert.True(Open().ProbeSupport());
+        Assert.True(Open().ProbeSupport(Admission));
         Assert.Equal(44, Open().Read());
     }
 

@@ -55,13 +55,24 @@ internal sealed class SetupViewModel : Observable
     private UninstallPage? _uninstall;
 
     public SetupViewModel(SetupOptions options)
+        : this(options, null, new MessagePage("WSGM Setup", "Checking this PC…",
+            "Looking at what is installed and which hardware this is.", ""), [], 0)
+    {
+        _ = DetectAsync();
+    }
+
+    /// <summary>Composes page commands with an already prepared engine and flow.</summary>
+    internal SetupViewModel(SetupOptions options, SetupEngine? engine, Page page,
+        IReadOnlyList<string> flow, int step)
     {
         _options = options;
-        _page = new MessagePage("WSGM Setup", "Checking this PC…",
-            "Looking at what is installed and which hardware this is.", "");
+        _engine = engine;
+        _page = page;
+        _uninstall = page as UninstallPage;
+        _flow.AddRange(flow);
+        _step = step;
         PrimaryCommand = new Command(OnPrimary);
         BackCommand = new Command(OnBack);
-        _ = DetectAsync();
     }
 
     public ObservableCollection<RailStep> Rail { get; } = [];
@@ -399,6 +410,15 @@ internal sealed class SetupViewModel : Observable
             return;
         }
 
+        await RunPlanAsync(steps, uninstall);
+    }
+
+    /// <summary>Runs the engine's prepared steps and publishes their summary when they finish.</summary>
+    internal async Task RunPlanAsync(IReadOnlyList<SetupStep> steps, bool uninstall,
+        Action<Action>? dispatch = null)
+    {
+        var engine = _engine!;
+        dispatch ??= action => Dispatcher.UIThread.Post(action);
         var progress = uninstall ? new ProgressPage("Uninstalling", "Removing WSGM")
             : FinishingDrivers ? new ProgressPage("Finishing", "Installing the controller driver")
             : new ProgressPage("Installing", "Installing WSGM");
@@ -408,7 +428,7 @@ internal sealed class SetupViewModel : Observable
         }
 
         Page = progress;
-        var ok = await Task.Run(() => engine.Run(steps, () => Dispatcher.UIThread.Post(progress.Update)));
+        var ok = await Task.Run(() => engine.Run(steps, () => dispatch(progress.Update)));
         progress.Update();
         GoTo(_step + 1);
         ShowSummary(uninstall, ok, progress);
@@ -424,19 +444,27 @@ internal sealed class SetupViewModel : Observable
             if (engine.StillHiddenDevices.Count > 0)
             {
                 Page = new SummaryPage("Uninstall finished with a problem", "Your controller may still be hidden",
-                    "WSGM is removed, but setup couldn't confirm that HidHide shows these devices again. Setup didn't retry.",
+                    "Setup couldn't confirm that HidHide shows these devices again. Setup didn't retry.",
                     rows,
                     "Open HidHide Configuration Client, go to Devices, and untick:\n"
                     + string.Join("\n", engine.StillHiddenDevices)
-                    + "\nOr reinstall WSGM and uninstall again, which tries once more.",
+                    + "\nOr reinstall WSGM and uninstall again, which tries once more."
+                    + (failed.Length > 0
+                        ? "\n\n" + string.Join("\n", failed.Select(row => $"{row.Step.Label}: {row.Note}"))
+                        : ""),
                     "Close", "");
                 return;
             }
 
-            Page = new SummaryPage("Done", "WSGM is uninstalled",
+            var dataFailed = failed.Any(row => row.Step.Label == "Deleting settings and data");
+            var filesFailed = failed.Any(row => row.Step.Label == "Deleting program files");
+            Page = new SummaryPage(failed.Length > 0 ? "Uninstall finished with a problem" : "Done",
+                filesFailed ? "Some WSGM program files remain" : "WSGM is uninstalled",
                 _uninstall!.KeepData
                     ? "Your settings and data are still there if you install WSGM again."
-                    : "Your settings and data were deleted.",
+                    : dataFailed
+                        ? "Some settings and data could not be deleted. See the details below."
+                        : "Your settings and data were deleted.",
                 rows, string.Join("\n", failed.Select(row => $"{row.Step.Label}: {row.Note}")), "Close", "");
             return;
         }

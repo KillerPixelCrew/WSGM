@@ -64,6 +64,6 @@ public static class BootManifestWriter
     /// <param name="context">The explicit directory receiving the boot manifest.</param>
     public static bool WriteSignInDisabled(AppConfig config, UserDataContext context)
     {
-        return WriteProjection(config, context, startAtSignIn: false);
+        return WriteProjection(config, context, false);
     }
 }

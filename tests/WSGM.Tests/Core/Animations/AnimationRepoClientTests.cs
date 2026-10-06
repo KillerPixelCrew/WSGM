@@ -1,7 +1,7 @@
 using System.Net;
 using WSGM.Core;
 using WSGM.Testing;
-using WSGM.Tests.Core.Themes;
+using WSGM.Tests.Fakes;
 
 namespace WSGM.Tests.Core.Animations;
 
@@ -49,7 +49,7 @@ public sealed class AnimationRepoClientTests
     [Fact]
     public async Task TheClientAsksForEveryPostAndDownloadsAMovieBounded()
     {
-        var handler = new ThemeStoreClientTests.StubHandler(request =>
+        var handler = new StubHttpMessageHandler(request =>
         {
             if (request.RequestUri!.AbsolutePath == "/api/posts/all")
             {
@@ -83,13 +83,13 @@ public sealed class AnimationRepoClientTests
     public async Task RateLimitingAndAnUnreachableRepositoryAreNamed()
     {
         var limited = new AnimationRepoClient(
-            new ThemeStoreClientTests.StubHandler(_ => new HttpResponseMessage((HttpStatusCode)429)),
+            new StubHttpMessageHandler(_ => new HttpResponseMessage((HttpStatusCode)429)),
             "https://repo.example");
         var failure = await Assert.ThrowsAsync<AnimationRepoException>(() => limited.ListAsync(CancellationToken.None));
         Assert.Contains("rate limiting", failure.Message, StringComparison.Ordinal);
 
         var down = new AnimationRepoClient(
-            new ThemeStoreClientTests.StubHandler(_ => throw new HttpRequestException("no route")),
+            new StubHttpMessageHandler(_ => throw new HttpRequestException("no route")),
             "https://repo.example");
         var unreachable =
             await Assert.ThrowsAsync<AnimationRepoException>(() => down.ListAsync(CancellationToken.None));

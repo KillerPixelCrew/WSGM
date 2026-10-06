@@ -37,15 +37,6 @@ internal sealed class LabClawLighting : ILabClawLighting
     public static LabWorkerService Service { get; } = new("claw-lighting", typeof(ILabClawLighting),
         (args, _) => Open(LabWorkerService.Arg<string>(args, 0)));
 
-    // The worker takes the collections from its own copy of the curated record, never from the caller.
-    private static LabClawLighting Open(string? recordId)
-    {
-        var record = DeviceKnowledgeBase.Default.Records.FirstOrDefault(item => item.Id == recordId);
-        return LabPowerPlan.For(record).ClawLighting is { } layout
-            ? new LabClawLighting(layout)
-            : throw new InvalidOperationException("No Claw lighting profile for this device.");
-    }
-
     /// <inheritdoc />
     public void Dispose()
     {
@@ -80,6 +71,15 @@ internal sealed class LabClawLighting : ILabClawLighting
         _lastWrite = DateTime.UtcNow;
         Exchange(request, 0x06);
         return Original().SequenceEqual(profile);
+    }
+
+    // The worker takes the collections from its own copy of the curated record, never from the caller.
+    private static LabClawLighting Open(string? recordId)
+    {
+        var record = DeviceKnowledgeBase.Default.Records.FirstOrDefault(item => item.Id == recordId);
+        return LabPowerPlan.For(record).ClawLighting is { } layout
+            ? new LabClawLighting(layout)
+            : throw new InvalidOperationException("No Claw lighting profile for this device.");
     }
 
     /// <summary>Sets all zones to one test colour while preserving the profile's other bytes.</summary>

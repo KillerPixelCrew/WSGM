@@ -250,14 +250,6 @@ internal sealed partial class WizardWindow
         }
     }
 
-    // A motion step's answers, in the order of its labels.
-    private enum MotionStepAnswer
-    {
-        Keep,
-        Again,
-        Slipped
-    }
-
     // The kept rest step's readings: its gyro means are the zero that movement is measured from.
     private static IReadOnlyList<LabMotionSensorStep>? RestOf(IEnumerable<LabMotionStepRecord?> steps)
     {
@@ -357,5 +349,13 @@ internal sealed partial class WizardWindow
     private static string MotionSentence(string text)
     {
         return text.Length == 0 ? text : char.ToUpperInvariant(text[0]) + text[1..] + ".";
+    }
+
+    // A motion step's answers, in the order of its labels.
+    private enum MotionStepAnswer
+    {
+        Keep,
+        Again,
+        Slipped
     }
 }

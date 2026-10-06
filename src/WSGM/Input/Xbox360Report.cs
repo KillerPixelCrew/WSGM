@@ -62,7 +62,4 @@ internal static class Xbox360Report
         BinaryPrimitives.WriteInt16LittleEndian(destination[10..12], WireScale.Axis16(sample.RightStickX));
         BinaryPrimitives.WriteInt16LittleEndian(destination[12..14], WireScale.Axis16(sample.RightStickY));
     }
-
-
-
 }

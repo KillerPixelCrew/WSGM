@@ -208,7 +208,7 @@ still running after that, stop reports itself unconfirmed and leaves the session
 `ControlLib.dll` open; the call's thread closes them when it returns. A loop still in its pass is
 not forgotten: the next start runs after it, so two passes never overlap.
 
-## Build
+## Setter support
 
 Before publishing UI descriptors, discovery queries capability metadata, reads the controls, then
 checks setters by returning their native settings unchanged. Shared native structures are probed
@@ -223,6 +223,8 @@ inherited, and an absent shared-memory override stays absent. Registry-backed me
 access and round-trips an existing DWORD without creating a default override. FBC is offered only if
 its native read/write round trip succeeds, rather than assuming that hardware support implies setter
 support.
+
+## Build
 
 ```powershell
 dotnet build src/WSGM.Plugin.IntelGpu/WSGM.Plugin.IntelGpu.csproj -c Release

@@ -68,8 +68,8 @@ public sealed class StoreCatalogClient
 
     private readonly Dictionary<string, StoreCatalogEntry?> _answers = new(StringComparer.OrdinalIgnoreCase);
     private readonly Func<string, CancellationToken, Task<string?>> _fetch;
-    private readonly HttpClient? _http;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly HttpClient? _http;
     private readonly Lock _remembered = new();
     private DateTimeOffset _last = DateTimeOffset.MinValue;
 

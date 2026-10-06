@@ -21,7 +21,12 @@ internal static class VisualBaseline
     /// </remarks>
     private const int ChannelTolerance = 2;
 
-    internal static void Verify(Window window, string name)
+    // Skia's stroked arcs can vary at eight edge pixels between otherwise identical renders,
+    // even with transitions disabled. Keep colour tolerance strict and allow only this tiny
+    // raster noise budget; changed text, controls or geometry affect many more pixels.
+    private const int RasterNoisePixels = 8;
+
+    internal static void Verify(Window window, string name, Rect? rasterNoiseRegion = null)
     {
         // Capture resting controls. Focus visuals and caret timing belong to interaction tests.
         window.FocusManager.Focus(null);
@@ -46,7 +51,7 @@ internal static class VisualBaseline
             $"Missing baseline {name}. Review TestResults/ui/{name}/actual.png and use eng/update-ui-baselines.ps1 -Case {name}.");
         var expected = File.ReadAllBytes(baseline);
         File.WriteAllBytes(Path.Combine(artifacts, "expected.png"), expected);
-        var mismatch = Compare(expected, actual, out var diff);
+        var mismatch = Compare(expected, actual, out var diff, rasterNoiseRegion);
         if (diff is not null)
         {
             File.WriteAllBytes(Path.Combine(artifacts, "diff.png"), diff);
@@ -55,7 +60,8 @@ internal static class VisualBaseline
         Assert.True(mismatch is null, $"{name}: {mismatch}. Images: {artifacts}");
     }
 
-    internal static string? Compare(byte[] expectedPng, byte[] actualPng, out byte[]? diff)
+    internal static string? Compare(byte[] expectedPng, byte[] actualPng, out byte[]? diff,
+        Rect? rasterNoiseRegion = null)
     {
         using var expected = SKBitmap.Decode(expectedPng) ?? throw new InvalidDataException("Invalid expected PNG");
         using var actual = SKBitmap.Decode(actualPng) ?? throw new InvalidDataException("Invalid actual PNG");
@@ -71,6 +77,7 @@ internal static class VisualBaseline
         var left = expected.Pixels;
         var right = actual.Pixels;
         var differences = 0;
+        var onlyRasterNoise = rasterNoiseRegion is not null;
         var pixels = new byte[left.Length * 4];
         for (var i = 0; i < left.Length; i++)
         {
@@ -78,6 +85,8 @@ internal static class VisualBaseline
             if (changed)
             {
                 differences++;
+                onlyRasterNoise &= left[i].Alpha == right[i].Alpha &&
+                                   rasterNoiseRegion?.Contains(new Point(i % actual.Width, i / actual.Width)) == true;
             }
 
             pixels[i * 4] = changed ? (byte)255 : (byte)0;
@@ -85,7 +94,7 @@ internal static class VisualBaseline
             pixels[i * 4 + 3] = 255;
         }
 
-        if (differences == 0)
+        if (differences == 0 || (onlyRasterNoise && differences <= RasterNoisePixels))
         {
             return null;
         }

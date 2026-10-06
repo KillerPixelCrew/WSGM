@@ -4,6 +4,7 @@ using Avalonia.Threading;
 using WSGM.Core;
 using WSGM.Overlay;
 using WSGM.Settings;
+using WSGM.Shell;
 using WSGM.UiTests.Fakes;
 using WSGM.UiTests.Infrastructure;
 
@@ -62,8 +63,8 @@ public sealed class VisualTests
     {
         using FakeDevice device = new();
         using UiFixture fixture = new();
-        using PowerSchemeSelection schemes = new(new PowerSchemes(new FakePower()),
-            _ => throw new InvalidOperationException("Unexpected power write"));
+        using PowerSchemeSelection schemes = new(new NativeQamPowerProfileService(new PowerSchemes(new FakePower()),
+            _ => throw new InvalidOperationException("Unexpected power write")));
         await schemes.RefreshAsync();
         var window = fixture.Overlay(width, height, uiScale);
         // Every destination opens its selected section beside a persistent rail. With no device

@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Avalonia.LiveBackdrop;
-
 using static WSGM.Core.AppConfigDefaults;
 
 namespace WSGM.Core;

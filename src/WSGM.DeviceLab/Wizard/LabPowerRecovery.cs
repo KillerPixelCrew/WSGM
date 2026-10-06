@@ -86,7 +86,6 @@ internal sealed record LabPowerRecoveryOutcome(bool Restored, string Message);
 /// <summary>Puts back power, fan and charge settings the power stage recorded.</summary>
 internal static class LabPowerRecovery
 {
-
     /// <summary>
     ///     Puts back every recorded power, fan and charge setting once, reads each back and clears what
     ///     matches. The caller holds the device owner reservation. Blocking; call off the UI thread.
@@ -101,7 +100,7 @@ internal static class LabPowerRecovery
     ///     readback matches. Each item is attempted even when an earlier one failed, and a failed item
     ///     leaves its record for the next start.
     /// </remarks>
-    public static LabPowerRecoveryOutcome RestorePower(LabMachineState machine, LabWorkerClient worker,
+    public static LabPowerRecoveryOutcome RestorePower(LabMachineState machine, ILabWorkerClient worker,
         LabPowerLog log)
     {
         ArgumentNullException.ThrowIfNull(machine);
@@ -167,7 +166,7 @@ internal static class LabPowerRecovery
             : new LabPowerRecoveryOutcome(true, "All changed settings were put back and read back correctly.");
     }
 
-    private static void RestoreAsus(LabMachineState machine, LabWorkerClient worker, LabPowerChanges recorded,
+    private static void RestoreAsus(LabMachineState machine, ILabWorkerClient worker, LabPowerChanges recorded,
         LabPowerPlan plan, LabPowerLog log, List<string> problems)
     {
         if (plan.Asus is not { } layout)
@@ -238,7 +237,7 @@ internal static class LabPowerRecovery
         }
     }
 
-    private static void RestoreMsi(LabMachineState machine, LabWorkerClient worker, LabPowerChanges recorded,
+    private static void RestoreMsi(LabMachineState machine, ILabWorkerClient worker, LabPowerChanges recorded,
         LabPowerPlan plan, LabPowerLog log, List<string> problems)
     {
         if (plan.Msi is not { } layout)
@@ -312,7 +311,7 @@ internal static class LabPowerRecovery
         }
     }
 
-    private static void RestoreAmd(LabMachineState machine, LabWorkerClient worker, LabAmdLimits original,
+    private static void RestoreAmd(LabMachineState machine, ILabWorkerClient worker, LabAmdLimits original,
         LabPowerLog log, List<string> problems)
     {
         try
@@ -349,7 +348,7 @@ internal static class LabPowerRecovery
         }
     }
 
-    private static void RestoreIntel(LabMachineState machine, LabWorkerClient worker, LabIntelLimits original,
+    private static void RestoreIntel(LabMachineState machine, ILabWorkerClient worker, LabIntelLimits original,
         LabPowerLog log, List<string> problems)
     {
         try

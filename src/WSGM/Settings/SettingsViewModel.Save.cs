@@ -362,7 +362,7 @@ public sealed partial class SettingsViewModel
         }
 
         var services = _services;
-        return Task.Run<Exception?>(() =>
+        return Task.Run(() =>
         {
             Exception? shimFailure = null;
             if (changes.Shim)

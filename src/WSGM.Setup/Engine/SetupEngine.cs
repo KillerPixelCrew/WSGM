@@ -7,6 +7,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
 using WSGM.Install;
+using WSGM.Shared;
 
 namespace WSGM.Setup.Engine;
 
@@ -74,9 +75,45 @@ internal sealed record UninstallChoices(bool KeepData, bool RemoveUsbip, bool Re
 /// </summary>
 internal sealed class SetupEngine : IDisposable
 {
-    private readonly string _root;
+    private readonly Func<string, bool> _delete;
     private readonly string _machineData;
+    private readonly string _root;
+    private readonly IRuntimeShutdown _runtime;
+    private readonly Action _unregister;
     private readonly string _userData;
+    private bool _controllerRestored;
+    private SetupFileTransaction? _files;
+    private Mutex? _owner;
+    private bool _runtimeCaptured;
+    private string? _runtimeExe;
+    private bool _runtimeWasRunning;
+    private bool _runtimeWasShell;
+    private ServiceState _service;
+    private bool _shutdownApplied;
+    private bool _swapped;
+    private string? _uninstallExe;
+    private bool _uninstallPrepared;
+
+    /// <summary>An engine that has read nothing yet; <see cref="Detect" /> is the real entry point.</summary>
+    /// <param name="payload">The payload, or null for a setup that carries none.</param>
+    /// <param name="runtime">The operations that stop WSGM, its service and Steam.</param>
+    /// <param name="root">The installation root.</param>
+    /// <param name="machineData">The machine record directory.</param>
+    /// <param name="userData">The user's WSGM data directory.</param>
+    /// <param name="delete">Deletes files now or schedules them for reboot; null uses Windows.</param>
+    /// <param name="unregister">Removes setup's Windows registration and shortcuts; null uses Windows.</param>
+    internal SetupEngine(SetupPayload? payload, IRuntimeShutdown runtime, string root, string machineData,
+        string userData, Func<string, bool>? delete = null, Action? unregister = null)
+    {
+        Payload = payload;
+        _runtime = runtime;
+        _delete = delete ?? WindowsSetup.DeleteOrScheduleAtReboot;
+        _unregister = unregister ?? WindowsSetup.RemoveSetupRegistration;
+        _root = Path.GetFullPath(root);
+        _machineData = Path.GetFullPath(machineData);
+        _userData = Path.GetFullPath(userData);
+    }
+
     private string App => Path.Combine(_root, "App");
     private string AppExe => Path.Combine(App, "WSGM.exe");
     private string AppStaging => App + ".staging";
@@ -88,35 +125,6 @@ internal sealed class SetupEngine : IDisposable
     private string InstalledBundle => Path.Combine(_machineData, "bundle.json");
     private string ComponentsFile => Path.Combine(_machineData, "components.json");
     private string PendingPluginRemovals => Path.Combine(_machineData, "plugin-removals.json");
-    private readonly IRuntimeShutdown _runtime;
-    private bool _controllerRestored;
-    private SetupFileTransaction? _files;
-    private Mutex? _owner;
-    private bool _runtimeCaptured;
-    private string? _runtimeExe;
-    private bool _runtimeWasRunning;
-    private bool _runtimeWasShell;
-    private ServiceState _service;
-    private bool _shutdownApplied;
-    private bool _swapped;
-    private bool _uninstallPrepared;
-    private string? _uninstallExe;
-
-    /// <summary>An engine that has read nothing yet; <see cref="Detect" /> is the real entry point.</summary>
-    /// <param name="payload">The payload, or null for a setup that carries none.</param>
-    /// <param name="runtime">The operations that stop WSGM, its service and Steam.</param>
-    /// <param name="root">The installation root.</param>
-    /// <param name="machineData">The machine record directory.</param>
-    /// <param name="userData">The user's WSGM data directory.</param>
-    internal SetupEngine(SetupPayload? payload, IRuntimeShutdown runtime, string root, string machineData,
-        string userData)
-    {
-        Payload = payload;
-        _runtime = runtime;
-        _root = Path.GetFullPath(root);
-        _machineData = Path.GetFullPath(machineData);
-        _userData = Path.GetFullPath(userData);
-    }
 
     public SetupPayload? Payload { get; }
 
@@ -429,7 +437,7 @@ internal sealed class SetupEngine : IDisposable
         if (!choices.KeepData)
         {
             steps.Add(new SetupStep("Deleting settings and data", "Settings and data deleted", false,
-                step => DeleteUserData(step, _userData, WindowsSetup.DeleteOrScheduleAtReboot)));
+                step => DeleteUserData(step, _userData, _delete)));
         }
 
         return steps;
@@ -986,12 +994,12 @@ internal sealed class SetupEngine : IDisposable
         }
 
         var code = _runtime.Run(app, "--restore-steam-content");
-        if (code == WSGM.Shared.SessionProtocolNames.SteamStartupMovieStillSetAside)
+        if (code == SessionProtocolNames.SteamStartupMovieStillSetAside)
         {
             // WSGM could not give Steam's own Startup Movie choice back before it closed.
             step.Note = "Choose your startup movie again in Steam: Settings > Customization > Startup Movie.";
             SetupLog.Warn("Uninstall: Steam's own Startup Movie choice is still set aside; "
-                           + "choose it again in Steam under Settings > Customization > Startup Movie.");
+                          + "choose it again in Steam under Settings > Customization > Startup Movie.");
             return true;
         }
 
@@ -1039,18 +1047,11 @@ internal sealed class SetupEngine : IDisposable
 
     private bool DeleteProgramFiles(SetupStep step)
     {
-        var programs = Environment.GetFolderPath(Environment.SpecialFolder.Programs);
-        foreach (var shortcut in new[] { "WSGM.lnk", "WSGM Settings.lnk" })
-        {
-            File.Delete(Path.Combine(programs, shortcut));
-            File.Delete(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), shortcut));
-        }
-
-        Registration.Unregister();
+        _unregister();
         File.Delete(InstalledBundle);
         File.Delete(ComponentsFile);
         File.Delete(PendingPluginRemovals);
-        var deleted = DeleteAll(step, [Plugins, App, AppPrevious, AppStaging], WindowsSetup.DeleteOrScheduleAtReboot);
+        var deleted = DeleteAll(step, [Plugins, App, AppPrevious, AppStaging], _delete);
         SelfDeleteAfterExit();
         return deleted;
     }
@@ -1099,7 +1100,7 @@ internal sealed class SetupEngine : IDisposable
         if (!Path.GetFullPath(self).StartsWith(Path.TrimEndingDirectorySeparator(_root) + Path.DirectorySeparatorChar,
                 StringComparison.OrdinalIgnoreCase))
         {
-            WindowsSetup.DeleteOrScheduleAtReboot(SetupDirectory);
+            _delete(SetupDirectory);
             TryRemoveEmpty(_root);
             return;
         }
@@ -1132,7 +1133,7 @@ internal sealed class SetupEngine : IDisposable
     {
         if (_swapped && Directory.Exists(AppPrevious))
         {
-            WindowsSetup.DeleteOrScheduleAtReboot(AppPrevious);
+            _delete(AppPrevious);
         }
 
         _owner?.Dispose();

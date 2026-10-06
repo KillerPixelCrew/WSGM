@@ -14,17 +14,11 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 // This checks the shipped JavaScript only. The order of a cold Steam start (shim reconcile, CEF
 // flag, process start) is C# behaviour and belongs in WSGM.Tests, not in a regex over source text.
 // Never launch live Steam here.
-const resolver = readFileSync(
-  resolve(
-    root,
-    "external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiAssets/Source/module-resolver.ts",
-  ),
+const composedAsset = readFileSync(
+  resolve(root, "src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js"),
   "utf8",
 );
-const resident = (file) =>
-  readFileSync(resolve(root, "src/WSGM/Core", file), "utf8").match(
-    /private const string ResidentSetup = """\s*([\s\S]*?)\s*""";/u,
-  )[1];
+const resolver = fragment(composedAsset, "module-resolver.ts");
 
 function fixture() {
   const calls = [];
@@ -36,7 +30,9 @@ function fixture() {
     react(_module, exports) {
       // react.transitional.element useState cloneElement createElement
       Object.assign(exports, {
-        createElement() {},
+        createElement(type, props, ...children) {
+          return { type, props: { ...props, children } };
+        },
         useMemo(factory) {
           return factory();
         },
@@ -68,26 +64,19 @@ function fixture() {
   }
   runtime.m = factories;
   const window = { webpackChunksteamui: { push: (chunk) => chunk[2](runtime) } };
-  const steamModules = runInNewContext(`(${resolver})("fixture")`, { window });
+  const steamModules = runInNewContext(`${resolver}\ncreateSteamUiModuleResolver("fixture")`, {
+    window,
+  });
   return { window, factories, calls, cache, steamModules };
 }
 
-const tabs = resident("SteamLibraryTabs.cs").replaceAll(
-  "__WSGM_BRIDGE_NAMESPACE__",
-  JSON.stringify("__bridge_fixture"),
-);
-const composedAsset = readFileSync(
-  resolve(root, "src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js"),
-  "utf8",
-);
 // WSGM's whole library-tabs fragment over the toolkit's shared fragments it builds on.
 const libraryClaim = fragment(composedAsset, "consumer/library-tabs.ts");
-const withLibraryGate = (f) => {
+const withLibraryGate = () => {
   const api = new Function(
     "registerGate",
     `${sharedFragments(composedAsset)}\n${libraryClaim}\nreturn { gate: libraryTabsClaim, interceptMemo, releaseMemo };`,
   )(() => {});
-  f.window.__bridge_fixture = { gate: (name) => (name === "wsgmLibraryTabs" ? api.gate : null) };
   return api;
 };
 // WSGM's download-sort gate, whole and without its registration, over the shared fragments it
@@ -131,7 +120,11 @@ const JsxTokens = ["react.transitional.element", ".jsx", ".jsxs"];
     { sectionTitle: "#Downloads_Section_Current", count: 2, labelId: "q" },
     "k",
   );
-  assert.equal(created.length, 2, "the queue header must be created once, through the runtime");
+  assert.equal(
+    created.filter((entry) => entry.props?.sectionTitle === "#Downloads_Section_Current").length,
+    1,
+    "the queue header must be created once, through the runtime",
+  );
   assert.equal(created[1].props.style.flex, "1 1 auto");
   assert.equal(created[1].key, "k");
   assert.equal(gate.remove().ok, true);
@@ -195,16 +188,9 @@ for (const state of ["missing", "ambiguous"]) {
   assert.match(result.error, /absent|ambiguous/u);
   assert.deepEqual(f.calls, []);
 }
-for (const state of ["missing", "ambiguous"]) {
-  const f = fixture();
-  if (state === "missing") delete f.factories.react;
-  else f.factories.duplicateReact = f.factories.react;
-  assert.throws(() => runInNewContext(tabs, f), /absent|ambiguous/u);
-  assert.deepEqual(f.calls, []);
-}
 {
   const f = fixture();
-  const api = withLibraryGate(f);
+  const api = withLibraryGate();
   const react = f.steamModules.resolve([
     "react.transitional.element",
     "useState",
@@ -213,12 +199,14 @@ for (const state of ["missing", "ambiguous"]) {
   ]);
   const original = react.useMemo;
   api.interceptMemo(react, "another-consumer", (value) => value);
-  f.calls.length = 0;
-  runInNewContext(tabs, f);
-  assert.equal(f.window.__wsgm.tabsInstalled, true);
-  assert.deepEqual(f.calls, ["react"]);
-  f.window.__wsgm.suspendTabs();
-  assert.equal(f.window.__wsgm.tabsInstalled, false);
+  const transform = (value) => [...value, "library-tab"];
+  assert.equal(api.gate.install(react, transform).ok, true);
+  assert.equal(api.gate.status().installed, true);
+  assert.deepEqual(Array.from(react.useMemo(() => ["native-tab"])), ["native-tab", "library-tab"]);
+  assert.equal(api.gate.install(react, transform).ok, true);
+  assert.deepEqual(Array.from(react.useMemo(() => ["native-tab"])), ["native-tab", "library-tab"]);
+  assert.equal(api.gate.remove().ok, true);
+  assert.equal(api.gate.status().installed, false);
   assert.notEqual(
     react.useMemo,
     original,
@@ -226,6 +214,13 @@ for (const state of ["missing", "ambiguous"]) {
   );
   api.releaseMemo(react, "another-consumer");
   assert.equal(react.useMemo, original, "the last consumer restores the native memo method");
+  assert.equal(api.gate.install(react, transform).ok, true);
+  assert.equal(api.gate.remove().ok, true);
+  assert.equal(
+    react.useMemo,
+    original,
+    "reinstalling and removing the library leaves native memo intact",
+  );
 }
 console.log(
   "Steam module discovery: unrelated factories stay untouched; missing and ambiguous matches refuse; hooks restore.",

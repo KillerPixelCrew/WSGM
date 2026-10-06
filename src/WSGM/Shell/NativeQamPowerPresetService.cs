@@ -44,7 +44,7 @@ internal sealed class NativeQamPowerPresetService(DevicePowerPresets? presets, D
         {
             // Values that match none of the presets: listed where they are the current assignment,
             // never offered as a choice.
-            options = [.. options, new SteamPowerProfileOption("custom", "Custom", Selectable: false)];
+            options = [.. options, new SteamPowerProfileOption("custom", "Custom", false)];
         }
 
         var current = state.Presets.FirstOrDefault(item => item.Id == state.Current)?.Name

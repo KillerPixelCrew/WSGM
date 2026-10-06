@@ -329,6 +329,7 @@ public sealed class LabWorkerSessionTests
         session.Release(token);
         Assert.Throws<InvalidOperationException>(() => session.Release(token));
     }
+
     private (LabWorkerSession Session, FakeService Service) Open()
     {
         FakeService service = new();
@@ -364,6 +365,7 @@ public sealed class LabWorkerSessionTests
 
         int Read(int value);
     }
+
     internal interface IFakeNullService : IDisposable
     {
         [LabWorkerSnapshot]

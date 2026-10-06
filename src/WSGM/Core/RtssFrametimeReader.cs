@@ -111,7 +111,6 @@ internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
     private const long MaximumAgeMs = 2000;
 
     /// <summary>Upper bound on entries walked, whatever the header claims.</summary>
-
     private bool _disposed;
 
     private MemoryMappedFile? _map;

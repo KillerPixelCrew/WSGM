@@ -55,6 +55,11 @@ internal sealed class ProfileFanOut : IDisposable
         }
     }
 
+    public void Dispose()
+    {
+        Close();
+    }
+
     /// <summary>Stops accepting work and cancels the pass without waiting for its consumer.</summary>
     internal void Close()
     {
@@ -75,8 +80,6 @@ internal sealed class ProfileFanOut : IDisposable
         TryCancel(_shutdown);
         TryCancel(active);
     }
-
-    public void Dispose() => Close();
 
     /// <summary>Queues a snapshot for every consumer.</summary>
     /// <param name="snapshot">The snapshot.</param>

@@ -238,7 +238,8 @@ internal sealed class TouchSwipeMonitor : IDisposable
         Dispatcher.UIThread.Post(() =>
         {
             Interlocked.Exchange(ref _dispatchPending, 0);
-            if (_disposed)
+            // Opening a surface can disarm the monitor after recognition but before this post runs.
+            if (_disposed || !_armed)
             {
                 return;
             }

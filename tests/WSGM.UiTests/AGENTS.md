@@ -3,8 +3,7 @@
 This suite runs the real Overlay and Settings XAML on Avalonia's headless platform with Skia.
 
 - Tests sit under Overlay, Settings and Shell; fixtures under Infrastructure, captures under Visual and fakes under
-  Fakes, which links the button source fake from WSGM.Tests. Fakes both suites share, such as the hybrid core API
-  fake, live in tests/Shared.
+  Fakes. Fakes both suites share, including the button source and hybrid core API, live in tests/Shared.
 - Use `UiFixture` and explicit dependencies. Never construct production Settings services, run
   `Program.Main` or `App.OnFrameworkInitializationCompleted`, initialize `Log`, or start native input, Steam, display,
   shell, power or device services. `SystemStatus` may be constructed but not started.

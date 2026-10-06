@@ -7,19 +7,22 @@
 // see, and each would have shown up here in seconds.
 //
 // It is a DIAGNOSTIC, not a second implementation. The bootstrap source, the asset hash, the
-// allowlist and the config shape are all read from the repository rather than restated, so a drift
-// between what this exercises and what WSGM ships is not possible in the direction that matters:
-// if the harness passes and the product fails, the difference is the host, not the script.
+// allowlist and config are emitted by the real C# bridge over a fake transport. The fixture covers
+// the modules declared by that host; absent optional backends are not added by the harness.
 //
 // Usage:
-//   node qam-harness.mjs status                 what is installed right now
-//   node qam-harness.mjs install                inject the bridge and install every namespace
-//   node qam-harness.mjs publish <file.json>    publish {patchId: state} to the bridge
-//   node qam-harness.mjs remove                 remove the namespaces and dispose the bridge
+//   node qam-harness.mjs --configuration <fixture.json> status
+//   node qam-harness.mjs --configuration <fixture.json> install
+//   node qam-harness.mjs --configuration <fixture.json> publish <file.json>
+//   node qam-harness.mjs --configuration <fixture.json> remove
 //   node qam-harness.mjs screenshot [file.png]  capture the visible Big Picture window
 //
+// To emit a fixture during the permitted test phase, set WSGM_QAM_CONFIGURATION to an absolute
+// output path and run SteamUiSessionHostTests.EmittedBridgeConfigurationMatchesTheEmbeddedAsset.
+// A fixture whose asset hash differs from the current asset is refused before connecting.
+//
 // It never runs WSGM and never touches configuration. It talks to Steam's debug port only.
-import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,25 +37,6 @@ const assetPath = join(
   "SteamUiAssets",
   "NativeQamBootstrap.js",
 );
-const toolkitRoot = join(repositoryRoot, "external", "steam-ui-toolkit", "src", "SteamUiToolkit");
-const bridgeIdentityPath = join(toolkitRoot, "SteamUiBridgeIdentity.cs");
-const bridgeSourcePath = join(toolkitRoot, "SteamUiBridge.cs");
-const surfacesDirectory = join(toolkitRoot, "Surfaces");
-const pluginSurfaceDirectories = readdirSync(join(repositoryRoot, "src"), { withFileTypes: true })
-  .filter((entry) => entry.isDirectory() && entry.name.startsWith("WSGM.Plugin."))
-  .map((entry) => join(repositoryRoot, "src", entry.name));
-const sessionHostPath = join(repositoryRoot, "src", "WSGM", "Shell", "SteamUiSessionHost.cs");
-
-// These are read from source rather than copied. The allowlist in particular is what a new control
-// forgets: a patch id missing here makes subscribe() throw "subscription not allowlisted" during
-// render, which Steam's error boundary turns into a blank tab rather than a missing row.
-const readSourceConstant = (path, pattern, what) => {
-  const source = readFileSync(path, "utf8");
-  const match = source.match(pattern);
-  if (!match) throw new Error(`could not read ${what} from ${path}`);
-  return match[1];
-};
-
 // Every value spliced into a script string handed to session.evaluate() goes through this rather
 // than a bare JSON.stringify. Today's inputs are all trusted (constants parsed from this repository's
 // own source, or a JSON file the developer running the harness passes on the command line), but
@@ -74,63 +58,58 @@ const scriptEscapePattern = new RegExp(`[<>/${lineSeparator}${paragraphSeparator
 const stringifyForScript = (value) =>
   JSON.stringify(value).replace(scriptEscapePattern, (char) => scriptEscapes[char]);
 
-// Every surface the toolkit ships declares its patch id and its exact command vocabulary as two
-// constants, which is the same pair its module puts on the bridge. WSGM's only addition is the
-// shell module, which has no toolkit surface behind it.
-const readAllowlist = () => {
-  const allowed = {};
-  for (const directory of [surfacesDirectory, ...pluginSurfaceDirectories]) {
-    for (const name of readdirSync(directory).filter((entry) => entry.endsWith(".cs"))) {
-      const source = readFileSync(join(directory, name), "utf8");
-      const id = source.match(/public const string PatchId = "([^"]+)"/);
-      const commands = source.match(/Commands \{ get; \} =\s*\[([\s\S]*?)\];/);
-      if (!id || !commands) continue;
-      allowed[id[1]] = [...commands[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]);
-    }
-  }
-  allowed[
-    readSourceConstant(sessionHostPath, /private const string ShellPatchId = "([^"]+)"/, "shell id")
-  ] = ["toggleQuickAccess"];
-
-  if (Object.keys(allowed).length < 12) {
-    throw new Error(`the allowlist parsed only ${Object.keys(allowed).length} surfaces`);
-  }
-  return allowed;
-};
-
 const asset = readFileSync(assetPath, "utf8");
-const allowlist = readAllowlist();
-const configuration = {
-  version: Number(
-    readSourceConstant(
-      bridgeSourcePath,
-      /public const int SchemaVersion = (\d+)/,
-      "schema version",
-    ),
-  ),
-  namespace: readSourceConstant(
-    bridgeIdentityPath,
-    /public const string Namespace = "([^"]+)"/,
-    "the bridge namespace",
-  ),
-  binding: readSourceConstant(
-    bridgeIdentityPath,
-    /public const string BindingName = "([^"]+)"/,
-    "the binding name",
-  ),
-  // The product pins the asset's own hash so a changed script replaces a running bridge. The
-  // harness does the same, for the same reason: without it an edit appears to do nothing.
-  assetHash: createHash("sha256")
-    .update(asset)
-    .update(JSON.stringify(allowlist))
-    .digest("hex")
-    .toUpperCase(),
-  contextGeneration: 1,
-  documentGeneration: 1,
-  maximumPending: 32,
-  timeoutMilliseconds: 5000,
-  allowed: allowlist,
+const args = process.argv.slice(2);
+let configurationPath;
+if (args[0] === "--configuration") {
+  args.shift();
+  configurationPath = args.shift();
+}
+const [command, argument] = args;
+const readConfiguration = () => {
+  if (!configurationPath) {
+    throw new Error("Pass --configuration <fixture.json> emitted by SteamUiSessionHostTests.");
+  }
+  const emitted = JSON.parse(readFileSync(configurationPath, "utf8"));
+  const hash = createHash("sha256").update(asset).digest("hex").toUpperCase();
+  if (emitted.assetHash !== hash) {
+    throw new Error("The C# bridge fixture does not match the current asset; emit it again.");
+  }
+  if (
+    typeof emitted.namespace !== "string" ||
+    typeof emitted.binding !== "string" ||
+    typeof emitted.allowed !== "object" ||
+    emitted.allowed === null ||
+    Array.isArray(emitted.allowed) ||
+    !Object.values(emitted.allowed).every(
+      (commands) => Array.isArray(commands) && commands.every((name) => typeof name === "string"),
+    ) ||
+    !Number.isSafeInteger(emitted.version) ||
+    emitted.version <= 0 ||
+    typeof emitted.vocabularyRevision !== "string"
+  ) {
+    throw new Error("The fixture is not an emitted C# bridge configuration.");
+  }
+  return emitted;
 };
+// Screenshots need no bridge or vocabulary and retain their standalone invocation.
+const configuration = command === "screenshot" ? null : readConfiguration();
+// Installation follows the emitted host's optional backends. These are gate-to-state identities,
+// not a command allowlist: only the emitted configuration admits a state or command.
+const optionalGatePatches = new Map([
+  ["audio", "steam-ui.audio"],
+  ["network", "steam-ui.network"],
+  ["bluetooth", "steam-ui.bluetooth"],
+  ["brightness", "steam-ui.brightness"],
+  ["extensionsTab", "steam-ui.extensions-tab"],
+  ["gameContextMenu", "steam-ui.game-context-menu"],
+  ["artworkBrowser", "wsgm.artwork-browser"],
+  ["libraryImport", "wsgm.library-import"],
+  ["wsgmSettings", "wsgm.settings"],
+  ["wsgmGraphics", "wsgm.graphics"],
+  ["navigationPanel", "steam-ui.navigation-panel"],
+  ["pages", "steam-ui.pages"],
+]);
 const componentKinds = [
   "autoTdp",
   "frameLimit",
@@ -312,6 +291,11 @@ const install = async (session) => {
     "navigationPanel",
     "pages",
   ]) {
+    const patchId = optionalGatePatches.get(gate);
+    if (patchId && !Object.hasOwn(configuration.allowed, patchId)) {
+      console.log(`  ${gate.padEnd(11)} not declared by the emitted host`);
+      continue;
+    }
     const outcome = await session.evaluate(
       `(()=>{const b=${bridge};const g=b&&b.gate?b.gate(${stringifyForScript(gate)}):null;` +
         `if(!g)return 'absent';try{return JSON.stringify(g.install());}catch(e){return String(e);}})()`,
@@ -371,8 +355,8 @@ const publish = async (session, file) => {
 };
 
 const navigate = async (session, route) => {
-  if (typeof route !== "string" || !/^\/[a-z0-9/_:-]+$/iu.test(route) || route.length > 256) {
-    throw new Error("navigate requires one bounded Steam route");
+  if (typeof route !== "string" || !/^\/[a-z0-9/_:-]+$/iu.test(route)) {
+    throw new Error("navigate requires one Steam route");
   }
 
   const outcome = await session.evaluate(
@@ -452,7 +436,6 @@ const screenshot = async (file) => {
   throw lastError;
 };
 
-const [command, argument] = process.argv.slice(2);
 if (command === "screenshot") {
   await screenshot(argument || "qam.png");
   process.exit(0);

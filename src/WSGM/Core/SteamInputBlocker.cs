@@ -30,14 +30,14 @@ internal sealed class SteamInputBlocker(SteamInputShim shim, Func<ISteamInputLea
 
     private static int _nextOwnerId;
 
-    private readonly Lock _sync = new();
-    private readonly Lock _ownersSync = new();
-
     // The lease itself is process-wide, but several WSGM surfaces can need it at
     // the same time (the quick-access sheet and the settings window opened from
     // it). Each names itself here, so one surface closing cannot take the
     // controller away from another that is still on screen; see docs\steam-input.md.
     private readonly HashSet<string> _owners = new(StringComparer.Ordinal);
+    private readonly Lock _ownersSync = new();
+
+    private readonly Lock _sync = new();
 
     private ISteamInputLeaseHandle? _lease;
 

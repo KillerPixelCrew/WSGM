@@ -62,7 +62,7 @@ internal static class NativeQamUi
             detail = outOfRange;
         }
 
-        return NativeQamUi.Text(detail);
+        return Text(detail);
     }
 
     /// <summary>The Steam command result for a finished device command.</summary>
@@ -216,23 +216,6 @@ internal sealed class PerformanceServiceNativeQamAdapter :
         return Task.FromResult(SetRefreshRate(hz));
     }
 
-    /// <summary>Applies a refresh rate from either of Steam's refresh controls.</summary>
-    /// <param name="hz">The rate the control sent.</param>
-    /// <returns>Success, or the refusal with its reason.</returns>
-    private SteamUiCommandResult SetRefreshRate(int hz)
-    {
-        if (ApplyRefreshRate is null)
-        {
-            const string reason = "This session cannot change the refresh rate.";
-            Log.Warn($"Native QAM refresh rate {hz} Hz refused: {reason}");
-            return new SteamUiCommandResult(false, reason);
-        }
-
-        return ApplyRefreshRate(hz)
-            ? new SteamUiCommandResult(true, null)
-            : new SteamUiCommandResult(false, $"The display refused {hz} Hz.");
-    }
-
     /// <inheritdoc />
     /// <remarks>
     ///     Failures are collected rather than aborting: refusing the rest of a delta because one field
@@ -337,6 +320,23 @@ internal sealed class PerformanceServiceNativeQamAdapter :
         const string reason = "This device publishes no variable-refresh capability.";
         Log.Warn($"Native QAM variable refresh {(enabled ? "on" : "off")} refused: {reason}");
         return Task.FromResult(new SteamUiCommandResult(false, reason));
+    }
+
+    /// <summary>Applies a refresh rate from either of Steam's refresh controls.</summary>
+    /// <param name="hz">The rate the control sent.</param>
+    /// <returns>Success, or the refusal with its reason.</returns>
+    private SteamUiCommandResult SetRefreshRate(int hz)
+    {
+        if (ApplyRefreshRate is null)
+        {
+            const string reason = "This session cannot change the refresh rate.";
+            Log.Warn($"Native QAM refresh rate {hz} Hz refused: {reason}");
+            return new SteamUiCommandResult(false, reason);
+        }
+
+        return ApplyRefreshRate(hz)
+            ? new SteamUiCommandResult(true, null)
+            : new SteamUiCommandResult(false, $"The display refused {hz} Hz.");
     }
 
     /// <summary>The cap the enable toggle applies when no cap is set yet.</summary>
@@ -705,7 +705,7 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
                 Unified = _coordinator?.ManualTdpUnified == true,
                 CanSelectMode = _coordinator?.ManualTdpMode.Available == true,
                 ModeAccent =
-                    CapabilityProjection.OverrideId(layers, new ProfileSettingKey(ProfileField.TdpUnified)) is not null
+                CapabilityProjection.OverrideId(layers, new ProfileSettingKey(ProfileField.TdpUnified)) is not null
             };
         }
     }
@@ -1268,8 +1268,7 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService :
         string.Empty,
         string.Empty,
         string.Empty,
-        UnavailableDetail,
-        false);
+        UnavailableDetail);
 
     private readonly DeviceCoordinator? _coordinator;
     private bool _disposed;
@@ -1374,8 +1373,7 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService :
                 string.Empty,
                 string.Empty,
                 string.Empty,
-                NativeQamUi.Text(status.Detail),
-                false);
+                NativeQamUi.Text(status.Detail));
         }
 
         // Only what the backend can actually build. These are WSGM's own virtual devices rather

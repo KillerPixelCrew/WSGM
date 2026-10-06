@@ -201,4 +201,161 @@ public sealed class IrLibraryTests
         Assert.Equal(PluginActionOutcome.Rejected, result.Outcome);
         Assert.True(await plugin.StopAsync(context, CancellationToken.None));
     }
+
+    [Theory]
+    [InlineData("library.json")]
+    [InlineData("endpoint.json")]
+    public async Task UnreadableOrCorruptStatePreventsStartupAndKeepsTheOriginalFile(string filename)
+    {
+        using TemporaryDirectory temporary = new();
+        var path = temporary.GetPath(filename);
+        var context = Context(temporary.Root);
+        await File.WriteAllTextAsync(path, "original unreadable state");
+        var original = await File.ReadAllBytesAsync(path);
+        FakeEndpoint endpoint = new();
+        await using IrPlugin plugin = new(_ => endpoint);
+        await using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            await Assert.ThrowsAsync<IOException>(() =>
+                plugin.StartAsync(new RecordingPluginHost(), context, CancellationToken.None).AsTask());
+        }
+
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            plugin.StartAsync(new RecordingPluginHost(), context, CancellationToken.None).AsTask());
+        Assert.Equal(PluginActionOutcome.Rejected, (await Invoke(plugin, context, "learn")).Outcome);
+        Assert.Equal(original, await File.ReadAllBytesAsync(path));
+        Assert.Equal(0, endpoint.Identifications);
+    }
+
+    [Theory]
+    [InlineData("library.json")]
+    [InlineData("endpoint.json")]
+    public async Task ADirectoryAtTheStatePathIsNotAnAbsentFile(string filename)
+    {
+        using TemporaryDirectory temporary = new();
+        var path = temporary.GetPath(filename);
+        Directory.CreateDirectory(path);
+        var context = Context(temporary.Root);
+        await using IrPlugin plugin = new(_ => new FakeEndpoint());
+
+        await Assert.ThrowsAsync<IOException>(() =>
+            plugin.StartAsync(new RecordingPluginHost(), context, CancellationToken.None).AsTask());
+
+        Assert.True(Directory.Exists(path));
+        Assert.Equal(PluginActionOutcome.Rejected, (await Invoke(plugin, context, "learn")).Outcome);
+    }
+
+    [Fact]
+    public async Task MissingStateLoadsEmptyAndUnpaired()
+    {
+        using TemporaryDirectory temporary = new();
+        var library = await IrLibrary.LoadAsync(temporary.GetPath("missing/library.json"), CancellationToken.None);
+        Assert.Empty(library.Commands);
+        Assert.Empty(library.Scenes);
+        Assert.Null(await IrPairing.LoadAsync(temporary.GetPath("missing/endpoint.json"), CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task LaterSceneRefusalKeepsTheEarlierEmissionUnconfirmed()
+    {
+        using TemporaryDirectory temporary = new();
+        var context = Context(temporary.Root);
+        IrLibrary library = new(1, [
+            new IrCommand("power", "TV", "Power", new IrPayload(38000, [9000, 4500]))
+        ], [new IrScene("twice", "Twice", [new IrSceneStep("power"), new IrSceneStep("power")])]);
+        await library.SaveAsync(temporary.GetPath("library.json"), CancellationToken.None);
+        FakeEndpoint endpoint = new();
+        endpoint.Transmitted = () => endpoint.TransmitFailure = new IrRejectedException("busy");
+        await using IrPlugin plugin = new(_ => endpoint);
+        await plugin.StartAsync(new RecordingPluginHost(), context, CancellationToken.None);
+        await plugin.ConfigureAsync(Configuration("COM3"), context, CancellationToken.None);
+
+        var result = await InvokeAutomated(plugin, context, "scene", ("scene", new PluginValue(Text: "twice")));
+
+        Assert.Equal(PluginActionOutcome.Unconfirmed, result.Outcome);
+        Assert.Equal(2, endpoint.Transmissions);
+        Assert.NotNull(endpoint.Sent);
+    }
+
+    [Fact]
+    public async Task PublicationRefusalAfterSendCannotEraseItsEmission()
+    {
+        using TemporaryDirectory temporary = new();
+        var context = Context(temporary.Root);
+        IrLibrary library = new(1, [
+            new IrCommand("power", "TV", "Power", new IrPayload(38000, [9000, 4500]))
+        ], []);
+        await library.SaveAsync(temporary.GetPath("library.json"), CancellationToken.None);
+        FakeEndpoint endpoint = new();
+        RecordingPluginHost host = new();
+        await using IrPlugin plugin = new(_ => endpoint);
+        await plugin.StartAsync(host, context, CancellationToken.None);
+        await plugin.ConfigureAsync(Configuration("COM3"), context, CancellationToken.None);
+        host.Publishing = publication =>
+        {
+            if (publication.Value.Text == "IR emitted; appliance state is not verified.")
+            {
+                throw new IrRejectedException("publication refused");
+            }
+        };
+
+        var result = await InvokeAutomated(plugin, context, "send");
+
+        Assert.Equal(PluginActionOutcome.Unconfirmed, result.Outcome);
+        Assert.Equal(1, endpoint.Transmissions);
+    }
+
+    [Fact]
+    public async Task DeletingTheSelectedCommandDoesNotSilentlySelectAndSendAnotherOne()
+    {
+        using TemporaryDirectory temporary = new();
+        var context = Context(temporary.Root);
+        IrLibrary library = new(1, [
+            new IrCommand("power", "TV", "Power", new IrPayload(38000, [9000, 4500])),
+            new IrCommand("input", "TV", "Input", new IrPayload(38000, [560, 560]))
+        ], [], "power");
+        var path = temporary.GetPath("library.json");
+        await library.SaveAsync(path, CancellationToken.None);
+        FakeEndpoint endpoint = new();
+        RecordingPluginHost host = new();
+        await using IrPlugin plugin = new(_ => endpoint);
+        await plugin.StartAsync(host, context, CancellationToken.None);
+        await plugin.ConfigureAsync(Configuration("COM3"), context, CancellationToken.None);
+
+        Assert.Equal(PluginActionOutcome.AppliedVerified, (await Invoke(plugin, context, "delete")).Outcome);
+        Assert.Equal(PluginActionOutcome.Rejected, (await InvokeAutomated(plugin, context, "send")).Outcome);
+        Assert.Equal("No command selected", host.States.Last(state => state.Key == "selected").Value.Text);
+        Assert.Null((await IrLibrary.LoadAsync(path, CancellationToken.None)).SelectedCommandId);
+        Assert.Equal(0, endpoint.Transmissions);
+        Assert.Equal(0, endpoint.Identifications);
+    }
+
+    [Fact]
+    public async Task LibraryPublicationKeepsItsKeysAndSelectedCommandText()
+    {
+        using TemporaryDirectory temporary = new();
+        var context = Context(temporary.Root);
+        RecordingPluginHost host = new();
+        await using IrPlugin plugin = new(_ => new FakeEndpoint());
+        await plugin.StartAsync(host, context, CancellationToken.None);
+        Assert.Equal(["status", "network", "library", "selected", "carrier-source", "remotes"],
+            host.States.Select(state => state.Key));
+        Assert.Equal("No command selected", host.States.Single(state => state.Key == "selected").Value.Text);
+        await plugin.ConfigureAsync(Configuration("COM3"), context, CancellationToken.None);
+
+        await Invoke(plugin, context, "learn", ("device", new PluginValue(Text: "TV")),
+            ("name", new PluginValue(Text: "Power")));
+        await Invoke(plugin, context, "learn", ("device", new PluginValue(Text: "TV")),
+            ("name", new PluginValue(Text: "Input")));
+        await Invoke(plugin, context, "select", ("command", new PluginValue(Text: "TV / Power")));
+
+        Assert.Equal("TV / Power; repeats 0, gap 40 ms",
+            host.States.Last(state => state.Key == "selected").Value.Text);
+        Assert.Equal("2 commands, 0 scenes\nTV / Power\nTV / Input\nScenes: ",
+            host.States.Last(state => state.Key == "library").Value.Text);
+        var carrier = host.States.Last(state => state.Key == "carrier-hz");
+        Assert.Equal(36000, carrier.Value.Number);
+        Assert.Equal(PluginStateOrigin.Action, carrier.Origin);
+        Assert.NotNull(carrier.OperationId);
+    }
 }

@@ -2,7 +2,6 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
-using Avalonia.Labs.Panels;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -324,10 +323,10 @@ public sealed class DeviceRowReconciliationTests
     }
 
     [AvaloniaTheory]
-    [InlineData(1280, 720, 1.0, 1)]
-    [InlineData(3840, 2160, 1.0, 2)]
-    [InlineData(3840, 2160, 3.0, 1)]
-    public void DeviceGroupsUseTheScaledDetailViewport(int width, int height, double scale, int expectedColumns)
+    [InlineData(1280, 720, 1.0)]
+    [InlineData(3840, 2160, 1.0)]
+    [InlineData(3840, 2160, 3.0)]
+    public void DeviceGroupsUseTheScaledDetailViewport(int width, int height, double scale)
     {
         using var device = new FakeDevice();
         using var fixture = new UiFixture();
@@ -350,9 +349,12 @@ public sealed class DeviceRowReconciliationTests
         UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin.power"));
         UiFixture.OpenSections(window);
         var detail = UiFixture.Named<StackPanel>(window, "DeviceCapabilityList");
-        var groups = Assert.Single(detail.Children.OfType<FlexPanel>());
-        Assert.Equal(expectedColumns, groups.Children.Count);
-        Assert.All(groups.Children, column => Assert.InRange(column.Bounds.Width, 0, detail.Bounds.Width));
+        var group = Assert.IsType<Border>(Assert.Single(detail.Children));
+        var fold = Assert.IsType<CollapsibleSection>(group.Child);
+        Assert.True(fold.IsExpanded);
+        Assert.True(detail.Bounds.Width > 0);
+        Assert.Equal(detail.Bounds.Width, group.Bounds.Width, 3);
+        Assert.Single(fold.GetVisualDescendants().OfType<Slider>());
         window.Close();
     }
 
@@ -387,9 +389,10 @@ public sealed class DeviceRowReconciliationTests
         Dispatcher.UIThread.RunJobs();
         var host = UiFixture.Named<Panel>(window, pinned ? "PinnedSectionsGrid" : "DeviceCapabilityList");
         var group = Assert.Single(host.Children.OfType<Border>());
-        Assert.Contains("device-group", group.Classes);
         Assert.Equal((pinned ? "pin:" : "") + "section.device.overview", group.Tag);
         var fold = Assert.IsType<CollapsibleSection>(group.Child);
+        Assert.True(fold.IsExpanded);
+        Assert.Single(fold.GetVisualDescendants().OfType<Expander>());
         var body = Assert.IsType<StackPanel>(fold.Body);
         Assert.Equal(8, body.Spacing);
         Assert.Single(fold.GetVisualDescendants().OfType<SectionPinHeader>());

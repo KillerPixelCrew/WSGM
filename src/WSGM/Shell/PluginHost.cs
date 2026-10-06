@@ -286,6 +286,7 @@ internal sealed class PluginRegistration(
         new(identity, context.Generation, PluginHealth.Unavailable, null);
 
     internal Dictionary<string, PluginStatePublication> State { get; } = new(StringComparer.Ordinal);
+
     /// <summary>The generation of <see cref="State" />; written only by the host under its lock.</summary>
     internal long StateGeneration { get; set; }
 
@@ -490,16 +491,34 @@ internal sealed class PluginRegistration(
         }, cancellationToken: cancellationToken);
     }
 
-    internal Task<bool> StopAsync(Deadline deadline, CancellationToken cancellationToken)
+    /// <summary>Refuses directly queued settings and actions without waiting for plugin stop.</summary>
+    internal void CloseAdmission()
     {
         var active = Volatile.Read(ref _activeCancellation);
-        if (Interlocked.Exchange(ref _stopRequested, 1) == 0 && active is not null)
+        if (Interlocked.Exchange(ref _stopRequested, 1) != 0)
+        {
+            return;
+        }
+
+        if (active is not null)
         {
             CancelQuietly(active);
         }
 
         // No new command or sync reaches a plugin that is being stopped.
         capabilities?.Suspend();
+    }
+
+    internal Task<bool> StopAsync(Deadline deadline, CancellationToken cancellationToken)
+    {
+        try
+        {
+            CloseAdmission();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Warn($"Plugin admission closure failed; ordered stop continues: {ex.Message}");
+        }
 
         return RunAsync(deadline, async token =>
         {

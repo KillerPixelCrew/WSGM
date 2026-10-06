@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using WSGM.Interop;
 
 namespace WSGM.PackagedLaunch;
 
@@ -88,7 +89,7 @@ internal static class PackageIdentity
         }
         finally
         {
-            WSGM.Interop.Win32Common.CloseHandle(process);
+            Win32Common.CloseHandle(process);
         }
     }
 

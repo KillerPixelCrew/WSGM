@@ -11,7 +11,13 @@ namespace WSGM.DeviceLab.Wizard;
 /// <param name="Label">Product name shown to the tester.</param>
 /// <param name="Closable">Whether the wizard may ask it to close; services are never touched.</param>
 /// <param name="Why">What it does to a capture.</param>
-internal sealed record KnownManager(string Process, string Label, bool Closable, string Why);
+/// <param name="OwnsPowerHardware">Whether it controls the power, fan or lighting hardware the lab tests.</param>
+internal sealed record KnownManager(
+    string Process,
+    string Label,
+    bool Closable,
+    string Why,
+    bool OwnsPowerHardware = false);
 
 /// <summary>A known manager that is running now.</summary>
 /// <param name="Manager">Which manager.</param>
@@ -46,25 +52,28 @@ internal static class ManagerConflicts
     public static IReadOnlyList<KnownManager> Known { get; } =
     [
         new("HandheldCompanion", "Handheld Companion", true,
-            "hides the physical controller and presents a virtual one"),
-        new("ControllerService", "Handheld Companion controller service", false, "hides the physical controller"),
-        new("ArmouryCrate", "Armoury Crate", true, "owns the ASUS controller and its modes"),
+            "hides the physical controller and presents a virtual one", true),
+        new("ControllerService", "Handheld Companion controller service", false, "hides the physical controller",
+            true),
+        new("ArmouryCrate", "Armoury Crate", true, "owns the ASUS controller and its modes", true),
         new("ArmouryCrateControlInterface", "Armoury Crate control interface", true,
-            "owns the ASUS controller and its modes"),
-        new("ArmourySocketServer", "Armoury Crate socket server", true, "relays ASUS controller commands"),
+            "owns the ASUS controller and its modes", true),
+        new("ArmourySocketServer", "Armoury Crate socket server", true, "relays ASUS controller commands",
+            true),
         new("ArmouryCrateUserSessionHelper", "Armoury Crate session helper", true, "relays ASUS OEM button events"),
-        new("AsusAppService", "ASUS app service", false, "carries ASUS OEM button events and power commands"),
+        new("AsusAppService", "ASUS app service", false, "carries ASUS OEM button events and power commands",
+            true),
         new("AsusOptimization", "ASUS Optimization", false, "handles ASUS hotkeys"),
         new("AsusSystemDiagnosis", "ASUS System Diagnosis", false, "runs ASUS system services"),
-        new("GHelper", "G-Helper", true, "writes ASUS power and controller settings"),
-        new("MSI Center", "MSI Center", true, "owns MSI device services"),
-        new("MSI.CentralServer", "MSI Center service", false, "owns MSI device services"),
+        new("GHelper", "G-Helper", true, "writes ASUS power and controller settings", true),
+        new("MSI Center", "MSI Center", true, "owns MSI device services", true),
+        new("MSI.CentralServer", "MSI Center service", false, "owns MSI device services", true),
         new("Winhanced", "Winhanced", true, "changes power and input behaviour"),
         new("HidHideClient", "HidHide Configuration Client", true,
             "edits the device hiding list while this tool reads it"),
         new("DS4Windows", "DS4Windows", true, "hides controllers and presents virtual ones"),
         new("x360ce", "x360ce", true, "presents a virtual controller"),
-        new("WSGM", "WSGM", true, "owns the device integration")
+        new("WSGM", "WSGM", true, "owns the device integration", true)
     ];
 
     /// <summary>Lists the known managers running now.</summary>

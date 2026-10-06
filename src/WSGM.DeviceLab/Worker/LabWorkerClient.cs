@@ -43,7 +43,7 @@ internal sealed record LabWorkerLaunch(string FileName, IReadOnlyList<string> Le
 ///     record from before it lets the next start undo it. Closing the client closes the worker's input,
 ///     which zeroes streamed outputs and disposes every service.
 /// </remarks>
-internal sealed class LabWorkerClient : IDisposable
+internal sealed class LabWorkerClient : ILabWorkerClient, IDisposable
 {
     /// <summary>Deadline for one call.</summary>
     public static readonly TimeSpan CallDeadline = TimeSpan.FromSeconds(60);
@@ -81,6 +81,73 @@ internal sealed class LabWorkerClient : IDisposable
             _job.Dispose();
             _process.Dispose();
         }
+    }
+
+    /// <summary>Opens a service in the worker and returns a proxy for its interface.</summary>
+    /// <typeparam name="T">Service interface.</typeparam>
+    /// <param name="service">Service name.</param>
+    /// <param name="log">Where the service's log entries are copied.</param>
+    /// <param name="args">Open arguments.</param>
+    /// <returns>The proxy; disposing it closes the service.</returns>
+    public T Open<T>(string service, LabPowerLog? log, params object?[] args)
+        where T : class, IDisposable
+    {
+        var response = Send(new LabWorkerRequest
+        {
+            Op = "open",
+            Service = service,
+            Args =
+            [
+                .. args.Select(arg =>
+                    JsonSerializer.SerializeToElement(arg, arg?.GetType() ?? typeof(object), LabProject.JsonOptions))
+            ]
+        }, log);
+        var proxy = DispatchProxy.Create<T, LabWorkerProxy>();
+        ((LabWorkerProxy)(object)proxy).Attach(this, response.Session, log);
+        return proxy;
+    }
+
+    /// <summary>
+    ///     The checkpoint handshake: the worker captures the original state, <paramref name="persist" />
+    ///     records it durably, and only then does the worker accept writes on the service.
+    /// </summary>
+    /// <typeparam name="TState">The snapshot type.</typeparam>
+    /// <param name="service">A proxy from <see cref="Open{T}" />.</param>
+    /// <param name="persist">Records the original; it must finish within five seconds.</param>
+    /// <returns>
+    ///     The original state, which is the default of <typeparamref name="TState" /> when the snapshot was
+    ///     null, and the token to release after a verified restore.
+    /// </returns>
+    public (TState Original, string Token) Checkpoint<TState>(object service, Action<TState> persist)
+    {
+        var proxy = (LabWorkerProxy)service;
+        var response = Send(new LabWorkerRequest { Op = "checkpoint", Session = proxy.Session }, proxy.Log);
+        var original = Snapshot<TState>(response.Result);
+        persist(original);
+        Send(new LabWorkerRequest { Op = "ack", Session = proxy.Session, Token = response.Token }, proxy.Log);
+        return (original, response.Token!);
+    }
+
+    /// <summary>
+    ///     Why the service's streamed output stopped, or null while it runs. Streamed frames get no reply,
+    ///     so the wizard asks.
+    /// </summary>
+    /// <param name="service">A proxy from <see cref="Open{T}" />.</param>
+    /// <returns>The worker's failure, or null.</returns>
+    public string? StreamError(object service)
+    {
+        var proxy = (LabWorkerProxy)service;
+        var response = Send(new LabWorkerRequest { Op = "stream-status", Session = proxy.Session }, proxy.Log);
+        return response.Result is { ValueKind: JsonValueKind.String } error ? error.GetString() : null;
+    }
+
+    /// <summary>Ends a checkpoint after the original was restored and read back.</summary>
+    /// <param name="service">The proxy.</param>
+    /// <param name="token">Token from <see cref="Checkpoint{TState}" />.</param>
+    public void Release(object service, string token)
+    {
+        var proxy = (LabWorkerProxy)service;
+        Send(new LabWorkerRequest { Op = "release", Session = proxy.Session, Token = token }, proxy.Log);
     }
 
     /// <summary>Starts and authenticates the worker. Blocking; call off the UI thread.</summary>
@@ -155,51 +222,6 @@ internal sealed class LabWorkerClient : IDisposable
         return client;
     }
 
-    /// <summary>Opens a service in the worker and returns a proxy for its interface.</summary>
-    /// <typeparam name="T">Service interface.</typeparam>
-    /// <param name="service">Service name.</param>
-    /// <param name="log">Where the service's log entries are copied.</param>
-    /// <param name="args">Open arguments.</param>
-    /// <returns>The proxy; disposing it closes the service.</returns>
-    public T Open<T>(string service, LabPowerLog? log, params object?[] args)
-        where T : class, IDisposable
-    {
-        var response = Send(new LabWorkerRequest
-        {
-            Op = "open",
-            Service = service,
-            Args =
-            [
-                .. args.Select(arg =>
-                    JsonSerializer.SerializeToElement(arg, arg?.GetType() ?? typeof(object), LabProject.JsonOptions))
-            ]
-        }, log);
-        var proxy = DispatchProxy.Create<T, LabWorkerProxy>();
-        ((LabWorkerProxy)(object)proxy).Attach(this, response.Session, log);
-        return proxy;
-    }
-
-    /// <summary>
-    ///     The checkpoint handshake: the worker captures the original state, <paramref name="persist" />
-    ///     records it durably, and only then does the worker accept writes on the service.
-    /// </summary>
-    /// <typeparam name="TState">The snapshot type.</typeparam>
-    /// <param name="service">A proxy from <see cref="Open{T}" />.</param>
-    /// <param name="persist">Records the original; it must finish within five seconds.</param>
-    /// <returns>
-    ///     The original state, which is the default of <typeparamref name="TState" /> when the snapshot was
-    ///     null, and the token to release after a verified restore.
-    /// </returns>
-    public (TState Original, string Token) Checkpoint<TState>(object service, Action<TState> persist)
-    {
-        var proxy = (LabWorkerProxy)service;
-        var response = Send(new LabWorkerRequest { Op = "checkpoint", Session = proxy.Session }, proxy.Log);
-        var original = Snapshot<TState>(response.Result);
-        persist(original);
-        Send(new LabWorkerRequest { Op = "ack", Session = proxy.Session, Token = response.Token }, proxy.Log);
-        return (original, response.Token!);
-    }
-
     /// <summary>Reads a checkpoint's original; a null snapshot, sent as no result, is the type's default.</summary>
     /// <typeparam name="TState">The snapshot type.</typeparam>
     /// <param name="result">The reply's result.</param>
@@ -209,28 +231,6 @@ internal sealed class LabWorkerClient : IDisposable
         return LabWorkerHost.Result(result) is { } value
             ? value.Deserialize<TState>(LabProject.JsonOptions)!
             : default!;
-    }
-
-    /// <summary>
-    ///     Why the service's streamed output stopped, or null while it runs. Streamed frames get no reply,
-    ///     so the wizard asks.
-    /// </summary>
-    /// <param name="service">A proxy from <see cref="Open{T}" />.</param>
-    /// <returns>The worker's failure, or null.</returns>
-    public string? StreamError(object service)
-    {
-        var proxy = (LabWorkerProxy)service;
-        var response = Send(new LabWorkerRequest { Op = "stream-status", Session = proxy.Session }, proxy.Log);
-        return response.Result is { ValueKind: JsonValueKind.String } error ? error.GetString() : null;
-    }
-
-    /// <summary>Ends a checkpoint after the original was restored and read back.</summary>
-    /// <param name="service">The proxy.</param>
-    /// <param name="token">Token from <see cref="Checkpoint{TState}" />.</param>
-    public void Release(object service, string token)
-    {
-        var proxy = (LabWorkerProxy)service;
-        Send(new LabWorkerRequest { Op = "release", Session = proxy.Session, Token = token }, proxy.Log);
     }
 
     // Cancelling asks the worker to end the call's wait; the reply is still awaited, because a write the
@@ -268,14 +268,18 @@ internal sealed class LabWorkerClient : IDisposable
         }
 
         using var cancel = cancellationToken.Register(() => ThreadPool.QueueUserWorkItem(_ => Cancel(id)));
-        if (!reply.Task.Wait(CallDeadline))
+        LabWorkerResponse response;
+        try
+        {
+            response = reply.Task.WaitAsync(CallDeadline).GetAwaiter().GetResult();
+        }
+        catch (TimeoutException)
         {
             _pending.TryRemove(id, out _);
             throw Lose(
                 $"The hardware worker did not answer {request.Method ?? request.Op} within {CallDeadline.TotalSeconds:0} seconds.");
         }
 
-        var response = reply.Task.Result;
         Copy(response, log);
         if (!response.Ok)
         {

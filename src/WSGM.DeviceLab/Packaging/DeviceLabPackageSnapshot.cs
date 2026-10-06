@@ -137,7 +137,6 @@ internal sealed class DeviceLabPackageSnapshot : IDisposable
     {
         return _files.TryGetValue(relativePath.Replace('\\', '/'), out file!);
     }
-
 }
 
 /// <summary>One regular package file retained with write and delete sharing denied.</summary>

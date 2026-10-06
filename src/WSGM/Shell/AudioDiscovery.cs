@@ -53,7 +53,11 @@ internal sealed record AudioDiscovery(
     private static IReadOnlyList<AudioEndpointOption> Endpoints(CoreAudio.AudioDirection direction)
     {
         return CoreAudio.ListEndpoints(direction, out var endpoints) >= 0
-            ? [.. endpoints.Select(static endpoint => new AudioEndpointOption(endpoint.Id, AudioEndpointText.Name(endpoint)))]
+            ?
+            [
+                .. endpoints.Select(static endpoint =>
+                    new AudioEndpointOption(endpoint.Id, AudioEndpointText.Name(endpoint)))
+            ]
             : [];
     }
 }

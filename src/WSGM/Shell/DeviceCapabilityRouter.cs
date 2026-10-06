@@ -81,7 +81,6 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     private readonly Action<Action> _postToUi;
 
     private readonly Action _publishPosted;
-    private readonly Func<DateTimeOffset> _utcNow;
 
     /// <summary>The publisher's profile key, or null for the device package.</summary>
     private readonly string? _publisher;
@@ -94,6 +93,8 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     ///     stale-generation publications are refused by validation before they reach this map.
     /// </remarks>
     private readonly Dictionary<DeviceCapabilityKey, CapabilityStateDelta> _states = [];
+
+    private readonly Func<DateTimeOffset> _utcNow;
 
     private ICapabilityPublisher? _client;
     private bool _connected;
@@ -142,6 +143,18 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             lock (_gate)
             {
                 return _sections;
+            }
+        }
+    }
+
+    /// <summary>Completion of the late-result observers currently owned by this router.</summary>
+    internal Task LateCommandCompletion
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return Task.WhenAll(_lateObservers);
             }
         }
     }
@@ -630,7 +643,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 rejected = error ?? "invalid sequence or key";
             }
             else if (_states.TryGetValue(key, out var existing)
-                && delta.Sequence <= existing.Sequence)
+                     && delta.Sequence <= existing.Sequence)
             {
                 outOfOrder = true;
             }
@@ -740,9 +753,9 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         lock (_gate)
         {
             ignore = !_connected
-                || !ReferenceEquals(_client, client)
-                || _cycleGeneration != cycleGeneration
-                || result.CommandId != commandId;
+                     || !ReferenceEquals(_client, client)
+                     || _cycleGeneration != cycleGeneration
+                     || result.CommandId != commandId;
         }
 
         if (ignore)
@@ -763,7 +776,8 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         lock (_gate)
         {
             if (!_latestCommands.TryGetValue(key, out var latest) || latest.Id != result.CommandId
-                || latest.Cycle != _cycleGeneration || latest.Descriptors != _descriptorGeneration)
+                                                                  || latest.Cycle != _cycleGeneration ||
+                                                                  latest.Descriptors != _descriptorGeneration)
             {
                 return;
             }

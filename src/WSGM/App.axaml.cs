@@ -15,10 +15,10 @@ namespace WSGM;
 /// <summary>Configures Avalonia application lifetime and creates the selected WSGM session.</summary>
 public class App : Application
 {
-    private readonly ConfigReadResult _startupRead;
-    private readonly ConfigStore _store;
     private readonly StartupOptions _options;
+    private readonly ConfigReadResult _startupRead;
     private readonly SteamInputBlocker _steamInput;
+    private readonly ConfigStore _store;
 
     // Deliberate root for the headless shell session — without it the session
     // (and its config watcher) would survive only via incidental GC reachability.
@@ -70,7 +70,7 @@ public class App : Application
 
                 case RunMode.OverlayTest:
                     desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
-                    _session = new ShellSession(config, _store, _steamInput, overlayTestOnly: true,
+                    _session = new ShellSession(config, _store, _steamInput, true,
                         verboseLogging: verboseLogging);
                     break;
 

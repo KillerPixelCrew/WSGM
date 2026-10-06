@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
@@ -35,13 +36,14 @@ public sealed partial class ShellSession
         using (var transaction = _store.Transaction())
         {
             var persisted = transaction.Config;
-            var before = System.Text.Json.JsonSerializer.Serialize(persisted, ConfigJsonContext.Tolerant.AppConfig);
+            var before = JsonSerializer.Serialize(persisted, ConfigJsonContext.Tolerant.AppConfig);
             change(persisted);
-            var after = System.Text.Json.JsonSerializer.Serialize(persisted, ConfigJsonContext.Tolerant.AppConfig);
+            var after = JsonSerializer.Serialize(persisted, ConfigJsonContext.Tolerant.AppConfig);
             if (!string.Equals(before, after, StringComparison.Ordinal))
             {
                 transaction.Save();
             }
+
             if (boot)
             {
                 BootManifestWriter.WriteCurrent(transaction.Read, _store.Context);
@@ -108,13 +110,18 @@ public sealed partial class ShellSession
 
     private void WatchConfig()
     {
+        if (_disposed || _configWatcher is not null)
+        {
+            return;
+        }
+
         try
         {
             _configWatcher = new FileSystemWatcher(_store.Context.Root, "config.json")
             {
-                EnableRaisingEvents = true,
                 NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName
             };
+            var configWatcher = _configWatcher;
 
             // The LOAD stays off the UI thread: it takes the cross-process config
             // mutex (2 s timeout) that a settings save holds across the write, the
@@ -122,14 +129,14 @@ public sealed partial class ShellSession
             // not reliably outlast that. Only the cheap, UI-affine apply is posted.
             void Reload(object? state)
             {
+                var generation = (long)state!;
                 _ = Task.Run(() =>
                 {
-                    if (_disposed)
+                    if (_disposed || generation != Interlocked.Read(ref _configReloadGeneration))
                     {
                         return;
                     }
 
-                    var generation = Interlocked.Read(ref _configReloadGeneration);
                     ConfigReadResult read;
                     try
                     {
@@ -168,15 +175,14 @@ public sealed partial class ShellSession
                 {
                     // Shutdown disposes the timer under this gate after it set _disposed, so a late
                     // event can never create a timer nobody disposes.
-                    if (_disposed)
+                    if (_disposed || !ReferenceEquals(_configWatcher, configWatcher))
                     {
                         return;
                     }
 
-                    Interlocked.Increment(ref _configReloadGeneration);
-                    _configDebounce ??= new Timer(
-                        Reload, null, Timeout.Infinite, Timeout.Infinite);
-                    _configDebounce.Change(500, Timeout.Infinite);
+                    var generation = Interlocked.Increment(ref _configReloadGeneration);
+                    _configDebounce?.Dispose();
+                    _configDebounce = new Timer(Reload, generation, 500, Timeout.Infinite);
                 }
             }
 
@@ -190,27 +196,66 @@ public sealed partial class ShellSession
             // itself and a persistently failing directory would spin.
             _configWatcher.Error += (sender, e) =>
             {
-                Log.Warn($"Config watcher error: {e.GetException().Message} — re-arming.");
-                Debounce();
                 try
                 {
-                    if (sender is not FileSystemWatcher watcher)
+                    lock (_configDebounceGate)
                     {
-                        return;
-                    }
+                        if (_disposed || sender is not FileSystemWatcher watcher
+                                      || !ReferenceEquals(_configWatcher, watcher))
+                        {
+                            return;
+                        }
 
-                    watcher.EnableRaisingEvents = false;
-                    watcher.EnableRaisingEvents = true;
+                        Log.Warn($"Config watcher error: {e.GetException().Message} — re-arming.");
+                        Debounce();
+                        watcher.EnableRaisingEvents = false;
+                        watcher.EnableRaisingEvents = true;
+                    }
                 }
                 catch (Exception ex)
                 {
                     Log.Warn($"Config watcher could not be re-armed: {ex.Message}");
                 }
             };
+            _configWatcher.EnableRaisingEvents = true;
         }
         catch (Exception ex)
         {
             Log.Warn($"Config watcher not available: {ex.Message}");
+            CloseConfigWatcher();
+        }
+    }
+
+    private void CloseConfigWatcher()
+    {
+        FileSystemWatcher? watcher;
+        Timer? debounce;
+        lock (_configDebounceGate)
+        {
+            Interlocked.Increment(ref _configReloadGeneration);
+            watcher = _configWatcher;
+            _configWatcher = null;
+            debounce = _configDebounce;
+            _configDebounce = null;
+        }
+
+        try
+        {
+            if (watcher is not null)
+            {
+                try
+                {
+                    watcher.EnableRaisingEvents = false;
+                }
+                finally
+                {
+                    watcher.Dispose();
+                }
+            }
+        }
+        finally
+        {
+            debounce?.Dispose();
         }
     }
 

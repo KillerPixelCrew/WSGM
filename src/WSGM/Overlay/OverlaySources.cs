@@ -1,3 +1,6 @@
+using System;
+using System.Threading.Tasks;
+using WindowsDeviceControl;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
@@ -15,6 +18,8 @@ namespace WSGM.Overlay;
 /// <param name="Graphics">The graphics packages' controls, or their simulation in overlay-test.</param>
 /// <param name="Sounds">Steam UI sound packs, outside overlay-test.</param>
 /// <param name="Artwork">The shared artwork owner; each browser has its own transient context.</param>
+/// <param name="DisplayModes">The composition's display-mode operations.</param>
+/// <param name="PowerProfiles">The session's shared Windows power-profile selection workflow.</param>
 internal sealed record OverlaySources(
     IDeviceOverlaySource? Device = null,
     PerformanceOverlayBridge? Performance = null,
@@ -27,4 +32,18 @@ internal sealed record OverlaySources(
     AnimationService? Animations = null,
     IGraphicsOverlaySource? Graphics = null,
     SoundPackService? Sounds = null,
-    SteamArtworkBrowserSource? Artwork = null);
+    SteamArtworkBrowserSource? Artwork = null,
+    DisplayModeAccess? DisplayModes = null,
+    NativeQamPowerProfileService? PowerProfiles = null);
+
+/// <summary>The display-mode operations supplied by the composition, also used by pinned controls.</summary>
+/// <param name="Read">Reads modes for the sheet's current display source.</param>
+/// <param name="Apply">Applies a committed choice to its observed display.</param>
+internal sealed record DisplayModeAccess(
+    Func<string?, Task<DisplayModeSnapshot?>> Read,
+    Func<DisplayModeSnapshot, DisplayMode, Task<DisplayModeResult>> Apply)
+{
+    internal static DisplayModeAccess Unavailable { get; } = new(
+        _ => Task.FromResult<DisplayModeSnapshot?>(null),
+        (_, _) => Task.FromResult(new DisplayModeResult(DisplayModeOutcome.Refused, 0, false, false)));
+}

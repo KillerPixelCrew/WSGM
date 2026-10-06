@@ -21,54 +21,54 @@ internal static class SettingsTestServices
     {
         var current = ConfigJson.Clone(saved, ConfigJsonContext.Tolerant.AppConfig);
         return new SettingsViewModel.SettingsServices(
-            CaptureDisplays: () => new DisplayArrangement([], "inert", DateTimeOffset.UnixEpoch),
-            ReadDisplayFacts: _ => null,
-            ReadPluginActions: () => [],
-            DetectStartupApps: () => [],
-            BeginImportSession: () => { },
-            EndImportSession: () => { },
-            Persist: request =>
+            () => new DisplayArrangement([], "inert", DateTimeOffset.UnixEpoch),
+            _ => null,
+            () => [],
+            () => [],
+            () => { },
+            () => { },
+            request =>
             {
                 var (merged, changes) = SettingsSaveMerge.Apply(
                     ConfigJson.Clone(current, ConfigJsonContext.Tolerant.AppConfig), request, request.Splash);
                 current = merged;
                 return Task.FromResult(new SettingsViewModel.SaveResult(merged, [], null, changes));
             },
-            ReconcileSteamInputShim: _ => calls?.Add("reconcile"),
-            DescribeSteamInputShim: () => "",
-            Report: (message, _) => calls?.Add(message),
-            ReadStandby: () => new ModernStandbyReport(true, "This machine has not been in standby since it booted.", []),
-            ScanSteamAutostart: () =>
+            _ => calls?.Add("reconcile"),
+            () => "",
+            (message, _) => calls?.Add(message),
+            () => new ModernStandbyReport(true, "This machine has not been in standby since it booted.", []),
+            () =>
             {
                 calls?.Add("scan-autostart");
                 return [];
             },
-            ApplySteamAutostart: _ =>
+            _ =>
             {
                 calls?.Add("apply-autostart");
                 return new SteamAutostartTakeoverResult([], [], []);
             },
-            CheckUpdates: _ => Task.FromResult(new UpdateState()),
-            DownloadUpdate: (_, _, _) => Task.FromResult(""),
-            RunSetup: _ => calls?.Add("run-setup"),
-            ReadUpdateFailure: () => null,
-            ReadPackages: () => new PluginPackagePage(PluginPackageCatalog.Empty, [], null, []),
-            ActOnPackage: (_, _) => Task.FromResult(""),
-            RepairAvailable: () => false,
-            StartRepair: () => calls?.Add("repair"),
-            ReadAudio: _ => AudioDiscovery.Empty,
-            ReadUpdates: () => new UpdateState(),
-            DetectOtherManagers: () =>
+            _ => Task.FromResult(new UpdateState()),
+            (_, _, _) => Task.FromResult(""),
+            _ => calls?.Add("run-setup"),
+            () => null,
+            () => new PluginPackagePage(PluginPackageCatalog.Empty, [], null, []),
+            (_, _) => Task.FromResult(""),
+            () => false,
+            () => calls?.Add("repair"),
+            _ => AudioDiscovery.Empty,
+            () => new UpdateState(),
+            () =>
             {
                 calls?.Add("detect-managers");
                 return [];
             },
-            ApplyOtherManagers: _ =>
+            _ =>
             {
                 calls?.Add("apply-managers");
                 return new OtherManagersResult([], [], []);
             },
-            LoadPersisted: () =>
+            () =>
             {
                 calls?.Add("load-persisted");
                 return ConfigJson.Clone(current, ConfigJsonContext.Tolerant.AppConfig);

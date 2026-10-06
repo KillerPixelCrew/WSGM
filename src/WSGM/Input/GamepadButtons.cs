@@ -85,4 +85,3 @@ internal enum GamepadButtons : uint
     /// <summary>Press on the right touchpad.</summary>
     RightPadPress = 0x0200_0000
 }
-

@@ -4,12 +4,15 @@ internal sealed class FakeEndpoint : IIrEndpoint
 {
     internal readonly List<string> RemoteCalls = [];
     internal bool Cancelled;
+    internal int Cancels;
     internal IrRemoteCatalog Catalog = new([]);
+    internal Exception? CatalogFailure;
     internal int CatalogReads;
     internal bool Disposed;
     internal bool FailPress;
     internal string Firmware = "0.5.0";
     internal int Identifications;
+    internal Action? Identifying;
     internal (string Ssid, string Password, string Token)? Network;
     internal Exception? PressRefusal;
     internal IrPayload? Sent;
@@ -18,23 +21,29 @@ internal sealed class FakeEndpoint : IIrEndpoint
     /// <summary>How many identity polls still report a running sequence.</summary>
     internal int SequencePolls;
 
+    internal int Transmissions;
+    internal Exception? TransmitFailure;
+    internal Action? Transmitted;
+
     public IrEndpointIdentity? Identity { get; set; }
 
     public Task<IrEndpointIdentity> IdentifyAsync(CancellationToken token)
     {
         Identifications++;
+        Identifying?.Invoke();
+        token.ThrowIfCancellationRequested();
         if (RemoteCalls.Any(call => call.StartsWith("run ", StringComparison.Ordinal)) &&
             SequencePollFailure is { } failure)
         {
             throw failure;
         }
 
-        if (SequencePolls > 0)
+        Identity = Describe();
+        if (SequencePolls > 0 && RemoteCalls.Any(call => call.StartsWith("run ", StringComparison.Ordinal)))
         {
             SequencePolls--;
         }
 
-        Identity = Describe();
         return Task.FromResult(Identity);
     }
 
@@ -45,7 +54,14 @@ internal sealed class FakeEndpoint : IIrEndpoint
 
     public Task TransmitAsync(IrPayload payload, int repeats, int gapMs, CancellationToken token)
     {
+        Transmissions++;
+        if (TransmitFailure is { } failure)
+        {
+            throw failure;
+        }
+
         Sent = payload;
+        Transmitted?.Invoke();
         return Task.CompletedTask;
     }
 
@@ -59,6 +75,11 @@ internal sealed class FakeEndpoint : IIrEndpoint
     public Task<IrRemoteCatalog> ListRemotesAsync(CancellationToken token)
     {
         CatalogReads++;
+        if (CatalogFailure is { } failure)
+        {
+            throw failure;
+        }
+
         return Task.FromResult(Catalog);
     }
 
@@ -91,6 +112,7 @@ internal sealed class FakeEndpoint : IIrEndpoint
     public Task CancelAsync(CancellationToken token)
     {
         Cancelled = true;
+        Cancels++;
         return Task.CompletedTask;
     }
 

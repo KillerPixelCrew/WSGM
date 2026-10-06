@@ -77,12 +77,18 @@ restoration attempt. Changes the wizard makes to the machine are recorded in
 `%LOCALAPPDATA%\WSGM Device Lab\wizard` before they are made, so a session that was killed is put
 back the next time the wizard starts.
 
+Writes with readable originals run in the elevated hardware worker behind an acknowledged
+checkpoint. Recorded mode commands without readable originals and read-only collection stay in the
+wizard. A failed restore keeps its recovery record; streamed rumble keeps its safety zero armed
+until the zero is written.
+
 The wizard and its hardware worker also write `wsgm-device.log` beside `wsgm-device.exe` (or in the
 temp folder when that folder cannot be written). Every line is on disk before the step it names
-runs, so after a crash or a hard reset its last lines say which stage, dump section, worker call or
-PawnIO function was running. It names steps only, never device paths, serials or user folders, and
-is not part of the shared report: ask the tester to send it alongside. The file is only appended to,
-so earlier sessions stay in it.
+runs, except streamed frames, status polls and calls marked sampled; failures are still traced.
+After a crash or a hard reset its last lines say which stage, dump section, worker call or PawnIO
+function was running. It names steps only, never device paths, serials or user folders, and is not
+part of the shared report: ask the tester to send it alongside. The file is only appended to, so
+earlier sessions stay in it.
 
 A returned report is read with the developer commands:
 

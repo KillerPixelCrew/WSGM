@@ -134,9 +134,10 @@ without a plugin; see the 2026-09-24 entry in `docs/decisions.md`.
   read back where the transport can, restored on every exit path, and recorded in `LabMachineState`
   before it is made when a crash could leave it applied. An uncertain write is not retried; the
   tester gets an explicit button instead.
-- Wizard hardware access runs in the elevated `Worker/LabWorkerHost` through a service interface
-  registered in `LabWorkerServices` (the power transports live in `Transports/`); only interface
-  methods are callable. A `[LabWorkerWrite]` method is refused until a checkpoint is acknowledged:
+- Writes with readable originals run in the elevated `Worker/LabWorkerHost` through a service
+  interface registered in `LabWorkerServices` (the power transports live in `Transports/`); only
+  interface methods are callable. Recorded mode commands without readable originals and read-only
+  collection remain in the wizard. A `[LabWorkerWrite]` method is refused until a checkpoint is acknowledged:
   the worker captures the original with the service's `[LabWorkerSnapshot]` method, the wizard
   records it (`LabPowerRecovery.Record`) and acknowledges within five seconds, and releases the
   checkpoint only after a verified restore. Start-up recovery runs through the worker too. A missed

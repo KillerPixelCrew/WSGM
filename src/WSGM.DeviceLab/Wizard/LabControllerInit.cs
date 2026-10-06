@@ -276,10 +276,10 @@ internal static class LabControllerInit
         var current = CurrentMode(parameters, before);
         var present = LabHid.HidEndpoints(vendor);
         var (endpoint, problem) = Single(Endpoints(parameters)
-            .Where(item => Mode(parameters, item.Product) == current)
-            .SelectMany(spec => present.Where(item =>
-                item.ProductId.ToString("X4") == spec.Product && item.UsagePage == spec.Page
-                                                              && item.Usage == spec.Usage)),
+                .Where(item => Mode(parameters, item.Product) == current)
+                .SelectMany(spec => present.Where(item =>
+                    item.ProductId.ToString("X4") == spec.Product && item.UsagePage == spec.Page
+                                                                  && item.Usage == spec.Usage)),
             "The controller's command collection is not present.");
         if (endpoint is null)
         {

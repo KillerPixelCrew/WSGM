@@ -873,12 +873,12 @@ internal static class RtssLhmSensors
 /// </summary>
 internal sealed class RtssOsdMetricsSource : IDisposable
 {
-    private readonly Lock _sampleLock = new();
     private static readonly TimeSpan SampleLifetime = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan ProviderStartCooldown = TimeSpan.FromSeconds(30);
 
     private readonly LhmSensorReader _lhm = new();
     private readonly Func<string?>? _rtssExecutablePath;
+    private readonly Lock _sampleLock = new();
     private double? _batteryWatts;
 
     private long _batteryWattsAtTicks = -1000;
@@ -1413,7 +1413,6 @@ internal static class RtssOsdContent
 internal sealed class RtssOsdRenderer : IAsyncDisposable
 {
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromMilliseconds(100);
-    private Task? _loop;
     private readonly RtssOsdMetricsSource _metrics;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly SemaphoreSlim _wake = new(0, 1);
@@ -1422,14 +1421,13 @@ internal sealed class RtssOsdRenderer : IAsyncDisposable
     private volatile RtssOsdCustomSettings _custom = RtssOsdCustomSettings.Default;
     private bool _disposed;
     private volatile int _level;
+    private Task? _loop;
     private volatile RtssOsdPowerStatus _powerStatus = RtssOsdPowerStatus.Empty;
 
     internal RtssOsdRenderer(Func<string?>? rtssExecutablePath = null)
     {
         _metrics = new RtssOsdMetricsSource(rtssExecutablePath);
     }
-
-    internal void Start() => _loop ??= Task.Run(RenderLoopAsync);
 
     /// <summary>Gets the level currently rendered — the adapter's overlay readback.</summary>
     internal int Level => _level;
@@ -1472,6 +1470,11 @@ internal sealed class RtssOsdRenderer : IAsyncDisposable
         }
 
         ReleaseResources();
+    }
+
+    internal void Start()
+    {
+        _loop ??= Task.Run(RenderLoopAsync);
     }
 
     private async Task RetireAsync(Task loop)

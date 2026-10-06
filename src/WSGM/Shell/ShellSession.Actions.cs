@@ -9,7 +9,6 @@ using WSGM.Core;
 using WSGM.Install;
 using WSGM.Interop;
 using WSGM.Plugin.Sdk;
-using WSGM.Settings;
 
 namespace WSGM.Shell;
 
@@ -126,7 +125,7 @@ public sealed partial class ShellSession
     ///     Device instances are excluded: their controls belong to the Device surfaces, and a session
     ///     automation step reaching into hardware policy would be a second owner for it.
     /// </summary>
-    private IReadOnlyList<SettingsViewModel.PluginActionOption> ReadPluginActionOptions()
+    private IReadOnlyList<PluginActionOption> ReadPluginActionOptions()
     {
         if (_pluginOverlaySource is not { } source)
         {
@@ -141,7 +140,7 @@ public sealed partial class ShellSession
                 .Where(instance => !Array.Exists(devices, device => device == instance.Identity)
                                    && instance.Controls is not null)
                 .SelectMany(instance => instance.Controls!.Actions.Select(action =>
-                    new SettingsViewModel.PluginActionOption(instance.Identity, action,
+                    new PluginActionOption(instance.Identity, action,
                         $"{instance.Name} / {instance.Identity.InstanceId}: {action.Label}")))
         ];
     }

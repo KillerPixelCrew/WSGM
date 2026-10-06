@@ -84,8 +84,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
 
     private CancellationTokenSource _applicationWrites = new();
     private bool _controllerStarted;
-    private bool _disposed;
     private Task? _disposeTask;
+    private bool _disposed;
     private bool _enabled;
     private CancellationTokenSource? _generation;
     private Task<bool> _lastStop = Task.FromResult(true);
@@ -170,12 +170,6 @@ internal sealed class AutoTdpService : IAsyncDisposable
         }
     }
 
-    /// <inheritdoc />
-    public ValueTask DisposeAsync()
-    {
-        return new ValueTask(StopAsync(Deadline.Never));
-    }
-
     /// <summary>The final stop, or a completed task before <see cref="StopAsync(Deadline)" /> was called.</summary>
     /// <remarks>
     ///     Its owner disposes the frame-time source and the trace only once this completed successfully;
@@ -190,6 +184,12 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 return _disposeTask ?? Task.CompletedTask;
             }
         }
+    }
+
+    /// <inheritdoc />
+    public ValueTask DisposeAsync()
+    {
+        return new ValueTask(StopAsync(Deadline.Never));
     }
 
     /// <summary>Ends control for good and restores the limit AutoTDP took over from, within a deadline.</summary>
@@ -224,7 +224,8 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 watts = _restoreTo;
             }
 
-            Log.Warn($"AutoTDP shutdown reached its deadline; restore to {watts?.ToString() ?? "the original"} W remains unconfirmed.");
+            Log.Warn(
+                $"AutoTDP shutdown reached its deadline; restore to {watts?.ToString() ?? "the original"} W remains unconfirmed.");
         }
     }
 

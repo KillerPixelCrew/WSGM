@@ -28,7 +28,8 @@ public static partial class SetupUserIdentity
         var domain = ReadSessionText(process.SessionId, 7);
         using var identity = WindowsIdentity.GetCurrent();
         var account = string.IsNullOrWhiteSpace(user) || string.IsNullOrWhiteSpace(domain)
-            ? null : domain + "\\" + user;
+            ? null
+            : domain + "\\" + user;
         if (!Matches(account, identity.Name))
         {
             throw new WrongSetupAccountException();

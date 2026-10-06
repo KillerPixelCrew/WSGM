@@ -154,10 +154,10 @@ public readonly record struct ProfileSettingKey(
 /// <summary>Reads, clears and copies profile layers.</summary>
 public static class ProfileFields
 {
-    private static readonly ProfileField[] Fields = Enum.GetValues<ProfileField>();
-
     /// <summary>The managed-controller target used when no layer sets one.</summary>
     public const ManagedControllerTarget DefaultControllerTarget = ManagedControllerTarget.SteamDeckComposite;
+
+    private static readonly ProfileField[] Fields = Enum.GetValues<ProfileField>();
 
     /// <summary>The fields Steam's Performance tab reset clears from Global.</summary>
     public static readonly ProfileField[] PerformanceTab =
@@ -305,7 +305,7 @@ public static class ProfileFields
     public static int Count(this ProfileValues values, IReadOnlyCollection<string>? livePublishers = null)
     {
         return Fields.Count(field => field is not ProfileField.Device
-                                                             && values.Has(new ProfileSettingKey(field)))
+                                     && values.Has(new ProfileSettingKey(field)))
                + values.Device.Count(entry => entry.Value is not null
                                               && (livePublishers is null
                                                   || livePublishers.Contains(entry.DeviceIdentityKey)));

@@ -28,9 +28,6 @@ public enum EjectKind
 /// </summary>
 public sealed class RemovableDriveEntry : ObservableObject
 {
-    /// <summary>Mounted volume letters as data, independent of the display text.</summary>
-    public IReadOnlyList<char> VolumeLetters { get; internal set; } = [];
-
     /// <summary>Creates a row.</summary>
     /// <param name="id">
     ///     The device instance path (or "media:X" for a media row),
@@ -42,6 +39,9 @@ public sealed class RemovableDriveEntry : ObservableObject
         Id = id;
         Kind = kind;
     }
+
+    /// <summary>Mounted volume letters as data, independent of the display text.</summary>
+    public IReadOnlyList<char> VolumeLetters { get; internal set; } = [];
 
     /// <summary>Gets the row's identity. Immutable.</summary>
     public string Id { get; }

@@ -5,7 +5,9 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.Threading;
 using WSGM.Controls;
 
 namespace WSGM.Overlay;
@@ -16,10 +18,9 @@ internal sealed class OverlayFilePicker : UserControl
     private readonly HashSet<string> _extensions;
     private readonly bool _folder;
     private string? _directory;
-    private long _generation;
     private string? _focusEntry;
+    private long _generation;
     private CancellationTokenSource? _load;
-    private int _shown = 100;
 
     internal OverlayFilePicker(bool folder, IEnumerable<string> extensions)
     {
@@ -35,6 +36,8 @@ internal sealed class OverlayFilePicker : UserControl
             Completed?.Invoke(null);
         };
     }
+
+    internal ActionButton? DefaultFocusTarget { get; private set; }
 
     internal event Action<string?>? Completed;
     internal event Action<string, Action<string>>? TextEntryRequested;
@@ -55,9 +58,11 @@ internal sealed class OverlayFilePicker : UserControl
         var generation = ++_generation;
         _directory = path;
         var body = Header(path);
-        body.Children.Add(new TextBlock { Text = "Reading folders…" });
+        var loading = new TextBlock { Text = "Reading folders…" };
+        body.Children.Add(loading);
+        DefaultFocusTarget = body.Children.OfType<ActionButton>().First();
         Content = body;
-        _ = ReadAsync(path, generation, token);
+        _ = ReadAsync(path, body, loading, generation, token);
     }
 
     private StackPanel Header(string? path)
@@ -90,17 +95,9 @@ internal sealed class OverlayFilePicker : UserControl
         }));
         if (path is not null)
         {
-            Add(body, "Drives", () =>
-            {
-                _shown = 100;
-                ShowDirectory(null);
-            });
+            Add(body, "Drives", () => { ShowDirectory(null); });
             var parent = Directory.GetParent(path)?.FullName;
-            Add(body, "Up", () =>
-            {
-                _shown = 100;
-                ShowDirectory(parent);
-            });
+            Add(body, "Up", () => { ShowDirectory(parent); });
             if (_folder)
             {
                 Add(body, "Choose this folder", () => Completed?.Invoke(path));
@@ -110,7 +107,8 @@ internal sealed class OverlayFilePicker : UserControl
         return body;
     }
 
-    private async Task ReadAsync(string? path, long generation, CancellationToken token)
+    private async Task ReadAsync(string? path, StackPanel body, TextBlock loading, long generation,
+        CancellationToken token)
     {
         try
         {
@@ -128,22 +126,22 @@ internal sealed class OverlayFilePicker : UserControl
                         : Directory.EnumerateFiles(path).Where(Accepts).Select(file => (file, Folder: false)))
                     .OrderByDescending(entry => entry.Folder)
                     .ThenBy(entry => entry.Item1, StringComparer.OrdinalIgnoreCase)
-                    .Take(_shown + 1).ToArray();
+                    .ToArray();
             }, token);
             if (generation != _generation || token.IsCancellationRequested)
             {
                 return;
             }
 
-            var body = Header(path);
-            foreach (var entry in entries.Take(_shown))
+            var focus = _focusEntry is "" ? entries.FirstOrDefault().Item1 : _focusEntry;
+            _focusEntry = null;
+            foreach (var entry in entries)
             {
                 var chosen = entry.Item1;
-                Add(body, path is null ? chosen : Path.GetFileName(chosen), chosen, () =>
+                var button = Add(body, path is null ? chosen : Path.GetFileName(chosen), chosen, () =>
                 {
                     if (entry.Folder)
                     {
-                        _shown = 100;
                         ShowDirectory(chosen);
                     }
                     else
@@ -151,16 +149,10 @@ internal sealed class OverlayFilePicker : UserControl
                         Completed?.Invoke(chosen);
                     }
                 });
-            }
-
-            if (entries.Length > _shown)
-            {
-                var added = entries[_shown].Item1;
-                Add(body, "Show more", () =>
+                if (chosen == focus)
                 {
-                    _shown += 100;
-                    ShowDirectory(path, added);
-                });
+                    DefaultFocusTarget = button;
+                }
             }
 
             if (entries.Length == 0)
@@ -168,14 +160,23 @@ internal sealed class OverlayFilePicker : UserControl
                 body.Children.Add(new TextBlock { Text = "No matching entries." });
             }
 
-            Content = body;
-            // A new folder starts on its first entry and "Show more" on the first entry it added;
-            // the controller would otherwise fall back to the top of the surface.
-            var focus = _focusEntry is "" ? entries.FirstOrDefault().Item1 : _focusEntry;
-            _focusEntry = null;
-            if (focus is not null)
+            // Keep header controls attached while the listing arrives, including the row
+            // that opened text entry or is receiving a pointer press.
+            body.Children.Remove(loading);
+            // A new folder starts on its first entry; the controller would otherwise fall back
+            // to the top of the surface.
+            if (focus is not null && DefaultFocusTarget is { } target)
             {
-                PagedRows.FocusAdded(body, focus);
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (generation == _generation && !token.IsCancellationRequested
+                                                  && target.IsEffectivelyEnabled && target.IsEffectivelyVisible
+                                                  && TopLevel.GetTopLevel(target) is { } owner &&
+                                                  owner == TopLevel.GetTopLevel(this))
+                    {
+                        target.Focus(NavigationMethod.Directional);
+                    }
+                }, DispatcherPriority.Loaded);
             }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -200,6 +201,7 @@ internal sealed class OverlayFilePicker : UserControl
         var body = Header(_directory);
         body.Children.Add(new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap });
         Add(body, "Retry", () => ShowDirectory(_directory));
+        DefaultFocusTarget = body.Children.OfType<ActionButton>().First();
         Content = body;
     }
 
@@ -208,10 +210,11 @@ internal sealed class OverlayFilePicker : UserControl
         Add(body, label, null, action);
     }
 
-    private static void Add(StackPanel body, string label, string? tag, Action action)
+    private static ActionButton Add(StackPanel body, string label, string? tag, Action action)
     {
         var button = new ActionButton { Title = label, Tag = tag };
         button.Click += (_, _) => action();
         body.Children.Add(button);
+        return button;
     }
 }

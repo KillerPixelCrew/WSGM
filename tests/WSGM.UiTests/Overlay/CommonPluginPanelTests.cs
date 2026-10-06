@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
 using Avalonia.LogicalTree;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -21,21 +22,109 @@ namespace WSGM.UiTests.Overlay;
 public sealed class CommonPluginPanelTests
 {
     [AvaloniaFact]
+    public void ReattachedPanelRefreshesAndInvokesWithALiveToken()
+    {
+        using var fixture = new UiFixture();
+        var source = new TokenCheckingSource();
+        var panel = new CommonPluginPanel(source, new PluginWidgetPin("test", "device", "fan"));
+        var window = new Window { Content = panel, Width = 600, Height = 500 };
+        try
+        {
+            window.Show();
+            window.Content = null;
+            window.Content = panel;
+            Dispatcher.UIThread.RunJobs();
+            panel.GetLogicalDescendants().OfType<Expander>().Single().IsExpanded = true;
+            panel.GetLogicalDescendants().OfType<ComboBox>().Single().SelectedItem = "turbo";
+            UiFixture.Click(window, panel.GetLogicalDescendants().OfType<ActionButton>()
+                .Single(button => button.Title == "Change fan"));
+            Assert.Equal("turbo", source.Requested);
+            Assert.Contains(panel.GetLogicalDescendants().OfType<TextBlock>(), text => text.Text == "Applied");
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void ReattachedPinnedWidgetsReadChangedPreferences()
+    {
+        using var fixture = new UiFixture();
+        PluginWidgetPin[] pins = [new("test", "device", "fan")];
+        var preferences = new PluginWidgetPreferences(() => Task.FromResult(pins),
+            (_, _) => Task.CompletedTask, (_, _) => Task.CompletedTask, _ => Task.CompletedTask,
+            () => Task.CompletedTask);
+        var widgets = new PinnedPluginWidgets(new TokenCheckingSource(), (_, _) => { }, preferences);
+        var window = new Window { Content = widgets, Width = 600, Height = 500 };
+        try
+        {
+            window.Show();
+            Assert.Single(widgets.GetLogicalDescendants().OfType<CommonPluginPanel>());
+            window.Content = null;
+            pins = [.. pins, new PluginWidgetPin("missing", "default", "power")];
+            window.Content = widgets;
+            Dispatcher.UIThread.RunJobs();
+            Assert.Equal(2, widgets.GetLogicalDescendants().OfType<CommonPluginPanel>().Count());
+            Assert.Contains(widgets.GetLogicalDescendants().OfType<TextBlock>(),
+                text => text.Text == "Plugin unavailable");
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
     public void PluginRailPageHasOnePinTogglePerWidgetAndSharedActions()
     {
         using UiFixture fixture = new();
         var window = fixture.Overlay();
         var host = UiFixture.Named<StackPanel>(window, "CommonPluginRows");
-        PluginWidgetPreferences preferences = new(() => Task.FromResult(Array.Empty<PluginWidgetPin>()),
-            (_, _) => Task.CompletedTask, (_, _) => Task.CompletedTask, _ => Task.CompletedTask,
+        List<PluginWidgetPin> pins = [];
+        PluginWidgetPreferences preferences = new(() => Task.FromResult(pins.ToArray()),
+            (pin, pinned) =>
+            {
+                PluginWidgetPins.Set(pins, pin, pinned);
+                return Task.CompletedTask;
+            }, (_, _) => Task.CompletedTask, _ => Task.CompletedTask,
             () => Task.CompletedTask);
-        host.Children.Add(new CommonPluginPanel(new MutableProvider(), preferences: preferences));
+        var source = new MutableProvider();
+        var panel = new CommonPluginPanel(source, preferences: preferences);
+        host.Children.Add(panel);
         var tile = UiFixture.Named<ActionButton>(window, "SystemPluginsTile");
         tile.IsVisible = true;
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SystemPlugins));
-        Assert.Single(host.GetLogicalDescendants().OfType<PluginWidgetPinControls>());
-        VisualBaseline.Verify(window, "overlay-plugins-1280");
+        var pinControl = Assert.Single(host.GetLogicalDescendants().OfType<PluginWidgetPinControls>());
+        Assert.Empty(pins);
+        Assert.Equal(0, source.Invocations);
+        UiFixture.Click(window, pinControl);
+        Assert.Equal(new PluginWidgetPin("test", "default", "power"), Assert.Single(pins));
+        Assert.True(pinControl.IsPinned);
+        UiFixture.Click(window, pinControl);
+        Assert.Empty(pins);
+        Assert.False(pinControl.IsPinned);
+
+        // docs/overlay-and-input.md approves CollapsibleSection with a native Expander for
+        // common plugin categories. The former custom folding-header pixel reference is obsolete.
+        var section = Assert.Single(host.GetLogicalDescendants().OfType<CollapsibleSection>());
+        Assert.False(section.IsExpanded);
+        var heading = section.Heading;
+        Assert.True(heading.Focus(NavigationMethod.Directional));
+        Assert.True(window.NavigateWorkspace(NavigationDirection.Right));
+        Assert.True(section.IsExpanded);
+        Assert.Same(heading, window.FocusManager!.GetFocusedElement());
+        var action = Assert.Single(section.Body.GetLogicalDescendants().OfType<ActionButton>());
+        Assert.Equal("Run", action.Title);
+        Assert.Equal("plugin.test.default.run", action.Tag);
+        Assert.Equal(0, source.Invocations);
+        UiFixture.Click(window, action);
+        Assert.Equal(1, source.Invocations);
+        panel.Refresh();
+        Assert.Same(section, Assert.Single(host.GetLogicalDescendants().OfType<CollapsibleSection>()));
+        Assert.Same(heading, section.Heading);
+        Assert.Same(pinControl, Assert.Single(host.GetLogicalDescendants().OfType<PluginWidgetPinControls>()));
     }
 
     [AvaloniaFact]
@@ -321,7 +410,8 @@ public sealed class CommonPluginPanelTests
         try
         {
             var (editor, read) = CommonPluginPanel.CreateTextArgumentEditor(
-                new PluginSetting("name", "Command name", PluginSettingKind.Text, new PluginValue(Text: "Power")), requestText);
+                new PluginSetting("name", "Command name", PluginSettingKind.Text, new PluginValue(Text: "Power")),
+                requestText);
             window.Content = editor;
             window.Show();
             UiFixture.Click(window, editor);
@@ -334,6 +424,29 @@ public sealed class CommonPluginPanelTests
         finally
         {
             window.Close();
+        }
+    }
+
+    private sealed class TokenCheckingSource : ICommonPluginOverlaySource
+    {
+        private readonly ChoiceSource _source = new();
+        internal string? Requested => _source.Requested;
+
+        public PluginOverlayInstance[] Snapshot()
+        {
+            return _source.Snapshot();
+        }
+
+        public PluginStatePublication[] State(PluginInstanceIdentity identity)
+        {
+            return _source.State(identity);
+        }
+
+        public Task<PluginActionResult> InvokeAsync(PluginInstanceIdentity identity, long generation, string action,
+            IReadOnlyDictionary<string, PluginValue> arguments, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return _source.InvokeAsync(identity, generation, action, arguments, cancellationToken);
         }
     }
 }

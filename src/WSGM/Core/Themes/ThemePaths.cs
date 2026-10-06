@@ -32,7 +32,10 @@ public static class ThemePaths
     /// <summary>WSGM's themes folder.</summary>
     /// <param name="context">The owner's explicit user data context.</param>
     /// <returns>The owner's theme directory.</returns>
-    public static string DefaultRoot(UserDataContext context) => Path.Combine(context.Root, "themes");
+    public static string DefaultRoot(UserDataContext context)
+    {
+        return Path.Combine(context.Root, "themes");
+    }
 
     /// <summary>The link inside a Steam installation.</summary>
     /// <param name="steamDirectory">Steam's install directory.</param>

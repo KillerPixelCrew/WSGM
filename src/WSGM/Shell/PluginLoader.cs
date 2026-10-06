@@ -6,11 +6,11 @@ using System.Runtime.Loader;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
-using Windows.Foundation;
 using WinRT;
 using WSGM.Core;
 using WSGM.Device.Sdk.Plugin;
 using WSGM.Plugin.Sdk;
+using WinRtPoint = Windows.Foundation.Point;
 
 namespace WSGM.Shell;
 
@@ -252,8 +252,8 @@ internal static class PluginLoader
             [typeof(IPlugin).Assembly.GetName().Name!] = typeof(IPlugin).Assembly,
             [typeof(ISteamUiModule).Assembly.GetName().Name!] = typeof(ISteamUiModule).Assembly,
             [typeof(IWinRTObject).Assembly.GetName().Name!] = typeof(IWinRTObject).Assembly,
-            [typeof(Point).Assembly.GetName().Name!] =
-                typeof(Point).Assembly
+            [typeof(WinRtPoint).Assembly.GetName().Name!] =
+                typeof(WinRtPoint).Assembly
         };
 
         private readonly Lock _gate = new();

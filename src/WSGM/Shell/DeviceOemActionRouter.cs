@@ -59,8 +59,8 @@ internal sealed class DeviceOemActionRouter : IDisposable
 {
     private static readonly TimeSpan DeduplicationWindow = TimeSpan.FromSeconds(30);
     private readonly Dictionary<string, OemControlDescriptor> _controls = new(StringComparer.Ordinal);
-    private readonly Lock _gate = new();
     private readonly HashSet<Task> _dispatches = [];
+    private readonly Lock _gate = new();
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Dictionary<string, DateTimeOffset> _recentEvents = new(StringComparer.Ordinal);
     private long _actionGeneration;

@@ -61,14 +61,17 @@ public static class UpdateChecker
     /// <summary>The latest-release endpoint of the WSGM repository.</summary>
     internal const string LatestReleaseUrl = "https://api.github.com/repos/KillerPixelCrew/WSGM/releases/latest";
 
-    /// <summary>The per-user record of the last check.</summary>
-    internal static string StatePath(UserDataContext context) => Path.Combine(context.Root, "update.json");
-
     /// <summary>Where downloaded setups are kept until they run.</summary>
     internal static string DownloadDirectory => Path.Combine(InstallLayout.MachineData, "Updates");
 
     /// <summary>The running WSGM's version.</summary>
     public static Version CurrentVersion { get; } = Normalize(typeof(UpdateChecker).Assembly.GetName().Version);
+
+    /// <summary>The per-user record of the last check.</summary>
+    internal static string StatePath(UserDataContext context)
+    {
+        return Path.Combine(context.Root, "update.json");
+    }
 
     /// <summary>A client with a WSGM user agent, which GitHub's API requires, and a timeout long enough for the setup.</summary>
     public static HttpClient CreateHttpClient()
@@ -114,7 +117,8 @@ public static class UpdateChecker
     /// <param name="cancellationToken">Cancels the check.</param>
     /// <returns>The recorded state.</returns>
     /// <param name="context">The owner's update-state directory.</param>
-    public static async Task<UpdateState> CheckAsync(HttpClient http, UserDataContext context, CancellationToken cancellationToken)
+    public static async Task<UpdateState> CheckAsync(HttpClient http, UserDataContext context,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(http);
         try

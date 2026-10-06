@@ -125,7 +125,7 @@ internal static partial class LabSystemDump
                 continue;
             }
 
-            devices.Add(ReadDevice(id, node));
+            devices.Add(ReadDevice(id, node, issues));
         }
 
         context.Devices = devices;
@@ -159,7 +159,7 @@ internal static partial class LabSystemDump
         throw new InvalidOperationException("The device list kept changing while it was read.");
     }
 
-    private static LabDumpDevice ReadDevice(string id, uint node)
+    private static LabDumpDevice ReadDevice(string id, uint node, ICollection<string> issues)
     {
         int? problemCode = null;
         uint? statusFlags = null;
@@ -173,29 +173,29 @@ internal static partial class LabSystemDump
         {
             InstanceId = id,
             Parent = ParentId(node),
-            Class = NodeString(node, ClassKey),
-            ClassGuid = NodeString(node, ClassGuidKey),
-            FriendlyName = NodeString(node, FriendlyNameKey),
-            Description = NodeString(node, DeviceDescription),
-            BusReportedDescription = NodeString(node, BusReportedDescriptionKey),
-            Manufacturer = NodeString(node, ManufacturerKey),
-            HardwareIds = NodeStrings(node, HardwareIdsKey),
-            CompatibleIds = NodeStrings(node, CompatibleIdsKey),
-            Service = NodeString(node, ServiceKey),
-            DriverProvider = NodeString(node, DriverProviderKey),
-            DriverVersion = NodeString(node, DriverVersionKey),
-            DriverDate = NodeString(node, DriverDateKey),
-            DriverInf = NodeString(node, DriverInfKey),
+            Class = NodeString(node, issues, ClassKey),
+            ClassGuid = NodeString(node, issues, ClassGuidKey),
+            FriendlyName = NodeString(node, issues, FriendlyNameKey),
+            Description = NodeString(node, issues, DeviceDescription),
+            BusReportedDescription = NodeString(node, issues, BusReportedDescriptionKey),
+            Manufacturer = NodeString(node, issues, ManufacturerKey),
+            HardwareIds = NodeStrings(node, issues, HardwareIdsKey),
+            CompatibleIds = NodeStrings(node, issues, CompatibleIdsKey),
+            Service = NodeString(node, issues, ServiceKey),
+            DriverProvider = NodeString(node, issues, DriverProviderKey),
+            DriverVersion = NodeString(node, issues, DriverVersionKey),
+            DriverDate = NodeString(node, issues, DriverDateKey),
+            DriverInf = NodeString(node, issues, DriverInfKey),
             Filters =
             [
-                .. NodeStrings(node, LowerFiltersKey).Select(filter => $"lower:{filter}"),
-                .. NodeStrings(node, UpperFiltersKey).Select(filter => $"upper:{filter}")
+                .. NodeStrings(node, issues, LowerFiltersKey).Select(filter => $"lower:{filter}"),
+                .. NodeStrings(node, issues, UpperFiltersKey).Select(filter => $"upper:{filter}")
             ],
             Status = statusFlags is { } flags ? Hex(flags) : null,
             Started = statusFlags is { } started && (started & DnStarted) != 0,
             Problem = problemCode,
-            LocationInfo = NodeString(node, LocationInfoKey),
-            LocationPaths = NodeStrings(node, LocationPathsKey)
+            LocationInfo = NodeString(node, issues, LocationInfoKey),
+            LocationPaths = NodeStrings(node, issues, LocationPathsKey)
         };
     }
 
@@ -203,44 +203,55 @@ internal static partial class LabSystemDump
     {
         if (CM_Get_Parent(out var parent, node, 0) != CrSuccess
             || CM_Get_Device_ID_Size(out var characters, parent, 0) != CrSuccess
-            || characters <= 0
-            || characters > 4096)
+            || characters <= 0)
         {
             return null;
         }
 
-        var buffer = new char[characters + 1];
+        var buffer = new char[checked(characters + 1)];
         return CM_Get_Device_IDW(parent, buffer, buffer.Length, 0) == CrSuccess
             ? new string(buffer, 0, characters)
             : null;
     }
 
-    private static string? NodeString(uint node, in DevPropKey key)
+    private static string? NodeString(uint node, ICollection<string> issues, in DevPropKey key)
     {
-        return ReadNodeProperty(node, key) is { } value
+        return ReadNodeProperty(node, issues, key) is { } value
             ? DecodeProperty(value.Type, value.Bytes).FirstOrDefault()
             : null;
     }
 
-    private static IReadOnlyList<string> NodeStrings(uint node, in DevPropKey key)
+    private static IReadOnlyList<string> NodeStrings(uint node, ICollection<string> issues, in DevPropKey key)
     {
-        return ReadNodeProperty(node, key) is { } value ? DecodeProperty(value.Type, value.Bytes) : [];
+        return ReadNodeProperty(node, issues, key) is { } value ? DecodeProperty(value.Type, value.Bytes) : [];
     }
 
-    private static (uint Type, byte[] Bytes)? ReadNodeProperty(uint node, in DevPropKey key)
+    private static (uint Type, byte[] Bytes)? ReadNodeProperty(uint node, ICollection<string> issues, in DevPropKey key)
     {
         var size = 0;
         if (CM_Get_DevNode_PropertyW(node, in key, out _, null, ref size, 0) != CrBufferSmall
-            || size <= 0
-            || size > MaximumPropertyBytes)
+            || size <= 0)
         {
             return null;
         }
 
+        if (size > MaximumPropertyBytes)
+        {
+            issues.Add($"Device node {node}: property {key.FormatId}/{key.PropertyId} reported {size} bytes, "
+                       + $"over the {MaximumPropertyBytes}-byte limit; unreadable.");
+            return null;
+        }
+
         var buffer = new byte[size];
-        return CM_Get_DevNode_PropertyW(node, in key, out var type, buffer, ref size, 0) == CrSuccess
-            ? (type, buffer[..size])
-            : null;
+        var result = CM_Get_DevNode_PropertyW(node, in key, out var type, buffer, ref size, 0);
+        if (size > MaximumPropertyBytes)
+        {
+            issues.Add($"Device node {node}: property {key.FormatId}/{key.PropertyId} grew to {size} bytes, "
+                       + $"over the {MaximumPropertyBytes}-byte limit; unreadable.");
+            return null;
+        }
+
+        return result == CrSuccess && size >= 0 && size <= buffer.Length ? (type, buffer[..size]) : null;
     }
 
     /// <summary>Decodes a device property of a string, string list, GUID or FILETIME type.</summary>
@@ -305,7 +316,8 @@ internal static partial class LabSystemDump
     [StructLayout(LayoutKind.Sequential)]
     private readonly struct DevPropKey(Guid formatId, uint propertyId)
     {
-        private readonly Guid _formatId = formatId;
-        private readonly uint _propertyId = propertyId;
+        internal Guid FormatId { get; } = formatId;
+
+        internal uint PropertyId { get; } = propertyId;
     }
 }

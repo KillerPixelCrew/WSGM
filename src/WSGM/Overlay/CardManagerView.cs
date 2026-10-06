@@ -20,15 +20,17 @@ namespace WSGM.Overlay;
 public sealed class CardManagerView : OverlaySubView
 {
     private ConfigStore? _store;
-    private ConfigStore Store => _store ?? throw new InvalidOperationException("The overlay persistence owner was not supplied.");
+
+    private ConfigStore Store =>
+        _store ?? throw new InvalidOperationException("The overlay persistence owner was not supplied.");
+
+    /// <inheritdoc />
+    protected override string LogScope => "Card manager";
 
     internal void ConfigureStore(ConfigStore store)
     {
         _store = store;
     }
-
-    /// <inheritdoc />
-    protected override string LogScope => "Card manager";
 
     /// <summary>
     ///     Resets navigation and renders the card list. Called by the overlay

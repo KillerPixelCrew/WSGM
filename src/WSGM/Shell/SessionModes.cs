@@ -92,17 +92,15 @@ public sealed class SessionModes
 
     private readonly ExplorerDesktopHost? _desktopHost;
     private readonly Lock _homeLaunchGate = new();
+    private readonly SessionModeHooks? _hooks;
+    private readonly Func<bool, bool, bool, bool> _launchSteamDesktop;
     private readonly SteamMonitor? _monitor;
+    private readonly SteamInputShim? _steamInputShim;
+    private readonly Func<bool> _steamInstalled;
+    private readonly Func<bool> _steamRunning;
+    private readonly ConfigStore? _store;
 
     private AppConfig _config;
-    private readonly ConfigStore? _store;
-    private ConfigStore Store => _store ?? throw new InvalidOperationException("Preview modes cannot persist display recovery.");
-    private readonly SteamInputShim? _steamInputShim;
-    private SteamInputShim SteamInputShim =>
-        _steamInputShim ?? throw new InvalidOperationException("Preview modes cannot start Steam.");
-    private readonly SessionModeHooks? _hooks;
-    private SessionModeHooks Hooks =>
-        _hooks ?? throw new InvalidOperationException("Preview modes cannot change the session mode.");
 
     // Both UI-thread only: set when an entry starts, read and cleared by the entry's settle
     // callback, which is posted back to the UI thread.
@@ -129,9 +127,19 @@ public sealed class SessionModes
     ///     auto-relaunch policy for the monitor's lifetime.
     /// </param>
     public SessionModes(AppConfig config, SteamMonitor? monitor)
+        : this(config, monitor, static () => Steam.IsRunning, static () => Steam.IsInstalled, null)
+    {
+    }
+
+    /// <summary>Creates the mode owner with the desktop Steam probes and launch operation it uses.</summary>
+    internal SessionModes(AppConfig config, SteamMonitor? monitor, Func<bool> steamRunning,
+        Func<bool> steamInstalled, Func<bool, bool, bool, bool>? launchSteamDesktop)
     {
         _config = config;
         _monitor = monitor;
+        _steamRunning = steamRunning ?? throw new ArgumentNullException(nameof(steamRunning));
+        _steamInstalled = steamInstalled ?? throw new ArgumentNullException(nameof(steamInstalled));
+        _launchSteamDesktop = launchSteamDesktop ?? LaunchSteamDesktop;
         _desktopHost = null;
         if (_monitor is not null)
         {
@@ -162,6 +170,15 @@ public sealed class SessionModes
         _steamInputShim = steamInputShim;
         _hooks = hooks;
     }
+
+    private ConfigStore Store =>
+        _store ?? throw new InvalidOperationException("Preview modes cannot persist display recovery.");
+
+    private SteamInputShim SteamInputShim =>
+        _steamInputShim ?? throw new InvalidOperationException("Preview modes cannot start Steam.");
+
+    private SessionModeHooks Hooks =>
+        _hooks ?? throw new InvalidOperationException("Preview modes cannot change the session mode.");
 
     /// <summary>
     ///     Whether the user closed Steam deliberately. The monitor's pause only covers a
@@ -300,6 +317,11 @@ public sealed class SessionModes
     /// </summary>
     internal void CommitGameMode()
     {
+        if (Volatile.Read(ref _shutdownRequested) != 0)
+        {
+            throw new OperationCanceledException("Application shutdown refuses Game Mode entry.");
+        }
+
         GameModeEntered?.Invoke();
         _monitor?.Paused = false;
     }
@@ -324,6 +346,13 @@ public sealed class SessionModes
     internal void RequestShutdown()
     {
         Volatile.Write(ref _shutdownRequested, 1);
+        _pendingSteamRelaunch?.Dispose();
+        _pendingSteamRelaunch = null;
+        if (_monitor is not null)
+        {
+            _monitor.SteamExited -= OnSteamExited;
+        }
+
         CancelGameModeEntry();
     }
 
@@ -485,12 +514,12 @@ public sealed class SessionModes
             return;
         }
 
-        if (Steam.IsRunning)
+        if (_steamRunning())
         {
             return;
         }
 
-        if (!Steam.IsInstalled)
+        if (!_steamInstalled())
         {
             Log.Warn("Desktop Steam start skipped: no Steam installation was detected.");
             return;
@@ -498,11 +527,16 @@ public sealed class SessionModes
 
         Log.Info("Starting Steam (desktop mode, no Big Picture).");
         // Read at start time, not captured: a config reload replaces _config wholesale.
-        if (!Steam.LaunchDesktop(Store.Context, SteamInputShim, _config.SteamInputManagementEnabled,
-                _config.SteamLaunchUnelevated, _config.Cef.Enabled).Started)
+        var config = _config;
+        if (!_launchSteamDesktop(config.SteamInputManagementEnabled, config.SteamLaunchUnelevated, config.Cef.Enabled))
         {
             SteamStartFailed?.Invoke(SteamStartFailedWarning);
         }
+    }
+
+    private bool LaunchSteamDesktop(bool manageInput, bool unelevated, bool cefEnabled)
+    {
+        return Steam.LaunchDesktop(Store.Context, SteamInputShim, manageInput, unelevated, cefEnabled).Started;
     }
 
     /// <summary>
@@ -620,11 +654,12 @@ public sealed class SessionModes
     /// </summary>
     private static async Task<ExplorerDesktopResult> RestoreDesktopSafelyAsync(
         ExplorerDesktopHost desktopHost,
-        string failureContext)
+        string failureContext,
+        CancellationToken cancellationToken)
     {
         try
         {
-            return await desktopHost.RestoreDesktopAsync(TimeSpan.FromSeconds(20))
+            return await desktopHost.RestoreDesktopAsync(TimeSpan.FromSeconds(20), cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (Exception ex)
@@ -925,7 +960,7 @@ public sealed class SessionModes
 
         public async Task<bool> RestoreLayoutAsync()
         {
-            DisplayScale.ApplyDesktopMode(modes.Store, modes._config);
+            DisplayScale.ApplyDesktopMode(modes.Store, modes.Store.Read().RequireConfig());
             var services = hooks.Entry;
             if (layout is not null)
             {
@@ -966,7 +1001,13 @@ public sealed class SessionModes
 
         public async Task<bool> RestoreExplorerAsync()
         {
-            var result = await RestoreDesktopSafelyAsync(host, "Explorer desktop restoration failed")
+            if (Volatile.Read(ref modes._shutdownRequested) != 0 || ApplicationShutdownRequest.SessionEnding)
+            {
+                return false;
+            }
+
+            var result = await RestoreDesktopSafelyAsync(host, "Explorer desktop restoration failed",
+                    hooks.ShutdownCancellation)
                 .ConfigureAwait(false);
             var restored = result.Outcome is not ExplorerDesktopOutcome.Failed;
             if (!restored)
@@ -990,6 +1031,11 @@ public sealed class SessionModes
 
         public async Task RunLeaveActionsAsync()
         {
+            if (Volatile.Read(ref modes._shutdownRequested) != 0)
+            {
+                return;
+            }
+
             var steps = await hooks.Entry.RunLeaveActionsAsync().ConfigureAwait(false);
             warnings.AddRange(steps.Where(step => !step.Succeeded)
                 .Select(step => "Leave Game Mode action: " + step.Detail));
@@ -1026,6 +1072,7 @@ public sealed class SessionModes
 /// </param>
 /// <param name="DesktopReady">Invoked on the UI thread once Explorer is restored.</param>
 /// <param name="IsGameMode">Whether the session is in Game Mode.</param>
+/// <param name="ShutdownCancellation">Cancels an in-flight desktop restoration when the session stops.</param>
 internal sealed record SessionModeHooks(
     IGameModeEntryBackend Entry,
     Func<Task> PrepareSteamUiForBigPictureAsync,
@@ -1033,4 +1080,5 @@ internal sealed record SessionModeHooks(
     Action SteamUiBigPictureRequestSettled,
     Action GameModeEntrySettled,
     Action DesktopReady,
-    Func<bool> IsGameMode);
+    Func<bool> IsGameMode,
+    CancellationToken ShutdownCancellation = default);

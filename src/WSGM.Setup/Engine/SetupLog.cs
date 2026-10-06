@@ -10,7 +10,7 @@ internal static class SetupLog
     private static readonly object Gate = new();
 
     /// <summary>The log file.</summary>
-    public static string Path => System.IO.Path.Combine(InstallLayout.MachineData, "setup.log");
+    public static string Path { get; internal set; } = System.IO.Path.Combine(InstallLayout.MachineData, "setup.log");
 
     public static void Info(string message)
     {
@@ -33,7 +33,7 @@ internal static class SetupLog
         {
             lock (Gate)
             {
-                Directory.CreateDirectory(InstallLayout.MachineData);
+                Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path)!);
                 File.AppendAllText(Path,
                     $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff} {level} {message}{Environment.NewLine}");
             }

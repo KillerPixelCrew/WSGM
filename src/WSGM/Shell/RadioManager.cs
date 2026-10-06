@@ -65,13 +65,14 @@ public sealed class RadioManager : ObservableObject, IDisposable
     private volatile bool _disposed;
 
     private bool _feedsStarted;
-    private bool _pairingCancelled;
 
     /// <summary>
     ///     Ends the running pairing attempt when the manager is disposed. A user cancel declines the
     ///     pending question instead, so it ends with Windows' own cancelled outcome and text.
     /// </summary>
     private CancellationTokenSource? _pairingCancellation;
+
+    private bool _pairingCancelled;
 
     private string? _pairingEndpointId;
     private BluetoothDeviceEntry? _pairingEntry;
@@ -915,7 +916,8 @@ public sealed class RadioManager : ObservableObject, IDisposable
             row.ContainerId = device.Container;
             ApplyAudioState(row);
             identities.Append(identities.Length > 0 ? "; " : "")
-                .Append($"{device.Id} container={device.Container}, endpoints={string.Join(",", device.EndpointIds)}, selected={device.EndpointId}");
+                .Append(
+                    $"{device.Id} container={device.Container}, endpoints={string.Join(",", device.EndpointIds)}, selected={device.EndpointId}");
         }
 
         for (var index = BluetoothDevices.Count - 1; index >= 0; index--)

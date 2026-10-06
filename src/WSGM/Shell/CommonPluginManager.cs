@@ -116,6 +116,11 @@ internal sealed class CommonPluginManager
     internal Task ReconcileAsync(IReadOnlyList<CommonPluginInstanceConfig> configured,
         CancellationToken cancellationToken)
     {
+        if (_stopping)
+        {
+            return Task.CompletedTask;
+        }
+
         var revision = Interlocked.Increment(ref _requestedRevision);
         // Detached, so a caller editing its configuration objects later cannot change this reconcile.
         CommonPluginInstanceConfig[] snapshot =
@@ -258,6 +263,11 @@ internal sealed class CommonPluginManager
                     Entry entry;
                     lock (_stateGate)
                     {
+                        if (_stopping)
+                        {
+                            return;
+                        }
+
                         if (_entries.ContainsKey(identity))
                         {
                             continue;
@@ -347,19 +357,50 @@ internal sealed class CommonPluginManager
         }
     }
 
-    internal async Task StopAsync(Deadline deadline)
+    /// <summary>Refuses new starts and power work, and cancels admitted startup without waiting.</summary>
+    internal void CloseAdmission()
     {
-        _stopping = true;
         Entry[] entries;
         lock (_stateGate)
         {
+            _stopping = true;
             entries = [.. _entries.Values.Reverse()];
         }
 
+        List<Exception> failures = [];
         foreach (var entry in entries)
         {
+            try
+            {
+                entry.Registration?.CloseAdmission();
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                failures.Add(ex);
+            }
+
             Cancel(entry.Cancellation);
         }
+
+        if (failures.Count > 0)
+        {
+            throw new AggregateException("Common plugin admission closure failed.", failures);
+        }
+    }
+
+    internal async Task StopAsync(Deadline deadline)
+    {
+        List<Exception> failures = [];
+        try
+        {
+            CloseAdmission();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            failures.Add(ex);
+        }
+
+        Entry[] entries;
 
         using var budget = new CancellationTokenSource(Remaining(deadline));
         await _gate.WaitAsync(budget.Token).ConfigureAwait(false);
@@ -370,7 +411,6 @@ internal sealed class CommonPluginManager
                 entries = [.. _entries.Values.Reverse()];
             }
 
-            List<Exception> failures = [];
             foreach (var entry in entries)
             {
                 try
@@ -397,6 +437,11 @@ internal sealed class CommonPluginManager
 
     internal async Task PowerTransitionAsync(bool suspend, CancellationToken cancellationToken)
     {
+        if (_stopping)
+        {
+            return;
+        }
+
         var deadline = Deadline.After(TimeSpan.FromSeconds(5));
         using var budget = deadline.CreateCancellationSource(cancellationToken);
         var restarted = false;
@@ -438,22 +483,25 @@ internal sealed class CommonPluginManager
 
             await Task.WhenAll(entries.Select(async entry =>
             {
-                if (!entry.StartWork.IsCompleted || entry.Suspended == suspend
-                                                 || entry.Registration is not
-                                                     { IsStopping: false, Quarantined: false } registration)
+                if (_stopping || !entry.StartWork.IsCompleted || entry.Suspended == suspend
+                    || entry.Registration is not
+                        { IsStopping: false, Quarantined: false } registration)
                 {
                     return;
                 }
 
                 try
                 {
+                    using var admitted =
+                        CancellationTokenSource.CreateLinkedTokenSource(token, entry.Cancellation.Token);
                     if (suspend)
                     {
-                        await registration.SuspendAsync(deadline, token).ConfigureAwait(false);
+                        await registration.SuspendAsync(deadline, admitted.Token).ConfigureAwait(false);
                     }
                     else
                     {
-                        await registration.ResumeAsync(checked(registration.Context.Generation + 1), deadline, token)
+                        await registration.ResumeAsync(checked(registration.Context.Generation + 1), deadline,
+                                admitted.Token)
                             .ConfigureAwait(false);
                     }
 

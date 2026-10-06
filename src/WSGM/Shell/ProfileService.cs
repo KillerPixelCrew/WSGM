@@ -41,9 +41,10 @@ internal sealed class ProfileService
     /// <summary>Game and executable pairs already learned or being learned, so each is saved once.</summary>
     private readonly HashSet<string> _learned = new(StringComparer.OrdinalIgnoreCase);
 
+    private readonly CancellationTokenSource _lifetime = new();
+
     private readonly Func<Func<ProfileConfig, bool>, CancellationToken, Task<ProfileConfig>> _mutate;
     private readonly SemaphoreSlim _writeGate = new(1, 1);
-    private readonly CancellationTokenSource _lifetime = new();
     private ProfileSnapshot _current;
     private string _currentJson;
     private PerformanceApplicationTarget? _running;
@@ -60,7 +61,8 @@ internal sealed class ProfileService
     {
         ArgumentNullException.ThrowIfNull(initial);
         _mutate = mutate ?? throw new ArgumentNullException(nameof(mutate));
-        _current = new ProfileSnapshot(ConfigJson.Clone(initial, ConfigJsonContext.Tolerant.ProfileConfig), ActiveProfile.None, 1);
+        _current = new ProfileSnapshot(ConfigJson.Clone(initial, ConfigJsonContext.Tolerant.ProfileConfig),
+            ActiveProfile.None, 1);
         _currentJson = JsonSerializer.Serialize(_current.Config, ConfigJsonContext.Tolerant.ProfileConfig);
     }
 
@@ -197,7 +199,8 @@ internal sealed class ProfileService
         var result = await MutateAsync((config, active) =>
         {
             var target = ProfileEdits.Target(config, active, layer)
-                         ?? throw new InvalidOperationException("The game profile this change was meant for no longer exists.");
+                         ?? throw new InvalidOperationException(
+                             "The game profile this change was meant for no longer exists.");
             var before = JsonSerializer.Serialize(config, ConfigJsonContext.Tolerant.ProfileConfig);
             target.SetDevice(deviceIdentityKey, capabilityId, instanceId, value);
             if (selectSplitMode && ProfileResolver.Layers(config, active).ManualTdp()?.Unified == true)
@@ -211,6 +214,7 @@ internal sealed class ProfileService
         {
             Log.Info($"Profile: {deviceIdentityKey}/{capabilityId} saved.");
         }
+
         return result.Snapshot;
     }
 

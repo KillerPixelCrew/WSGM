@@ -45,6 +45,7 @@ internal static class GameLibraryRules
                 folder.Extensions = [.. ShortcutFolderConfig.AllowedExtensions];
             }
         }
+
         return [];
     }
 }

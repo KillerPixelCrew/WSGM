@@ -18,7 +18,8 @@ public sealed class OverlayNavigationTests
         OverlayNavigation navigation = new();
         navigation.Select(OverlayDestination.Steam);
         navigation.Push(OverlayPage.SteamLibraryTabs, "steam.library");
-        Assert.Equal((OverlayBackAction)expected, navigation.BackAction(new OverlayBackContext(popup, dialog, surface, nested,
+        Assert.Equal((OverlayBackAction)expected, navigation.BackAction(new OverlayBackContext(popup, dialog, surface,
+            nested,
             focusInRail, railCanTakeFocus)));
     }
 
@@ -181,20 +182,20 @@ public sealed class OverlayNavigationTests
         navigation.Select(OverlayDestination.Steam);
         navigation.Push(OverlayPage.SteamCardManager, "steam.cards");
 
-        Assert.Equal(OverlayBackAction.ClosePopup, navigation.BackAction(new(true, true)));
-        Assert.Equal(OverlayBackAction.CloseDialog, navigation.BackAction(new(false, true)));
-        Assert.Equal(OverlayBackAction.LeaveNestedPage, navigation.BackAction(new(false, false)));
+        Assert.Equal(OverlayBackAction.ClosePopup, navigation.BackAction(new OverlayBackContext(true, true)));
+        Assert.Equal(OverlayBackAction.CloseDialog, navigation.BackAction(new OverlayBackContext(false, true)));
+        Assert.Equal(OverlayBackAction.LeaveNestedPage, navigation.BackAction(new OverlayBackContext(false, false)));
 
         Assert.Equal("steam.cards", navigation.Pop());
-        Assert.Equal(OverlayBackAction.ReturnHome, navigation.BackAction(new(false, false)));
+        Assert.Equal(OverlayBackAction.ReturnHome, navigation.BackAction(new OverlayBackContext(false, false)));
 
         // Every other root behaves the same: Back returns to Quick access from it, and only
         // Quick access itself closes the sheet.
         navigation.Select(OverlayDestination.Steam);
-        Assert.Equal(OverlayBackAction.ReturnHome, navigation.BackAction(new(false, false)));
+        Assert.Equal(OverlayBackAction.ReturnHome, navigation.BackAction(new OverlayBackContext(false, false)));
 
         navigation.Select(OverlayDestination.QuickAccess);
-        Assert.Equal(OverlayBackAction.CloseOverlay, navigation.BackAction(new(false, false)));
+        Assert.Equal(OverlayBackAction.CloseOverlay, navigation.BackAction(new OverlayBackContext(false, false)));
     }
 
     [Fact]
@@ -236,7 +237,7 @@ public sealed class OverlayNavigationTests
 
         Assert.True(navigation.Push(OverlayPage.PowerSession, "power.session"));
         Assert.Equal(OverlayPage.PowerSession, navigation.Page);
-        Assert.Equal(OverlayBackAction.LeaveNestedPage, navigation.BackAction(new(false, false)));
+        Assert.Equal(OverlayBackAction.LeaveNestedPage, navigation.BackAction(new OverlayBackContext(false, false)));
         Assert.Equal("power.session", navigation.Pop());
         Assert.Equal(OverlayPage.Power, navigation.Page);
 

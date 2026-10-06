@@ -14,7 +14,7 @@ public sealed class HomeCarouselTests
                 new SteamLibraryBadgeLibrary("Blue card", true, [1, 2]),
                 new SteamLibraryBadgeLibrary("Red card", false, [4, 3, 2, 4])
             ],
-            Revision: 7);
+            7);
 
         var state = HomeCarousel.Build(libraries, false);
 

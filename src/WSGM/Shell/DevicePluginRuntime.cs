@@ -156,7 +156,6 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
 
     private async ValueTask DisposeCoreAsync(Deadline deadline)
     {
-
         CloseCommandAdmission();
         TryCancel(_startCancellation);
         CancelCommands();

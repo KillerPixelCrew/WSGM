@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using WSGM.Interop;
 
 namespace WSGM.PackagedLaunch;
 
@@ -99,7 +100,7 @@ internal sealed class GameInjector(PrivilegeJournal privileges)
         }
         finally
         {
-            WSGM.Interop.Win32Common.CloseHandle(process);
+            Win32Common.CloseHandle(process);
         }
     }
 
@@ -165,7 +166,7 @@ internal sealed class GameInjector(PrivilegeJournal privileges)
         }
         finally
         {
-            WSGM.Interop.Win32Common.CloseHandle(process);
+            Win32Common.CloseHandle(process);
         }
     }
 
@@ -237,7 +238,7 @@ internal sealed class GameInjector(PrivilegeJournal privileges)
         }
         finally
         {
-            WSGM.Interop.Win32Common.CloseHandle(process);
+            Win32Common.CloseHandle(process);
         }
     }
 
@@ -392,7 +393,7 @@ internal sealed class GameInjector(PrivilegeJournal privileges)
 
         try
         {
-            if (WSGM.Interop.Win32Common.WaitForSingleObject(thread, budgetMs) != 0)
+            if (Win32Common.WaitForSingleObject(thread, budgetMs) != 0)
             {
                 _latched.Add(processId);
                 PackagedLaunchLog.Error(
@@ -406,7 +407,7 @@ internal sealed class GameInjector(PrivilegeJournal privileges)
         }
         finally
         {
-            WSGM.Interop.Win32Common.CloseHandle(thread);
+            Win32Common.CloseHandle(thread);
         }
     }
 
@@ -431,7 +432,7 @@ internal sealed class GameInjector(PrivilegeJournal privileges)
         }
         finally
         {
-            WSGM.Interop.Win32Common.CloseHandle(process);
+            Win32Common.CloseHandle(process);
         }
     }
 

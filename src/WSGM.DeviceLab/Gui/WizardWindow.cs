@@ -417,7 +417,7 @@ internal sealed partial class WizardWindow : Window
         RefreshStages(id);
         var page = Page(LabStages.All.Single(stage => stage.Id == id).Title, string.Empty);
         _page.Content = page;
-        Func<Task>? work = id switch
+        var work = id switch
         {
             LabStages.Preflight => () => RunPreflightAsync(project, page),
             LabStages.Identity => () => RunIdentityAsync(project, page),
@@ -973,7 +973,7 @@ internal sealed partial class WizardWindow : Window
         _confirmingClose = true;
         try
         {
-            if (PowerRestorationPending())
+            if (await PowerRestorationPendingAsync())
             {
                 TaskCompletionSource<bool> answer = new(TaskCreationOptions.RunContinuationsAsynchronously);
                 Window dialog = new()

@@ -2,6 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Security;
 using System.Security.Principal;
+using WSGM.Interop;
 
 namespace WSGM.PackagedLaunch;
 
@@ -51,7 +52,7 @@ internal sealed class PrivilegeJournal
         var injectorError = injector == IntPtr.Zero ? Marshal.GetLastWin32Error() : 0;
         if (injector != IntPtr.Zero)
         {
-            WSGM.Interop.Win32Common.CloseHandle(injector);
+            Win32Common.CloseHandle(injector);
         }
 
         var query = NativeMethods.OpenProcess(
@@ -59,7 +60,7 @@ internal sealed class PrivilegeJournal
         var queryError = query == IntPtr.Zero ? Marshal.GetLastWin32Error() : 0;
         if (query != IntPtr.Zero)
         {
-            WSGM.Interop.Win32Common.CloseHandle(query);
+            Win32Common.CloseHandle(query);
         }
 
         PackagedLaunchLog.Info(

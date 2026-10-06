@@ -1,5 +1,6 @@
 using System.Net;
 using WSGM.Core;
+using WSGM.Tests.Fakes;
 
 namespace WSGM.Tests.Core.Themes;
 
@@ -75,7 +76,7 @@ public sealed class ThemeStoreClientTests
     public async Task TheClientAsksTheStoresEndpointsAndBoundsWhatItReads()
     {
         List<string> asked = [];
-        var handler = new StubHandler(request =>
+        var handler = new StubHttpMessageHandler(request =>
         {
             asked.Add(request.RequestUri!.PathAndQuery);
             return request.RequestUri.AbsolutePath switch
@@ -137,18 +138,5 @@ public sealed class ThemeStoreClientTests
         Assert.Equal(0, filters.Filters["Deck"]);
         Assert.Throws<ThemeStoreException>(() => ThemeStoreClient.ParseLookUp("<html>"));
         Assert.Empty(ThemeStoreClient.ParseLookUp("""[2, null]"""));
-    }
-
-    /// <summary>A handler that answers from a function, recording the last user agent sent.</summary>
-    internal sealed class StubHandler(Func<HttpRequestMessage, HttpResponseMessage> answer) : HttpMessageHandler
-    {
-        internal string? LastUserAgent { get; private set; }
-
-        protected override Task<HttpResponseMessage> SendAsync(
-            HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            LastUserAgent = request.Headers.UserAgent.ToString();
-            return Task.FromResult(answer(request));
-        }
     }
 }

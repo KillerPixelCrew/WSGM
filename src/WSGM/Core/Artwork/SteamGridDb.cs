@@ -89,9 +89,19 @@ internal sealed partial class SteamGridDbProvider
 
     internal SteamGridDbProvider(HttpMessageHandler? handler = null, ArtworkRequestGate? gate = null)
     {
-        Http = handler is null ? new HttpClient() : new HttpClient(handler, disposeHandler: false);
+        Http = handler is null ? new HttpClient() : new HttpClient(handler, false);
         Http.Timeout = TimeSpan.FromSeconds(20);
         Gate = gate ?? new ArtworkRequestGate(4, 256);
+    }
+
+    /// <summary>Forgets every cached response.</summary>
+    /// <remarks>
+    ///     Called when the API key changes, so a key that was rejected is not remembered as a
+    ///     working one and the next search really asks.
+    /// </remarks>
+    public void ResetCache()
+    {
+        Gate.Clear();
     }
 
     /// <summary>
@@ -140,7 +150,6 @@ internal sealed partial class SteamGridDbProvider
     }
 
 
-
     /// <summary>Lists a filtered, zero-based page for a Steam app.</summary>
     public Task<ArtworkPage> GetAssetsForSteamAppAsync(
         ArtworkAsset asset, long steamAppId, string key, ArtworkQuery query,
@@ -149,7 +158,6 @@ internal sealed partial class SteamGridDbProvider
         return GetAssetsAsync(asset, "steam", steamAppId.ToString(CultureInfo.InvariantCulture), key,
             cancellationToken, query);
     }
-
 
 
     /// <summary>Resolves official Steam assets for a SteamGridDB game.</summary>
@@ -423,16 +431,6 @@ internal sealed partial class SteamGridDbProvider
         return item.TryGetProperty(name, out var value)
                && value.ValueKind is JsonValueKind.True or JsonValueKind.Number
                && (value.ValueKind == JsonValueKind.True || (value.TryGetInt32(out var number) && number != 0));
-    }
-
-    /// <summary>Forgets every cached response.</summary>
-    /// <remarks>
-    ///     Called when the API key changes, so a key that was rejected is not remembered as a
-    ///     working one and the next search really asks.
-    /// </remarks>
-    public void ResetCache()
-    {
-        Gate.Clear();
     }
 
     /// <summary>Whether a response is worth asking again for.</summary>

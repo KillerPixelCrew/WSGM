@@ -61,14 +61,6 @@ internal sealed record SteamInputGlyphPresentation(
     IReadOnlyList<GlyphControlId> AbsentControls,
     IReadOnlyList<SteamInputGlyphHighlightMapping> Highlights)
 {
-    /// <summary>
-    ///     Valve's glyph resource names, mapped to the physical control each one depicts.
-    /// </summary>
-    /// <remarks>
-    ///     WSGM's half of the contract: the plugin says which artwork belongs to which control, and this
-    ///     map says which Valve resources that control is drawn with. Several Valve names share a
-    ///     control because Steam picks a different resource per controller family for the same button.
-    /// </remarks>
     /// <summary>Valve's soft-pull trigger glyphs, drawn with the control's soft-pull artwork.</summary>
     /// <remarks>
     ///     The gyro picker offers each trigger twice, "L2-Trigger (Druck)" for a partial pull and
@@ -82,6 +74,11 @@ internal sealed record SteamInputGlyphPresentation(
         ("/steaminputglyphs/sd_r2_half.svg", GlyphControlId.RightTrigger)
     ];
 
+    /// <summary>Valve's glyph resource names, mapped to the physical control each one depicts.</summary>
+    /// <remarks>
+    ///     The plugin supplies each control's artwork; this map supplies the matching Valve resources.
+    ///     Several names share a control because Steam selects resources for each controller family.
+    /// </remarks>
     private static readonly (string Path, GlyphControlId Control)[] StableResourceMap =
     [
         ("/steaminputglyphs/shared_color_button_a.svg", GlyphControlId.FaceSouth),

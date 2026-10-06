@@ -326,7 +326,8 @@ public static class OtherManagers
     /// </param>
     /// <param name="cancellationToken">Cancels the change.</param>
     /// <returns>What this attempt achieved; everything failed when the process could not change it.</returns>
-    public static OtherManagersResult Apply(ConfigStore store, IReadOnlyList<DetectedManager> detected, bool allowElevation,
+    public static OtherManagersResult Apply(ConfigStore store, IReadOnlyList<DetectedManager> detected,
+        bool allowElevation,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(detected);
@@ -479,8 +480,12 @@ public static class OtherManagers
 
             var restored = Restore(records, new AutostartSystem(), new ServiceSystem());
             HashSet<string> done = [.. restored.Select(Key)];
-            store.Update(config => { config.OtherManagersDisabled =
-                    [.. config.OtherManagersDisabled.Where(entry => !done.Contains(Key(entry)))]; return true; });
+            store.Update(config =>
+            {
+                config.OtherManagersDisabled =
+                    [.. config.OtherManagersDisabled.Where(entry => !done.Contains(Key(entry)))];
+                return true;
+            });
             return restored.Count == records.Count ? 0 : 1;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -494,12 +499,13 @@ public static class OtherManagers
     public static void Record(ConfigStore store, OtherManagerRecord entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
-        store.Update(config => {
+        store.Update(config =>
+        {
             if (!config.OtherManagersDisabled.Any(other => Key(other) == Key(entry)))
             {
                 config.OtherManagersDisabled.Add(entry);
             }
-        
+
             return true;
         });
     }

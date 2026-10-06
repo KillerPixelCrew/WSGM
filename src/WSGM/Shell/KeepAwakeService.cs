@@ -23,7 +23,6 @@ public sealed class KeepAwakeService : IDisposable
 
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(30);
     private readonly Func<bool> _automaticCefReady;
-    private readonly Func<CancellationToken, Task<SteamDownloadOverview?>> _queryDownloads;
 
     private readonly CancellationTokenSource _cts = new();
 
@@ -42,6 +41,7 @@ public sealed class KeepAwakeService : IDisposable
         new("WSGM keep-awake (manual quick-access toggle)");
 
     private readonly SteamMonitor? _monitor;
+    private readonly Func<CancellationToken, Task<SteamDownloadOverview?>> _queryDownloads;
     private bool _autoEnabled;
     private bool _downloadActive;
     private int _inactiveStreak;

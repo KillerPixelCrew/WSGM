@@ -227,8 +227,8 @@ public sealed class OverlayInteractionTests
     [AvaloniaFact]
     public void LosingIntegrationKeepsWindowsPlansOnTheOpenPowerPage()
     {
-        using PowerSchemeSelection schemes = new(new PowerSchemes(new FakePower()),
-            _ => throw new InvalidOperationException("Unexpected power scheme write"));
+        using PowerSchemeSelection schemes = new(new NativeQamPowerProfileService(new PowerSchemes(new FakePower()),
+            _ => throw new InvalidOperationException("Unexpected power scheme write")));
         using FakeDevice device = new();
         device.State = device.State with
         {
@@ -474,6 +474,7 @@ public sealed class OverlayInteractionTests
 
         UiFixture.Key(window, Key.Escape);
         Assert.False(UiFixture.Named<Control>(window, "WakeLockHost").IsVisible);
+        Assert.Null(UiFixture.Named<WakeLockHoldersView>(window, "WakeLockHost").Content);
         Assert.True(UiFixture.Named<Control>(window, "PanelPowerWake").IsVisible);
         Assert.False(UiFixture.Named<Control>(window, "PanelPower").IsVisible);
         UiFixture.Key(window, Key.Escape);
@@ -559,8 +560,8 @@ public sealed class OverlayInteractionTests
     {
         using FakeDevice device = new();
         using UiFixture fixture = new();
-        using PowerSchemeSelection schemes = new(new PowerSchemes(new FakePower()),
-            _ => throw new InvalidOperationException("Unexpected power scheme write"));
+        using PowerSchemeSelection schemes = new(new NativeQamPowerProfileService(new PowerSchemes(new FakePower()),
+            _ => throw new InvalidOperationException("Unexpected power scheme write")));
         DevicePowerPresets service = new(() => [],
             (_, _, _, _, _, _) => throw new InvalidOperationException("Unexpected preset write"),
             new WindowsPowerModes(new PowerSchemes(new FakePower()), new UnusedPowerModeApi()));
@@ -627,7 +628,7 @@ public sealed class OverlayInteractionTests
     {
         using UiFixture fixture = new();
         FakePower api = new();
-        using PowerSchemeSelection selection = new(new PowerSchemes(api), _ => { });
+        using PowerSchemeSelection selection = new(new NativeQamPowerProfileService(new PowerSchemes(api), _ => { }));
         await selection.RefreshAsync();
         var window = fixture.Overlay();
         window.AttachPowerSchemes(selection);
@@ -675,8 +676,9 @@ public sealed class OverlayInteractionTests
 
         await finished.Task.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(1, api.Writes);
-        Assert.Contains("Refresh", selection.Status);
-        Assert.False(apply.IsEnabled);
+        Assert.Contains("Choose again", selection.Status);
+        Assert.True(combo.IsEnabled);
+        Assert.True(apply.IsEnabled);
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(), text => text.Text == selection.Status);
     }
 }

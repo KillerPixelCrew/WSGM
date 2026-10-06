@@ -6,7 +6,7 @@ using WSGM.Core;
 using WSGM.Shell;
 using WSGM.Testing;
 using WSGM.Tests.Core.Animations;
-using WSGM.Tests.Core.Themes;
+using WSGM.Tests.Fakes;
 
 namespace WSGM.Tests.Shell;
 
@@ -39,7 +39,7 @@ public sealed class AnimationServiceTests : IDisposable
     public async Task AnUnexpectedDownloadFailureClearsBusyAndAllowsTheNextOperation()
     {
         using AnimationService service = new(Library(), new AnimationRepoClient(
-                new ThemeStoreClientTests.StubHandler(request => request.RequestUri!.AbsolutePath == "/api/posts/all"
+                new StubHttpMessageHandler(request => request.RequestUri!.AbsolutePath == "/api/posts/all"
                     ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"posts\":[]}") }
                     : throw new InvalidOperationException("slot failed")), "https://repo.example"),
             () => _config, change => change(_config), () => _temporary.GetPath("steam"), new Random(3));
@@ -62,7 +62,7 @@ public sealed class AnimationServiceTests : IDisposable
 
     private AnimationService Service(HttpResponseMessage? answer = null, Action<Action<AnimationsConfig>>? write = null)
     {
-        var handler = new ThemeStoreClientTests.StubHandler(_ =>
+        var handler = new StubHttpMessageHandler(_ =>
             answer ?? new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
         return new AnimationService(
             Library(),
@@ -358,7 +358,7 @@ public sealed class AnimationServiceTests : IDisposable
             });
         using var service = new AnimationService(
             Library(),
-            new AnimationRepoClient(new ThemeStoreClientTests.StubHandler(_ =>
+            new AnimationRepoClient(new StubHttpMessageHandler(_ =>
                 new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)), "https://repo.example"),
             () => _config,
             change => change(_config),

@@ -575,7 +575,6 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan ProfileRetryInterval = TimeSpan.FromSeconds(10);
     private readonly Func<uint, string?, bool> _foregroundExited;
-    private Task? _loop;
     private readonly ObservationGate _observers = new();
     private readonly SteamRunningAppsProbe _probe;
     private readonly Func<IReadOnlyList<RtssFrametimeSample>> _rendering;
@@ -585,6 +584,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
     private int _disposed;
     private ForegroundApplicationObservation _foreground = ForegroundApplicationObservation.None;
     private SteamRunningAppsObservation? _lastObservation;
+    private Task? _loop;
     private DateTimeOffset _nextProfileRetry;
     private SteamRunningAppProfile? _profile;
     private uint? _profileAppId;
@@ -611,15 +611,6 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
         _rendering = rendering ?? (static () => []);
         _foregroundExited = foregroundExited ?? NativeShellProcess.HasExited;
         _current = RunningApplicationTargetSnapshot.Initial();
-    }
-
-    internal void Start()
-    {
-        lock (_stateGate)
-        {
-            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
-            _loop ??= Task.Run(ObserveLoopAsync);
-        }
     }
 
     public async ValueTask DisposeAsync()
@@ -669,6 +660,15 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         return _observers.Acquire();
+    }
+
+    internal void Start()
+    {
+        lock (_stateGate)
+        {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+            _loop ??= Task.Run(ObserveLoopAsync);
+        }
     }
 
     /// <summary>Reports the application the user brought to the foreground.</summary>

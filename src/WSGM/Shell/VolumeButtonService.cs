@@ -18,10 +18,10 @@ internal sealed class VolumeButtonService : IDisposable
     private readonly AudioManager _audio;
     private readonly VolumeIndicator _indicator;
     private readonly MessageWindow _window;
+    private Task _commands = Task.CompletedTask;
     private bool _disposed;
     private bool _gameModeActive;
     private int _generation;
-    private Task _commands = Task.CompletedTask;
 
     /// <summary>Creates the game-mode volume handler on the Avalonia UI thread.</summary>
     /// <param name="window">The process message-only window carrying the shell hook.</param>

@@ -59,21 +59,33 @@ public sealed class HybridCoreViewTests
         Assert.False(UiFixture.Named<Control>(window, "DeviceHybridCores").IsVisible);
     }
 
-    [AvaloniaFact]
-    public async Task ApplyingFromTheOverlayWritesBothPowerSourcesAndConfirmsTheResult()
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ApplyingFromTheOverlayPublishesTheWrittenPreferenceForBothPowerSources(bool ignoreWrites)
     {
         using UiFixture fixture = new();
         var window = fixture.Overlay();
-        FakeHybridCoreApi api = new() { HeterogeneousPolicies = [0] };
+        FakeHybridCoreApi api = new() { HeterogeneousPolicies = [0], IgnoreWrites = ignoreWrites };
         using HybridCoreSelection selection = new(api.Owner());
         window.AttachHybridCores(selection);
         await selection.RefreshAsync();
+        api.Calls.Clear();
 
         await selection.ApplyAsync(HybridCoreMode.PreferPerformance);
 
         Assert.Equal(HybridCoreMode.PreferPerformance, selection.Status.OnAc);
         Assert.Equal(HybridCoreMode.PreferPerformance, selection.Status.OnBattery);
         Assert.Equal(1, api.Refreshes);
+        Assert.Equal(["read", "read", "write", "write", "refresh"], api.Calls);
+        var stored = ignoreWrites
+            ? HybridSchedulingPolicy.Automatic
+            : HybridSchedulingPolicy.PreferPerformantProcessors;
+        Assert.All(api.States.Values, state =>
+        {
+            Assert.Equal(stored, state.Threads);
+            Assert.Equal(stored, state.ShortThreads);
+        });
     }
 
     [AvaloniaFact]
@@ -99,8 +111,11 @@ public sealed class HybridCoreViewTests
     {
         using UiFixture fixture = new();
         var window = fixture.Overlay();
-        using HybridCoreSelection selection = new(new FakeHybridCoreApi
-            { HeterogeneousPolicies = [0], IgnoreWrites = true }.Owner());
+        var api = new FakeHybridCoreApi
+        {
+            HeterogeneousPolicies = [0], NextWriteFailure = new InvalidOperationException("Synthetic write refusal")
+        };
+        using HybridCoreSelection selection = new(api.Owner());
         window.AttachHybridCores(selection);
         await selection.RefreshAsync();
 
@@ -108,6 +123,10 @@ public sealed class HybridCoreViewTests
 
         Assert.False(selection.Busy);
         Assert.Contains("was not applied", selection.Detail, StringComparison.Ordinal);
+        Assert.Contains("Synthetic write refusal", selection.Detail, StringComparison.Ordinal);
+        Assert.Equal(HybridCoreMode.Automatic, selection.Status.OnAc);
+        Assert.Equal(HybridCoreMode.Automatic, selection.Status.OnBattery);
+        Assert.Equal(0, api.Refreshes);
     }
 
     private static void OpenDevicePowerPage(OverlayWindow window, FakeDevice device)

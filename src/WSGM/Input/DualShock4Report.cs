@@ -120,7 +120,6 @@ internal static class DualShock4Report
     }
 
 
-
     private static sbyte Axis(float value)
     {
         return (sbyte)Math.Clamp(MathF.Round(value * sbyte.MaxValue), -sbyte.MaxValue, sbyte.MaxValue);
@@ -134,5 +133,4 @@ internal static class DualShock4Report
             0,
             maximum);
     }
-
 }

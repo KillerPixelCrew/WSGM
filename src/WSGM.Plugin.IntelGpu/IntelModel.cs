@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
+using WSGM.Plugin.Gpu;
 using WSGM.Plugin.IntelGpu.Controls;
 using WSGM.Plugin.IntelGpu.Display;
 using WSGM.Plugin.IntelGpu.Graphics;
@@ -529,7 +530,7 @@ internal sealed class IntelModel
 
         public string? WriteForApplication(
             string executable,
-            IReadOnlyList<(string CapabilityId, CapabilityValue Value)> values)
+            IReadOnlyList<(string CapabilityId, CapabilityValue Value)> values, WriteAdmission admission)
         {
             // Fields no override names keep the global value, which is what the game would get anyway.
             var raw = _feature.Read(null, out var global) == IgclResult.Success ? global : _feature.DefaultValue();
@@ -543,7 +544,7 @@ internal sealed class IntelModel
                 raw = control.Encode(raw, value);
             }
 
-            var result = _feature.Write(executable, raw);
+            var result = _feature.Write(executable, raw, admission);
             return result == IgclResult.Success
                 ? null
                 : $"The driver answered {IgclResult.Describe(result)} to {_feature.Info.Label} for {executable}.";
@@ -581,11 +582,11 @@ internal sealed class IntelModel
 
         public IReadOnlyList<string> RegistryKeys { get; }
 
-        public string? EnableFor(string executable)
+        public string? EnableFor(string executable, WriteAdmission admission)
         {
             RawFeatureValue raw = default;
             raw.Scalar.EnumValue = ThreeDFeatureCatalog.PerApplicationSettings;
-            var result = _feature.Write(executable, raw);
+            var result = _feature.Write(executable, raw, admission);
             return result == IgclResult.Success
                 ? null
                 : $"The driver answered {IgclResult.Describe(result)} to per-application settings for {executable}.";

@@ -74,7 +74,8 @@ public sealed class IrEndpointConnectionTests
                 "identify" => Frame(request, "ok", "{" + Identity
                                                        + ",\"webPort\":80,\"webConfigured\":true,\"remotes\":3,\"sequenceRunning\":true}"),
                 "remotes" => Frame(request, "ok", "{\"chunk\":" + JsonSerializer.Serialize(chunks[ChunkIndex(request)])
-                                                  + ",\"index\":" + ChunkIndex(request) + ",\"count\":3}"),
+                                                                + ",\"index\":" + ChunkIndex(request) +
+                                                                ",\"count\":3}"),
                 // A sequence only reports that it started; press and climate report an emission.
                 "run" => Frame(request, "started"),
                 "cancel" => Frame(request, "ok"),
@@ -126,6 +127,181 @@ public sealed class IrEndpointConnectionTests
             IrEndpointConnection.Describe("press", "unknown-remote"));
         Assert.StartsWith("The endpoint is still learning or running a sequence",
             IrEndpointConnection.Describe("run", "busy"));
+    }
+
+    [Fact]
+    public async Task CatalogLargerThanOneFrameIsReadCompletelyWithoutResendingChunks()
+    {
+        IrRemoteCatalog expected = new([
+            new IrRemote("large", "Large remote ✓",
+                [
+                    .. Enumerable.Range(0, 1000)
+                        .Select(index => new IrRemoteButton($"button-{index}", $"Button {index} ✓"))
+                ],
+                [])
+        ]);
+        var catalogText = JsonSerializer.Serialize(expected, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.True(Encoding.UTF8.GetByteCount(catalogText) > 32768);
+        var chunks = Enumerable.Range(0, (catalogText.Length + 4095) / 4096)
+            .Select(index => catalogText.Substring(index * 4096, Math.Min(4096, catalogText.Length - index * 4096)))
+            .ToArray();
+        ScriptedLink link = new(request => Op(request) == "identify"
+            ? Frame(request, "ok", "{" + Identity + "}")
+            : Frame(request, "ok", JsonSerializer.Serialize(new
+            {
+                chunk = chunks[ChunkIndex(request)], index = ChunkIndex(request), count = chunks.Length
+            })));
+        await using IrEndpointConnection endpoint = new(_ => link);
+        await endpoint.IdentifyAsync(CancellationToken.None);
+
+        var catalog = await endpoint.ListRemotesAsync(CancellationToken.None);
+
+        Assert.Equal(expected.Remotes[0].Name, catalog.Remotes.Single().Name);
+        Assert.Equal(expected.Remotes[0].Buttons, catalog.Remotes[0].Buttons);
+        Assert.Equal(Enumerable.Range(0, chunks.Length), link.Written.Where(frame => Op(frame) == "remotes")
+            .Select(ChunkIndex));
+        Assert.False(link.Disposed);
+    }
+
+    [Theory]
+    [InlineData("index")]
+    [InlineData("count")]
+    [InlineData("empty")]
+    [InlineData("null")]
+    public async Task InconsistentCatalogChunkDropsTheLinkAndNextReadStartsAtZero(string failure)
+    {
+        var broken = true;
+        ScriptedLink link = new(request =>
+        {
+            if (Op(request) == "identify")
+            {
+                return Frame(request, "ok", "{" + Identity + "}");
+            }
+
+            var index = ChunkIndex(request);
+            if (!broken)
+            {
+                return Frame(request, "ok", JsonSerializer.Serialize(new
+                {
+                    chunk = "{\"remotes\":[]}", index, count = 1
+                }));
+            }
+
+            return Frame(request, "ok", JsonSerializer.Serialize(new
+            {
+                chunk = index == 0 ? "{\"remotes\":" : failure == "null" ? null : failure == "empty" ? "" : "[]}",
+                index = index == 1 && failure == "index" ? 0 : index,
+                count = index == 1 && failure == "count" ? 3 : 2
+            }));
+        });
+        await using IrEndpointConnection endpoint = new(_ => link);
+        await endpoint.IdentifyAsync(CancellationToken.None);
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => endpoint.ListRemotesAsync(CancellationToken.None));
+
+        Assert.True(link.Disposed);
+        Assert.Null(endpoint.Identity);
+        Assert.Equal([0, 1], link.Written.Where(frame => Op(frame) == "remotes").Select(ChunkIndex));
+        broken = false;
+        await endpoint.IdentifyAsync(CancellationToken.None);
+        Assert.Empty((await endpoint.ListRemotesAsync(CancellationToken.None)).Remotes);
+        Assert.Equal([0, 1, 0], link.Written.Where(frame => Op(frame) == "remotes").Select(ChunkIndex));
+    }
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData("\"\"")]
+    public async Task MissingStatusAfterSendIsUncertainRatherThanAValidatedRefusal(string status)
+    {
+        ScriptedLink link = new(request => Op(request) == "identify"
+            ? Frame(request, "ok", "{" + Identity + "}")
+            : Frame(request, "transmitted").Replace("\"status\":\"transmitted\"", "\"status\":" + status));
+        await using IrEndpointConnection endpoint = new(_ => link);
+        await endpoint.IdentifyAsync(CancellationToken.None);
+
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            endpoint.TransmitAsync(new IrPayload(38000, [9000, 4500]), 0, 40, CancellationToken.None));
+
+        Assert.True(link.Disposed);
+        Assert.Equal(["identify", "send"], link.Written.Select(Op));
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"remotes\":null}")]
+    [InlineData("{\"remotes\":[{\"id\":\"tv\",\"name\":\"TV\"}]}")]
+    public async Task IncompleteCatalogFailsTheReadAndDropsItsIdentity(string catalog)
+    {
+        ScriptedLink link = new(request => Op(request) == "identify"
+            ? Frame(request, "ok", "{" + Identity + "}")
+            : Frame(request, "ok", JsonSerializer.Serialize(new { chunk = catalog, index = 0, count = 1 })));
+        await using IrEndpointConnection endpoint = new(_ => link);
+        await endpoint.IdentifyAsync(CancellationToken.None);
+
+        await Assert.ThrowsAsync<JsonException>(() => endpoint.ListRemotesAsync(CancellationToken.None));
+
+        Assert.Null(endpoint.Identity);
+        Assert.True(link.Disposed);
+        Assert.Equal(["identify", "remotes"], link.Written.Select(Op));
+    }
+
+    [Fact]
+    public async Task OversizedRequestIsRefusedBeforeAnyFrameIsWritten()
+    {
+        ScriptedLink link = new(request => Frame(request, "ok", "{" + Identity + "}"));
+        await using IrEndpointConnection endpoint = new(_ => link);
+        await endpoint.IdentifyAsync(CancellationToken.None);
+
+        var failure = await Assert.ThrowsAsync<IrRejectedException>(() =>
+            endpoint.PressAsync(new string('x', 32768), "power", CancellationToken.None));
+
+        Assert.Contains("request exceeds frame limit", failure.Message);
+        Assert.Single(link.Written);
+        Assert.True(link.Disposed);
+    }
+
+    [Fact]
+    public async Task CancellationBeforeRequestAdmissionWritesNoFrame()
+    {
+        ScriptedLink link = new(request => Frame(request, "ok", "{" + Identity + "}"));
+        await using IrEndpointConnection endpoint = new(_ => link);
+        await endpoint.IdentifyAsync(CancellationToken.None);
+
+        await Assert.ThrowsAsync<IrRejectedException>(() =>
+            endpoint.PressAsync("tv", "power", new CancellationToken(true)));
+
+        Assert.Single(link.Written);
+        Assert.NotNull(endpoint.Identity);
+    }
+
+    [Fact]
+    public async Task InvalidPayloadIsRefusedBeforeAnySendFrame()
+    {
+        ScriptedLink link = new(request => Frame(request, "ok", "{" + Identity + "}"));
+        await using IrEndpointConnection endpoint = new(_ => link);
+        await endpoint.IdentifyAsync(CancellationToken.None);
+
+        await Assert.ThrowsAsync<IrRejectedException>(() =>
+            endpoint.TransmitAsync(new IrPayload(1, [9000, 4500]), 0, 40, CancellationToken.None));
+
+        Assert.Single(link.Written);
+    }
+
+    [Fact]
+    public async Task StorageFailureIsARefusalAndDoesNotResendTheSetting()
+    {
+        ScriptedLink link = new(request => Op(request) == "identify"
+            ? Frame(request, "ok", "{" + Identity + "}")
+            : Frame(request, "storage-failed"));
+        await using IrEndpointConnection endpoint = new(_ => link);
+        await endpoint.IdentifyAsync(CancellationToken.None);
+
+        var refusal = await Assert.ThrowsAsync<IrRejectedException>(() =>
+            endpoint.ConfigureNetworkAsync("Home", "", "0123456789abcdef", CancellationToken.None));
+
+        Assert.Contains("part of it may be stored", refusal.Message);
+        Assert.Equal(["identify", "wifi"], link.Written.Select(Op));
+        Assert.True(link.Disposed);
     }
 
     [Fact]
@@ -260,6 +436,33 @@ public sealed class IrEndpointConnectionTests
         Assert.Equal("0123456789abcdef", wifi.GetProperty("token").GetString());
         await Assert.ThrowsAsync<ArgumentException>(() =>
             endpoint.ConfigureNetworkAsync("Home", "x", "short", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task RequestFramingKeepsArgumentOrderAndOneProtocolEnvelope()
+    {
+        ScriptedLink link = new(request => Op(request) switch
+        {
+            "identify" => Frame(request, "ok", "{" + Identity + "}"),
+            "learn" => Frame(request, "learned", "{\"carrierHz\":38000,\"timingsUs\":[9000,4500]}"),
+            _ => Frame(request, "transmitted")
+        });
+        await using IrEndpointConnection endpoint = new(_ => link, "0123456789abcdef");
+        await endpoint.IdentifyAsync(CancellationToken.None);
+        await endpoint.TransmitAsync(new IrPayload(38000, [9000, 4500]), 0, 40, CancellationToken.None);
+        await endpoint.LearnAsync(TimeSpan.FromSeconds(1), CancellationToken.None);
+        await endpoint.ClimateAsync("ac", new IrClimateRequest(true, "cool", 20, "auto"), CancellationToken.None);
+
+        var frames = link.Written.Select(frame => frame.Replace(Id(frame), "<id>")).ToArray();
+        const string envelope = ",\"v\":2,\"id\":\"<id>\",\"op\":\"";
+        const string token = "\",\"token\":\"0123456789abcdef\"}";
+        Assert.Equal("{\"payload\":{\"carrierHz\":38000,\"timingsUs\":[9000,4500],\"carrierSource\":\"assumed\","
+                     + "\"protocol\":null,\"address\":0,\"command\":0,\"bits\":0,\"repeat\":false},\"repeats\":0,\"gapMs\":40"
+                     + envelope + "send" + token, frames[1]);
+        Assert.Equal("{\"timeoutMs\":1000" + envelope + "learn" + token, frames[2]);
+        Assert.Equal(
+            "{\"remote\":\"ac\",\"power\":true,\"mode\":\"cool\",\"degrees\":20,\"fan\":\"auto\",\"toggleSwing\":false"
+            + envelope + "climate" + token, frames[3]);
     }
 
     [Theory]

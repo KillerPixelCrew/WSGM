@@ -267,9 +267,9 @@ public sealed class DisplayLayoutEditorRow : ObservableObject
     {
         return Active && Target is { } target && Mode is { Width: > 0, Height: > 0 } mode
             ? new DisplayLayoutOutput(target, X, Y, mode.Width, mode.Height, DisplayRefresh.FromHertz(mode.RefreshHz),
-                Rotation: 0,
-                DpiPercent: DpiPercent,
-                Hdr: HdrSupported ? HdrEnabled : null)
+                0,
+                DpiPercent,
+                HdrSupported ? HdrEnabled : null)
             : null;
     }
 

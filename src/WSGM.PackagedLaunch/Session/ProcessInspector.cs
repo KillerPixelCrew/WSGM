@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
+using WSGM.Interop;
 
 namespace WSGM.PackagedLaunch;
 
@@ -80,7 +81,7 @@ internal static class ProcessInspector
         }
         finally
         {
-            WSGM.Interop.Win32Common.CloseHandle(snapshot);
+            Win32Common.CloseHandle(snapshot);
         }
     }
 
@@ -150,7 +151,7 @@ internal static class ProcessInspector
         }
         finally
         {
-            WSGM.Interop.Win32Common.CloseHandle(process);
+            Win32Common.CloseHandle(process);
         }
     }
 
@@ -309,7 +310,7 @@ internal static class ProcessInspector
         }
         finally
         {
-            WSGM.Interop.Win32Common.CloseHandle(handle);
+            Win32Common.CloseHandle(handle);
         }
     }
 
@@ -423,7 +424,7 @@ internal static class ProcessInspector
         }
         finally
         {
-            WSGM.Interop.Win32Common.CloseHandle(token);
+            Win32Common.CloseHandle(token);
         }
     }
 }

@@ -1,7 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
-using Avalonia.Threading;
 using Avalonia.Media.Imaging;
+using Avalonia.Threading;
 using WSGM.Core;
 using WSGM.Interop;
 
@@ -62,7 +62,10 @@ public sealed unsafe class TrayHost : IDisposable
     ///     starts next (desktop mode), its own taskbar broadcasts TaskbarCreated and
     ///     the apps re-home their icons to it.
     /// </summary>
-    public void Dispose() => Retire();
+    public void Dispose()
+    {
+        Retire();
+    }
 
     internal bool Retire()
     {

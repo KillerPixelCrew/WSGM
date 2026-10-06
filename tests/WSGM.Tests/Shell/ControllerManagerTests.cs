@@ -14,6 +14,76 @@ public sealed class ControllerManagerTests
     private const string HostApplication = @"C:\Program Files\WSGM\WSGM.exe";
 
     [Fact]
+    public async Task AThrowingStatusSubscriberCannotKeepTheReleaseGateHeld()
+    {
+        Harness harness = new();
+        await using var manager = harness.Manager;
+        await StartActiveAsync(manager);
+        Action<ControllerManagerStatus> throwing = _ => throw new InvalidOperationException("fixture status failure");
+        manager.StatusChanged += throwing;
+        try
+        {
+            await Assert.ThrowsAsync<InvalidOperationException>(() => manager.ReleaseAsync(
+                HandoffScope.FullDeactivation, _ => Task.CompletedTask,
+                Deadline.After(TimeSpan.FromSeconds(1)), CancellationToken.None));
+        }
+        finally
+        {
+            manager.StatusChanged -= throwing;
+        }
+
+        var releasedAgain = false;
+        await manager.ReleaseAsync(HandoffScope.FullDeactivation, _ =>
+        {
+            releasedAgain = true;
+            return Task.CompletedTask;
+        }, Deadline.After(TimeSpan.FromSeconds(1)), CancellationToken.None);
+
+        Assert.True(releasedAgain);
+        Assert.False(harness.HidHide.Active);
+    }
+
+    [Fact]
+    public async Task ATargetFaultReleasePublishesOneFaultedStatusAndShowsThePadOnce()
+    {
+        Harness harness = new();
+        await using var manager = harness.Manager;
+        await StartActiveAsync(manager);
+        harness.HidHide.Calls.Clear();
+        List<ControllerManagerStatus> statuses = [];
+        manager.StatusChanged += statuses.Add;
+
+        await manager.ReleaseAsync(HandoffScope.ControllerOnly, _ => Task.CompletedTask,
+            Deadline.After(TimeSpan.FromSeconds(1)), CancellationToken.None, faultDetail: "fixture target lost");
+
+        var status = Assert.Single(statuses);
+        Assert.Equal(ControllerManagementState.Faulted, status.State);
+        Assert.Equal("fixture target lost", status.Detail);
+        Assert.Equal(1, harness.HidHide.Calls.Count(call => call == "cloak:False"));
+    }
+
+    [Fact]
+    public async Task TheSameTargetKindPublishesTheNewProfileSourceWithoutAStatusTransition()
+    {
+        Harness harness = new();
+        await using var manager = harness.Manager;
+        await manager.StartAsync(Enabled(ManagedControllerTarget.Xbox360,
+            Override("steam:70", ManagedControllerTarget.Xbox360)), [Device()], null, null, CancellationToken.None);
+        var notifications = 0;
+        manager.StatusChanged += _ => notifications++;
+
+        await manager.ApplyRunningApplicationAsync(Running(applicationId: "steam:70"), CancellationToken.None);
+
+        var status = manager.Snapshot();
+        Assert.Equal(ControllerManagementState.Active, status.State);
+        Assert.Equal(ManagedControllerTarget.Xbox360, status.Target);
+        Assert.Equal(ProfileSource.Game, status.TargetSource);
+        Assert.Equal("steam:70", status.ApplicationId);
+        Assert.Equal(0, notifications);
+        Assert.DoesNotContain("remove:1", harness.Backend.Operations);
+    }
+
+    [Fact]
     public async Task AnExpiredDisposalDeadlineStillShowsThePhysicalController()
     {
         Harness harness = new();

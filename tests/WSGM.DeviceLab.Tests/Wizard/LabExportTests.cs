@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Security.Cryptography;
 using System.Text;
 using WSGM.DeviceLab.Application;
 using WSGM.DeviceLab.Capture;
@@ -85,6 +86,44 @@ public sealed class LabExportTests
         }
 
         Assert.Throws<IOException>(() => export.Write(target, Boundaries(temporary)));
+    }
+
+    [Fact]
+    public void Prepare_CancelledBeforeStartWritesNothing()
+    {
+        using TemporaryDirectory temporary = new();
+        var project = Project(temporary);
+        var original = File.ReadAllBytes(Path.Combine(project.Directory, LabProject.ManifestFileName));
+        using CancellationTokenSource cancellation = new();
+        cancellation.Cancel();
+
+        Assert.Throws<OperationCanceledException>(() => LabExport.Prepare(project, cancellation.Token));
+
+        Assert.Equal(original, File.ReadAllBytes(Path.Combine(project.Directory, LabProject.ManifestFileName)));
+        Assert.Single(Directory.EnumerateFiles(project.Directory, "*", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public void Prepare_KeepsFirmwareEvidenceAboveTheFormerExportLimit()
+    {
+        using TemporaryDirectory temporary = new();
+        var project = Project(temporary);
+        var attempt = project.BeginAttempt(LabStages.SystemDump, Now);
+        var content = new byte[33 * 1024 * 1024];
+        content[0] = 0x44;
+        content[^1] = 0x53;
+        File.WriteAllBytes(Path.Combine(attempt, "firmware.dat"), content);
+
+        var export = LabExport.Prepare(project, CancellationToken.None);
+
+        var preview = Assert.Single(export.Preview.Files,
+            file => file.Path.EndsWith("firmware.dat", StringComparison.Ordinal));
+        Assert.Equal(content.LongLength, preview.Bytes);
+        Assert.Equal(Convert.ToHexString(SHA256.HashData(content)), preview.Sha256);
+        Assert.DoesNotContain(export.Preview.Excluded, line => line.Contains("firmware.dat", StringComparison.Ordinal));
+        using var archive = ZipFile.OpenRead(Written(temporary, export));
+        using var entry = archive.GetEntry(preview.Path)!.Open();
+        Assert.Equal(preview.Sha256, Convert.ToHexString(SHA256.HashData(entry)));
     }
 
     private static LabProject Project(TemporaryDirectory temporary)

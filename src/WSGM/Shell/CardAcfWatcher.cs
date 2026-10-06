@@ -29,8 +29,12 @@ internal sealed class CardAcfWatcher : IDisposable
 {
     private readonly CancellationTokenSource _cts = new();
     private readonly object _gate = new();
+
+    private readonly SteamUiReadiness _readiness;
     private readonly Timer _reconcile;
     private readonly bool _registered;
+    private readonly SteamClient _steam;
+    private readonly ConfigStore _store;
     private readonly CancellationToken _token;
 
     private readonly Dictionary<char, FileSystemWatcher> _watchers = new();
@@ -45,10 +49,6 @@ internal sealed class CardAcfWatcher : IDisposable
     private Timer? _debounce;
     private bool _disposed;
     private int _suspensions;
-
-    private readonly SteamUiReadiness _readiness;
-    private readonly SteamClient _steam;
-    private readonly ConfigStore _store;
 
     private CardAcfWatcher(MessageWindow window, ConfigStore store, SteamClient steam, SteamUiReadiness readiness)
     {

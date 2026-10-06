@@ -178,7 +178,8 @@ internal sealed record ArtworkPage(IReadOnlyList<ArtworkCandidate> Candidates, b
 /// <param name="HasMore">Whether any provider's raw answer has another page.</param>
 internal sealed record ArtworkSearchResult(
     IReadOnlyList<ArtworkCandidate> Candidates,
-    IReadOnlyList<ArtworkProviderOutcome> Outcomes, bool HasMore = false)
+    IReadOnlyList<ArtworkProviderOutcome> Outcomes,
+    bool HasMore = false)
 {
     /// <summary>Whether every ready provider failed, which is different from finding nothing.</summary>
     /// <remarks>
@@ -243,7 +244,8 @@ internal static class ArtworkSearch
     }
 
     internal static async Task<IReadOnlyList<ArtworkGameMatch>> SearchGamesAsync(
-        string term, ArtworkConfig config, CancellationToken cancellationToken, IReadOnlyList<IArtworkProvider> providers)
+        string term, ArtworkConfig config, CancellationToken cancellationToken,
+        IReadOnlyList<IArtworkProvider> providers)
     {
         ArgumentNullException.ThrowIfNull(config);
         if (string.IsNullOrWhiteSpace(term))
@@ -374,7 +376,6 @@ internal static class ArtworkSearch
     }
 
 
-
     /// <summary>Searches every ready provider for one filtered result page.</summary>
     public static Task<ArtworkSearchResult> GetAssetsForSteamAppAsync(
         ArtworkAsset asset, long steamAppId, ArtworkConfig config, ArtworkQuery query,
@@ -389,9 +390,9 @@ internal static class ArtworkSearch
     {
         ArgumentNullException.ThrowIfNull(query);
         return GatherAsync(config, (provider, token) =>
-            provider.GetAssetsForSteamAppAsync(asset, steamAppId, config, query, token), cancellationToken, selectedProviders: providers);
+                provider.GetAssetsForSteamAppAsync(asset, steamAppId, config, query, token), cancellationToken,
+            selectedProviders: providers);
     }
-
 
 
     /// <summary>Searches the issuing provider for one filtered result page.</summary>
@@ -429,7 +430,7 @@ internal static class ArtworkSearch
         {
             if (!statuses[index].IsReady)
             {
-                return (Candidates: (IReadOnlyList<ArtworkCandidate>)[], HasMore: false, Failure: null);
+                return (Candidates: [], HasMore: false, Failure: null);
             }
 
             try
@@ -443,7 +444,7 @@ internal static class ArtworkSearch
                         ProviderName = provider.DisplayName
                     })
                 ];
-                return (Candidates: candidates, HasMore: page.HasMore, Failure: (string?)null);
+                return (Candidates: candidates, page.HasMore, Failure: null);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -451,7 +452,7 @@ internal static class ArtworkSearch
             }
             catch (ArtworkProviderException ex)
             {
-                return (Candidates: (IReadOnlyList<ArtworkCandidate>)[], HasMore: false, Failure: (string?)ex.Message);
+                return (Candidates: [], HasMore: false, Failure: (string?)ex.Message);
             }
             catch (Exception ex)
             {

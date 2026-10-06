@@ -109,12 +109,6 @@ internal sealed class HidHideOwnership
 {
     internal const string FileName = "hidhide-ownership.json";
 
-    internal static HidHideOwnership ForUser(string root)
-    {
-        return new HidHideOwnership(new NativeHidHideControl(),
-            new FileHidHideOwnershipStore(Path.Combine(root, FileName)));
-    }
-
     private readonly IHidHideControl _control;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly IHidHideOwnershipStore _store;
@@ -123,6 +117,12 @@ internal sealed class HidHideOwnership
     {
         _control = control;
         _store = store;
+    }
+
+    internal static HidHideOwnership ForUser(string root)
+    {
+        return new HidHideOwnership(new NativeHidHideControl(),
+            new FileHidHideOwnershipStore(Path.Combine(root, FileName)));
     }
 
     /// <summary>Whether WSGM holds the cloak or entries from a run that did not leave cleanly.</summary>
@@ -375,7 +375,7 @@ internal sealed class HidHideOwnership
             // Without the ledger WSGM cannot tell its entries from another tool's, so it removes none of
             // them and keeps the file. WSGM's own executables do not depend on the ledger.
             problems.Add($"ownership ledger unreadable ({ex.Message}); its entries were left in HidHide "
-                + "and the file was kept");
+                         + "and the file was kept");
             owned = [];
         }
 

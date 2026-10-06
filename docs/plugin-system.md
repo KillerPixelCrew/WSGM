@@ -49,14 +49,13 @@ obsolete cooperative mode work and leaves the Device integration resident. Indep
 instances validate coexistence without a Device Plugin. Installed packages use the catalog and
 instance manager described below.
 
-## The Device compatibility adapter
+## Device lifecycle
 
-`DevicePluginCompatibilityAdapter` wraps the existing device runtime for this lifecycle. It retains
-device command and hardware ownership, maps device health, advances the runtime generation on resume
-and preserves an unconfirmed stop result across repeated requests. The common host serializes each
-instance's lifecycle separately. The Device coordinator keeps controller neutralization and release
-before plugin stop. The runtime retains its admitted private state directory; the adapter does not
-relocate device state. A collectible fixture exercises the full host/adapter/runtime lifecycle.
+The common host refuses the Device category. `DeviceCoordinator` drives the sole
+`DevicePluginRuntime` directly and keeps controller neutralization and release before plugin stop.
+The runtime retains its private state directory and advances its generation on resume. The common
+host serializes each independent common instance's lifecycle separately. Device ownership and
+recovery are described in [device-plugin-system.md](device-plugin-system.md).
 
 ## Configuration and state
 
@@ -69,8 +68,8 @@ An explicit edit includes the revision the UI read. `CommonPluginSettings` valid
 persists only those changed keys through `ConfigStore.Update`, then dispatches the complete
 requested configuration. A stale revision or failed save prevents dispatch. Defaults are not saved
 implicitly. Application failure does not erase desired preferences; a mismatched confirmation
-remains unconfirmed. There is no automatic configuration retry. Existing Device settings retain
-their current adapter path.
+remains unconfirmed. There is no automatic configuration retry. Device settings use their own
+runtime's settings manifest and apply path.
 
 `PluginStatePublication` carries instance, lifecycle generation, increasing sequence, origin and
 optional configuration/action correlation. It describes effective state only and cannot reach the
@@ -272,10 +271,8 @@ never an automatic retry request. Common preferences use `PluginConfigurations` 
 increasing revisions; provider schema validation occurs before delivery. Their generic Settings
 editor is not part of this initial surface; the Device settings editor remains available.
 
-The migration follows common contracts, Device compatibility adapter,
-lifecycle/configuration/events, action/UI contributions, then an independent non-device consumer.
-Delivery status lives only in `_plan/implementation-todo.md`; existing device behavior stays the
-baseline throughout.
+Delivery status lives in `_plan/implementation-todo.md`. Device and common plugins have separate
+lifecycle owners and retain the existing user workflows.
 
 ### Widget declarations
 

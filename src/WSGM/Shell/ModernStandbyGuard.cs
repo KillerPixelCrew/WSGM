@@ -24,12 +24,12 @@ namespace WSGM.Shell;
 internal sealed class ModernStandbyGuard : IDisposable
 {
     private readonly Func<bool> _enabled;
-    private readonly Func<TimeSpan> _sinceWake;
-    private readonly Func<bool> _lastResumeUnattended;
     private readonly Func<TimeSpan> _lastInputAge;
-    private readonly Func<CancellationToken, Task> _suspend;
+    private readonly Func<bool> _lastResumeUnattended;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly MessageWindow _messages;
+    private readonly Func<TimeSpan> _sinceWake;
+    private readonly Func<CancellationToken, Task> _suspend;
     private readonly DispatcherTimer _timer;
 
     // Lit until this session's display says otherwise. A guard that assumed darkness before any
@@ -95,8 +95,8 @@ internal sealed class ModernStandbyGuard : IDisposable
 
     private void OnDisplayStateChanged(int state, DisplayStateSource source)
     {
-        var off = DisplayMuteDecider.IsDisplayOff(state);
-        if (off && !DisplayMuteDecider.MayReportDark(source))
+        var off = DisplayPowerSignal.IsDisplayOff(state);
+        if (off && !DisplayPowerSignal.MayReportDark(source))
         {
             // Only this session's display may report darkness; the other sources only report it lit.
             return;

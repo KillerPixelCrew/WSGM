@@ -47,11 +47,11 @@ internal sealed partial class WizardWindow
     ///     Call this from the window's <c>Closing</c> handler; when it is true, ask the tester
     ///     "Close without confirming restoration?" before closing.
     /// </remarks>
-    public bool PowerRestorationPending()
+    private async Task<bool> PowerRestorationPendingAsync()
     {
         try
         {
-            return LabPowerChanges.PowerPending(_machine.Read().Power);
+            return await PowerPendingAsync();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -92,6 +92,7 @@ internal sealed partial class WizardWindow
         }
 
         string? stageError = null;
+        var stopped = false;
         try
         {
             // Every device: LibreHardwareMonitor's fan RPM and temperatures, opened once for the stage
@@ -140,7 +141,12 @@ internal sealed partial class WizardWindow
             // Lighting: generic Dynamic Lighting for any device, plus a curated Aura or Claw mechanism.
             lightingFound = await RunLightingAsync(page, plan, log, lighting);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
+        catch (OperationCanceledException)
+        {
+            stopped = true;
+            throw;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             stageError = ex.Message;
             page.Children.Add(Warning($"Something went wrong: {ex.Message}"));
@@ -164,6 +170,12 @@ internal sealed partial class WizardWindow
                 project.WriteEvidence(attempt, "lighting",
                     new { Found = lightingFound, Shown = lighting.Select(item => new { item.Shown, item.Seen }) });
             });
+            if (stopped && await PowerPendingAsync())
+            {
+                await Task.Run(() => project.Finish(LabStages.Power, LabSegmentStatus.Failed,
+                    "The power test stopped; some settings could not be confirmed as put back.",
+                    DateTimeOffset.UtcNow));
+            }
         }
 
         // A stage error, or a setting not confirmed as put back, fails the stage; nothing is retried.
@@ -1201,14 +1213,6 @@ internal sealed partial class WizardWindow
         }
     }
 
-    // The Aura question's answers, in the order of its labels.
-    private enum AuraAnswer
-    {
-        Matched,
-        Different,
-        StillOn
-    }
-
     private async Task RestorePendingAsync(StackPanel page, List<LabPowerTestResult> tests)
     {
         if (!await PowerPendingAsync())
@@ -1353,5 +1357,13 @@ internal sealed partial class WizardWindow
             : matched
                 ? Status($"The {what} was tested and put back.")
                 : Warning($"The {what} did not read back as the test value, but it was put back.");
+    }
+
+    // The Aura question's answers, in the order of its labels.
+    private enum AuraAnswer
+    {
+        Matched,
+        Different,
+        StillOn
     }
 }

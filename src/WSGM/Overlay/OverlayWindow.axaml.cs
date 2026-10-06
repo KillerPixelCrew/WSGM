@@ -8,11 +8,10 @@ using Avalonia.Interactivity;
 using Avalonia.LiveBackdrop;
 using Avalonia.Threading;
 using SteamUiToolkit;
+using WSGM.Core;
 using WSGM.Device.Sdk.Glyphs;
 using WSGM.Interop;
 using WSGM.Shell;
-
-using WSGM.Core;
 
 namespace WSGM.Overlay;
 
@@ -45,9 +44,12 @@ public partial class OverlayWindow : Window
     private readonly Dictionary<GlyphControlId, Border> _glyphTiles = [];
 
     private readonly OverlayNavigation _navigation = new();
+
     private readonly HashSet<IPointer> _pressedPointers = [];
+
     // The creating controller owns navigation state across its window recreations.
     private readonly SessionState _session;
+
     // The session's Steam client; null on a surface without one, such as the Settings preview.
     private readonly SteamClient? _steam;
     private readonly ConfigStore _store;
@@ -69,6 +71,8 @@ public partial class OverlayWindow : Window
 
     private SdFormatManager? _format;
     private LiveBackdrop? _glassBackdrop;
+
+    private long _glyphInputKey;
     private IDisposable? _glyphInputObservation;
     private HybridCoreSelection? _hybridCoreSelection;
     private int _liveRefreshScheduled;
@@ -81,8 +85,6 @@ public partial class OverlayWindow : Window
 
     private PerformanceOverlayBridge? _performanceSource;
     private PowerSchemeSelection? _powerSchemeSelection;
-
-    private long _glyphInputKey;
     private OverlayPage? _renderedDevicePage;
     private string? _renderedDeviceSection;
     private int _rendersAwaitingOpen;

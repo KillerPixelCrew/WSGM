@@ -53,36 +53,6 @@ public static class Steam
     /// <summary>Graceful full Steam shutdown (verified client URL).</summary>
     public const string ExitUrl = "steam://exit";
 
-    /// <summary>Logs launch wrappers still running in this session so setup defers replacement.</summary>
-    /// <param name="reason">Why the active helpers are being reported.</param>
-    private static void LogActiveLaunchHelpers(string reason)
-    {
-        var currentSession = WindowFinder.CurrentSessionId;
-        foreach (var process in Process.GetProcessesByName(
-                     Path.GetFileNameWithoutExtension(LaunchWrapperCommand.HelperFileName)))
-        {
-            try
-            {
-                if (process.SessionId != currentSession)
-                {
-                    continue;
-                }
-
-                Log.Warn(
-                    $"Launch wrapper pid {process.Id} is still active ({reason}); setup must "
-                    + "defer replacement until its game exits.");
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"Could not inspect launch wrapper pid {process.Id}: {ex.Message}");
-            }
-            finally
-            {
-                process.Dispose();
-            }
-        }
-    }
-
     private static readonly TimeSpan UpdateGracefulExitBudget = TimeSpan.FromSeconds(5);
 
     /// <summary>
@@ -161,6 +131,36 @@ public static class Steam
 
             var path = ExePath;
             return path is not null && HasRunAsAdminCompatibilityLayer(path);
+        }
+    }
+
+    /// <summary>Logs launch wrappers still running in this session so setup defers replacement.</summary>
+    /// <param name="reason">Why the active helpers are being reported.</param>
+    private static void LogActiveLaunchHelpers(string reason)
+    {
+        var currentSession = WindowFinder.CurrentSessionId;
+        foreach (var process in Process.GetProcessesByName(
+                     Path.GetFileNameWithoutExtension(LaunchWrapperCommand.HelperFileName)))
+        {
+            try
+            {
+                if (process.SessionId != currentSession)
+                {
+                    continue;
+                }
+
+                Log.Warn(
+                    $"Launch wrapper pid {process.Id} is still active ({reason}); setup must "
+                    + "defer replacement until its game exits.");
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Could not inspect launch wrapper pid {process.Id}: {ex.Message}");
+            }
+            finally
+            {
+                process.Dispose();
+            }
         }
     }
 
@@ -318,15 +318,35 @@ public static class Steam
     private static AppLauncher.LaunchResult ColdStart(UserDataContext context, SteamInputShim shim,
         bool steamInputManagement, string exe, string arguments, bool unelevated, bool cefEnabled)
     {
+        return ColdStart(steamInputManagement, InstallDirectory, cefEnabled, shim.Reconcile,
+            (directory, enabled) => { SteamCef.EnsureRemoteDebuggingEnabled(directory, enabled); },
+            status => LaunchColdClient(context, status, exe, arguments, unelevated));
+    }
+
+    /// <summary>Orders cold-start preparation before either process-launch path.</summary>
+    internal static AppLauncher.LaunchResult ColdStart(
+        bool steamInputManagement,
+        string? installDirectory,
+        bool cefEnabled,
+        Func<bool, string, SteamInputShimStatus> reconcile,
+        Action<string?, bool> enableRemoteDebugging,
+        Func<SteamInputShimStatus, AppLauncher.LaunchResult> launch)
+    {
         // Steam is provably not running on this branch, which makes it the one
         // moment in a session when a stale Steam Input shim can actually be
         // replaced - anywhere else the image is mapped and the copy fails.
-        var shimStatus = shim.Reconcile(steamInputManagement, "steam-cold-start");
+        var shimStatus = reconcile(steamInputManagement, "steam-cold-start");
         // Enable Steam's CEF debug port before it starts so WSGM can add
         // libraries to the live client later without a restart. Only takes
         // effect on a fresh Steam start, which this cold path is. Finding Steam is WSGM's job,
         // not the toolkit's, so the directory is passed in.
-        SteamCef.EnsureRemoteDebuggingEnabled(InstallDirectory, cefEnabled);
+        enableRemoteDebugging(installDirectory, cefEnabled);
+        return launch(shimStatus);
+    }
+
+    private static AppLauncher.LaunchResult LaunchColdClient(UserDataContext context,
+        SteamInputShimStatus shimStatus, string exe, string arguments, bool unelevated)
+    {
         // The de-elevating scheduled task is only meaningful from an elevated WSGM: started
         // from a medium-integrity process, the ordinary launch already produces a
         // medium-integrity Steam without the task-scheduler round trip.
@@ -342,7 +362,8 @@ public static class Steam
 
             if (disposition == ScheduledTaskLaunchDisposition.Unknown)
             {
-                Log.Warn("Steam scheduled launch outcome is unknown; waiting for Steam detection without another launch.");
+                Log.Warn(
+                    "Steam scheduled launch outcome is unknown; waiting for Steam detection without another launch.");
                 return new AppLauncher.LaunchResult(null, false, false);
             }
 

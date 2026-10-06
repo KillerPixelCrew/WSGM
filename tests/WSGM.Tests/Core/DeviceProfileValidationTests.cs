@@ -86,7 +86,7 @@ public sealed class DeviceProfileValidationTests
     }
 
     [Fact]
-    public void MoreThanSixtyFourPointsIsRefused()
+    public void MoreThanSixtyFourPointsIsAcceptedAndEveryPointIsStillValidated()
     {
         var profile = Profile();
         for (var index = 0; index < 65; index++)
@@ -95,8 +95,21 @@ public sealed class DeviceProfileValidationTests
         }
 
         Assert.Equal(
-            DeviceProfileRejection.PointCount,
-            DeviceProfileValidation.Validate(profile, Descriptor(), out _));
+            DeviceProfileRejection.None,
+            DeviceProfileValidation.Validate(profile, Descriptor(), out var reason));
+        Assert.Null(reason);
+        Assert.Equal(65, profile.Curve.Count);
+
+        profile.Curve[^1].Output = 101;
+        Assert.Equal(DeviceProfileRejection.OutOfBounds,
+            DeviceProfileValidation.Validate(profile, Descriptor(), out reason));
+        Assert.Contains("101", reason);
+
+        profile.Curve[^1].Output = 50;
+        profile.Curve[^1].Input = profile.Curve[^2].Input;
+        Assert.Equal(DeviceProfileRejection.NotAscending,
+            DeviceProfileValidation.Validate(profile, Descriptor(), out reason));
+        Assert.Contains("63", reason);
     }
 
     [Fact]

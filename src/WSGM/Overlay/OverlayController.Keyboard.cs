@@ -65,7 +65,6 @@ public sealed partial class OverlayController
     }
 
 
-
     private void CloseKeyboardNow()
     {
         _overlay?.CloseAllSurfaces();

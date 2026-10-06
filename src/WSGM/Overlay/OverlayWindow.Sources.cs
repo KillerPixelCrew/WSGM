@@ -1,10 +1,8 @@
 using System;
 using System.Linq;
-using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
-using WindowsDeviceControl;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Shell;
@@ -74,17 +72,33 @@ public partial class OverlayWindow
     }
 
     internal void AttachBrightness(NativeQamBrightnessService service,
-        Func<string?, Task<DisplayModeSnapshot?>>? readMode = null)
+        DisplayModeAccess displayModes, Func<string?>? display = null)
     {
+        display ??= DisplaySourceName;
         AttachBrightnessSurface(service);
         DisplayBrightnessHost.Tag = "section.display";
-        PanelSystemDisplay.Children[0] = CreateSectionHeader("section.display", "Display");
+        // A shown page already owns a fold whose body contains this host. Replacing that fold would
+        // detach the entire Display page instead of changing its heading.
+        if (PanelSystemDisplay.Children.FirstOrDefault() is not CollapsibleSection)
+        {
+            PanelSystemDisplay.Children[0] = CreateSectionHeader("section.display", "Display");
+        }
+
+        DisplayBrightnessHost.Children.Clear();
         DisplayBrightnessHost.Children.Add(new DisplayBrightnessView(service));
-        DisplayBrightnessHost.Children.Add(new DisplayModeView(readMode));
+        DisplayBrightnessHost.Children.Add(new DisplayModeView(displayModes.Read, displayModes.Apply, display));
+        if (_opened)
+        {
+            FoldStaticSections();
+        }
+
         _controlPinFactories["section.display"] = ("Display", () => new StackPanel
         {
             Spacing = 4,
-            Children = { new DisplayBrightnessView(service), new DisplayModeView(readMode) }
+            Children =
+            {
+                new DisplayBrightnessView(service), new DisplayModeView(displayModes.Read, displayModes.Apply, display)
+            }
         });
         RenderPins();
     }

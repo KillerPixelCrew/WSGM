@@ -131,7 +131,7 @@ public static class TrayProtocol
         // The wire NID is always the 32-bit layout; cbSize gates which trailing
         // fields exist (v3 = 952 ends at guidItem, v4 = 956 adds hBalloonIcon).
         // Read the known v3 region and accept any complete trailing extension.
-        if (cbSize < MinimumNidSize || (long)nid.Length < cbSize)
+        if (cbSize < MinimumNidSize || nid.Length < cbSize)
         {
             return false;
         }

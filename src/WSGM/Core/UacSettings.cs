@@ -63,7 +63,8 @@ public static class UacSettings
             // catch below, never re-capture the ALREADY-MODIFIED prompt levels as the
             // pre-WSGM state and then save defaults over every other snapshot.
             var current = Read();
-            var config = store.Update(fresh => {
+            var config = store.Update(fresh =>
+            {
                 if (disablePrompts && !fresh.PreviousUacSnapshotCaptured
                                    && current is { Readable: true, PromptsDisabled: false })
                 {
@@ -71,9 +72,9 @@ public static class UacSettings
                     fresh.PreviousUacConsentPrompt = current.ConsentPrompt;
                     fresh.PreviousUacSecureDesktop = current.SecureDesktop;
                 }
-            
-            return true;
-        });
+
+                return true;
+            });
 
             if (disablePrompts)
             {
@@ -97,16 +98,17 @@ public static class UacSettings
                 key.SetValue(ConsentPromptBehaviorAdmin, consent, RegistryValueKind.DWord);
                 key.SetValue(PromptOnSecureDesktop, desktop, RegistryValueKind.DWord);
 
-                store.Update(fresh => {
+                store.Update(fresh =>
+                {
                     if (fresh.PreviousUacSnapshotCaptured == config.PreviousUacSnapshotCaptured
                         && fresh.PreviousUacConsentPrompt == config.PreviousUacConsentPrompt
                         && fresh.PreviousUacSecureDesktop == config.PreviousUacSecureDesktop)
                     {
                         fresh.PreviousUacSnapshotCaptured = false;
                     }
-                
-            return true;
-        });
+
+                    return true;
+                });
                 Log.Info(
                     $"UAC prompts restored (ConsentPromptBehaviorAdmin={consent}, PromptOnSecureDesktop={desktop}).");
             }

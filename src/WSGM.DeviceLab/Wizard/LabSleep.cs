@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using Windows.Devices.Sensors;
 using WSGM.DeviceLab.Capture.Live;
 
@@ -23,6 +24,62 @@ internal sealed record LabSleepSnapshot(
 /// <summary>Sleep and wake helpers. The wizard never puts the device to sleep itself; the tester presses the power button.</summary>
 internal static class LabSleep
 {
+    /// <summary>Records the sleep result only after the controller's original setup has been restored.</summary>
+    /// <param name="project">Project receiving the stage result.</param>
+    /// <param name="attempt">Current sleep attempt, whose existing evidence is kept.</param>
+    /// <param name="cycle">Collects the sleep evidence, including any controller init.</param>
+    /// <param name="restore">Restores the original controller setup independently of stage cancellation.</param>
+    /// <returns>The restoration problem, or null when restoration succeeded or was unnecessary.</returns>
+    public static async Task<string?> RunAsync(
+        LabProject project,
+        string attempt,
+        Func<Task<(LabSegmentStatus Status, string Summary)>> cycle,
+        Func<Task<string?>>? restore)
+    {
+        (LabSegmentStatus Status, string Summary)? result = null;
+        string? problem = null;
+        try
+        {
+            result = await cycle();
+        }
+        finally
+        {
+            if (restore is not null)
+            {
+                try
+                {
+                    problem = await restore();
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    problem = ex.Message;
+                }
+            }
+
+            await Task.Run(() =>
+            {
+                if (restore is not null)
+                {
+                    project.WriteEvidence(attempt, "controller-restore",
+                        new { Restored = problem is null, Problem = problem });
+                }
+
+                if (problem is not null)
+                {
+                    var summary = result?.Summary ?? "The sleep test did not finish.";
+                    project.Finish(LabStages.Sleep, LabSegmentStatus.Failed,
+                        $"{summary} The controller could not be put back: {problem}", DateTimeOffset.UtcNow);
+                }
+                else if (result is { } finished)
+                {
+                    project.Finish(LabStages.Sleep, finished.Status, finished.Summary, DateTimeOffset.UtcNow);
+                }
+            });
+        }
+
+        return problem;
+    }
+
     /// <summary>Takes a snapshot. Blocking; call off the UI thread.</summary>
     /// <param name="ms">Capture milliseconds to stamp it with.</param>
     /// <returns>The snapshot.</returns>

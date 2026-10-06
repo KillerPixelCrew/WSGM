@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using WSGM.Core;
 using WSGM.Testing;
+using WSGM.Tests.Fakes;
 
 namespace WSGM.Tests.Core.Themes;
 
@@ -85,7 +86,7 @@ public sealed class ThemeInstallerTests : IDisposable
             ["zip-dep"] = Zip(("Dep/theme.json", """{ "name": "Dep" }""")),
             ["zip-have"] = Zip(("Have/theme.json", """{ "name": "Have" }"""))
         };
-        var handler = new ThemeStoreClientTests.StubHandler(request => request.RequestUri!.AbsolutePath switch
+        var handler = new StubHttpMessageHandler(request => request.RequestUri!.AbsolutePath switch
         {
             "/themes/top" => Ok(Details("top", "Top",
                 """[{ "id": "dep", "name": "Dep", "displayName": "Dep", "version": "v1" }, { "id": "have", "name": "Have", "displayName": "Have", "version": "v1" }]""")),
@@ -109,7 +110,7 @@ public sealed class ThemeInstallerTests : IDisposable
     [Fact]
     public async Task RefusesAManifestNewerThanTheLoaderReads()
     {
-        var handler = new ThemeStoreClientTests.StubHandler(_ => Ok(Details("new", "New", manifestVersion: 10)));
+        var handler = new StubHttpMessageHandler(_ => Ok(Details("new", "New", manifestVersion: 10)));
         var installer = new ThemeInstaller(new ThemeStoreClient(handler, "https://store.example"), Root);
 
         var refused = await Assert.ThrowsAsync<ThemeStoreException>(() =>

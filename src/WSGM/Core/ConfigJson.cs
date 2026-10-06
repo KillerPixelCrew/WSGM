@@ -19,5 +19,4 @@ internal static class ConfigJson
     {
         return JsonSerializer.Deserialize(JsonSerializer.Serialize(value, typeInfo), typeInfo) ?? new T();
     }
-
 }

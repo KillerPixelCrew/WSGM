@@ -71,7 +71,9 @@ internal static class GameLibraryRows
 
         var found = source.Count >= 0 ? $" · {source.Count} found" : string.Empty;
         return (source.Enabled ? "On" : "Off") + found
-                                               + (source.Kind == GameLibrarySourceKinds.Folder ? $" · {source.Detail}" : string.Empty);
+                                               + (source.Kind == GameLibrarySourceKinds.Folder
+                                                   ? $" · {source.Detail}"
+                                                   : string.Empty);
     }
 
     /// <summary>The home level's summary of the last scan.</summary>

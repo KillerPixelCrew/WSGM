@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Plugin.Gpu;
 using WSGM.Plugin.IntelGpu.Controls;
 using WSGM.Plugin.IntelGpu.Igcl;
 
@@ -270,7 +271,7 @@ internal static unsafe class PowerSavingControls
         }
 
         /// <inheritdoc />
-        protected override ControlWrite WriteValidated(CapabilityValue value)
+        protected override ControlWrite WriteValidated(CapabilityValue value, WriteAdmission admission)
         {
             var request = Encode(value);
             CtlPowerOptimizationSettings psr = default;
@@ -281,27 +282,35 @@ internal static unsafe class PowerSavingControls
             {
                 var off = Prepared(psr, FeaturePsr, request.PowerSource);
                 off.Enable = 0;
-                var disabled = _psr.Write(off);
+                var disabled = _psr.Write(off, admission);
                 if (disabled != IgclResult.Success)
                 {
                     return ControlWrite.From(disabled, "turning panel self refresh off for a low refresh rate change");
                 }
             }
 
-            var result = Source.Write(request);
-            if (psrWasOn)
+            try
             {
-                var on = Prepared(psr, FeaturePsr, request.PowerSource);
-                on.Enable = 1;
-                var restored = _psr.Write(on);
-                if (restored != IgclResult.Success)
+                var result = Source.Write(request, admission);
+                if (psrWasOn)
                 {
-                    _log.Error("power",
-                        $"Panel self refresh could not be turned back on ({IgclResult.Describe(restored)}).");
+                    var on = Prepared(psr, FeaturePsr, request.PowerSource);
+                    on.Enable = 1;
+                    var restored = _psr.Write(on, admission);
+                    if (restored != IgclResult.Success)
+                    {
+                        _log.Error("power",
+                            $"Panel self refresh could not be turned back on ({IgclResult.Describe(restored)}).");
+                    }
                 }
-            }
 
-            return ControlWrite.From(result, "the low refresh rate");
+                return ControlWrite.From(result, "the low refresh rate");
+            }
+            catch (DriverFailure error) when (psrWasOn && !error.Attempted)
+            {
+                // PSR was already changed; cancellation now cannot mean that nothing was written.
+                throw new DriverFailure(error.Message, true);
+            }
         }
     }
 }

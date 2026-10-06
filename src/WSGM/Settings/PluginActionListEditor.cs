@@ -88,7 +88,7 @@ public sealed class PluginActionStepEditorRow : ObservableObject
     private readonly Action _changed;
 
     internal PluginActionStepEditorRow(
-        PluginActionStep step, SettingsViewModel.PluginActionOption? option, Action changed)
+        PluginActionStep step, PluginActionOption? option, Action changed)
     {
         Step = step;
         _changed = changed;
@@ -161,7 +161,7 @@ public sealed class PluginActionStepEditorRow : ObservableObject
 public sealed class PluginActionListEditor : ObservableObject
 {
     private readonly Action _changed;
-    private IReadOnlyList<SettingsViewModel.PluginActionOption> _options = [];
+    private IReadOnlyList<PluginActionOption> _options = [];
 
     internal PluginActionListEditor(string title, Action changed)
     {
@@ -176,7 +176,7 @@ public sealed class PluginActionListEditor : ObservableObject
     public ObservableCollection<PluginActionStepEditorRow> Rows { get; } = [];
 
     /// <summary>Gets the actions that can be added, from the running plugins.</summary>
-    public ObservableCollection<SettingsViewModel.PluginActionOption> Choices { get; } = [];
+    public ObservableCollection<PluginActionOption> Choices { get; } = [];
 
     /// <summary>Gets whether anything can be added right now.</summary>
     public bool CanAdd => Choices.Count > 0;
@@ -204,7 +204,7 @@ public sealed class PluginActionListEditor : ObservableObject
     /// <param name="options">Actions the running plugins declare.</param>
     internal void Load(
         IReadOnlyList<PluginActionStep> steps,
-        IReadOnlyList<SettingsViewModel.PluginActionOption> options)
+        IReadOnlyList<PluginActionOption> options)
     {
         _options = options;
         Choices.Clear();

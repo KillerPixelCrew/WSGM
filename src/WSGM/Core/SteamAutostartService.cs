@@ -38,7 +38,8 @@ public static class SteamAutostartService
     /// <param name="system">The startup surfaces to change; the live ones by default.</param>
     /// <returns>What this attempt achieved.</returns>
     public static SteamAutostartTakeoverResult Apply(
-        ConfigStore store, IReadOnlyList<SteamAutostartSource> sources, bool allowElevation, IAutostartSystem? system = null)
+        ConfigStore store, IReadOnlyList<SteamAutostartSource> sources, bool allowElevation,
+        IAutostartSystem? system = null)
     {
         ArgumentNullException.ThrowIfNull(sources);
         var surfaces = system ?? new AutostartSystem();
@@ -66,17 +67,23 @@ public static class SteamAutostartService
 
         IReadOnlyList<SteamAutostartSource> remaining =
             [.. SteamAutostartScanner.Scan(surfaces, Steam.ExePath).Where(source => source.Enabled)];
+        return ReconcileElevatedResult(result, remaining);
+    }
+
+    internal static SteamAutostartTakeoverResult ReconcileElevatedResult(
+        SteamAutostartTakeoverResult result, IReadOnlyList<SteamAutostartSource> remaining)
+    {
         return result with
         {
             Disabled =
             [
                 .. result.Disabled, .. result.NeedsElevation.Where(source =>
-                    !remaining.Any(other => other.Kind == source.Kind && other.Name == source.Name))
+                    !remaining.Contains(source))
             ],
             NeedsElevation =
             [
                 .. result.NeedsElevation.Where(source =>
-                    remaining.Any(other => other.Kind == source.Kind && other.Name == source.Name))
+                    remaining.Contains(source))
             ]
         };
     }
@@ -123,7 +130,8 @@ public static class SteamAutostartService
                 return 0;
             }
 
-            return SteamAutostartTakeover.Disable(new AutostartSystem(), enabled, true, entry => RecordDisabled(entry, store))
+            return SteamAutostartTakeover
+                .Disable(new AutostartSystem(), enabled, true, entry => RecordDisabled(entry, store))
                 .Complete
                 ? 0
                 : 1;
@@ -154,16 +162,17 @@ public static class SteamAutostartService
                 new AutostartSystem(), config.SteamAutostartDisabled,
                 ElevationCheck.IsCurrentProcessElevated() is true);
             HashSet<string> done = [.. restored.Select(Key)];
-            store.Update(current => {
+            store.Update(current =>
+            {
                 current.SteamAutostartDisabled =
                     [.. current.SteamAutostartDisabled.Where(entry => !done.Contains(Key(entry)))];
                 if (current.SteamAutostartDisabled.Count == 0)
                 {
                     current.SteamAutostartTakeoverAccepted = false;
                 }
-            
-            return true;
-        });
+
+                return true;
+            });
             return restored.Count == config.SteamAutostartDisabled.Count ? 0 : 1;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -179,7 +188,14 @@ public static class SteamAutostartService
     /// </summary>
     private static void RecordDisabled(SteamAutostartRecord entry, ConfigStore store)
     {
-        RecordDisabled(entry, change => { store.Update(updatedConfig => { change(updatedConfig); return true; }); });
+        RecordDisabled(entry, change =>
+        {
+            store.Update(updatedConfig =>
+            {
+                change(updatedConfig);
+                return true;
+            });
+        });
     }
 
     internal static void RecordDisabled(SteamAutostartRecord entry, Action<Action<AppConfig>> mutate)

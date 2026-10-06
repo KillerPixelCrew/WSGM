@@ -21,9 +21,9 @@ the choices even when a driver's value table omits its default.
 | DLSS         | SR/RR/FG overrides, render presets, quality modes and supported multi-frame generation                                                                                     |
 | Other        | supported Smooth Motion, RTX HDR, RTX Digital Vibrance and VR queue settings                                                                                               |
 
-Driver frame limiters are omitted because WSGM/RTSS already own the frame limit. No setting is
-written merely to discover support. Private DWORD settings are isolated in the catalog and gated by
-the driver's enumeration; their IDs come from the maintainer's NoVidiaApp reference.
+Driver frame limiters are omitted because WSGM/RTSS already own the frame limit. Setter support is
+probed once with the unchanged native state. Private DWORD settings are isolated in the catalog and
+gated by the driver's enumeration; their IDs come from the maintainer's NoVidiaApp reference.
 
 Each active NVIDIA output has its own section. ColorControl is the reference for output bit depth,
 RGB/YCC encoding, full/limited range, colorimetry, desktop depth, color selection, dithering and HDR

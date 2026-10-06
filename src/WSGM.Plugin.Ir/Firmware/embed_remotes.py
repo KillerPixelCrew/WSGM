@@ -332,7 +332,8 @@ if (climate) {
   const config = JSON.parse(climate.dataset.climate);
   const storageKey = "wsgm-ir-climate:" + location.pathname;
   let state = {power: false, mode: config.modes[0], fan: config.fans[0],
-    degrees: Math.round((config.minDegrees + config.maxDegrees) / 2)};
+    degrees: Math.min(config.maxDegrees, Math.max(config.minDegrees,
+      Math.round((config.minDegrees + config.maxDegrees) / 2)))};
   // A stored draft may predate a reflash, so keep only the fields this remote still accepts.
   try {
     const stored = JSON.parse(localStorage.getItem(storageKey)) || {};
@@ -487,8 +488,6 @@ def load(identifier, folder, library):
         check_page_references(f"{where}/index.html", page, entry)
     else:
         page = default_page(entry)
-    if len(page.encode("utf-8")) > 262_144:
-        fail(where, "index.html is larger than 256 KiB")
     return entry, page
 
 

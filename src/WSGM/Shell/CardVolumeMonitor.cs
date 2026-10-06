@@ -76,16 +76,17 @@ internal sealed class CardVolumeMonitor : IDisposable
 
     /// <summary>The one owner of what a detection means for Steam's library list.</summary>
     private readonly LibraryPolicy _policy;
+
     private readonly SteamUiReadiness _readiness;
 
     private readonly MessageWindow _window;
     private bool _disposed;
 
-    private Timer? _settle;
-
     // 1 while a continuation waits for the next Steam UI ready edge. Kept apart from the log
     // one-shot below: an edge whose pass finds Steam still unavailable must arm the next wait.
     private int _readyWaitArmed;
+
+    private Timer? _settle;
     private bool _waitingForSteamUi;
 
     private CardVolumeMonitor(
@@ -447,7 +448,7 @@ internal sealed class CardVolumeMonitor : IDisposable
         try
         {
             currentContentId =
-                SteamLibraryVdf.TryReadMarker(libraryPath, out var id, out var current)
+                SteamLibraryMarker.TryRead(libraryPath, out var id, out var current)
                     ? id
                     : null;
             label = current;
@@ -570,7 +571,7 @@ internal sealed class CardVolumeMonitor : IDisposable
             var libraryPath = $@"{volume.Letter}:\{SteamLibraryVdf.CardFolderName}";
             try
             {
-                var read = SteamLibraryVdf.TryReadMarker(libraryPath, out var id, out var label);
+                var read = SteamLibraryMarker.TryRead(libraryPath, out var id, out var label);
                 found.Add((libraryPath, read ? id : null, read ? label : ""));
             }
             catch (Exception ex)

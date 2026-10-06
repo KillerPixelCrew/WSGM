@@ -47,13 +47,13 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
     /// </summary>
     private readonly SemaphoreSlim _ejectGate = new(1, 1);
 
-    private int _refreshing;
-    private DispatcherTimer? _settle;
+    private readonly MessageWindow? _messages;
 
     /// <summary>The storage read behind the current list, shared with the format flow and Steam's pages.</summary>
     private StorageInventory _inventory = StorageInventory.Empty;
 
-    private readonly MessageWindow? _messages;
+    private int _refreshing;
+    private DispatcherTimer? _settle;
     private DispatcherTimer? _timer;
     private MessageWindow? _window;
 
@@ -340,7 +340,7 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
                 // once, and per-partition rows would invite a doomed second try.
                 var id = disk.InstanceId.Length > 0 ? disk.InstanceId : $"disk:{group.Key}";
                 result.Add(new EjectableDevice(
-                    id, disk.Name, FormatLetters(letters), size, disk.Kind, disk.DevInst, letters.FirstOrDefault())
+                        id, disk.Name, FormatLetters(letters), size, disk.Kind, disk.DevInst, letters.FirstOrDefault())
                     { VolumeLetters = letters });
             }
             else
@@ -348,13 +348,13 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
                 // Media rows stay per-volume: a multi-slot reader ejects each
                 // card on its own.
                 result.AddRange(group.Select(volume => new EjectableDevice(
-                        volume.Letter == '\0' ? $"media:{disk.InstanceId}:{group.Key}" : $"media:{volume.Letter}",
-                        disk.Name, volume.Letter == '\0' ? "No Windows drive letter" : FormatLetters([volume.Letter]),
-                        volume.Size, disk.Kind, disk.DevInst, volume.Letter)
-                    {
-                        DiskPath = disk.InterfacePath,
-                        VolumeLetters = char.IsAsciiLetter(volume.Letter) ? [volume.Letter] : []
-                    }));
+                    volume.Letter == '\0' ? $"media:{disk.InstanceId}:{group.Key}" : $"media:{volume.Letter}",
+                    disk.Name, volume.Letter == '\0' ? "No Windows drive letter" : FormatLetters([volume.Letter]),
+                    volume.Size, disk.Kind, disk.DevInst, volume.Letter)
+                {
+                    DiskPath = disk.InterfacePath,
+                    VolumeLetters = char.IsAsciiLetter(volume.Letter) ? [volume.Letter] : []
+                }));
             }
         }
 

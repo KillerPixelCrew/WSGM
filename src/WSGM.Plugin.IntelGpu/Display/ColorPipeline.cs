@@ -224,8 +224,10 @@ internal sealed unsafe class ColorPipeline
     }
 
     /// <summary>Returns the raw current LUT or matrix unchanged, without rebuilding it.</summary>
+    /// <param name="matrix">Whether to probe the matrix rather than the LUT.</param>
+    /// <param name="admission">Rechecked after the query and before the setter.</param>
     /// <remarks>A block the driver holds nothing for is its neutral default; nothing is written for it.</remarks>
-    public ControlWrite ProbeSupport(bool matrix)
+    public ControlWrite ProbeSupport(bool matrix, WriteAdmission admission)
     {
         var block = matrix ? _matrixBlock!.Value : _lutBlock;
         block.Size = (uint)sizeof(CtlPixTxBlockConfig);
@@ -247,7 +249,7 @@ internal sealed unsafe class ColorPipeline
 
             if (result == IgclResult.Success)
             {
-                result = Apply(&block, 0);
+                result = Apply(&block, admission, 0);
             }
         }
 
@@ -352,13 +354,14 @@ internal sealed unsafe class ColorPipeline
     /// <summary>Writes one field, carrying the others of its block.</summary>
     /// <param name="field">The field.</param>
     /// <param name="value">The value.</param>
+    /// <param name="admission">Rechecked after preparatory reads and before the setter.</param>
     /// <returns>How the driver answered.</returns>
     /// <remarks>
     ///     When the driver holds a curve or matrix WSGM did not write, its values are unknown and have
     ///     been published as such, so the other fields of that block cannot be carried: the write starts
     ///     them from neutral and says so in the log.
     /// </remarks>
-    public ControlWrite Write(ColorField field, int value)
+    public ControlWrite Write(ColorField field, int value, WriteAdmission admission)
     {
         Observe(true);
         var neutral = ColorSettings.Neutral;
@@ -376,7 +379,7 @@ internal sealed unsafe class ColorPipeline
         var settings = field.Set(
             new ColorSettings(curve.Brightness, curve.Contrast, curve.Gamma, matrix.Hue, matrix.Saturation),
             value);
-        var result = field.InMatrix ? WriteMatrix(settings) : WriteCurve(settings);
+        var result = field.InMatrix ? WriteMatrix(settings, admission) : WriteCurve(settings, admission);
         _observedPass = 0;
         var write = ControlWrite.From(result, $"the {field.Label.ToLowerInvariant()} of {_display}");
         if (write.Status == WriteStatus.Applied)
@@ -511,7 +514,7 @@ internal sealed unsafe class ColorPipeline
         return _session.Call(_session.Api.PixTxGetConfig, _output.Handle, ref request);
     }
 
-    private int WriteCurve(ColorSettings settings)
+    private int WriteCurve(ColorSettings settings, WriteAdmission admission)
     {
         var lut = _lutBlock.Config.OneDLut;
         var perChannel = (int)lut.SamplesPerChannel;
@@ -527,11 +530,11 @@ internal sealed unsafe class ColorPipeline
             block.Config.OneDLut.SampleValues = (nint)values;
             block.Config.OneDLut.SamplePositions = 0;
             block.Config.OneDLut.SamplingType = SamplingUniform;
-            return Apply(&block);
+            return Apply(&block, admission);
         }
     }
 
-    private int WriteMatrix(ColorSettings settings)
+    private int WriteMatrix(ColorSettings settings, WriteAdmission admission)
     {
         var block = _matrixBlock!.Value;
         block.Size = (uint)sizeof(CtlPixTxBlockConfig);
@@ -547,16 +550,17 @@ internal sealed unsafe class ColorPipeline
             block.Config.Matrix.Matrix[index] = coefficients[index];
         }
 
-        return Apply(&block);
+        return Apply(&block, admission);
     }
 
-    private int Apply(CtlPixTxBlockConfig* block, uint flags = FlagPersist)
+    private int Apply(CtlPixTxBlockConfig* block, WriteAdmission admission, uint flags = FlagPersist)
     {
         CtlPixTxPipeSetConfig request = default;
         request.OperationType = OperationSetCustom;
         request.Flags = flags;
         request.NumBlocks = 1;
         request.BlockConfigs = (nint)block;
+        admission.Check();
         return _session.Call(_session.Api.PixTxSetConfig, _output.Handle, ref request);
     }
 }
@@ -579,9 +583,9 @@ internal sealed class ColorControl : IntelControl
     public override string SupportKey { get; }
 
     /// <inheritdoc />
-    public override ControlWrite ProbeSupport()
+    public override ControlWrite ProbeSupport(WriteAdmission admission)
     {
-        return _pipeline.ProbeSupport(_field.InMatrix);
+        return _pipeline.ProbeSupport(_field.InMatrix, admission);
     }
 
     /// <summary>Builds the colour controls of one display.</summary>
@@ -614,8 +618,8 @@ internal sealed class ColorControl : IntelControl
     }
 
     /// <inheritdoc />
-    protected override ControlWrite WriteValidated(CapabilityValue value)
+    protected override ControlWrite WriteValidated(CapabilityValue value, WriteAdmission admission)
     {
-        return _pipeline.Write(_field, value.IntegerValue!.Value);
+        return _pipeline.Write(_field, value.IntegerValue!.Value, admission);
     }
 }

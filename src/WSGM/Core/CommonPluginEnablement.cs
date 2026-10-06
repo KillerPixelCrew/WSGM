@@ -86,10 +86,11 @@ internal static class CommonPluginEnablement
             var adapters = DisplayAdapterInventory.Collect();
             // Keyed: every reconcile and every Plugins page load reads the adapters again.
             Log.Change("display-adapters", "Display adapters: "
-                     + (adapters.Count == 0
-                         ? "none reported."
-                         : string.Join(", ",
-                             adapters.Select(adapter => $"{adapter.PciVendorId}:{adapter.PciDeviceId}")) + "."));
+                                           + (adapters.Count == 0
+                                               ? "none reported."
+                                               : string.Join(", ",
+                                                   adapters.Select(adapter =>
+                                                       $"{adapter.PciVendorId}:{adapter.PciDeviceId}")) + "."));
             return adapters;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)

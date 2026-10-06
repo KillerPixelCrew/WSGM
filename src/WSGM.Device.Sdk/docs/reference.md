@@ -415,11 +415,10 @@ duty in percent.
 | `TimedOut`          | Deadline passed; unknown whether applied.                              | Not success; never retried automatically.                                                  |
 | `Indeterminate`     | Interrupted mid-operation; unknown whether applied.                    | Reported to the owning service; never retried blindly for a persistent write.              |
 
-`CapabilityCommandResult`: `CommandId`, `Outcome`, `Reason`, `ReadbackValue` (the value the device
-now holds as WSGM should publish it: the readback for `AppliedVerified`, the written value for
-`AppliedUnverified`, absent when nothing was applied), `Rollback`, `CompletedAt`. `RollbackResult`:
-`NotRequired`, `RestoredVerified`, `RestoredUnverified`, `RestoreFailed` (the resource is faulted
-and journalled for reconciliation).
+`CapabilityCommandResult`: `CommandId`, `Outcome`, `Reason`, `ReadbackValue` (an independent
+readback for `AppliedVerified` only; an `AppliedUnverified` write is published as observed
+capability state), `Rollback`, `CompletedAt`. `RollbackResult`: `NotRequired`, `RestoredVerified`,
+`RestoredUnverified`, `RestoreFailed` (the resource is faulted and journalled for reconciliation).
 
 ### `CapabilityReason`
 
@@ -920,8 +919,8 @@ The compiler catches none of these; the host relies on all of them.
   `ExpectedDescriptorGeneration` and `ExpectedCycleGeneration` and return `Rejected` with
   `GenerationChanged` when either is stale.
 - Report the truth. `AppliedVerified` with the readback as `ReadbackValue`; `AppliedUnverified` with
-  the written value there; `TimedOut` or `Indeterminate` when the outcome is unknown. Never retry an
-  uncertain persistent write yourself.
+  the written value published as observed state and no readback; `TimedOut` or `Indeterminate` when
+  the outcome is unknown. Never retry an uncertain persistent write yourself.
 - Never gate a write on readback. Write, publish the written value as observed, and let a matching
   readback upgrade the result to verified; a missing or different readback leaves it unverified.
 - Publish whole sets. Descriptors, OEM controls and physical devices replace what came before. Bump

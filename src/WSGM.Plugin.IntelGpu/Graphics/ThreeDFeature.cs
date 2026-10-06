@@ -1,4 +1,5 @@
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Plugin.Gpu;
 using WSGM.Plugin.IntelGpu.Controls;
 using WSGM.Plugin.IntelGpu.Igcl;
 
@@ -108,7 +109,7 @@ internal sealed unsafe class ThreeDFeature
     }
 
     /// <summary>Returns the whole global native value unchanged.</summary>
-    public ControlWrite ProbeSupport()
+    public ControlWrite ProbeSupport(WriteAdmission admission)
     {
         var result = Read(null, out var current);
         if (result == IgclResult.Success && _globalWasDefault)
@@ -121,7 +122,7 @@ internal sealed unsafe class ThreeDFeature
 
         if (result == IgclResult.Success)
         {
-            result = Write(null, current);
+            result = Write(null, current, admission);
         }
 
         return ControlWrite.From(result, Info.Label + " support discovery");
@@ -245,8 +246,9 @@ internal sealed unsafe class ThreeDFeature
     /// <summary>Writes the global value, or one application's.</summary>
     /// <param name="application">The executable name, or null for the global value.</param>
     /// <param name="value">The whole value.</param>
+    /// <param name="admission">Rechecked immediately before the native setter.</param>
     /// <returns>The driver result.</returns>
-    public int Write(string? application, RawFeatureValue value)
+    public int Write(string? application, RawFeatureValue value, WriteAdmission admission)
     {
         if (application is null)
         {
@@ -256,14 +258,14 @@ internal sealed unsafe class ThreeDFeature
         switch (Shape)
         {
             case FeatureShape.Endurance:
-                return GetSetCustom(ref value.Endurance, application, true);
+                return GetSetCustom(ref value.Endurance, application, true, admission);
             case FeatureShape.AdaptiveSync:
-                return GetSetCustom(ref value.AdaptiveSync, application, true);
+                return GetSetCustom(ref value.AdaptiveSync, application, true, admission);
             case FeatureShape.AppProfile:
                 // The tier type is the call's input, so it is always this feature's, whatever the value
                 // the other fields came from.
                 value.AppProfile.TierType = TierType;
-                return GetSetCustom(ref value.AppProfile, application, true);
+                return GetSetCustom(ref value.AppProfile, application, true, admission);
             case FeatureShape.LiveState:
                 return IgclResult.NotImplemented;
             case FeatureShape.Scalar:
@@ -271,6 +273,7 @@ internal sealed unsafe class ThreeDFeature
             {
                 var request = Request(true);
                 request.Value = value.Scalar;
+                admission.Check();
                 return _session.GetSet3dFeature(Adapter, ref request, application);
             }
         }
@@ -334,8 +337,9 @@ internal sealed unsafe class ThreeDFeature
     /// <param name="custom">The structure; filled on a get.</param>
     /// <param name="application">The executable name, or null for the global value.</param>
     /// <param name="set">Whether this is a set.</param>
+    /// <param name="admission">Required for a set, absent for a read.</param>
     /// <returns>The driver result.</returns>
-    private int GetSetCustom<T>(ref T custom, string? application, bool set)
+    private int GetSetCustom<T>(ref T custom, string? application, bool set, WriteAdmission? admission = null)
         where T : unmanaged
     {
         var request = Request(set);
@@ -343,6 +347,11 @@ internal sealed unsafe class ThreeDFeature
         fixed (T* pointer = &custom)
         {
             request.CustomValue = (nint)pointer;
+            if (set)
+            {
+                admission!.Value.Check();
+            }
+
             return _session.GetSet3dFeature(Adapter, ref request, application);
         }
     }
@@ -383,9 +392,9 @@ internal sealed class ThreeDFeatureControl : IntelControl
     public override string SupportKey { get; }
 
     /// <inheritdoc />
-    public override ControlWrite ProbeSupport()
+    public override ControlWrite ProbeSupport(WriteAdmission admission)
     {
-        return Feature.ProbeSupport();
+        return Feature.ProbeSupport(admission);
     }
 
     /// <summary>Builds the controls for one reported feature.</summary>
@@ -473,10 +482,10 @@ internal sealed class ThreeDFeatureControl : IntelControl
     }
 
     /// <inheritdoc />
-    protected override ControlWrite WriteValidated(CapabilityValue value)
+    protected override ControlWrite WriteValidated(CapabilityValue value, WriteAdmission admission)
     {
         var raw = Encode(Feature.BaseForWrite(), value);
-        return ControlWrite.From(Feature.Write(null, raw), Descriptor.Display.CustomLabel ?? CapabilityId);
+        return ControlWrite.From(Feature.Write(null, raw, admission), Descriptor.Display.CustomLabel ?? CapabilityId);
     }
 
     private static void BuildEndurance(

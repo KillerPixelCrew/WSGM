@@ -17,7 +17,7 @@ internal static class LabRumbleRecovery
     /// <param name="machine">The machine record.</param>
     /// <param name="worker">The hardware worker.</param>
     /// <returns>What was done, or null when nothing was pending.</returns>
-    public static string? RestoreRecorded(LabMachineState machine, LabWorkerClient worker)
+    public static string? RestoreRecorded(LabMachineState machine, ILabWorkerClient worker)
     {
         var pending = machine.Read().Rumble;
         if (pending.Count == 0)

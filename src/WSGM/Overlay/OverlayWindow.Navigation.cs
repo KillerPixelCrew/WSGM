@@ -53,7 +53,7 @@ public partial class OverlayWindow
         new SubView(OverlayPage.SystemPerformance, PanelSystemPerformance, PanelSystem, OverlayDestination.System,
             Title: "Performance", Icon: Icons.Monitor, Available: () => SystemPerformanceTile.IsVisible),
         new SubView(OverlayPage.SystemStorage, PanelSystemStorage, PanelSystem, OverlayDestination.System,
-            Title: "Storage", Icon: Icons.Eject),
+            Title: "Storage", Icon: Icons.SdCard),
         new SubView(OverlayPage.SystemDisplay, PanelSystemDisplay, PanelSystem, OverlayDestination.System,
             Title: "Display", Icon: Icons.Monitor),
         new SubView(OverlayPage.SystemPlugins, PanelSystemPlugins, PanelSystem, OverlayDestination.System,
@@ -73,7 +73,7 @@ public partial class OverlayWindow
         new SubView(OverlayPage.SystemAbout, PanelSystemAbout, PanelSystem, OverlayDestination.System, Title: "About",
             Icon: Icons.Info),
         new SubView(OverlayPage.PowerWake, PanelPowerWake, PanelPower, OverlayDestination.Power, Title: "Wake",
-            Icon: Icons.Gear),
+            Icon: Icons.Mug),
         new SubView(OverlayPage.PowerTimeouts, PanelPowerTimeouts, PanelPower, OverlayDestination.Power,
             Title: "Idle timeouts", Icon: Icons.Moon),
         new SubView(OverlayPage.PowerActions, PanelPowerActions, PanelPower, OverlayDestination.Power, Title: "Power",
@@ -220,7 +220,11 @@ public partial class OverlayWindow
         if (ActiveSubView is { } caller)
         {
             caller.Host.IsVisible = true;
-            view.Parent.IsVisible = false;
+            if (!ReferenceEquals(view.Parent, caller.Host))
+            {
+                view.Parent.IsVisible = false;
+            }
+
             var target = FocusSearch.First<Control>(caller.Host,
                 control => Equals(control.Tag, returnFocusKey) && control.Focusable);
             if (target is not null)
@@ -236,7 +240,7 @@ public partial class OverlayWindow
         }
 
         SyncBackAffordance();
-        if (view.Parent.IsVisible)
+        if (view.Parent.IsVisible && ActiveSubView is null)
         {
             if (!ReferenceEquals(view.Parent, DestinationPanel()))
             {
@@ -473,12 +477,12 @@ public partial class OverlayWindow
         var selected = SelectedSectionButton;
         var focused = GetTopLevel(this)?.FocusManager.GetFocusedElement();
         var context = new OverlayBackContext(
-            PopupOpen: false,
-            DialogOpen: _armedConfirm is not null,
-            SurfaceOpen: HasActiveSurface,
-            NestedLevel: ActiveSubView?.Host is OverlaySubView { HasNestedLevel: true },
-            FocusInRail: ReferenceEquals(focused, selected),
-            RailCanTakeFocus: selected is not null && focused is Control);
+            false,
+            _armedConfirm is not null,
+            HasActiveSurface,
+            ActiveSubView?.Host is OverlaySubView { HasNestedLevel: true },
+            ReferenceEquals(focused, selected),
+            selected is not null && focused is Control);
         switch (_navigation.BackAction(context))
         {
             case OverlayBackAction.CloseSurface:

@@ -31,13 +31,11 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
     private readonly Dictionary<string, SteamArtworkBrowserFilter> _filters = new(StringComparer.Ordinal);
 
     private readonly object _gate = new();
-    private readonly Func<ArtworkConfig> _readConfiguration;
-    private readonly SteamGridDbProvider? _steamGridDb;
     private readonly IReadOnlyList<IArtworkProvider> _providers;
-    private string _tabSignature;
-    private string _providerSignature;
+    private readonly Func<ArtworkConfig> _readConfiguration;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly SteamClient _steam;
+    private readonly SteamGridDbProvider? _steamGridDb;
     private readonly ArtworkStateStore _store;
 
     /// <summary>What a caller said a game is called, for games Steam's list does not name yet.</summary>
@@ -55,9 +53,11 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
     private Dictionary<string, ArtworkGameMatch> _matches = new(StringComparer.Ordinal);
     private Dictionary<string, SgdbOfficialAsset> _officialCandidates = new(StringComparer.Ordinal);
     private SteamArtworkBrowserSource? _parent;
+    private string _providerSignature;
     private long _revision;
     private ArtworkGameMatch? _selectedMatch;
     private SteamArtworkBrowserState? _state;
+    private string _tabSignature;
 
     internal SteamArtworkBrowserSource(
         Func<ArtworkConfig> readConfiguration,
@@ -733,7 +733,8 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
     private async Task SearchGamesCoreAsync(string term, CancellationToken cancellationToken)
     {
         var config = _readConfiguration();
-        var matches = await ArtworkSearch.SearchGamesAsync(term, config, cancellationToken, _providers).ConfigureAwait(false);
+        var matches = await ArtworkSearch.SearchGamesAsync(term, config, cancellationToken, _providers)
+            .ConfigureAwait(false);
         var mapped = new List<SteamArtworkBrowserGame>(matches.Count);
         var lookup = new Dictionary<string, ArtworkGameMatch>(StringComparer.Ordinal);
         foreach (var match in matches)
@@ -741,7 +742,9 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
             var id = Guid.NewGuid().ToString("N");
             lookup[id] = match;
             mapped.Add(new SteamArtworkBrowserGame(
-                id, match.Name, _providers.FirstOrDefault(provider => provider.Id == match.ProviderId)?.DisplayName ?? match.ProviderId));
+                id, match.Name,
+                _providers.FirstOrDefault(provider => provider.Id == match.ProviderId)?.DisplayName ??
+                match.ProviderId));
         }
 
         lock (_gate)
@@ -818,7 +821,8 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
             // A match kept from a provider that is now off, or has lost its credentials, would ask
             // nobody and leave the page empty without a single request. The ready providers are
             // asked instead, the way a game with no match is.
-            if (selected is not null && _providers.FirstOrDefault(provider => provider.Id == selected.ProviderId)?.GetStatus(config).IsReady != true)
+            if (selected is not null && _providers.FirstOrDefault(provider => provider.Id == selected.ProviderId)
+                    ?.GetStatus(config).IsReady != true)
             {
                 Log.Info($"Steam artwork page: app {appId} was matched through {selected.ProviderId}, "
                          + "which is not ready; asking the ready providers instead.");
@@ -1219,7 +1223,8 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
             using FileStream stream = new(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             if (stream.Length > ArtworkDownload.MaximumBytes)
             {
-                Log.Warn($"Steam artwork page: current-art preview exceeds {ArtworkDownload.MaximumBytes} bytes: {path}");
+                Log.Warn(
+                    $"Steam artwork page: current-art preview exceeds {ArtworkDownload.MaximumBytes} bytes: {path}");
                 return null;
             }
 

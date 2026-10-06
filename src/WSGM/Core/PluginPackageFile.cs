@@ -226,7 +226,8 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
         bool hasCategory;
         try
         {
-            using var document = JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = ManifestLimits.MaxDepth });
+            using var document =
+                JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = ManifestLimits.MaxDepth });
             hasCategory = document.RootElement.ValueKind is JsonValueKind.Object
                           && document.RootElement.TryGetProperty("category", out _);
         }

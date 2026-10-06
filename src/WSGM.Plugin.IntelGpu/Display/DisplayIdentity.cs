@@ -6,7 +6,7 @@ namespace WSGM.Plugin.IntelGpu.Display;
 
 /// <summary>Who a display output is, in terms that survive a reboot and a reconnect.</summary>
 /// <param name="InstanceId">The stable capability instance id.</param>
-/// <param name="Name">The plain name for its section, at most 48 characters.</param>
+/// <param name="Name">The plain name for its section.</param>
 /// <param name="Internal">Whether Windows reports the output as the built-in panel.</param>
 internal sealed record DisplayIdentity(string InstanceId, string Name, bool Internal);
 

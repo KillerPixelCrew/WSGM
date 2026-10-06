@@ -72,14 +72,42 @@ public sealed class CollapsibleSectionTests
         view.Open();
         Dispatcher.UIThread.RunJobs();
         var initial = view.GetVisualDescendants().OfType<CollapsibleSection>().Single();
+        var heading = initial.Heading;
+        var body = initial.Body;
         initial.IsExpanded = true;
         initial.Heading.Focus(NavigationMethod.Directional);
-        await service.RefreshAsync(CancellationToken.None);
+        var busyRendered = false;
+        service.Changed += RenderBusyPublication;
+        try
+        {
+            await service.RefreshAsync(CancellationToken.None);
+        }
+        finally
+        {
+            service.Changed -= RenderBusyPublication;
+        }
+
         Dispatcher.UIThread.RunJobs();
+        Assert.True(busyRendered);
         var current = view.GetVisualDescendants().OfType<CollapsibleSection>().Single();
-        Assert.NotSame(initial, current);
+        Assert.Same(initial, current);
+        Assert.Same(heading, current.Heading);
+        Assert.Same(body, current.Body);
         Assert.True(current.IsExpanded);
         Assert.Same(current.Heading, window.FocusManager!.GetFocusedElement());
         view.Attach(null);
+
+        return;
+
+        void RenderBusyPublication()
+        {
+            if (Dispatcher.UIThread.CheckAccess() && service.ReadState().Busy)
+            {
+                // Render before RefreshAsync starts its worker, so Working shifts the fold.
+                Dispatcher.UIThread.RunJobs();
+                busyRendered = view.GetVisualDescendants().OfType<TextBlock>()
+                    .Any(text => text.Text == "Working…");
+            }
+        }
     }
 }

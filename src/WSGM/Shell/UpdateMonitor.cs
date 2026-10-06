@@ -14,8 +14,8 @@ internal sealed class UpdateMonitor : IDisposable
     private static readonly TimeSpan FirstCheckDelay = TimeSpan.FromMinutes(2);
     private static readonly TimeSpan CheckInterval = TimeSpan.FromDays(1);
     private static readonly TimeSpan Wakeup = TimeSpan.FromHours(1);
-    private readonly Func<bool> _enabled;
     private readonly UserDataContext _context;
+    private readonly Func<bool> _enabled;
     private readonly Task _loop;
 
     private readonly CancellationTokenSource _stop = new();

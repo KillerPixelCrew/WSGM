@@ -9,9 +9,9 @@ mode notification; those start with the first device cycle. This document record
 behind the runtime and the device findings that produced them. It does not describe the mechanism
 step by step.
 
-The resident common PluginHost admits the Device compatibility adapter. DeviceCoordinator owns
-machine policy and ordered controller cleanup; hardware behavior stays in DevicePluginRuntime and
-the package. Common admission and lifecycle rules are in
+DeviceCoordinator owns the sole DevicePluginRuntime, device lifecycle policy and ordered controller
+cleanup; hardware behavior stays in the package. The common PluginHost handles independent common
+plugins and refuses the Device category. Its admission and lifecycle rules are in
 [common plugin contracts](plugin-system.md).
 
 Related:

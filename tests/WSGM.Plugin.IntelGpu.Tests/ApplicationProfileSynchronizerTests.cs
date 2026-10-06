@@ -1,4 +1,7 @@
+using System.Text.Json;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Lifecycle;
+using WSGM.Plugin.Gpu;
 using WSGM.Plugin.IntelGpu.Graphics;
 using WSGM.Plugin.IntelGpu.Profiles;
 using WSGM.Plugin.IntelGpu.Tests.Fakes;
@@ -25,11 +28,130 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
     private const string Keys = $@"{ClassPath}\0000\3DKeys";
     private readonly MemoryRegistryNode _hive = new();
     private readonly TemporaryDirectory _state = new();
+    private static WriteAdmission Admission => new(CancellationToken.None, Deadline.Never, static () => true);
 
     /// <inheritdoc />
     public void Dispose()
     {
         _state.Dispose();
+    }
+
+    [Theory]
+    [InlineData("broken")]
+    [InlineData("{}")]
+    [InlineData("{\"Entries\":null}")]
+    [InlineData("{\"Entries\":[null]}")]
+    public void AnUnreadableOwnershipRecordNeverWritesOrReplacesTheOriginal(string content)
+    {
+        var path = Path.Combine(_state.Root, "application-profiles.v1.json");
+        File.WriteAllText(path, content);
+        var synchronizer = Create();
+
+        var result = synchronizer.Apply(Sync(1, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve,
+            CancellationToken.None, Admission);
+
+        Assert.Single(result.Failures);
+        Assert.Equal(0, result.Written);
+        Assert.Empty(_hive.Create(Keys).GetValueNames());
+        Assert.Equal(content, File.ReadAllText(path));
+    }
+
+    [Fact]
+    public void ALockedRecordIsPreservedWithoutChangingTheRegistry()
+    {
+        var path = Path.Combine(_state.Root, "application-profiles.v1.json");
+        var content = JsonSerializer.Serialize(SyncRecord.Empty);
+        File.WriteAllText(path, content);
+        using (var locked = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            var result = Create().Apply(Sync(1, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve,
+                CancellationToken.None, Admission);
+            Assert.Single(result.Failures);
+            Assert.Empty(_hive.Create(Keys).GetValueNames());
+        }
+
+        Assert.Equal(content, File.ReadAllText(path));
+    }
+
+    [Fact]
+    public void ADirectoryAtTheRecordPathIsPreservedWithoutChangingTheRegistry()
+    {
+        var path = Path.Combine(_state.Root, "application-profiles.v1.json");
+        Directory.CreateDirectory(path);
+        var result = Create().Apply(Sync(1, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve,
+            CancellationToken.None, Admission);
+        Assert.Single(result.Failures);
+        Assert.Empty(_hive.Create(Keys).GetValueNames());
+        Assert.True(Directory.Exists(path));
+    }
+
+    [Fact]
+    public void DuplicateOwnersArePreservedInsteadOfDroppingOneOwnersNames()
+    {
+        var path = Path.Combine(_state.Root, "application-profiles.v1.json");
+        var entry = new SyncEntry("p1", "game.exe", "graphics.cmaa", Instance, "enhance",
+            [new RegistryValueName(Keys, "game.exe_Cmaa")]);
+        var content = JsonSerializer.Serialize(new SyncRecord([
+            entry, entry with
+            {
+                Names = [new RegistryValueName(Keys, "game.exe_Second")]
+            }
+        ]));
+        File.WriteAllText(path, content);
+        var key = _hive.Create(Keys);
+        key.Set("game.exe_Cmaa", 1);
+        key.Set("game.exe_Second", 2);
+        var result = Create().Apply(Sync(1, ("p1", "game.exe", "graphics.cmaa", "off")), Resolve,
+            CancellationToken.None, Admission);
+        Assert.Single(result.Failures);
+        Assert.Equal(content, File.ReadAllText(path));
+        Assert.Equal(1, key.GetValue("game.exe_Cmaa"));
+        Assert.Equal(2, key.GetValue("game.exe_Second"));
+    }
+
+    [Fact]
+    public void RepeatedRevisionCannotRemoveAnAppliedOverride()
+    {
+        var key = _hive.Create(Keys);
+        var synchronizer = Create();
+        synchronizer.Apply(Sync(5, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve,
+            CancellationToken.None, Admission);
+        var result = synchronizer.Apply(Sync(5), Resolve, CancellationToken.None, Admission);
+        Assert.Equal((0, 0), (result.Written, result.Removed));
+        Assert.NotNull(key.GetValue("game.exe_Cmaa"));
+        Assert.Single(synchronizer.Record.Entries);
+    }
+
+    [Fact]
+    public void FailedRecordSaveIsReportedAgainWithoutRepeatingTheDriverWrite()
+    {
+        var path = Path.Combine(_state.Root, "application-profiles.v1.json");
+        var key = _hive.Create(Keys);
+        var synchronizer = Create();
+        Directory.CreateDirectory(path);
+        try
+        {
+            var first = synchronizer.Apply(Sync(1, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve,
+                CancellationToken.None, Admission);
+            Assert.Single(first.Failures);
+            Assert.Equal(0, first.Written);
+            Assert.NotNull(key.GetValue("game.exe_Cmaa"));
+            key.Set("game.exe_Cmaa", 42);
+            var second = synchronizer.Apply(Sync(2, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve,
+                CancellationToken.None, Admission);
+            Assert.Single(second.Failures);
+            Assert.Equal(42, key.GetValue("game.exe_Cmaa"));
+        }
+        finally
+        {
+            Directory.Delete(path);
+        }
+
+        var third = synchronizer.Apply(Sync(3, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve,
+            CancellationToken.None, Admission);
+        Assert.Empty(third.Failures);
+        Assert.Equal(42, key.GetValue("game.exe_Cmaa"));
+        Assert.Single(DriverStateFile.Read(path, SyncRecord.Empty).Entries);
     }
 
     [Fact]
@@ -40,7 +162,7 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
         var synchronizer = Create();
 
         var result = synchronizer.Apply(Sync(1, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve,
-            CancellationToken.None);
+            CancellationToken.None, Admission);
 
         Assert.Equal(1, result.Written);
         var entry = Assert.Single(synchronizer.Record.Entries);
@@ -54,9 +176,10 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
         key.Set("game.exe_Existing", 1);
         key.Set("other.exe_Cmaa", 1);
         var synchronizer = Create();
-        synchronizer.Apply(Sync(1, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve, CancellationToken.None);
+        synchronizer.Apply(Sync(1, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve, CancellationToken.None,
+            Admission);
 
-        var result = synchronizer.Apply(Sync(2), Resolve, CancellationToken.None);
+        var result = synchronizer.Apply(Sync(2), Resolve, CancellationToken.None, Admission);
 
         Assert.Equal(1, result.Removed);
         Assert.Empty(synchronizer.Record.Entries);
@@ -75,10 +198,10 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
             Sync(1, ("p1", "game.exe", "graphics.endurance-gaming", "on"),
                 ("p1", "game.exe", "graphics.endurance-gaming-target", "battery")),
             Resolve,
-            CancellationToken.None);
+            CancellationToken.None, Admission);
 
         synchronizer.Apply(Sync(2, ("p1", "game.exe", "graphics.endurance-gaming", "on")), Resolve,
-            CancellationToken.None);
+            CancellationToken.None, Admission);
 
         Assert.NotNull(key.GetValue("game.exe_EnduranceGaming"));
         Assert.Single(synchronizer.Record.Entries);
@@ -95,7 +218,7 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
             Sync(1, ("p1", "game.exe", "graphics.switched-cmaa", "enhance"),
                 ("p1", "game.exe", "graphics.switched-low-latency", "on")),
             Resolve,
-            CancellationToken.None);
+            CancellationToken.None, Admission);
 
         Assert.NotNull(key.GetValue("game.exe_GlobalOrPerApp"));
         var switchEntry = Assert.Single(synchronizer.Record.Entries,
@@ -105,10 +228,10 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
             entry => Assert.DoesNotContain(entry.Names, value => value.Name == "game.exe_GlobalOrPerApp"));
 
         synchronizer.Apply(Sync(2, ("p1", "game.exe", "graphics.switched-cmaa", "enhance")), Resolve,
-            CancellationToken.None);
+            CancellationToken.None, Admission);
         Assert.NotNull(key.GetValue("game.exe_GlobalOrPerApp"));
 
-        synchronizer.Apply(Sync(3), Resolve, CancellationToken.None);
+        synchronizer.Apply(Sync(3), Resolve, CancellationToken.None, Admission);
         Assert.Null(key.GetValue("game.exe_GlobalOrPerApp"));
         Assert.Empty(synchronizer.Record.Entries);
     }
@@ -118,9 +241,10 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
     {
         _hive.Create(Keys);
         var synchronizer = Create();
-        synchronizer.Apply(Sync(5, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve, CancellationToken.None);
+        synchronizer.Apply(Sync(5, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve, CancellationToken.None,
+            Admission);
 
-        var result = synchronizer.Apply(Sync(4), Resolve, CancellationToken.None);
+        var result = synchronizer.Apply(Sync(4), Resolve, CancellationToken.None, Admission);
 
         Assert.Equal((0, 0), (result.Written, result.Removed));
         Assert.Single(synchronizer.Record.Entries);
@@ -131,9 +255,10 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
     {
         // WSGM's revision restarts with WSGM, so a new process never compares it with an older run's.
         var key = _hive.Create(Keys);
-        Create().Apply(Sync(5, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve, CancellationToken.None);
+        Create().Apply(Sync(5, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve, CancellationToken.None,
+            Admission);
 
-        var result = Create().Apply(Sync(1), Resolve, CancellationToken.None);
+        var result = Create().Apply(Sync(1), Resolve, CancellationToken.None, Admission);
 
         Assert.Equal(1, result.Removed);
         Assert.Null(key.GetValue("game.exe_Cmaa"));
@@ -144,9 +269,11 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
     {
         var key = _hive.Create(Keys);
         var synchronizer = Create();
-        synchronizer.Apply(Sync(1, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve, CancellationToken.None);
+        synchronizer.Apply(Sync(1, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve, CancellationToken.None,
+            Admission);
 
-        synchronizer.Apply(Sync(2, ("p2", "game.exe", "graphics.cmaa", "off")), Resolve, CancellationToken.None);
+        synchronizer.Apply(Sync(2, ("p2", "game.exe", "graphics.cmaa", "off")), Resolve, CancellationToken.None,
+            Admission);
 
         var entry = Assert.Single(synchronizer.Record.Entries);
         Assert.Equal("p2", entry.ProfileId);
@@ -159,11 +286,12 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
     {
         var key = _hive.Create(Keys);
         var synchronizer = Create();
-        synchronizer.Apply(Sync(1, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve, CancellationToken.None);
+        synchronizer.Apply(Sync(1, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve, CancellationToken.None,
+            Admission);
         key.Set("game.exe_Cmaa", 42);
 
         var result = synchronizer.Apply(Sync(2, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve,
-            CancellationToken.None);
+            CancellationToken.None, Admission);
 
         Assert.Equal(1, result.Written);
         Assert.Equal(42, key.GetValue("game.exe_Cmaa"));
@@ -173,10 +301,11 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
     public void TheRecordSurvivesARestart()
     {
         var key = _hive.Create(Keys);
-        Create().Apply(Sync(1, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve, CancellationToken.None);
+        Create().Apply(Sync(1, ("p1", "game.exe", "graphics.cmaa", "enhance")), Resolve, CancellationToken.None,
+            Admission);
 
         var restarted = Create();
-        restarted.Apply(Sync(2), Resolve, CancellationToken.None);
+        restarted.Apply(Sync(2), Resolve, CancellationToken.None, Admission);
 
         Assert.Null(key.GetValue("game.exe_Cmaa"));
     }
@@ -188,7 +317,7 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
         var synchronizer = Create();
 
         var result = synchronizer.Apply(Sync(1, ("p1", "game.exe", "graphics.refused", "on")), Resolve,
-            CancellationToken.None);
+            CancellationToken.None, Admission);
 
         var failure = Assert.Single(result.Failures);
         Assert.Equal("graphics.refused", failure.CapabilityId);
@@ -199,7 +328,7 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
     public void AnUnknownCapabilityIsRefused()
     {
         var result = Create().Apply(Sync(1, ("p1", "game.exe", "display.scaling", "centered")), Resolve,
-            CancellationToken.None);
+            CancellationToken.None, Admission);
 
         Assert.Single(result.Failures);
     }
@@ -287,13 +416,14 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
 
         public string? WriteForApplication(
             string executable,
-            IReadOnlyList<(string CapabilityId, CapabilityValue Value)> values)
+            IReadOnlyList<(string CapabilityId, CapabilityValue Value)> values, WriteAdmission admission)
         {
             if (refuse)
             {
                 return "The driver answered 0x4000000a.";
             }
 
+            admission.Check();
             hive.Create(Keys).Set($"{executable}_{setting}", values.Count);
             return null;
         }
@@ -308,8 +438,9 @@ public sealed class ApplicationProfileSynchronizerTests : IDisposable
 
         public IReadOnlyList<string> RegistryKeys => [Keys];
 
-        public string? EnableFor(string executable)
+        public string? EnableFor(string executable, WriteAdmission admission)
         {
+            admission.Check();
             hive.Create(Keys).Set($"{executable}_GlobalOrPerApp", 1);
             return null;
         }

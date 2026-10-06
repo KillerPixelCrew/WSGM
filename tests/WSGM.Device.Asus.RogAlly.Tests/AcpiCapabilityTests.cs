@@ -41,6 +41,7 @@ public sealed class AcpiCapabilityTests
             CancellationToken.None);
 
         Assert.Equal(CommandOutcome.AppliedUnverified, result.Outcome);
+        Assert.Null(result.Reason);
         Assert.Null(result.ReadbackValue);
         Assert.Equal(22, acpi.Scalar(AsusAcpiId.SustainedPower));
         Assert.Equal(22, acpi.Scalar(AsusAcpiId.SlowPower));

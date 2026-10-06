@@ -44,7 +44,7 @@ public sealed class AmazonLibrarySourceTests
                               },
                             }
                             """;
-        var source = Source(fuel, Protocol, files: [GameFolder + @"\bin\Moonlit.exe"]);
+        var source = Source(fuel, Protocol, GameFolder + @"\bin\Moonlit.exe");
 
         var game = Assert.Single(await source.DiscoverAsync([], CancellationToken.None));
 
@@ -68,7 +68,7 @@ public sealed class AmazonLibrarySourceTests
         const string fuel = """
                             {"Main": {"Command": "Moonlit.exe", "ClientId": "abc", "AuthScopes": ["scope"]}}
                             """;
-        var source = Source(fuel, Protocol, files: [GameFolder + @"\Moonlit.exe"]);
+        var source = Source(fuel, Protocol, GameFolder + @"\Moonlit.exe");
 
         var game = Assert.Single(await source.DiscoverAsync([], CancellationToken.None));
 

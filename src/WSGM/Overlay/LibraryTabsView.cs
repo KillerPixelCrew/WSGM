@@ -27,14 +27,6 @@ namespace WSGM.Overlay;
 /// </summary>
 public sealed class LibraryTabsView : OverlaySubView
 {
-    private ConfigStore? _store;
-    private ConfigStore Store => _store ?? throw new InvalidOperationException("The overlay persistence owner was not supplied.");
-
-    internal void ConfigureStore(ConfigStore store)
-    {
-        _store = store;
-    }
-
     // ---- Level: filter type picker ----
 
     private static readonly (FilterKind Kind, string Label, string Desc)[] FilterKinds =
@@ -71,10 +63,19 @@ public sealed class LibraryTabsView : OverlaySubView
     private List<LibraryTabManager.TabOrderEntry> _orderEntries = [];
 
     private FilterNode? _replacingFilter;
+    private ConfigStore? _store;
     private IReadOnlyList<SteamStoreTag>? _tags;
+
+    private ConfigStore Store =>
+        _store ?? throw new InvalidOperationException("The overlay persistence owner was not supplied.");
 
     /// <inheritdoc />
     protected override string LogScope => "Library tabs";
+
+    internal void ConfigureStore(ConfigStore store)
+    {
+        _store = store;
+    }
 
     /// <summary>
     ///     Loads config and renders the root tab list. Called by the overlay when
@@ -93,7 +94,7 @@ public sealed class LibraryTabsView : OverlaySubView
 
     private async Task LoadAndRenderAsync(int generation)
     {
-        var config = await Task.Run((() => (Store.Read().Config ?? new AppConfig())));
+        var config = await Task.Run(() => Store.Read().Config ?? new AppConfig());
         if (generation != NavigationGeneration)
         {
             return;
@@ -378,7 +379,7 @@ public sealed class LibraryTabsView : OverlaySubView
         catch (Exception ex)
         {
             Log.Warn($"Library tab {operation} failed: {ex.Message}");
-            _config = await Task.Run((() => (Store.Read().Config ?? new AppConfig())));
+            _config = await Task.Run(() => Store.Read().Config ?? new AppConfig());
             Toast($"Could not {operation} the tab. Try again.");
             NavigationStack.Clear();
             Replace(RenderTabList);
@@ -485,7 +486,7 @@ public sealed class LibraryTabsView : OverlaySubView
                 stack.Children.Add(Row("Pattern", string.IsNullOrEmpty(node.Pattern)
                     ? "(required)"
                     : node.Pattern, Icons.CopyDoc, () =>
-                    EditText("Title pattern", node.Pattern, maxLen: 0, v => { node.Pattern = v; })));
+                    EditText("Title pattern", node.Pattern, 0, v => { node.Pattern = v; })));
                 break;
 
             case FilterKind.Tag:

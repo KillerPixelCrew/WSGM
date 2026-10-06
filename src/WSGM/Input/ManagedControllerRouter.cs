@@ -131,6 +131,7 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
             {
                 await NeutralizeAsync("source-invalid:out-of-range-sample", cancellationToken).ConfigureAwait(false);
             }
+
             return false;
         }
 
@@ -209,11 +210,12 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
         {
             if (!await _backend.PublishAsync(target, NewNeutral(), cancellationToken).ConfigureAwait(false))
             {
-                throw new InvalidOperationException("The controller backend could not write a neutral report to the virtual target.");
+                throw new InvalidOperationException(
+                    "The controller backend could not write a neutral report to the virtual target.");
             }
+
             _neutral = true;
         }
-
     }
 
     private async Task RemoveUnderGateAsync(string reason, CancellationToken cancellationToken)

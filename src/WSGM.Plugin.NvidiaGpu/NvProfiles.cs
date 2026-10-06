@@ -60,7 +60,15 @@ internal sealed class NvProfiles
         _path = Path.Combine(stateDirectory, "nvidia-profiles.v1.json");
         try
         {
-            _owned = DriverStateFile.Read(_path, new NvProfileJournal([])).Entries.ToDictionary(entry => entry.Key);
+            var journal = DriverStateFile.Read(_path, new NvProfileJournal([]));
+            if (journal.Entries is null || journal.Entries.Any(entry => entry is null
+                                                                        || entry.Profile is null ||
+                                                                        entry.Executable is null))
+            {
+                throw new DriverFailure("The NVIDIA per-application record has incomplete ownership entries.");
+            }
+
+            _owned = journal.Entries.ToDictionary(entry => entry.Key);
         }
         catch (Exception failure) when (failure is DriverFailure or ArgumentException)
         {
@@ -200,7 +208,18 @@ internal sealed class NvProfiles
 
                 // The restore was dispatched, or nothing of WSGM's was left to restore.
                 _owned.Remove(entry.Key);
-                Persist();
+                try
+                {
+                    Persist();
+                }
+                catch
+                {
+                    // Keep ownership in memory as well as on disk if the record could not be updated.
+                    // The next sync sees the restored value and only saves the record; it does not write again.
+                    _owned[entry.Key] = entry;
+                    throw;
+                }
+
                 removed++;
             }
             catch (Exception error) when (error is not OperationCanceledException &&

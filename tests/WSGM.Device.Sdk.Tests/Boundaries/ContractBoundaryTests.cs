@@ -6,6 +6,15 @@ namespace WSGM.Device.Sdk.Tests.Boundaries;
 public sealed class ContractBoundaryTests
 {
     [Fact]
+    public void TheDeviceContractRemainsAStandaloneAssemblyWithoutProjectOrPackageDependencies()
+    {
+        var contract = RepositoryFiles.LoadProject("src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj");
+
+        Assert.Empty(contract.Descendants("ProjectReference"));
+        Assert.Empty(contract.Descendants("PackageReference"));
+    }
+
+    [Fact]
     public void TheContractDocumentsEveryPublicMemberOrFailsTheBuild()
     {
         // Guarding the setting rather than the members: a plugin author reads this contract

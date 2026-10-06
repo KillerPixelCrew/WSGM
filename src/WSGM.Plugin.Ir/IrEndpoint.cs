@@ -240,7 +240,14 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
     internal const int ProtocolVersion = 2;
 
     private const int MaxFrame = 32768;
-    private static readonly JsonSerializerOptions WireJson = new(JsonSerializerDefaults.Web) { MaxDepth = 16 };
+
+    private static readonly JsonSerializerOptions WireJson = new(JsonSerializerDefaults.Web)
+    {
+        MaxDepth = 16,
+        RespectNullableAnnotations = true,
+        RespectRequiredConstructorParameters = true
+    };
+
     private readonly SemaphoreSlim _lane = new(1, 1);
     private bool _disposed;
     private IIrLink? _link;
@@ -280,7 +287,15 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
 
     public async Task TransmitAsync(IrPayload payload, int repeats, int gapMs, CancellationToken token)
     {
-        payload.Validate(repeats, gapMs);
+        try
+        {
+            payload.Validate(repeats, gapMs);
+        }
+        catch (InvalidDataException ex)
+        {
+            throw new IrRejectedException(ex.Message);
+        }
+
         using var response =
             await ExchangeAsync("send", new { payload, repeats, gapMs }, TimeSpan.FromSeconds(7), token)
                 .ConfigureAwait(false);
@@ -306,7 +321,13 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
                 }
 
                 count = total;
-                text.Append(data.GetProperty("chunk").GetString());
+                var part = data.GetProperty("chunk").GetString();
+                if (string.IsNullOrEmpty(part))
+                {
+                    throw new InvalidDataException("The IR endpoint answered an empty built-in remote catalog chunk.");
+                }
+
+                text.Append(part);
             }
 
             return JsonSerializer.Deserialize<IrRemoteCatalog>(text.ToString(), WireJson)
@@ -403,7 +424,7 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
         var identity = response.RootElement.GetProperty("data").Deserialize<IrEndpointIdentity>(WireJson)
                        ?? throw new InvalidDataException("Missing IR endpoint identity.");
         if (identity.Protocol != ProtocolVersion || identity.MaxTimings != 1024
-                                                  || string.IsNullOrWhiteSpace(identity.Identity))
+                                                 || string.IsNullOrWhiteSpace(identity.Identity))
         {
             throw new InvalidDataException(
                 $"IR endpoint protocol {identity.Protocol} is incompatible; this plugin requires protocol {ProtocolVersion}. Flash firmware 0.5.0.");
@@ -415,7 +436,15 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
     private async Task<JsonDocument> ExchangeAsync(string operation, object arguments, TimeSpan timeout,
         CancellationToken token)
     {
-        await _lane.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            await _lane.WaitAsync(token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            throw new IrRejectedException("The IR request was cancelled before it could be sent.");
+        }
+
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
@@ -447,13 +476,24 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
 
     private JsonDocument Exchange(string operation, object arguments, CancellationToken token)
     {
-        token.ThrowIfCancellationRequested();
-        _link ??= open(token);
         var id = Guid.NewGuid().ToString("N");
-        var frame = Request(operation, id, arguments);
-        if (Encoding.UTF8.GetByteCount(frame) > MaxFrame)
+        string frame;
+        try
         {
-            throw new InvalidDataException("IR request exceeds frame limit.");
+            token.ThrowIfCancellationRequested();
+            _link ??= open(token);
+            frame = Request(operation, id, arguments);
+            if (Encoding.UTF8.GetByteCount(frame) > MaxFrame)
+            {
+                throw new InvalidDataException("IR request exceeds frame limit.");
+            }
+
+            token.ThrowIfCancellationRequested();
+        }
+        catch (Exception ex) when (ex is not (OutOfMemoryException or IrRejectedException))
+        {
+            // Nothing has reached WriteLine yet. Once it starts, a partial write is uncertain.
+            throw new IrRejectedException("The IR request could not be sent: " + ex.Message);
         }
 
         _link.WriteLine(frame);
@@ -552,7 +592,12 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
             }
 
             var version = response.RootElement.GetProperty("v").GetInt32();
-            var status = response.RootElement.GetProperty("status").GetString() ?? "unknown";
+            var status = response.RootElement.GetProperty("status").GetString();
+            if (string.IsNullOrEmpty(status))
+            {
+                throw new InvalidDataException("Missing IR endpoint reply status.");
+            }
+
             if (version == ProtocolVersion && status == ExpectedStatus(operation))
             {
                 transferred = true;

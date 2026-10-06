@@ -77,7 +77,7 @@ public partial class PluginSettingsPage : UserControl
         {
             window.ShowOnScreenKeyboard(
                 profile.Name,
-                maximumLength: 0,
+                0,
                 "Device profile name",
                 value =>
                 {

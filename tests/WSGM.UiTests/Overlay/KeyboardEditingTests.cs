@@ -11,7 +11,7 @@ namespace WSGM.UiTests.Overlay;
 public sealed class KeyboardEditingTests
 {
     [AvaloniaFact]
-    public void ClosingOneSheetLeavesTheOtherSheetsTextEntryWorking()
+    public async Task ClosingOneSheetLeavesTheOtherSheetsTextEntryWorking()
     {
         using UiFixture fixture = new();
         var first = fixture.Overlay(session: new OverlayWindow.SessionState());
@@ -19,14 +19,67 @@ public sealed class KeyboardEditingTests
         string? accepted = null;
         Assert.True(first.RequestText("First", "one", 0, _ => { }));
         Assert.True(second.RequestText("Second", "two", 0, value => accepted = value));
+        var firstKeyboard = first.GetVisualDescendants().OfType<KeyboardPanel>().Single();
+        var keyboard = second.GetVisualDescendants().OfType<KeyboardPanel>().Single();
+        Assert.Same(first, TopLevel.GetTopLevel(firstKeyboard));
+        Assert.Same(second, TopLevel.GetTopLevel(keyboard));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Same(keyboard.DefaultFocusTarget, second.FocusManager.GetFocusedElement());
         first.Close();
         Dispatcher.UIThread.RunJobs();
 
+        Assert.False(first.HasActiveSurface);
+        Assert.Null(TopLevel.GetTopLevel(firstKeyboard));
         Assert.True(second.HasActiveSurface);
-        var keyboard = second.GetVisualDescendants().OfType<KeyboardPanel>().Single();
+        Assert.Same(keyboard, second.GetVisualDescendants().OfType<KeyboardPanel>().Single());
+        Assert.Same(second, TopLevel.GetTopLevel(keyboard));
+        Assert.Same(keyboard.DefaultFocusTarget, second.FocusManager.GetFocusedElement());
+        var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var closures = 0;
+        second.SurfaceClosed += () =>
+        {
+            closures++;
+            closed.TrySetResult();
+        };
         UiFixture.Click(second, KeyButton(keyboard, Key.Enter));
         Assert.Equal("two", accepted);
+        Assert.False(keyboard.IsEffectivelyEnabled);
+        await closed.Task.WaitAsync(TimeSpan.FromSeconds(2));
         Assert.False(second.HasActiveSurface);
+        Assert.Null(TopLevel.GetTopLevel(keyboard));
+        Assert.Equal(1, closures);
+    }
+
+    [AvaloniaFact]
+    public async Task OpeningTextEntrySettlesThePendingUtilityCloseBeforeCoveringAnotherSurface()
+    {
+        using UiFixture fixture = new();
+        var window = fixture.Overlay();
+        window.ShowBrightnessSurface();
+        var utility = Assert.IsAssignableFrom<Control>(window.ActiveSurfaceNavigationRoot);
+        var closures = 0;
+        window.SurfaceClosed += () => closures++;
+        Assert.True(window.CloseActiveSurface());
+        Assert.False(utility.IsEffectivelyEnabled);
+
+        string? accepted = null;
+        Assert.True(window.RequestText("Name", "replacement", 0, value => accepted = value));
+        Dispatcher.UIThread.RunJobs();
+        var keyboard = window.GetVisualDescendants().OfType<KeyboardPanel>().Single();
+        Assert.Null(TopLevel.GetTopLevel(utility));
+        Assert.Equal(1, closures);
+        Assert.Same(window, TopLevel.GetTopLevel(keyboard));
+        Assert.Same(keyboard.DefaultFocusTarget, window.FocusManager.GetFocusedElement());
+
+        var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        window.SurfaceClosed += () => closed.TrySetResult();
+        UiFixture.Click(window, KeyButton(keyboard, Key.Enter));
+        Assert.Equal("replacement", accepted);
+        await closed.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Equal(2, closures);
+        Assert.False(window.HasActiveSurface);
+        Assert.Null(TopLevel.GetTopLevel(keyboard));
+        Assert.True(UiFixture.Named<Grid>(window, "DeckContent").IsHitTestVisible);
     }
 
     [AvaloniaFact]

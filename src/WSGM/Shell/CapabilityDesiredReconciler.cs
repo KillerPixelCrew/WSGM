@@ -85,10 +85,10 @@ internal static class CapabilityDesiredReconciler
             var view = pass.ReadCurrent is { } read
                 ? read(new DeviceCapabilityKey(candidate.Descriptor.CapabilityId, candidate.Descriptor.InstanceId))
                 : pass.Snapshot().FirstOrDefault(current =>
-                string.Equals(current.Descriptor.CapabilityId, candidate.Descriptor.CapabilityId,
-                    StringComparison.Ordinal)
-                && string.Equals(current.Descriptor.InstanceId, candidate.Descriptor.InstanceId,
-                    StringComparison.Ordinal));
+                    string.Equals(current.Descriptor.CapabilityId, candidate.Descriptor.CapabilityId,
+                        StringComparison.Ordinal)
+                    && string.Equals(current.Descriptor.InstanceId, candidate.Descriptor.InstanceId,
+                        StringComparison.Ordinal));
             if (view is null || !pass.Include(view))
             {
                 continue;

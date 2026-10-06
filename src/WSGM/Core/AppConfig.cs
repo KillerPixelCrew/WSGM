@@ -592,6 +592,12 @@ public sealed class AppConfig
     public const int CurrentSchemaVersion = 1;
 
     /// <summary>
+    ///     The default WSGM accent (Handheld Companion orange). The single source for the accent digits;
+    ///     <c>Themes/Palette.axaml</c> repeats them because XAML cannot read this constant.
+    /// </summary>
+    public const string DefaultAccentColor = "#FFFF9D3D";
+
+    /// <summary>
     ///     Shape of the stored document. Reading migrates an older file in memory and a newer one loads best
     ///     effort; both hold <see cref="CurrentSchemaVersion" /> afterwards, so the next save writes it.
     /// </summary>
@@ -752,12 +758,6 @@ public sealed class AppConfig
     ///     survives the upgrade.
     /// </summary>
     public SplashConfig Splash { get; set; } = SplashPresets.Wsgm20();
-
-    /// <summary>
-    ///     The default WSGM accent (Handheld Companion orange). The single source for the accent digits;
-    ///     <c>Themes/Palette.axaml</c> repeats them because XAML cannot read this constant.
-    /// </summary>
-    public const string DefaultAccentColor = "#FFFF9D3D";
 
     /// <summary>
     ///     UI accent color as an <c>#AARRGGBB</c>/<c>#RRGGBB</c> string, applied
@@ -1058,4 +1058,3 @@ public sealed class CefConfig
     /// </summary>
     public bool DownloadQueueSort { get; set; } = true;
 }
-

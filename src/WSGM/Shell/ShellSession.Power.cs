@@ -99,7 +99,10 @@ public sealed partial class ShellSession
 
     private void OnPowerSourceChanged()
     {
-        _deviceCoordinator?.OnPowerSourceChanged();
+        if (!_shutdownRequested)
+        {
+            _deviceCoordinator?.OnPowerSourceChanged();
+        }
     }
 
     private static bool ResumeWasUnattended()
@@ -216,7 +219,10 @@ public sealed partial class ShellSession
                 _latestPowerTransition = null;
                 Log.Info($"Device cycle {(suspend ? "suspend" : "resume")} ({reason}) cancels the queued "
                          + $"{queued.Reason}.");
-                return;
+                if (!repair)
+                {
+                    return;
+                }
             }
 
             PowerTransition transition = new(suspend, systemSleep, reason);

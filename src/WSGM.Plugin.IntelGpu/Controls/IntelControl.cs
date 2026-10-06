@@ -1,4 +1,5 @@
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Plugin.Gpu;
 using WSGM.Plugin.IntelGpu.Igcl;
 
 namespace WSGM.Plugin.IntelGpu.Controls;
@@ -202,15 +203,16 @@ internal abstract class IntelControl
     public abstract ControlRead Read();
 
     /// <summary>Checks setter support by returning the exact native state before publishing this control.</summary>
-    public virtual ControlWrite ProbeSupport()
+    public virtual ControlWrite ProbeSupport(WriteAdmission admission)
     {
         return ControlWrite.Refuse("No exact-state support probe is implemented for this control.");
     }
 
     /// <summary>Validates and writes a value.</summary>
     /// <param name="value">The value.</param>
+    /// <param name="admission">Rechecked immediately before each native setter.</param>
     /// <returns>How the driver answered, or a refusal when the descriptor does not allow it.</returns>
-    public ControlWrite Write(CapabilityValue value)
+    public ControlWrite Write(CapabilityValue value, WriteAdmission admission)
     {
         if (!Descriptor.SupportsWrite)
         {
@@ -218,7 +220,7 @@ internal abstract class IntelControl
         }
 
         return Validate(value, out var error)
-            ? WriteValidated(value)
+            ? WriteValidated(value, admission)
             : ControlWrite.Refuse(error ?? "The value is not accepted.");
     }
 
@@ -291,8 +293,9 @@ internal abstract class IntelControl
 
     /// <summary>Writes a value <see cref="Validate" /> accepted.</summary>
     /// <param name="value">The value.</param>
+    /// <param name="admission">Rechecked immediately before the setter.</param>
     /// <returns>How the driver answered.</returns>
-    protected abstract ControlWrite WriteValidated(CapabilityValue value);
+    protected abstract ControlWrite WriteValidated(CapabilityValue value, WriteAdmission admission);
 
     /// <summary>A published boolean, shared so a read allocates nothing.</summary>
     /// <param name="value">The boolean.</param>

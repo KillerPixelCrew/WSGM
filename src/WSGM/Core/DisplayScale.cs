@@ -191,7 +191,11 @@ internal static class DisplayScale
     /// <param name="entries">The scale entries to persist (empty clears the snapshot).</param>
     private static void PersistScaleEntries(ConfigStore store, List<DisplayScaleEntry> entries)
     {
-        store.Update(fresh => { fresh.SavedDisplayScaleEntries = entries; return true; });
+        store.Update(fresh =>
+        {
+            fresh.SavedDisplayScaleEntries = entries;
+            return true;
+        });
     }
 
     /// <summary>
@@ -276,7 +280,8 @@ internal static class DisplayScale
         var result = DisplayScaling.Set(target, percent);
         if (!result.Succeeded)
         {
-            Log.Warn($"Display scale: set {percent}% failed: {DisplayText.Scaling(result.Outcome, result.NativeStatus)}.");
+            Log.Warn(
+                $"Display scale: set {percent}% failed: {DisplayText.Scaling(result.Outcome, result.NativeStatus)}.");
         }
 
         return result.Succeeded;

@@ -3,7 +3,6 @@ using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -68,8 +67,6 @@ internal sealed class ViiperControllerBackend : IControllerTargetBackend
             [0x00, 0x81, 0x83, 0x85, 0x86, 0x87, 0x88, 0x8E, 0xAE, 0xC1, HapticGainCommandId]);
 
     private static readonly TimeSpan MaxEmulatedPulseDuration = TimeSpan.FromSeconds(5);
-
-    private static int _usbipToolExposed;
 
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -367,7 +364,7 @@ internal sealed class ViiperControllerBackend : IControllerTargetBackend
 
         try
         {
-            ExposeUsbipTool();
+            UsbipTool.ExposeOnce();
             if (NativeViiper.Init(ListenAddress) != NativeViiper.Ok)
             {
                 detail = $"The controller backend could not start: {NativeViiper.TakeLastError()}";
@@ -420,54 +417,6 @@ internal sealed class ViiperControllerBackend : IControllerTargetBackend
     ///     changed. Go reads PATH from the process at each lookup, so this must run before the first
     ///     attach; it runs once per process, since the answer cannot change underneath a running WSGM.
     /// </remarks>
-    private static void ExposeUsbipTool()
-    {
-        if (Interlocked.Exchange(ref _usbipToolExposed, 1) != 0)
-        {
-            return;
-        }
-
-        const string tool = "usbip.exe";
-        var path = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
-        if (path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
-            .Any(entry => File.Exists(Path.Combine(entry.Trim(), tool))))
-        {
-            return;
-        }
-
-        var folder = UsbipInstallFolder(UninstallEntries.Read(),
-            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), File.Exists);
-        if (folder is null)
-        {
-            Log.Warn("usbip.exe was not found on PATH or in a usbip-win2 install folder; attach will fail.");
-            return;
-        }
-
-        Environment.SetEnvironmentVariable("PATH", folder + Path.PathSeparator + path);
-        Log.Info($"usbip.exe is not on PATH; using {folder} for this process.");
-    }
-
-    /// <summary>The usbip-win2 install folder from its uninstall entry, in either registry view, or the default.</summary>
-    internal static string? UsbipInstallFolder(IEnumerable<UninstallEntry> entries,
-        string programFiles, Func<string, bool> fileExists)
-    {
-        foreach (var entry in entries)
-        {
-            if (entry.DisplayName.StartsWith("USBip", StringComparison.OrdinalIgnoreCase)
-                && entry.InstallLocation.Length > 0)
-            {
-                var folder = entry.InstallLocation.TrimEnd('\\');
-                if (fileExists(Path.Combine(folder, "usbip.exe")))
-                {
-                    return folder;
-                }
-            }
-        }
-
-        var fallback = Path.Combine(programFiles, "USBip");
-        return fileExists(Path.Combine(fallback, "usbip.exe")) ? fallback : null;
-    }
-
     /// <summary>
     ///     Subscribes to the host's feedback reports so rumble reaches the physical device.
     /// </summary>

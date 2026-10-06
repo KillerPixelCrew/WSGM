@@ -2,6 +2,7 @@ using System.Text.Json;
 using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Settings;
 using WSGM.Input;
 using WSGM.Plugin.Sdk;
 using WSGM.Testing;
@@ -119,15 +120,34 @@ public sealed class ConfigurationTests
         // The unrelated setting survived, which is the point of repairing rather than discarding.
         Assert.Equal("#FF00AA", config.AccentColor);
         Assert.True(config.DeviceIntegration.Enabled);
-        Assert.Equal(ManagedControllerTarget.SteamDeckComposite, config.Profiles.Global.ControllerTarget);
+        Assert.Null(config.Profiles.Global.ControllerTarget);
         Assert.Equal(DeviceGlyphSelection.Automatic, config.DeviceIntegration.GlyphSelection);
-        Assert.Equal(
-            ManagedControllerTarget.SteamDeckComposite,
-            Assert.Single(config.Profiles.Games).Values.ControllerTarget);
+        Assert.Null(Assert.Single(config.Profiles.Games).Values.ControllerTarget);
         Assert.Equal(OemAction.Disabled, Assert.Single(config.DeviceIntegration.OemAssignments).Action);
         Assert.Equal(
             CapabilityValueKind.None,
             Assert.Single(config.Profiles.Global.Device).Value!.Kind);
+    }
+
+    [Fact]
+    public void UnknownOptionalControllerTargetNumbersRemainUnsetAtEveryProfileLayer()
+    {
+        const string json = """
+                            {
+                              "AccentColor": "#FF00AA",
+                              "Profiles": {
+                                "Global": { "ControllerTarget": 99 },
+                                "Games": [ { "Id": "steam:70", "Values": { "ControllerTarget": 99 } } ]
+                              }
+                            }
+                            """;
+
+        var config = AppConfigRules.Normalize(ConfigRepair.Deserialize(json)).Value;
+        var restored = ConfigRepair.Deserialize(JsonSerializer.Serialize(config, ConfigJsonContext.Default.AppConfig));
+
+        Assert.Equal("#FF00AA", restored.AccentColor);
+        Assert.Null(restored.Profiles.Global.ControllerTarget);
+        Assert.Null(Assert.Single(restored.Profiles.Games).Values.ControllerTarget);
     }
 
     [Fact]
@@ -169,6 +189,68 @@ public sealed class ConfigurationTests
             CapabilityValueKind.None,
             Assert.Single(Assert.Single(config.DeviceIntegration.PluginSettings)
                 .Declaration!.Settings).ValueKind);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void NormalizeValidatesCachedDeclarationsWithoutMutatingSnapshotsOrSavedValues(bool malformed)
+    {
+        var section = new PluginSettingSection
+        {
+            SectionId = "general",
+            Key = malformed ? (SettingSectionKey)99 : SettingSectionKey.General,
+            SortOrder = 7
+        };
+        var declaration = new PluginSettingsManifest
+        {
+            Sections = [section],
+            Settings =
+            [
+                new PluginSettingDescriptor
+                {
+                    SettingId = "enabled",
+                    ValueKind = CapabilityValueKind.Boolean,
+                    Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Enabled" },
+                    Default = CapabilityValue.Boolean(false),
+                    SectionId = "general",
+                    SortOrder = 11
+                }
+            ]
+        };
+        var saved = new PluginSettingValue
+            { SettingId = "enabled", Boolean = true };
+        var scope = new PluginSettingsScope
+        {
+            DeviceDefinitionId = "device",
+            PluginId = "plugin",
+            Declaration = declaration,
+            Values = [saved]
+        };
+        var config = new AppConfig { DeviceIntegration = { PluginSettings = [scope] } };
+        var values = scope.Values;
+        var original = JsonSerializer.Serialize(declaration, ConfigJsonContext.Default.PluginSettingsManifest);
+
+        var normalized = AppConfigRules.Normalize(config);
+
+        Assert.Same(scope, Assert.Single(normalized.Value.DeviceIntegration.PluginSettings));
+        Assert.Same(values, scope.Values);
+        Assert.Same(saved, Assert.Single(scope.Values));
+        Assert.True(saved.Boolean);
+        Assert.Equal(original,
+            JsonSerializer.Serialize(declaration, ConfigJsonContext.Default.PluginSettingsManifest));
+        if (malformed)
+        {
+            Assert.Null(scope.Declaration);
+            Assert.Contains(normalized.Diagnostics,
+                diagnostic => diagnostic.Contains("cached declaration", StringComparison.Ordinal));
+        }
+        else
+        {
+            Assert.Same(declaration, scope.Declaration);
+            Assert.Same(section, Assert.Single(scope.Declaration!.Sections));
+            Assert.Empty(normalized.Diagnostics);
+        }
     }
 
     [Fact]
@@ -951,6 +1033,30 @@ public sealed class ConfigurationTests
     }
 
     [Fact]
+    public void NormalizePreservesImmutableKnownDisplayTargetsAcrossRepeatedLoads()
+    {
+        var target = new DisplayTargetIdentity(@"\\?\guard", null, null, "Guard", 0, 0, 1);
+        var known = new KnownDisplay { Target = target };
+        var config = new AppConfig { GameModeLaunch = { KnownDisplays = [known], WaitForDisplay = target } };
+        var original = JsonSerializer.Serialize(target, ConfigJsonContext.Default.DisplayTargetIdentity);
+
+        AppConfigRules.Normalize(config);
+        AppConfigRules.Normalize(config);
+
+        Assert.Same(known, Assert.Single(config.GameModeLaunch.KnownDisplays));
+        Assert.Same(target, known.Target);
+        Assert.Same(target, config.GameModeLaunch.WaitForDisplay);
+        Assert.Equal(original,
+            JsonSerializer.Serialize(known.Target!, ConfigJsonContext.Default.DisplayTargetIdentity));
+
+        var restored = AppConfigRules.Normalize(ConfigRepair.Deserialize(
+            JsonSerializer.Serialize(config, ConfigJsonContext.Default.AppConfig))).Value;
+
+        Assert.Equal(target, Assert.Single(restored.GameModeLaunch.KnownDisplays).Target);
+        Assert.Equal(target, restored.GameModeLaunch.WaitForDisplay);
+    }
+
+    [Fact]
     public void NormalizeKeepsALayoutThatCannotDescribeADesktopAndReportsIt()
     {
         DisplayTargetIdentity first =
@@ -975,7 +1081,17 @@ public sealed class ConfigurationTests
         var normalized = AppConfigRules.Normalize(config);
 
         Assert.Same(layout, config.GameModeLaunch.GameLayout);
-        Assert.Contains(normalized.Diagnostics, diagnostic => diagnostic.Contains("GameLayout", StringComparison.Ordinal));
+        Assert.Same(first, layout!.Outputs[0].Target);
+        Assert.Same(second, layout.Outputs[1].Target);
+        Assert.Contains(normalized.Diagnostics,
+            diagnostic => diagnostic.Contains("GameLayout", StringComparison.Ordinal));
+
+        var restored = AppConfigRules.Normalize(ConfigRepair.Deserialize(
+            JsonSerializer.Serialize(config, ConfigJsonContext.Default.AppConfig)));
+
+        Assert.Equal(layout.Outputs.ToArray(), restored.Value.GameModeLaunch.GameLayout!.Outputs.ToArray());
+        Assert.Contains(restored.Diagnostics,
+            diagnostic => diagnostic.Contains("GameLayout", StringComparison.Ordinal));
     }
 
     [Fact]

@@ -380,7 +380,7 @@ internal sealed partial class LabInputCapture : IDisposable
 
     // A HID report: stored whole when a byte outside the baseline noise changed, sampled when only noise
     // changed, and counted when nothing changed.
-    private void OnHidReport(LabInputDevice device, ReadOnlySpan<byte> bytes, string source = "raw-input")
+    internal void OnHidReport(LabInputDevice device, ReadOnlySpan<byte> bytes, string source = "raw-input")
     {
         var key = device.Id + ":" + (bytes.Length > 0 ? bytes[0] : 0);
         List<int> changed = [];

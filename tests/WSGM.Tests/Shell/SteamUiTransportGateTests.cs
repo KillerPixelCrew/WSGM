@@ -1,6 +1,6 @@
 using WSGM.Shell;
 
-namespace WSGM.Tests.Core;
+namespace WSGM.Tests.Shell;
 
 public sealed class SteamUiTransportGateTests
 {

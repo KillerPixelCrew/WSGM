@@ -8,7 +8,9 @@ using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Threading;
 using SteamUiToolkit;
+using WindowsDeviceControl;
 using WSGM.Core;
+using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Install;
 using WSGM.Interop;
 using WSGM.Overlay;
@@ -43,7 +45,6 @@ public sealed partial class ShellSession
 
     private readonly bool _overlayTestOnly;
     private readonly PluginHost _pluginHost;
-    private readonly ProfileService _profiles;
 
     /// <summary>
     ///     The session's Windows power policy owners. They share one scheme owner, whose lock serializes
@@ -51,18 +52,23 @@ public sealed partial class ShellSession
     /// </summary>
     private readonly WindowsPowerPolicy _power = WindowsPowerPolicy.OverWindows();
 
+    private readonly NativeQamPowerProfileService _powerProfiles;
+    private readonly ProfileService _profiles;
+
     private readonly bool _serviceBoot;
-    private readonly bool _verboseLogging;
     private readonly CancellationTokenSource _shutdownCancellation = new();
+
+    /// <summary>
+    ///     The one Steam client every one-shot read and write goes through, over
+    ///     <see cref="_steamUiTransport" />. Null in overlay-test, which never talks to Steam.
+    /// </summary>
+    private readonly SteamClient? _steamClient;
 
     /// <summary>The process's Steam Input lease owner, shared with every surface this session opens.</summary>
     private readonly SteamInputBlocker _steamInput;
 
-    /// <summary>
-    ///     The shim reconcile a config reload started, which shutdown waits for; completed while
-    ///     none runs.
-    /// </summary>
-    private Task _steamInputReconcile = Task.CompletedTask;
+    private readonly ConfigStore _store;
+    private readonly bool _verboseLogging;
 
     private SessionActivation? _activation;
     private AnimationService? _animations;
@@ -89,7 +95,6 @@ public sealed partial class ShellSession
     private CardAcfWatcher? _cardAcfWatcher;
     private CardVolumeMonitor? _cardVolumes;
     private SteamGuideChordMirror? _chordMirror;
-    private ControllerManager? _controllerStatusSource;
     private Task _commonPluginStartup = Task.CompletedTask;
     private CommonPluginManager? _commonPlugins;
 
@@ -97,7 +102,7 @@ public sealed partial class ShellSession
     // instance the overlay, SessionModes and DisplayScale's saved-scale snapshot
     // live on — the volume OSD's UI-scale callback reads it long after boot.
     private AppConfig _config;
-    private readonly ConfigStore _store;
+    private ControllerManager? _controllerStatusSource;
 
     private ExplorerDesktopHost? _desktopHost;
     private bool _desktopRecoveryPending;
@@ -110,7 +115,7 @@ public sealed partial class ShellSession
     // registration and the "did WSGM mute this?" flag.
     private DisplayOffMuteService? _displayMute;
 
-    private bool _disposed;
+    private volatile bool _disposed;
 
     /// <summary>
     ///     The one removable-drive manager for this session, shared by the quick access sheet's eject
@@ -153,6 +158,8 @@ public sealed partial class ShellSession
     /// <summary>The Xbox library importer behind the Quick Access tab's page, or null in overlay-test.</summary>
     private GameLibraryService? _libraryImport;
 
+    private Task _managerStartup = Task.CompletedTask;
+
     private MessageWindow? _messageWindow;
     private SessionModes? _modes;
     private SteamMonitor? _monitor;
@@ -193,21 +200,20 @@ public sealed partial class ShellSession
     /// <summary>The Graphics page in Steam, with its own projection over the coordinator.</summary>
     private SteamGraphicsService? _steamGraphics;
 
+    /// <summary>
+    ///     The shim reconcile a config reload started, which shutdown waits for; completed while
+    ///     none runs.
+    /// </summary>
+    private Task _steamInputReconcile = Task.CompletedTask;
+
     // Steam's Switch to Desktop, which follows the mode. Null in overlay-test and before the Steam UI
     // host exists.
     private SteamPowerMenuBackend? _steamPowerMenu;
 
     /// <summary>Steam's revived storage pages over those two managers, or null in overlay-test.</summary>
     private SteamStorageBridge? _steamStorage;
-    private Task _managerStartup = Task.CompletedTask;
 
     private SteamUiSessionHost? _steamUi;
-
-    /// <summary>
-    ///     The one Steam client every one-shot read and write goes through, over
-    ///     <see cref="_steamUiTransport" />. Null in overlay-test, which never talks to Steam.
-    /// </summary>
-    private readonly SteamClient? _steamClient;
 
     private PersistentSteamUiTransport? _steamUiTransport;
     private ThemeService? _themes;
@@ -240,6 +246,19 @@ public sealed partial class ShellSession
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _steamInput = steamInput ?? throw new ArgumentNullException(nameof(steamInput));
         _displayTimeouts = new DisplayTimeouts(_power.Timeouts);
+        _powerProfiles = new NativeQamPowerProfileService(_power.Schemes, id =>
+        {
+            if (overlayTestOnly)
+            {
+                throw new InvalidOperationException("Overlay-test cannot persist a power-profile selection.");
+            }
+
+            _store.Update(current =>
+            {
+                current.LastSelectedPowerSchemeId = id;
+                return true;
+            });
+        });
         _verboseLogging = verboseLogging;
         _pluginHost = new PluginHost(UiThread.Post, new ApplicationPluginConfigurationStore(_store));
         // Overlay-test keeps profile edits in memory: it is a safe UI mode and must never rewrite the
@@ -311,7 +330,8 @@ public sealed partial class ShellSession
                     try
                     {
                         _desktopHost ??= new ExplorerDesktopHost(_store.Context);
-                        var restored = await _desktopHost.RestoreDesktopAsync(TimeSpan.FromSeconds(15))
+                        var restored = await _desktopHost
+                            .RestoreDesktopAsync(TimeSpan.FromSeconds(15), recoveryBudget.Token)
                             .ConfigureAwait(false);
                         if (restored.Outcome is ExplorerDesktopOutcome.Failed)
                         {
@@ -324,6 +344,7 @@ public sealed partial class ShellSession
                     }
                 }
 
+                _shutdownCancellation.Token.ThrowIfCancellationRequested();
                 // Package files the Plugins page removed while they were loaded go now, once, before the
                 // common plugins or the device integration open any package, whatever the integration
                 // switch says.
@@ -335,10 +356,12 @@ public sealed partial class ShellSession
                 // Graphics packages publish capabilities through their own owner, created first so the
                 // channel of every graphics package the manager starts has a router waiting for it.
                 // Variable refresh set on a graphics package's control is saved as the device's is.
-                _gpu = new GpuCoordinator(UiThread.Post, _profiles, _pluginHost, DeviceCoordinator.ReadOnAcPower,
-                    _applicationProfiles.PersistManualVariableRefresh);
-                _commonPlugins = new CommonPluginManager(_pluginHost, InstallLayout.Plugins,
-                    Path.Combine(_store.Context.Root, "PluginState"), capabilityChannels: _gpu);
+                TryStart("graphics capability router", () =>
+                    _gpu = new GpuCoordinator(UiThread.Post, _profiles, _pluginHost, DeviceCoordinator.ReadOnAcPower,
+                        _applicationProfiles.PersistManualVariableRefresh));
+                TryStart("common plugin manager", () =>
+                    _commonPlugins = new CommonPluginManager(_pluginHost, InstallLayout.Plugins,
+                        Path.Combine(_store.Context.Root, "PluginState"), capabilityChannels: _gpu));
                 _commonPluginStartup = ApplyCommonPluginConfigAsync(_config);
             }
 
@@ -378,7 +401,15 @@ public sealed partial class ShellSession
         {
             if (!coordinatorAdopted && coordinator is not null)
             {
-                await coordinator.DisposeAsync().ConfigureAwait(false);
+                if (_shutdownRequested)
+                {
+                    await coordinator.ShutdownAsync(DeviceShutdownReason(ApplicationShutdownRequest.Current),
+                        Deadline.At(ShutdownDeadline)).ConfigureAwait(false);
+                }
+                else
+                {
+                    await coordinator.DisposeAsync().ConfigureAwait(false);
+                }
             }
         }
     }
@@ -436,7 +467,7 @@ public sealed partial class ShellSession
         MessageWindow messageWindow = new();
         _messageWindow = messageWindow;
         StartDeviceIntegration(messageWindow);
-        StartPerformance();
+        TryStart("performance services", StartPerformance);
         StartSessionServices();
         StartOverlay();
         WireSessionEvents();
@@ -452,7 +483,7 @@ public sealed partial class ShellSession
             return;
         }
 
-        var downloadActive = _keepAwake.DownloadActive;
+        var downloadActive = _keepAwake?.DownloadActive ?? false;
         TryStart("volume buttons", () => _volumeButtons = new VolumeButtonService(
             messageWindow,
             () => DisplayScale.GetUiScalePercent(_config) / 100.0,
@@ -484,7 +515,7 @@ public sealed partial class ShellSession
 
         // Refresh boot.json every session start so a stale Elevate/ExePath heals
         // itself before the next sign-in.
-        BootManifestWriter.WriteCurrent(_store.Read(), _store.Context);
+        TryStart("boot manifest refresh", () => BootManifestWriter.WriteCurrent(_store.Read(), _store.Context));
 
         // Once the user let Full mode turn the other handheld managers off, keep them off: Handheld
         // Companion's uninstaller re-enables the maker's services, and the Armoury Crate helper then
@@ -703,7 +734,7 @@ public sealed partial class ShellSession
     ///     Creates the Steam monitor, session modes, keep-awake and the audio, radio and storage services Steam's
     ///     surfaces use.
     /// </summary>
-    [MemberNotNull(nameof(_keepAwake), nameof(_modes), nameof(_monitor))]
+    [MemberNotNull(nameof(_modes), nameof(_monitor))]
     private void StartSessionServices()
     {
         _monitor = new SteamMonitor();
@@ -729,7 +760,8 @@ public sealed partial class ShellSession
                     }
                 }),
                 () => _splash?.Dismiss("desktop restored"),
-                () => _inGameMode));
+                () => _inGameMode,
+                _shutdownCancellation.Token));
 
         _modes.SteamStartFailed += _ => Dispatcher.UIThread.Post(() =>
             _splash?.Dismiss("session transition warning"));
@@ -739,13 +771,16 @@ public sealed partial class ShellSession
         // Steam client over CEF (and would write the debug flag into a Steam install
         // that never opted in), which the safe local modes must not do. The manual
         // toggle still works there — it only takes a local power request.
-        _keepAwake = KeepAwakeService.StartNew(
-            _monitor,
-            AutoKeepAwakeEnabled(_config),
-            DownloadMonitoringEnabled(_config),
-            () => !_inGameMode || _steamUiReadiness.IsReady,
-            _steamClient);
-        _keepAwake.DownloadActivityChanged += OnDownloadActivityChanged;
+        TryStart("keep awake", () =>
+        {
+            _keepAwake = KeepAwakeService.StartNew(
+                _monitor,
+                AutoKeepAwakeEnabled(_config),
+                DownloadMonitoringEnabled(_config),
+                () => !_inGameMode || _steamUiReadiness.IsReady,
+                _steamClient);
+            _keepAwake.DownloadActivityChanged += OnDownloadActivityChanged;
+        });
         // --overlay-test shares the Settings preview's exposure: it has no boot takeover
         // and no watchdog behind it, so the mode row must not offer a real transition.
         // Started here rather than by the sheet, because Steam's audio namespace has to answer
@@ -756,89 +791,107 @@ public sealed partial class ShellSession
             return;
         }
 
-        _audio = new AudioManager();
-        TryStart("audio manager", _audio.Start);
-        _audioProfiles = new AudioProfileService(new CoreAudioProfileOperations(), _audio);
+        TryStart("audio services", () =>
+        {
+            _audio = new AudioManager();
+            TryStart("audio manager", _audio.Start);
+            _audioProfiles = new AudioProfileService(new CoreAudioProfileOperations(), _audio);
+        });
         // Follows the managed controller target: it only has work while a Steam Deck type target
         // exists, and it puts Valve's file back when that target goes.
-        _chordMirror = SteamGuideChordMirror.ForInstalledSteam();
-        _chordMirror?.SetEnabled(_config.DeviceIntegration.KeepGuideChordEdits);
+        TryStart("guide chord mirror", () =>
+        {
+            _chordMirror = SteamGuideChordMirror.ForInstalledSteam();
+            _chordMirror?.SetEnabled(_config.DeviceIntegration.KeepGuideChordEdits);
+        });
 
         // Not started here: scanning is expensive and belongs to whichever surface is showing a
         // network list. The manager exists for the whole session so Steam's Internet page can
         // drive it, but it stays idle until something asks.
-        _radios = new RadioManager();
+        TryStart("radio manager", () => _radios = new RadioManager());
 
         // Started here rather than by the sheet, for the same reason as audio: Steam's
         // storage pages ask what is ejectable while the overlay is closed, and an unstarted
         // manager would answer "nothing" to someone holding a card.
-        _drives = new RemovableDriveManager(_messageWindow);
+        TryStart("storage services", () =>
+        {
+            _drives = new RemovableDriveManager(_messageWindow);
 
-        // Every eject surface reaches the manager, so the policy hangs here rather than at
-        // each call site: the overlay's panel and Steam's storage page then mean the same
-        // thing by an eject without either knowing about the other.
-        // The card ACF watcher is handed to both managers by ApplyCardServices, which creates it.
-        _drives.EjectObserver = _libraryPolicy;
-        TryStart("removable drive manager", _drives.Start);
-        _formats = new SdFormatManager(_store, _shutdownCancellation.Token, _steamClient);
+            // Every eject surface reaches the manager, so the policy hangs here rather than at
+            // each call site: the overlay's panel and Steam's storage page then mean the same
+            // thing by an eject without either knowing about the other.
+            // The card ACF watcher is handed to both managers by ApplyCardServices, which creates it.
+            _drives.EjectObserver = _libraryPolicy;
+            TryStart("removable drive manager", _drives.Start);
+            _formats = new SdFormatManager(_store, _shutdownCancellation.Token, _steamClient);
 
-        // Over the same two managers the overlay's storage flows use. Steam's revived pages are
-        // a second surface on one backend, not a second implementation. The format switch is
-        // read through the session's live config, so switching it in Settings takes effect on
-        // the next press rather than the next session.
-        _steamStorage = new SteamStorageBridge(
-            _drives, _formats, () => _config.SteamStorageFormatEnabled,
-            () => _drives?.Inventory.Volumes ?? [],
-            _libraryPolicy);
-        // Whatever is already inserted; after this the drive manager's own changes drive it.
-        _formats.Refresh();
+            // Over the same two managers the overlay's storage flows use. Steam's revived pages are
+            // a second surface on one backend, not a second implementation. The format switch is
+            // read through the session's live config, so switching it in Settings takes effect on
+            // the next press rather than the next session.
+            _steamStorage = new SteamStorageBridge(
+                _drives, _formats, () => _config.SteamStorageFormatEnabled,
+                () => _drives?.Inventory.Volumes ?? [],
+                _libraryPolicy);
+            // Whatever is already inserted; after this the drive manager's own changes drive it.
+            _formats.Refresh();
+        });
 
         // Artwork reads its providers from the session's live config, so a key entered in Settings
         // applies to the next search rather than the next session.
         var steam = _steamClient ?? throw new InvalidOperationException("The Steam client was not created.");
-        _artwork = new SteamArtworkBrowserSource(
-            () => _config.Artwork, new ArtworkStateStore(_store.Context.Root), steam);
+        TryStart("artwork browser", () => _artwork = new SteamArtworkBrowserSource(
+            () => _config.Artwork, new ArtworkStateStore(_store.Context.Root), steam));
 
         // The Steam themes: CSSLoader-compatible themes from DeckThemes, kept in WSGM's own folder
         // and published into every Big Picture window through the toolkit. Reads the session's live
         // config and writes its own fields one at a time through the store.
-        _themes = new ThemeService(
-            new ThemeLoader(ThemePaths.DefaultRoot(_store.Context)),
-            new ThemeStoreClient(),
-            () => _config.Themes,
-            change => CommitWsgmSetting(config => change(config.Themes), false),
-            () => Steam.InstallDirectory);
-        TryStart("Steam themes", _themes.Start);
+        TryStart("Steam themes", () =>
+        {
+            _themes = new ThemeService(
+                new ThemeLoader(ThemePaths.DefaultRoot(_store.Context)),
+                new ThemeStoreClient(),
+                () => _config.Themes,
+                change => CommitWsgmSetting(config => change(config.Themes), false),
+                () => Steam.InstallDirectory);
+            _themes.Start();
+        });
 
-        _sounds = new SoundPackService(new SoundPackLibrary(SoundPackLibrary.DefaultRoot(_store.Context)),
-            () => _config.Sounds.Selected,
-            id => CommitWsgmSetting(config => config.Sounds.Selected = id, false),
-            () => Steam.InstallDirectory);
-        _ = _sounds.RefreshAsync(CancellationToken.None);
-        _sounds.SetHostState(_config.Cef.Enabled, null);
+        TryStart("sound packs", () =>
+        {
+            _sounds = new SoundPackService(new SoundPackLibrary(SoundPackLibrary.DefaultRoot(_store.Context)),
+                () => _config.Sounds.Selected,
+                id => CommitWsgmSetting(config => config.Sounds.Selected = id, false),
+                () => Steam.InstallDirectory);
+            Log.Observe(_sounds.RefreshAsync(_shutdownCancellation.Token), "Sound pack startup refresh", true);
+            _sounds.SetHostState(_config.Cef.Enabled, null);
+        });
 
         // The boot movie: SteamDeckRepo's boot movies and the user's own in WSGM's library, the
         // chosen one copied to the file Steam's client asks for. Started before Steam so a shuffle on start
         // is what Steam reads.
-        _animations = new AnimationService(
-            new AnimationLibrary(AnimationLibrary.DefaultRoot(_store.Context)),
-            new AnimationRepoClient(),
-            () => _config.Animations,
-            change => CommitWsgmSetting(config => change(config.Animations), false),
-            () => Steam.InstallDirectory,
-            steamRunning: () => _monitor?.IsAlive ?? true,
-            steamChoice: new SteamStartupMovieAccess(
-                steam.StartupMovie.SetAsideAsync,
-                steam.StartupMovie.RestoreAsync,
-                (operation, attempt, token) => _config.Cef.Enabled
-                    ? _steamUiReadiness.RunWhenReadyAsync(operation, attempt, token)
-                    : Task.FromResult(false)));
-        TryStart("boot movies", _animations.Start);
+        TryStart("boot movies", () =>
+        {
+            _animations = new AnimationService(
+                new AnimationLibrary(AnimationLibrary.DefaultRoot(_store.Context)),
+                new AnimationRepoClient(),
+                () => _config.Animations,
+                change => CommitWsgmSetting(config => change(config.Animations), false),
+                () => Steam.InstallDirectory,
+                steamRunning: () => _monitor?.IsAlive ?? true,
+                steamChoice: new SteamStartupMovieAccess(
+                    steam.StartupMovie.SetAsideAsync,
+                    steam.StartupMovie.RestoreAsync,
+                    (operation, attempt, token) => _config.Cef.Enabled
+                        ? _steamUiReadiness.RunWhenReadyAsync(operation, attempt, token)
+                        : Task.FromResult(false)));
+            _animations.Start();
+        });
 
         // WSGM's own settings, from its row in Steam's main menu. Reads the session's live config and
         // writes one field at a time through the store; the config reload then applies it. Plugins
         // are read through the same source the Quick Access tab uses, created with the Steam host.
-        _wsgmSettings = new WsgmSteamSettingsService(
+        TryStart("Steam settings page", () => _wsgmSettings = new WsgmSteamSettingsService(
             () => _config,
             CommitWsgmSetting,
             config => SteamInputManagement.Apply(_steamInput.Shim, config, "steam-settings"),
@@ -855,56 +908,60 @@ public sealed partial class ShellSession
                 : Task.FromResult(new SteamUiCommandResult(false, "Plugins are not available.")),
             // The Plugins folder as the common plugin manager last read it, which includes the device
             // package; a package installed since applies at the next start anyway.
-            () => _commonPlugins?.Catalog.InstalledDevicePluginId);
+            () => _commonPlugins?.Catalog.InstalledDevicePluginId));
 
         ReleaseAbandonedPackageExemptions();
 
         // The Game Library talks to the same running Steam client everything else here does, and reads
         // each launcher's own files. Every seam is injected so the discovery and planning rules stay
         // testable without a live Steam or a real launcher.
-        StoreCatalogClient catalog = new();
-        GameLibraryArtwork libraryArtwork = new(new ArtworkSearchProviders(() => _config.Artwork));
-        _libraryImport = new GameLibraryService(
-            [
-                new XboxLibrarySource(
-                    XboxPackages.Enumerate,
-                    XboxPackages.ReadPackageFile,
-                    (package, token) => catalog.LookUpAsync(package.FamilyName, token)),
-                new EpicLibrarySource(),
-                new GogLibrarySource(),
-                new UbisoftLibrarySource(),
-                new BattleNetLibrarySource(),
-                new ItchLibrarySource(),
-                new AmazonLibrarySource(),
-                new PrismLauncherSource(),
-                new AtLauncherSource()
-            ],
-            UninstallEntries.Read,
-            new ImportStateStore(_store.Context),
-            () => new SteamShortcutWriter(
-                AddShortcutAsync,
-                async (appId, fields, token) =>
-                    (await steam.Apps.SetShortcutLaunchAsync(
-                            appId, fields.Target, fields.StartDirectory, fields.LaunchOptions, token)
-                        .ConfigureAwait(false)).Succeeded,
-                async (appId, token) =>
-                    (await steam.Apps.RemoveShortcutAsync(appId, token).ConfigureAwait(false)).Succeeded),
-            ReadShortcutsAsync,
-            ReadShortcutAsync,
-            _config.GameLibrary,
-            (appId, images, token) => SteamArtwork.ApplyManyFromUrlsAsync(steam, appId, images, _config.Artwork, token),
-            (id, name, target, removeEmptyProfile, token) => _profiles is null
-                ? Task.FromResult(false)
-                : _profiles.SetApplicationControllerTargetAsync(id, name, target, removeEmptyProfile, token),
-            openArtwork: _artwork.OpenAsync,
-            controllerManaged: () => _config.DeviceIntegration is { Enabled: true, ControllerManagementEnabled: true },
-            updateSettings: change => CommitWsgmSetting(config => change(config.GameLibrary), false).GameLibrary,
-            folderSource: folder => new ShortcutFolderSource(folder),
-            artwork: libraryArtwork,
-            syncCollection: (id, name, add, remove, token) =>
-                steam.Collections.SyncAsync(id, name, add, remove, true, token));
-        _libraryArtwork = libraryArtwork;
-        TryStart("game library", _libraryImport.Start);
+        TryStart("game library", () =>
+        {
+            StoreCatalogClient catalog = new();
+            GameLibraryArtwork libraryArtwork = new(new ArtworkSearchProviders(() => _config.Artwork));
+            _libraryImport = new GameLibraryService(
+                [
+                    new XboxLibrarySource(
+                        XboxPackages.Enumerate,
+                        XboxPackages.ReadPackageFile,
+                        (package, token) => catalog.LookUpAsync(package.FamilyName, token)),
+                    new EpicLibrarySource(),
+                    new GogLibrarySource(),
+                    new UbisoftLibrarySource(),
+                    new BattleNetLibrarySource(),
+                    new ItchLibrarySource(),
+                    new AmazonLibrarySource(),
+                    new PrismLauncherSource(),
+                    new AtLauncherSource()
+                ],
+                UninstallEntries.Read,
+                new ImportStateStore(_store.Context),
+                () => new SteamShortcutWriter(
+                    AddShortcutAsync,
+                    async (appId, fields, token) =>
+                        (await steam.Apps.SetShortcutLaunchAsync(
+                                appId, fields.Target, fields.StartDirectory, fields.LaunchOptions, token)
+                            .ConfigureAwait(false)).Succeeded,
+                    async (appId, token) =>
+                        (await steam.Apps.RemoveShortcutAsync(appId, token).ConfigureAwait(false)).Succeeded),
+                ReadShortcutsAsync,
+                ReadShortcutAsync,
+                _config.GameLibrary,
+                (appId, images, token) =>
+                    SteamArtwork.ApplyManyFromUrlsAsync(steam, appId, images, _config.Artwork, token),
+                (id, name, target, removeEmptyProfile, token) =>
+                    _profiles.SetApplicationControllerTargetAsync(id, name, target, removeEmptyProfile, token),
+                openArtwork: _artwork is { } artwork ? artwork.OpenAsync : null,
+                controllerManaged: () => _config.DeviceIntegration is
+                    { Enabled: true, ControllerManagementEnabled: true },
+                updateSettings: change => CommitWsgmSetting(config => change(config.GameLibrary), false).GameLibrary,
+                folderSource: folder => new ShortcutFolderSource(folder),
+                artwork: libraryArtwork,
+                syncCollection: (id, name, add, remove, token) =>
+                    steam.Collections.SyncAsync(id, name, add, remove, true, token));
+            _libraryArtwork = libraryArtwork;
+            _libraryImport.Start();
+        });
     }
 
     /// <summary>Starts or stops the game-mode card services from one shared policy.</summary>
@@ -964,6 +1021,27 @@ public sealed partial class ShellSession
         }
     }
 
+    private static Task<DisplayModeSnapshot?> ReadOverlayDisplayModeAsync(string? sourceName)
+    {
+        return Task.Run(() =>
+        {
+            if (string.IsNullOrWhiteSpace(sourceName))
+            {
+                return null;
+            }
+
+            var path = DisplayTopology.CaptureActive().Paths.FirstOrDefault(candidate =>
+                string.Equals(candidate.SourceName, sourceName, StringComparison.OrdinalIgnoreCase));
+            if (path is null)
+            {
+                return null;
+            }
+
+            var snapshot = DisplayModes.Read(path.Target);
+            return snapshot?.Path == path ? snapshot : null;
+        });
+    }
+
     /// <summary>Creates the overlay controller with its sources and routes managed controller input to WSGM's own surfaces.</summary>
     [MemberNotNull(nameof(_overlay))]
     private void StartOverlay()
@@ -973,7 +1051,8 @@ public sealed partial class ShellSession
         Debug.Assert(_modes is not null);
         if (!_overlayTestOnly)
         {
-            _brightness = new NativeQamBrightnessService(() => !_shutdownRequested);
+            TryStart("brightness service",
+                () => _brightness = new NativeQamBrightnessService(() => !_shutdownRequested));
         }
 
         // Graphics follows the graphics packages, not the device integration switch. Overlay-test loads no
@@ -1014,7 +1093,12 @@ public sealed partial class ShellSession
                 _animations,
                 _graphicsOverlay,
                 _sounds,
-                _artwork),
+                _artwork,
+                _overlayTestOnly
+                    ? DisplayModeAccess.Unavailable
+                    : new DisplayModeAccess(ReadOverlayDisplayModeAsync,
+                        (snapshot, mode) => Task.Run(() => DisplayModes.Apply(snapshot, mode))),
+                _powerProfiles),
             _audio,
             _audioProfiles,
             _radios,
@@ -1205,94 +1289,91 @@ public sealed partial class ShellSession
                 Log.Warn($"Library badge: initial reading failed: {ex.Message}");
             }
 
-            var steamUiTransport = _steamUiTransport
-                                   ?? throw new InvalidOperationException("Steam UI transport was not created.");
-
-            // The session builds every backend behind Steam's surfaces and disposes them after the
-            // host, which only reads them.
-            _pluginSteamUi = _commonPlugins is null
-                ? null
-                : new CommonPluginSteamUiSource(_commonPlugins, _pluginHost);
-            if (_pluginSteamUi is not null && _wsgmSettings is { } wsgmSettings)
+            TryStart("Steam UI services", () =>
             {
-                // A plugin starting, stopping or taking a setting changes the Plugins page.
-                _pluginSteamUi.Changed += wsgmSettings.Refresh;
-            }
+                var steamUiTransport = _steamUiTransport
+                                       ?? throw new InvalidOperationException("Steam UI transport was not created.");
 
-            _steamPowerMenu = new SteamPowerMenuBackend(_inGameMode, SwitchToDesktopFromSteamAsync);
-            _steamGraphics = _gpu is { } gpu ? new SteamGraphicsService(new GraphicsOverlayBridge(gpu)) : null;
-            var store = _store;
-            SteamUiBackends backends = new()
-            {
-                Performance = _performance,
-                Profiles = _profiles,
-                Brightness = _brightness
-                             ?? throw new InvalidOperationException("Brightness was not created."),
-                Folds = new QuickAccessFolds(_store.Context),
-                PowerProfiles = new NativeQamPowerProfileService(_power.Schemes,
-                    id => store.Update(config =>
-                    {
-                        config.LastSelectedPowerSchemeId = id;
-                        return true;
-                    })),
-                HybridCores = new NativeQamHybridCoreService(_power.HybridCores),
-                DeviceCoordinator = _deviceCoordinator,
-                AutoTdp = _autoTdp,
-                PerfSupport = ReadNativeQamPerfSupport,
-                ApplyRefreshRate = ApplyManualRefreshRate,
-                // Null when nothing can publish VRR, which is also when the projection omits
-                // is_vrr_supported and Valve's row does not render. One fact, one source. The
-                // user-facing wrapper persists the state to the per-application layer in force; the
-                // bare ApplyVariableRefreshRateAsync stays the profile restore's write. A graphics
-                // package publishes it whether or not device integration runs.
-                ApplyVariableRefreshRate = _deviceCoordinator is null && _gpu is null
+                // The session builds every backend behind Steam's surfaces and disposes them after the
+                // host, which only reads them.
+                _pluginSteamUi = _commonPlugins is null
                     ? null
-                    : _applicationProfiles.SetVariableRefreshRateFromUserAsync,
-                Audio = _audio,
-                AudioProfiles = _audioProfiles,
-                Radios = _radios,
-                ShowBluetoothPanel = () => _overlay?.ShowBluetoothPanel() == true,
-                Resolution = _resolutions,
-                Storage = _steamStorage,
-                DisplayTimeouts = _displayTimeouts,
-                PluginSteamUi = _pluginSteamUi,
-                Artwork = _artwork,
-                LibraryImport = _libraryImport,
-                WsgmSettings = _wsgmSettings,
-                CpuBoost = _applicationProfiles.CpuBoostAvailable
-                    ? new NativeQamCpuBoostService(_applicationProfiles, _profiles)
-                    : null,
-                ChordMirror = _chordMirror,
-                PowerMenu = _steamPowerMenu,
-                Themes = _themes,
-                Animations = _animations,
-                Graphics = _steamGraphics,
-                Sounds = _sounds
-            };
-            try
-            {
-                _steamUi = new SteamUiSessionHost(
-                    steamUiTransport,
-                    cancellationToken => RunUiActionAsync(() =>
-                    {
-                        _overlay?.ToggleOverlay();
-                        return _overlay is not null;
-                    }, cancellationToken),
-                    backends);
-            }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
-            {
-                // Steam's surfaces degrade alone: the rest of the session keeps working without them.
-                Log.Error($"Steam UI host could not be created; WSGM's Steam surfaces stay off: {ex.Message}");
-            }
+                    : new CommonPluginSteamUiSource(_commonPlugins, _pluginHost);
+                if (_pluginSteamUi is not null && _wsgmSettings is { } wsgmSettings)
+                {
+                    // A plugin starting, stopping or taking a setting changes the Plugins page.
+                    _pluginSteamUi.Changed += wsgmSettings.Refresh;
+                }
 
-            ApplySteamUiSurfaces();
-            if (_deviceCoordinator is not null)
-            {
-                // Two sources change the active profile: the package publishing its profiles, and
-                // the user changing the selection mode. Both land on the same apply.
-                _deviceCoordinator.PhysicalGlyphCatalog.Changed += OnPhysicalGlyphProfilesChanged;
-            }
+                _steamPowerMenu = new SteamPowerMenuBackend(_inGameMode, SwitchToDesktopFromSteamAsync);
+                _steamGraphics = _gpu is { } gpu ? new SteamGraphicsService(new GraphicsOverlayBridge(gpu)) : null;
+                SteamUiBackends backends = new()
+                {
+                    Performance = _performance,
+                    Profiles = _profiles,
+                    Brightness = _brightness
+                                 ?? throw new InvalidOperationException("Brightness was not created."),
+                    Folds = new QuickAccessFolds(_store.Context),
+                    PowerProfiles = _powerProfiles,
+                    HybridCores = new NativeQamHybridCoreService(_power.HybridCores),
+                    DeviceCoordinator = _deviceCoordinator,
+                    AutoTdp = _autoTdp,
+                    PerfSupport = ReadNativeQamPerfSupport,
+                    ApplyRefreshRate = ApplyManualRefreshRate,
+                    // Null when nothing can publish VRR, which is also when the projection omits
+                    // is_vrr_supported and Valve's row does not render. One fact, one source. The
+                    // user-facing wrapper persists the state to the per-application layer in force; the
+                    // bare ApplyVariableRefreshRateAsync stays the profile restore's write. A graphics
+                    // package publishes it whether or not device integration runs.
+                    ApplyVariableRefreshRate = _deviceCoordinator is null && _gpu is null
+                        ? null
+                        : _applicationProfiles.SetVariableRefreshRateFromUserAsync,
+                    Audio = _audio,
+                    AudioProfiles = _audioProfiles,
+                    Radios = _radios,
+                    ShowBluetoothPanel = () => _overlay?.ShowBluetoothPanel() == true,
+                    Resolution = _resolutions,
+                    Storage = _steamStorage,
+                    DisplayTimeouts = _displayTimeouts,
+                    PluginSteamUi = _pluginSteamUi,
+                    Artwork = _artwork,
+                    LibraryImport = _libraryImport,
+                    WsgmSettings = _wsgmSettings,
+                    CpuBoost = _applicationProfiles.CpuBoostAvailable
+                        ? new NativeQamCpuBoostService(_applicationProfiles, _profiles)
+                        : null,
+                    ChordMirror = _chordMirror,
+                    PowerMenu = _steamPowerMenu,
+                    Themes = _themes,
+                    Animations = _animations,
+                    Graphics = _steamGraphics,
+                    Sounds = _sounds
+                };
+                try
+                {
+                    _steamUi = new SteamUiSessionHost(
+                        steamUiTransport,
+                        cancellationToken => RunUiActionAsync(() =>
+                        {
+                            _overlay?.ToggleOverlay();
+                            return _overlay is not null;
+                        }, cancellationToken),
+                        backends);
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException)
+                {
+                    // Steam's surfaces degrade alone: the rest of the session keeps working without them.
+                    Log.Error($"Steam UI host could not be created; WSGM's Steam surfaces stay off: {ex.Message}");
+                }
+
+                ApplySteamUiSurfaces();
+                if (_deviceCoordinator is not null)
+                {
+                    // Two sources change the active profile: the package publishing its profiles, and
+                    // the user changing the selection mode. Both land on the same apply.
+                    _deviceCoordinator.PhysicalGlyphCatalog.Changed += OnPhysicalGlyphProfilesChanged;
+                }
+            });
         }
 
         // The tray host must never coexist with explorer's taskbar (Z-order war
@@ -1341,6 +1422,11 @@ public sealed partial class ShellSession
         // re-inject once the new UI is up.
         _monitor.SteamStarted += () =>
         {
+            if (_shutdownRequested)
+            {
+                return;
+            }
+
             RequestSteamUiTransportGateCheck();
             // Steam rebuilds its registrations on restart in both desktop and game mode.
             _cardVolumes?.Kick("Steam started");
@@ -1355,7 +1441,13 @@ public sealed partial class ShellSession
         // fresh, still-headless CEF session cannot be connected before its own Big
         // Picture window exists.
         _monitor.SteamExited += RequestSteamUiTransportGateCheck;
-        _monitor.ClientStarted += () => _animations?.SteamStarted();
+        _monitor.ClientStarted += () =>
+        {
+            if (!_shutdownRequested)
+            {
+                _animations?.SteamStarted();
+            }
+        };
     }
 
     /// <summary>
