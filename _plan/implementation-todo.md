@@ -11,7 +11,7 @@ and validation states.
 - [x] Extend native Display, Power, Audio and Controller Settings using the existing QAM owners.
 - [x] Complete sound-pack compatibility, update identity, corrupt-asset fallback and decoder status.
 - [x] Compile and stage the development package without changing the release version.
-- [ ] Deploy after the running application is closed or the maintainer authorizes its restart.
+- [x] Deploy the implementation after the maintainer-authorized restart, with installed-file backups.
 - [ ] Maintainer live Steam/device pass, including Stable/Beta sound restoration and navigation.
 - [ ] Run deferred focused tests and the initial gate after that manual pass.
 
@@ -23,9 +23,20 @@ Build 2.1.0.1636 from 3b9a8c5a was deployed after the maintainer authorized rest
 Power and Audio rendered on Windows Steam Stable build 1788652215. The Settings format write reached
 QAM; the return QAM command exposed a parser that rejected the real colon-separated format ID. The
 original 48 kHz / 24-bit PCM format was restored through the normal native Settings backend. The
-parser correction and popup-document/empty-slot refresh correction are applied for the next build.
+parser correction and popup-document/empty-slot refresh correction were deployed in 2.1.0.1637
+from cc2c400c with toolkit f6ba5a9. The installed executable matches the staged SHA-256
+F74FD69543EA4147E9199F889CC0853E920528ECD45BDD9CED90EE287B282798.
 Installed Intel/NVIDIA archives required SDK 3, while the current host requires SDK 4; both packages
-have been rebuilt for refresh before the next live pass. Screenshots were captured through CEF.
+were rebuilt and refreshed with their previous archives backed up. Live Display now publishes 52
+GPU rows in Intel and NVIDIA adapter/category groups. The complete audio round trip passed: Settings
+changed 48 kHz / 24-bit PCM to 16-bit, QAM restored 24-bit, and Settings reflected that restoration.
+Native Controller retains stock controls while no device lighting is published; Power renders the
+current Windows scheme, boost and hybrid-core policy. Screenshots were captured through CEF.
+The real WSGM overlay opened and rendered, but Windows Computer Use cannot bind its tool window;
+native Sounds import/preview/activate/restore is awaiting the maintainer's manual result. No device
+package or controller is active here, so charge/TDP/AutoTDP/RGB and physical navigation remain
+unverified. Steam Beta and client-update/reload cases remain unverified; automated suites and the
+initial test-bearing gate remain deferred under the manual-first policy.
 Rumble calibration
 feasibility is documented under Native Steam Settings; user calibration is optional in issue 212
 and has not been implemented. All five issues retain their live acceptance gaps.
