@@ -39,9 +39,14 @@ unverified. Steam Beta and client-update/reload cases remain unverified; automat
 initial test-bearing gate remain deferred under the manual-first policy.
 The maintainer clarified that issue 212 requires implemented rumble calibration. Per-user strength,
 bounded-pulse floor/duration, output-path application and bounded previews with cleanup are now
-source-applied and Release compilation passed with zero warnings/errors. Deployment is being
-completed; physical feel/stop acceptance still requires a managed controller. All five
-issues retain the live acceptance gaps listed above.
+implemented and deployed in 2.1.0.1639 from 835b92ce with toolkit b53b286. Release compilation
+passed with zero warnings/errors, and the installed executable matches the staged package. Live
+Steam Controller Settings rendered all three calibration sliders and the test, preview and stop
+controls. Saved values survived page navigation; the original 100%, 0% and 0 ms preferences were
+restored after verification. The controls were captured through CEF only after Steam was fully in
+Big Picture. Physical feel/stop acceptance still requires a managed controller. Added focused
+tests remain unexecuted under the manual-first policy. All five issues retain the live acceptance
+gaps listed above.
 
 ## Active continuation, 2026-10-05 to 2026-10-06
 
