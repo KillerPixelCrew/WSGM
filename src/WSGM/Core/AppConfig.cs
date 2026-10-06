@@ -609,6 +609,9 @@ public sealed class AppConfig
     /// <summary>Explicit activation choices for installed common plugins. Empty means none are loaded.</summary>
     public List<CommonPluginInstanceConfig> PluginInstances { get; set; } = [];
 
+    /// <summary>Whether the user accepted the initial Steam CEF plugin trust warning.</summary>
+    public bool SteamCefPluginWarningAccepted { get; set; }
+
     /// <summary>Optional device-plugin platform, ownership, and desired-state settings.</summary>
     public DeviceIntegrationConfig DeviceIntegration { get; set; } = new();
 

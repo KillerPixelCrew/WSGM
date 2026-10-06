@@ -55,6 +55,7 @@ public static class PluginManifestReader
 
             manifest = candidate with
             {
+                FrontendModules = Array.AsReadOnly(candidate.FrontendModules.ToArray()),
                 DisplayAdapters =
                 [
                     .. candidate.DisplayAdapters.Select(adapter =>
@@ -154,6 +155,19 @@ public static class PluginManifestReader
         }
 
         ValidateCapabilityDeclarations(manifest, errors);
+        if (manifest.FrontendModules is null
+            || manifest.FrontendModules.Any(module => module is null || !Identifier(module.Id)
+                                                                     || !FrontendPath(module.Script, ".js")
+                                                                     || (module.Style is not null &&
+                                                                         !FrontendPath(module.Style, ".css")))
+            || manifest.FrontendModules.Select(module => module.Id).Distinct(StringComparer.Ordinal).Count()
+            != manifest.FrontendModules.Count
+            || (manifest.FrontendModules.Count > 0 && !manifest.SteamCef))
+        {
+            errors.Add(
+                "Frontend modules require Steam CEF opt-in, unique identities and package-relative JS/CSS files.");
+        }
+
         return errors;
     }
 
@@ -213,6 +227,14 @@ public static class PluginManifestReader
     private static bool Identifier(string? value)
     {
         return ManifestRules.IsPackageIdentifier(value);
+    }
+
+    private static bool FrontendPath(string? value, string extension)
+    {
+        return value is { Length: > 0 } && value.EndsWith(extension, StringComparison.OrdinalIgnoreCase)
+                                        && !value.StartsWith('/') && !value.Contains('\\') && !value.Contains(':')
+                                        && value.Split('/').All(part =>
+                                            part.Length > 0 && part is not "." and not "..");
     }
 }
 

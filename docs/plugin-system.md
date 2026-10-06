@@ -323,9 +323,9 @@ declaration names exactly one numeric action argument; WSGM supplies the app ID 
 the user opened. An action may return a validated Steam route for the host surface to navigate to.
 Steam receives opaque contribution IDs, and WSGM resolves each request against the current
 registration, configuration revision and generation before dispatch. Secret settings are write-only
-in Steam and are never published back. A package cannot receive Steam's React or webpack objects or
-raw evaluation access; its page presentation is a compiled package-owned fragment using the
-toolkit's generic renderer registration and typed bridge. The current projection exposes only Ready,
+in Steam and are never published back. This declarative path does not supply React/webpack or raw
+evaluation handles; its page presentation is a compiled package-owned fragment using the toolkit's
+generic renderer registration and typed bridge. The current projection exposes only Ready,
 non-stopping, non-quarantined registrations. IDs belong to the captured registration and generation,
 so a replacement with the same plugin identity cannot receive an old menu action. `SteamUiChanged`
 invalidates plugin module state without coupling the session host to a particular plugin. A
@@ -346,6 +346,54 @@ own. A plugin therefore contributes pages through `SteamPages` and the host merg
 own. The host's own pages are the artwork browser and the Game Library. A route already served is
 dropped and named in the log, a package cannot override one of Valve's, and a plugin module
 declaring a host-owned patch id is refused at projection.
+
+### Unrestricted Steam CEF frontends, issue 119
+
+A common package declares `steamCef: true` and a `frontendModules` list in `plugin.wsgm.json`. Each
+entry names a package-local id, a UTF-8 JavaScript file and optionally a CSS file. Package paths
+remain inside the archive. The content is unrestricted session code: there is no sandbox, content
+review or per-capability permission system. The declarative placements above remain useful, but do
+not restrict frontend bundles. Contributor rules for diagnosing live Steam remain separate from what
+an opted-in product plugin can execute.
+
+Settings > Plugins shows the initial trust warning, per-instance Steam CEF opt-in, package CEF
+badges and persisted module failures. Installing a CEF package through the package cards requires
+acknowledging its warning. Signing establishes origin and integrity, not review. Frontends run only
+when the package declares access, the initial warning is acknowledged, its instance is enabled and
+its CEF opt-in is saved. Existing packages gain no access automatically.
+
+Bundles run as function bodies with `api`; return a teardown callback or a promise that resolves to
+one. They can access JavaScript, Steam, React and the toolkit directly. `api.registerPage`,
+`registerMenuEntry`, `registerQuickAccessTab`, `registerQuickAccessRow`, `registerLibraryAddition`,
+`registerGamePageAddition` and `registerPatch` reuse the toolkit's existing Valve adapters. Each
+registration has its own identity, readiness check, render boundary and teardown. `addStyle`
+supplies the theme-loading primitive, updating Steam popup documents as they appear. Bundle code as
+an IIFE/function body; Decky API compatibility is not promised.
+
+`IPluginSteamFrontend` is an optional backend. `api.call(method, payload)` sends arbitrary JSON to
+its current-generation instance; `ReadFrontendState` and `FrontendChanged` publish backend state to
+`api.subscribe`. A frontend-only package needs just the ordinary `IPlugin` lifecycle. The bridge
+retains generation/replay checks and registered command identities; these are transport correctness,
+not a security boundary.
+
+A load, readiness, render, registered callback, asynchronous error, backend or verification failure
+disables the complete owning instance. Its modules and UI registrations retract, its backend stops,
+and its module/reason are saved. Other packages and WSGM's own surfaces remain active. Reload is an
+explicit Settings action followed by Save; ordinary saves preserve a failure that appeared after the
+editor opened. Updating an installed package's version/hash retires the old registration before
+admitting its replacement. Backend calls drain before package unload.
+
+Every bundle has a distinct `steam-ui-plugin://` source URL. Window `error` and `unhandledrejection`
+handlers attribute uncaught async failures through that URL; unrelated errors disable nothing. React
+boundaries isolate component errors. Toolkit-owned callbacks use guards; timer/listener helpers
+automatically clean up, and plugins register cleanup for their own external side effects. CSS and
+error listeners are removed before plugin teardown. CDP disables Debugger and pause-on-exceptions
+before a connection becomes ready. Endless loops and renderer crashes cannot be caught here: start
+WSGM with `--shell --desktop-resident --cef-plugins-off` to recover without injecting package
+frontends.
+
+The independently buildable example is in
+[examples/SteamCefPlugin](../examples/SteamCefPlugin/README.md).
 
 Artwork was briefly a bundled package and is now part of WSGM again, so nothing ships in `Plugins\`
 by default. `src/WSGM.Plugin.Ir` remains an independent plugin, and an installed third-party package

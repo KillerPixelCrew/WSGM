@@ -100,11 +100,22 @@ internal static class SettingsSaveMerge
 
         foreach (var edit in request.CommonPluginEdits)
         {
+            var failure = edit.SteamCefReloadRequested
+                ? null
+                : config.PluginInstances.FirstOrDefault(entry =>
+                    entry.PluginId == edit.PluginId && entry.InstanceId == edit.InstanceId)?.SteamCefFailure;
+            failure ??= edit.SteamCefFailure;
             config.PluginInstances.RemoveAll(entry =>
                 entry.PluginId == edit.PluginId && entry.InstanceId == edit.InstanceId);
             config.PluginInstances.Add(new CommonPluginInstanceConfig
-                { PluginId = edit.PluginId, InstanceId = edit.InstanceId, Enabled = edit.Enabled });
+            {
+                PluginId = edit.PluginId, InstanceId = edit.InstanceId,
+                Enabled = edit.Enabled && string.IsNullOrEmpty(failure),
+                SteamCefEnabled = edit.SteamCefEnabled, SteamCefFailure = failure
+            });
         }
+
+        config.SteamCefPluginWarningAccepted |= values.SteamCefPluginWarningAccepted;
 
         // Preserve display facts discovered since the editor opened without resurrecting displays
         // the user explicitly forgot.

@@ -109,7 +109,19 @@ public sealed record PluginManifest
     ///     descriptor whose role is not declared here.
     /// </summary>
     public IReadOnlyList<CapabilityRole> Capabilities { get; init; } = [];
+
+    /// <summary>Whether this package requests unrestricted access to the user's Steam CEF session.</summary>
+    public bool SteamCef { get; init; }
+
+    /// <summary>Independent JavaScript/CSS modules shipped inside this package.</summary>
+    public IReadOnlyList<PluginFrontendModule> FrontendModules { get; init; } = [];
 }
+
+/// <summary>One independently loaded and removable Steam frontend bundle.</summary>
+/// <param name="Id">Stable identity within the package.</param>
+/// <param name="Script">Package-relative UTF-8 JavaScript filename.</param>
+/// <param name="Style">Optional package-relative UTF-8 stylesheet filename.</param>
+public sealed record PluginFrontendModule(string Id, string Script, string? Style = null);
 
 /// <summary>One display adapter rule, matched against the PCI identity of every present adapter.</summary>
 /// <param name="PciVendorId">Four hexadecimal digits, for example <c>8086</c> for Intel.</param>

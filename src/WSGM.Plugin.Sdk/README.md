@@ -91,9 +91,19 @@ action argument for the exact Steam app id. A successful action can return `Stea
 plugin-owned page, and `SteamUiChanged` asks the host to republish module state. The modules are
 registered when the plugin becomes ready and removed when it stops. WSGM renders the generic host
 surfaces, keeps opaque command IDs and routes requests through the current plugin generation. A
-package never receives Steam's React objects, webpack registry or arbitrary evaluation capability;
-custom presentation is compiled with the package and uses toolkit-owned registration and bridge
-mechanisms.
+declarative path does not pass Steam's React objects or evaluation handles. Packages may separately
+declare unrestricted Steam CEF frontend bundles, as described below.
+
+### JavaScript/CSS frontends
+
+Declare `steamCef: true` and `frontendModules: [{ id, script, style? }]` in the common manifest. The
+host loads these package-relative UTF-8 files through the toolkit's normal patch lifecycle after the
+user's initial acknowledgement and per-package opt-in. There is no sandbox or content policy. Code
+receives `api`, including Steam's React, surface registration, CSS, teardown and backend calls.
+Optional `IPluginSteamFrontend` handles JSON requests and state publications; omit it for a
+frontend-only package. A module failure disables the whole instance until manual reload. See
+[the full host contract](../../docs/plugin-system.md#unrestricted-steam-cef-frontends-issue-119) and
+[the buildable example](../../examples/SteamCefPlugin/README.md).
 
 Every ready configurable package also appears in the Extensions tab. Boolean, number, text, secret
 and ordered-choice settings use the existing revisioned configuration contract. Ordered choices

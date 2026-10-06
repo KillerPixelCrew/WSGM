@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
@@ -17,7 +18,8 @@ internal sealed record CommonPluginInstanceView(
     PluginInstanceIdentity Identity,
     PluginManifest Manifest,
     PluginRegistration? Registration,
-    string? Error);
+    string? Error,
+    bool SteamCefEnabled = false);
 
 /// <summary>Opens and closes the capability channel of each <c>wsgm.gpu</c> instance.</summary>
 internal interface ICapabilityChannelRegistry
@@ -49,7 +51,9 @@ internal sealed class CommonPluginManager
     private readonly Func<CommonInstalledPlugin, CancellationToken, Task<LoadedPluginPackage<IPlugin>>> _load;
     private readonly Lock _stateGate = new();
     private readonly string _stateRoot;
+    private readonly ConfigStore? _store;
     private volatile PluginPackageCatalog _catalog = PluginPackageCatalog.Empty;
+    private bool _cefWarningAccepted;
 
     /// <summary>The configuration the last reconcile was asked for, so a resume can restart an instance.</summary>
     private CommonPluginInstanceConfig[] _configured = [];
@@ -68,12 +72,14 @@ internal sealed class CommonPluginManager
     ///     Opens a graphics instance's capability channel. Without one, graphics packages cannot start.
     /// </param>
     /// <param name="adapters">Reads the present display adapters; defaults to a fresh read at each reconcile.</param>
+    /// <param name="store">Persists frontend failures so packages never reload automatically after an error.</param>
     internal CommonPluginManager(PluginHost host, string installedRoot, string stateRoot,
         Func<CommonInstalledPlugin, CancellationToken, Task<LoadedPluginPackage<IPlugin>>>? load = null,
         ICapabilityChannelRegistry? capabilityChannels = null,
-        Func<IReadOnlyList<DisplayAdapterIdentity>>? adapters = null)
+        Func<IReadOnlyList<DisplayAdapterIdentity>>? adapters = null, ConfigStore? store = null)
     {
         _host = host;
+        _store = store;
         _capabilityChannels = capabilityChannels;
         _adapters = adapters ?? (static () => CommonPluginEnablement.ReadAdapters());
         _installedRoot = Path.GetFullPath(installedRoot);
@@ -108,13 +114,16 @@ internal sealed class CommonPluginManager
             [
                 .. _entries.Values.Select(entry =>
                     new CommonPluginInstanceView(entry.Identity, entry.Package.Manifest, entry.Registration,
-                        entry.Error))
+                        entry.Error, _cefWarningAccepted && _configured.Any(config =>
+                            config.PluginId == entry.Identity.PluginId
+                            && config.InstanceId == entry.Identity.InstanceId && config.SteamCefEnabled
+                            && string.IsNullOrEmpty(config.SteamCefFailure))))
             ];
         }
     }
 
     internal Task ReconcileAsync(IReadOnlyList<CommonPluginInstanceConfig> configured,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, bool? cefWarningAccepted = null)
     {
         if (_stopping)
         {
@@ -122,11 +131,20 @@ internal sealed class CommonPluginManager
         }
 
         var revision = Interlocked.Increment(ref _requestedRevision);
+        if (cefWarningAccepted.HasValue)
+        {
+            _cefWarningAccepted = cefWarningAccepted.Value;
+        }
+
         // Detached, so a caller editing its configuration objects later cannot change this reconcile.
         CommonPluginInstanceConfig[] snapshot =
         [
             .. configured.Select(instance => new CommonPluginInstanceConfig
-                { PluginId = instance.PluginId, InstanceId = instance.InstanceId, Enabled = instance.Enabled })
+            {
+                PluginId = instance.PluginId, InstanceId = instance.InstanceId,
+                Enabled = instance.Enabled && string.IsNullOrEmpty(instance.SteamCefFailure),
+                SteamCefEnabled = instance.SteamCefEnabled, SteamCefFailure = instance.SteamCefFailure
+            })
         ];
         PluginInstanceIdentity[] enabled =
         [
@@ -196,8 +214,14 @@ internal sealed class CommonPluginManager
                 previous = [.. _entries.Values.Reverse()];
             }
 
-            foreach (var entry in previous.Where(entry => entry.Retiring || !desired.Contains(entry.Identity)))
+            foreach (var entry in previous.Where(entry => entry.Retiring || !desired.Contains(entry.Identity)
+                                                                         || _catalog.Common.All(package =>
+                                                                             package.Manifest.Id !=
+                                                                             entry.Identity.PluginId
+                                                                             || package.Sha256 !=
+                                                                             entry.Package.Sha256)))
             {
+                entry.Retiring = true;
                 try
                 {
                     await StopEntryAsync(entry, Deadline.After(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
@@ -354,6 +378,138 @@ internal sealed class CommonPluginManager
         finally
         {
             NotifyChanged();
+        }
+    }
+
+    internal (string Script, string? Style, IPluginSteamFrontend? Backend) ReadFrontend(
+        PluginRegistration owner, PluginFrontendModule module)
+    {
+        lock (_stateGate)
+        {
+            var entry = _entries.Values.Single(candidate => ReferenceEquals(candidate.Registration, owner));
+            var package = entry.Loaded?.Package ?? throw new InvalidDataException("Frontend package is unavailable.");
+            var utf8 = new UTF8Encoding(false, true);
+            if (!package.TryRead(module.Script, 16 * 1024 * 1024, out var script))
+            {
+                throw new InvalidDataException("Frontend script is missing or exceeds the package limit.");
+            }
+
+            string? style = null;
+            if (module.Style is { } path)
+            {
+                if (!package.TryRead(path, 16 * 1024 * 1024, out var bytes))
+                {
+                    throw new InvalidDataException("Frontend stylesheet is missing or exceeds the package limit.");
+                }
+
+                style = utf8.GetString(bytes);
+            }
+
+            return (utf8.GetString(script), style, entry.Loaded!.Plugin as IPluginSteamFrontend);
+        }
+    }
+
+    internal void FailFrontend(PluginRegistration owner, string module, string reason)
+    {
+        if (owner.Quarantined || owner.IsStopping)
+        {
+            return;
+        }
+
+        var detail = $"Steam CEF module {module}: {reason}";
+        owner.QuarantineFrontend(detail);
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                _store?.Update(config =>
+                {
+                    var instance = config.PluginInstances.FirstOrDefault(candidate =>
+                        candidate.PluginId == owner.Identity.PluginId &&
+                        candidate.InstanceId == owner.Identity.InstanceId);
+                    if (instance is null)
+                    {
+                        instance = new CommonPluginInstanceConfig
+                        {
+                            PluginId = owner.Identity.PluginId,
+                            InstanceId = owner.Identity.InstanceId
+                        };
+                        config.PluginInstances.Add(instance);
+                    }
+
+                    instance.Enabled = false;
+                    instance.SteamCefFailure = detail;
+                    return true;
+                });
+                await _gate.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    Entry? entry;
+                    lock (_stateGate)
+                    {
+                        entry = _entries.Values.FirstOrDefault(candidate =>
+                            ReferenceEquals(candidate.Registration, owner));
+                        foreach (var instance in _configured.Where(candidate =>
+                                     candidate.PluginId == owner.Identity.PluginId
+                                     && candidate.InstanceId == owner.Identity.InstanceId))
+                        {
+                            instance.Enabled = false;
+                            instance.SteamCefFailure = detail;
+                        }
+                    }
+
+                    if (entry is not null)
+                    {
+                        entry.Retiring = true;
+                        await StopEntryAsync(entry, Deadline.After(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
+                    }
+                }
+                finally
+                {
+                    _gate.Release();
+                    NotifyChanged();
+                }
+            }
+            catch (Exception error) when (error is not OutOfMemoryException)
+            {
+                Log.Warn($"Plugins: disabling {owner.Identity.PluginId} after {detail} failed: {error.Message}");
+            }
+        });
+    }
+
+    internal async Task<JsonElement?> InvokeFrontendAsync(PluginRegistration owner, IPluginSteamFrontend backend,
+        string module, string method, JsonElement payload, CancellationToken cancellationToken)
+    {
+        CancellationTokenSource admitted;
+        Entry entry;
+        Task<JsonElement?> work;
+        lock (_stateGate)
+        {
+            entry = _entries.Values.FirstOrDefault(candidate => ReferenceEquals(candidate.Registration, owner))!;
+            if (entry is null || entry.Retiring || owner.IsStopping || owner.Quarantined)
+            {
+                throw new InvalidOperationException("The plugin frontend is no longer active.");
+            }
+
+            admitted = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, entry.Cancellation.Token);
+            work = Task.Run(async () => await backend.InvokeFrontendAsync(module, method, payload, admitted.Token)
+                .ConfigureAwait(false), CancellationToken.None);
+            entry.FrontendWork.Add(work);
+        }
+
+        using (admitted)
+        {
+            try
+            {
+                return await work.ConfigureAwait(false);
+            }
+            finally
+            {
+                lock (_stateGate)
+                {
+                    entry.FrontendWork.Remove(work);
+                }
+            }
         }
     }
 
@@ -541,6 +697,15 @@ internal sealed class CommonPluginManager
         try
         {
             await WaitWithinAsync(entry.StartWork, deadline).ConfigureAwait(false);
+            Task[] frontendWork;
+            lock (_stateGate)
+            {
+                frontendWork = [.. entry.FrontendWork];
+            }
+
+            await WaitWithinAsync(Task.WhenAll(frontendWork.Select(work => work.ContinueWith(_ => { },
+                    CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default))),
+                deadline).ConfigureAwait(false);
             if (entry.LoadCleanupUnconfirmed)
             {
                 throw new InvalidOperationException("Package construction cleanup was not confirmed.");
@@ -662,5 +827,6 @@ internal sealed class CommonPluginManager
         internal CancellationTokenSource Cancellation { get; } = cancellation;
         internal Task StartWork { get; set; } = Task.CompletedTask;
         internal Task? Disposal { get; set; }
+        internal HashSet<Task> FrontendWork { get; } = [];
     }
 }

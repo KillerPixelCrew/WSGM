@@ -33,7 +33,8 @@ public sealed record PluginSteamUiContribution(
 /// <summary>Optional declarative Steam UI contribution source.</summary>
 /// <remarks>
 ///     The host renders the entries, validates their action links, and owns the Steam bridge. A plugin
-///     never receives a React tree, webpack handle or raw JavaScript injection capability.
+///     does not receive a React tree through these declarative placements. A package can separately
+///     declare unrestricted Steam CEF frontend bundles in its manifest, subject to the user's opt-in.
 /// </remarks>
 public interface IPluginSteamUi
 {

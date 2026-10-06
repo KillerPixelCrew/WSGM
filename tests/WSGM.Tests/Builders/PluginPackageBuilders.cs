@@ -35,11 +35,11 @@ internal static class PluginPackageBuilders
     ///     refuse anything named like an assembly that is not a managed image, and the tests' loaders never run it.
     /// </summary>
     internal static string WriteCommonFixture(string directory, string id, string name = "Fixture",
-        string category = "example.status")
+        string category = "example.status", bool steamCef = false)
     {
         return Write(Path.Combine(directory, id + ".wsgmpkg"), $$"""
                                                                  {"id":"{{id}}","name":"{{name}}","version":"1.0.0","category":"{{category}}",
-                                                                  "entryAssembly":"Fixture.dll","entryType":"Fixture.Plugin","wsgmVersion":"{{Host}}"}
+                                                                  "entryAssembly":"Fixture.dll","entryType":"Fixture.Plugin","wsgmVersion":"{{Host}}","steamCef":{{steamCef.ToString().ToLowerInvariant()}}}
                                                                  """,
             ("Fixture.dll", File.ReadAllBytes(typeof(IPlugin).Assembly.Location)));
     }

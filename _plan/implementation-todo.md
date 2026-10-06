@@ -6,6 +6,22 @@ Implementation follows the [simplified plan](refactor-2.1/refactor-plan-v2.md), 
 are finished. Live/manual acceptance remains outstanding; older entries below record earlier source
 and validation states.
 
+## SDK Steam CEF plugins, issue 119, 2026-10-06
+
+- [x] Declare unrestricted package JS/CSS modules and the optional JSON backend in the SDK.
+- [x] Reuse toolkit pages, menu entries, QAM tabs/rows, library/game additions and CSS loading.
+- [x] Add initial and per-install warnings, per-package opt-in and visible CEF/failure information.
+- [x] Disable the whole owning instance on module failure, persist the reason and require manual reload.
+- [x] Drain backend calls before unload and retire old modules during package replacement.
+- [x] Add startup recovery with `--cef-plugins-off`, source attribution and Debugger reset.
+- [x] Provide an independently buildable example covering every placement and shared backend state.
+- [ ] Complete final compilation, commit/push, development deployment and issue closure.
+
+Focused C# and emitted-asset regression sources are added; their execution and the test-bearing
+gate remain deferred until the maintainer's manual pass. No example plugin is installed or enabled
+automatically. Issues 201, 177, 178 and 179 are closed as implemented; their recorded manual testing
+gaps remain separate from implementation status.
+
 ## Steam Settings issues 209–212 and sound packs 202, 2026-10-06
 
 - [x] Extend native Display, Power, Audio and Controller Settings using the existing QAM owners.

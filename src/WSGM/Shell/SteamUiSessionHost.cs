@@ -828,6 +828,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             return;
         }
 
+        _pluginSteamUi?.CheckPatches(_patches.GetSnapshots());
+
         if (_sounds is { } sounds)
         {
             var soundPatch = _patches.GetSnapshots()
@@ -1378,6 +1380,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                                             || patch.Id == _overlayActivation.Id))
             {
                 Log.Warn($"Steam UI plugin module {module.Id} was not registered: it claims a host patch.");
+                _pluginSteamUi?.FailModule(module.Id, "Module collides with a host-owned patch.");
                 continue;
             }
 
@@ -1388,10 +1391,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             }
             catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
             {
+                _pluginSteamUi?.FailModule(module.Id, ex.Message);
                 Log.Warn($"Steam UI plugin module {module.Id} was not registered: {ex.Message}");
             }
         }
 
+        accepted = [.. accepted.Where(module => _pluginSteamUi?.ModuleEnabled(module.Id) != false)];
         HashSet<string> pluginPatchIds = [.. accepted.SelectMany(module => module.Patches).Select(patch => patch.Id)];
         return (new SteamUiModuleSet([.. _hostModules, .. accepted]), pluginPatchIds);
     }
@@ -1465,6 +1470,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     // whatever the switches here say. This side only records it.
     private void OnModuleFailed(object? sender, SteamUiModuleFailure failure)
     {
+        _pluginSteamUi?.FailModule(failure.Module.Id, $"{failure.Operation}: {failure.Error}");
         Log.Warn($"Steam UI module {failure.Module.Id} was disabled after {failure.Operation}: {failure.Error}");
     }
 
@@ -1502,7 +1508,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             var enabled = patch.Id switch
             {
                 SteamDownloadSort.PatchId => switches.DownloadSort,
-                SteamLibraryBadgeSurface.PatchId or SteamLibraryBadgeSurface.DetailsPatchId => switches.LibraryBadge,
+                SteamLibraryBadgeSurface.PatchId or SteamLibraryBadgeSurface.DetailsPatchId => switches.LibraryBadge
+                    || (host && _pluginSteamUi?.ReadModules().Count > 0),
                 SteamHomeCarouselSurface.PatchId => switches.HomeCarousel,
                 SteamScreensaverSurface.PatchId => switches.ScreensaverRows,
                 SteamUiBridgePatch.PatchId => bootstrap,
@@ -1519,6 +1526,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 // The cascade follows the themes' own switch as well; off, the gate is retracted and
                 // every owned node leaves every window.
                 SteamThemeStyleSurface.PatchId => host && _themes is { Enabled: true },
+                SteamSettingsQuickAccessRow.PatchId => components || (host && _pluginSteamUi?.ReadModules().Count > 0),
                 _ when _pluginPatchIds.Contains(patch.Id) => host,
                 _ => components
             };

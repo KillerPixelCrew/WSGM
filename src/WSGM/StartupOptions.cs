@@ -11,6 +11,8 @@ internal sealed record StartupOptions(
     bool Activate,
     bool Verbose)
 {
+    internal bool CefPluginsOff { get; init; }
+
     internal static StartupOptions Parse(string[] args)
     {
         ArgumentNullException.ThrowIfNull(args);
@@ -24,7 +26,8 @@ internal sealed record StartupOptions(
                     ? RunMode.OverlayTest
                     : RunMode.Settings;
         return new StartupOptions(mode, serviceBoot, flags.Contains("--desktop-resident"),
-            flags.Contains("--activate"), flags.Contains("--verbose"));
+                flags.Contains("--activate"), flags.Contains("--verbose"))
+            { CefPluginsOff = flags.Contains("--cef-plugins-off") };
     }
 
     internal static string? ArgumentValue(string[] args, string prefix)

@@ -49,14 +49,30 @@ public sealed class PluginBadgeView(PluginBadge badge)
 /// <summary>One plugin card on the Plugins page: installed, available from the release, or unavailable.</summary>
 public sealed class PluginPackageRow : ObservableObject
 {
+    private bool _cefInstallConfirmed;
     private string _notice;
 
     internal PluginPackageRow(PluginPackageRowState state, Func<PluginPackageRowState, Task<string>> act)
     {
         State = state;
         _notice = state.Notice;
-        Badges = [.. state.Badges.Select(badge => new PluginBadgeView(badge))];
-        ActCommand = new AsyncRelayCommand(async () => Notice = await act(State));
+        Badges =
+        [
+            .. state.Badges.Select(badge => new PluginBadgeView(badge)),
+            .. state.SteamCef ? new[] { new PluginBadgeView(new PluginBadge("Steam CEF", PluginBadgeTone.Warn)) } : []
+        ];
+        ActCommand = new AsyncRelayCommand(async () =>
+        {
+            if (State.SteamCef && IsInstall && !_cefInstallConfirmed)
+            {
+                _cefInstallConfirmed = true;
+                Notice = SteamCefTrust.Warning;
+                Raise(nameof(ActionLabel));
+                return;
+            }
+
+            Notice = await act(State);
+        });
     }
 
     internal PluginPackageRowState State { get; }
@@ -96,7 +112,7 @@ public sealed class PluginPackageRow : ObservableObject
     /// <summary>The button label, or empty when the row offers nothing.</summary>
     public string ActionLabel => State.Action switch
     {
-        PluginPackageAction.Install => "Install",
+        PluginPackageAction.Install => _cefInstallConfirmed ? "Install CEF plugin" : "Install",
         PluginPackageAction.Remove => "Remove",
         _ => ""
     };

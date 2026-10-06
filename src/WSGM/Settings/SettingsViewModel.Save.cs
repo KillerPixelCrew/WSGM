@@ -156,6 +156,7 @@ public sealed partial class SettingsViewModel
         var splash = BuildSplashConfig();
         var values = new AppConfig();
         ApplyTo(values, splash);
+        values.SteamCefPluginWarningAccepted = SteamCefPluginWarningAccepted;
         // ApplyTo intentionally reuses several bound objects. One final contract copy
         // makes the worker independent from edits made while the save is running.
         values = ConfigJson.Clone(values, ConfigJsonContext.Tolerant.AppConfig);

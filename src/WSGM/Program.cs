@@ -47,6 +47,7 @@ public static class Program
     // Null in the one-shot modes, which never acquire a lease: it is pipe-backed, so a fresh
     // process has nothing to release and a crashed shell's lease ends when Windows closes its pipe.
     private static SteamInputBlocker? _steamInput;
+    internal static bool CefPluginsOff => _startupOptions.CefPluginsOff;
     private static ConfigStore Store { get; set; } = null!;
 
     /// <summary>Starts the selected supported application mode.</summary>

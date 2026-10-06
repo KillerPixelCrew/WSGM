@@ -36,6 +36,29 @@ public sealed partial class SettingsViewModel
     /// <summary>Installed common integrations and configured instances, independent of Device integration.</summary>
     public ObservableCollection<CommonPluginInstanceRow> CommonPlugins { get; } = [];
 
+    /// <summary>The initial trust warning shown before enabling unrestricted frontends.</summary>
+    public string SteamCefPluginWarning => SteamCefTrust.Warning;
+
+    /// <summary>Explicit user acknowledgement of the initial Steam plugin warning.</summary>
+    public bool SteamCefPluginWarningAccepted
+    {
+        get => field;
+        set
+        {
+            if (field == value)
+            {
+                return;
+            }
+
+            field = value;
+            Raise(nameof(SteamCefPluginWarningAccepted));
+            foreach (var row in CommonPlugins)
+            {
+                row.RefreshCefAcknowledgement();
+            }
+        }
+    }
+
     /// <summary>Metadata discovery failures; discovery never executes plugin code.</summary>
     public string CommonPluginDiscoveryError { get; private set; } = "";
 
@@ -188,9 +211,25 @@ public sealed partial class SettingsViewModel
             Log.Warn("Plugins: the installed bundle could not be read: " + ex.Message);
         }
 
-        return new PluginPackagePage(catalog, adapters, bundle,
-            PluginPackageManager.Rows(catalog, bundle, InstallLayout.SetupPackages, offers,
-                new PendingPluginRemovalStore(InstallLayout.PendingPluginRemovals)));
+        var rows = PluginPackageManager.Rows(catalog, bundle, InstallLayout.SetupPackages, offers,
+            new PendingPluginRemovalStore(InstallLayout.PendingPluginRemovals));
+        return new PluginPackagePage(catalog, adapters, bundle, rows.Select(row =>
+        {
+            if (row.IsDevice || string.IsNullOrEmpty(row.PackagePath))
+            {
+                return row;
+            }
+
+            try
+            {
+                using var package = PluginPackageFile.Open(row.PackagePath);
+                return row with { SteamCef = package.CommonManifest?.SteamCef == true };
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException)
+            {
+                return row;
+            }
+        }).ToArray());
     }
 
     /// <summary>Installs or removes one package on a worker and returns the row's notice.</summary>
@@ -226,6 +265,7 @@ public sealed partial class SettingsViewModel
     private void LoadCommonPlugins(PluginPackagePage page)
     {
         var catalog = page.Catalog;
+        SteamCefPluginWarningAccepted = _config.SteamCefPluginWarningAccepted;
         CommonPlugins.Clear();
         foreach (var package in catalog.Common)
         {
@@ -236,13 +276,15 @@ public sealed partial class SettingsViewModel
                 // adapter list this page read for its offers.
                 CommonPlugins.Add(new CommonPluginInstanceRow(package.Manifest.Id,
                     CommonPluginEnablement.DefaultInstanceId, package.Manifest.Name,
-                    CommonPluginEnablement.EnabledByDefault(package.Manifest, page.Adapters), true));
+                    CommonPluginEnablement.EnabledByDefault(package.Manifest, page.Adapters), true,
+                    package.Manifest.SteamCef, cefAcknowledged: () => SteamCefPluginWarningAccepted));
             }
 
             foreach (var instance in configured)
             {
                 CommonPlugins.Add(new CommonPluginInstanceRow(instance.PluginId, instance.InstanceId,
-                    package.Manifest.Name, instance.Enabled, true));
+                    package.Manifest.Name, instance.Enabled, true, package.Manifest.SteamCef,
+                    instance.SteamCefEnabled, instance.SteamCefFailure, () => SteamCefPluginWarningAccepted));
             }
         }
 

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Text.Json.Serialization;
 using WSGM.Plugin.Sdk;
 
 namespace WSGM.Core;
@@ -17,6 +18,16 @@ public sealed class CommonPluginInstanceConfig
 
     /// <summary>Whether WSGM may start this trusted installed package.</summary>
     public bool Enabled { get; set; }
+
+    /// <summary>User opt-in to this package's unrestricted Steam frontend.</summary>
+    public bool SteamCefEnabled { get; set; }
+
+    /// <summary>Persisted module failure. Only an explicit manual reload clears it.</summary>
+    public string? SteamCefFailure { get; set; }
+
+    /// <summary>Transient explicit reload intent captured by Settings, never persisted.</summary>
+    [JsonIgnore]
+    public bool SteamCefReloadRequested { get; set; }
 }
 
 /// <summary>Saved user preferences for one common plugin instance.</summary>

@@ -83,7 +83,11 @@ public sealed record PluginPackageRowState(
     IReadOnlyList<PluginBadge> Badges,
     string Notice,
     PluginPackageAction Action,
-    string PackagePath);
+    string PackagePath)
+{
+    /// <summary>Whether the package requests unrestricted Steam frontend access.</summary>
+    public bool SteamCef { get; init; }
+}
 
 /// <summary>
 ///     The Plugins page's view of the installed packages and of what the installed release bundles, and

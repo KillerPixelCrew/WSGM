@@ -333,6 +333,12 @@ internal sealed class PluginRegistration(
         }
     }
 
+    internal void QuarantineFrontend(string detail)
+    {
+        Quarantined = true;
+        PublishHealth(new PluginHealthPublication(Identity, Context.Generation, PluginHealth.Failed, detail));
+    }
+
     internal Task<PluginHealth> StartAsync(Deadline deadline, CancellationToken cancellationToken)
     {
         return RunAsync(deadline, async token =>

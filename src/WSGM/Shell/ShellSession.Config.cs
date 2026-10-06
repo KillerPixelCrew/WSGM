@@ -349,7 +349,8 @@ public sealed partial class ShellSession
             {
                 // Exactly what the user enabled. Nothing is admitted implicitly: the auto-enable pass
                 // existed for bundled packages, and WSGM bundles none.
-                await manager.ReconcileAsync(config.PluginInstances, _shutdownCancellation.Token)
+                await manager.ReconcileAsync(config.PluginInstances, _shutdownCancellation.Token,
+                        config.SteamCefPluginWarningAccepted)
                     .ConfigureAwait(false);
             }
         }

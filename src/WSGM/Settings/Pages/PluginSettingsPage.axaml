@@ -257,6 +257,9 @@
         <TextBlock Classes="caption" TextWrapping="Wrap" Margin="2,0,0,4"
                    Text="Enable installed integrations here, then Save. They run independently of Device integration. External controls appear in the overlay." />
         <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding CommonPluginDiscoveryError}" />
+        <TextBlock Classes="caption" TextWrapping="Wrap" Text="{Binding SteamCefPluginWarning}" />
+        <CheckBox Content="I understand and want to enable trusted Steam CEF plugins"
+                  IsChecked="{Binding SteamCefPluginWarningAccepted, Mode=TwoWay}" />
         <ItemsControl ItemsSource="{Binding CommonPlugins}">
           <ItemsControl.ItemsPanel>
             <ItemsPanelTemplate>
@@ -270,6 +273,13 @@
                   <StackPanel Spacing="3" VerticalAlignment="Center">
                     <TextBlock Classes="plugin-name" Text="{Binding Name}" />
                     <TextBlock Classes="caption" Text="{Binding Detail}" TextWrapping="Wrap" />
+                    <CheckBox Content="Allow this plugin to access Steam CEF" IsVisible="{Binding SteamCef}"
+                              IsEnabled="{Binding CanEnableSteamCef}"
+                              IsChecked="{Binding SteamCefEnabled, Mode=TwoWay}" />
+                    <TextBlock Classes="caption problem" Text="{Binding CefFailure}" TextWrapping="Wrap"
+                               IsVisible="{Binding HasCefFailure}" />
+                    <Button Content="Reload plugin after Save" Command="{Binding ReloadCefCommand}"
+                            IsVisible="{Binding HasCefFailure}" IsEnabled="{Binding CanEnableSteamCef}" />
                   </StackPanel>
                   <ToggleSwitch Grid.Column="1" IsChecked="{Binding Enabled, Mode=TwoWay}"
                                 VerticalAlignment="Center" />

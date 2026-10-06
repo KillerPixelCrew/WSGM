@@ -1,0 +1,10 @@
+{
+  "id": "example.steam-cef",
+  "name": "Steam CEF Example",
+  "version": "1.0.0",
+  "category": "example.steam",
+  "entryAssembly": "SteamCefPlugin.dll",
+  "entryType": "SteamCefPlugin.SamplePlugin",
+  "steamCef": true,
+  "frontendModules": [{ "id": "counter", "script": "frontend.js", "style": "frontend.css" }]
+}

@@ -32,10 +32,15 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
         SteamNavigationPanelSurface.PatchId
     };
 
+    private readonly bool _cefPluginsOff;
+
     private readonly Dictionary<string, Command> _commands = new(StringComparer.Ordinal);
+    private readonly Dictionary<PluginRegistration, IPluginSteamFrontend> _frontendSubscriptions = [];
+    private readonly Dictionary<PluginRegistration, IReadOnlyList<ISteamUiModule>> _frontends = [];
     private readonly Lock _gate = new();
     private readonly PluginHost _host;
     private readonly CommonPluginManager _manager;
+    private readonly Dictionary<string, PluginRegistration> _moduleOwners = new(StringComparer.Ordinal);
     private readonly Dictionary<string, PluginRegistration> _settingsOwners = new(StringComparer.Ordinal);
     private readonly HashSet<PluginRegistration> _subscriptions = [];
     private bool _disposed;
@@ -44,9 +49,10 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
     private IReadOnlyList<ISteamUiModule> _modules = [];
     private long _revision;
 
-    internal CommonPluginSteamUiSource(CommonPluginManager manager, PluginHost host)
+    internal CommonPluginSteamUiSource(CommonPluginManager manager, PluginHost host, bool cefPluginsOff = false)
     {
         _manager = manager;
+        _cefPluginsOff = cefPluginsOff;
         _host = host;
         manager.Changed += OnChanged;
         host.HealthChanged += OnHealthChanged;
@@ -76,6 +82,14 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
             _settingsOwners.Clear();
             _commands.Clear();
             _modules = [];
+            _frontends.Clear();
+            foreach (var backend in _frontendSubscriptions.Values)
+            {
+                backend.FrontendChanged -= OnChanged;
+            }
+
+            _frontendSubscriptions.Clear();
+            _moduleOwners.Clear();
             _manager.Changed -= OnChanged;
             _host.HealthChanged -= OnHealthChanged;
             Changed = null;
@@ -249,12 +263,53 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
             return
             [
                 .. _manager.Snapshot()
-                    .Where(instance => instance.Registration is { } owner && CanInvoke(owner)
-                                                                          && owner.Actions is not null)
+                    .Where(instance => !_cefPluginsOff && instance.Manifest.SteamCef && instance.SteamCefEnabled
+                                       && instance.Registration is { } owner && CanInvoke(owner) &&
+                                       owner.Actions is not null)
                     .SelectMany(instance => instance.Registration!.Actions!.SteamPages)
                     .Where(Admissible)
                     .DistinctBy(page => page.Path, StringComparer.OrdinalIgnoreCase)
             ];
+        }
+    }
+
+    internal void FailModule(string moduleId, string reason)
+    {
+        PluginRegistration? owner;
+        lock (_gate)
+        {
+            _moduleOwners.TryGetValue(moduleId, out owner);
+        }
+
+        if (owner is not null)
+        {
+            _manager.FailFrontend(owner, moduleId, reason);
+        }
+    }
+
+    internal bool ModuleEnabled(string moduleId)
+    {
+        lock (_gate)
+        {
+            return _moduleOwners.TryGetValue(moduleId, out var owner) && CanInvoke(owner);
+        }
+    }
+
+    internal void CheckPatches(IReadOnlyList<SteamUiPatchSnapshot> patches)
+    {
+        foreach (var patch in patches.Where(patch => patch.State is SteamUiPatchState.Incompatible
+                     or SteamUiPatchState.Degraded or SteamUiPatchState.RemoveFailed))
+        {
+            ISteamUiModule? module;
+            lock (_gate)
+            {
+                module = _modules.FirstOrDefault(candidate => candidate.Patches.Any(owned => owned.Id == patch.Id));
+            }
+
+            if (module is not null)
+            {
+                FailModule(module.Id, $"Patch {patch.Id}: {patch.State}");
+            }
         }
     }
 
@@ -384,14 +439,79 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
             }
         }
 
-        IReadOnlyList<ISteamUiModule> modules =
-        [
-            .. instances
-                .Where(instance => instance.Registration is { } owner && CanInvoke(owner)
-                                                                      && owner.Actions is not null)
-                .SelectMany(instance => instance.Registration!.Actions!.SteamUiModules)
-                .Where(module => !module.Patches.Any(patch => HostOwnedPatches.Contains(patch.Id)))
-        ];
+        var eligible = instances.Where(instance => !_cefPluginsOff && instance.SteamCefEnabled
+                                                                   && instance.Manifest.SteamCef &&
+                                                                   instance.Registration is { } owner &&
+                                                                   CanInvoke(owner)).ToArray();
+        foreach (var owner in _frontends.Keys
+                     .Where(owner => !eligible.Any(instance => ReferenceEquals(instance.Registration, owner)))
+                     .ToArray())
+        {
+            _frontends.Remove(owner);
+            if (_frontendSubscriptions.Remove(owner, out var backend))
+            {
+                backend.FrontendChanged -= OnChanged;
+            }
+        }
+
+        _moduleOwners.Clear();
+        List<ISteamUiModule> modules = [];
+        foreach (var instance in eligible)
+        {
+            var owner = instance.Registration!;
+            if (!_frontends.TryGetValue(owner, out var frontendModules))
+            {
+                List<ISteamUiModule> loaded = [];
+                try
+                {
+                    var identity = "plugin." + Guid.NewGuid().ToString("N");
+                    foreach (var frontend in instance.Manifest.FrontendModules)
+                    {
+                        var bundle = _manager.ReadFrontend(owner, frontend);
+                        if (bundle.Backend is { } backend && _frontendSubscriptions.TryAdd(owner, backend))
+                        {
+                            backend.FrontendChanged += OnChanged;
+                        }
+
+                        loaded.Add(SteamPluginFrontendSurface.Module(identity + "." + frontend.Id, identity,
+                            frontend.Id, bundle.Script, bundle.Style, () => CanInvoke(owner),
+                            bundle.Backend is null
+                                ? null
+                                : (method, payload, token) =>
+                                    _manager.InvokeFrontendAsync(owner, bundle.Backend, frontend.Id, method, payload,
+                                        token),
+                            (module, reason) => _manager.FailFrontend(owner, module, reason),
+                            bundle.Backend is null ? null : () => bundle.Backend.ReadFrontendState(frontend.Id)));
+                    }
+                }
+                catch (Exception error) when (error is not OutOfMemoryException)
+                {
+                    _manager.FailFrontend(owner, "load", error.Message);
+                }
+
+                _frontends[owner] = frontendModules = loaded;
+            }
+
+            if (!CanInvoke(owner))
+            {
+                continue;
+            }
+
+            foreach (var module in (owner.Actions?.SteamUiModules ?? []).Concat(frontendModules))
+            {
+                if (module.Patches.Any(patch => HostOwnedPatches.Contains(patch.Id)))
+                {
+                    _manager.FailFrontend(owner, module.Id, "Module collides with a host-owned patch.");
+                    modules.RemoveAll(candidate => _moduleOwners.TryGetValue(candidate.Id, out var previous)
+                                                   && ReferenceEquals(previous, owner));
+                    break;
+                }
+
+                modules.Add(module);
+                _moduleOwners[module.Id] = owner;
+            }
+        }
+
         if (modules.SequenceEqual(_modules, ReferenceEqualityComparer.Instance))
         {
             return false;

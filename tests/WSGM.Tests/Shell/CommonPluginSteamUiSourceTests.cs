@@ -135,7 +135,7 @@ public sealed class CommonPluginSteamUiSourceTests
     public async Task DeclaredPagesAreAdmittedAndMalformedOnesAreNot()
     {
         using TemporaryDirectory temporary = new();
-        var installed = await Catalog(temporary);
+        var installed = await Catalog(temporary, cef: true);
         PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         SteamUiFixturePlugin plugin = new()
         {
@@ -157,8 +157,9 @@ public sealed class CommonPluginSteamUiSourceTests
         CommonPluginManager manager = new(host, installed, temporary.GetPath("state"),
             (_, _) => PluginBuilders.Loaded(plugin));
         using CommonPluginSteamUiSource source = new(manager, host);
-        await manager.ReconcileAsync([new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true }],
-            CancellationToken.None);
+        await manager.ReconcileAsync(
+            [new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true, SteamCefEnabled = true }],
+            CancellationToken.None, true);
 
         var page = Assert.Single(source.ReadPages());
         Assert.Equal("/wsgm/plugin", page.Path);
@@ -171,7 +172,7 @@ public sealed class CommonPluginSteamUiSourceTests
         // One patch id belongs to one module, so registering a second throws out of the module set —
         // which would take every Steam surface down, not just this package's own.
         using TemporaryDirectory temporary = new();
-        var installed = await Catalog(temporary);
+        var installed = await Catalog(temporary, cef: true);
         PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
         SteamUiFixturePlugin plugin = new()
         {
@@ -184,17 +185,42 @@ public sealed class CommonPluginSteamUiSourceTests
         CommonPluginManager manager = new(host, installed, temporary.GetPath("state"),
             (_, _) => PluginBuilders.Loaded(plugin));
         using CommonPluginSteamUiSource source = new(manager, host);
-        await manager.ReconcileAsync([new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true }],
-            CancellationToken.None);
+        await manager.ReconcileAsync(
+            [new CommonPluginInstanceConfig { PluginId = plugin.Id, Enabled = true, SteamCefEnabled = true }],
+            CancellationToken.None, true);
 
         Assert.Empty(source.ReadModules());
         await manager.StopAsync(Deadline.After(TimeSpan.FromSeconds(5)));
     }
 
-    private static Task<string> Catalog(TemporaryDirectory temporary, string name = "Fixture")
+    [Fact]
+    public async Task FrontendsRequireBothOptInsAndRecoveryModeRetractsThem()
+    {
+        using TemporaryDirectory temporary = new();
+        var installed = await Catalog(temporary, cef: true);
+        PluginHost host = new(action => action(), new MemoryPluginConfigurationStore());
+        SteamUiFixturePlugin plugin = new() { SteamUiModules = [new SteamUiModule("example.frontend")] };
+        CommonPluginManager manager = new(host, installed, temporary.GetPath("state"),
+            (_, _) => PluginBuilders.Loaded(plugin));
+        using CommonPluginSteamUiSource source = new(manager, host);
+        CommonPluginInstanceConfig config = new() { PluginId = plugin.Id, Enabled = true, SteamCefEnabled = true };
+        await manager.ReconcileAsync([config], CancellationToken.None, false);
+        Assert.Empty(source.ReadModules());
+        await manager.ReconcileAsync([config], CancellationToken.None, true);
+        Assert.Single(source.ReadModules());
+        using CommonPluginSteamUiSource recovery = new(manager, host, true);
+        Assert.Empty(recovery.ReadModules());
+        var registration = Assert.Single(manager.Snapshot()).Registration!;
+        source.FailModule("example.frontend", "render failed");
+        Assert.Empty(source.ReadModules());
+        Assert.True(registration.Quarantined);
+        await manager.StopAsync(Deadline.After(TimeSpan.FromSeconds(5)));
+    }
+
+    private static Task<string> Catalog(TemporaryDirectory temporary, string name = "Fixture", bool cef = false)
     {
         var installed = temporary.GetPath("plugins");
-        PluginPackageBuilders.WriteCommonFixture(installed, "test.steam-plugin", name);
+        PluginPackageBuilders.WriteCommonFixture(installed, "test.steam-plugin", name, steamCef: cef);
         return Task.FromResult(installed);
     }
 

@@ -361,7 +361,7 @@ public sealed partial class ShellSession
                         _applicationProfiles.PersistManualVariableRefresh));
                 TryStart("common plugin manager", () =>
                     _commonPlugins = new CommonPluginManager(_pluginHost, InstallLayout.Plugins,
-                        Path.Combine(_store.Context.Root, "PluginState"), capabilityChannels: _gpu));
+                        Path.Combine(_store.Context.Root, "PluginState"), capabilityChannels: _gpu, store: _store));
                 _commonPluginStartup = ApplyCommonPluginConfigAsync(_config);
             }
 
@@ -1299,7 +1299,7 @@ public sealed partial class ShellSession
                 // host, which only reads them.
                 _pluginSteamUi = _commonPlugins is null
                     ? null
-                    : new CommonPluginSteamUiSource(_commonPlugins, _pluginHost);
+                    : new CommonPluginSteamUiSource(_commonPlugins, _pluginHost, Program.CefPluginsOff);
                 if (_pluginSteamUi is not null && _wsgmSettings is { } wsgmSettings)
                 {
                     // A plugin starting, stopping or taking a setting changes the Plugins page.

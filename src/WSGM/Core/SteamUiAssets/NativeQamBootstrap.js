@@ -2741,6 +2741,370 @@
     registerGate(definition.gate, { install, remove, status });
     return context;
   }
+  // @fragment plugin-frontends.ts
+  // @fragment plugin-frontends
+  const pluginFrontendEntries = new Map();
+  const pluginFrontendSlots = new Map();
+  const pluginFrontendListeners = new Set();
+  const pluginFrontendChanged = () => {
+    for (const listener of pluginFrontendListeners) listener();
+  };
+  const subscribePluginFrontends = (listener) => {
+    pluginFrontendListeners.add(listener);
+    return () => pluginFrontendListeners.delete(listener);
+  };
+  const pluginFrontendItems = (kind) =>
+    [...pluginFrontendSlots.values()].filter(
+      (slot) => slot.kind === kind && !slot.entry.failed && !slot.entry.closed,
+    );
+  const pluginFrontendElements = (kind, react, props = {}) =>
+    pluginFrontendItems(kind).map((slot) => slot.element(react, props));
+  function createPluginFrontends() {
+    const documents = () => {
+      const docs = new Set([document]);
+      for (const popup of window.g_PopupManager?.GetPopups?.() ?? []) {
+        if (popup?.m_popup?.document) docs.add(popup.m_popup.document);
+      }
+      return [...docs];
+    };
+    const reactRuntime = () => resolveReact(getWebpackRuntime("plugin-frontends"));
+    const report = (entry, module, error) => {
+      if (entry.failed || entry.closed) return;
+      const reason = String(error?.stack ?? error).slice(0, 4096);
+      // Shut down every sibling synchronously before reporting to the host.
+      for (const sibling of pluginFrontendEntries.values()) {
+        if (sibling.owner !== entry.owner) continue;
+        sibling.failed = `${module}: ${reason}`;
+        void cleanup(sibling);
+      }
+      void request(entry.id, "failure", { module, reason }).catch(() => {});
+    };
+    const guard = (entry, module, callback) =>
+      function (...args) {
+        if (entry.failed || entry.closed) return;
+        try {
+          const result = callback.apply(this, args);
+          if (result && typeof result.then === "function") {
+            return Promise.resolve(result).catch((error) => {
+              report(entry, module, error);
+            });
+          }
+          return result;
+        } catch (error) {
+          report(entry, module, error);
+          return undefined;
+        }
+      };
+    const cleanup = async (entry) => {
+      entry.stopDocuments?.();
+      entry.stopDocuments = null;
+      for (const [key, slot] of pluginFrontendSlots)
+        if (slot.entry === entry) pluginFrontendSlots.delete(key);
+      pluginFrontendChanged();
+      let failure = "";
+      while (entry.cleanups.length) {
+        try {
+          const work = entry.cleanups.pop()();
+          if (work && typeof work.then === "function") {
+            let timer;
+            try {
+              await Promise.race([
+                work,
+                new Promise((_, reject) => {
+                  timer = setTimeout(() => reject(new Error("module teardown timed out")), 2000);
+                }),
+              ]);
+            } finally {
+              clearTimeout(timer);
+            }
+          }
+        } catch (error) {
+          failure ||= String(error);
+        }
+      }
+      if (failure) entry.cleanupFailure = failure;
+    };
+    const boundary = (react, entry, module, render) => {
+      class ModuleBoundary extends react.Component {
+        state = { failed: false };
+        stop;
+        componentDidMount() {
+          this.stop = subscribePluginFrontends(guard(entry, module, () => this.forceUpdate()));
+        }
+        componentWillUnmount() {
+          this.stop?.();
+        }
+        static getDerivedStateFromError() {
+          return { failed: true };
+        }
+        componentDidCatch(error) {
+          report(entry, module, error);
+        }
+        render() {
+          return this.state.failed || entry.failed || entry.closed ? null : this.props.children;
+        }
+      }
+      const Render = guard(entry, module, (props) => render(react, props));
+      return (props) =>
+        react.createElement(ModuleBoundary, null, react.createElement(Render, props));
+    };
+    const ready = async (entry, module, check) => {
+      const until = Date.now() + 5000;
+      let last;
+      while (!entry.closed && !entry.failed) {
+        last = check();
+        if (last === true || last?.ok === true) return;
+        if (Date.now() >= until)
+          throw new Error(`${module}: readiness failed: ${last?.error ?? "gate never ready"}`);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      throw new Error(`${module}: module stopped during readiness`);
+    };
+    const load = async (spec) => {
+      const prior = pluginFrontendEntries.get(spec.id);
+      if (prior) return status(spec.id);
+      const entry = {
+        ...spec,
+        failed: "",
+        closed: false,
+        cleanups: [],
+        pending: [],
+        verifiers: [],
+        contributionIds: new Set(),
+        styles: new Set(),
+        ready: false,
+      };
+      pluginFrontendEntries.set(spec.id, entry);
+      const sourceUrl = `steam-ui-plugin://${encodeURIComponent(spec.owner)}/${encodeURIComponent(spec.module)}.js`;
+      const knownWindows = new Set();
+      const asyncError = (event) => {
+        const origin = `${event.filename ?? ""}\n${event.error?.stack ?? ""}\n${event.reason?.stack ?? ""}`;
+        if (!origin.includes(sourceUrl)) return;
+        event.preventDefault?.();
+        report(entry, spec.module, event.error ?? event.reason ?? event.message);
+      };
+      const refreshDocuments = () => {
+        if (entry.closed || entry.failed) return;
+        for (const doc of documents()) {
+          const target = doc.defaultView;
+          if (target && !knownWindows.has(target)) {
+            knownWindows.add(target);
+            target.addEventListener("error", asyncError);
+            target.addEventListener("unhandledrejection", asyncError);
+          }
+          if (entry.style && ![...entry.styles].some((style) => style.ownerDocument === doc)) {
+            const style = doc.createElement("style");
+            style.dataset.steamUiPlugin = spec.id;
+            style.textContent = entry.style;
+            (doc.head ?? doc.documentElement).appendChild(style);
+            entry.styles.add(style);
+          }
+        }
+      };
+      refreshDocuments();
+      const interval = setInterval(refreshDocuments, 500);
+      entry.stopDocuments = () => {
+        clearInterval(interval);
+        for (const target of knownWindows) {
+          target.removeEventListener("error", asyncError);
+          target.removeEventListener("unhandledrejection", asyncError);
+        }
+        for (const style of entry.styles) style.remove();
+        entry.styles.clear();
+      };
+      const register = (kind, id, value, render, gate, gateKind) => {
+        const module = `${spec.module}/${id}`;
+        const key = `${spec.id}/${id}`;
+        if (!id || entry.contributionIds.has(id))
+          throw new Error(`Invalid or duplicate module: ${module}`);
+        entry.contributionIds.add(id);
+        if (kind === "page" && (typeof value?.path !== "string" || !value.path.startsWith("/")))
+          throw new Error(`${module}: page path must be absolute`);
+        if (render != null && typeof render !== "function")
+          throw new Error(`${module}: renderer must be a function`);
+        const work = (async () => {
+          await ready(entry, module, () => bridge.gate(gate)?.install(gateKind));
+          const react = reactRuntime();
+          if (!react) throw new Error("Steam React runtime unavailable");
+          const Component = render ? boundary(react, entry, module, render) : null;
+          const slot = {
+            kind,
+            id: key,
+            entry,
+            value: { ...value, id: key },
+            element: (_react, props) =>
+              Component ? react.createElement(Component, { ...props, key }) : null,
+          };
+          pluginFrontendSlots.set(key, slot);
+          entry.verifiers.push({
+            module,
+            check: () => {
+              const state = bridge.gate(gate)?.status(gateKind);
+              return state?.installed === true || state?.registered === true;
+            },
+          });
+          if (kind === "page") {
+            steamPageRenderers.set(key, (_react, page) => slot.element(react, { page }));
+            entry.cleanups.push(() => steamPageRenderers.delete(key));
+          }
+          entry.cleanups.push(() => {
+            pluginFrontendSlots.delete(key);
+            pluginFrontendChanged();
+          });
+          pluginFrontendChanged();
+          return () => {
+            pluginFrontendSlots.delete(key);
+            pluginFrontendChanged();
+          };
+        })().catch((error) => {
+          report(entry, module, error);
+        });
+        entry.pending.push(work);
+        return work;
+      };
+      const api = {
+        id: spec.id,
+        module: spec.module,
+        react: reactRuntime(),
+        bridge,
+        // The plugin is trusted session code. These are convenience primitives, not permissions.
+        resolveModules: getWebpackRuntime,
+        resolveComponents: () =>
+          resolveSteamSettingsComponents(getWebpackRuntime("plugin-frontends")),
+        uiKit: {
+          section: renderSteamUiGroup,
+          header: renderSteamUiHeader,
+          note: renderSteamUiEmpty,
+        },
+        guard: (callback) => guard(entry, spec.module, callback),
+        onDispose: (callback) => entry.cleanups.push(callback),
+        call: (method, payload = null) => request(spec.id, "invoke", { method, payload }),
+        subscribe: (callback) => {
+          const stop = subscribe(spec.id, guard(entry, spec.module, callback));
+          entry.cleanups.push(stop);
+          return stop;
+        },
+        ready: (check) => ready(entry, spec.module, check),
+        registerPage: (id, page, render) => register("page", id, page, render, "pages"),
+        registerMenuEntry: (id, item) =>
+          register(
+            "menu",
+            id,
+            {
+              ...item,
+              frontendAction: item.onActivate
+                ? guard(entry, `${spec.module}/${id}`, item.onActivate)
+                : undefined,
+            },
+            null,
+            "navigationPanel",
+          ),
+        registerQuickAccessTab: (id, tab, render) =>
+          register("tab", id, tab, render, "extensionsTab"),
+        registerQuickAccessRow: (id, placement, render) =>
+          register(
+            placement === "quickSettings" ? "quickSettings" : "perf",
+            id,
+            {},
+            render,
+            "nativeComponents",
+            "settingsSections",
+          ),
+        registerLibraryAddition: (id, render) =>
+          register("library", id, {}, render, "libraryBadge"),
+        registerGamePageAddition: (id, render) =>
+          register("gamePage", id, {}, render, "libraryDetails"),
+        addStyle: (css) => {
+          entry.style = `${entry.style ?? ""}\n${css}`;
+          for (const style of entry.styles) style.textContent = entry.style;
+          refreshDocuments();
+        },
+        registerPatch: (id, patch) => {
+          const module = `${spec.module}/${id}`;
+          const work = (async () => {
+            await ready(entry, module, () => patch.probe());
+            entry.cleanups.push(() => patch.remove());
+            await patch.apply();
+            await ready(entry, module, () => patch.verify());
+            entry.verifiers.push({ module, check: () => patch.verify() });
+          })().catch((error) => report(entry, module, error));
+          entry.pending.push(work);
+          return work;
+        },
+        setTimeout: (callback, milliseconds) => {
+          const timer = setTimeout(guard(entry, spec.module, callback), milliseconds);
+          entry.cleanups.push(() => clearTimeout(timer));
+          return timer;
+        },
+        setInterval: (callback, milliseconds) => {
+          const timer = setInterval(guard(entry, spec.module, callback), milliseconds);
+          entry.cleanups.push(() => clearInterval(timer));
+          return timer;
+        },
+        addEventListener: (target, type, callback, options) => {
+          const wrapped = guard(entry, spec.module, callback);
+          target.addEventListener(type, wrapped, options);
+          entry.cleanups.push(() => target.removeEventListener(type, wrapped, options));
+        },
+      };
+      try {
+        const execute = new Function("api", `${spec.script}\n//# sourceURL=${sourceUrl}`);
+        const dispose = await execute(api);
+        if (typeof dispose === "function") entry.cleanups.push(dispose);
+        await Promise.all(entry.pending);
+        if (entry.failed || entry.closed) {
+          await cleanup(entry);
+          return status(spec.id);
+        }
+        entry.ready = true;
+        return { ok: true };
+      } catch (error) {
+        report(entry, spec.module, error);
+        return status(spec.id);
+      }
+    };
+    const status = async (id) => {
+      const entry = pluginFrontendEntries.get(id);
+      if (entry?.ready && !entry.failed && !entry.closed) {
+        for (const verifier of entry.verifiers) {
+          try {
+            const result = await verifier.check();
+            if (result !== true && result?.ok !== true) {
+              report(entry, verifier.module, "module no longer passes verification");
+              break;
+            }
+          } catch (error) {
+            report(entry, verifier.module, error);
+            break;
+          }
+        }
+      }
+      return {
+        ok: !!entry?.ready && !entry.failed && !entry.closed,
+        error: entry?.failed || (entry ? "frontend not ready" : "frontend absent"),
+      };
+    };
+    const unload = async (id) => {
+      const entry = pluginFrontendEntries.get(id);
+      if (!entry) return { ok: true };
+      entry.closed = true;
+      await cleanup(entry);
+      if (entry.cleanupFailure) return { ok: false, error: entry.cleanupFailure };
+      pluginFrontendEntries.delete(id);
+      return { ok: true };
+    };
+    return {
+      probe: () => ({ ok: !!reactRuntime() }),
+      load,
+      status,
+      unload,
+      remove: () => {
+        for (const id of pluginFrontendEntries.keys()) void unload(id);
+        return { ok: true };
+      },
+    };
+  }
+  registerGate("pluginFrontends", createPluginFrontends());
   // @fragment settings.ts
   // A host's own settings, drawn as Steam draws its Settings page.
   //
@@ -4737,8 +5101,10 @@
       }
     };
     const withOurTabActive = (element) =>
-      activeQuickAccessTab() === ExtensionsTabId && element.props.activeTab !== ExtensionsTabId
-        ? react.cloneElement(element, { activeTab: ExtensionsTabId })
+      (activeQuickAccessTab() === ExtensionsTabId ||
+        pluginFrontendItems("tab").some((slot) => slot.tabKey === activeQuickAccessTab())) &&
+      element.props.activeTab !== activeQuickAccessTab()
+        ? react.cloneElement(element, { activeTab: activeQuickAccessTab() })
         : element;
     // Element depth within one render pass, reset at every wrapped component. Measured on the
     // 2026-09-24 client at nineteen component-typed levels from the component carrying
@@ -4768,6 +5134,9 @@
     let installed = false;
     let unsubscribe = null;
     let unsubscribeFolds = null;
+    let unsubscribePlugins = null;
+    let nextPluginTabKey = 1100;
+    const pluginTabLists = new Set();
     let desired = { items: [], revision: 0 };
     // The folds, shared with the Performance and Quick Settings groups: the host publishes the
     // sections the user opened, and every section and every switch's settings start folded.
@@ -4828,6 +5197,23 @@
     const insertTab = (element, visible) => {
       const tabs = element.props?.tabs;
       if (!Array.isArray(tabs)) return null;
+      if (!tabs.some((tab) => tab?.steamUiExtensionsTab || [4, 5, 6].includes(tab?.key)))
+        return null;
+      pluginTabLists.add(tabs);
+      for (let index = tabs.length - 1; index >= 0; index--)
+        if (tabs[index]?.steamUiPluginTab) tabs.splice(index, 1);
+      for (const slot of pluginFrontendItems("tab")) {
+        slot.tabKey ??= nextPluginTabKey++;
+        tabs.push({
+          key: slot.tabKey,
+          title: react.createElement("div", null, slot.value.title),
+          strTitle: slot.value.title,
+          tab: slot.value.icon ?? icon("extensions", 22),
+          steamUiPluginTab: slot.id,
+          initialVisibility: !!visible,
+          panel: slot.element(react, {}),
+        });
+      }
       const existing = tabs.filter((tab) => tab && tab.steamUiExtensionsTab === true);
       if (existing.length > 1) {
         lastOutcome = `tabs=${tabs.length} extensions=ambiguous`;
@@ -5241,6 +5627,16 @@
         openSections = folds.normalize(state);
         mounted.rerender();
       });
+      unsubscribePlugins = subscribePluginFrontends(() => {
+        for (const tabs of pluginTabLists)
+          for (let index = tabs.length - 1; index >= 0; index--)
+            if (
+              tabs[index]?.steamUiPluginTab &&
+              !pluginFrontendItems("tab").some((slot) => slot.id === tabs[index].steamUiPluginTab)
+            )
+              tabs.splice(index, 1);
+        mounted.rerender();
+      });
       return { ok: true, installed: true, reclaimed: claim.reclaimed };
     };
     // Ownership is given up before the gate forgets it owns anything: a failed release otherwise
@@ -5262,6 +5658,11 @@
       installed = false;
       unsubscribe = endSubscription(unsubscribe);
       unsubscribeFolds = endSubscription(unsubscribeFolds);
+      unsubscribePlugins = endSubscription(unsubscribePlugins);
+      for (const tabs of pluginTabLists)
+        for (let index = tabs.length - 1; index >= 0; index--)
+          if (tabs[index]?.steamUiPluginTab) tabs.splice(index, 1);
+      pluginTabLists.clear();
       desired = { items: [], revision: 0 };
       descenderCache.clear();
       lastOutcome = "removed";
@@ -6196,7 +6597,10 @@
     // against. Without the class map the box is plain and always visible, and status says so.
     const withBadge = (element) => {
       const ours = renderBadge(element.props?.overview);
-      if (!ours) return element;
+      const additions = pluginFrontendElements("library", react, {
+        overview: element.props?.overview,
+      });
+      if (!ours && !additions.length) return element;
       const style = {
         display: "flex",
         alignItems: "center",
@@ -6220,6 +6624,7 @@
         "div",
         { key: "steam-ui-library-badge-row", className, style },
         ours,
+        ...additions,
         element,
       );
     };
@@ -6452,14 +6857,24 @@
       const children = Array.isArray(props.children) ? props.children : [props.children];
       if (children.some((child) => child?.key === StatKey)) return undefined;
       const library = libraryForOverview(overviewIn(children), reading);
+      const additions = pluginFrontendElements("gamePage", react, {
+        overview: overviewIn(children),
+      });
       if (!library) {
         without++;
       } else {
         placed++;
       }
       lastOutcome = `placed=${placed} without=${without} libraries=${reading.count} apps=${reading.libraries.size}`;
-      if (!library) return undefined;
-      return create(type, { ...props, children: [...children, renderStat(library)] }, key);
+      if (!library && !additions.length) return undefined;
+      return create(
+        type,
+        {
+          ...props,
+          children: [...children, ...(library ? [renderStat(library)] : []), ...additions],
+        },
+        key,
+      );
     };
     const resolve = () => {
       runtime = getWebpackRuntime("library-details");
@@ -6971,6 +7386,7 @@
     let installed = false;
     let lastError = "";
     let unsubscribe = null;
+    let unsubscribePlugins = null;
     // What the last render actually saw and did. Everything else can report success while the panel
     // shows exactly what Valve shipped, because insertion depends on the tree Steam rendered.
     let observed = [];
@@ -7063,7 +7479,10 @@
         });
       }
       if (!item.route && native.action) {
-        return react.createElement(native.action, { ...common, action: () => activate(item.id) });
+        return react.createElement(native.action, {
+          ...common,
+          action: item.frontendAction ?? (() => activate(item.id)),
+        });
       }
       return null;
     };
@@ -7090,7 +7509,7 @@
         }
         kept.push(child);
       }
-      const pending = desired.items;
+      const pending = [...desired.items, ...pluginFrontendItems("menu").map((slot) => slot.value)];
       // From every child, hidden ones included: hiding Power must not cost the action entry.
       const native = nativeEntries(children);
       const placed = new Set();
@@ -7251,6 +7670,7 @@
         desired = next;
         mounted.rerender();
       });
+      unsubscribePlugins = subscribePluginFrontends(() => mounted.rerender());
       return { ok: true, installed: true, reclaimed: claim.reclaimed };
     };
     const remove = () => {
@@ -7264,6 +7684,7 @@
       }
       installed = false;
       unsubscribe = endSubscription(unsubscribe);
+      unsubscribePlugins = endSubscription(unsubscribePlugins);
       desired = { items: [], hidden: [] };
       descendCache.clear();
       panelCache.clear();
@@ -7558,6 +7979,8 @@
     let installed = false;
     let lastError = "";
     let unsubscribe = null;
+    let unsubscribePlugins = null;
+    let hostPages = [];
     const mounted = createMountedAdoption();
     let pages = [];
     let lastOutcome = "never rendered";
@@ -7611,7 +8034,6 @@
       observedRoutes = steam
         .filter((route) => react.isValidElement(route) && typeof route.props?.path === "string")
         .map((route) => route.props.path);
-      if (own.length) return routes;
       // A host element would be a string type and cannot be built with; anything else is what Steam
       // renders that route with, verified against the Route's own markers for the status only.
       const known = steam.find(
@@ -7781,7 +8203,18 @@
         // see on its own. Only a changed list earns a render: the class above the router is the one
         // asked, and its render re-runs every route, the configurator's edit session included.
         if (!publicationChanged(pages, next)) return;
-        pages = next;
+        hostPages = next;
+        pages = [
+          ...hostPages,
+          ...pluginFrontendItems("page").map((slot) => ({ ...slot.value, template: slot.id })),
+        ];
+        mounted.rerender();
+      });
+      unsubscribePlugins = subscribePluginFrontends(() => {
+        pages = [
+          ...hostPages,
+          ...pluginFrontendItems("page").map((slot) => ({ ...slot.value, template: slot.id })),
+        ];
         mounted.rerender();
       });
       return { ok: true, installed: true, reclaimed: claim.reclaimed };
@@ -7808,6 +8241,8 @@
       routeSwitchWrapper = null;
       installed = false;
       unsubscribe = endSubscription(unsubscribe);
+      unsubscribePlugins = endSubscription(unsubscribePlugins);
+      hostPages = [];
       pages = [];
       // Borrowed from a render that is about to be undone, so it is not carried into the next install.
       borrowedRoute = null;
@@ -9392,6 +9827,7 @@
   registerGate("themeStyles", createThemeStyles());
   // @fragment components.ts
   function createNativeComponentHost() {
+    let unsubscribePlugins = null;
     const registrations = new Map();
     const listeners = new Set();
     let runtime;
@@ -11611,7 +12047,8 @@
               key: "steam-ui-settings-sections",
             })
           : null;
-      if (!rows.length && !deviceControls && !settingsSections) {
+      const pluginRows = pluginFrontendElements(placement, controlRuntime.react);
+      if (!rows.length && !deviceControls && !settingsSections && !pluginRows.length) {
         appendDiagnostics[placement] = { controls: 0, inserted: false, ownSection: false };
         return tree;
       }
@@ -11642,6 +12079,7 @@
           ),
           ...sections(trailing),
           deviceControls,
+          ...pluginRows,
         );
       }
       // The host's rows go into titled PanelSections, appended after whatever the native
@@ -11689,6 +12127,7 @@
         native,
         own,
         settingsSections,
+        ...pluginRows,
         // The closing sections follow every other one, including dynamically published host
         // settings sections.
         ...sections(trailing),
@@ -11918,6 +12357,7 @@
       return true;
     };
     const install = (kind) => {
+      unsubscribePlugins ??= subscribePluginFrontends(() => notify());
       if (disposedHost) return { ok: false, error: "component host disposed" };
       if (!Object.hasOwn(definitions, kind))
         return { ok: false, error: "component is not allowlisted" };
@@ -11956,6 +12396,7 @@
       lastError: lastPatchError,
     });
     const disposeHostResources = () => {
+      unsubscribePlugins?.();
       disposedHost = true;
       registrations.clear();
       notify();
