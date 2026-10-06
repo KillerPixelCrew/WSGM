@@ -6649,6 +6649,14 @@
     };
     function SteamUiNativeSettingsSections({ id }) {
       react.useSyncExternalStore(local.subscribe, local.revision);
+      react.useEffect(() => {
+        if (id !== "controller") return;
+        return () => {
+          // Stop is an idempotent host action even after its rows retract. Reload/disconnect also
+          // stop through the host and the output owner, and every preview has a bounded timer.
+          void request(patchId, "set", { key: "rumble.stop", value: true }).catch(() => {});
+        };
+      }, [id]);
       const drafts = useSteamSettingDrafts(react, state.revision);
       const change = drafts.change(send);
       const action = (row) => change(row, true);

@@ -633,6 +633,9 @@ public sealed class AppConfig
     /// <summary>The active Audio Loader-compatible Steam UI sound pack.</summary>
     public SoundsConfig Sounds { get; set; } = new();
 
+    /// <summary>Per-user rumble strength and bounded-pulse perception calibration.</summary>
+    public RumbleCalibrationConfig RumbleCalibration { get; set; } = new();
+
     /// <summary>
     ///     Restart Steam automatically when it exits. Steam itself is located
     ///     via the registry (see Core.Steam) — there is nothing else to configure.

@@ -525,6 +525,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     internal void CloseAdmission()
     {
         _disposed = true;
+        Log.Observe(_nativeSettings.StopRumblePreviewAsync(), "Stopping Steam rumble calibration preview");
         _nativeStateRefresh.Dispose();
         ClearSwitches();
     }
@@ -730,6 +731,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <summary>Turns every feature switch off and cancels in-flight requests, without touching CEF.</summary>
     private void ClearSwitches()
     {
+        Log.Observe(_nativeSettings.StopRumblePreviewAsync(), "Stopping rumble preview when Steam integration stops");
         lock (_switchGate)
         {
             _switches = SteamUiSurfaceSwitches.Off;
@@ -773,6 +775,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     {
         if (snapshot.Role == SteamUiTargetRole.SharedJsContext)
         {
+            Log.Observe(_nativeSettings.StopRumblePreviewAsync(), "Stopping rumble preview after Steam reload");
             if (_sounds is { } sounds)
             {
                 sounds.SetHostState(_switches.HostSurfaces, null);

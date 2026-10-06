@@ -225,6 +225,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         _pluginSettings = new PluginSettingsCoordinator(_store);
         _hapticSink = new PluginHapticSink(ApplyHapticOutputAsync);
         Controllers = createControllers(_hapticSink);
+        Controllers.ApplyRumbleCalibration(config.RumbleCalibration);
         Controllers.TargetLost += OnControllerTargetLost;
         // Last: it starts serving at once, and nothing after it may fail and leave it running.
         _diagnostics = createDiagnostics(sessionId, DiagnosticsSnapshot);
@@ -304,6 +305,10 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     internal bool ControllerManagementEnabled =>
         _config.DeviceIntegration is { ControllerManagementEnabled: true, Enabled: true };
 
+    internal RumbleCalibrationConfig RumbleCalibration => _config.RumbleCalibration;
+
+    internal bool CanPreviewRumble => IntegrationEnabled && Controllers.CanPreviewRumble;
+
     /// <summary>The catalog holding the installed package's glyph profiles.</summary>
     /// <remarks>
     ///     Exposed so one <see cref="PhysicalGlyphPlans" /> can be built over it and share its invalidation.
@@ -329,6 +334,52 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         return ShutdownAsync(
             PluginStopReason.WsgmExiting,
             NormalShutdownDeadline());
+    }
+
+    internal async Task<bool> PreviewRumbleAsync(bool testFloor, CancellationToken token)
+    {
+        await _transitionGate.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            return !_disposed && CanPreviewRumble
+                   && await Controllers.PreviewRumbleAsync(testFloor, token).ConfigureAwait(false);
+        }
+        finally
+        {
+            _transitionGate.Release();
+        }
+    }
+
+    internal Task StopRumblePreviewAsync()
+    {
+        return Controllers.StopRumblePreviewAsync();
+    }
+
+    internal async Task SetRumbleCalibrationAsync(string key, int value, CancellationToken token)
+    {
+        await _transitionGate.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            var saved = await PersistConfigurationAsync(config =>
+            {
+                switch (key)
+                {
+                    case "strength"
+                        when value is >= 0 and <= 100: config.RumbleCalibration.StrengthPercent = value; break;
+                    case "floor"
+                        when value is >= 0 and <= 100: config.RumbleCalibration.MinimumStrengthPercent = value; break;
+                    case "duration"
+                        when value is >= 0 and <= 500: config.RumbleCalibration.MinimumPulseMilliseconds = value; break;
+                    default: throw new ArgumentOutOfRangeException(nameof(value));
+                }
+            }, token).ConfigureAwait(false);
+            Controllers.ApplyRumbleCalibration(saved.RumbleCalibration);
+        }
+        finally
+        {
+            _transitionGate.Release();
+        }
     }
 
     /// <summary>Returns the manual power mode of the running application to the Global value.</summary>
@@ -701,6 +752,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             var wasEnabled = _config.DeviceIntegration.Enabled;
             var controllerWasEnabled = _config.DeviceIntegration.ControllerManagementEnabled;
             _config = config;
+            Controllers.ApplyRumbleCalibration(config.RumbleCalibration);
             var controllerIsEnabled = config.DeviceIntegration.ControllerManagementEnabled;
             ConfigurationChanged?.Invoke();
 

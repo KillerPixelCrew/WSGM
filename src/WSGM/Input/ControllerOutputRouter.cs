@@ -38,6 +38,7 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
     private readonly SemaphoreSlim _sinkGate = new(1, 1);
     private readonly TimeProvider _timeProvider;
     private readonly Task _worker;
+    private RumbleCalibrationConfig _calibration = new();
     private long _dispatchSequence;
     private bool _disposed;
 
@@ -45,7 +46,9 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
     private long _epoch;
     private long _lastDispatchTimestamp;
     private bool _outputObserved;
+    private bool _previewing;
     private long _pulseSequence = -1;
+    private DateTimeOffset _pulseDeadline;
     private ControllerTargetHandle? _target;
 
     internal ControllerOutputRouter(
@@ -65,8 +68,24 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
 
     internal int DroppedFrames => Volatile.Read(ref _droppedFrames);
 
+    internal bool CanPreview
+    {
+        get
+        {
+            lock (_gate)
+            {
+                var capabilities = _sink.Capabilities;
+                return !_disposed && _target is not null && _sink.IsOwned
+                       && capabilities.MinimumPulse <= TimeSpan.FromMilliseconds(500)
+                       && (capabilities.LowFrequency == OutputChannelSupport.Native
+                           || capabilities.HighFrequency == OutputChannelSupport.Native);
+            }
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
+        bool stopPreview;
         lock (_gate)
         {
             if (_disposed)
@@ -76,6 +95,16 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
 
             _disposed = true;
             _backend.OutputReceived -= OnOutputReceived;
+            stopPreview = _previewing;
+        }
+
+        if (stopPreview)
+        {
+            await StopAsync("calibration-owner-disposed", CancellationToken.None).ConfigureAwait(false);
+        }
+
+        lock (_gate)
+        {
             _target = null;
             ResetUnderGate();
         }
@@ -86,6 +115,125 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
         _pace.Dispose();
         await _worker.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
         _lifetime.Dispose();
+    }
+
+    internal void ApplyCalibration(RumbleCalibrationConfig config)
+    {
+        // Detached once per settings change. The streaming path only reads this immutable snapshot.
+        Volatile.Write(ref _calibration, new RumbleCalibrationConfig
+        {
+            StrengthPercent = Math.Clamp(config.StrengthPercent, 0, 100),
+            MinimumStrengthPercent = Math.Clamp(config.MinimumStrengthPercent, 0, 100),
+            MinimumPulseMilliseconds = Math.Clamp(config.MinimumPulseMilliseconds, 0, 500)
+        });
+    }
+
+    internal static HapticOutputFrame Calibrate(HapticOutputFrame frame, HapticCapabilities capabilities,
+        RumbleCalibrationConfig calibration, bool bounded)
+    {
+        var gain = calibration.StrengthPercent / 100f;
+        frame = frame with
+        {
+            LowFrequency = frame.LowFrequency * gain,
+            HighFrequency = frame.HighFrequency * gain,
+            LeftTrigger = frame.LeftTrigger * gain,
+            RightTrigger = frame.RightTrigger * gain
+        };
+        frame = capabilities.Clamp(frame);
+        return bounded && !frame.IsSilent
+            ? FloorForMotors(frame, Math.Max(capabilities.MinimumStartIntensity,
+                calibration.MinimumStrengthPercent / 100f))
+            : frame;
+    }
+
+    /// <summary>One explicit, bounded test. Game feedback cannot extend or replace the preview.</summary>
+    internal async Task<bool> PreviewAsync(bool testFloor, CancellationToken cancellationToken)
+    {
+        await _sinkGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            long epoch;
+            long sequence;
+            HapticOutputFrame frame;
+            TimeSpan duration;
+            lock (_gate)
+            {
+                if (!CanPreview || _previewing)
+                {
+                    return false;
+                }
+
+                var calibration = Volatile.Read(ref _calibration);
+                var capabilities = _sink.Capabilities;
+                var intensity = testFloor
+                    ? Math.Max(calibration.MinimumStrengthPercent / 100f, capabilities.MinimumStartIntensity)
+                    : 0.25f;
+                frame = capabilities.Clamp(new HapticOutputFrame
+                {
+                    Timestamp = _timeProvider.GetUtcNow(), LowFrequency = intensity, HighFrequency = intensity
+                });
+                if (!testFloor)
+                {
+                    frame = Calibrate(frame, capabilities, calibration, true);
+                }
+
+                duration = TimeSpan.FromMilliseconds(Math.Max(1, calibration.MinimumPulseMilliseconds));
+                if (capabilities.MinimumPulse > duration)
+                {
+                    duration = capabilities.MinimumPulse;
+                }
+
+                ResetUnderGate();
+                _previewing = true;
+                epoch = _epoch;
+                sequence = ++_dispatchSequence;
+            }
+
+            try
+            {
+                await _sink.ApplyAsync(frame, cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                lock (_gate)
+                {
+                    ResetUnderGate();
+                }
+
+                await _sink.ApplyAsync(HapticOutputFrame.Stop(_timeProvider.GetUtcNow()), CancellationToken.None)
+                    .ConfigureAwait(false);
+                throw;
+            }
+
+            lock (_gate)
+            {
+                if (_epoch == epoch && !_disposed)
+                {
+                    _pulseSequence = sequence;
+                    _pulseDeadline = _timeProvider.GetUtcNow() + duration;
+                    _pulseStop.Change(duration, Timeout.InfiniteTimeSpan);
+                }
+            }
+
+            return true;
+        }
+        finally
+        {
+            _sinkGate.Release();
+        }
+    }
+
+    internal Task StopPreviewAsync()
+    {
+        lock (_gate)
+        {
+            if (!_previewing)
+            {
+                return Task.CompletedTask;
+            }
+        }
+
+        return StopAsync("calibration-preview", CancellationToken.None);
     }
 
     internal void Attach(ControllerTargetHandle target)
@@ -183,7 +331,7 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
     {
         lock (_gate)
         {
-            if (_disposed || _target is null || !_queue.Writer.TryWrite(output))
+            if (_disposed || _previewing || _target is null || !_queue.Writer.TryWrite(output))
             {
                 Interlocked.Increment(ref _droppedFrames);
             }
@@ -211,7 +359,8 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
             }
 
             var capabilities = _sink.Capabilities;
-            var frame = capabilities.Clamp(output.Frame);
+            var calibration = Volatile.Read(ref _calibration);
+            var frame = Calibrate(output.Frame, capabilities, calibration, output.StopAfter is not null);
             var stopAfter = output.StopAfter;
             if (stopAfter is not null && !frame.IsSilent)
             {
@@ -219,10 +368,15 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
                 // millisecond at one percent); the plugin's declared motor physics decide how
                 // that renders. Continuous rumble envelopes pass through untouched: flooring
                 // them would make every quiet scene buzz.
-                frame = FloorForMotors(frame, capabilities.MinimumStartIntensity);
                 if (capabilities.MinimumPulse > stopAfter)
                 {
                     stopAfter = capabilities.MinimumPulse;
+                }
+
+                var perceivedMinimum = TimeSpan.FromMilliseconds(calibration.MinimumPulseMilliseconds);
+                if (perceivedMinimum > stopAfter)
+                {
+                    stopAfter = perceivedMinimum;
                 }
             }
 
@@ -276,6 +430,7 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
                         if (stopAfter is { } pulse && _dispatchSequence == sequence && _epoch == epoch)
                         {
                             _pulseSequence = sequence;
+                            _pulseDeadline = _timeProvider.GetUtcNow() + pulse;
                             _pulseStop.Change(pulse, Timeout.InfiniteTimeSpan);
                         }
 
@@ -322,6 +477,16 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
                     {
                         return;
                     }
+                    // A callback queued for an older pulse must not shorten the current one.
+                    var remaining = _pulseDeadline - _timeProvider.GetUtcNow();
+                    if (remaining > TimeSpan.Zero)
+                    {
+                        _pulseStop.Change(remaining, Timeout.InfiniteTimeSpan);
+                        return;
+                    }
+
+                    _previewing = false;
+                    _pulseSequence = -1;
                 }
 
                 await _sink.ApplyAsync(HapticOutputFrame.Stop(_timeProvider.GetUtcNow()), _lifetime.Token)
@@ -356,6 +521,7 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
     private void ResetUnderGate()
     {
         _epoch++;
+        _previewing = false;
         _pulseSequence = -1;
         if (!_disposed)
         {

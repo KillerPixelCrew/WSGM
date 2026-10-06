@@ -851,20 +851,26 @@ text still being typed, are kept.
 Native-page discovery was checked against the installed Steam bundle. Rendering, navigation,
 hotplug, cross-surface writes and Stable/Beta behavior still require the maintainer's live pass.
 
-#### Rumble calibration feasibility
+#### Rumble calibration
 
-The Controller page currently adds device lighting. Per-user rumble calibration is feasible but has
-not been implemented. `HapticCapabilities.MinimumStartIntensity` and `MinimumPulse` describe the
-motors' hardware limits; they must remain separate from user comfort preferences.
-`ControllerOutputRouter.RunAsync` already floors and stretches bounded `StopAfter` effects while
-leaving continuous rumble untouched. A user gain and perceptual pulse floor can be applied there
-without changing device protocols. Device Lab's `WizardWindow.Rumble` has the weakest-feelable
-strength slider and 5/10/25/50/100/250/500 ms pulse choices, with motor zeroing in `finally`.
+Steam Controller settings stores overall strength (0–100%), minimum feelable pulse drive (0–100%)
+and minimum pulse duration (0–500 ms) in the per-user `AppConfig.RumbleCalibration`. Edits save
+through ConfigStore and apply to the existing controller output router immediately and on reload.
+The device's `HapticCapabilities.MinimumStartIntensity` and `MinimumPulse` remain actuator limits,
+separate from the user's perception settings.
 
-An implementation needs stored user preferences and one bounded preview owner that stops on page
-close, controller loss, CEF generation change and WSGM ownership release. Device Lab's attended
-motor tests are evidence about feasibility, not an automatically safe calibration page or a fresh
-hardware pass.
+Overall strength scales the requested channels before bounded-pulse flooring; zero stays silent. A
+nonzero bounded event uses the larger device/user floor and minimum duration. Continuous rumble is
+scaled without a floor or duration extension. Unsupported channels stay unsupported. Calibration
+changes no raw device protocol and adds no allocation or logging at feedback cadence.
+
+Test pulse drives the selected minimum directly, honoring the device minimum without applying gain.
+Preview sends a 25% reference event through the full calibration. Both are limited to 500 ms and use
+the router's existing serialized sink and timed stop. Repeated requests cannot extend a preview;
+game feedback is withheld while it runs. Stop, leaving Controller settings, CEF replacement,
+integration shutdown, controller detach and ownership cleanup retract preview output. Preview is
+available only when WSGM owns a managed controller's published motor output; preferences remain
+editable without hardware. Physical feel and motor-stop acceptance still require that device.
 
 ### Steam themes
 

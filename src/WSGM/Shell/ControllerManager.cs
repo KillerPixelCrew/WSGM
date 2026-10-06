@@ -143,6 +143,8 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// <summary>Current state of controller management.</summary>
     internal ControllerManagementState State => Volatile.Read(ref _status).State;
 
+    internal bool CanPreviewRumble => _router.Output.CanPreview;
+
     /// <summary>Targets the backend on this machine can create, once it has been discovered.</summary>
     /// <remarks>
     ///     Empty until controller management starts, which is also the only time a surface offers the
@@ -155,6 +157,21 @@ internal sealed class ControllerManager : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await DisposeAsync(Deadline.Never).ConfigureAwait(false);
+    }
+
+    internal void ApplyRumbleCalibration(RumbleCalibrationConfig config)
+    {
+        _router.Output.ApplyCalibration(config);
+    }
+
+    internal Task<bool> PreviewRumbleAsync(bool testFloor, CancellationToken token)
+    {
+        return _router.Output.PreviewAsync(testFloor, token);
+    }
+
+    internal Task StopRumblePreviewAsync()
+    {
+        return _router.Output.StopPreviewAsync();
     }
 
     internal static ControllerManager CreateProduction(string root, IPhysicalHapticSink hapticSink)

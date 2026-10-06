@@ -37,6 +37,12 @@ internal static class AppConfigRules
         diagnostics.AddRange(AnimationRules.Normalize(config.Animations));
         config.Sounds ??= new SoundsConfig();
         config.Sounds.Selected ??= string.Empty;
+        config.RumbleCalibration ??= new RumbleCalibrationConfig();
+        config.RumbleCalibration.StrengthPercent = Math.Clamp(config.RumbleCalibration.StrengthPercent, 0, 100);
+        config.RumbleCalibration.MinimumStrengthPercent =
+            Math.Clamp(config.RumbleCalibration.MinimumStrengthPercent, 0, 100);
+        config.RumbleCalibration.MinimumPulseMilliseconds =
+            Math.Clamp(config.RumbleCalibration.MinimumPulseMilliseconds, 0, 500);
         config.Cef ??= new CefConfig();
         config.Hotkey ??= new HotkeyConfig();
         config.GamepadChord ??= new GamepadChordConfig();

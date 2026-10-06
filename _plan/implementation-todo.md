@@ -37,9 +37,11 @@ native Sounds import/preview/activate/restore is awaiting the maintainer's manua
 package or controller is active here, so charge/TDP/AutoTDP/RGB and physical navigation remain
 unverified. Steam Beta and client-update/reload cases remain unverified; automated suites and the
 initial test-bearing gate remain deferred under the manual-first policy.
-Rumble calibration
-feasibility is documented under Native Steam Settings; user calibration is optional in issue 212
-and has not been implemented. All five issues retain their live acceptance gaps.
+The maintainer clarified that issue 212 requires implemented rumble calibration. Per-user strength,
+bounded-pulse floor/duration, output-path application and bounded previews with cleanup are now
+source-applied and Release compilation passed with zero warnings/errors. Deployment is being
+completed; physical feel/stop acceptance still requires a managed controller. All five
+issues retain the live acceptance gaps listed above.
 
 ## Active continuation, 2026-10-05 to 2026-10-06
 
