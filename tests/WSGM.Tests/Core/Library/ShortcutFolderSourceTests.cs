@@ -49,7 +49,8 @@ public sealed class ShortcutFolderSourceTests
 
     private static ShortcutFolderSource Source(LibraryFakeDisk disk, ShortcutFolderConfig? folder = null)
     {
-        folder ??= new ShortcutFolderConfig { Id = "folder:abc", Path = Folder };
+        folder ??= new ShortcutFolderConfig
+            { Id = "folder:abc", Root = new ManagedContentPath { AbsolutePath = Folder, Directory = true } };
         return new ShortcutFolderSource(
             folder, disk.DirectoryExists, disk.FileExists, disk.List, path => Links.GetValueOrDefault(path),
             disk.ReadText, Resolve);
@@ -80,7 +81,7 @@ public sealed class ShortcutFolderSourceTests
 
         var moonlit = Assert.Single(games["Moonlit.lnk"].CommandRoutes);
         Assert.Equal("Moonlit", games["Moonlit.lnk"].Name);
-        Assert.Equal("direct", moonlit.Id);
+        Assert.Equal("managed", moonlit.Id);
         Assert.Equal(@"C:\Games\Moonlit\moonlit.exe", moonlit.Target);
         Assert.Equal(@"C:\Games\Moonlit", moonlit.StartDirectory);
         Assert.Equal("-windowed", moonlit.LaunchOptions);
@@ -112,7 +113,11 @@ public sealed class ShortcutFolderSourceTests
     [Fact]
     public async Task SubfoldersAreLeftAloneWhenTheFolderSaysSo()
     {
-        var folder = new ShortcutFolderConfig { Id = "folder:abc", Path = Folder, IncludeSubfolders = false };
+        var folder = new ShortcutFolderConfig
+        {
+            Id = "folder:abc", Root = new ManagedContentPath { AbsolutePath = Folder, Directory = true },
+            IncludeSubfolders = false
+        };
 
         var games = await Source(Disk(), folder).DiscoverAsync([], CancellationToken.None);
 
@@ -123,7 +128,11 @@ public sealed class ShortcutFolderSourceTests
     [Fact]
     public async Task OnlyTheConfiguredFileTypesAreRead()
     {
-        var folder = new ShortcutFolderConfig { Id = "folder:abc", Path = Folder, Extensions = [".exe"] };
+        var folder = new ShortcutFolderConfig
+        {
+            Id = "folder:abc", Root = new ManagedContentPath { AbsolutePath = Folder, Directory = true },
+            Extensions = [".exe"]
+        };
 
         var games = await Source(Disk(), folder).DiscoverAsync([], CancellationToken.None);
 
@@ -133,7 +142,11 @@ public sealed class ShortcutFolderSourceTests
     [Fact]
     public async Task AMissingFolderIsReportedAndOffersNothing()
     {
-        var folder = new ShortcutFolderConfig { Id = "folder:gone", Path = @"D:\Nowhere\Shortcuts" };
+        var folder = new ShortcutFolderConfig
+        {
+            Id = "folder:gone",
+            Root = new ManagedContentPath { AbsolutePath = @"D:\Nowhere\Shortcuts", Directory = true }
+        };
         var source = Source(Disk(), folder);
 
         Assert.Equal(new SourceAvailability(false, "Folder missing"), source.Detect([]));
@@ -158,7 +171,10 @@ public sealed class ShortcutFolderSourceTests
         const string portal = @"D:\SteamLibrary\steamapps\common\Portal 2\portal2.exe";
         var disk = new LibraryFakeDisk().With(portal).With($@"{Folder}\Portal 2.lnk");
         var source = new ShortcutFolderSource(
-            new ShortcutFolderConfig { Id = "folder:abc", Path = Folder }, disk.DirectoryExists, disk.FileExists,
+            new ShortcutFolderConfig
+                { Id = "folder:abc", Root = new ManagedContentPath { AbsolutePath = Folder, Directory = true } },
+            disk.DirectoryExists,
+            disk.FileExists,
             disk.List, _ => new ShellLinkInfo(portal, "", ""), disk.ReadText, Resolve);
 
         Assert.Empty(await source.DiscoverAsync([], CancellationToken.None));

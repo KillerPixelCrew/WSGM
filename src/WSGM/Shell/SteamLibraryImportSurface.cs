@@ -7,7 +7,7 @@ using SteamUiToolkit;
 namespace WSGM.Shell;
 
 /// <summary>The Game Library's page inside Steam: one of its two surfaces.</summary>
-internal static class SteamLibraryImportSurface
+internal static partial class SteamLibraryImportSurface
 {
     /// <summary>The state and command namespace.</summary>
     public const string PatchId = "wsgm.library-import";
@@ -27,7 +27,9 @@ internal static class SteamLibraryImportSurface
         "scan", "cancel", "toggleEntry", "select", "setMode", "cycleLaunch", "exclude", "include", "details",
         "openArtwork", "apply", "setSourceEnabled", "setCollections", "addFolder", "removeFolder", "setRoute",
         "cycleArtwork",
-        "pickArtwork", "clearArtwork", "fillArtwork", "resetArtwork", "artworkOptions", "searchMatch", "setMatch"
+        "pickArtwork", "clearArtwork", "fillArtwork", "resetArtwork", "artworkOptions", "searchMatch", "setMatch",
+        "addRomSource", "removeRomSource", "addManualSource", "removeManualSource", "setRomEmulator", "setRomTitle",
+        "setCleanup", "recheckAvailability", "setRomArguments"
     ];
 
     /// <summary>Installs the import renderer and its state subscription.</summary>
@@ -129,7 +131,8 @@ internal static class SteamLibraryImportSurface
                 SteamUiModuleBuilder.Command<MatchRequest>(PatchId, "setMatch", TryReadMatch,
                     (request, token) => backend.SetMatchAsync(
                         request.Id, request.Provider, request.GameId, request.Name, token),
-                    "The match payload is invalid.")
+                    "The match payload is invalid."),
+                .. ManagedCommands(backend)
             ]);
     }
 

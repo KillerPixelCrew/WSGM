@@ -18,6 +18,15 @@ internal static class JsonRead
             : null;
     }
 
+    /// <summary>A boolean flag, false when absent or represented by another JSON type.</summary>
+    /// <param name="json">The object.</param>
+    /// <param name="property">The property's name.</param>
+    /// <returns>Whether the property is the JSON boolean true.</returns>
+    internal static bool Flag(JsonElement json, string property)
+    {
+        return json.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.True;
+    }
+
     /// <summary>A string property a manifest must carry.</summary>
     /// <param name="json">The object.</param>
     /// <param name="property">The property's name.</param>
@@ -70,8 +79,8 @@ internal static class JsonRead
     /// <returns>The address, or empty.</returns>
     internal static string HttpsUrl(string? value)
     {
-        return value is not null && value.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
-            ? value
+        return HttpUrls.IsHttps(value)
+            ? value!
             : string.Empty;
     }
 }

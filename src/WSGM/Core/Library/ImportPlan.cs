@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 
 namespace WSGM.Core;
@@ -57,6 +58,12 @@ public sealed class ImportedEntry
     /// <summary>Exactly the Launch Arguments that were written.</summary>
     public string LaunchOptions { get; set; } = "";
 
+    /// <summary>The exact working directory written to Steam, retained for edit detection.</summary>
+    public string StartDirectory { get; set; } = "";
+
+    /// <summary>The content and launch metadata resolved by the installed helper.</summary>
+    public ManagedContentRecord? Content { get; set; }
+
     /// <summary>Which input mode it was generated for: the packaged route's choice.</summary>
     public string Mode { get; set; } = "";
 
@@ -85,7 +92,9 @@ public sealed class ImportedEntry
 
     internal ImportedEntry Copy()
     {
-        return (ImportedEntry)MemberwiseClone();
+        var copy = (ImportedEntry)MemberwiseClone();
+        copy.Content = Content?.Copy();
+        return copy;
     }
 }
 
@@ -124,6 +133,21 @@ public sealed class ImportChoice
     /// <summary>The command route the user picked, or empty when they have not picked one.</summary>
     public string Route { get; set; } = "";
 
+    /// <summary>The title identification override kept across scans.</summary>
+    public string TitleName { get; set; } = "";
+
+    /// <summary>The per-title emulator installation choice; empty follows its source.</summary>
+    public string EmulatorInstallationId { get; set; } = "";
+
+    /// <summary>The per-title RetroArch core choice.</summary>
+    public string CoreId { get; set; } = "";
+
+    /// <summary>Whether the user explicitly selected shortcut cleanup.</summary>
+    public bool Cleanup { get; set; }
+
+    /// <summary>Per-title typed arguments; empty follows its source and emulator definition.</summary>
+    public List<string> Arguments { get; set; } = [];
+
     /// <summary>The artwork the user picked, one per artwork type at most.</summary>
     public List<ArtworkPick> Artwork { get; set; } = [];
 
@@ -136,12 +160,21 @@ public sealed class ImportChoice
     /// <summary>That game's name, as the provider calls it.</summary>
     public string MatchName { get; set; } = "";
 
+    internal ImportChoice Copy()
+    {
+        var copy = (ImportChoice)MemberwiseClone();
+        copy.Artwork = [.. Artwork];
+        copy.Arguments = [.. Arguments];
+        return copy;
+    }
+
     /// <summary>Whether this choice says anything at all, so an empty one can be dropped.</summary>
     /// <returns>True when nothing is left in it.</returns>
     public bool IsEmpty()
     {
         return Mode.Length == 0 && !Acknowledged && !Excluded && Route.Length == 0 && Artwork.Count == 0
-               && MatchId.Length == 0;
+               && MatchId.Length == 0 && TitleName.Length == 0 && EmulatorInstallationId.Length == 0
+               && CoreId.Length == 0 && !Cleanup && Arguments.Count == 0;
     }
 
     /// <summary>The picked mode, when there is one.</summary>
@@ -235,7 +268,14 @@ public enum ImportSourceState
 /// <param name="AppId">Its generated id.</param>
 /// <param name="Target">What it runs.</param>
 /// <param name="LaunchOptions">Its arguments.</param>
-public sealed record ExistingShortcut(uint AppId, string Target, string LaunchOptions);
+/// <param name="StartDirectory">Its authored working directory.</param>
+/// <param name="Name">Its current Steam display name.</param>
+public sealed record ExistingShortcut(
+    uint AppId,
+    string Target,
+    string LaunchOptions,
+    string StartDirectory = "",
+    string Name = "");
 
 /// <summary>Works out what a sync would do, without doing any of it.</summary>
 /// <remarks>
@@ -317,6 +357,15 @@ public static class ImportPlan
             records[(record.Source, record.Key)] = record;
         }
 
+        Dictionary<string, (string Source, string Key)> contentOwners = new(StringComparer.Ordinal);
+        foreach (var record in records.Values)
+        {
+            if (ContentIdentity(record.Content) is { } content)
+            {
+                contentOwners.TryAdd(content, (record.Source, record.Key));
+            }
+        }
+
         // A shortcut a record names belongs to that record's title. Offering it to another title as
         // an adoption would let one run adopt it and then delete it as the other title's removal.
         HashSet<uint> claimed = [.. records.Values.Where(record => record.AppId > 0).Select(record => record.AppId)];
@@ -332,6 +381,19 @@ public static class ImportPlan
             }
 
             var record = records.GetValueOrDefault((game.SourceId, game.Key));
+            if (ContentIdentity(game.Content) is { } contentIdentity)
+            {
+                if (contentOwners.TryGetValue(contentIdentity, out var owner)
+                    && !IdentityComparer.Instance.Equals(owner, (game.SourceId, game.Key)))
+                {
+                    plan.Add(new ImportPlanEntry(game.SourceId, game.Key, game.Name, ImportAction.Conflict,
+                        "This content and launch command are already owned by another configured source. Keep one source or explicitly clean up its old shortcut.",
+                        ImportMode.SteamIntegration, false, false, record?.AppId ?? 0, false, Route: "managed"));
+                    continue;
+                }
+
+                contentOwners[contentIdentity] = (game.SourceId, game.Key);
+            }
 
             // Something that is not a game is left out, unless WSGM already imported it: then it is
             // handled like any other title, because dropping it here would offer an installed
@@ -361,6 +423,15 @@ public static class ImportPlan
             }
 
             var state = sources?.Invoke(record.Source) ?? ImportSourceState.Read;
+            if (record.Content is
+                { SourceKind: LibrarySourceKind.Rom or LibrarySourceKind.Folder or LibrarySourceKind.Manual })
+            {
+                plan.Add(Removal(record, ImportAction.Skip,
+                    "This source did not report the title. Its shortcut and artwork stay in your library; select cleanup only to remove it.",
+                    false));
+                continue;
+            }
+
             if (state is ImportSourceState.Unread)
             {
                 continue;
@@ -397,6 +468,26 @@ public static class ImportPlan
         return plan;
     }
 
+    private static string? ContentIdentity(ManagedContentRecord? content)
+    {
+        if (content is null || content.SourceKind == LibrarySourceKind.Launcher)
+        {
+            return null;
+        }
+
+        static string PathKey(ManagedContentPath path)
+        {
+            return (path.VolumeId.Length > 0
+                ? path.VolumeId + "\u001f" + path.RelativePath
+                : path.AbsolutePath).ToUpperInvariant();
+        }
+
+        var backing = PathKey(content.BackingPath);
+        return content.SourceKind == LibrarySourceKind.Rom
+            ? "rom\u001f" + EmulatorStorage.NormalizeSystemId(content.SystemId) + "\u001f" + backing
+            : "command\u001f" + backing + "\u001f" + PathKey(content.Program) + "\u001f" + content.RawArguments;
+    }
+
     /// <summary>Whether a live shortcut is one WSGM created for a discovered title.</summary>
     /// <param name="shortcut">The shortcut Steam reports.</param>
     /// <param name="game">The title.</param>
@@ -426,7 +517,8 @@ public static class ImportPlan
     {
         ArgumentNullException.ThrowIfNull(shortcut);
         ArgumentNullException.ThrowIfNull(record);
-        return CommandShortcut.Same(shortcut, record.Target, record.LaunchOptions);
+        return CommandShortcut.Same(shortcut, record.Target, record.LaunchOptions)
+               && CommandShortcut.SameFolder(shortcut.StartDirectory, record.StartDirectory);
     }
 
 
@@ -555,18 +647,22 @@ public static class ImportPlan
                 : Command(ImportAction.Skip, AlreadyImported, record.AppId, false, recordedRoute);
         }
 
-        foreach (var shortcut in context.Unclaimed)
+        var matches = context.CommandMatches(game.CommandRoutes);
+        foreach (var match in matches.Where(match => match.FolderAgrees && !context.IsClaimed(match.Shortcut.AppId)))
         {
-            if (CommandShortcut.RouteOf(shortcut, game.CommandRoutes, context.LauncherTarget) is { } adopted)
-            {
-                return Command(ImportAction.Adopt, AlreadyInSteam, shortcut.AppId, true, adopted.Id);
-            }
+            return Command(ImportAction.Adopt, AlreadyInSteam, match.Shortcut.AppId, true, match.Route.Id);
         }
 
-        if (context.Claimed.Any(shortcut =>
-                CommandShortcut.RouteOf(shortcut, game.CommandRoutes, context.LauncherTarget) is not null))
+        if (matches.Any(match => match.FolderAgrees && context.IsClaimed(match.Shortcut.AppId)))
         {
             return Command(ImportAction.Add, ClaimedByAnotherTitle, 0, true, fallback);
+        }
+
+        foreach (var match in matches.Where(match => !match.FolderAgrees && !context.IsClaimed(match.Shortcut.AppId)))
+        {
+            return Command(ImportAction.Conflict,
+                "An existing shortcut has a different working directory and is left alone.", match.Shortcut.AppId,
+                false, match.Route.Id);
         }
 
         if (record is { ConfirmedUtc.Length: 0 })
@@ -621,6 +717,13 @@ public static class ImportPlan
         ImportMode defaultMode,
         bool includeUnroutable)
     {
+        private readonly Dictionary<(string Program, string Arguments), List<ExistingShortcut>> _commands =
+            IndexCommands(existing);
+
+        private readonly
+            Dictionary<(string Program, string Arguments, string Directory, string Marker), List<ExistingShortcut>>
+            _follow = IndexFollow(existing);
+
         internal IReadOnlyDictionary<uint, ExistingShortcut> ById { get; } = byId;
 
         /// <summary>The shortcuts no record names, which are the only ones a title may adopt.</summary>
@@ -637,6 +740,99 @@ public static class ImportPlan
         internal void Claim(uint appId)
         {
             claimed.Add(appId);
+        }
+
+        internal bool IsClaimed(uint appId)
+        {
+            return claimed.Contains(appId);
+        }
+
+        internal List<(ExistingShortcut Shortcut, ShortcutRoute Route, bool FolderAgrees)> CommandMatches(
+            IReadOnlyList<ShortcutRoute> routes)
+        {
+            List<(ExistingShortcut, ShortcutRoute, bool)> result = [];
+            foreach (var route in routes)
+            {
+                if (!CommandShortcut.TryCompose(route, LauncherTarget, out var fields, out _))
+                {
+                    continue;
+                }
+
+                var matches = !route.Follows || route.IsManaged
+                    ? _commands.GetValueOrDefault((Program(fields.Target), fields.LaunchOptions.Trim()))
+                    : _follow.GetValueOrDefault((Program(route.Target), route.LaunchOptions.Trim(),
+                        Folder(route.FollowDirectory), Folder(route.FollowMarker)));
+                if (matches is null)
+                {
+                    continue;
+                }
+
+                foreach (var shortcut in matches)
+                {
+                    if (route.Follows && !route.IsManaged &&
+                        !CommandShortcut.SameProgram(shortcut.Target, fields.Target))
+                    {
+                        continue;
+                    }
+
+                    result.Add((shortcut, route,
+                        CommandShortcut.SameFolder(shortcut.StartDirectory, fields.StartDirectory)));
+                }
+            }
+
+            return result;
+        }
+
+        private static Dictionary<(string, string), List<ExistingShortcut>> IndexCommands(
+            IReadOnlyList<ExistingShortcut> shortcuts)
+        {
+            Dictionary<(string, string), List<ExistingShortcut>> result = [];
+            foreach (var shortcut in shortcuts)
+            {
+                var key = (Program(shortcut.Target), shortcut.LaunchOptions.Trim());
+                if (!result.TryGetValue(key, out var matches))
+                {
+                    result[key] = matches = [];
+                }
+
+                matches.Add(shortcut);
+            }
+
+            return result;
+        }
+
+        private static Dictionary<(string, string, string, string), List<ExistingShortcut>> IndexFollow(
+            IReadOnlyList<ExistingShortcut> shortcuts)
+        {
+            Dictionary<(string, string, string, string), List<ExistingShortcut>> result = [];
+            foreach (var shortcut in shortcuts)
+            {
+                if (!PackagedLaunchCommand.TryParseFollow(shortcut.LaunchOptions.Trim(), out var request, out _))
+                {
+                    continue;
+                }
+
+                var key = (Program(request.Program), request.Arguments.Trim(), Folder(request.Directory),
+                    Folder(request.Marker));
+                if (!result.TryGetValue(key, out var matches))
+                {
+                    result[key] = matches = [];
+                }
+
+                matches.Add(shortcut);
+            }
+
+            return result;
+        }
+
+        private static string Program(string value)
+        {
+            return value.Trim().Trim('"').ToUpperInvariant();
+        }
+
+        private static string Folder(string value)
+        {
+            return Path.TrimEndingDirectorySeparator(value.Trim().Trim('"')).ToUpperInvariant();
         }
     }
 

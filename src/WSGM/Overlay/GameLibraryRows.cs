@@ -19,12 +19,22 @@ internal static class GameLibraryRows
     internal static string Describe(GameLibraryEntry entry)
     {
         List<string> parts = [entry.ActionLabel, entry.LaunchLabel];
+        if (IsUnavailable(entry))
+        {
+            parts.Add(entry.AvailabilityLabel);
+        }
+
         if (entry.Selected)
         {
             parts.Insert(0, "Selected");
         }
 
         return string.Join(" · ", parts);
+    }
+
+    internal static bool IsUnavailable(GameLibraryEntry entry)
+    {
+        return entry.Unavailable;
     }
 
     /// <summary>Whether a title is already in Steam as an entry the library manages.</summary>
@@ -70,8 +80,8 @@ internal static class GameLibraryRows
         }
 
         var found = source.Count >= 0 ? $" · {source.Count} found" : string.Empty;
-        return (source.Enabled ? "On" : "Off") + found
-                                               + (source.Kind == GameLibrarySourceKinds.Folder
+        return (source.Checked ? "On" : "Off") + found
+                                               + (source.Kind == LibrarySourceKind.Folder
                                                    ? $" · {source.Detail}"
                                                    : string.Empty);
     }

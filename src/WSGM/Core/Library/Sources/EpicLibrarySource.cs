@@ -205,7 +205,7 @@ public sealed class EpicLibrarySource : ILibrarySource
             var name = manifest.DisplayName.Length > 0
                 ? manifest.DisplayName
                 : Path.GetFileName(location);
-            var game = DiscoveredGame.Command(Id, manifest.AppName, name, location, routes);
+            var game = DiscoveredGame.Command(this, manifest.AppName, name, location, routes);
 
             // Some machines carry two manifests for one game from different locations. The installed
             // list is the one to believe, as Playnite does.

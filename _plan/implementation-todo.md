@@ -1011,3 +1011,43 @@ Handoff: `Z:\WSGM-Setup-2.1.0.exe`, file version `2.1.0.1540`, built from `08598
 setup matches the build output by SHA-256. Release compilation had zero warnings and errors;
 isolated Overlay previews were reviewed. Application tests, the full gate and UI baseline refresh
 remain deferred until the maintainer reports a manual pass.
+
+## ROM import, emulator management and availability, 2026-10-06
+
+- [x] Implement ROM/manual sources, dynamic core systems, previews, per-source/title overrides,
+      preserved identities and explicit cleanup alongside the launcher sources.
+- [x] Implement RetroArch with all published Windows cores, DuckStation, RPCS3, PCSX2, Eden and
+      Dolphin with metadata providers, staged updates, rollback, external ownership and setup.
+- [x] Resolve managed launches from stable content/emulator ids and expected volumes; retain Steam
+      AppId, artwork and collections through remounts and emulator updates.
+- [x] Expose the workflows in both Overlay and Steam CEF, including source setup, artwork, defaults,
+      prerequisites, per-title changes, previews and recheck.
+- [x] Add event-driven availability, affected-path checks, bounded remote probes, eject suspension
+      and reactive unavailable badges/cards/details.
+- [x] Warning-free Release solution build, Steam asset drift, Prettier and guidance checks; app and
+      launchers staged in `publish/rom-emulator-dev/App` with SHA-256 receipts in `manifest.json`.
+- [x] Deploy with backup after authorized graceful WSGM/Steam shutdown; restart original modes and
+      confirm installed app/helper/toolkit/dependency hashes match the staged package.
+- [ ] Maintainer manual pass, then focused tests and affected UI baselines.
+
+The maintainer authorized committing and pushing all outstanding work on 2026-10-07. Existing
+review findings remain recorded in reports/Open issues 2026-10-07.md.
+
+The combined review corrections are tracked in reports/Uncommitted review fixes 2026-10-06.md.
+The final setup rebuild includes all six current plugins and the RSR/AFMF native-call crash fix.
+Focused regressions passed (178), as did all 18 emitted Steam checks and module discovery. Scoped
+Rider cleanup and the warning-free Release build passed. Full manual emulator/media/Ally X acceptance
+and the full solution test/coverage gate remain deferred.
+
+Rider Full Cleanup crashed during final edits and was stopped. Its corrupted importer spans were
+repaired from the verified implementation; the subsequent Release build passed with zero warnings
+and errors. Test execution and live Steam/emulator/storage acceptance remain deferred.
+
+## SD-card tabs and badges, 2026-10-07
+
+The affected log showed repeated failed boot syncs; their 65-second CEF deadline exceeded the
+transport's 30-second operation bound. Readiness now uses 25-second in-page waits and 30-second requests within the
+existing 60-second overall allowance. Card discovery is saved and badge state published before
+waiting for tab readiness, including for cards inserted with existing games. Regression tests
+cover the request bound, readiness across successive waits and cancellation; execution awaits the
+maintainer's manual pass.

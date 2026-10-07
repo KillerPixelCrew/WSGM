@@ -145,7 +145,9 @@ $payloadController = "$payload\Controller"
 New-Item -ItemType Directory -Path $payloadApp, $payloadController | Out-Null
 $appFiles = @(
     "WSGM.exe", "WSGM.deps.json", "WSGM.runtimeconfig.json", "WSGM.Launch.exe",
+    "WSGM.Launch.deps.json", "WSGM.Launch.runtimeconfig.json",
     "WSGM.PackagedLaunch.exe", "WsgmUwpBridge.dll", "MinHook-LICENSE.txt", "WSGM.LogonService.exe",
+    "WSGM.PackagedLaunch.deps.json", "WSGM.PackagedLaunch.runtimeconfig.json", "SharpCompress-LICENSE.txt",
     "LICENSE.txt", "LoadingIndicators.Avalonia-UNLICENSE.txt", "Avalonia.Labs-MIT.txt",
     "Avalonia.LiveBackdrop.ThirdParty.txt", "WebView2-LICENSE.txt", "WebView2-NOTICE.txt",
     "Microsoft.Data.Sqlite-MIT.txt", "SQLitePCLRaw-Apache-2.0.txt",

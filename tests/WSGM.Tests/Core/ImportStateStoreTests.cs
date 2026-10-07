@@ -218,6 +218,59 @@ public sealed class ImportStateStoreTests
         Assert.Equal(nameof(ImportMode.SteamIntegration), entry.Mode);
     }
 
+    [Theory]
+    [InlineData(ManagedContentAvailability.Available, ManagedContentAvailability.ContentMissing)]
+    [InlineData(ManagedContentAvailability.EmulatorUnavailable, ManagedContentAvailability.Available)]
+    public void ACheckOfAnOldLaunchCannotReplaceTheEditedTitlesLatestAvailability(
+        ManagedContentAvailability latest, ManagedContentAvailability stale)
+    {
+        using TemporaryDirectory temporary = new();
+        var path = temporary.GetPath("library-import.json");
+        ImportStateStore store = new(path);
+        ImportedEntry record = new()
+        {
+            Source = "manual", Key = "authored", Name = "Game", AppId = 42,
+            Target = "helper", Mode = nameof(ImportMode.SteamIntegration),
+            Content = new ManagedContentRecord
+            {
+                Id = "0123456789abcdef0123456789abcdef", SourceId = "manual", SourceKey = "authored",
+                Name = "Game", SourceKind = LibrarySourceKind.Manual,
+                BackingPath = new ManagedContentPath { AbsolutePath = temporary.GetPath("content.rom") },
+                Program = new ManagedContentPath { AbsolutePath = temporary.GetPath("before.exe") },
+                WorkingDirectory = new ManagedContentPath { AbsolutePath = temporary.Root, Directory = true },
+                RawArguments = "--before"
+            }
+        };
+        store.Save(record);
+        var inspected = Assert.Single(store.Entries()).Content!;
+        var edited = record.Copy();
+        edited.Content!.Program.AbsolutePath = temporary.GetPath("after.exe");
+        edited.Content.RawArguments = "--after";
+        edited.Content.Availability = latest;
+        edited.Content.AvailabilityDetail = "Latest edited observation";
+        store.Save(edited);
+        var written = File.ReadAllText(path);
+
+        store.UpdateAvailability(new Dictionary<string, ManagedContentCheck>
+        {
+            [inspected.Id] = new(stale, "Stale observation")
+        }, new Dictionary<string, ManagedContentRecord> { [inspected.Id] = inspected });
+
+        var retained = Assert.Single(store.Entries()).Content!;
+        Assert.Equal(latest, retained.Availability);
+        Assert.Equal("Latest edited observation", retained.AvailabilityDetail);
+        Assert.Equal(edited.Content.Program.AbsolutePath, retained.Program.AbsolutePath);
+        Assert.Equal("--after", retained.RawArguments);
+        Assert.Equal(written, File.ReadAllText(path));
+        Assert.Equal(latest, Assert.Single(new ImportStateStore(path).Entries()).Content!.Availability);
+
+        store.UpdateAvailability(new Dictionary<string, ManagedContentCheck>
+        {
+            [retained.Id] = new(stale, "Current launch observation")
+        }, new Dictionary<string, ManagedContentRecord> { [retained.Id] = retained });
+        Assert.Equal(stale, Assert.Single(store.Entries()).Content!.Availability);
+    }
+
     [Fact]
     public void AChoiceSurvivesAReload()
     {

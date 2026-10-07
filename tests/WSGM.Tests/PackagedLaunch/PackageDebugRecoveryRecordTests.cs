@@ -1,4 +1,5 @@
-using WSGM.PackagedLaunch;
+extern alias packagedLaunch;
+using packagedLaunch::WSGM.PackagedLaunch;
 using WSGM.Testing;
 
 namespace WSGM.Tests.PackagedLaunch;

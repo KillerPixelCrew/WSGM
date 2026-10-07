@@ -201,8 +201,7 @@ public sealed class AmazonLibrarySource : ILibrarySource
             List<ShortcutRoute> routes = [.. ordered.OfType<ShortcutRoute>()];
             if (routes.Count > 0)
             {
-                found.Add(DiscoveredGame.Command(
-                    Id,
+                found.Add(DiscoveredGame.Command(this,
                     install.Id,
                     install.ProductTitle.Length > 0 ? install.ProductTitle : Path.GetFileName(folder),
                     folder,

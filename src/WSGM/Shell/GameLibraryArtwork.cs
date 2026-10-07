@@ -59,12 +59,20 @@ internal readonly record struct GameLibraryArtworkProgress(
 /// <param name="Catalog">The images the title's own source offered.</param>
 /// <param name="CatalogName">What to call that source's images, such as "Microsoft Store".</param>
 /// <param name="Match">The game the user matched the title to, or null for the automatic match.</param>
+/// <param name="PreferredProviderId">The source-appropriate provider searched before successful-empty fallback.</param>
+/// <param name="PlatformId">The authoritative provider system identity, or zero when unmapped.</param>
+/// <param name="RomName">The original backing filename used for ROM identification.</param>
+/// <param name="RomSize">The observed backing file size, or zero when unavailable.</param>
 internal sealed record GameLibraryArtworkRequest(
     string Id,
     string Name,
     IReadOnlyList<DiscoveredArtwork> Catalog,
     string CatalogName,
-    ArtworkGameMatch? Match);
+    ArtworkGameMatch? Match,
+    string PreferredProviderId = "steamgriddb",
+    int PlatformId = 0,
+    string RomName = "",
+    long RomSize = 0);
 
 /// <summary>The artwork providers as the Game Library asks them.</summary>
 internal interface IGameLibraryArtworkProviders
@@ -75,10 +83,14 @@ internal interface IGameLibraryArtworkProviders
     /// <summary>A value that changes whenever what the providers can answer might have: keys, accounts, switches.</summary>
     string Signature();
 
+    string? PauseReason(string providerId)
+    {
+        return null;
+    }
+
     /// <summary>The automatic match: the first provider, in preference order, that knows the title.</summary>
-    /// <exception cref="ArtworkProviderException">A provider that should have been asked could not be.</exception>
-    Task<ArtworkGameMatch?> FindMatchAsync(
-        string name, IReadOnlyCollection<string> skip, CancellationToken cancellationToken);
+    Task<ArtworkGameMatch?> FindMatchAsync(GameLibraryArtworkRequest request, IReadOnlyCollection<string> skip,
+        CancellationToken cancellationToken);
 
     /// <summary>Every ready provider's matches together, for the user fixing a match.</summary>
     Task<IReadOnlyList<ArtworkGameMatch>> SearchAsync(string term, CancellationToken cancellationToken);
@@ -112,11 +124,17 @@ internal sealed class ArtworkSearchProviders(Func<ArtworkConfig> config) : IGame
         return config().ProviderSignature();
     }
 
-    /// <inheritdoc />
-    public Task<ArtworkGameMatch?> FindMatchAsync(
-        string name, IReadOnlyCollection<string> skip, CancellationToken cancellationToken)
+    public string? PauseReason(string providerId)
     {
-        return ArtworkSearch.FindMatchAsync(name, config(), skip, cancellationToken);
+        return ArtworkSearch.Find(providerId)?.PauseReason;
+    }
+
+    public Task<ArtworkGameMatch?> FindMatchAsync(GameLibraryArtworkRequest request, IReadOnlyCollection<string> skip,
+        CancellationToken cancellationToken)
+    {
+        return ArtworkSearch.FindMatchAsync(
+            new ArtworkGameQuery(request.Name, request.PlatformId, request.RomName, request.RomSize),
+            config(), skip, cancellationToken, request.PreferredProviderId);
     }
 
     /// <inheritdoc />
@@ -144,10 +162,13 @@ internal sealed class ArtworkSearchProviders(Func<ArtworkConfig> config) : IGame
 ///         match being fixed is answered first. A title a surface asks for moves to the front.
 ///     </para>
 ///     <para>
-///         The automatic match asks the providers in preference order (<see cref="ArtworkSearch.FindMatchAsync" />):
+///         The automatic match asks the providers in preference order (
+///         <see cref="ArtworkSearch" />
+///         ):
 ///         SteamGridDB, then Screenscraper only when SteamGridDB does not know the title or its game there
-///         has no images. A provider that could not be asked stops the match there and shows as a
-///         failure; it is never read as "no artwork". Fixing a match searches every provider at once and
+///         has no images. A provider that could not be asked gives way to the next provider and shows
+///         as a failure when none answers; it is never read as "no artwork". Fixing a match searches every provider at
+///         once and
 ///         lets the user pick.
 ///     </para>
 ///     <para>
@@ -169,11 +190,14 @@ internal sealed class GameLibraryArtwork : IDisposable
     /// </remarks>
     private const int Concurrency = 3;
 
+
     /// <summary>The artwork types, in the order the surfaces show them.</summary>
     internal static readonly ArtworkAsset[] Assets =
     [
         .. ArtworkAssetNames.Ordered.Select(slot => slot.Asset)
     ];
+
+    private readonly HashSet<string> _active = new(StringComparer.Ordinal);
 
     private readonly Lock _gate = new();
     private readonly IGameLibraryArtworkProviders _providers;
@@ -213,15 +237,20 @@ internal sealed class GameLibraryArtwork : IDisposable
         }
 
         _shutdown.Cancel();
-        _ = Task.WhenAll(workers).ContinueWith(
-            _ =>
-            {
-                _shutdown.Dispose();
-                _wake.Dispose();
-            },
-            CancellationToken.None,
-            TaskContinuationOptions.ExecuteSynchronously,
-            TaskScheduler.Default);
+        _ = DisposeWorkersAsync(workers);
+    }
+
+    private async Task DisposeWorkersAsync(Task[] workers)
+    {
+        try
+        {
+            await Task.WhenAll(workers).ConfigureAwait(false);
+        }
+        finally
+        {
+            _shutdown.Dispose();
+            _wake.Dispose();
+        }
     }
 
     /// <summary>Raised when a title's candidates or status changed.</summary>
@@ -238,33 +267,29 @@ internal sealed class GameLibraryArtwork : IDisposable
                 return;
             }
 
-            Dictionary<string, Title> kept = new(StringComparer.Ordinal);
+            _active.Clear();
             _queue.Clear();
             foreach (var request in requests)
             {
+                _active.Add(request.Id);
                 if (_titles.TryGetValue(request.Id, out var known) && known.Matches(request))
                 {
                     known.Replace(request);
-                    kept[request.Id] = known;
+                    if (known.PausedProvider is { } provider && _providers.PauseReason(provider) is null)
+                    {
+                        known.Restart();
+                    }
 
-                    // A title a worker is gathering right now finishes there; queuing it again would
-                    // ask the providers twice for it.
-                    if (known.Status is GameLibraryArtworkStatus.Pending)
+                    if (known.Status == GameLibraryArtworkStatus.Pending)
                     {
                         _queue.Add(request.Id);
                     }
-
-                    continue;
                 }
-
-                kept[request.Id] = new Title(request);
-                _queue.Add(request.Id);
-            }
-
-            _titles.Clear();
-            foreach (var (id, title) in kept)
-            {
-                _titles[id] = title;
+                else
+                {
+                    _titles[request.Id] = new Title(request);
+                    _queue.Add(request.Id);
+                }
             }
 
             StartWorkers();
@@ -292,12 +317,12 @@ internal sealed class GameLibraryArtwork : IDisposable
 
             _signature = signature;
 
-            foreach (var (id, title) in _titles)
+            foreach (var (id, title) in _titles.Where(pair => _active.Contains(pair.Key)).ToArray())
             {
-                if (title.Status is GameLibraryArtworkStatus.Failed or GameLibraryArtworkStatus.NotFound
-                    or GameLibraryArtworkStatus.Unavailable)
+                if (title.Status is not GameLibraryArtworkStatus.Ready)
                 {
-                    title.Restart();
+                    _titles[id] = new Title(title.Request);
+                    _queue.Remove(id);
                     _queue.Add(id);
                 }
             }
@@ -436,6 +461,7 @@ internal sealed class GameLibraryArtwork : IDisposable
         {
             Title? next = null;
             var more = false;
+            var pausedAny = false;
             lock (_gate)
             {
                 while (_queue.Count > 0 && next is null)
@@ -444,12 +470,25 @@ internal sealed class GameLibraryArtwork : IDisposable
                     _queue.RemoveAt(0);
                     if (_titles.TryGetValue(id, out var title) && title.Status is GameLibraryArtworkStatus.Pending)
                     {
+                        var provider = title.Request.Match?.ProviderId ?? title.Request.PreferredProviderId;
+                        if (title.Request.Match is not null && _providers.PauseReason(provider) is { } paused)
+                        {
+                            title.Pause(provider, paused);
+                            pausedAny = true;
+                            continue;
+                        }
+
                         title.Status = GameLibraryArtworkStatus.Loading;
                         next = title;
                     }
                 }
 
                 more = _queue.Count > 0;
+            }
+
+            if (pausedAny)
+            {
+                Raise();
             }
 
             // One release wakes one worker. Passing the wake on while the queue still has work is
@@ -490,8 +529,19 @@ internal sealed class GameLibraryArtwork : IDisposable
 
             lock (_gate)
             {
+                if (_disposed || !_titles.TryGetValue(next.Request.Id, out var current) ||
+                    !ReferenceEquals(current, next))
+                {
+                    continue;
+                }
+
                 next.Finish(result, _providers.Unavailable());
+                if (next.Status != GameLibraryArtworkStatus.Ready && result.PausedProvider is { } pausedProvider)
+                {
+                    next.Pause(pausedProvider, result.Failure!);
+                }
             }
+
 
             // Once per title, after all five types are in: a change per type made seven full
             // publications of the whole library for every title.
@@ -505,6 +555,8 @@ internal sealed class GameLibraryArtwork : IDisposable
         var fixedMatch = request.Match;
         List<string> skip = [];
         string? failure = null;
+        string? pausedProvider = null;
+        var answered = false;
         while (true)
         {
             ArtworkGameMatch? match;
@@ -516,18 +568,24 @@ internal sealed class GameLibraryArtwork : IDisposable
             {
                 try
                 {
-                    match = await _providers.FindMatchAsync(request.Name, skip, cancellationToken)
+                    match = await _providers.FindMatchAsync(request, skip, cancellationToken)
                         .ConfigureAwait(false);
                 }
                 catch (ArtworkProviderException ex)
                 {
-                    return GatherResult.Nothing(ex.Message);
+                    if (ex.Paused)
+                    {
+                        return GatherResult.Nothing(answered ? null : ex.Message, answered ? null : ex.ProviderId);
+                    }
+
+                    return GatherResult.Nothing(answered ? null : failure ?? ex.Message,
+                        answered ? null : pausedProvider);
                 }
             }
 
             if (match is null)
             {
-                return GatherResult.Nothing(failure);
+                return GatherResult.Nothing(answered ? null : failure, answered ? null : pausedProvider);
             }
 
             // The five types go out together; the provider paces its own requests behind its gate.
@@ -535,20 +593,22 @@ internal sealed class GameLibraryArtwork : IDisposable
                     (Asset: asset, Result: await _providers.FetchAsync(asset, match, cancellationToken)
                         .ConfigureAwait(false))))
                 .ConfigureAwait(false);
-            failure ??= fetched.SelectMany(entry => entry.Result.Outcomes)
-                .Select(outcome => outcome.Failure)
-                .FirstOrDefault(message => message is not null);
-
+            answered |= fetched.Any(entry => !entry.Result.NoProviderAnswered);
+            var failed = fetched.SelectMany(entry => entry.Result.Outcomes)
+                .FirstOrDefault(outcome => outcome.Failure is not null);
+            var failedProvider = failed is { ProviderId.Length: > 0 } ? failed.ProviderId : match.ProviderId;
+            failure ??= failed?.Failure;
             Dictionary<ArtworkAsset, IReadOnlyList<GameLibraryArtworkOption>> found = [];
             foreach (var (asset, result) in fetched)
             {
                 found[asset] =
                 [
                     .. result.Candidates
-                        .Where(candidate => !candidate.Animated && !candidate.Nsfw && IsHttps(candidate.Url))
+                        .Where(candidate =>
+                            !candidate.Animated && !candidate.Nsfw && HttpUrls.IsHttps(candidate.Url))
                         .Select(candidate => new GameLibraryArtworkOption(
                             candidate.Url,
-                            IsHttps(candidate.Thumb) ? candidate.Thumb : candidate.Url,
+                            HttpUrls.IsHttps(candidate.Thumb) ? candidate.Thumb : candidate.Url,
                             candidate.ProviderName.Length > 0 ? candidate.ProviderName : match.ProviderId,
                             false,
                             candidate.Width,
@@ -558,34 +618,41 @@ internal sealed class GameLibraryArtwork : IDisposable
 
             // A match the user fixed is theirs, images or not. An automatic match whose game has no
             // images gives way to the next provider, which may know the same title with art.
-            if (fixedMatch is not null || found.Values.Any(options => options.Count > 0) || failure is not null)
+            var pausedReason = _providers.PauseReason(failedProvider);
+            if (fixedMatch is not null || found.Values.Any(options => options.Count > 0))
             {
-                return new GatherResult(found, match.Name, failure);
+                var stopped = failed is not null || !found.Values.Any(options => options.Count > 0);
+                return new GatherResult(found, match.Name, failed?.Failure ?? (stopped ? pausedReason : null),
+                    stopped && pausedReason is not null ? failedProvider : null);
+            }
+
+            if (pausedReason is not null)
+            {
+                failure = pausedReason;
+                pausedProvider = failedProvider;
             }
 
             skip.Add(match.ProviderId);
         }
     }
 
-    private static bool IsHttps(string url)
-    {
-        return Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps;
-    }
-
     /// <summary>What one gathering found.</summary>
     /// <param name="Found">The providers' candidates by type.</param>
     /// <param name="MatchName">The game they belong to, or empty.</param>
     /// <param name="Failure">Why a provider could not be asked, or null.</param>
+    /// <param name="PausedProvider">The provider waiting for corrected credentials or a reset allowance, or null.</param>
     private sealed record GatherResult(
         IReadOnlyDictionary<ArtworkAsset, IReadOnlyList<GameLibraryArtworkOption>> Found,
         string MatchName,
-        string? Failure)
+        string? Failure,
+        string? PausedProvider = null)
     {
         /// <summary>Nothing found: no game, or a failure before any image was asked for.</summary>
-        internal static GatherResult Nothing(string? failure)
+        internal static GatherResult Nothing(string? failure, string? pausedProvider = null)
         {
             return new GatherResult(
-                new Dictionary<ArtworkAsset, IReadOnlyList<GameLibraryArtworkOption>>(), string.Empty, failure);
+                new Dictionary<ArtworkAsset, IReadOnlyList<GameLibraryArtworkOption>>(), string.Empty, failure,
+                pausedProvider);
         }
     }
 
@@ -600,10 +667,15 @@ internal sealed class GameLibraryArtwork : IDisposable
         internal GameLibraryArtworkStatus Status { get; set; } = GameLibraryArtworkStatus.Pending;
         internal string Detail { get; private set; } = string.Empty;
         internal string MatchName { get; private set; } = string.Empty;
+        internal string? PausedProvider { get; private set; }
 
         internal bool Matches(GameLibraryArtworkRequest other)
         {
-            return string.Equals(Request.Name, other.Name, StringComparison.Ordinal)
+            return Request.Name == other.Name
+                   && Request.PreferredProviderId == other.PreferredProviderId
+                   && Request.PlatformId == other.PlatformId
+                   && Request.RomName == other.RomName
+                   && Request.RomSize == other.RomSize
                    && Equals(Request.Match, other.Match);
         }
 
@@ -618,6 +690,14 @@ internal sealed class GameLibraryArtwork : IDisposable
         {
             Status = GameLibraryArtworkStatus.Pending;
             Detail = string.Empty;
+            PausedProvider = null;
+        }
+
+        internal void Pause(string providerId, string reason)
+        {
+            Status = GameLibraryArtworkStatus.Failed;
+            Detail = reason;
+            PausedProvider = providerId;
         }
 
         internal void Finish(GatherResult result, string? unavailable)
@@ -649,7 +729,7 @@ internal sealed class GameLibraryArtwork : IDisposable
             List<GameLibraryArtworkOption> options = [];
             foreach (var image in Request.Catalog)
             {
-                if (image.Asset == asset && IsHttps(image.Url) && seen.Add(image.Url))
+                if (image.Asset == asset && HttpUrls.IsHttps(image.Url) && seen.Add(image.Url))
                 {
                     options.Add(new GameLibraryArtworkOption(image.Url, image.Url, Request.CatalogName, true, 0, 0));
                 }

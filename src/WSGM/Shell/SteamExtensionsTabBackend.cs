@@ -32,7 +32,14 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
     /// <summary>The action that opens the importer.</summary>
     internal const string ImportId = "wsgm.library.import";
 
+    /// <summary>The row for WSGM's emulator management tools.</summary>
+    internal const string EmulatorsId = "wsgm.emulators";
+
+    /// <summary>The action that opens the emulator downloader and updater directly.</summary>
+    internal const string OpenEmulatorsId = "wsgm.emulators.open";
+
     private const string ReservedPrefix = "wsgm.";
+    private readonly bool _emulatorsAvailable;
     private readonly Func<string>? _openImport;
 
     private readonly CommonPluginSteamUiSource? _pluginSteamUi;
@@ -44,16 +51,19 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
     /// <param name="openImport">Returns the route that opens the importer, or null without one.</param>
     /// <param name="sourceNames">The sources the library reads, for the row's detail line.</param>
     /// <param name="sections">WSGM's own sections after the library, in order: the themes, the boot movie.</param>
+    /// <param name="emulatorsAvailable">Whether emulator management is available in this session.</param>
     internal SteamExtensionsTabBackend(
         CommonPluginSteamUiSource? pluginSteamUi,
         Func<string>? openImport,
         Func<string>? sourceNames,
-        IReadOnlyList<IExtensionsTabSection>? sections = null)
+        IReadOnlyList<IExtensionsTabSection>? sections = null,
+        bool emulatorsAvailable = false)
     {
         _pluginSteamUi = pluginSteamUi;
         _openImport = openImport;
         _sourceNames = sourceNames;
         _sections = sections ?? [];
+        _emulatorsAvailable = emulatorsAvailable;
     }
 
     /// <inheritdoc />
@@ -69,6 +79,13 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
             // The route travels in the payload the gate reads, the same shape every other
             // page-opening action uses.
             return SteamUiCommandResult.Route(_openImport());
+        }
+
+        if (id == OpenEmulatorsId)
+        {
+            return !_emulatorsAvailable
+                ? new SteamUiCommandResult(false, "The emulator downloader and updater is unavailable in this session.")
+                : SteamUiCommandResult.Route(SteamEmulatorSurface.Route);
         }
 
         if (_sections.FirstOrDefault(section => id.StartsWith(section.SectionId + ".", StringComparison.Ordinal))
@@ -120,6 +137,17 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
                 "Ready",
                 $"Bring your {_sourceNames?.Invoke() ?? "other launchers'"} games into Steam.",
                 [new SteamExtensionsTabAction(ImportId, "Import games…")]));
+        }
+
+        if (_emulatorsAvailable)
+        {
+            items.Add(new SteamExtensionsTabItem(
+                EmulatorsId,
+                "Emulators",
+                string.Empty,
+                "Ready",
+                "Install, update and configure the emulators used by your ROM libraries.",
+                [new SteamExtensionsTabAction(OpenEmulatorsId, "Emulator Downloader / Updater")]));
         }
 
         items.AddRange(_sections.Select(section => section.ReadExtensionsItem()));

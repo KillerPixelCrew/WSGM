@@ -248,8 +248,7 @@ public sealed class ItchLibrarySource : ILibrarySource
             }
 
             seen.Add(cave.GameId);
-            found.Add(DiscoveredGame.Command(
-                Id,
+            found.Add(DiscoveredGame.Command(this,
                 cave.GameId,
                 cave.Title.Length > 0 ? cave.Title : Path.GetFileNameWithoutExtension(executable),
                 basePath,

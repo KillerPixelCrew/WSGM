@@ -44,7 +44,7 @@ internal sealed record SgdbAsset(
 
 /// <summary>A SteamGridDB request failed for a reason the UI should surface.</summary>
 /// <param name="message">A user-facing message.</param>
-internal sealed class SteamGridDbException(string message) : ArtworkProviderException(message);
+internal sealed class SteamGridDbException(string message) : ArtworkProviderException(message, "steamgriddb");
 
 /// <summary>A game match from a SteamGridDB title search.</summary>
 /// <param name="Id">SteamGridDB game id.</param>
@@ -479,6 +479,11 @@ internal sealed partial class SteamGridDbProvider
         {
             try
             {
+                if (Gate.PauseReason is { } paused)
+                {
+                    throw new ArtworkProviderException(paused, Id, true);
+                }
+
                 using var request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
                 request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -487,6 +492,11 @@ internal sealed partial class SteamGridDbProvider
                     .ConfigureAwait(false);
                 if (!response.IsSuccessStatusCode)
                 {
+                    if (response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+                    {
+                        throw Gate.Pause("SteamGridDB rejected the API key. Correct it in Settings to resume.", Id);
+                    }
+
                     if (attempt < MaximumAttempts && IsTransient(response.StatusCode))
                     {
                         var wait = RetryAfter(response) ?? TimeSpan.FromMilliseconds(400 * attempt);
@@ -497,12 +507,14 @@ internal sealed partial class SteamGridDbProvider
                     }
 
                     Log.Warn($"SteamGridDB {(int)response.StatusCode} for {url}.");
+                    if (response.StatusCode is HttpStatusCode.TooManyRequests)
+                    {
+                        throw Gate.Pause("SteamGridDB rate limit reached. Try again later.", Id,
+                            DateTimeOffset.UtcNow + (RetryAfter(response) ?? MaximumRetryWait));
+                    }
+
                     throw new SteamGridDbException(response.StatusCode switch
                     {
-                        HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden
-                            => "SteamGridDB rejected the API key.",
-                        HttpStatusCode.TooManyRequests
-                            => "SteamGridDB rate limit reached. Try again later.",
                         HttpStatusCode.NotFound
                             => "SteamGridDB does not know this game. "
                                + "Find it by name in the Filter panel's Game search.",
@@ -517,7 +529,7 @@ internal sealed partial class SteamGridDbProvider
                 // Clone so the element survives disposal of the document.
                 return document.RootElement.Clone();
             }
-            catch (SteamGridDbException)
+            catch (ArtworkProviderException)
             {
                 throw;
             }
@@ -544,12 +556,12 @@ internal sealed partial class SteamGridDbProvider
     /// <returns><c>png</c>, <c>jpg</c>, <c>webp</c> or <c>ico</c>, or null.</returns>
     internal static string? ImageExtension(string url)
     {
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
+        if (!HttpUrls.IsHttps(url))
         {
             return null;
         }
 
-        return Path.GetExtension(uri.AbsolutePath).ToLowerInvariant() switch
+        return Path.GetExtension(new Uri(url).AbsolutePath).ToLowerInvariant() switch
         {
             ".jpg" or ".jpeg" => "jpg",
             ".png" => "png",

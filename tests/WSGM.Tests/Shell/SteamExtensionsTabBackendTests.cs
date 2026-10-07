@@ -48,4 +48,20 @@ public sealed class SteamExtensionsTabBackendTests : IDisposable
 
         Assert.Empty(backend.ReadState().Items);
     }
+
+    [Fact]
+    public async Task EmulatorToolIsIndependentOfLibraryAndOpensDedicatedPage()
+    {
+        var backend = new SteamExtensionsTabBackend(null, null, null,
+            emulatorsAvailable: true);
+
+        var item = Assert.Single(backend.ReadState().Items);
+        Assert.Equal(SteamExtensionsTabBackend.EmulatorsId, item.Id);
+        Assert.NotNull(item.Actions);
+        Assert.Equal("Emulator Downloader / Updater", Assert.Single(item.Actions!).Label);
+
+        var result = await backend.ActivateAsync(SteamExtensionsTabBackend.OpenEmulatorsId, CancellationToken.None);
+        Assert.True(result.Succeeded);
+        Assert.Equal("/wsgm/emulators", result.Payload?.GetProperty("route").GetString());
+    }
 }

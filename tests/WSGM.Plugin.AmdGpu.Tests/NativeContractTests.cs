@@ -15,6 +15,19 @@ public sealed unsafe class NativeContractTests
     private static uint _firstItem;
     private static uint _lastItem;
 
+    [Theory]
+    [InlineData(14)]
+    [InlineData(17)]
+    public void ServiceWideGraphicsFeaturesUseAnOutputPointerAndPreserveTheGpu(int slot)
+    {
+        using var service = new Vtable();
+        using var gpu = new Vtable();
+        var original = *(nint*)gpu.Instance;
+        using var feature = AdlxNative.GraphicsFeature(service.Instance, slot, gpu.Instance);
+        Assert.Equal(service.Instance, feature.Pointer);
+        Assert.Equal(original, *(nint*)gpu.Instance);
+    }
+
     [Fact]
     public void NativeListCountAbove1024IsEnumeratedFromItsReportedBegin()
     {
@@ -156,6 +169,13 @@ public sealed unsafe class NativeContractTests
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
+    private static int ServiceFeature(nint instance, nint* value)
+    {
+        *value = instance;
+        return 0;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
     private static int Size(nint instance, nuint* value)
     {
         *value = unchecked((nuint)uint.MaxValue + 2);
@@ -175,6 +195,8 @@ public sealed unsafe class NativeContractTests
             _table[5] = (nint)(delegate* unmanaged[Stdcall]<nint, uint>)&ListBegin;
             _table[11] = (nint)(delegate* unmanaged[Stdcall]<nint, uint, nint*, int>)&ListAt;
             _table[13] = (nint)(delegate* unmanaged[Stdcall]<nint, nuint*, int>)&Size;
+            _table[14] = (nint)(delegate* unmanaged[Stdcall]<nint, nint*, int>)&ServiceFeature;
+            _table[17] = (nint)(delegate* unmanaged[Stdcall]<nint, nint*, int>)&ServiceFeature;
             var instance = (nint*)NativeMemory.Alloc((nuint)sizeof(nint));
             *instance = (nint)_table;
             Instance = (nint)instance;

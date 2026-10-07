@@ -1,4 +1,4 @@
-// Shared between WSGM and WSGM.LogonService (linked beside BootManifest.cs), so it stays free
+// Shared between WSGM, WSGM.LogonService and WSGM.PackagedLaunch (linked as a source file), so it stays free
 // of Log and ConfigStore and carries explicit usings.
 
 using System;

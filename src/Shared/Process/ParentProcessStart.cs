@@ -1,4 +1,4 @@
-// Shared between WSGM and WSGM.PackagedLaunch (linked as a source file): starting a program with
+// Shared between WSGM, WSGM.Launch and WSGM.PackagedLaunch (linked as a source file): starting a program with
 // another process as its parent and with that parent's own user environment, declared once.
 
 using System;

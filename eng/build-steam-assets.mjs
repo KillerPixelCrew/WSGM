@@ -16,12 +16,12 @@
 // prelude build and checks use. WSGM's fragments under SteamUiAssets/Source are appended after the
 // toolkit's component host, sorted, and a new one needs no change here.
 
-import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { compileSteamUiAsset } from "../external/steam-ui-toolkit/eng/steam-ui-fragments.mjs";
+import { format, resolveConfig } from "prettier";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const assetDirectory = join(repositoryRoot, "src", "WSGM", "Core", "SteamUiAssets");
@@ -35,25 +35,13 @@ const compiled = await compileSteamUiAsset({
   typescript: join(repositoryRoot, "node_modules", "typescript", "lib", "tsc.js"),
 });
 
-// Format through the same Prettier the repository formats everything else with, so the generated
-// file is stable no matter which machine emitted it and never fails the repository's own format
-// check. No shell: a shell would only add quoting hazards on paths that already contain spaces.
-const prettier = spawnSync(
-  process.execPath,
-  [
-    join(repositoryRoot, "node_modules", "prettier", "bin", "prettier.cjs"),
-    "--parser",
-    "babel",
-    "--stdin-filepath",
-    outputPath,
-  ],
-  { cwd: repositoryRoot, encoding: "utf8", maxBuffer: Infinity, input: compiled },
-);
-if (prettier.error) throw prettier.error;
-if (prettier.status !== 0) {
-  throw new Error(`Prettier failed:\n${`${prettier.stdout ?? ""}${prettier.stderr ?? ""}`.trim()}`);
-}
-const formatted = prettier.stdout;
+const options = {
+  ...(await resolveConfig(outputPath, { editorconfig: true })),
+  parser: "babel",
+  filepath: outputPath,
+};
+const formatAsset = (input) => format(input, options);
+const formatted = await formatAsset(compiled);
 const sha256 = createHash("sha256").update(formatted, "utf8").digest("hex").toUpperCase();
 
 if (check) {

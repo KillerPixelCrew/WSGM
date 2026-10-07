@@ -98,6 +98,9 @@ internal sealed record ArtworkCandidate(
 /// <param name="Exact">Whether the provider reports this as an exact rather than fuzzy match.</param>
 internal sealed record ArtworkGameMatch(string ProviderId, string Id, string Name, bool Exact);
 
+/// <summary>A title search with optional provider system and backing-file identity.</summary>
+internal sealed record ArtworkGameQuery(string Name, int SystemId = 0, string RomName = "", long RomSize = 0);
+
 /// <summary>One artwork source.</summary>
 /// <remarks>
 ///     Everything source-specific lives behind this: endpoints, authentication, media vocabularies,
@@ -113,6 +116,9 @@ internal interface IArtworkProvider
     /// <summary>The name shown to the user as the source of a result.</summary>
     string DisplayName { get; }
 
+    /// <summary>Why further requests are paused, or null when they may proceed.</summary>
+    string? PauseReason => null;
+
     /// <summary>Whether this provider can be searched with the current configuration.</summary>
     /// <param name="config">The loaded configuration.</param>
     /// <returns>The provider's readiness and, when it is not ready, why.</returns>
@@ -125,6 +131,13 @@ internal interface IArtworkProvider
     /// <returns>The matches, best first.</returns>
     Task<IReadOnlyList<ArtworkGameMatch>> SearchGamesAsync(
         string term, ArtworkConfig config, CancellationToken cancellationToken);
+
+    /// <summary>Searches content using the identity this provider supports.</summary>
+    Task<IReadOnlyList<ArtworkGameMatch>> SearchGamesAsync(
+        ArtworkGameQuery query, ArtworkConfig config, CancellationToken cancellationToken)
+    {
+        return SearchGamesAsync(query.Name, config, cancellationToken);
+    }
 
     /// <summary>Lists a filtered page for a provider-issued game id.</summary>
     Task<ArtworkPage> GetAssetsForGameAsync(
@@ -164,10 +177,12 @@ internal interface IArtworkProvider
 /// <param name="ProviderName">The provider's display name.</param>
 /// <param name="Status">Whether it was searched at all.</param>
 /// <param name="Failure">The user-facing failure, or null when the provider answered.</param>
+/// <param name="ProviderId">The provider that answered or failed.</param>
 internal sealed record ArtworkProviderOutcome(
     string ProviderName,
     ArtworkProviderStatus Status,
-    string? Failure);
+    string? Failure,
+    string ProviderId = "");
 
 /// <summary>One provider page, including whether its raw answer has another page.</summary>
 internal sealed record ArtworkPage(IReadOnlyList<ArtworkCandidate> Candidates, bool HasMore);
@@ -208,14 +223,14 @@ internal sealed record ArtworkSearchResult(
 ///         results are merged, exact matches first: one provider's failure must not hide another's
 ///         result, and the person picks. When nobody is looking - the Game Library matching a whole
 ///         scan by itself - the providers are asked in preference order and the first that knows the
-///         game decides (<see cref="FindMatchAsync" />): SteamGridDB knows Steam libraries, and
+///         game decides: SteamGridDB knows Steam libraries, and
 ///         Screenscraper, a ROM database paced at one request at a time, is a fallback rather than a
 ///         second opinion.
 ///     </para>
 ///     <para>
 ///         A provider that failed is a failure in both, never an empty answer: the page says the
-///         provider could not be asked, and the automatic match stops rather than falling through to
-///         a provider that might pin the wrong game.
+///         provider could not be asked. Automatic matching tries the next provider, retaining the
+///         failure if none can answer. A paused provider is skipped while the remaining providers are tried.
 ///     </para>
 /// </remarks>
 internal static class ArtworkSearch
@@ -223,6 +238,7 @@ internal static class ArtworkSearch
     /// <summary>The providers, in the order their results are preferred on a tie.</summary>
     public static IReadOnlyList<IArtworkProvider> Providers { get; } =
         [new SteamGridDbProvider(), new ScreenscraperProvider()];
+
 
     /// <summary>Finds the provider with this id, or null.</summary>
     /// <param name="providerId">A provider id previously returned in a result.</param>
@@ -260,7 +276,7 @@ internal static class ArtworkSearch
                 .ConfigureAwait(false);
             if (failure is not null)
             {
-                Log.Warn($"Artwork provider {provider.Id} title search failed: {failure}");
+                Log.Warn($"Artwork provider {provider.Id} title search failed: {failure.Message}");
             }
 
             return matches;
@@ -277,60 +293,58 @@ internal static class ArtworkSearch
         ];
     }
 
-    /// <summary>Matches a title with nobody looking: the first provider, in preference order, that knows it.</summary>
-    /// <param name="term">The title.</param>
-    /// <param name="config">The loaded configuration.</param>
-    /// <param name="skip">Providers already tried for this title, whose games had no artwork.</param>
-    /// <param name="cancellationToken">Cancels the search.</param>
-    /// <returns>That provider's exact match, or else its first result; null when no ready provider has one.</returns>
-    /// <exception cref="ArtworkProviderException">
-    ///     A provider that should have been asked could not be. The match stops there rather than
-    ///     falling through, because the next provider answering would pin its guess as the match.
-    /// </exception>
-    public static async Task<ArtworkGameMatch?> FindMatchAsync(
-        string term, ArtworkConfig config, IReadOnlyCollection<string> skip, CancellationToken cancellationToken)
+    /// <summary>Matches imported content using its source's provider and explicit ROM system first.</summary>
+    public static Task<ArtworkGameMatch?> FindMatchAsync(ArtworkGameQuery query, ArtworkConfig config,
+        IReadOnlyCollection<string> skip, CancellationToken cancellationToken,
+        string preferredProviderId = "steamgriddb")
     {
+        return FindMatchAsync(query, config, skip, cancellationToken, preferredProviderId, Providers);
+    }
+
+    internal static async Task<ArtworkGameMatch?> FindMatchAsync(ArtworkGameQuery query, ArtworkConfig config,
+        IReadOnlyCollection<string> skip, CancellationToken cancellationToken, string preferredProviderId,
+        IReadOnlyList<IArtworkProvider> providers)
+    {
+        ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(skip);
-        if (string.IsNullOrWhiteSpace(term))
+        ArgumentNullException.ThrowIfNull(providers);
+        ArgumentOutOfRangeException.ThrowIfNegative(query.SystemId);
+        ArgumentOutOfRangeException.ThrowIfNegative(query.RomSize);
+        if (string.IsNullOrWhiteSpace(query.Name))
         {
             return null;
         }
 
-        foreach (var provider in Providers)
+        ArtworkProviderException? failure = null;
+        var answered = false;
+        foreach (var provider in providers.OrderBy(provider => provider.Id == preferredProviderId ? 0 : 1))
         {
             if (skip.Contains(provider.Id) || !provider.GetStatus(config).IsReady)
             {
                 continue;
             }
 
-            var (matches, failure) = await TrySearchAsync(provider, term, config, cancellationToken)
+            var (matches, problem) = await TrySearchAsync(provider, query, config, cancellationToken)
                 .ConfigureAwait(false);
-            if (failure is not null)
+            answered |= problem is null;
+            if (problem is not null && (failure is null || problem.Paused))
             {
-                throw new ArtworkProviderException($"{provider.DisplayName}: {failure}");
+                failure = problem;
             }
 
-            if ((matches.FirstOrDefault(candidate => candidate.Exact) ?? matches.FirstOrDefault()) is { } match)
+            if ((matches.FirstOrDefault(match => match.Exact) ?? matches.FirstOrDefault()) is { } found)
             {
-                return match;
+                return found;
             }
+        }
+
+        if (!answered && failure is not null)
+        {
+            throw failure;
         }
 
         return null;
-    }
-
-    /// <summary>Forgets every provider's remembered answers and failures.</summary>
-    /// <remarks>
-    ///     Called when an API key or account changes, so an answer fetched with the old credentials, or
-    ///     the refusal they earned, is not reused for the new ones.
-    /// </remarks>
-    public static void ResetCaches()
-    {
-        foreach (var provider in Providers)
-        {
-            provider.ResetCache();
-        }
     }
 
     /// <summary>Downloads one image, through the provider that serves it when one does.</summary>
@@ -353,12 +367,25 @@ internal static class ArtworkSearch
     }
 
     /// <summary>Searches one provider, answering its failure instead of throwing it.</summary>
-    private static async Task<(IReadOnlyList<ArtworkGameMatch> Matches, string? Failure)> TrySearchAsync(
+    private static Task<(IReadOnlyList<ArtworkGameMatch> Matches, ArtworkProviderException? Failure)> TrySearchAsync(
         IArtworkProvider provider, string term, ArtworkConfig config, CancellationToken cancellationToken)
+    {
+        return TrySearchAsync(provider, new ArtworkGameQuery(term), config, cancellationToken);
+    }
+
+    private static async Task<(IReadOnlyList<ArtworkGameMatch> Matches, ArtworkProviderException? Failure)>
+        TrySearchAsync(
+            IArtworkProvider provider, ArtworkGameQuery query, ArtworkConfig config,
+            CancellationToken cancellationToken)
     {
         try
         {
-            return (await provider.SearchGamesAsync(term, config, cancellationToken).ConfigureAwait(false), null);
+            if (provider.PauseReason is { } pause)
+            {
+                return ([], new ArtworkProviderException(pause, provider.Id, true));
+            }
+
+            return (await provider.SearchGamesAsync(query, config, cancellationToken).ConfigureAwait(false), null);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -366,12 +393,12 @@ internal static class ArtworkSearch
         }
         catch (ArtworkProviderException ex)
         {
-            return ([], ex.Message);
+            return ([], new ArtworkProviderException(ex.Message, provider.Id, ex.Paused));
         }
         catch (Exception ex)
         {
             Log.Warn($"Artwork provider {provider.Id} title search failed: {ex.Message}");
-            return ([], $"{provider.DisplayName} could not be reached.");
+            return ([], new ArtworkProviderException($"{provider.DisplayName} could not be reached.", provider.Id));
         }
     }
 
@@ -475,7 +502,7 @@ internal static class ArtworkSearch
 
         var outcomes = providers
             .Select((provider, index) => new ArtworkProviderOutcome(
-                provider.DisplayName, statuses[index], answers[index].Failure))
+                provider.DisplayName, statuses[index], answers[index].Failure, provider.Id))
             .ToArray();
         return new ArtworkSearchResult(candidates, outcomes, answers.Any(answer => answer.HasMore));
     }

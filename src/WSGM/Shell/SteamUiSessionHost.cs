@@ -62,6 +62,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
     // Serializes the start of disposal; every caller gets the one disposal task.
     private readonly Lock _disposeGate = new();
+    private readonly EmulatorService? _emulators;
 
     /// <summary>The Quick Access plugin tab, which carries WSGM's own tools as well.</summary>
     private readonly SteamExtensionsTabBackend _extensionsTab;
@@ -80,7 +81,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly NativeQamHybridCoreService _hybridCores;
 
     /// <summary>Hears the library badge's Home layout report.</summary>
-    private readonly LibraryBadgeBackend _libraryBadge = new();
+    private readonly LibraryBadgeBackend _libraryBadge;
 
     /// <summary>The library importer behind the Quick Access tab's page, or null.</summary>
     private readonly GameLibraryService? _libraryImport;
@@ -199,6 +200,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         // source the way it was while artwork was a package.
         _artwork = backends.Artwork;
         _libraryImport = backends.LibraryImport;
+        _libraryBadge = new LibraryBadgeBackend(_libraryImport is { } importer ? importer.RecheckShortcutAsync : null);
+        _emulators = backends.Emulators;
         _wsgmSettings = backends.WsgmSettings;
         _graphics = backends.Graphics;
         _chordMirror = backends.ChordMirror;
@@ -214,7 +217,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             libraryImport is null
                 ? null
                 : () => string.Join(", ", libraryImport.ReadState().Reading),
-            [.. new IExtensionsTabSection?[] { _themes, _animations }.OfType<IExtensionsTabSection>()]);
+            [.. new IExtensionsTabSection?[] { _themes, _animations }.OfType<IExtensionsTabSection>()],
+            _emulators is not null);
         // One fold store for every Quick Access tab: the Extensions tab's sections and the
         // Performance and Quick Settings groups.
         _panelFolds = new SteamPanelFoldsBackend(backends.Folds);
@@ -322,7 +326,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _transport.GenerationChanged += OnGenerationChanged;
         _brightness.Changed += QueueStatePublication;
         _panelFolds.Changed += QueueStatePublication;
-        LibraryBadges.Changed += OnSemanticStateChanged;
+        LibraryBadges.Changed += OnLibraryBadgesChanged;
         if (_displayTimeouts is not null)
         {
             _displayTimeouts.Changed += OnSemanticStateChanged;
@@ -363,6 +367,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         if (_libraryImport is not null)
         {
             _libraryImport.Changed += QueueStatePublication;
+        }
+
+        if (_emulators is not null)
+        {
+            _emulators.Changed += QueueStatePublication;
         }
 
         if (_chordMirror is not null)
@@ -419,7 +428,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _transport.GenerationChanged -= OnGenerationChanged;
         _brightness.Changed -= QueueStatePublication;
         _panelFolds.Changed -= QueueStatePublication;
-        LibraryBadges.Changed -= OnSemanticStateChanged;
+        LibraryBadges.Changed -= OnLibraryBadgesChanged;
         if (_displayTimeouts is not null)
         {
             _displayTimeouts.Changed -= OnSemanticStateChanged;
@@ -449,6 +458,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         if (_libraryImport is not null)
         {
             _libraryImport.Changed -= QueueStatePublication;
+        }
+
+        if (_emulators is not null)
+        {
+            _emulators.Changed -= QueueStatePublication;
         }
 
         if (_chordMirror is not null)
@@ -1078,7 +1092,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         // The toolkit's file and folder picker, which the Game Library opens to add a shortcuts
         // folder and the artwork page to browse for a local image. It lists names only, and only
         // while WSGM's own Steam pages are enabled.
-        if (_libraryImport is not null || _artwork is not null)
+        if (_emulators is { } emulators)
+        {
+            modules.Add(SteamEmulatorSurface.Module(HostSteamUiEnabled, emulators));
+        }
+
+        if (_libraryImport is not null || _artwork is not null || _emulators is not null)
         {
             modules.Add(SteamFilePickerSurface.Module(HostSteamUiEnabled));
         }
@@ -1265,6 +1284,15 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 Template: SteamLibraryImportSurface.Template));
         }
 
+        if (_emulators is not null)
+        {
+            pages.Add(new SteamPage(
+                "emulator-manager",
+                SteamEmulatorSurface.Route,
+                "Emulator Downloader / Updater",
+                Template: SteamEmulatorSurface.Template));
+        }
+
         if (_wsgmSettings is not null)
         {
             pages.Add(new SteamPage(
@@ -1326,6 +1354,19 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
     private void OnSemanticStateChanged()
     {
+        QueueStatePublication();
+    }
+
+    private void OnLibraryBadgesChanged()
+    {
+        lock (_switchGate)
+        {
+            if (!_disposed)
+            {
+                ApplySwitchStates();
+            }
+        }
+
         QueueStatePublication();
     }
 
@@ -1508,8 +1549,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             var enabled = patch.Id switch
             {
                 SteamDownloadSort.PatchId => switches.DownloadSort,
-                SteamLibraryBadgeSurface.PatchId or SteamLibraryBadgeSurface.DetailsPatchId => switches.LibraryBadge
-                    || (host && _pluginSteamUi?.ReadModules().Count > 0),
+                SteamLibraryBadgeSurface.PatchId or SteamLibraryBadgeSurface.DetailsPatchId => switches.LibraryBadge,
                 SteamHomeCarouselSurface.PatchId => switches.HomeCarousel,
                 SteamScreensaverSurface.PatchId => switches.ScreensaverRows,
                 SteamUiBridgePatch.PatchId => bootstrap,
@@ -1519,7 +1559,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 SteamPageSurface.PatchId or SteamExtensionsTabSurface.PatchId
                     or SteamGameContextMenuSurface.PatchId or SteamPowerMenuSurface.PatchId
                     or SteamArtworkBrowserSurface.PatchId
-                    or SteamLibraryImportSurface.PatchId or SteamWsgmSettingsSurface.PatchId
+                    or SteamLibraryImportSurface.PatchId or SteamEmulatorSurface.PatchId
+                    or SteamWsgmSettingsSurface.PatchId
                     or SteamNavigationPanelSurface.PatchId or SteamNativeSettingsSurface.PatchId
                     or SteamThemesSurface.PatchId
                     or SteamAnimationsSurface.PatchId or SteamSoundOverrideSurface.PatchId => host,

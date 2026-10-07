@@ -1,5 +1,6 @@
 using SteamUiToolkit;
 using WSGM.Core;
+using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Shell;
 using WSGM.Testing;
 
@@ -155,6 +156,7 @@ public sealed class GameLibraryServiceTests
         return new ImportedEntry
         {
             Source = "xbox", Key = Aumid, Name = "Moonlit", AppId = appId, Target = fields.Target,
+            StartDirectory = fields.StartDirectory,
             LaunchOptions = fields.LaunchOptions, Mode = mode.ToString(), Acknowledged = acknowledged,
             ConfirmedUtc = "2026-09-24T00:00:00.0000000+00:00", OwnsProfile = ownsProfile
         };
@@ -527,7 +529,8 @@ public sealed class GameLibraryServiceTests
         // leave the record describing a game that starts some other way.
         using Harness harness = new();
         harness.Library.Add(new ExistingShortcut(77, Written(ImportMode.SteamIntegration).Target,
-            Written(ImportMode.SteamIntegration).LaunchOptions));
+            Written(ImportMode.SteamIntegration).LaunchOptions, Written(ImportMode.SteamIntegration).StartDirectory,
+            "Moonlit"));
         using var source = harness.Create([Game()]);
         var entry = Assert.Single((await ScannedAsync(source)).Entries);
         Assert.Equal("Adopt", entry.Action);
@@ -543,7 +546,8 @@ public sealed class GameLibraryServiceTests
         // The shortcut and any profile it has may be the user's own.
         using Harness harness = new();
         harness.Library.Add(new ExistingShortcut(77, Written(ImportMode.SteamIntegration).Target,
-            Written(ImportMode.SteamIntegration).LaunchOptions));
+            Written(ImportMode.SteamIntegration).LaunchOptions, Written(ImportMode.SteamIntegration).StartDirectory,
+            "Moonlit"));
         var overrides = 0;
         using var source = harness.Create([Game()], setControllerTarget: (_, _, _, _, _) =>
         {
@@ -671,6 +675,7 @@ public sealed class GameLibraryServiceTests
         harness.Import(new ImportedEntry
         {
             Source = "epic", Key = "Hades", Name = "Hades", AppId = 88, Target = fields.Target,
+            StartDirectory = fields.StartDirectory,
             LaunchOptions = fields.LaunchOptions, Mode = nameof(ImportMode.SteamIntegration), Route = "direct",
             ConfirmedUtc = "2026-09-24T00:00:00.0000000+00:00"
         });
@@ -1003,6 +1008,7 @@ public sealed class GameLibraryServiceTests
         harness.Import(new ImportedEntry
         {
             Source = "epic", Key = "Hades", Name = "Hades", AppId = 88, Target = fields.Target,
+            StartDirectory = fields.StartDirectory,
             LaunchOptions = fields.LaunchOptions, Mode = nameof(ImportMode.SteamIntegration), Route = "direct",
             ConfirmedUtc = "2026-09-24T00:00:00.0000000+00:00"
         });
@@ -1017,6 +1023,81 @@ public sealed class GameLibraryServiceTests
         var synced = Assert.Single(harness.Synced);
         Assert.Equal("Xbox", synced.Name);
         Assert.Equal([77u], synced.Add);
+    }
+
+    [Fact]
+    public async Task DisablingManualEntriesLeavesTheirRomSystemCollectionAlone()
+    {
+        using Harness harness = new();
+        using TemporaryDirectory media = new();
+        var romPath = media.GetPath("game.nes");
+        File.WriteAllText(romPath, "fixture ROM");
+        harness.Import(Recorded(ImportMode.SteamIntegration));
+        harness.Store.SaveCollection(new ImportedCollection
+            { Group = "rom-system:nes", Id = "uc-nes", Name = "NES", AppIds = [88] });
+        harness.Import(new ImportedEntry
+        {
+            Source = "manual", Key = "single-rom", Name = "NES game", AppId = 88,
+            Target = "helper", StartDirectory = media.Root, Route = "managed",
+            Mode = nameof(ImportMode.SteamIntegration),
+            ConfirmedUtc = "2026-10-06T12:00:00Z",
+            Content = new ManagedContentRecord
+            {
+                Id = "0123456789abcdef0123456789abcdef", SourceId = "manual", SourceKey = "single-rom",
+                Name = "NES game", SourceKind = LibrarySourceKind.Rom, SystemId = "nes",
+                BackingPath = new ManagedContentPath { AbsolutePath = romPath }
+            }
+        });
+        GameLibraryConfig settings = new()
+        {
+            DisabledSources = ["manual"],
+            ManualSources =
+            [
+                new ManualShortcutConfig
+                {
+                    Id = "single-rom", Name = "NES game", SystemId = "nes",
+                    RomPath = new ManagedContentPath { AbsolutePath = romPath }
+                }
+            ]
+        };
+        using var source = harness.Create([Game()], settings: settings);
+
+        Assert.True((await source.SetCollectionsAsync(true, CancellationToken.None)).Succeeded);
+        Assert.Equal("Xbox", await harness.CollectionSynced.Task.WaitAsync(TimeSpan.FromSeconds(2)));
+        await source.StopAsync(Deadline.After(TimeSpan.FromSeconds(2)));
+
+        Assert.Equal("Xbox", Assert.Single(harness.Synced).Name);
+        var kept = harness.Store.Collections().Single(collection => collection.Group == "rom-system:nes");
+        Assert.Equal("uc-nes", kept.Id);
+        Assert.Equal([88u], kept.AppIds);
+    }
+
+    [Fact]
+    public async Task ASingleRomIsAnAuthoredEntryWithOneStableManagedIdentity()
+    {
+        using Harness harness = new();
+        using TemporaryDirectory media = new();
+        var rom = media.GetPath("game.nes");
+        File.WriteAllText(rom, "fixture ROM");
+        GameLibraryConfig settings = new();
+        using var source = harness.Create([], settings: settings);
+
+        Assert.True((await source.AddRomSourceAsync(new RomSourceConfig
+        {
+            Id = "single-rom", Name = "My game", SystemId = "nes",
+            Root = new ManagedContentPath { AbsolutePath = rom }
+        }, CancellationToken.None)).Succeeded);
+        await DoneAsync(source);
+
+        Assert.Empty(settings.RomSources);
+        var configured = Assert.Single(settings.ManualSources);
+        Assert.Equal(rom, configured.RomPath!.AbsolutePath);
+        Assert.Equal("nes", configured.SystemId);
+        var title = Assert.Single(source.ReadState().Entries);
+        Assert.Equal("manual", title.SourceId);
+        Assert.Equal("My game", title.Name);
+        Assert.Equal(ManagedContentStorage.ContentId("manual", configured.Id), title.ManagedId);
+        Assert.Empty(harness.Store.Entries());
     }
 
     /// <summary>A Steam library in memory, and a writer over it that records what it was asked.</summary>
@@ -1044,6 +1125,9 @@ public sealed class GameLibraryServiceTests
         /// <summary>Every collection sync asked for: the recorded id, the name, the apps in and out.</summary>
         internal List<(string? Id, string Name, uint[] Add, uint[] Remove)> Synced { get; } = [];
 
+        internal TaskCompletionSource<string> CollectionSynced { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public void Dispose()
         {
             _temporary.Dispose();
@@ -1056,6 +1140,7 @@ public sealed class GameLibraryServiceTests
             lock (Synced)
             {
                 Synced.Add((id, name, [.. add], [.. remove]));
+                CollectionSynced.TrySetResult(name);
             }
 
             return Task.FromResult(new SteamCollectionSyncResult(SteamClientWriteOutcome.Applied,
@@ -1066,7 +1151,8 @@ public sealed class GameLibraryServiceTests
         internal void Import(ImportedEntry record)
         {
             Store.Save(record);
-            Library.Add(new ExistingShortcut(record.AppId, record.Target, record.LaunchOptions));
+            Library.Add(new ExistingShortcut(record.AppId, record.Target, record.LaunchOptions, record.StartDirectory,
+                record.Name));
         }
 
         internal GameLibraryService Create(
@@ -1083,23 +1169,26 @@ public sealed class GameLibraryServiceTests
             Action<Action<GameLibraryConfig>>? updateSettings = null)
         {
             SteamShortcutWriter writer = new(
-                (_, fields, _) =>
+                (name, fields, _) =>
                 {
                     var appId = _next++;
                     Calls.Add($"add {appId}");
-                    Library.Add(new ExistingShortcut(appId, fields.Target, fields.LaunchOptions));
+                    Library.Add(new ExistingShortcut(appId, fields.Target, fields.LaunchOptions, fields.StartDirectory,
+                        name));
                     return Task.FromResult(new ShortcutWriteResult(appId, true, null));
                 },
                 (appId, fields, _) =>
                 {
                     Calls.Add($"update {appId}");
+                    var name = Library.FirstOrDefault(shortcut => shortcut.AppId == appId)?.Name ?? "";
                     if (!AcceptUpdates)
                     {
                         if (LandUnconfirmedUpdate)
                         {
                             Library.RemoveAll(shortcut => shortcut.AppId == appId);
                             Library.Add(
-                                new ExistingShortcut(appId, $"\"{fields.Target}\"", $" {fields.LaunchOptions} "));
+                                new ExistingShortcut(appId, $"\"{fields.Target}\"", $" {fields.LaunchOptions} ",
+                                    fields.StartDirectory, name));
                         }
 
                         return Task.FromResult(false);
@@ -1107,7 +1196,8 @@ public sealed class GameLibraryServiceTests
 
                     Updated.Add(fields);
                     Library.RemoveAll(shortcut => shortcut.AppId == appId);
-                    Library.Add(new ExistingShortcut(appId, fields.Target, fields.LaunchOptions));
+                    Library.Add(new ExistingShortcut(appId, fields.Target, fields.LaunchOptions, fields.StartDirectory,
+                        name));
                     return Task.FromResult(true);
                 },
                 (appId, _) =>
@@ -1149,13 +1239,18 @@ public sealed class GameLibraryServiceTests
 
                         return settings;
                     },
-                folder => new FakeSource(folder.Id, []), syncCollection: SyncCollection);
+                folder => new FakeSource(folder.Id, [], LibrarySourceKind.Folder), syncCollection: SyncCollection);
         }
     }
 
-    private sealed class FakeSource(string id, IReadOnlyList<DiscoveredGame>? games) : ILibrarySource
+    private sealed class FakeSource(
+        string id,
+        IReadOnlyList<DiscoveredGame>? games,
+        LibrarySourceKind kind = LibrarySourceKind.Launcher) : ILibrarySource
     {
         public string Id => id;
+
+        public LibrarySourceKind Kind => kind;
 
         public string DisplayName => id == "xbox" ? "Xbox" : "Epic Games";
 

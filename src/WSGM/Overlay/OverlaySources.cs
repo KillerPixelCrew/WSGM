@@ -20,6 +20,7 @@ namespace WSGM.Overlay;
 /// <param name="Artwork">The shared artwork owner; each browser has its own transient context.</param>
 /// <param name="DisplayModes">The composition's display-mode operations.</param>
 /// <param name="PowerProfiles">The session's shared Windows power-profile selection workflow.</param>
+/// <param name="Emulators">The independent emulator downloader/updater backend.</param>
 internal sealed record OverlaySources(
     IDeviceOverlaySource? Device = null,
     PerformanceOverlayBridge? Performance = null,
@@ -34,7 +35,8 @@ internal sealed record OverlaySources(
     SoundPackService? Sounds = null,
     SteamArtworkBrowserSource? Artwork = null,
     DisplayModeAccess? DisplayModes = null,
-    NativeQamPowerProfileService? PowerProfiles = null);
+    NativeQamPowerProfileService? PowerProfiles = null,
+    IEmulatorBackend? Emulators = null);
 
 /// <summary>The display-mode operations supplied by the composition, also used by pinned controls.</summary>
 /// <param name="Read">Reads modes for the sheet's current display source.</param>

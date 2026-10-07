@@ -80,6 +80,9 @@ internal sealed record SteamUiBackends
     /// <summary>The Game Library behind Steam's import page, or null.</summary>
     internal GameLibraryService? LibraryImport { get; init; }
 
+    /// <summary>The emulator tool, independently available from the library importer.</summary>
+    internal EmulatorService? Emulators { get; init; }
+
     /// <summary>WSGM's settings behind its page in Steam and its row in Steam's main menu, or null.</summary>
     internal WsgmSteamSettingsService? WsgmSettings { get; init; }
 

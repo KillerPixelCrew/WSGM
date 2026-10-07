@@ -40,26 +40,16 @@ internal static class ArtworkDownload
 
     internal static async Task<byte[]> GetAsync(string url, HttpClient client, CancellationToken cancellationToken)
     {
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
+        if (!HttpUrls.IsHttps(url))
         {
             throw new ArtworkProviderException("Artwork URL was not a secure HTTPS address.");
         }
 
         try
         {
-            using var response = await client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead,
+            using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead,
                 cancellationToken).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
-            {
-                Log.Warn($"Artwork image download answered {(int)response.StatusCode} ({ArtworkUrls.Redact(url)}).");
-                throw new ArtworkProviderException(
-                    $"The artwork server answered HTTP {(int)response.StatusCode}.");
-            }
-
-            using var body = await BoundedHttp.ReadAsync(response.Content, MaximumBytes,
-                () => new ArtworkProviderException("Artwork is larger than the 16 MB safety limit."),
-                cancellationToken).ConfigureAwait(false);
-            return body.ToArray();
+            return await ReadAsync(response, url, cancellationToken).ConfigureAwait(false);
         }
         catch (ArtworkProviderException)
         {
@@ -74,5 +64,21 @@ internal static class ArtworkDownload
             Log.Warn($"Artwork image download failed ({ArtworkUrls.Redact(url)}): {ex.Message}");
             throw new ArtworkProviderException("Could not download the artwork image.");
         }
+    }
+
+    /// <summary>Reads a provider-owned image response using the shared download bounds.</summary>
+    internal static async Task<byte[]> ReadAsync(HttpResponseMessage response, string url,
+        CancellationToken cancellationToken)
+    {
+        if (!response.IsSuccessStatusCode)
+        {
+            Log.Warn($"Artwork image download answered {(int)response.StatusCode} ({ArtworkUrls.Redact(url)}).");
+            throw new ArtworkProviderException($"The artwork server answered HTTP {(int)response.StatusCode}.");
+        }
+
+        using var body = await BoundedHttp.ReadAsync(response.Content, MaximumBytes,
+            () => new ArtworkProviderException("Artwork is larger than the 16 MB safety limit."),
+            cancellationToken).ConfigureAwait(false);
+        return body.ToArray();
     }
 }

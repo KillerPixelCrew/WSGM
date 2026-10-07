@@ -13,7 +13,7 @@ namespace WSGM.Core;
 internal sealed class ImportState
 {
     /// <summary>The file format this build writes.</summary>
-    internal const int CurrentVersion = 1;
+    internal const int CurrentVersion = ManagedContentStorage.FormatVersion;
 
     /// <summary>The format the file was written in. Zero for a file from before versions were recorded.</summary>
     public int Version { get; set; } = CurrentVersion;
@@ -100,6 +100,47 @@ public sealed class ImportStateStore
         _path = path;
     }
 
+    /// <summary>Applies observations in memory and persists only actual availability transitions.</summary>
+    /// <param name="checks">The completed observations, keyed by stable managed content identity.</param>
+    /// <param name="expectedContents">The original launch records inspected, or null for an unconditional owner update.</param>
+    public void UpdateAvailability(IReadOnlyDictionary<string, ManagedContentCheck> checks,
+        IReadOnlyDictionary<string, ManagedContentRecord>? expectedContents = null)
+    {
+        Mutate(state =>
+        {
+            var changed = false;
+            for (var index = 0; index < state.Entries.Count; index++)
+            {
+                var previous = state.Entries[index];
+                if (previous.Content is not { } content || !checks.TryGetValue(content.Id, out var check))
+                {
+                    continue;
+                }
+
+                if (expectedContents is not null && (!expectedContents.TryGetValue(content.Id, out var expected)
+                                                     || !ManagedContentStorage.SameLaunch(content, expected)))
+                {
+                    continue;
+                }
+
+                var transition = content.Availability != check.Availability ||
+                                 content.AvailabilityDetail != check.Detail;
+                if (!transition)
+                {
+                    continue;
+                }
+
+                var entry = previous.Copy();
+                entry.Content!.Availability = check.Availability;
+                entry.Content.AvailabilityDetail = check.Detail;
+                state.Entries[index] = entry;
+                changed |= transition;
+            }
+
+            return changed;
+        });
+    }
+
     /// <summary>Every entry WSGM remembers creating.</summary>
     /// <exception cref="ImportStateException">The records could not be read.</exception>
     public IReadOnlyList<ImportedEntry> Entries()
@@ -107,6 +148,52 @@ public sealed class ImportStateStore
         lock (_gate)
         {
             return [.. Read().Entries.Select(entry => entry.Copy())];
+        }
+    }
+
+    /// <summary>Reads an already-loaded snapshot without starting disk I/O from a UI publication.</summary>
+    internal IReadOnlyList<ImportedEntry>? EntriesIfLoaded()
+    {
+        lock (_gate)
+        {
+            return _state is null ? null : [.. _state.Entries.Select(entry => entry.Copy())];
+        }
+    }
+
+    /// <summary>Counts installed-emulator dependencies without copying content or starting a disk read.</summary>
+    internal Dictionary<string, int>? CountEmulatorDependencies(EmulatorStore emulators)
+    {
+        lock (_gate)
+        {
+            if (_state is null)
+            {
+                return null;
+            }
+
+            Dictionary<string, string> preferences = new(StringComparer.Ordinal);
+            Dictionary<string, int> counts = new(StringComparer.Ordinal);
+            foreach (var entry in _state.Entries)
+            {
+                if (entry.Content is not { SourceKind: LibrarySourceKind.Rom } content)
+                {
+                    continue;
+                }
+
+                var installation = content.EmulatorInstallationId;
+                if (content.FollowSystemPreference)
+                {
+                    var system = EmulatorStorage.NormalizeSystemId(content.SystemId);
+                    if (!preferences.TryGetValue(system, out installation))
+                    {
+                        installation = ManagedContentStorage.PreferredSystem(emulators, system)?.InstallationId ?? "";
+                        preferences[system] = installation;
+                    }
+                }
+
+                counts[installation] = counts.GetValueOrDefault(installation) + 1;
+            }
+
+            return counts;
         }
     }
 
@@ -170,23 +257,48 @@ public sealed class ImportStateStore
         ArgumentNullException.ThrowIfNull(entry);
         Mutate(state =>
         {
-            Replace(state, entry);
+            var previous = state.Entries.FirstOrDefault(item => Same(item.Source, item.Key, entry.Source, entry.Key));
+            var changed = previous is null || previous.AppId != entry.AppId || previous.Name != entry.Name
+                          || previous.Target != entry.Target || previous.StartDirectory != entry.StartDirectory
+                          || previous.LaunchOptions != entry.LaunchOptions || previous.Mode != entry.Mode ||
+                          previous.Route != entry.Route
+                          || previous.Acknowledged != entry.Acknowledged || previous.ImportedUtc != entry.ImportedUtc
+                          || previous.ConfirmedUtc != entry.ConfirmedUtc ||
+                          previous.ArtworkApplied != entry.ArtworkApplied
+                          || previous.OwnsProfile != entry.OwnsProfile ||
+                          !ManagedContentStorage.SameLaunch(previous.Content, entry.Content);
+            if (changed)
+            {
+                var applied = entry.Copy();
+                if (previous?.Content is { } observed && applied.Content is { } content
+                                                      && ManagedContentStorage.SameLaunch(observed, content))
+                {
+                    content.Availability = observed.Availability;
+                    content.AvailabilityDetail = observed.AvailabilityDetail;
+                }
+
+                Replace(state, applied);
+            }
+
             var index = state.Choices.FindIndex(choice => Same(choice.Source, choice.Key, entry.Source, entry.Key));
             if (index < 0)
             {
-                return;
+                return changed;
             }
 
-            // A new object, not an edit: the remembered state shares its choices with this copy until
-            // the write succeeds.
             var kept = state.Choices[index];
+            if (kept.Mode.Length == 0 && !kept.Acknowledged && !kept.Excluded && kept.Route.Length == 0
+                && kept.Artwork.Count == 0 && !kept.Cleanup)
+            {
+                return changed;
+            }
+
             ImportChoice settled = new()
             {
-                Source = kept.Source,
-                Key = kept.Key,
-                MatchProvider = kept.MatchProvider,
-                MatchId = kept.MatchId,
-                MatchName = kept.MatchName
+                Source = kept.Source, Key = kept.Key, MatchProvider = kept.MatchProvider, MatchId = kept.MatchId,
+                MatchName = kept.MatchName, TitleName = kept.TitleName,
+                EmulatorInstallationId = kept.EmulatorInstallationId,
+                CoreId = kept.CoreId, Arguments = [.. kept.Arguments]
             };
             if (settled.IsEmpty())
             {
@@ -196,6 +308,8 @@ public sealed class ImportStateStore
             {
                 state.Choices[index] = settled;
             }
+
+            return true;
         });
     }
 
@@ -293,11 +407,23 @@ public sealed class ImportStateStore
     /// <remarks>A write that fails leaves the remembered state as the file still has it.</remarks>
     private void Mutate(Action<ImportState> change)
     {
+        Mutate(state =>
+        {
+            change(state);
+            return true;
+        });
+    }
+
+    private void Mutate(Func<ImportState, bool> change)
+    {
         lock (_gate)
         {
             var working = Copy(Read());
-            change(working);
-            Write(working);
+            if (change(working))
+            {
+                Write(working);
+            }
+
             _state = working;
         }
     }
@@ -462,9 +588,15 @@ public sealed class ImportStateStore
             return "no source or key";
         }
 
-        if (entry is not { Name: not null, Target: not null, LaunchOptions: not null, Route: not null })
+        if (entry is not
+            { Name: not null, Target: not null, LaunchOptions: not null, Route: not null, StartDirectory: not null })
         {
             return "a missing field";
+        }
+
+        if (entry.Content is { } content && ManagedContentStorage.RecordDefect(content) is { } defect)
+        {
+            return defect;
         }
 
         return entry.Mode is nameof(ImportMode.ControllerOnly) or nameof(ImportMode.SteamIntegration)
@@ -482,7 +614,8 @@ public sealed class ImportStateStore
 
         if (choice is not
             {
-                Mode: not null, Route: not null, MatchProvider: not null, MatchId: not null, MatchName: not null
+                Mode: not null, Route: not null, MatchProvider: not null, MatchId: not null, MatchName: not null,
+                TitleName: not null, EmulatorInstallationId: not null, CoreId: not null, Arguments: not null
             })
         {
             return "a missing field";
@@ -506,7 +639,7 @@ public sealed class ImportStateStore
             return $"unknown artwork type {(int)pick.Asset}";
         }
 
-        if (pick.Url.Length > 0 && !pick.Url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        if (pick.Url.Length > 0 && !HttpUrls.IsHttps(pick.Url))
         {
             return "not an https image";
         }

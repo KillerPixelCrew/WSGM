@@ -50,7 +50,8 @@ public sealed class ImportPlanTests
         string? target = null,
         string? options = null,
         string mode = nameof(ImportMode.ControllerOnly),
-        bool confirmed = true)
+        bool confirmed = true,
+        string? startDirectory = null)
     {
         var written = Written(key);
         return new ImportedEntry
@@ -60,6 +61,7 @@ public sealed class ImportPlanTests
             AppId = appId,
             Name = "Moonlit",
             Target = target ?? written.Target,
+            StartDirectory = startDirectory ?? written.StartDirectory,
             LaunchOptions = options ?? written.LaunchOptions,
             Mode = mode,
             ConfirmedUtc = confirmed && appId > 0 ? "2026-09-24T00:00:00.0000000+00:00" : string.Empty
@@ -76,6 +78,7 @@ public sealed class ImportPlanTests
             AppId = appId,
             Name = "Hades",
             Target = fields.Target,
+            StartDirectory = fields.StartDirectory,
             LaunchOptions = fields.LaunchOptions,
             Mode = nameof(ImportMode.SteamIntegration),
             Route = route.Id,
@@ -83,16 +86,19 @@ public sealed class ImportPlanTests
         };
     }
 
-    private static ExistingShortcut Shortcut(uint appId = 2147483650u, string? target = null, string? options = null)
+    private static ExistingShortcut Shortcut(uint appId = 2147483650u, string? target = null, string? options = null,
+        string? startDirectory = null)
     {
         var written = Written();
-        return new ExistingShortcut(appId, target ?? written.Target, options ?? written.LaunchOptions);
+        return new ExistingShortcut(appId, target ?? written.Target, options ?? written.LaunchOptions,
+            startDirectory ?? written.StartDirectory, "Moonlit");
     }
 
     private static ExistingShortcut Live(ShortcutRoute route, uint appId = 3000000001u, string? options = null)
     {
         var fields = ShortcutTestFields.Compose(route, Launcher);
-        return new ExistingShortcut(appId, fields.Target, options ?? fields.LaunchOptions);
+        return new ExistingShortcut(appId, fields.Target, options ?? fields.LaunchOptions, fields.StartDirectory,
+            "Hades");
     }
 
     private static IReadOnlyList<ImportPlanEntry> Plan(
@@ -154,8 +160,9 @@ public sealed class ImportPlanTests
     {
         // The record and the live entry agree; only the launcher's folder changed with WSGM.
         var old = Written(launcher: @"D:\Old\WSGM.PackagedLaunch.exe");
-        var entry = Single([Game()], [Record(target: old.Target, options: old.LaunchOptions)],
-            [Shortcut(target: old.Target, options: old.LaunchOptions)]);
+        var entry = Single([Game()],
+            [Record(target: old.Target, options: old.LaunchOptions, startDirectory: old.StartDirectory)],
+            [Shortcut(target: old.Target, options: old.LaunchOptions, startDirectory: old.StartDirectory)]);
 
         Assert.Equal(ImportAction.Update, entry.Action);
         Assert.True(entry.Selectable);
@@ -409,6 +416,42 @@ public sealed class ImportPlanTests
         var entry = Single([CommandGame()], [CommandRecord(Direct)], [Live(Direct, options: "-windowed -dx11")]);
 
         Assert.Equal(ImportAction.Conflict, entry.Action);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ACommandWithADifferentWorkingDirectoryCannotBeAdoptedOrOverwritten(bool recorded)
+    {
+        var live = Live(Direct) with { StartDirectory = @"E:\User chosen directory" };
+        var entry = Single([CommandGame()], recorded ? [CommandRecord(Direct)] : [], [live]);
+
+        Assert.Equal(ImportAction.Conflict, entry.Action);
+        Assert.Equal(live.AppId, entry.AppId);
+        Assert.False(entry.Selectable);
+    }
+
+    [Fact]
+    public void NativeLauncherAvailabilityMetadataKeepsItsRouteAndUninstallCleanup()
+    {
+        ManagedContentRecord content = new()
+        {
+            Id = "0123456789abcdef0123456789abcdef", SourceId = "epic", SourceKey = "Hades",
+            Name = "Hades", SourceKind = LibrarySourceKind.Launcher, LaunchKind = ManagedLaunchKind.Native,
+            BackingPath = new ManagedContentPath { AbsolutePath = @"D:\Games\Hades", Directory = true }
+        };
+        var game = DiscoveredGame.Command("epic", "Hades", "Hades", @"D:\Games\Hades", [ThroughLauncher, Direct],
+            content);
+        var record = CommandRecord(Direct);
+        record.Content = content;
+
+        Assert.Equal([ThroughLauncher, Direct], game.CommandRoutes);
+        Assert.DoesNotContain(game.CommandRoutes, route => route.IsManaged);
+        Assert.Equal(ImportAction.Skip, Single([game], [record], [Live(Direct)]).Action);
+        var removal = Single([], [record], [Live(Direct)]);
+        Assert.Equal(ImportAction.Remove, removal.Action);
+        Assert.True(removal.Selectable);
+        Assert.False(removal.Preselect);
     }
 
     [Fact]

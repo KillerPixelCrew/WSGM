@@ -135,6 +135,7 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
     /// <summary>The session's card manifest watcher, stood down for each eject. Set by the session.</summary>
     internal CardAcfWatcher? CardWatcher { get; set; }
 
+
     /// <summary>Stops the timers and volume notifications. Idempotent; bound values keep their last state.</summary>
     public void Dispose()
     {

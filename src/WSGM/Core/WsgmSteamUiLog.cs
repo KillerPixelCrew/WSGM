@@ -12,6 +12,20 @@ namespace WSGM.Core;
 public sealed class WsgmSteamUiLog : ISteamUiLog
 {
     /// <inheritdoc />
+    public bool ConsoleVerboseEnabled => Log.MinimumLevel == LogLevel.Debug;
+
+    /// <inheritdoc />
+    public void Console(string key, string message, SteamUiConsoleLevel level)
+    {
+        Log.Change(key, message, level switch
+        {
+            SteamUiConsoleLevel.Error => LogLevel.Error,
+            SteamUiConsoleLevel.Warning => LogLevel.Warn,
+            _ => LogLevel.Debug
+        });
+    }
+
+    /// <inheritdoc />
     public void Info(string message)
     {
         Log.Info(message);

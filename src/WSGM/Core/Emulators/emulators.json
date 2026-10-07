@@ -1,0 +1,361 @@
+{
+  "schemaVersion": 1,
+  "definitions": [
+    {
+      "id": "retroarch",
+      "name": "RetroArch (all cores)",
+      "systems": [
+        "nes",
+        "snes",
+        "gb",
+        "gbc",
+        "gba",
+        "n64",
+        "nds",
+        "psx",
+        "ps2",
+        "psp",
+        "megadrive",
+        "gamegear",
+        "mastersystem",
+        "saturn",
+        "dreamcast",
+        "arcade",
+        "pcengine"
+      ],
+      "architectures": ["x64"],
+      "executableNames": ["retroarch.exe"],
+      "launchArguments": ["-L", "{core}", "-f", "{rom}"],
+      "packageType": "7z",
+      "validationArguments": ["--version"],
+      "sources": {
+        "stable": {
+          "provider": "Buildbot",
+          "baseUrl": "https://buildbot.libretro.com/",
+          "repository": "stable",
+          "platformNames": { "x64": "x86_64" },
+          "packageName": "RetroArch.7z",
+          "packagePattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}.*RetroArch.*[.]7z$",
+          "corePath": "nightly/windows/{platform}/latest/",
+          "assetPath": "assets/frontend/"
+        },
+        "nightly": {
+          "provider": "Buildbot",
+          "baseUrl": "https://buildbot.libretro.com/",
+          "repository": "nightly",
+          "platformNames": { "x64": "x86_64" },
+          "packageName": "RetroArch.7z",
+          "packagePattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}.*RetroArch.*[.]7z$",
+          "corePath": "nightly/windows/{platform}/latest/",
+          "assetPath": "assets/frontend/"
+        }
+      },
+      "dataPolicy": {
+        "configFile": "retroarch.cfg",
+        "configPaths": {
+          "libretro_directory": "{program}/cores",
+          "libretro_info_path": "{program}/info",
+          "assets_directory": "{program}/assets",
+          "joypad_autoconfig_dir": "{program}/autoconfig",
+          "content_database_path": "{program}/database-rdb",
+          "cursor_directory": "{program}/database-cursors",
+          "system_directory": "{data}/system",
+          "savefile_directory": "{data}/saves",
+          "savestate_directory": "{data}/states",
+          "input_remapping_directory": "{data}/remaps",
+          "playlist_directory": "{data}/playlists",
+          "screenshot_directory": "{data}/screenshots"
+        },
+        "externalRoots": ["{program}"],
+        "prerequisites": [
+          {
+            "extensions": [],
+            "name": "Core system files",
+            "kind": "system",
+            "allowDirectory": true,
+            "destination": "system",
+            "description": "Supply locally owned BIOS and core system files. Core metadata declares required files."
+          }
+        ],
+        "dataArguments": ["-c", "{config}"],
+        "hasCores": true,
+        "requiresVisualCpp": false,
+        "portableDirectory": "",
+        "portableMarkers": [],
+        "probeDirectory": "",
+        "nativeRoots": [],
+        "environment": {}
+      }
+    },
+    {
+      "id": "duckstation",
+      "name": "DuckStation",
+      "systems": ["psx"],
+      "architectures": ["x64", "arm64"],
+      "executableNames": [
+        "duckstation-qt-x64-ReleaseLTCG.exe",
+        "duckstation-qt-ARM64-ReleaseLTCG.exe"
+      ],
+      "launchArguments": ["-batch", "-fullscreen", "--", "{rom}"],
+      "packageType": "zip",
+      "validationArguments": ["-version"],
+      "validationExitCodes": [0, 1],
+      "validationOutput": "DuckStation",
+      "sources": {
+        "latest": {
+          "provider": "Scoop",
+          "baseUrl": "https://raw.githubusercontent.com/ScoopInstaller/Games/master/bucket/",
+          "manifest": "duckstation.json"
+        },
+        "preview": {
+          "provider": "Scoop",
+          "baseUrl": "https://raw.githubusercontent.com/ScoopInstaller/Games/master/bucket/",
+          "manifest": "duckstation-preview.json"
+        }
+      },
+      "dataPolicy": {
+        "externalRoots": ["{documents}/DuckStation", "{localAppData}/DuckStation"],
+        "prerequisites": [
+          {
+            "iniSection": "BIOS",
+            "extensions": [".bin", ".rom"],
+            "name": "PlayStation BIOS",
+            "requiredExtensions": [".bin", ".rom"],
+            "required": true,
+            "allowDirectory": true,
+            "destination": "bios",
+            "iniKey": "SearchDirectory",
+            "kind": "bios",
+            "description": "Supply a locally dumped PlayStation BIOS.",
+            "iniFile": "settings.ini"
+          }
+        ],
+        "dataArguments": [],
+        "hasCores": false,
+        "requiresVisualCpp": true,
+        "portableDirectory": "",
+        "portableMarkers": ["portable.txt", "settings.ini"],
+        "probeDirectory": "",
+        "nativeRoots": ["{documents}/DuckStation", "{localAppData}/DuckStation"],
+        "environment": {}
+      }
+    },
+    {
+      "id": "rpcs3",
+      "name": "RPCS3",
+      "systems": ["ps3"],
+      "architectures": ["x64", "arm64"],
+      "executableNames": ["rpcs3.exe"],
+      "launchArguments": ["--no-gui", "{rom}"],
+      "packageType": "7z",
+      "validationArguments": ["--version"],
+      "sources": {
+        "rolling": {
+          "assetPattern": "(?i)^rpcs3-.*_win64_{arch}[.]7z$",
+          "provider": "GitHub",
+          "baseUrl": "https://api.github.com/",
+          "assetArchitectureNames": {
+            "x64": "msvc",
+            "arm64": "aarch64_clang"
+          },
+          "repositories": {
+            "x64": "RPCS3/rpcs3-binaries-win",
+            "arm64": "RPCS3/rpcs3-binaries-win-arm64"
+          },
+          "checksumFile": "{asset}.sha256"
+        }
+      },
+      "dataPolicy": {
+        "externalRoots": ["{program}"],
+        "prerequisites": [
+          {
+            "extensions": [".pup"],
+            "name": "PlayStation 3 firmware",
+            "required": true,
+            "allowDirectory": false,
+            "destination": "dev_flash/vsh",
+            "installerArguments": ["--installfw", "{source}"],
+            "kind": "firmware",
+            "description": "Choose a local PS3UPDAT.PUP; RPCS3 applies it through its installer.",
+            "nativeInstaller": true
+          }
+        ],
+        "dataArguments": [],
+        "hasCores": false,
+        "requiresVisualCpp": true,
+        "portableDirectory": "",
+        "portableMarkers": [],
+        "probeDirectory": "",
+        "nativeRoots": [],
+        "environment": {
+          "RPCS3_CONFIG_DIR": "{data}"
+        }
+      }
+    },
+    {
+      "id": "pcsx2",
+      "name": "PCSX2",
+      "systems": ["ps2"],
+      "architectures": ["x64"],
+      "executableNames": ["pcsx2-qt.exe"],
+      "launchArguments": ["-batch", "-fullscreen", "-nogui", "--", "{rom}"],
+      "packageType": "7z",
+      "validationArguments": ["-version"],
+      "validationExitCodes": [0, 1],
+      "validationOutput": "PCSX2",
+      "sources": {
+        "stable": {
+          "provider": "Scoop",
+          "baseUrl": "https://raw.githubusercontent.com/ScoopInstaller/Games/master/bucket/",
+          "manifest": "pcsx2.json"
+        },
+        "nightly": {
+          "provider": "Scoop",
+          "baseUrl": "https://raw.githubusercontent.com/ScoopInstaller/Games/master/bucket/",
+          "manifest": "pcsx2-dev.json"
+        }
+      },
+      "dataPolicy": {
+        "externalRoots": ["{documents}/PCSX2"],
+        "prerequisites": [
+          {
+            "iniSection": "Folders",
+            "extensions": [".bin", ".rom"],
+            "name": "PlayStation 2 BIOS",
+            "requiredExtensions": [".bin", ".rom"],
+            "required": true,
+            "allowDirectory": true,
+            "destination": "bios",
+            "iniKey": "Bios",
+            "kind": "bios",
+            "description": "Supply a locally dumped PS2 BIOS and select it in PCSX2 when several are present.",
+            "iniFile": "inis/PCSX2.ini"
+          }
+        ],
+        "dataArguments": ["-datapath", "{data}"],
+        "hasCores": false,
+        "requiresVisualCpp": true,
+        "portableDirectory": "",
+        "portableMarkers": ["portable.ini", "portable.txt"],
+        "probeDirectory": "",
+        "nativeRoots": [],
+        "environment": {}
+      }
+    },
+    {
+      "id": "eden",
+      "name": "Eden",
+      "systems": ["switch"],
+      "architectures": ["x64", "arm64"],
+      "executableNames": ["eden.exe"],
+      "launchArguments": ["--fullscreen", "{rom}"],
+      "packageType": "zip",
+      "validationArguments": ["--version"],
+      "sources": {
+        "stable": {
+          "provider": "Scoop",
+          "baseUrl": "https://raw.githubusercontent.com/ScoopInstaller/Games/master/bucket/",
+          "manifest": "eden.json"
+        },
+        "nightly": {
+          "provider": "Forgejo",
+          "baseUrl": "https://git.eden-emu.dev/",
+          "repository": "eden-ci/nightly",
+          "assetPattern": "(?i)^Eden-Windows-.*-{arch}-{variant}[.]zip$",
+          "assetArchitectureNames": {
+            "x64": "amd64",
+            "arm64": "arm64"
+          },
+          "bodyAssets": true,
+          "assetVariants": {
+            "x64": "msvc-standard",
+            "arm64": "clang-standard"
+          }
+        }
+      },
+      "dataPolicy": {
+        "externalRoots": ["{appData}/eden"],
+        "prerequisites": [
+          {
+            "required": true,
+            "allowDirectory": true,
+            "extensions": [".keys"],
+            "name": "Console decryption keys",
+            "description": "Supply locally extracted prod.keys/title.keys.",
+            "kind": "keys",
+            "requiredExtensions": [".keys"],
+            "destination": "keys",
+            "requiredNames": ["prod.keys"]
+          },
+          {
+            "required": true,
+            "destination": "nand",
+            "allowDirectory": true,
+            "extensions": [".zip", ".nca"],
+            "pathSuffix": "system/Contents/registered",
+            "iniFile": "config/qt-config.ini",
+            "name": "Console firmware",
+            "description": "Complete Eden Tools > Install Firmware using your supplied ZIP or folder.",
+            "nativeInstaller": true,
+            "installerArguments": [],
+            "requiredExtensions": [".nca"],
+            "iniKey": "nand_directory",
+            "iniSection": "DataStorage",
+            "kind": "firmware"
+          }
+        ],
+        "dataArguments": [],
+        "hasCores": false,
+        "requiresVisualCpp": true,
+        "portableDirectory": "user",
+        "portableMarkers": ["user"],
+        "probeDirectory": "user",
+        "nativeRoots": ["{appData}/eden"],
+        "environment": {}
+      }
+    },
+    {
+      "id": "dolphin",
+      "name": "Dolphin",
+      "systems": ["gamecube", "wii"],
+      "architectures": ["x64", "arm64"],
+      "executableNames": ["Dolphin.exe"],
+      "launchArguments": ["-b", "-e", "{rom}"],
+      "packageType": "7z",
+      "validationArguments": ["--version"],
+      "sources": {
+        "release": {
+          "provider": "Dolphin",
+          "baseUrl": "https://dolphin-emu.org/",
+          "repository": "beta"
+        },
+        "development": {
+          "provider": "Dolphin",
+          "baseUrl": "https://dolphin-emu.org/",
+          "repository": "dev"
+        }
+      },
+      "dataPolicy": {
+        "externalRoots": ["{documents}/Dolphin Emulator", "{appData}/Dolphin Emulator"],
+        "prerequisites": [
+          {
+            "extensions": [],
+            "name": "Optional console system files",
+            "kind": "system",
+            "allowDirectory": true,
+            "destination": "",
+            "description": "Supply local GameCube/Wii system files for the features you use."
+          }
+        ],
+        "dataArguments": ["-u", "{data}"],
+        "hasCores": false,
+        "requiresVisualCpp": true,
+        "portableDirectory": "User",
+        "portableMarkers": ["portable.txt"],
+        "probeDirectory": "",
+        "nativeRoots": [],
+        "environment": {}
+      }
+    }
+  ]
+}

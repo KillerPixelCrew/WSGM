@@ -229,7 +229,7 @@ public sealed partial class GogLibrarySource : ILibrarySource
 
             if (routes.Count > 0)
             {
-                games.Add(DiscoveredGame.Command(Id, id, entry.DisplayName, location, routes));
+                games.Add(DiscoveredGame.Command(this, id, entry.DisplayName, location, routes));
             }
         }
 

@@ -1,3 +1,4 @@
+using WSGM.Core;
 using WSGM.Overlay;
 using WSGM.Shell;
 
@@ -6,7 +7,9 @@ namespace WSGM.Tests.Overlay;
 /// <summary>What the overlay's Game Library view says. It reads the same state, and labels, the Steam page does.</summary>
 public sealed class GameLibraryRowsTests
 {
-    private static readonly GameLibrarySource Xbox = new("xbox", "Xbox", "launcher", true, true, "Installed", 1);
+    private static readonly GameLibrarySource Xbox = new("xbox", "Xbox", LibrarySourceKind.Launcher, true, true,
+        "Installed", 1,
+        true, true);
 
     private static GameLibraryEntry Entry(
         string action = "Add",
@@ -44,6 +47,13 @@ public sealed class GameLibraryRowsTests
         Assert.Equal("New · Steam overlay", GameLibraryRows.Describe(Entry()));
         Assert.Equal("Selected · Imported · Controller only",
             GameLibraryRows.Describe(Entry("Skip", "Imported", "ControllerOnly", true)));
+    }
+
+    [Fact]
+    public void ASourceLineUsesItsPublishedCheckboxState()
+    {
+        Assert.Equal("On · 1 found", GameLibraryRows.SourceLine(Xbox));
+        Assert.Equal("Off · 1 found", GameLibraryRows.SourceLine(Xbox with { Checked = false }));
     }
 
     [Fact]

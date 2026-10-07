@@ -808,12 +808,6 @@ internal static unsafe partial class NativeStorage
 
     // ---- volume identity and label ----
 
-    [LibraryImport("kernel32.dll", EntryPoint = "GetVolumeNameForVolumeMountPointW",
-        SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static partial bool GetVolumeNameForVolumeMountPointW(
-        string mountPoint, char* volumeName, uint bufferLength);
-
     [LibraryImport("kernel32.dll", EntryPoint = "GetVolumeInformationW",
         SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -852,9 +846,13 @@ internal static unsafe partial class NativeStorage
         volumeRoot = null;
         // Documented minimum for a volume GUID path is 50 characters.
         var buffer = stackalloc char[64];
-        if (!GetVolumeNameForVolumeMountPointW($"{letter}:\\", buffer, 64))
+        var mount = $"{letter}:\\";
+        fixed (char* mountPath = mount)
         {
-            return false;
+            if (!GetVolumeNameForVolumeMountPointW(mountPath, buffer, 64))
+            {
+                return false;
+            }
         }
 
         var value = ReadBoundedString(buffer, 64);

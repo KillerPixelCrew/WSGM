@@ -11,6 +11,13 @@ public sealed class OverlayViewModel : ObservableObject
 
     private string _warningText = "";
 
+    /// <summary>Whether the independent emulator tool is available in this session.</summary>
+    public bool ShowEmulators
+    {
+        get;
+        set => SetFieldIfChanged(ref field, value, nameof(ShowEmulators));
+    }
+
     internal IReadOnlyDictionary<PowerTimeoutKind, int?> PowerTimeoutMinimums { get; set; } =
         new Dictionary<PowerTimeoutKind, int?>();
 

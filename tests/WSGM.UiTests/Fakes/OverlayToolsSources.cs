@@ -1,9 +1,115 @@
 using System.Text.Json;
 using SkiaSharp;
 using SteamUiToolkit;
+using WSGM.Core;
 using WSGM.Shell;
 
 namespace WSGM.UiTests.Fakes;
+
+internal sealed class EmulatorOverlaySource : IEmulatorBackend
+{
+    internal EmulatorSnapshot State { get; set; } = new()
+    {
+        Definitions =
+        [
+            new EmulatorDefinition
+            {
+                Id = "retroarch", Name = "RetroArch", Channels = ["stable"],
+                DataPolicy = new EmulatorDataPolicy { HasCores = true }
+            }
+        ]
+    };
+
+    internal List<string> Commands { get; } = [];
+    public event Action? Changed;
+
+    public EmulatorSnapshot ReadState()
+    {
+        return State;
+    }
+
+    public EmulatorProgressState ReadProgressState()
+    {
+        return new EmulatorProgressState(State.Busy, State.Status);
+    }
+
+    public EmulatorPageState ReadPageState()
+    {
+        var systems = RomProfiles.ForInstallations(State.Installations);
+        return new EmulatorPageState(State with { Busy = false, Status = "" }, systems,
+            RomEmulatorProjection.Create(State, systems).Choices, [], "x64");
+    }
+
+    public Task<SteamUiCommandResult> CancelAsync(CancellationToken cancellationToken)
+    {
+        return Command("CancelAsync", cancellationToken);
+    }
+
+    public Task<SteamUiCommandResult> RefreshEmulatorsAsync(CancellationToken cancellationToken)
+    {
+        return Command("RefreshEmulatorsAsync", cancellationToken);
+    }
+
+    public Task<SteamUiCommandResult> InstallEmulatorAsync(string definitionId, string channel,
+        CancellationToken cancellationToken)
+    {
+        return Command("InstallEmulatorAsync", cancellationToken);
+    }
+
+    public Task<SteamUiCommandResult> UpdateEmulatorAsync(string installationId, CancellationToken cancellationToken)
+    {
+        return Command("UpdateEmulatorAsync", cancellationToken);
+    }
+
+    public Task<SteamUiCommandResult> RepairEmulatorAsync(string installationId, CancellationToken cancellationToken)
+    {
+        return Command("RepairEmulatorAsync", cancellationToken);
+    }
+
+    public Task<SteamUiCommandResult> UseExternalEmulatorAsync(string definitionId, string executable,
+        CancellationToken cancellationToken)
+    {
+        return Command("UseExternalEmulatorAsync", cancellationToken);
+    }
+
+    public Task<SteamUiCommandResult> RemoveEmulatorAsync(string installationId, CancellationToken cancellationToken)
+    {
+        return Command("RemoveEmulatorAsync", cancellationToken);
+    }
+
+    public Task<SteamUiCommandResult> IgnoreEmulatorVersionAsync(string installationId, string releaseId,
+        CancellationToken cancellationToken)
+    {
+        return Command("IgnoreEmulatorVersionAsync", cancellationToken);
+    }
+
+    public Task<SteamUiCommandResult> OpenEmulatorReleaseNotesAsync(string definitionId, string channel,
+        string architecture,
+        CancellationToken cancellationToken)
+    {
+        return Command("OpenEmulatorReleaseNotesAsync", cancellationToken);
+    }
+
+    public Task<SteamUiCommandResult> ConfigureEmulatorPrerequisiteAsync(string installationId, string path,
+        string kind, CancellationToken cancellationToken)
+    {
+        return Command("ConfigureEmulatorPrerequisiteAsync", cancellationToken);
+    }
+
+    public Task<SteamUiCommandResult> SetPreferredEmulatorAsync(string systemId, string installationId, string coreId,
+        CancellationToken cancellationToken)
+    {
+        return Command("SetPreferredEmulatorAsync", cancellationToken);
+    }
+
+    private Task<SteamUiCommandResult> Command(string name, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        Commands.Add(name);
+        Changed?.Invoke();
+        return Task.FromResult(SteamUiCommandResult.Applied);
+    }
+}
 
 internal static class OverlayToolFixtures
 {
@@ -57,8 +163,9 @@ internal static class OverlayToolFixtures
 
     internal static GameLibraryState Library => new(
         [
-            new GameLibrarySource("xbox", "Xbox", "launcher", true, true, "Installed", 2),
-            new GameLibrarySource("epic", "Epic Games", "launcher", true, true, "Installed", 1)
+            new GameLibrarySource("xbox", "Xbox", LibrarySourceKind.Launcher, true, true, "Installed", 2, true, true),
+            new GameLibrarySource("epic", "Epic Games", LibrarySourceKind.Launcher, true, true, "Installed", 1, true,
+                true)
         ],
         ["Xbox", "Epic Games"], "review",
         [
@@ -474,6 +581,80 @@ internal sealed class FakeLibrarySource : IGameLibraryOverlaySource
     internal readonly List<string> Commands = [];
     internal GameLibraryState State = OverlayToolFixtures.Library;
     public event Action? Changed;
+
+    public RomEmulatorState ReadRomState()
+    {
+        return RomEmulatorState.Empty;
+    }
+
+    public IReadOnlyList<RomSystemProfile> ReadRomSystems()
+    {
+        return RomProfiles.All;
+    }
+
+    public Task<SteamUiCommandResult> AddRomSourceAsync(RomSourceConfig source, CancellationToken cancellationToken)
+    {
+        return Command("AddRomSourceAsync");
+    }
+
+    public Task<SteamUiCommandResult> RemoveRomSourceAsync(string id, CancellationToken cancellationToken)
+    {
+        return Command("RemoveRomSourceAsync");
+    }
+
+    public Task<SteamUiCommandResult> AddManualSourceAsync(ManualShortcutConfig source,
+        CancellationToken cancellationToken)
+    {
+        return Command("AddManualSourceAsync");
+    }
+
+    public Task<SteamUiCommandResult> RemoveManualSourceAsync(string id, CancellationToken cancellationToken)
+    {
+        return Command("RemoveManualSourceAsync");
+    }
+
+    public Task<SteamUiCommandResult> SetRomEmulatorAsync(string id, string installationId, string coreId,
+        CancellationToken cancellationToken)
+    {
+        State = State with
+        {
+            Entries = State.Entries.Select(entry => entry.Id == id
+                ? entry with { EmulatorInstallationId = installationId, CoreId = coreId }
+                : entry).ToArray()
+        };
+        return Command("SetRomEmulatorAsync");
+    }
+
+    public Task<SteamUiCommandResult> SetRomTitleAsync(string id, string name, CancellationToken cancellationToken)
+    {
+        State = State with
+        {
+            Entries = State.Entries.Select(entry => entry.Id == id ? entry with { Name = name } : entry).ToArray()
+        };
+        return Command("SetRomTitleAsync");
+    }
+
+    public Task<SteamUiCommandResult> SetRomArgumentsAsync(string id, IReadOnlyList<string> arguments,
+        CancellationToken cancellationToken)
+    {
+        State = State with
+        {
+            Entries = State.Entries.Select(entry => entry.Id == id
+                ? entry with { Arguments = arguments.ToArray() }
+                : entry).ToArray()
+        };
+        return Command("SetRomArgumentsAsync");
+    }
+
+    public Task<SteamUiCommandResult> SetCleanupAsync(string id, bool cleanup, CancellationToken cancellationToken)
+    {
+        return Command("SetCleanupAsync");
+    }
+
+    public Task<SteamUiCommandResult> RecheckAvailabilityAsync(string id, CancellationToken cancellationToken)
+    {
+        return Command("RecheckAvailabilityAsync");
+    }
 
     public GameLibraryState ReadState()
     {

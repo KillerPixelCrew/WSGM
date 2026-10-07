@@ -61,6 +61,9 @@ internal static class Program
 
         switch (command.Action)
         {
+            case PackagedLaunchAction.Managed:
+                HideConsole();
+                return ManagedContentLaunch.Run(command.ManagedIdentity!);
             case PackagedLaunchAction.Help:
                 Console.WriteLine(PackagedLaunchCommand.Usage);
                 return 0;

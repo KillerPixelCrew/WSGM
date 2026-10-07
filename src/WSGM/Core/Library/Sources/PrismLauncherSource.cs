@@ -127,8 +127,7 @@ public sealed class PrismLauncherSource : ILibrarySource
                 "Prism Launcher starts this instance. WSGM follows the instance's Java process, so Steam shows "
                 + "the game running for as long as it is.",
                 FollowMarker: directory);
-            found.Add(DiscoveredGame.Command(
-                Id,
+            found.Add(DiscoveredGame.Command(this,
                 folderName,
                 string.IsNullOrWhiteSpace(name) ? folderName : name.Trim(),
                 directory,

@@ -142,6 +142,7 @@ public sealed class SdFormatManager(
     /// <summary>The session's card manifest watcher, stood down for the whole run. Set by the session.</summary>
     internal CardAcfWatcher? CardWatcher { get; set; }
 
+
     /// <summary>Gets the current stage or terminal outcome of the format run.</summary>
     public string StatusText
     {

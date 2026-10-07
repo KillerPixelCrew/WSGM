@@ -102,6 +102,7 @@ public sealed partial class ShellSession
     // instance the overlay, SessionModes and DisplayScale's saved-scale snapshot
     // live on — the volume OSD's UI-scale callback reads it long after boot.
     private AppConfig _config;
+    private ManagedShortcutMonitor? _contentAvailability;
     private ControllerManager? _controllerStatusSource;
 
     private ExplorerDesktopHost? _desktopHost;
@@ -127,6 +128,10 @@ public sealed partial class ShellSession
     ///     enumerate every volume twice and could disagree about what is still ejectable.
     /// </remarks>
     private RemovableDriveManager? _drives;
+
+    private EmulatorService? _emulatorTool;
+
+    private EmulatorManager? _emulators;
 
     private ForegroundWindowWatcher? _foregroundWindows;
 
@@ -154,6 +159,7 @@ public sealed partial class ShellSession
 
     private KeepAwakeService? _keepAwake;
     private GameLibraryArtwork? _libraryArtwork;
+    private LibraryBadgeWatcher? _libraryBadgeWatcher;
 
     /// <summary>The Xbox library importer behind the Quick Access tab's page, or null in overlay-test.</summary>
     private GameLibraryService? _libraryImport;
@@ -214,6 +220,7 @@ public sealed partial class ShellSession
     private SteamStorageBridge? _steamStorage;
 
     private SteamUiSessionHost? _steamUi;
+    private Task<IAsyncDisposable>[] _steamUiConsoleSubscriptions = [];
 
     private PersistentSteamUiTransport? _steamUiTransport;
     private ThemeService? _themes;
@@ -277,6 +284,12 @@ public sealed partial class ShellSession
         {
             _steamUiTransport = new PersistentSteamUiTransport(true);
             _steamUiTransport.SetEnabled(false);
+            // Diagnostics use the existing target connections and obey the same readiness gate.
+            _steamUiConsoleSubscriptions =
+            [
+                _steamUiTransport.SubscribeAsync(SteamUiTargetRole.SharedJsContext).AsTask(),
+                _steamUiTransport.SubscribeAsync(SteamUiTargetRole.MainWindow).AsTask()
+            ];
             _steamClient = new SteamClient(_steamUiTransport);
         }
 
@@ -380,6 +393,20 @@ public sealed partial class ShellSession
             if (_shutdownRequested)
             {
                 return;
+            }
+
+            if (!_overlayTestOnly)
+            {
+                try
+                {
+                    _emulators = await Task.Run(() => new EmulatorManager(_store.Context), _shutdownCancellation.Token)
+                        .ConfigureAwait(false);
+                    _emulatorTool = new EmulatorService(_emulators, url => AppLauncher.Open(url));
+                }
+                catch (Exception ex) when (ex is not OutOfMemoryException and not OperationCanceledException)
+                {
+                    Log.Warn($"The emulator manager could not start: {ex.Message}");
+                }
             }
 
             await Dispatcher.UIThread.InvokeAsync(() =>
@@ -927,6 +954,7 @@ public sealed partial class ShellSession
                         XboxPackages.ReadPackageFile,
                         (package, token) => catalog.LookUpAsync(package.FamilyName, token)),
                     new EpicLibrarySource(),
+                    new EaLibrarySource(),
                     new GogLibrarySource(),
                     new UbisoftLibrarySource(),
                     new BattleNetLibrarySource(),
@@ -944,7 +972,9 @@ public sealed partial class ShellSession
                                 appId, fields.Target, fields.StartDirectory, fields.LaunchOptions, token)
                             .ConfigureAwait(false)).Succeeded,
                     async (appId, token) =>
-                        (await steam.Apps.RemoveShortcutAsync(appId, token).ConfigureAwait(false)).Succeeded),
+                        (await steam.Apps.RemoveShortcutAsync(appId, token).ConfigureAwait(false)).Succeeded,
+                    async (appId, name, token) =>
+                        (await steam.Apps.SetShortcutNameAsync(appId, name, token).ConfigureAwait(false)).Succeeded),
                 ReadShortcutsAsync,
                 ReadShortcutAsync,
                 _config.GameLibrary,
@@ -959,9 +989,14 @@ public sealed partial class ShellSession
                 folderSource: folder => new ShortcutFolderSource(folder),
                 artwork: libraryArtwork,
                 syncCollection: (id, name, add, remove, token) =>
-                    steam.Collections.SyncAsync(id, name, add, remove, true, token));
+                    steam.Collections.SyncAsync(id, name, add, remove, true, token),
+                emulators: _emulatorTool);
             _libraryArtwork = libraryArtwork;
             _libraryImport.Start();
+            if (_messageWindow is { } contentWindow)
+            {
+                _contentAvailability = new ManagedShortcutMonitor(contentWindow, _libraryImport, _emulators);
+            }
         });
     }
 
@@ -1099,7 +1134,8 @@ public sealed partial class ShellSession
                     ? DisplayModeAccess.Unavailable
                     : new DisplayModeAccess(ReadOverlayDisplayModeAsync,
                         (snapshot, mode) => Task.Run(() => DisplayModes.Apply(snapshot, mode))),
-                _powerProfiles),
+                _powerProfiles,
+                _emulatorTool),
             _audio,
             _audioProfiles,
             _radios,
@@ -1290,6 +1326,8 @@ public sealed partial class ShellSession
                 Log.Warn($"Library badge: initial reading failed: {ex.Message}");
             }
 
+            TryStart("library badge watcher", () => _libraryBadgeWatcher = LibraryBadgeWatcher.StartNew(_store));
+
             TryStart("Steam UI services", () =>
             {
                 var steamUiTransport = _steamUiTransport
@@ -1339,6 +1377,7 @@ public sealed partial class ShellSession
                     PluginSteamUi = _pluginSteamUi,
                     Artwork = _artwork,
                     LibraryImport = _libraryImport,
+                    Emulators = _emulatorTool,
                     WsgmSettings = _wsgmSettings,
                     CpuBoost = _applicationProfiles.CpuBoostAvailable
                         ? new NativeQamCpuBoostService(_applicationProfiles, _profiles)

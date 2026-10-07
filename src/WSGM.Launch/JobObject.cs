@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using WSGM.Interop;
 
 namespace WSGM.Launch;
 
@@ -44,7 +45,7 @@ internal sealed partial class JobObject : IDisposable
             return;
         }
 
-        CloseHandle(_handle);
+        Win32Common.CloseHandle(_handle);
         _handle = 0;
     }
 
@@ -134,8 +135,6 @@ internal sealed partial class JobObject : IDisposable
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool TerminateJobObject(nint job, uint exitCode);
 
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    private static partial void CloseHandle(nint handle);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct JobObjectBasicAccountingInfo

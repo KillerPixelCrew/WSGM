@@ -6,6 +6,13 @@
   "useTabs": false,
   "overrides": [
     {
+      "files": "external/steam-ui-toolkit/**/*.{ts,js,mjs}",
+      "options": {
+        "tabWidth": 4,
+        "endOfLine": "crlf"
+      }
+    },
+    {
       "files": "src/WSGM/Core/SteamUiAssets/*.js",
       "options": {
         "endOfLine": "lf"

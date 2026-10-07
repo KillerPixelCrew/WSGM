@@ -28,6 +28,22 @@ public sealed class GameLibraryArtworkTests
     }
 
     [Fact]
+    public async Task TemporarilyDisabledTitlesKeepTheirKnownArtworkWithoutAnotherSearch()
+    {
+        FakeProviders providers = new() { Matches = { ["steamgriddb"] = SgdbGame } };
+        providers.Images[SgdbGame] = ["https://sgdb/a.png"];
+        using GameLibraryArtwork stage = new(providers);
+        stage.Reset([Request()]);
+        await SettledAsync(stage);
+        var searches = providers.Searches;
+        stage.Reset([]);
+        stage.Reset([Request()]);
+        Assert.Equal(GameLibraryArtworkStatus.Ready, stage.StatusOf("t1").Status);
+        Assert.Equal(searches, providers.Searches);
+        Assert.Equal("https://sgdb/a.png", Assert.Single(stage.Options("t1", ArtworkAsset.Grid)).Url);
+    }
+
+    [Fact]
     public async Task TheFirstProviderThatKnowsTheTitleDecidesTheMatch()
     {
         FakeProviders providers = new() { Matches = { ["steamgriddb"] = SgdbGame, ["screenscraper"] = RomGame } };
@@ -53,6 +69,27 @@ public sealed class GameLibraryArtworkTests
         var progress = await SettledAsync(stage);
 
         Assert.Equal(GameLibraryArtworkStatus.Ready, progress.Status);
+        Assert.Equal(["steamgriddb", "screenscraper"], providers.Asked);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task APausedAssetProviderDoesNotHideAnotherProvidersAnswer(bool images)
+    {
+        FakeProviders providers = new() { Matches = { ["steamgriddb"] = SgdbGame, ["screenscraper"] = RomGame } };
+        providers.Pauses["steamgriddb"] = "SteamGridDB allowance reached.";
+        if (images)
+        {
+            providers.Images[RomGame] = ["https://screenscraper.fr/media/a.png"];
+        }
+
+        using GameLibraryArtwork stage = new(providers);
+        stage.Reset([Request()]);
+        var progress = await SettledAsync(stage);
+
+        Assert.Equal(images ? GameLibraryArtworkStatus.Ready : GameLibraryArtworkStatus.NotFound, progress.Status);
+        Assert.NotEqual("SteamGridDB allowance reached.", progress.Detail);
         Assert.Equal(["steamgriddb", "screenscraper"], providers.Asked);
     }
 
@@ -184,6 +221,7 @@ public sealed class GameLibraryArtworkTests
 
         internal Dictionary<string, ArtworkGameMatch> Matches { get; } = [];
         internal Dictionary<ArtworkGameMatch, string[]> Images { get; } = [];
+        internal Dictionary<string, string> Pauses { get; } = [];
         internal List<string> Asked { get; } = [];
         internal List<ArtworkGameMatch> Fetched { get; } = [];
         internal IReadOnlyList<ArtworkGameMatch> Merged { get; init; } = [];
@@ -202,9 +240,15 @@ public sealed class GameLibraryArtworkTests
             return Key;
         }
 
-        public Task<ArtworkGameMatch?> FindMatchAsync(
-            string name, IReadOnlyCollection<string> skip, CancellationToken cancellationToken)
+        public string? PauseReason(string providerId)
         {
+            return Pauses.GetValueOrDefault(providerId);
+        }
+
+        public Task<ArtworkGameMatch?> FindMatchAsync(
+            GameLibraryArtworkRequest request, IReadOnlyCollection<string> skip, CancellationToken cancellationToken)
+        {
+            var name = request.Name;
             Interlocked.Increment(ref _searches);
             if (UnavailableReason is not null)
             {
@@ -245,6 +289,16 @@ public sealed class GameLibraryArtworkTests
                 Fetched.Add(match);
             }
 
+            if (Pauses.TryGetValue(match.ProviderId, out var pause))
+            {
+                return Task.FromResult(new ArtworkSearchResult(
+                    [],
+                    [
+                        new ArtworkProviderOutcome(match.ProviderId, ArtworkProviderStatus.Ready, pause,
+                            match.ProviderId)
+                    ]));
+            }
+
             IReadOnlyList<ArtworkCandidate> candidates =
                 asset is ArtworkAsset.Grid && Images.TryGetValue(match, out var urls)
                     ?
@@ -253,7 +307,8 @@ public sealed class GameLibraryArtworkTests
                             new ArtworkCandidate(url, url, 600, 900, "png", match.ProviderId, match.ProviderId))
                     ]
                     : [];
-            return Task.FromResult(new ArtworkSearchResult(candidates, []));
+            return Task.FromResult(new ArtworkSearchResult(candidates,
+                [new ArtworkProviderOutcome(match.ProviderId, ArtworkProviderStatus.Ready, null, match.ProviderId)]));
         }
     }
 }

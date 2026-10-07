@@ -328,9 +328,22 @@ public sealed partial class ShellSession
         {
             var transport = _steamUiTransport;
             _steamUiTransport = null;
-            if (transport is not null)
+            var consoleSubscriptions = _steamUiConsoleSubscriptions;
+            _steamUiConsoleSubscriptions = [];
+            try
             {
-                await transport.DisposeAsync().ConfigureAwait(false);
+                foreach (var subscription in consoleSubscriptions)
+                {
+                    var lease = await subscription.ConfigureAwait(false);
+                    await lease.DisposeAsync().ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                if (transport is not null)
+                {
+                    await transport.DisposeAsync().ConfigureAwait(false);
+                }
             }
         }).ConfigureAwait(false);
 
@@ -407,6 +420,15 @@ public sealed partial class ShellSession
             .ConfigureAwait(false);
         _formats = null;
         // Before the drive manager, whose collection the importer's bridge is subscribed to.
+        await StepAsync(failures, "Stopping content availability during application shutdown failed", async () =>
+        {
+            var availability = _contentAvailability;
+            _contentAvailability = null;
+            if (availability is not null)
+            {
+                await availability.DisposeAsync().ConfigureAwait(false);
+            }
+        }).ConfigureAwait(false);
         await StepAsync(failures, "Disposing the library importer during application shutdown failed", async () =>
         {
             var libraryImport = _libraryImport;
@@ -415,6 +437,14 @@ public sealed partial class ShellSession
             {
                 await libraryImport.StopAsync(Deadline.At(ShutdownDeadline)).ConfigureAwait(false);
             }
+        }).ConfigureAwait(false);
+        await StepAsync(failures, "Disposing the emulator manager during application shutdown failed", () =>
+        {
+            _emulatorTool?.Dispose();
+            _emulatorTool = null;
+            _emulators?.Dispose();
+            _emulators = null;
+            return Task.CompletedTask;
         }).ConfigureAwait(false);
         await UiStepAsync(failures, "Disposing the library artwork stage during application shutdown failed", () =>
         {
@@ -672,6 +702,11 @@ public sealed partial class ShellSession
         {
             _cardAcfWatcher?.Dispose();
             _cardAcfWatcher = null;
+        });
+        Step(failures, "Disposing _libraryBadgeWatcher failed", () =>
+        {
+            _libraryBadgeWatcher?.Dispose();
+            _libraryBadgeWatcher = null;
         });
         Step(failures, "Disposing _startupWatcher failed", () =>
         {

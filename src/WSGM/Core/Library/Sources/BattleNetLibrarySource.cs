@@ -202,7 +202,7 @@ public sealed partial class BattleNetLibrarySource : ILibrarySource
                 var executable = Path.Combine(entry.InstallLocation, product.ClassicExecutable!);
                 if (_fileExists(executable) && seen.Add(product.ProductId))
                 {
-                    found.Add(DiscoveredGame.Command(Id, product.ProductId, product.Name, entry.InstallLocation,
+                    found.Add(DiscoveredGame.Command(this, product.ProductId, product.Name, entry.InstallLocation,
                     [
                         new ShortcutRoute(
                             "direct", DirectLabel, executable, entry.InstallLocation, string.Empty,
@@ -256,7 +256,7 @@ public sealed partial class BattleNetLibrarySource : ILibrarySource
             return;
         }
 
-        found.Add(DiscoveredGame.Command(Id, product.ProductId, product.Name, location,
+        found.Add(DiscoveredGame.Command(this, product.ProductId, product.Name, location,
         [
             ShortcutRoute.ThroughLauncher(
                 client,

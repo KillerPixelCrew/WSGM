@@ -36,6 +36,8 @@
     <AvaloniaXaml Remove="ThirdParty\**"/>
     <EmbeddedResource Include="Core\SteamUiAssets\*.js"
                       LogicalName="WSGM.Core.SteamUiAssets.%(Filename)%(Extension)"/>
+    <EmbeddedResource Include="Core\Emulators\emulators.json"
+                      LogicalName="WSGM.Core.Emulators.emulators.json"/>
   </ItemGroup>
   <ItemGroup>
     <!-- The Steam Input Lease submodule's binding is the single managed ABI source. Both
@@ -141,6 +143,8 @@
     <!-- Controller input; bundles SDL3.dll for win-x64. -->
     <PackageReference Include="ppy.SDL3-CS" Version="2026.722.0"/>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12"/>
+    <PackageReference Include="SharpCompress" Version="0.50.4"/>
+    <PackageReference Include="System.IO.Hashing" Version="10.0.12"/>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4258.31" GeneratePathProperty="true" ExcludeAssets="compile;build;buildTransitive"/>
     <Reference Include="Microsoft.Web.WebView2.Core">
       <HintPath>$(PkgMicrosoft_Web_WebView2)\lib_manual\netcoreapp3.0\Microsoft.Web.WebView2.Core.dll</HintPath>
@@ -162,10 +166,17 @@
     <Compile Include="..\Shared\Interop\Kernel32.cs" Link="Shared\Kernel32.cs"/>
     <Compile Include="..\Shared\Interop\NativeHidHide.cs" Link="Shared\NativeHidHide.cs"/>
     <Compile Include="..\Shared\Launch\PackagedLaunchCommand.cs" Link="Shared\PackagedLaunchCommand.cs"/>
+    <Compile Include="..\Shared\Library\EmulatorModels.cs" Link="Shared\EmulatorModels.cs"/>
+    <Compile Include="..\Shared\Library\ManagedContentModels.cs" Link="Shared\ManagedContentModels.cs"/>
+    <Compile Include="..\Shared\Library\IniFile.cs" Link="Shared\IniFile.cs"/>
+    <Compile Include="..\Shared\Library\StoragePaths.cs" Link="Shared\StoragePaths.cs"/>
+    <Compile Include="..\Shared\Library\NamedMutexLease.cs" Link="Shared\NamedMutexLease.cs"/>
+    <Compile Include="..\Shared\Library\UserDataContext.cs" Link="Shared\UserDataContext.cs"/>
     <Compile Include="..\Shared\Process\ParentProcessStart.cs" Link="Shared\ParentProcessStart.cs"/>
     <Compile Include="..\Shared\Process\ScheduledTaskXml.cs" Link="Shared\ScheduledTaskXml.cs"/>
     <Compile Include="..\Shared\Process\SessionProtocolNames.cs" Link="Shared\SessionProtocolNames.cs"/>
     <Compile Include="..\Shared\Process\Win32Common.cs" Link="Shared\Win32Common.cs"/>
     <Compile Include="..\Shared\Process\WindowsCommandLine.cs" Link="Shared\WindowsCommandLine.cs"/>
+    <Compile Include="..\Shared\Process\LaunchArguments.cs" Link="Shared\LaunchArguments.cs"/>
   </ItemGroup>
 </Project>

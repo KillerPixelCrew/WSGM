@@ -12,7 +12,8 @@ namespace WSGM.Core;
 /// <param name="Path">Its full path.</param>
 /// <param name="IsDirectory">Whether it is a folder.</param>
 /// <param name="Attributes">Its file attributes, for skipping hidden, system and linked entries.</param>
-internal sealed record FolderEntry(string Path, bool IsDirectory, FileAttributes Attributes);
+/// <param name="Length">The file length already available from directory enumeration.</param>
+internal sealed record FolderEntry(string Path, bool IsDirectory, FileAttributes Attributes, long Length = 0);
 
 /// <summary>Offers the shortcuts and programs in one folder the user pointed the library at.</summary>
 /// <remarks>
@@ -79,7 +80,7 @@ public sealed class ShortcutFolderSource : ILibrarySource
         ArgumentNullException.ThrowIfNull(readLink);
         ArgumentNullException.ThrowIfNull(readText);
         ArgumentNullException.ThrowIfNull(resolveProtocol);
-        _folder = folder;
+        _folder = folder.Copy();
         _directoryExists = directoryExists;
         _fileExists = fileExists;
         _list = list;
@@ -92,21 +93,24 @@ public sealed class ShortcutFolderSource : ILibrarySource
     public string Id => _folder.Id;
 
     /// <inheritdoc />
+    public LibrarySourceKind Kind => LibrarySourceKind.Folder;
+
+    /// <inheritdoc />
     /// <remarks>The folder's own name, or the whole path for a drive root.</remarks>
     public string DisplayName
     {
         get
         {
-            var name = Path.GetFileName(_folder.Path.TrimEnd('\\', '/'));
-            return name.Length > 0 ? name : _folder.Path;
+            var name = Path.GetFileName(_folder.Root.AbsolutePath.TrimEnd('\\', '/'));
+            return name.Length > 0 ? name : _folder.Root.AbsolutePath;
         }
     }
 
     /// <inheritdoc />
     public SourceAvailability Detect(IReadOnlyList<UninstallEntry> programs)
     {
-        return FolderExists()
-            ? new SourceAvailability(true, _folder.Path)
+        return FolderExists(CurrentRoot())
+            ? new SourceAvailability(true, _folder.Root.AbsolutePath)
             : new SourceAvailability(false, "Folder missing");
     }
 
@@ -137,14 +141,33 @@ public sealed class ShortcutFolderSource : ILibrarySource
                    .Any(segment => segment.Equals("steamapps", StringComparison.OrdinalIgnoreCase));
     }
 
-    private bool FolderExists()
+    private bool FolderExists(string root)
     {
-        return _folder.Path.Length > 0 && _directoryExists(_folder.Path);
+        return root.Length > 0 && _directoryExists(root);
+    }
+
+    private string CurrentRoot()
+    {
+        if (_folder.Root.VolumeId.Length == 0)
+        {
+            return _folder.Root.AbsolutePath;
+        }
+
+        try
+        {
+            return ManagedContentStorage.ResolvePath(_folder.Root);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException
+                                       or ArgumentException)
+        {
+            return "";
+        }
     }
 
     private IReadOnlyList<DiscoveredGame> Discover(CancellationToken cancellationToken)
     {
-        if (!FolderExists())
+        var root = CurrentRoot();
+        if (!FolderExists(root))
         {
             return [];
         }
@@ -153,7 +176,9 @@ public sealed class ShortcutFolderSource : ILibrarySource
         // extension can be in any case.
         HashSet<string> extensions = new(_folder.Extensions, StringComparer.OrdinalIgnoreCase);
         List<string> files = [];
-        Walk(_folder.Path, extensions, files, cancellationToken);
+        Walk(root, extensions, files, cancellationToken);
+        var binding = _folder.Root.Copy();
+        binding.AbsolutePath = root;
 
         List<DiscoveredGame> found = [];
         foreach (var file in files)
@@ -164,12 +189,33 @@ public sealed class ShortcutFolderSource : ILibrarySource
                 continue;
             }
 
-            found.Add(DiscoveredGame.Command(
-                Id,
-                Path.GetRelativePath(_folder.Path, file),
+            var key = Path.GetRelativePath(root, file);
+            ManagedContentRecord? content = null;
+            if (route.Id == "direct")
+            {
+                content = ManagedContentStorage.CreateRecord(Id, key, Path.GetFileNameWithoutExtension(file),
+                    LibrarySourceKind.Folder, DisplayName, route.Target,
+                    binding: ManagedContentStorage.BindPath(binding, route.Target));
+                content.SourceRoot = binding.Copy();
+                content.Program = content.BackingPath.Copy();
+                content.WorkingDirectory = ManagedContentStorage.BindPath(binding, route.StartDirectory, true);
+                content.RawArguments = route.LaunchOptions;
+            }
+            else
+            {
+                content = ManagedContentStorage.CreateRecord(Id, key, Path.GetFileNameWithoutExtension(file),
+                    LibrarySourceKind.Folder, DisplayName, file,
+                    binding: ManagedContentStorage.BindPath(binding, file));
+                content.SourceRoot = binding.Copy();
+                content.LaunchKind = ManagedLaunchKind.Native;
+            }
+
+            found.Add(DiscoveredGame.Command(this,
+                key,
                 Path.GetFileNameWithoutExtension(file),
                 route.Id == "direct" ? route.StartDirectory : file,
-                [route]));
+                [route], content, content?.LaunchKind == ManagedLaunchKind.Direct,
+                retainContent: true));
         }
 
         return found;

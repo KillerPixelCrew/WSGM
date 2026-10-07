@@ -329,7 +329,7 @@ public sealed class StoreCatalogClient
                 uri = "https:" + uri;
             }
 
-            if (!uri.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            if (!HttpUrls.IsHttps(uri))
             {
                 continue;
             }

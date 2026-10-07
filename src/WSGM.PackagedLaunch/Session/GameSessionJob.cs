@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 using WSGM.Interop;
 
@@ -40,6 +41,8 @@ internal sealed class GameSessionJob : IDisposable
     /// <summary>The limits the job was created with, which <see cref="Abandon" /> keeps all but one of.</summary>
     private readonly uint _limits;
 
+    private nint _completionPort;
+
     private IntPtr _job;
 
     /// <summary>Creates the kill-on-close job, or reports why the session cannot have one.</summary>
@@ -50,7 +53,8 @@ internal sealed class GameSessionJob : IDisposable
     ///     So its children leave the job silently, and each game process is contained on its own.
     ///     A packaged game keeps the default: its children carry its identity and belong to it.
     /// </param>
-    internal GameSessionJob(bool recognisedOnly = false)
+    /// <param name="reportCompletion">Associates a completion port for a directly contained process tree.</param>
+    internal GameSessionJob(bool recognisedOnly = false, bool reportCompletion = false)
     {
         _job = NativeMethods.CreateJobObjectW(IntPtr.Zero, null);
         if (_job == IntPtr.Zero)
@@ -83,6 +87,26 @@ internal sealed class GameSessionJob : IDisposable
         {
             Marshal.FreeHGlobal(buffer);
         }
+
+        if (reportCompletion && _job != 0)
+        {
+            _completionPort = ManagedDirectNative.CreateIoCompletionPort(-1, 0, 0, 1);
+            var association = new CompletionPortAssociation { Key = 1, Port = _completionPort };
+            var associationBuffer = Marshal.AllocHGlobal(Marshal.SizeOf<CompletionPortAssociation>());
+            try
+            {
+                Marshal.StructureToPtr(association, associationBuffer, false);
+                if (_completionPort == 0 || !NativeMethods.SetInformationJobObject(_job, 7,
+                        associationBuffer, (uint)Marshal.SizeOf<CompletionPortAssociation>()))
+                {
+                    Dispose();
+                }
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(associationBuffer);
+            }
+        }
     }
 
     /// <summary>Whether a job exists to contain anything.</summary>
@@ -96,6 +120,38 @@ internal sealed class GameSessionJob : IDisposable
             Win32Common.CloseHandle(_job);
             _job = IntPtr.Zero;
         }
+
+        if (_completionPort != 0)
+        {
+            Win32Common.CloseHandle(_completionPort);
+            _completionPort = 0;
+        }
+    }
+
+    /// <summary>Waits for the kernel's final process-exit notification without polling.</summary>
+    internal void WaitForEmpty()
+    {
+        while (_completionPort != 0)
+        {
+            if (!ManagedDirectNative.GetQueuedCompletionStatus(_completionPort, out var message, out _, out _,
+                    uint.MaxValue))
+            {
+                throw new Win32Exception(Marshal.GetLastPInvokeError(),
+                    "The game's session completion could not be observed.");
+            }
+
+            if (message == 4)
+            {
+                return;
+            }
+        }
+    }
+
+    /// <summary>Contains a newly created suspended direct child before it can create descendants.</summary>
+    internal bool ContainSuspended(nint process)
+    {
+        return _job != IntPtr.Zero
+               && NativeMethods.AssignProcessToJobObject(_job, process);
     }
 
     /// <summary>Whether this process belongs to the game rather than to shared infrastructure.</summary>
@@ -247,5 +303,12 @@ internal sealed class GameSessionJob : IDisposable
         {
             Marshal.FreeHGlobal(buffer);
         }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct CompletionPortAssociation
+    {
+        internal nint Key;
+        internal nint Port;
     }
 }

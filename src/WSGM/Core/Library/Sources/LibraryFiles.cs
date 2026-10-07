@@ -121,7 +121,8 @@ internal static class LibraryFiles
             };
             return new DirectoryInfo(path)
                 .EnumerateFileSystemInfos("*", options)
-                .Select(info => new FolderEntry(info.FullName, info is DirectoryInfo, info.Attributes))
+                .Select(info => new FolderEntry(info.FullName, info is DirectoryInfo, info.Attributes,
+                    info is FileInfo file ? file.Length : 0))
                 .ToList();
         }
         catch (Exception ex) when (IsUnreadable(ex))
@@ -222,10 +223,7 @@ internal static class LibraryFiles
     /// <returns>The first matching value as written, or null.</returns>
     internal static string? IniValue(string text, string section, string key)
     {
-        return Values(text, key)
-            .Where(pair => pair.Section.Equals(section, StringComparison.OrdinalIgnoreCase))
-            .Select(pair => pair.Value)
-            .FirstOrDefault();
+        return IniFile.ReadTextValue(text, key, section);
     }
 
     /// <summary>Reads one value from a file Qt or MultiMC's INI writer produced.</summary>
@@ -238,7 +236,7 @@ internal static class LibraryFiles
     /// </remarks>
     internal static string? QtIniValue(string text, string key)
     {
-        var raw = Values(text, key)
+        var raw = IniFile.Values(text, key)
             .Where(pair => pair.Section.Length == 0
                            || pair.Section.Equals("General", StringComparison.OrdinalIgnoreCase))
             .Select(pair => pair.Value)
@@ -251,31 +249,6 @@ internal static class LibraryFiles
     {
         return ex is IOException or UnauthorizedAccessException or SecurityException or ArgumentException
             or NotSupportedException;
-    }
-
-    private static IEnumerable<(string Section, string Value)> Values(string text, string key)
-    {
-        var section = string.Empty;
-        foreach (var rawLine in text.Split('\n'))
-        {
-            var line = rawLine.Trim();
-            if (line.Length == 0 || line.StartsWith(';') || line.StartsWith('#'))
-            {
-                continue;
-            }
-
-            if (line.StartsWith('[') && line.EndsWith(']'))
-            {
-                section = line[1..^1].Trim();
-                continue;
-            }
-
-            var equals = line.IndexOf('=', StringComparison.Ordinal);
-            if (equals > 0 && line[..equals].Trim().Equals(key, StringComparison.OrdinalIgnoreCase))
-            {
-                yield return (section, line[(equals + 1)..].Trim());
-            }
-        }
     }
 
     private static string Unescape(string value)
@@ -331,80 +304,5 @@ internal static class LibraryFiles
         }
 
         return result.ToString();
-    }
-}
-
-/// <summary>Builds launch options the way Windows programs split their command line.</summary>
-/// <remarks>
-///     Windows hands a program one string, and the program's runtime splits it: a quote opens and
-///     closes an argument, a backslash before a quote escapes it, and a run of backslashes before a
-///     quote halves. A value quoted by hand therefore breaks when it ends in a backslash, as a drive
-///     root or a folder name ending in one does, because that backslash escapes the closing quote and
-///     swallows the next argument. Every source quotes through here.
-/// </remarks>
-internal static class LaunchArguments
-{
-    /// <summary>Quotes one argument so the program receives exactly this value.</summary>
-    /// <param name="value">The value.</param>
-    /// <returns>The value as written, when it needs no quoting; otherwise quoted and escaped.</returns>
-    internal static string Quote(string value)
-    {
-        ArgumentNullException.ThrowIfNull(value);
-        return value.Length > 0 && value.IndexOfAny([' ', '\t', '"']) < 0 ? value : Quoted(value);
-    }
-
-    /// <summary>A named value in <c>name="value"</c> form.</summary>
-    /// <param name="name">The switch, such as <c>/path=</c>, written as it is.</param>
-    /// <param name="value">The value.</param>
-    /// <returns>The switch followed by the value, always quoted and escaped.</returns>
-    /// <remarks>
-    ///     Always quoted: launchers that read <c>/path="…"</c> look for the quote, and a quoted value
-    ///     means the same whether or not it held a space.
-    /// </remarks>
-    internal static string Named(string name, string value)
-    {
-        ArgumentNullException.ThrowIfNull(value);
-        return name + Quoted(value);
-    }
-
-    /// <summary>Joins arguments into one command line.</summary>
-    /// <param name="arguments">The arguments, each exactly as the program should receive it.</param>
-    /// <returns>The command line.</returns>
-    internal static string Join(IEnumerable<string> arguments)
-    {
-        return string.Join(' ', arguments.Select(Quote));
-    }
-
-    private static string Quoted(string value)
-    {
-        StringBuilder quoted = new(value.Length + 2);
-        quoted.Append('"');
-        var backslashes = 0;
-        foreach (var character in value)
-        {
-            if (character == '\\')
-            {
-                backslashes++;
-                continue;
-            }
-
-            if (character == '"')
-            {
-                // Each backslash before a quote is doubled, and the quote itself escaped.
-                quoted.Append('\\', backslashes * 2 + 1);
-            }
-            else
-            {
-                quoted.Append('\\', backslashes);
-            }
-
-            backslashes = 0;
-            quoted.Append(character);
-        }
-
-        // Backslashes before the closing quote are doubled, so it stays a closing quote.
-        quoted.Append('\\', backslashes * 2);
-        quoted.Append('"');
-        return quoted.ToString();
     }
 }

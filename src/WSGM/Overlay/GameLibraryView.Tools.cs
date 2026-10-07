@@ -29,6 +29,12 @@ public sealed partial class GameLibraryView
     private string _sourceId = "";
     private bool _subfolders = true;
 
+    private static List<string> ParseExtensions(string value)
+    {
+        return GameLibraryRules.NormalizeExtensions(value.Split([' ', ',', ';'],
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+    }
+
     private void ChooseMode(GameLibraryEntry entry, string mode)
     {
         if (mode == nameof(ImportMode.SteamIntegration) && entry.RequiresAcknowledgement && !entry.Acknowledged)
@@ -78,8 +84,7 @@ public sealed partial class GameLibraryView
         async Task AddAsync()
         {
             var generation = NavigationGeneration;
-            var types = _extensions.Split([' ', ',', ';'], StringSplitOptions.RemoveEmptyEntries)
-                .Select(value => value.Trim()).ToArray();
+            var types = ParseExtensions(_extensions).ToArray();
             var result = await _service!.AddFolderAsync(_folderPath, _subfolders, types, CancellationToken.None);
             if (generation != NavigationGeneration)
             {
@@ -162,11 +167,14 @@ public sealed partial class GameLibraryView
         {
             var id = entry.Id;
             var slot = entry.Artwork.FirstOrDefault(slot => slot.Asset == _asset);
-            var description = GameLibraryRows.Describe(entry) + (entry.Selected ? " · Selected" : "");
+            var description = GameLibraryRows.Describe(entry);
             if (_grid)
             {
-                cards.Children.Add(PreviewCard(id, slot?.Thumb, entry.Name, description,
-                    () => Navigate(() => RenderEntry(id))));
+                var card = PreviewCard(id, slot?.Thumb, entry.Name, description,
+                    () => Navigate(() => RenderEntry(id)));
+                card.Tag = "card:" + id;
+                card.Opacity = GameLibraryRows.IsUnavailable(entry) ? 0.55 : 1;
+                cards.Children.Add(card);
             }
             else
             {

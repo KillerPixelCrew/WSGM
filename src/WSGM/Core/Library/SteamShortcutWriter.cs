@@ -32,16 +32,19 @@ public sealed class SteamShortcutWriter
 {
     private readonly Func<string, ShortcutFields, CancellationToken, Task<ShortcutWriteResult>> _add;
     private readonly Func<uint, CancellationToken, Task<bool>> _remove;
+    private readonly Func<uint, string, CancellationToken, Task<bool>>? _rename;
     private readonly Func<uint, ShortcutFields, CancellationToken, Task<bool>> _setLaunch;
 
     /// <summary>Creates the writer over the client calls it drives.</summary>
     /// <param name="add">Creates a shortcut and confirms which entry it is.</param>
     /// <param name="setLaunch">Rewrites an existing shortcut's Target, start directory and arguments.</param>
     /// <param name="remove">Deletes a shortcut.</param>
+    /// <param name="rename">Applies an explicitly requested name through the same native writer owner.</param>
     public SteamShortcutWriter(
         Func<string, ShortcutFields, CancellationToken, Task<ShortcutWriteResult>> add,
         Func<uint, ShortcutFields, CancellationToken, Task<bool>> setLaunch,
-        Func<uint, CancellationToken, Task<bool>> remove)
+        Func<uint, CancellationToken, Task<bool>> remove,
+        Func<uint, string, CancellationToken, Task<bool>>? rename = null)
     {
         ArgumentNullException.ThrowIfNull(add);
         ArgumentNullException.ThrowIfNull(setLaunch);
@@ -49,6 +52,7 @@ public sealed class SteamShortcutWriter
         _add = add;
         _setLaunch = setLaunch;
         _remove = remove;
+        _rename = rename;
     }
 
     /// <summary>Creates one shortcut and confirms the id Steam gave it.</summary>
@@ -83,6 +87,26 @@ public sealed class SteamShortcutWriter
         return await _setLaunch(appId, fields, CancellationToken.None).ConfigureAwait(false)
             ? new ShortcutWriteResult(appId, true, null)
             : new ShortcutWriteResult(appId, false, "Steam did not accept the new launch command.");
+    }
+
+    /// <summary>Applies an explicitly requested display name while retaining the existing shortcut identity.</summary>
+    /// <param name="appId">The existing shortcut identity.</param>
+    /// <param name="name">The display name the user requested.</param>
+    /// <param name="cancellationToken">Cancels only before the native write is sent.</param>
+    /// <returns>The same identity and whether Steam accepted the requested name.</returns>
+    public async Task<ShortcutWriteResult> RenameAsync(uint appId, string name, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        if (_rename is null)
+        {
+            return new ShortcutWriteResult(appId, false, "Steam display-name editing is unavailable in this session.");
+        }
+
+        return await _rename(appId, name, CancellationToken.None).ConfigureAwait(false)
+            ? new ShortcutWriteResult(appId, true, null)
+            : new ShortcutWriteResult(appId, false,
+                "Steam did not accept the requested title. Its old record and pending edit were retained; rescan before retrying.");
     }
 
     /// <summary>Deletes one generated entry.</summary>

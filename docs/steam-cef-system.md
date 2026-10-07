@@ -733,15 +733,17 @@ sort registers its queue-header transform on the same claim, through the bridge'
 instead of wrapping `jsx` and `jsxs` itself, so it needs the bridge and keeps it up on its own.
 
 The tab boot sync starts when the transport gate opens, with no timer of its own: in game mode that
-is when the Big Picture window is up. Inside Steam it then waits, bounded, for
-`webpackChunksteamui`, `collectionStore`, `appStore` and the `wsgmLibraryTabs` claim the bridge
-registers, and a sync that did not place the tabs waits for the gate's next ready edge. One worker
-runs it: a new request supersedes the pass in flight, rapid requests collapse into one pass, and a
-desktop trip or the master switch going off drops a pass and any request not yet started. The card
-watchers and the keep-awake poll read the gate's own ready state rather than sampling the window, so
-they agree with the edge the sync waits for. The sync also replaces the card reading the library
-badge and the Home carousel publish from, which the session seeds at start so neither waits for a
-sync.
+is when the Big Picture window is up. Every tab sync first saves the card discovery and publishes
+its badge reading, so Steam's tab readiness cannot prevent a newly connected card from being named.
+Inside Steam it then waits, bounded, for `webpackChunksteamui`, `collectionStore`, `appStore` and
+the `wsgmLibraryTabs` claim the bridge registers. The host allows 60 seconds overall through in-page
+waits of at most 25 seconds, each with a 30-second transport deadline. A sync that did not place the
+tabs waits for the gate's next ready edge. One worker runs it: a new request supersedes the pass in
+flight, rapid requests collapse into one pass, and a desktop trip or the master switch going off
+drops a pass and any request not yet started. The card watchers and the keep-awake poll read the
+gate's own ready state rather than sampling the window, so they agree with the edge the sync waits
+for. The sync also replaces the card reading the library badge and the Home carousel publish from,
+which the session seeds at start so neither waits for a sync.
 
 ### WSGM's settings page in Steam
 
@@ -1070,6 +1072,13 @@ does the browser's tab layout: which tabs are offered, their order, and which on
 and falls the default back to the first tab still shown.
 
 ## 10. Logging
+
+The session keeps diagnostic subscriptions for SharedJSContext and MainWindow on the existing
+transport, behind the same CEF master/readiness gate. Console warnings, errors, uncaught exceptions
+and browser log entries appear in `wsgm.log` as `Steam CEF <role> <type>`. Informational console
+output uses the existing Verbose logging setting. Available stacks and bounded rejected-object
+properties are included, so a plain `{ result: 2, message: "CVRPathHelpers not found" }` does not
+disappear behind `#<Object>`. Repeated identical messages use the normal change-aware suppression.
 
 | Area                               | Keys and lines                                                                                                                                                                                                                                                                              |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

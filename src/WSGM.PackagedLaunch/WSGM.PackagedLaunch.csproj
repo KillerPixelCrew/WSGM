@@ -24,10 +24,21 @@
     <!-- The command line the importer writes and this parses, compiled from one source so the two
          cannot drift. The same arrangement WSGM.Launch uses for ScheduledTaskXml. -->
     <Compile Include="..\Shared\Launch\PackagedLaunchCommand.cs" Link="Shared\PackagedLaunchCommand.cs"/>
+    <Compile Include="..\Shared\Library\EmulatorModels.cs" Link="Shared\EmulatorModels.cs"/>
+    <Compile Include="..\Shared\Library\ManagedContentModels.cs" Link="Shared\ManagedContentModels.cs"/>
+    <Compile Include="..\Shared\Library\IniFile.cs" Link="Shared\IniFile.cs"/>
+    <Compile Include="..\Shared\Library\StoragePaths.cs" Link="Shared\StoragePaths.cs"/>
+    <Compile Include="..\Shared\Library\NamedMutexLease.cs" Link="Shared\NamedMutexLease.cs"/>
+    <Compile Include="..\Shared\Boot\AtomicFile.cs" Link="Shared\AtomicFile.cs"/>
+    <Compile Include="..\Shared\Library\UserDataContext.cs" Link="Shared\UserDataContext.cs"/>
+    <Compile Include="..\Shared\Interop\Kernel32.cs" Link="Shared\Kernel32.cs"/>
     <!-- Starting a launcher under Explorer or WSGM, outside Steam's tree and its environment: the same
          primitive WSGM starts its shell work with, and the handle and environment calls it needs. -->
     <Compile Include="..\Shared\Process\ParentProcessStart.cs" Link="Shared\ParentProcessStart.cs"/>
+    <Compile Include="..\Shared\Process\ContainedProcessStart.cs" Link="Shared\ContainedProcessStart.cs"/>
     <Compile Include="..\Shared\Process\Win32Common.cs" Link="Shared\Win32Common.cs"/>
+    <Compile Include="..\Shared\Process\WindowsCommandLine.cs" Link="Shared\WindowsCommandLine.cs"/>
+    <Compile Include="..\Shared\Process\LaunchArguments.cs" Link="Shared\LaunchArguments.cs"/>
     <!-- Steam's controller exclusion, dropped from every child by the same rule WSGM.Launch uses. -->
     <Compile Include="..\Shared\Process\SteamControllerExclusion.cs" Link="Shared\SteamControllerExclusion.cs"/>
     <!-- packaged-launch.log is written exactly as launch.log is. -->

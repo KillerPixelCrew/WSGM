@@ -11,11 +11,12 @@ The feature is experimental: anti-cheat compatibility is unverified.
 ## What a user can do
 
 **In Steam:** Quick Access → the plugin tab → "Game Library" → "Import games…" opens a full page
-built from Big Picture's own components. **In the overlay:** Tools → Library Importer, shown while
-Steam integration is on. Both show the same plan and call the same backend. The Overlay includes
-source/folder setup, filtered review, launch choices, staged title/bulk artwork and apply results.
-Current artwork for an imported game opens Tools → Steam Artwork Changer inside the same window,
-then Back returns to the importer with its review state intact.
+built from Big Picture's own components. **In the overlay:** Tools → Library Importer. Emulator and
+source management remain available independently of the Steam CEF switch; applying Steam changes
+requires the connected client. Both show the same plan and call the same backend. The Overlay
+includes source/folder setup, filtered review, launch choices, staged title/bulk artwork and apply
+results. Current artwork for an imported game opens Tools → Steam Artwork Changer inside the same
+window, then Back returns to the importer with its review state intact.
 
 On both surfaces:
 
@@ -68,10 +69,10 @@ The detection rules for every launcher except Prism Launcher and ATLauncher foll
 library plugins and Steam ROM Manager's parsers as those projects publish them. Neither project is
 vendored under `_ref`, so this repository holds no copy to compare against; the per-source remarks
 in `Core\Library\Sources\` record what each rule was taken from. Prism Launcher and ATLauncher,
-which neither covers, follow their own instance layouts and command lines. A ROM folder source comes
-with the emulator installer and is not part of the Game Library on its own. Amazon Games and itch
-keep their installs in SQLite databases, which are copied and read, never opened in place; a
-database that cannot be read fails that source's scan rather than listing nothing.
+which neither covers, follow their own instance layouts and command lines. ROM sources share the
+managed emulator resolver described below. Amazon Games and itch keep their installs in SQLite
+databases, which are copied and read, never opened in place; a database that cannot be read fails
+that source's scan rather than listing nothing.
 
 Each detection and each scan reads Windows' installed-programs list once and hands the same list to
 every launcher source, so nothing is cached between scans and an install shows at the next one.
@@ -350,7 +351,64 @@ keeps its id when renamed, and a title the user dropped into it stays. An untick
 collection is left alone. A collection that cannot be updated is reported when the run ends and the
 shortcuts stay as written. The group is the source; a ROM source groups by system when it arrives.
 
-## Not in this pass
+## ROMs, emulators and removable content
 
-ROM folders, which come with the emulator installer, and so collections per emulated system.
-Scheduled sync. Renaming an existing shortcut. Artwork pictures in the overlay.
+**Emulator Downloader / Updater is a standalone tool:** open it directly from the QAM Plugins tab or
+Overlay Tools. The importer keeps contextual setup links for ROM sources; it is not the manager's
+home. Its CEF route is `/wsgm/emulators`. It owns its backend and publishes catalog changes
+separately from download progress; importer cancellation never stops emulator operations.
+
+The local implementation added on 2026-10-06 covers issues #47, #200 and #203. Both the Overlay and
+Steam CEF expose emulator management, ROM/manual source setup, previews, artwork, per-title
+overrides, apply and recheck. Compilation is separate from the maintainer's manual Steam, emulator
+and media acceptance.
+
+The first-version lineup is RetroArch with the full published Windows core catalogue, DuckStation,
+RPCS3, PCSX2, Eden and Dolphin. RetroArch uses Libretro Buildbot. Other definitions consume Scoop
+metadata or official releases. Scoop's installer and scripts are never run. GitHub, Forgejo, Gitea,
+Scoop, Buildbot and Dolphin's release feed share bounded downloads, supplied checksum verification,
+contained ZIP/7z extraction and staged updates. Locally computed digests remain distinct from
+upstream checksums. Definitions are data, rather than Plugin SDK packages.
+
+Programs live under the user's WSGM `Emulators` directory, with active/previous version receipts.
+Persistent data stays separate or in the emulator's documented native location. Updates and removal
+share one admission gate with the launcher while activating a version or starting a game. External
+installations can be registered without granting WSGM ownership of their files. Removal preserves
+user data by default and retains dependent ROM shortcuts.
+
+ROM setup chooses a system, source path, emulator and RetroArch core, file types, recursion and
+exclusions. Installed core metadata extends the profile list. Disc descriptors/playlists retain
+required companions. PS3 profiles use extracted-disc or installed-title EBOOTs; raw PKG installation
+is separate, and direct PS3 ISO boot is not claimed. System defaults, source templates and per-title
+emulator/core/argument overrides use explicit path tokens. Steam ROM Manager presets and reviewed
+EmuDeck Windows behavior inform the defaults.
+
+Managed records retain stable title/source ids, volume identity and relative paths. Their shortcut
+Target includes the quoted helper and a unique `--managed` id, preserving Steam AppId, artwork and
+collections through remounts and emulator updates. The helper resolves the current mount and active
+emulator/core, checks required content, and refuses missing content with the logical source name. It
+supervises direct children while preserving Steam's environment and lifetime. Existing packaged and
+launcher-follow routes retain their own mechanisms. Explicit title edits rename existing Steam
+shortcuts in place through Steam's write API; automatic source-name changes preserve Steam edits.
+
+Volume changes, resume, explicit checks and changed emulator installations trigger stored-content
+rechecks. There are no filesystem watchers on games or emulator folders. Scans check discovered
+titles without requesting a second full pass. Batch checks reuse volume and prerequisite
+observations; shutdown closes admission to late results. Unavailable titles stay visible with grey
+artwork and a location/reason badge while Library Badges is enabled. Reinsertion needs no Steam
+restart. The toolkit publishes explicit shortcut availability without changing Valve's global
+installed store or intercepting `RunGame`.
+
+ROM artwork queries Screenscraper with system and ROM identity; PC sources prefer SteamGridDB. Empty
+matches, provider failures and a paused provider can fall back to another provider. A pause is shown
+when no provider answers. Provider caches retain results; the importer keeps candidate choices in
+memory and records applied artwork with the import receipt. BIOS, keys and firmware setup accepts
+local files or reviewed native setup; WSGM does not download unauthorized firmware.
+
+## Remaining validation
+
+Manual acceptance must cover all six real emulator paths, full core installation, save/config
+preservation, external ownership, controller/touch workflows on both surfaces, unavailable launches,
+same-name titles on different volumes, media removal/reinsertion, changed mounts, resume and large
+libraries. Automated suites and UI baselines follow the maintainer's manual pass. Scheduled sync
+remains outside this implementation.

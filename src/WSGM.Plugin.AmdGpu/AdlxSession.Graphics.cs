@@ -155,7 +155,7 @@ internal sealed partial class AdlxSession
         {
             Try(instance + "/" + id, () =>
             {
-                var feature = AdlxNative.Feature(owner, slot, gpu);
+                var feature = AdlxNative.GraphicsFeature(owner, slot, gpu);
                 objects.Add(feature);
                 if (AdlxNative.Boolean(feature.Pointer, supported))
                 {

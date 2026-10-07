@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -170,51 +169,36 @@ public static class UpdateChecker
         ArgumentNullException.ThrowIfNull(release);
         Directory.CreateDirectory(downloadDirectory);
         var target = Path.Combine(downloadDirectory, Path.GetFileName(release.SetupName));
-        var partial = target + ".partial";
+        FileCleanup.TryDelete(target + ".partial");
+        var hashText = Encoding.UTF8.GetString(
+            await GetBytesAsync(http, release.HashUrl, cancellationToken, stallTimeout).ConfigureAwait(false));
+        var expected = ParseHash(hashText) ??
+                       throw new InvalidDataException("The release's SHA-256 file is malformed.");
+
+        long? length = null;
         try
         {
-            var hashText = Encoding.UTF8.GetString(
-                await GetBytesAsync(http, release.HashUrl, cancellationToken, stallTimeout).ConfigureAwait(false));
-            var expected = ParseHash(hashText) ??
-                           throw new InvalidDataException("The release's SHA-256 file is malformed.");
-
-            using (var response = await http.GetAsync(release.SetupUrl, HttpCompletionOption.ResponseHeadersRead,
-                       cancellationToken).ConfigureAwait(false))
+            await VerifiedDownload.WriteAsync(async token =>
             {
-                response.EnsureSuccessStatusCode();
-                await using var file = new FileStream(partial, FileMode.Create, FileAccess.Write, FileShare.None);
-                var length = response.Content.Headers.ContentLength;
-                await BoundedHttp.CopyAsync(response.Content, file, long.MaxValue,
-                    static () => new InvalidDataException("The setup cannot be represented by the download stream."),
-                    cancellationToken, stallTimeout, total =>
-                    {
-                        if (length is > 0)
-                        {
-                            progress?.Report(Math.Min(1, (double)total / length.Value));
-                        }
-                    }).ConfigureAwait(false);
-            }
-
-            string actual;
-            await using (var file = File.OpenRead(partial))
+                var response = await http.GetAsync(release.SetupUrl, HttpCompletionOption.ResponseHeadersRead, token)
+                    .ConfigureAwait(false);
+                length = response.Content.Headers.ContentLength;
+                return response;
+            }, target, expected, 0, cancellationToken, total =>
             {
-                actual = Convert.ToHexStringLower(await SHA256.HashDataAsync(file, cancellationToken)
-                    .ConfigureAwait(false));
-            }
-
-            if (!string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase))
-            {
-                throw new InvalidDataException(
-                    "The downloaded setup does not match the release's SHA-256, so it was deleted.");
-            }
-
-            File.Move(partial, target, true);
-            return target;
+                if (length is > 0)
+                {
+                    progress?.Report(Math.Min(1, (double)total / length.Value));
+                }
+            }, stallTimeout).ConfigureAwait(false);
         }
-        finally
+        catch (InvalidDataException ex)
         {
-            FileCleanup.TryDelete(partial);
+            throw new InvalidDataException(
+                "The downloaded setup does not match the release's SHA-256, so it was deleted.", ex);
         }
+
+        return target;
     }
 
     /// <summary>Starts the downloaded setup's quiet update; Windows asks for elevation when WSGM is not elevated.</summary>
@@ -230,7 +214,7 @@ public static class UpdateChecker
         using var document = JsonDocument.Parse(utf8Json.ToArray());
         var root = document.RootElement;
         if (root.ValueKind is not JsonValueKind.Object
-            || Flag(root, "draft") || Flag(root, "prerelease")
+            || JsonRead.Flag(root, "draft") || JsonRead.Flag(root, "prerelease")
             || !root.TryGetProperty("tag_name", out var tag) || tag.GetString() is not { Length: > 0 } tagName
             || !root.TryGetProperty("assets", out var assets) || assets.ValueKind is not JsonValueKind.Array)
         {
@@ -240,11 +224,11 @@ public static class UpdateChecker
         Dictionary<string, string> urls = new(StringComparer.OrdinalIgnoreCase);
         foreach (var asset in assets.EnumerateArray())
         {
-            var assetName = Text(asset, "name");
-            var assetUrl = Text(asset, "browser_download_url");
-            if (assetName is not null && assetUrl?.StartsWith("https://", StringComparison.OrdinalIgnoreCase) == true)
+            var assetName = JsonRead.OptionalString(asset, "name");
+            var assetUrl = JsonRead.OptionalString(asset, "browser_download_url");
+            if (assetName is not null && HttpUrls.IsHttps(assetUrl))
             {
-                urls[assetName] = assetUrl;
+                urls[assetName] = assetUrl!;
             }
         }
 
@@ -310,18 +294,6 @@ public static class UpdateChecker
             .. catalog.Common.Select(package => package.Manifest.Id),
             .. catalog.Device.InstalledPackage?.Manifest is { } device ? [device.Id] : Array.Empty<string>()
         ];
-    }
-
-    private static string? Text(JsonElement element, string name)
-    {
-        return element.TryGetProperty(name, out var value) && value.ValueKind is JsonValueKind.String
-            ? value.GetString()
-            : null;
-    }
-
-    private static bool Flag(JsonElement root, string name)
-    {
-        return root.TryGetProperty(name, out var value) && value.ValueKind is JsonValueKind.True;
     }
 
     private static async Task<byte[]> GetBytesAsync(HttpClient http, string url,

@@ -29,6 +29,10 @@
     <!-- The resident app and wrapper must submit the same de-elevation task document. -->
     <Compile Include="..\Shared\Process\ScheduledTaskXml.cs" Link="Shared\ScheduledTaskXml.cs"/>
     <Compile Include="..\Shared\Process\WindowsCommandLine.cs" Link="Shared\WindowsCommandLine.cs"/>
+    <Compile Include="..\Shared\Process\LaunchArguments.cs" Link="Shared\LaunchArguments.cs"/>
+    <Compile Include="..\Shared\Process\ContainedProcessStart.cs" Link="Shared\ContainedProcessStart.cs"/>
+    <Compile Include="..\Shared\Process\ParentProcessStart.cs" Link="Shared\ParentProcessStart.cs"/>
+    <Compile Include="..\Shared\Process\Win32Common.cs" Link="Shared\Win32Common.cs"/>
     <!-- Steam's controller exclusion and the rotating log, shared with the packaged launcher. -->
     <Compile Include="..\Shared\Process\SteamControllerExclusion.cs" Link="Shared\SteamControllerExclusion.cs"/>
     <Compile Include="..\Shared\Process\RotatingFileLog.cs" Link="Shared\RotatingFileLog.cs"/>

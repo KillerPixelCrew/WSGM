@@ -124,6 +124,9 @@ public abstract class ServiceSubView : OverlaySubView
             target.Width = next.Width;
             target.Height = next.Height;
             target.Margin = next.Margin;
+            target.Opacity = next.Opacity;
+            target.IsEnabled = next.IsEnabled;
+            target.IsVisible = next.IsVisible;
             if (target is StackPanel stack && next is StackPanel nextStack)
             {
                 stack.Spacing = nextStack.Spacing;
@@ -140,6 +143,9 @@ public abstract class ServiceSubView : OverlaySubView
                         : null;
                 if (existing?.GetType() == fresh.GetType() && Equals(Key(existing), Key(fresh)))
                 {
+                    existing.Opacity = fresh.Opacity;
+                    existing.IsEnabled = fresh.IsEnabled;
+                    existing.IsVisible = fresh.IsVisible;
                     if (target.Children.IndexOf(existing) != index)
                     {
                         target.Children.Move(target.Children.IndexOf(existing), index);
@@ -243,7 +249,7 @@ public abstract class ServiceSubView : OverlaySubView
 
     /// <summary>Completes after the service command and its current-view notification have finished.</summary>
     internal Task RunCommandAsync(Func<CancellationToken, Task<SteamUiCommandResult>> operation,
-        string what = "command")
+        string what = "command", Action? onApplied = null)
     {
         return RunSafelyAsync(RunAsync(), what);
 
@@ -265,6 +271,16 @@ public abstract class ServiceSubView : OverlaySubView
                     else
                     {
                         Log.Info($"{LogScope}: {message}");
+                    }
+                });
+            }
+            else if (onApplied is not null)
+            {
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (CurrentLevel is not null && generation == NavigationGeneration)
+                    {
+                        onApplied();
                     }
                 });
             }

@@ -68,6 +68,8 @@ public partial class OverlayWindow
             Title: "Steam Artwork Changer", Icon: Icons.Palette, Available: () => ViewModel.ShowArtwork),
         new SubView(OverlayPage.SteamGameLibrary, GameLibraryHost, PanelSystem, OverlayDestination.System,
             Title: "Library Importer", Icon: Icons.Grid4, Available: () => ViewModel.ShowGameLibrary),
+        new SubView(OverlayPage.EmulatorManager, EmulatorManagerHost, PanelSystem, OverlayDestination.System,
+            Title: "Emulator Downloader / Updater", Icon: Icons.Grid4, Available: () => ViewModel.ShowEmulators),
         new SubView(OverlayPage.SystemController, PanelSystemController, PanelSystem,
             OverlayDestination.System, Title: "Keyboard", Icon: Icons.Keyboard),
         new SubView(OverlayPage.SystemAbout, PanelSystemAbout, PanelSystem, OverlayDestination.System, Title: "About",

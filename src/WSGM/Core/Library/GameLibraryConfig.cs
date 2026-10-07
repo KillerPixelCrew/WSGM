@@ -22,8 +22,8 @@ public sealed class ShortcutFolderConfig
     /// <summary>Stable identity of the folder source, <c>folder:</c> and a short token. Never reused.</summary>
     public string Id { get; set; } = "";
 
-    /// <summary>The folder.</summary>
-    public string Path { get; set; } = "";
+    /// <summary>The configured folder bound to its expected volume.</summary>
+    public ManagedContentPath Root { get; set; } = new() { Directory = true };
 
     /// <summary>Whether folders inside it are read too.</summary>
     public bool IncludeSubfolders { get; set; } = true;
@@ -37,6 +37,7 @@ public sealed class ShortcutFolderConfig
     internal ShortcutFolderConfig Copy()
     {
         var copy = (ShortcutFolderConfig)MemberwiseClone();
+        copy.Root = Root.Copy();
         copy.Extensions = [.. Extensions];
         return copy;
     }
@@ -76,6 +77,12 @@ public sealed class GameLibraryConfig
     /// <summary>The shortcuts folders the user added.</summary>
     public List<ShortcutFolderConfig> ShortcutFolders { get; set; } = [];
 
+    /// <summary>The configured ROM libraries and system launch defaults.</summary>
+    public List<RomSourceConfig> RomSources { get; set; } = [];
+
+    /// <summary>The user-authored standalone shortcut definitions.</summary>
+    public List<ManualShortcutConfig> ManualSources { get; set; } = [];
+
     /// <summary>
     ///     Whether each source's imported titles are kept in a Steam collection named after it: one per
     ///     launcher and one per shortcuts folder. Off leaves the collections already made as they are.
@@ -87,6 +94,8 @@ public sealed class GameLibraryConfig
         var copy = (GameLibraryConfig)MemberwiseClone();
         copy.DisabledSources = [.. DisabledSources];
         copy.ShortcutFolders = [.. ShortcutFolders.Select(folder => folder.Copy())];
+        copy.RomSources = [.. RomSources.Select(source => source.Copy())];
+        copy.ManualSources = [.. ManualSources.Select(source => source.Copy())];
         return copy;
     }
 }

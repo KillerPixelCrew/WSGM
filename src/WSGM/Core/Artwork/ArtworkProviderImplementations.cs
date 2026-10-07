@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
@@ -18,6 +19,9 @@ internal sealed partial class SteamGridDbProvider : IArtworkProvider
 
     /// <inheritdoc />
     public string DisplayName => "SteamGridDB";
+
+    /// <inheritdoc />
+    public string? PauseReason => Gate.PauseReason;
 
     /// <inheritdoc />
     public ArtworkProviderStatus GetStatus(ArtworkConfig config)
@@ -135,6 +139,8 @@ internal sealed class ScreenscraperProvider : IArtworkProvider
     /// <summary>The host whose media endpoint counts against the account's allowance.</summary>
     private const string Host = "screenscraper.fr";
 
+    private static readonly TimeZoneInfo QuotaTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Romance Standard Time");
+
     /// <summary>How Screenscraper's media types map onto Steam's artwork slots.</summary>
     /// <remarks>
     ///     In preference order per slot. Screenscraper has no icon media, so that slot falls back to the
@@ -180,6 +186,9 @@ internal sealed class ScreenscraperProvider : IArtworkProvider
     }
 
     /// <inheritdoc />
+    public string? PauseReason => Gate.PauseReason;
+
+    /// <inheritdoc />
     public string Id => "screenscraper";
 
     /// <inheritdoc />
@@ -199,18 +208,43 @@ internal sealed class ScreenscraperProvider : IArtworkProvider
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<ArtworkGameMatch>> SearchGamesAsync(
+    public Task<IReadOnlyList<ArtworkGameMatch>> SearchGamesAsync(
         string term, ArtworkConfig config, CancellationToken cancellationToken)
     {
+        return SearchGamesAsync(new ArtworkGameQuery(term), config, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<ArtworkGameMatch>> SearchGamesAsync(
+        ArtworkGameQuery query, ArtworkConfig config, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(config);
-        var trimmed = term.Trim();
+        var trimmed = query.Name?.Trim() ?? "";
         if (trimmed.Length == 0)
         {
             return [];
         }
 
+        ArgumentOutOfRangeException.ThrowIfNegative(query.SystemId);
+        ArgumentOutOfRangeException.ThrowIfNegative(query.RomSize);
+        var system = query.SystemId > 0 ? $"systemeid={query.SystemId}&" : "";
+        if (query.SystemId > 0 && !string.IsNullOrWhiteSpace(query.RomName))
+        {
+            var identified = await GetAsync(
+                $"jeuInfos.php?{system}romtype=rom&romnom={Uri.EscapeDataString(query.RomName)}&romtaille={query.RomSize}",
+                config, cancellationToken, true).ConfigureAwait(false);
+            if (identified is { } value && value.TryGetProperty("response", out var identifiedResponse)
+                                        && identifiedResponse.TryGetProperty("jeu", out var game) &&
+                                        game.TryGetProperty("id", out var id)
+                                        && id.ToString().Length > 0)
+            {
+                return [new ArtworkGameMatch(Id, id.ToString(), ReadName(game), true)];
+            }
+        }
+
         var root = await GetAsync(
-                $"jeuRecherche.php?recherche={Uri.EscapeDataString(trimmed)}", config, cancellationToken)
+                $"jeuRecherche.php?{system}recherche={Uri.EscapeDataString(trimmed)}", config, cancellationToken)
             .ConfigureAwait(false);
         if (root is null || !root.Value.TryGetProperty("response", out var response)
                          || !response.TryGetProperty("jeux", out var games) || games.ValueKind != JsonValueKind.Array)
@@ -349,11 +383,38 @@ internal sealed class ScreenscraperProvider : IArtworkProvider
     {
         ArgumentNullException.ThrowIfNull(url);
         ArgumentNullException.ThrowIfNull(config);
+        if (!HttpUrls.IsHttps(url))
+        {
+            throw new ScreenscraperException("Artwork URL was not a secure HTTPS address.");
+        }
+
         var account = Account(config);
         var full = account.Length == 0
             ? url
             : url + (url.Contains('?', StringComparison.Ordinal) ? "&" : "?") + account;
-        return Gate.RunAsync(token => ArtworkDownload.GetAsync(full, Http, token), cancellationToken);
+        return Gate.RunAsync(async token =>
+        {
+            try
+            {
+                using var response = await Http.GetAsync(full, HttpCompletionOption.ResponseHeadersRead, token)
+                    .ConfigureAwait(false);
+                CheckPauseStatus((int)response.StatusCode);
+                return await ArtworkDownload.ReadAsync(response, full, token).ConfigureAwait(false);
+            }
+            catch (ArtworkProviderException)
+            {
+                throw;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"Screenscraper image download failed: {ex.Message}");
+                throw new ScreenscraperException("Could not download the artwork image.");
+            }
+        }, cancellationToken);
     }
 
     /// <summary>The application's own query parameters: the output format and the shipped developer pair.</summary>
@@ -436,20 +497,17 @@ internal sealed class ScreenscraperProvider : IArtworkProvider
             "jpg" or "jpeg" => "jpg",
             _ => ""
         };
-        if (candidate.Length > 0)
-        {
-            return Uri.TryCreate(url, UriKind.Absolute, out var checkedUri)
-                   && checkedUri.Scheme == Uri.UriSchemeHttps
-                ? candidate
-                : null;
-        }
-
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
+        if (!HttpUrls.IsHttps(url))
         {
             return null;
         }
 
-        return Path.GetExtension(uri.AbsolutePath).ToLowerInvariant() switch
+        if (candidate.Length > 0)
+        {
+            return candidate;
+        }
+
+        return Path.GetExtension(new Uri(url).AbsolutePath).ToLowerInvariant() switch
         {
             ".jpg" or ".jpeg" => "jpg",
             ".png" => "png",
@@ -461,41 +519,42 @@ internal sealed class ScreenscraperProvider : IArtworkProvider
     /// <param name="path">The endpoint and its query, without any credential: also the memory's key.</param>
     /// <param name="config">The loaded configuration, for the account.</param>
     /// <param name="cancellationToken">Cancels the wait and the request.</param>
-    private Task<JsonElement?> GetAsync(string path, ArtworkConfig config, CancellationToken cancellationToken)
+    /// <param name="unknownRomAllowed">Treats HTTP 404 as an unknown ROM so the caller can search by name.</param>
+    private Task<JsonElement?> GetAsync(string path, ArtworkConfig config, CancellationToken cancellationToken,
+        bool unknownRomAllowed = false)
     {
         var account = Account(config);
         var url = $"{ApiBase}/{path}&{Application()}" + (account.Length == 0 ? "" : "&" + account);
-        return Gate.CachedAsync(path, token => FetchAsync(path, url, token), cancellationToken);
+        return Gate.CachedAsync(path, token => FetchAsync(path, url, token, unknownRomAllowed), cancellationToken);
     }
 
-    private async Task<JsonElement?> FetchAsync(string path, string url, CancellationToken cancellationToken)
+    private async Task<JsonElement?> FetchAsync(string path, string url, CancellationToken cancellationToken,
+        bool unknownRomAllowed)
     {
         try
         {
             using var response = await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
                 .ConfigureAwait(false);
+            CheckPauseStatus((int)response.StatusCode);
+            if (unknownRomAllowed && response.StatusCode == HttpStatusCode.NotFound)
+            {
+                return null;
+            }
+
             if (!response.IsSuccessStatusCode)
             {
                 Log.Warn($"Screenscraper {(int)response.StatusCode} for {path.Split('?')[0]}.");
-                throw new ScreenscraperException((int)response.StatusCode switch
-                {
-                    401 or 403 => "Screenscraper rejected the credentials.",
-                    429 => "Screenscraper thread or minute quota reached. Try again shortly.",
-                    430 => "Screenscraper daily scrape quota is used up. "
-                           + "A free Screenscraper account, set in Settings, raises it.",
-                    431 => "Screenscraper stopped answering for today after too many titles it "
-                           + "does not have. A free Screenscraper account, set in Settings, raises it.",
-                    _ => $"Screenscraper returned HTTP {(int)response.StatusCode}."
-                });
+                throw new ScreenscraperException($"Screenscraper returned HTTP {(int)response.StatusCode}.");
             }
 
             using var body = await BoundedHttp.ReadAsync(response.Content, ArtworkDownload.MaximumJsonBytes,
                 () => new ScreenscraperException("Screenscraper's answer is larger than expected."),
                 cancellationToken).ConfigureAwait(false);
             using var document = JsonDocument.Parse(body);
+            ObserveQuota(document.RootElement);
             return document.RootElement.Clone();
         }
-        catch (ScreenscraperException)
+        catch (ArtworkProviderException)
         {
             throw;
         }
@@ -516,8 +575,72 @@ internal sealed class ScreenscraperProvider : IArtworkProvider
             throw new ScreenscraperException("Could not contact Screenscraper.");
         }
     }
+
+    private void CheckPauseStatus(int code)
+    {
+        var message = code switch
+        {
+            401 or 403 => "Screenscraper rejected the credentials. Correct them in Settings to resume.",
+            429 => "Screenscraper thread or minute quota reached. Try again shortly.",
+            430 => "Screenscraper's daily allowance is exhausted. Completed artwork is saved; retry tomorrow.",
+            431 =>
+                "Screenscraper's unrecognised-ROM allowance is exhausted. Completed artwork is saved; retry tomorrow.",
+            _ => null
+        };
+        if (message is null)
+        {
+            return;
+        }
+
+        DateTimeOffset? until = code switch
+        {
+            430 or 431 => NextQuotaDay(),
+            429 => DateTimeOffset.UtcNow.AddMinutes(1),
+            _ => null
+        };
+        throw Gate.Pause(message, Id, until);
+    }
+
+    private void ObserveQuota(JsonElement root)
+    {
+        var container = root.TryGetProperty("response", out var response) ? response : root;
+        if (!container.TryGetProperty("ssuser", out var user) || user.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
+        static int? Read(JsonElement value, string name)
+        {
+            return value.TryGetProperty(name, out var property)
+                   && int.TryParse(property.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture,
+                       out var parsed)
+                   && parsed >= 0
+                ? parsed
+                : null;
+        }
+
+        if (Read(user, "maxrequestskoperday") is { } negativeMaximum
+            && Read(user, "requestskotoday") is { } negative && negative >= negativeMaximum)
+        {
+            Gate.Pause(
+                "Screenscraper's unrecognised-ROM allowance is exhausted. Completed artwork is saved; retry tomorrow.",
+                Id, NextQuotaDay());
+        }
+        else if (Read(user, "maxrequestsperday") is { } dailyMaximum
+                 && Read(user, "requeststoday") is { } daily && daily >= dailyMaximum)
+        {
+            Gate.Pause("Screenscraper's daily allowance is exhausted. Completed artwork is saved; retry tomorrow.",
+                Id, NextQuotaDay());
+        }
+    }
+
+    private static DateTimeOffset NextQuotaDay()
+    {
+        var tomorrow = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, QuotaTimeZone).Date.AddDays(1);
+        return new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(tomorrow, QuotaTimeZone));
+    }
 }
 
 /// <summary>A Screenscraper request failed for a reason the UI should surface.</summary>
 /// <param name="message">A user-facing message.</param>
-internal sealed class ScreenscraperException(string message) : ArtworkProviderException(message);
+internal sealed class ScreenscraperException(string message) : ArtworkProviderException(message, "screenscraper");

@@ -73,6 +73,9 @@ internal sealed record PackagedFollowRequest(
 /// <summary>What the launcher was asked to do, which is not always to launch something.</summary>
 internal enum PackagedLaunchAction
 {
+    /// <summary>Resolve and launch one durable managed content record.</summary>
+    Managed,
+
     /// <summary>Activate and supervise a packaged title.</summary>
     Launch,
 
@@ -90,10 +93,12 @@ internal enum PackagedLaunchAction
 /// <param name="Action">What to do.</param>
 /// <param name="Request">The launch request, when <see cref="Action" /> is a launch.</param>
 /// <param name="Follow">The follow request, when <see cref="Action" /> is a follow.</param>
+/// <param name="ManagedIdentity">The durable managed record id.</param>
 internal sealed record PackagedLaunchCommandLine(
     PackagedLaunchAction Action,
     PackagedLaunchRequest? Request = null,
-    PackagedFollowRequest? Follow = null);
+    PackagedFollowRequest? Follow = null,
+    string? ManagedIdentity = null);
 
 /// <summary>
 ///     The command line the library importer writes into a generated shortcut and the packaged-game
@@ -115,6 +120,8 @@ internal sealed record PackagedLaunchCommandLine(
 /// </remarks>
 internal static class PackagedLaunchCommand
 {
+    internal const string ManagedFlag = "--managed";
+
     private const string AumidFlag = "--aumid";
     private const string ModeFlag = "--mode";
     private const string ArgumentsFlag = "--args";
@@ -131,7 +138,7 @@ internal static class PackagedLaunchCommand
     private const string ControllerOnlyValue = "controller-only";
 
     /// <summary>The Windows command-line limit, including its terminating NUL.</summary>
-    internal const int WindowsCommandLineLimit = 32767;
+    internal const int WindowsCommandLineLimit = WindowsCommandLine.MaximumLength;
 
     /// <summary>The usage text, printed for <c>--help</c> and for a refused command line.</summary>
     internal const string Usage = """
@@ -148,6 +155,8 @@ internal static class PackagedLaunchCommand
                                     --report-privileges      Report the access the game grants, once, then continue.
                                     --recover                Release package-lifetime exemptions left by a killed
                                                              launcher, then exit. Takes no other option.
+                                    --managed <id>           Resolve one imported ROM or portable title from its
+                                                             durable WSGM content record.
                                     --follow [--dir <folder>] [--marker <path>] -- "<program>" <arguments>
                                                              Start another launcher's game and stay alive while
                                                              it runs. The game is the process running from
@@ -164,6 +173,29 @@ internal static class PackagedLaunchCommand
 
     /// <summary>The Java runtime's images, the processes a <c>--marker</c> is looked for in.</summary>
     internal static readonly IReadOnlyList<string> JavaImages = ["java.exe", "javaw.exe"];
+
+    internal static bool ValidManagedId(string id)
+    {
+        return id.Length == 32 && Guid.TryParseExact(id, "N", out _);
+    }
+
+    internal static string ComposeManagedTarget(string launcher, string id)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(launcher);
+        if (!ValidManagedId(id))
+        {
+            throw new ArgumentException("The managed content identity must be a 32-character hexadecimal id.",
+                nameof(id));
+        }
+
+        var target = WindowsCommandLine.Quote(launcher, true) + " " + ManagedFlag + " " + WindowsCommandLine.Quote(id);
+        if (CommandLineRefusal(target, "") is { } refusal)
+        {
+            throw new ArgumentException(refusal, nameof(launcher));
+        }
+
+        return target;
+    }
 
     /// <summary>Builds the Launch Arguments for a generated non-Steam shortcut.</summary>
     /// <param name="request">The request to encode.</param>
@@ -550,6 +582,18 @@ internal static class PackagedLaunchCommand
         ArgumentNullException.ThrowIfNull(arguments);
         command = new PackagedLaunchCommandLine(PackagedLaunchAction.Help);
         error = null;
+        if (arguments.Count > 0 && arguments[0] == ManagedFlag)
+        {
+            if (arguments.Count != 2 || !ValidManagedId(arguments[1]))
+            {
+                error = "The managed launch identity is invalid or has unexpected arguments.";
+                return false;
+            }
+
+            command = new PackagedLaunchCommandLine(PackagedLaunchAction.Managed,
+                ManagedIdentity: arguments[1]);
+            return true;
+        }
 
         string? aumid = null;
         string? mode = null;

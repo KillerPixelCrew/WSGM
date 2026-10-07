@@ -194,8 +194,7 @@ public sealed class UbisoftLibrarySource : ILibrarySource
 
             if (routes.Count > 0)
             {
-                games.Add(DiscoveredGame.Command(
-                    Id,
+                games.Add(DiscoveredGame.Command(this,
                     install.Id,
                     product is { Name.Length: > 0 } ? product.Name : Path.GetFileName(location),
                     location,

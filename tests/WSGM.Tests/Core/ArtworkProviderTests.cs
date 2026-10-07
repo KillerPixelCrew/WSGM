@@ -9,6 +9,47 @@ namespace WSGM.Tests.Core;
 /// </summary>
 public sealed class ArtworkProviderTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AutomaticMatchingFallsBackAfterAPauseOrAnOrdinaryFailure(bool paused)
+    {
+        MatchProvider first = new("screenscraper", paused);
+        MatchProvider fallback = new("steamgriddb");
+        var find = () => ArtworkSearch.FindMatchAsync(new ArtworkGameQuery("Moonlit"), new ArtworkConfig(),
+            [], CancellationToken.None, "screenscraper", [first, fallback]);
+
+        var match = await find();
+        Assert.Equal(fallback.Id, match?.ProviderId);
+        Assert.Equal(1, fallback.Searches);
+
+        Assert.Equal(1, first.Searches);
+    }
+
+    [Fact]
+    public async Task AutomaticMatchingReportsThePauseWhenNoOtherProviderAnswers()
+    {
+        MatchProvider paused = new("screenscraper", true);
+        var failure = await Assert.ThrowsAsync<ArtworkProviderException>(() => ArtworkSearch.FindMatchAsync(
+            new ArtworkGameQuery("Moonlit"), new ArtworkConfig(), [], CancellationToken.None,
+            "screenscraper", [paused]));
+        Assert.True(failure.Paused);
+        Assert.Equal(paused.Id, failure.ProviderId);
+    }
+
+    [Fact]
+    public async Task AnEmptyFallbackAnswerDoesNotReportAnotherProvidersPause()
+    {
+        MatchProvider paused = new("screenscraper", true);
+        MatchProvider fallback = new("steamgriddb", empty: true);
+
+        var match = await ArtworkSearch.FindMatchAsync(new ArtworkGameQuery("Moonlit"), new ArtworkConfig(),
+            [], CancellationToken.None, "screenscraper", [paused, fallback]);
+
+        Assert.Null(match);
+        Assert.Equal(1, fallback.Searches);
+    }
+
     [Fact]
     public void SteamGridDbIsNotReadyWithoutItsKeyAndSaysWhy()
     {
@@ -206,5 +247,45 @@ public sealed class ArtworkProviderTests
     {
         // A provider's media endpoint answers every format under one address, so the URL cannot say.
         Assert.Equal(format, SteamArtwork.ImageFormat(bytes));
+    }
+
+    private sealed class MatchProvider(string id, bool? paused = null, bool empty = false) : IArtworkProvider
+    {
+        internal int Searches { get; private set; }
+        public string Id => id;
+        public string DisplayName => id;
+
+        public ArtworkProviderStatus GetStatus(ArtworkConfig config)
+        {
+            return ArtworkProviderStatus.Ready;
+        }
+
+        public Task<IReadOnlyList<ArtworkGameMatch>> SearchGamesAsync(string term, ArtworkConfig config,
+            CancellationToken cancellationToken)
+        {
+            Searches++;
+            return paused is { } pause
+                ? Task.FromException<IReadOnlyList<ArtworkGameMatch>>(
+                    new ArtworkProviderException("Provider refused.", id, pause))
+                : Task.FromResult<IReadOnlyList<ArtworkGameMatch>>(empty
+                    ? []
+                    : [new ArtworkGameMatch(id, "1", term, true)]);
+        }
+
+        public Task<ArtworkPage> GetAssetsForGameAsync(ArtworkAsset asset, string gameId, ArtworkConfig config,
+            ArtworkQuery query, CancellationToken cancellationToken)
+        {
+            throw new NotSupportedException();
+        }
+
+        public Task<ArtworkPage> GetAssetsForSteamAppAsync(ArtworkAsset asset, long steamAppId, ArtworkConfig config,
+            ArtworkQuery query, CancellationToken cancellationToken)
+        {
+            throw new NotSupportedException();
+        }
+
+        public void ResetCache()
+        {
+        }
     }
 }

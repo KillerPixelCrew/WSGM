@@ -104,7 +104,10 @@ internal enum OverlayPage
     ///     is what the rest of Power is.
     /// </summary>
     PowerSession,
-    PowerWakeLocks
+    PowerWakeLocks,
+
+    /// <summary>The standalone emulator downloader and updater under Tools.</summary>
+    EmulatorManager
 }
 
 /// <summary>The single action selected by Back/B after higher-priority UI has been considered.</summary>
@@ -364,6 +367,7 @@ internal sealed class OverlayNavigation
                 or OverlayPage.SystemStorage or OverlayPage.SystemDisplay
                 or OverlayPage.SystemPlugins or OverlayPage.SystemThemes or OverlayPage.SystemArtwork
                 or OverlayPage.SteamGameLibrary or OverlayPage.SystemAnimations
+                or OverlayPage.EmulatorManager
                 or OverlayPage.SystemSounds
                 or OverlayPage.SystemController
                 or OverlayPage.SystemAbout

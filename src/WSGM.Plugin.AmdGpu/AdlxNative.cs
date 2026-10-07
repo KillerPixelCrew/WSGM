@@ -38,6 +38,13 @@ internal static unsafe class AdlxNative
         return new AdlxObject(value);
     }
 
+    // RSR and AFMF are service-wide interfaces. Their second argument is the output address,
+    // so passing a GPU there would overwrite the beginning of the GPU object.
+    internal static AdlxObject GraphicsFeature(nint service, int slot, nint gpu)
+    {
+        return slot is 14 or 17 ? Interface(service, slot) : Feature(service, slot, gpu);
+    }
+
     internal static AdlxObject? Query(nint instance, string iid)
     {
         nint value = 0;

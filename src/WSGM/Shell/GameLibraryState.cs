@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
+using WSGM.Core;
 
 namespace WSGM.Shell;
 
@@ -34,19 +35,23 @@ public sealed record GameLibraryArtworkSlot(
 /// <summary>One source in the sidebar.</summary>
 /// <param name="Id">Its stable identity.</param>
 /// <param name="Name">What to call it.</param>
-/// <param name="Kind"><c>launcher</c> or <c>folder</c>.</param>
+/// <param name="Kind"><c>launcher</c>, <c>folder</c>, <c>rom</c> or <c>manual</c>.</param>
 /// <param name="Installed">Whether it was found on this machine.</param>
 /// <param name="Enabled">Whether the user has it ticked.</param>
 /// <param name="Detail">What was found, or why not.</param>
 /// <param name="Count">How many titles the last scan found in it, or -1 when it was not scanned.</param>
+/// <param name="Checked">The host-selected checkbox state, including unavailable configured sources.</param>
+/// <param name="CanToggle">Whether the host permits changing the source's enabled intent.</param>
 public sealed record GameLibrarySource(
     string Id,
     string Name,
-    string Kind,
+    LibrarySourceKind Kind,
     bool Installed,
     bool Enabled,
     string Detail,
-    int Count);
+    int Count,
+    bool Checked = false,
+    bool CanToggle = false);
 
 /// <summary>One title in the Game Library's review.</summary>
 /// <remarks>
@@ -90,6 +95,16 @@ public sealed record GameLibrarySource(
 /// <param name="ArtworkDetail">Why the artwork is failed or unavailable, or empty.</param>
 /// <param name="MatchName">The game the artwork providers matched it to, or empty.</param>
 /// <param name="MatchFixed">Whether the user picked that match.</param>
+/// <param name="SystemId">The ROM system, or empty for other sources.</param>
+/// <param name="EmulatorInstallationId">The selected installation, or empty when following the system preference.</param>
+/// <param name="CoreId">The selected RetroArch core.</param>
+/// <param name="ManagedId">The durable pre-Steam content identity.</param>
+/// <param name="Location">The friendly expected library or storage label.</param>
+/// <param name="Availability">The current managed availability observation.</param>
+/// <param name="ContentPath">The original backing path, retained for review.</param>
+/// <param name="Arguments">The effective typed ROM argument override, or null for other sources.</param>
+/// <param name="Unavailable">Whether the host currently considers its managed content unavailable.</param>
+/// <param name="AvailabilityLabel">The host's user-facing description of the current availability.</param>
 public sealed record GameLibraryEntry(
     string Id,
     string Name,
@@ -118,7 +133,40 @@ public sealed record GameLibraryEntry(
     string ArtworkStatus,
     string ArtworkDetail,
     string MatchName,
-    bool MatchFixed);
+    bool MatchFixed,
+    string SystemId = "",
+    string EmulatorInstallationId = "",
+    string CoreId = "",
+    string ManagedId = "",
+    string Location = "",
+    string Availability = "",
+    string ContentPath = "",
+    IReadOnlyList<string>? Arguments = null,
+    bool Unavailable = false,
+    string AvailabilityLabel = "");
+
+/// <summary>The host's wording and presentation policy for managed availability.</summary>
+internal static class ManagedAvailabilityPresentation
+{
+    internal static bool Unavailable(ManagedContentAvailability value)
+    {
+        return value is ManagedContentAvailability.StorageUnavailable or ManagedContentAvailability.ContentMissing
+            or ManagedContentAvailability.EmulatorUnavailable or ManagedContentAvailability.Unreadable;
+    }
+
+    internal static string Label(ManagedContentAvailability value)
+    {
+        return value switch
+        {
+            ManagedContentAvailability.Available => "Available",
+            ManagedContentAvailability.StorageUnavailable => "Storage disconnected",
+            ManagedContentAvailability.ContentMissing => "Game files missing",
+            ManagedContentAvailability.EmulatorUnavailable => "Emulator or required files unavailable",
+            ManagedContentAvailability.Unreadable => "Cannot read game files",
+            _ => "Not checked yet"
+        };
+    }
+}
 
 /// <summary>The <see cref="GameLibraryState.Phase" /> values, shared by the service and the overlay.</summary>
 public static class GameLibraryPhases
@@ -139,16 +187,6 @@ public static class GameLibraryPhases
     public const string Done = "done";
 }
 
-/// <summary>The <see cref="GameLibrarySource.Kind" /> values, shared by the service and the overlay.</summary>
-public static class GameLibrarySourceKinds
-{
-    /// <summary>An installed launcher.</summary>
-    public const string Launcher = "launcher";
-
-    /// <summary>A folder of shortcuts the user added.</summary>
-    public const string Folder = "folder";
-}
-
 /// <summary>Everything either surface renders: the Steam page and the overlay view alike.</summary>
 /// <param name="Sources">Every source, in the sidebar's order.</param>
 /// <param name="Reading">The names of the sources a scan reads: installed and ticked.</param>
@@ -165,6 +203,8 @@ public static class GameLibrarySourceKinds
 /// <param name="ArtworkPreference">Which artwork a title starts on: catalog or providers.</param>
 /// <param name="CreateCollections">Whether each source's imported titles are kept in a Steam collection.</param>
 /// <param name="Revision">Monotonic publication revision.</param>
+/// <param name="RomSources">The configured sources shown by both editors.</param>
+/// <param name="ManualSources">The editable user-authored command sources.</param>
 public sealed record GameLibraryState(
     IReadOnlyList<GameLibrarySource> Sources,
     IReadOnlyList<string> Reading,
@@ -180,7 +220,20 @@ public sealed record GameLibraryState(
     string? Error = null,
     string ArtworkPreference = "Catalog",
     bool CreateCollections = false,
-    long Revision = 0);
+    long Revision = 0,
+    IReadOnlyList<RomSourceConfig>? RomSources = null,
+    IReadOnlyList<ManualShortcutConfig>? ManualSources = null);
+
+/// <summary>The installed choices needed by ROM editors, without downloader progress or release offers.</summary>
+/// <param name="Choices">Compatible installations and cores per system.</param>
+/// <param name="SystemPreferences">The persisted default choices.</param>
+public sealed record RomEmulatorState(
+    IReadOnlyList<RomSystemEmulatorChoices> Choices,
+    IReadOnlyList<EmulatorSystemPreference> SystemPreferences)
+{
+    /// <summary>No installed emulator or system preference.</summary>
+    public static RomEmulatorState Empty { get; } = new([], []);
+}
 
 /// <summary>What the review knows about one title beyond its card: the evidence behind it.</summary>
 /// <param name="InstallPath">Where it is installed, or empty.</param>
@@ -200,6 +253,41 @@ public sealed record GameLibraryDetails(
 /// <summary>The Game Library's operations, as both surfaces invoke them.</summary>
 public interface IGameLibraryBackend
 {
+    /// <summary>The independently cached ROM editor choices.</summary>
+    RomEmulatorState ReadRomState();
+
+    /// <summary>The reviewed and installed-core parser systems.</summary>
+    IReadOnlyList<RomSystemProfile> ReadRomSystems();
+
+    /// <summary>Adds or edits a ROM source without changing its existing identity.</summary>
+    Task<SteamUiCommandResult> AddRomSourceAsync(RomSourceConfig source, CancellationToken cancellationToken);
+
+    /// <summary>Removes source configuration while retaining imported shortcuts for explicit cleanup.</summary>
+    Task<SteamUiCommandResult> RemoveRomSourceAsync(string id, CancellationToken cancellationToken);
+
+    /// <summary>Adds or edits an authored command source.</summary>
+    Task<SteamUiCommandResult> AddManualSourceAsync(ManualShortcutConfig source, CancellationToken cancellationToken);
+
+    /// <summary>Removes an authored source without deleting its backing content.</summary>
+    Task<SteamUiCommandResult> RemoveManualSourceAsync(string id, CancellationToken cancellationToken);
+
+    /// <summary>Changes a title's emulator and core, or clears its override with empty identities.</summary>
+    Task<SteamUiCommandResult> SetRomEmulatorAsync(string id, string installationId, string coreId,
+        CancellationToken cancellationToken);
+
+    /// <summary>Changes the source title used by import and artwork identification.</summary>
+    Task<SteamUiCommandResult> SetRomTitleAsync(string id, string name, CancellationToken cancellationToken);
+
+    /// <summary>Sets typed per-title arguments, or clears them to the source default.</summary>
+    Task<SteamUiCommandResult> SetRomArgumentsAsync(string id, IReadOnlyList<string> arguments,
+        CancellationToken cancellationToken);
+
+    /// <summary>Explicitly selects or cancels removal of an unchanged managed shortcut.</summary>
+    Task<SteamUiCommandResult> SetCleanupAsync(string id, bool cleanup, CancellationToken cancellationToken);
+
+    /// <summary>Checks one title, or all titles for an empty identity, without a full source scan.</summary>
+    Task<SteamUiCommandResult> RecheckAvailabilityAsync(string id, CancellationToken cancellationToken);
+
     /// <summary>Scans the ticked sources. Writes nothing to Steam.</summary>
     Task<SteamUiCommandResult> ScanAsync(CancellationToken cancellationToken);
 
@@ -367,6 +455,11 @@ public sealed record GameLibraryMatchSearch(SteamUiCommandResult Command, GameLi
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(GameLibraryState))]
+[JsonSerializable(typeof(RomSourceConfig))]
+[JsonSerializable(typeof(ManualShortcutConfig))]
+[JsonSerializable(typeof(EmulatorSnapshot))]
+[JsonSerializable(typeof(EmulatorPageState))]
+[JsonSerializable(typeof(EmulatorProgressState))]
 [JsonSerializable(typeof(GameLibraryDetails))]
 [JsonSerializable(typeof(GameLibraryRouteAnswer))]
 [JsonSerializable(typeof(GameLibraryAcknowledgeAnswer))]

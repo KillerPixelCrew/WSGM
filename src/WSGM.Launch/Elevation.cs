@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using WSGM.Interop;
 
 namespace WSGM.Launch;
 
@@ -25,7 +26,7 @@ internal static partial class Elevation
         }
         finally
         {
-            CloseHandle(token);
+            Win32Common.CloseHandle(token);
         }
     }
 
@@ -54,7 +55,7 @@ internal static partial class Elevation
         }
         finally
         {
-            CloseHandle(token);
+            Win32Common.CloseHandle(token);
         }
     }
 
@@ -71,7 +72,4 @@ internal static partial class Elevation
         out uint tokenInformation,
         int tokenInformationLength,
         out int returnLength);
-
-    [LibraryImport("kernel32.dll", SetLastError = true)]
-    private static partial void CloseHandle(nint handle);
 }

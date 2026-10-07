@@ -356,6 +356,8 @@
             <ov:LibraryTabsView x:Name="LibraryTabsHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:CardManagerView x:Name="CardManagerHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:GameLibraryView x:Name="GameLibraryHost" IsVisible="False" HorizontalAlignment="Stretch" />
+            <ov:EmulatorManagerView x:Name="EmulatorManagerHost" IsVisible="False"
+                                HorizontalAlignment="Stretch" />
             <ov:ArtworkView x:Name="ArtworkHost" IsVisible="False" />
             <ov:ThemesView x:Name="ThemesHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:AnimationsView x:Name="AnimationsHost" IsVisible="False" HorizontalAlignment="Stretch" />
@@ -482,6 +484,14 @@
                             IconGeometry="{x:Static c:Icons.Grid4}"
                             Title="Library Importer"
                             Description="Bring games from other launchers into Steam, with their artwork" />
+              <c:ActionButton x:Name="EmulatorManagerTile" Classes="tile" Click="OnEnterCategory"
+                            CommandParameter="{x:Static ov:OverlayPage.EmulatorManager}"
+                            Tag="system.emulator-manager"
+                            IsVisible="{Binding ShowEmulators}"
+                            Margin="0,0,10,10"
+                            IconGeometry="{x:Static c:Icons.Grid4}"
+                            Title="Emulator Downloader / Updater"
+                            Description="Install, update and configure emulators" />
               <c:ActionButton Classes="tile" Click="OnEnterCategory"
                             CommandParameter="{x:Static ov:OverlayPage.SystemArtwork}" IsVisible="{Binding ShowArtwork}"
                             IconGeometry="{x:Static c:Icons.Palette}" Title="Steam Artwork Changer" />

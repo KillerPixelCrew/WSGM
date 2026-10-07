@@ -31,10 +31,11 @@ Typed lists use Size 3, Begin 5 and At 11. GPU PNPString is 9; display EDID/GetG
 
 The base 3D service selectors are Anti-Lag 3, Boost 5, sharpening 6, Enhanced Sync 7, V-Sync 8, AA
 10, morphological AA 11, anisotropic 12, tessellation 13, RSR 14 and reset-cache 15. Service1 adds
-AFMF 17, Service2 desktop sharpening 18 and Service3 FidelityFX upgrades 19/20. AFMF1's
-IsSupportedAlgorithm at slot 6 precedes GetAlgorithm 7; omitting that method shifts every later
-entry and is unsafe. Frame-gen upgrade's IsSupported is slot 5, not 3; its available ratio list
-comes from slot 3.
+AFMF 17, Service2 desktop sharpening 18 and Service3 FidelityFX upgrades 19/20. RSR and AFMF getters
+take only the service and an output-interface address. They do not take a GPU argument; the other
+per-GPU getters retain their target argument. AFMF1's IsSupportedAlgorithm at slot 6 precedes
+GetAlgorithm 7; omitting that method shifts every later entry and is unsafe. Frame-gen upgrade's
+IsSupported is slot 5, not 3; its available ratio list comes from slot 3.
 
 Display service selectors are FreeSync 9, VSR 10, GPU scaling 11, scaling mode 12, integer scaling
 13, BPC 14, pixel format 15, custom color 16 and Vari-Bright 19. Service3 adds FreeSync color

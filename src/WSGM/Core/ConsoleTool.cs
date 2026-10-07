@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
@@ -61,9 +62,11 @@ internal static class ConsoleTool
     private const int DrainTimeoutMs = 2000;
 
     internal static Task<ConsoleToolResult> RunAsync(string exe, string arguments, int timeoutMs = 15_000,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, string? workingDirectory = null,
+        IReadOnlyDictionary<string, string>? environment = null)
     {
-        return RunAsync(exe, arguments, DateTimeOffset.UtcNow.AddMilliseconds(timeoutMs), cancellationToken);
+        return RunAsync(exe, arguments, DateTimeOffset.UtcNow.AddMilliseconds(timeoutMs), cancellationToken,
+            workingDirectory, environment);
     }
 
     /// <summary>
@@ -75,6 +78,8 @@ internal static class ConsoleTool
     /// <param name="arguments">Its command line.</param>
     /// <param name="deadline">The shared absolute deadline for the surrounding workflow.</param>
     /// <param name="cancellationToken">Cancels the command and stops its process tree.</param>
+    /// <param name="workingDirectory">The tool's current directory, or the Windows system directory.</param>
+    /// <param name="environment">Overrides applied only to the child process.</param>
     /// <returns>
     ///     Whether the tool did not start, completed successfully, completed with a known
     ///     failure, or crossed process start without a verifiable result.
@@ -83,7 +88,8 @@ internal static class ConsoleTool
         string exe,
         string arguments,
         DateTimeOffset deadline,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, string? workingDirectory = null,
+        IReadOnlyDictionary<string, string>? environment = null)
     {
         return RunAsync(
             exe,
@@ -94,7 +100,7 @@ internal static class ConsoleTool
                 var process = Process.Start(startInfo);
                 return process is null ? null : new SystemConsoleToolProcess(process);
             },
-            cancellationToken);
+            cancellationToken, workingDirectory, environment);
     }
 
     /// <summary>
@@ -106,7 +112,8 @@ internal static class ConsoleTool
         string arguments,
         DateTimeOffset deadline,
         Func<ProcessStartInfo, IConsoleToolProcess?> startProcess,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, string? workingDirectory = null,
+        IReadOnlyDictionary<string, string>? environment = null)
     {
         ArgumentNullException.ThrowIfNull(startProcess);
         var what = $"{exe} {FirstToken(arguments)}";
@@ -120,14 +127,23 @@ internal static class ConsoleTool
 
         try
         {
-            using var process = startProcess(new ProcessStartInfo(exe, arguments)
+            var startInfo = new ProcessStartInfo(exe, arguments)
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
-                WorkingDirectory = Environment.GetFolderPath(Environment.SpecialFolder.System)
-            });
+                WorkingDirectory = workingDirectory ?? Environment.GetFolderPath(Environment.SpecialFolder.System)
+            };
+            if (environment is not null)
+            {
+                foreach (var (key, value) in environment)
+                {
+                    startInfo.Environment[key] = value;
+                }
+            }
+
+            using var process = startProcess(startInfo);
             if (process is null)
             {
                 Log.Warn($"{what} did not start.");

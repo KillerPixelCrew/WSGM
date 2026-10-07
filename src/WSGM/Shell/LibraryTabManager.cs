@@ -52,9 +52,13 @@ internal static class LibraryTabManager
     /// <summary>How long the boot sync lets Steam's library finish loading after Big Picture is up.</summary>
     private static readonly TimeSpan LibraryReadyBudget = TimeSpan.FromSeconds(60);
 
+    // Each CEF operation is bounded to 30 seconds. Keep the overall startup allowance in the
+    // host and leave five seconds for transport discovery around each in-page wait.
+    private static readonly TimeSpan LibraryReadyProbeBudget = TimeSpan.FromSeconds(25);
+
     /// <summary>
     ///     Answers <c>true</c> once Steam's webpack registry, its library stores and WSGM's tab claim
-    ///     exist, or <c>false</c> when they did not within <see cref="LibraryReadyBudget" />.
+    ///     exist, or <c>false</c> when they did not within <see cref="LibraryReadyProbeBudget" />.
     /// </summary>
     /// <remarks>
     ///     Steam raises nothing when its stores are assigned, and the claim arrives with the bridge
@@ -65,7 +69,7 @@ internal static class LibraryTabManager
         "(async()=>{const ns=" + SteamCef.JsString(SteamUiBridgeIdentity.Namespace) + ";"
         + "const ready=()=>!!window.webpackChunksteamui&&!!window.collectionStore&&!!window.appStore"
         + "&&!!window[ns]?.gate('wsgmLibraryTabs');"
-        + "const until=Date.now()+" + LibraryReadyBudget.TotalMilliseconds.ToString(CultureInfo.InvariantCulture) + ";"
+        + "const until=Date.now()+" + LibraryReadyProbeBudget.TotalMilliseconds.ToString(CultureInfo.InvariantCulture) + ";"
         + "while(!ready()){if(Date.now()>until)return 'false';await new Promise(r=>setTimeout(r,250));}"
         + "return 'true';})()";
 
@@ -119,8 +123,23 @@ internal static class LibraryTabManager
         try
         {
             var discovered = await Task.Run(ScanLibraries, cancellationToken).ConfigureAwait(false);
-            var config = await Task.Run(() => store.Read().RequireConfig(), cancellationToken).ConfigureAwait(false);
-            MergeDiscovery(config, discovered);
+            var config = await MutateConfigAsync(store, fresh =>
+            {
+                MergeDiscovery(fresh, discovered);
+                return fresh;
+            }, cancellationToken).ConfigureAwait(false);
+
+            // Card membership and badges come from disk, independently of Steam's tab claim.
+            // Publish them before waiting, so an unready library cannot hide a newly inserted card.
+            LibraryBadges.Update(config, discovered.Select(static card => card.ContentId)
+                .ToHashSet(StringComparer.Ordinal));
+
+            var tabsEnabled = config.Cef is { Enabled: true, LibraryTabs: true };
+            if (tabsEnabled && !await WaitForLibraryAsync(steam, cancellationToken).ConfigureAwait(false))
+            {
+                return new LibraryTabSyncResult(
+                    "Steam's library did not finish loading; card membership and badges were refreshed.", false);
+            }
 
             var (tabs, reachable, filterFailed) = await BuildTabsAsync(steam, config, discovered, cancellationToken)
                 .ConfigureAwait(false);
@@ -128,7 +147,6 @@ internal static class LibraryTabManager
             // CEF library-tabs feature gate (master + sub-toggle): when off, the tab
             // strip is never pushed. Discovery, badges, and config merge below still
             // run so the SD-card manager and its badges remain independent.
-            var tabsEnabled = config.Cef is { Enabled: true, LibraryTabs: true };
             TabSyncResult sync;
             if (reachable != false && !filterFailed && tabsEnabled)
             {
@@ -256,16 +274,6 @@ internal static class LibraryTabManager
             "Library tabs (boot)",
             async token =>
             {
-                var probe = await steam.EvaluateAsync(
-                        SteamUiTargetRole.SharedJsContext, LibraryReadyProbe,
-                        LibraryReadyBudget + TimeSpan.FromSeconds(5), token)
-                    .ConfigureAwait(false);
-                if (!probe.Answered || probe.Value != "true")
-                {
-                    Log.Info("Library tabs (boot): Steam's library did not finish loading.");
-                    return false;
-                }
-
                 var result = await SyncAllDetailedAsync(store, steam, token).ConfigureAwait(false);
                 Log.Info($"Library tabs (boot): {result.Summary}");
                 // A half-initialized appStore can be reachable but reject a filter; only a sync that
@@ -274,6 +282,40 @@ internal static class LibraryTabManager
                 // bridge does.
                 return result.Success;
             }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Waits for library readiness using requests within the transport's operation bound.</summary>
+    /// <param name="steam">The session's Steam client.</param>
+    /// <param name="cancellationToken">Cancels the wait.</param>
+    internal static async Task<bool> WaitForLibraryAsync(SteamClient steam, CancellationToken cancellationToken)
+    {
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(LibraryReadyBudget);
+        while (!deadline.IsCancellationRequested)
+        {
+            var probe = await steam.EvaluateAsync(
+                    SteamUiTargetRole.SharedJsContext, LibraryReadyProbe,
+                    LibraryReadyProbeBudget + TimeSpan.FromSeconds(5), deadline.Token)
+                .ConfigureAwait(false);
+            if (!probe.Answered || probe.Error is not null)
+            {
+                Log.Info($"Library tabs: readiness probe did not answer: {probe.Error}");
+                return false;
+            }
+
+            if (probe.Value == "true")
+            {
+                return true;
+            }
+
+            if (probe.Value != "false")
+            {
+                Log.Warn("Library tabs: readiness probe returned an unexpected result.");
+                return false;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>

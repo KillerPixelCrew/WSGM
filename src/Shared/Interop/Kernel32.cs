@@ -1,4 +1,4 @@
-// Shared between WSGM and Device Lab (linked as a source file). Declarations only.
+// Shared between WSGM, WSGM.DeviceLab and WSGM.PackagedLaunch (linked as a source file). Declarations only.
 
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
@@ -45,4 +45,20 @@ internal static partial class Kernel32
         uint creationDisposition,
         uint flagsAndAttributes,
         nint templateFile);
+
+    /// <summary>Finds the volume mount containing an absolute path.</summary>
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static unsafe partial bool GetVolumePathNameW(char* fileName, char* volumePath, uint length);
+
+    /// <summary>Reads the stable volume GUID registered for a mount point.</summary>
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static unsafe partial bool GetVolumeNameForVolumeMountPointW(char* mount, char* volume, uint length);
+
+    /// <summary>Reads all currently registered mount points for a volume GUID.</summary>
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static unsafe partial bool GetVolumePathNamesForVolumeNameW(char* volume, char* paths, uint length,
+        out uint required);
 }

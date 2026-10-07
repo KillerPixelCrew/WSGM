@@ -505,7 +505,8 @@ public sealed partial class OverlayController : IDisposable
     /// <param name="config">The configuration to read the gates from.</param>
     private void ApplyCefVisibility(OverlayViewModel vm, AppConfig config)
     {
-        vm.ShowGameLibrary = config.Cef.Enabled && _sources.GameLibrary is not null;
+        vm.ShowGameLibrary = _sources.GameLibrary is not null;
+        vm.ShowEmulators = _sources.Emulators is not null;
         vm.ShowArtwork = config.Cef.Enabled && _sources.Artwork is not null;
         vm.ShowThemes = config.Cef.Enabled && _sources.Themes is not null;
         vm.ShowAnimations = config.Cef.Enabled && _sources.Animations is not null;
@@ -660,6 +661,7 @@ public sealed partial class OverlayController : IDisposable
         _overlay.AttachDevicePrerequisites(_sources.DevicePrerequisites);
         _overlay.AttachCommonPlugins(_sources.CommonPlugins);
         _overlay.AttachGameLibrary(_sources.GameLibrary);
+        _overlay.AttachEmulators(_sources.Emulators);
         _overlay.AttachThemes(_sources.Themes);
         _overlay.AttachAnimations(_sources.Animations);
         _overlay.AttachSounds(_sources.Sounds);

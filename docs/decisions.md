@@ -245,6 +245,15 @@ launcher's own SQLite database is read with `Microsoft.Data.Sqlite`, which ships
 rather than depending on the copy in Windows. Steam has no file picker, so the toolkit draws one.
 ROM folders wait for the emulator installer. See [the Game Library](game-library.md).
 
+**ROMs, managed emulators and removable availability share the Game Library (2026-10-06).** The
+first-version lineup is RetroArch with the full published Windows core catalogue, DuckStation,
+RPCS3, PCSX2, Eden and Dolphin. Libretro Buildbot supplies RetroArch; Scoop metadata and official
+sources supply the other definitions. Steam ROM Manager presets and reviewed EmuDeck Windows
+behavior inform launch/configuration defaults. Both Overlay and Steam CEF expose the same backend.
+Stable content/emulator ids let the launch helper resolve current mounts and program versions;
+missing content stays visible with its logical location. Emulator binaries are not Plugin SDK
+packages. Builds remain distinct from live Steam, emulator and storage acceptance.
+
 **WSGM writes Steam shortcuts through the running client (2026-09-22).** This reverses the rule
 recorded after the September 2026 launcher trials, when CEF shortcut-management calls destabilized a
 live Steam session during an attended investigation

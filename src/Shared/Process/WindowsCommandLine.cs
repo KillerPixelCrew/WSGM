@@ -1,4 +1,4 @@
-// Shared between WSGM and WSGM.Launch (linked as a source file). No Log, no ConfigStore, explicit
+// Shared between WSGM, WSGM.Launch and WSGM.PackagedLaunch (linked as a source file). No Log, no ConfigStore, explicit
 // usings.
 
 using System.Text;
@@ -8,9 +8,16 @@ namespace WSGM.Core;
 /// <summary>Windows argv quoting shared by recovery and the contained launch wrapper.</summary>
 internal static class WindowsCommandLine
 {
+    internal const int MaximumLength = 32767;
+
     internal static string Quote(string arg)
     {
-        if (arg.Length > 0 && arg.IndexOfAny([' ', '\t', '"']) < 0)
+        return Quote(arg, false);
+    }
+
+    internal static string Quote(string arg, bool always)
+    {
+        if (!always && arg.Length > 0 && arg.IndexOfAny([' ', '\t', '"']) < 0)
         {
             return arg;
         }

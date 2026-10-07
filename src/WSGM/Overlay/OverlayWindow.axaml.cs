@@ -198,6 +198,7 @@ public partial class OverlayWindow : Window
         }
 
         GameLibraryHost.ArtworkRequested += OpenImportedArtwork;
+        GameLibraryHost.EmulatorsRequested += OpenEmulators;
         LaunchWrapperHost.Picked += OnLaunchFixGamePicked;
         LaunchWrapperHost.CustomPicked += OnCustomLaunchGamePicked;
         InitializeLaunchFixLabels(viewModel);
@@ -387,6 +388,7 @@ public partial class OverlayWindow : Window
         _pinToastTimer = null;
         DevicePowerSchemeHost.Attach(null);
         GameLibraryHost.Attach(null);
+        EmulatorManagerHost.Attach(null);
         ThemesHost.Attach(null);
         AnimationsHost.Attach(null);
         SoundsHost.Attach(null);
@@ -425,6 +427,7 @@ public partial class OverlayWindow : Window
         }
 
         GameLibraryHost.ArtworkRequested -= OpenImportedArtwork;
+        GameLibraryHost.EmulatorsRequested -= OpenEmulators;
         LaunchWrapperHost.Picked -= OnLaunchFixGamePicked;
         LaunchWrapperHost.CustomPicked -= OnCustomLaunchGamePicked;
         KeyDown -= OnKeyDown;

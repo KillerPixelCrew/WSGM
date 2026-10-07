@@ -37,6 +37,7 @@ public sealed record ShortcutFields(
 ///     A path the game's own command line carries, for a game that runs from a shared runtime such as
 ///     Java: a Minecraft instance's folder. Empty otherwise.
 /// </param>
+/// <param name="ManagedId">The durable content record referenced by the shared managed launch helper.</param>
 public sealed record ShortcutRoute(
     string Id,
     string Label,
@@ -45,7 +46,8 @@ public sealed record ShortcutRoute(
     string LaunchOptions,
     string Evidence,
     string FollowDirectory = "",
-    string FollowMarker = "")
+    string FollowMarker = "",
+    string ManagedId = "")
 {
     /// <summary>The evidence every route that starts the game's own executable shares.</summary>
     public const string DirectEvidence =
@@ -53,6 +55,9 @@ public sealed record ShortcutRoute(
 
     /// <summary>Whether the shortcut runs through the follow launcher rather than the program itself.</summary>
     public bool Follows => FollowDirectory.Length > 0 || FollowMarker.Length > 0;
+
+    /// <summary>Whether this one route resolves an authoritative managed launch plan.</summary>
+    public bool IsManaged => Id == "managed" && ManagedId.Length > 0;
 
     /// <summary>The evidence every route that starts a game through its launcher and follows it shares.</summary>
     /// <param name="launcher">What to call the launcher.</param>
@@ -128,6 +133,29 @@ public static class CommandShortcut
         ArgumentNullException.ThrowIfNull(route);
         ArgumentNullException.ThrowIfNull(launcherTarget);
         fields = new ShortcutFields("", "", "");
+        if (route.IsManaged)
+        {
+            if (launcherTarget.Length == 0)
+            {
+                refusal = "The WSGM content launcher is missing from this installation.";
+                return false;
+            }
+
+            try
+            {
+                fields = new ShortcutFields(PackagedLaunchCommand.ComposeManagedTarget(launcherTarget, route.ManagedId),
+                    Quote(Path.GetDirectoryName(launcherTarget) ?? ""), "");
+            }
+            catch (ArgumentException ex)
+            {
+                refusal = ex.Message;
+                return false;
+            }
+
+            refusal = "";
+            return true;
+        }
+
         if (!route.Follows)
         {
             var directory = route.StartDirectory.Length > 0
@@ -211,12 +239,14 @@ public static class CommandShortcut
             return false;
         }
 
-        if (!route.Follows)
+        if (route.IsManaged || !route.Follows)
         {
-            return Same(shortcut, fields.Target, fields.LaunchOptions);
+            return Same(shortcut, fields.Target, fields.LaunchOptions)
+                   && SameFolder(shortcut.StartDirectory, fields.StartDirectory);
         }
 
         return SameProgram(shortcut.Target, fields.Target)
+               && SameFolder(shortcut.StartDirectory, fields.StartDirectory)
                && PackagedLaunchCommand.TryParseFollow(shortcut.LaunchOptions.Trim(), out var live, out _)
                && SameProgram(live.Program, route.Target)
                && string.Equals(live.Arguments.Trim(), route.LaunchOptions.Trim(), StringComparison.Ordinal)
@@ -266,7 +296,8 @@ public static class CommandShortcut
             left.Trim().Trim('"'), right.Trim().Trim('"'), StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool SameFolder(string left, string right)
+    /// <summary>Compares directories after unquoting and trimming only a trailing separator.</summary>
+    public static bool SameFolder(string left, string right)
     {
         return string.Equals(
             Path.TrimEndingDirectorySeparator(left.Trim().Trim('"')),

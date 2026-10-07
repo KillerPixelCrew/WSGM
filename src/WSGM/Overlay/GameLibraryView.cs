@@ -29,6 +29,8 @@ public sealed partial class GameLibraryView : ServiceSubView
     /// <inheritdoc />
     protected override string LogScope => "Game Library";
 
+    internal event Action? EmulatorsRequested;
+
     /// <summary>Raised when the user asks to continue in Steam, such as to change a title's artwork.</summary>
     /// <remarks>The overlay controller carries this out: it opens the page, closes the sheet and focuses Steam.</remarks>
     internal event Action<uint, string>? ArtworkRequested;
@@ -109,15 +111,15 @@ public sealed partial class GameLibraryView : ServiceSubView
         foreach (var source in state.Sources)
         {
             var id = source.Id;
-            var enabled = source.Enabled;
+            var enabled = source.Checked;
             stack.Children.Add(Tagged(Row(source.Name, GameLibraryRows.SourceLine(source),
                 source.Installed ? null : Icons.BlockedCircle,
-                source.Installed && !busy
+                source.CanToggle && !busy
                     ? () => Run(token => _service.SetSourceEnabledAsync(id, !enabled, token))
                     : null), "source:" + id));
         }
 
-        var folders = state.Sources.Where(source => source.Kind == GameLibrarySourceKinds.Folder).ToList();
+        var folders = state.Sources.Where(source => source.Kind == LibrarySourceKind.Folder).ToList();
         if (folders.Count > 0)
         {
             stack.Children.Add(SectionLabel("REMOVE A FOLDER"));
@@ -133,6 +135,27 @@ public sealed partial class GameLibraryView : ServiceSubView
         stack.Children.Add(Tagged(
             Row("Add a shortcuts folder", "Choose a folder, recursion and file types", Icons.Grid4,
                 () => Navigate(RenderAddFolder)), "add-folder"));
+        stack.Children.Add(Tagged(Row("Add a ROM library", "Choose a system, parser and emulator", Icons.Grid4,
+            () => OpenRomSource(null)), "add-rom"));
+        stack.Children.Add(Tagged(Row("Add a ROM", "Choose a single game file and its emulator", Icons.Grid4,
+            () => OpenRomSource(null, true)), "add-rom-file"));
+        stack.Children.Add(Tagged(Row("Add a manual shortcut", "Choose a command and its backing game file",
+            Icons.Grid4,
+            () => OpenManualSource()), "add-manual"));
+        foreach (var source in state.RomSources ?? [])
+        {
+            var id = source.Id;
+            stack.Children.Add(Tagged(Row("Configure " + source.Name, source.Root.AbsolutePath, Icons.ListLines,
+                () => OpenRomSource(id)), "rom-source:" + id));
+        }
+
+        foreach (var source in state.ManualSources ?? [])
+        {
+            var id = source.Id;
+            stack.Children.Add(Tagged(Row("Configure " + source.Name, source.Target, Icons.ListLines,
+                () => OpenManualSource(id)), "manual-source:" + id));
+        }
+
         var collections = state.CreateCollections;
         stack.Children.Add(Tagged(Row(collections ? "Steam collections: on" : "Steam collections: off",
             "One collection per launcher and folder, holding its imported games", Icons.ListLines,
@@ -166,6 +189,7 @@ public sealed partial class GameLibraryView : ServiceSubView
         var stack = NewStack(entry.Name);
         AddStatus(stack, state);
         stack.Children.Add(Caption(entry.Reason));
+        AddRomEntryControls(stack, state, entry);
 
         if (entry.Selectable)
         {

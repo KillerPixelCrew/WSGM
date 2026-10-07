@@ -72,7 +72,8 @@ public sealed partial class ShellSession
         return
         [
             .. shortcuts.Select(shortcut =>
-                new ExistingShortcut(shortcut.AppId, shortcut.Target, shortcut.LaunchOptions))
+                new ExistingShortcut(shortcut.AppId, shortcut.Target, shortcut.LaunchOptions, shortcut.StartDirectory,
+                    shortcut.Name))
         ];
     }
 
@@ -90,7 +91,8 @@ public sealed partial class ShellSession
 
         // Steam answered without details: it has no shortcut with that id any more.
         return read.Value is { } details
-            ? new ExistingShortcut(appId, details.ShortcutExe, details.ShortcutLaunchOptions)
+            ? new ExistingShortcut(appId, details.ShortcutExe, details.ShortcutLaunchOptions, details.ShortcutStartDir,
+                details.Name ?? "")
             : null;
     }
 

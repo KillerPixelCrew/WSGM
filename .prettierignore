@@ -33,6 +33,7 @@ src/WSGM/Native/SteamInputLease/
 # These are ordered lexical fragments, not standalone TypeScript programs. The Steam asset builder
 # concatenates and type-checks them, then runs the pinned Prettier over the emitted single asset.
 src/WSGM/Core/SteamUiAssets/Source/**/*.ts
+src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js
 
 # Submodules own their own formatting and their own gates. They are separate
 # repositories; formatting them from here would both create churn and dirty a

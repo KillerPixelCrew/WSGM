@@ -162,6 +162,33 @@ public partial class OverlayWindow
     internal void AttachGameLibrary(GameLibraryService? library)
     {
         GameLibraryHost.Attach(library);
+        RefreshWorkspace();
+    }
+
+    internal void AttachEmulators(IEmulatorBackend? emulators)
+    {
+        EmulatorManagerHost.Attach(emulators);
+        ViewModel.ShowEmulators = emulators is not null;
+        RefreshWorkspace();
+    }
+
+    private void OpenEmulators()
+    {
+        if (!ViewModel.ShowEmulators)
+        {
+            return;
+        }
+
+        if (_navigation.Destination != OverlayDestination.System)
+        {
+            SelectDestination(OverlayDestination.System);
+        }
+
+        var section = _workspaceSections.FirstOrDefault(item => item.Page == OverlayPage.EmulatorManager);
+        if (section is not null)
+        {
+            SelectWorkspaceSection(section, false);
+        }
     }
 
     /// <summary>Gives the Themes view this session's themes, or hides it without them.</summary>

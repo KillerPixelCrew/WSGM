@@ -1,9 +1,21 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace WSGM.Core;
+
+/// <summary>Source-produced artwork identification, captured away from UI publication.</summary>
+/// <param name="ProviderId">The preferred provider for this source.</param>
+/// <param name="PlatformId">The provider's platform identity, or zero when unmapped.</param>
+/// <param name="ContentName">The original filename, when the provider indexes backing content.</param>
+/// <param name="ContentSize">The observed file size, or zero when unavailable.</param>
+public sealed record LibraryArtworkQuery(
+    string ProviderId = "steamgriddb",
+    int PlatformId = 0,
+    string ContentName = "",
+    long ContentSize = 0);
 
 /// <summary>Whether a title is known to have multiplayer, which decides its default input mode.</summary>
 public enum MultiplayerVerdict
@@ -60,6 +72,8 @@ public sealed record GameLaunch(string Label, bool Validated, string Evidence);
 ///     The command routes the title can be launched by, default first, or null for the packaged route
 ///     that only the Xbox source uses.
 /// </param>
+/// <param name="Content">Authoritative backing content and stable managed-launch identity, when tracked.</param>
+/// <param name="ArtworkQuery">Source-owned artwork lookup metadata, without later UI-thread file checks.</param>
 public sealed record DiscoveredGame(
     string SourceId,
     string Key,
@@ -71,7 +85,9 @@ public sealed record DiscoveredGame(
     bool IsGame,
     IReadOnlyList<string> Notes,
     IReadOnlyList<DiscoveredArtwork> Artwork,
-    IReadOnlyList<ShortcutRoute>? Routes = null)
+    IReadOnlyList<ShortcutRoute>? Routes = null,
+    ManagedContentRecord? Content = null,
+    LibraryArtworkQuery? ArtworkQuery = null)
 {
     /// <summary>The command routes, empty for a packaged title.</summary>
     public IReadOnlyList<ShortcutRoute> CommandRoutes => Routes ?? [];
@@ -85,18 +101,42 @@ public sealed record DiscoveredGame(
     /// <param name="name">What to call it in the library.</param>
     /// <param name="installPath">Where it is installed.</param>
     /// <param name="routes">Its routes, default first; at least one.</param>
+    /// <param name="content">Explicit authoritative managed content, or null to derive command-source metadata.</param>
+    /// <param name="wrapManagedLaunch">Whether this one explicit route uses managed launch indirection.</param>
+    /// <param name="artworkQuery">Source-owned provider and content identification.</param>
+    /// <param name="retainContent">Whether this source participates in backing-content availability.</param>
+    /// <param name="location">The adapter-defined friendly library label.</param>
     /// <returns>
     ///     The game, launched as its first route says. Launchers do not say whether a game has
     ///     multiplayer or offer artwork, so neither is claimed.
     /// </returns>
     /// <exception cref="ArgumentException"><paramref name="routes" /> is empty.</exception>
     public static DiscoveredGame Command(
-        string sourceId, string key, string name, string installPath, IReadOnlyList<ShortcutRoute> routes)
+        string sourceId, string key, string name, string installPath, IReadOnlyList<ShortcutRoute> routes,
+        ManagedContentRecord? content = null, bool wrapManagedLaunch = false,
+        LibraryArtworkQuery? artworkQuery = null, bool retainContent = true, string location = "")
     {
         ArgumentNullException.ThrowIfNull(routes);
         if (routes.Count == 0)
         {
             throw new ArgumentException("A command-launched game has at least one route.", nameof(routes));
+        }
+
+        if (retainContent && content is null && installPath.Length > 0 && Path.IsPathFullyQualified(installPath))
+        {
+            content = ManagedContentStorage.CreateRecord(sourceId, key, name, LibrarySourceKind.Launcher,
+                location.Length > 0 ? location : sourceId, installPath, true);
+            content.LaunchKind = ManagedLaunchKind.Native;
+        }
+
+        if (wrapManagedLaunch && content is not null)
+        {
+            if (routes.Count != 1)
+            {
+                throw new ArgumentException("A managed route has one authoritative launch plan.", nameof(routes));
+            }
+
+            routes = [routes[0] with { Id = "managed", ManagedId = content.Id }];
         }
 
         return new DiscoveredGame(
@@ -110,7 +150,18 @@ public sealed record DiscoveredGame(
             true,
             [],
             [],
-            routes);
+            routes,
+            content,
+            artworkQuery ?? new LibraryArtworkQuery());
+    }
+
+    /// <summary>Builds complete source metadata with the adapter's own friendly library label.</summary>
+    public static DiscoveredGame Command(ILibrarySource source, string key, string name, string installPath,
+        IReadOnlyList<ShortcutRoute> routes, ManagedContentRecord? content = null, bool wrapManagedLaunch = false,
+        LibraryArtworkQuery? artworkQuery = null, bool retainContent = true)
+    {
+        return Command(source.Id, key, name, installPath, routes, content, wrapManagedLaunch, artworkQuery,
+            retainContent, source.DisplayName);
     }
 }
 
@@ -148,6 +199,9 @@ public sealed record SourceAvailability(bool Installed, string Detail)
 /// </remarks>
 public interface ILibrarySource
 {
+    /// <summary>The adapter category, so policy is never inferred from an opaque source id.</summary>
+    LibrarySourceKind Kind => LibrarySourceKind.Launcher;
+
     /// <summary>Stable identity of this source, lower case, never reused.</summary>
     string Id { get; }
 

@@ -1,9 +1,11 @@
+// Shared between WSGM and WSGM.PackagedLaunch (linked as a source file).
+
 using System;
 using System.IO;
 
 namespace WSGM.Core;
 
-/// <summary>The explicit filesystem and lock identity for one user's WSGM state.</summary>
+/// <summary>The explicit filesystem and lock identity shared by WSGM and its independent launch helper.</summary>
 /// <param name="Root">The directory containing configuration and sidecars.</param>
 /// <param name="ConfigMutexName">The cross-process configuration mutex name.</param>
 public sealed record UserDataContext(string Root, string ConfigMutexName)

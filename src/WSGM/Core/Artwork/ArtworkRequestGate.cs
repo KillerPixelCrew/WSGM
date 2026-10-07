@@ -35,11 +35,16 @@ internal sealed class ArtworkRequestGate
     private readonly Dictionary<string, JsonElement> _answers = new(StringComparer.Ordinal);
     private readonly LinkedList<TaskCompletionSource> _background = new();
     private readonly int _capacity;
-    private readonly Dictionary<string, (string Message, DateTime Until)> _failures = new(StringComparer.Ordinal);
+
+    private readonly Dictionary<string, (ArtworkProviderException Failure, DateTime Until)> _failures =
+        new(StringComparer.Ordinal);
+
     private readonly LinkedList<TaskCompletionSource> _interactive = new();
     private readonly Queue<string> _order = new();
     private readonly int _remembered;
     private readonly Lock _sync = new();
+    private ArtworkProviderException? _pause;
+    private DateTimeOffset? _pausedUntil;
     private int _running;
 
     /// <summary>Creates a gate.</summary>
@@ -51,6 +56,19 @@ internal sealed class ArtworkRequestGate
         ArgumentOutOfRangeException.ThrowIfNegative(remembered);
         _capacity = capacity;
         _remembered = remembered;
+    }
+
+    /// <summary>Why this provider is paused, until its allowance resets or credentials change.</summary>
+    internal string? PauseReason
+    {
+        get
+        {
+            lock (_sync)
+            {
+                ExpirePause();
+                return _pause?.Message;
+            }
+        }
     }
 
     /// <summary>Marks every request made until the scope is disposed as background work.</summary>
@@ -86,6 +104,11 @@ internal sealed class ArtworkRequestGate
                 return remembered;
             }
 
+            lock (_sync)
+            {
+                ThrowIfPaused();
+            }
+
             JsonElement? answer;
             try
             {
@@ -102,7 +125,7 @@ internal sealed class ArtworkRequestGate
                         _failures.Remove(expired);
                     }
 
-                    _failures[key] = (failure.Message, now + FailureMemory);
+                    _failures[key] = (failure, now + FailureMemory);
                 }
 
                 throw;
@@ -132,6 +155,11 @@ internal sealed class ArtworkRequestGate
         await EnterAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            lock (_sync)
+            {
+                ThrowIfPaused();
+            }
+
             return await request(cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -148,6 +176,38 @@ internal sealed class ArtworkRequestGate
             _answers.Clear();
             _order.Clear();
             _failures.Clear();
+            _pause = null;
+            _pausedUntil = null;
+        }
+    }
+
+    /// <summary>Stops queued network work after the provider refused the account or its allowance.</summary>
+    internal ArtworkProviderException Pause(string message, string providerId, DateTimeOffset? until = null)
+    {
+        lock (_sync)
+        {
+            _pause = new ArtworkProviderException(message, providerId, true);
+            _pausedUntil = until;
+            return _pause;
+        }
+    }
+
+    private void ExpirePause()
+    {
+        if (_pausedUntil is { } until && until <= DateTimeOffset.UtcNow)
+        {
+            _pause = null;
+            _pausedUntil = null;
+            _failures.Clear();
+        }
+    }
+
+    private void ThrowIfPaused()
+    {
+        ExpirePause();
+        if (_pause is { } pause)
+        {
+            throw new ArtworkProviderException(pause.Message, pause.ProviderId, true);
         }
     }
 
@@ -165,7 +225,8 @@ internal sealed class ArtworkRequestGate
             {
                 if (failure.Until > DateTime.UtcNow)
                 {
-                    throw new ArtworkProviderException(failure.Message);
+                    throw new ArtworkProviderException(failure.Failure.Message, failure.Failure.ProviderId,
+                        failure.Failure.Paused);
                 }
 
                 _failures.Remove(key);
@@ -269,4 +330,11 @@ internal sealed class ArtworkRequestGate
 
 /// <summary>An artwork provider could not answer: a failure the user should see, never "no images".</summary>
 /// <param name="message">What went wrong, in words the page shows.</param>
-internal class ArtworkProviderException(string message) : Exception(message);
+/// <param name="providerId">The provider that failed, when known.</param>
+/// <param name="paused">Whether further requests must wait for credentials or an allowance reset.</param>
+internal class ArtworkProviderException(string message, string providerId = "", bool paused = false)
+    : Exception(message)
+{
+    internal string ProviderId { get; } = providerId;
+    internal bool Paused { get; } = paused;
+}

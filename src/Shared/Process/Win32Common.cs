@@ -1,4 +1,4 @@
-// Shared between WSGM, WSGM.LogonService and WSGM.PackagedLaunch (linked as a source file): the
+// Shared between WSGM, WSGM.LogonService, WSGM.Launch and WSGM.PackagedLaunch (linked as a source file): the
 // Win32 handle, token, environment and WTS calls they make, declared once with identical marshalling.
 
 using System.Runtime.InteropServices;
