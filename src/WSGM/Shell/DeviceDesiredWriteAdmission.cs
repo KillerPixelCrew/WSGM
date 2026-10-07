@@ -3,26 +3,42 @@ using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Shell;
 
+/// <summary>Why profile reconciliation declined an automatic capability write.</summary>
 internal enum DeviceDesiredWriteSkipReason
 {
+    /// <summary>The descriptor does not support writes.</summary>
     Unsupported,
+    /// <summary>No value is selected in the applicable profile layers.</summary>
     MissingDesiredValue,
+    /// <summary>The switched value has no admitted profile source.</summary>
     MissingDesiredSource,
+    /// <summary>The current capability state is unavailable.</summary>
     Unavailable,
+    /// <summary>The stored value no longer fits current descriptor bounds.</summary>
     DesiredValueOutOfRange,
+    /// <summary>The observation is stale or faulted; unknown readback alone is allowed.</summary>
     UntrustedState,
+    /// <summary>The observed value already equals the desired value.</summary>
     AlreadyApplied,
+    /// <summary>Another value is pending for this capability.</summary>
     CommandPending,
+    /// <summary>The same value was previously timed out or indeterminate and needs an explicit user action.</summary>
     PreviousResultUncertain
 }
 
 /// <summary>The shared admission decision for automatically restoring a desired device value.</summary>
+/// <param name="DesiredValue">Value admitted for this automatic write; null when skipped.</param>
+/// <param name="SkipReason">Reason the write was skipped, or null when admitted.</param>
 internal readonly record struct DeviceDesiredWriteAdmission(
     CapabilityValue? DesiredValue,
     DeviceDesiredWriteSkipReason? SkipReason)
 {
+    /// <summary>Whether automatic reconciliation may submit the selected desired value.</summary>
     internal bool Admitted => SkipReason is null;
 
+    /// <summary>Admits a desired profile write against current availability, value and previous outcome.</summary>
+    /// <param name="view">Current router snapshot for one capability instance.</param>
+    /// <returns>The selected desired value, or the first applicable skip reason; performs no I/O.</returns>
     /// <remarks>
     ///     A switched capability restores the value the running game resolves to. A global-only or native
     ///     per-application one restores only the Global value: the first has no per-game value at all, and
@@ -73,11 +89,7 @@ internal readonly record struct DeviceDesiredWriteAdmission(
             return Skipped(DeviceDesiredWriteSkipReason.CommandPending);
         }
 
-        // An uncertain write may already have happened, so that same write is never repeated
-        // automatically; the user choosing it again is what repeats it. A different desired value, such
-        // as another game's profile, is a new write and goes ahead. No readback is waited for: a device
-        // like the Ally never delivers one, and waiting left every later profile unapplied for the whole
-        // session (2026-09-29).
+        // Block repeating the same uncertain value automatically; a different desired value is a new write.
         if (view.LastResult is { Outcome: CommandOutcome.Indeterminate or CommandOutcome.TimedOut }
             && view.LastCommandValue is { } uncertainValue
             && CapabilityValues.Same(uncertainValue, desired))

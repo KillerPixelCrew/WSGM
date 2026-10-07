@@ -32,6 +32,13 @@ internal enum AutoTdpState
 }
 
 /// <summary>The complete AutoTDP projection.</summary>
+/// <param name="State">Whether automatic control is off, unavailable, idle, controlling or manually paused.</param>
+/// <param name="Watts">Reported power limit in watts, or null; may be a controller estimate or fallback rather than hardware readback.</param>
+/// <param name="FrametimeMs">Mean frame time of the selected RTSS sample in milliseconds, or null without a sample.</param>
+/// <param name="TargetFrametimeMs">Frame delivery deadline in milliseconds, or null when this state has no active target.</param>
+/// <param name="ApplicationId">Canonical application identity associated with the projection, or null when unresolved.</param>
+/// <param name="Detail">Displayable reason for the state or controller decision.</param>
+/// <param name="Action">Controller decision represented by this update, or null for a status-only update.</param>
 internal sealed record AutoTdpStatus(
     AutoTdpState State,
     int? Watts,
@@ -42,6 +49,9 @@ internal sealed record AutoTdpStatus(
     AutoTdpAction? Action = null);
 
 /// <summary>Shared admission state for AutoTDP commands and every UI projection.</summary>
+/// <param name="Available">Whether a valid frame limit and writable primary and required paired power limits are present.</param>
+/// <param name="Detail">Reason admission is unavailable; empty when available.</param>
+/// <param name="TargetFrametimeMs">Deadline derived from the frame limit, even if power is unavailable; null without a usable frame limit.</param>
 internal sealed record AutoTdpAvailability(bool Available, string Detail, double? TargetFrametimeMs);
 
 /// <summary>

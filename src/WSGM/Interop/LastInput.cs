@@ -7,6 +7,7 @@ namespace WSGM.Interop;
 internal static class LastInput
 {
     /// <summary>The 32-bit tick count of the last input, or null when Windows cannot say.</summary>
+    /// <returns>Windows session input tick count, or null when GetLastInputInfo fails.</returns>
     internal static uint? Tick()
     {
         NativeMethods.LastInputInfo info = new() { CbSize = (uint)Marshal.SizeOf<NativeMethods.LastInputInfo>() };
@@ -19,6 +20,7 @@ internal static class LastInput
     ///     user's back. The tick count wraps every 49.7 days; the unchecked subtraction is correct
     ///     across the wrap.
     /// </remarks>
+    /// <returns>Unsigned wrap-safe elapsed time, or zero on query failure to suppress idle actions.</returns>
     internal static TimeSpan Age()
     {
         return Tick() is { } tick

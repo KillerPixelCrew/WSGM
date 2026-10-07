@@ -19,6 +19,7 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
     /// <summary>The gate every transport operation holds; tests hold it to queue operations behind one.</summary>
     internal SemaphoreSlim Serializer { get; } = new(1, 1);
 
+    /// <inheritdoc />
     public ValueTask<bool> IsAvailableAsync(CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -27,6 +28,7 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
         return ValueTask.FromResult(endpoint is not null);
     }
 
+    /// <inheritdoc />
     public async ValueTask<byte[]> ReadProfileAsync(
         ushort address,
         byte length,
@@ -74,6 +76,7 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
         }
     }
 
+    /// <inheritdoc />
     public async ValueTask WriteProfileAsync(
         ushort address,
         ReadOnlyMemory<byte> payload,
@@ -108,6 +111,7 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
         }
     }
 
+    /// <inheritdoc />
     public async ValueTask SyncToRomAsync(CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -128,6 +132,7 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
         }
     }
 
+    /// <inheritdoc />
     public async ValueTask<ControllerTopology> SwitchModeAsync(
         ClawControllerMode mode,
         string physicalLocation,
@@ -191,6 +196,7 @@ internal sealed class WindowsClawMcuTransport : IClawMcuTransport
         }
     }
 
+    /// <inheritdoc />
     public ValueTask DisposeAsync()
     {
         _disposed = true;
@@ -290,12 +296,14 @@ internal sealed class WindowsClawControllerSource(OemButtonLatch oemButtons)
     private byte[] _rumbleReport = new byte[11];
     private FileStream? _stream;
 
+    /// <inheritdoc />
     public ValueTask<ControllerTopology?> DiscoverAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         return ValueTask.FromResult(HidEndpointEnumerator.DiscoverControllerTopology());
     }
 
+    /// <inheritdoc />
     public async ValueTask StartAsync(
         ClawModel model,
         Func<CanonicalControllerSample, CancellationToken, ValueTask> publish,
@@ -362,6 +370,7 @@ internal sealed class WindowsClawControllerSource(OemButtonLatch oemButtons)
         }
     }
 
+    /// <inheritdoc />
     public async ValueTask StopAsync(CancellationToken cancellationToken)
     {
         Task? reader;
@@ -427,6 +436,7 @@ internal sealed class WindowsClawControllerSource(OemButtonLatch oemButtons)
         }
     }
 
+    /// <inheritdoc />
     public async ValueTask WriteRumbleAsync(
         byte weak,
         byte strong,
@@ -459,6 +469,7 @@ internal sealed class WindowsClawControllerSource(OemButtonLatch oemButtons)
         }
     }
 
+    /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
         await StopAsync(CancellationToken.None).ConfigureAwait(false);

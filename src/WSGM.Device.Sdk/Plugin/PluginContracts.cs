@@ -13,7 +13,9 @@ namespace WSGM.Device.Sdk.Plugin;
 /// <summary>The entry point of the sole installed device package.</summary>
 /// <remarks>
 ///     The interface is semantic at the host boundary. Implementations own their hardware transports
-///     internally; none of those transports or handles can be returned through this API.
+///     internally; none of those transports or handles can be returned through this API. The host owns
+///     sequencing and generations; implementations own cooperative cancellation and native resource cleanup.
+///     A canceled wait does not prove a dispatched hardware operation stopped or that its changes were undone.
 /// </remarks>
 public interface IDevicePlugin : IAsyncDisposable
 {
@@ -38,8 +40,11 @@ public interface IDevicePlugin : IAsyncDisposable
 
     /// <summary>Applies one semantic capability command after authoritative plugin revalidation.</summary>
     /// <param name="command">Semantic command from WSGM.</param>
-    /// <param name="cancellationToken">Cancels the command.</param>
-    /// <returns>The truthful hardware outcome.</returns>
+    /// <param name="cancellationToken">
+    ///     Requests cooperative cancellation. Once a write may have reached hardware, report uncertainty
+    ///     rather than a pre-dispatch rejection unless the effect is independently known.
+    /// </param>
+    /// <returns>A result carrying the request's command ID; uncertain writes must not be retried automatically.</returns>
     ValueTask<CapabilityCommandResult> ExecuteCommandAsync(
         CapabilityCommand command,
         CancellationToken cancellationToken);
@@ -85,14 +90,14 @@ public interface IDevicePlugin : IAsyncDisposable
     ValueTask<PluginDiagnostics> GetDiagnosticsAsync(CancellationToken cancellationToken);
 
     /// <summary>Applies canonical virtual-target output to the physical device.</summary>
-    /// <param name="frame">Bounded semantic haptic frame.</param>
+    /// <param name="frame">Complete motor state with normalized intensities; a silent frame requests an explicit stop.</param>
     /// <param name="cancellationToken">Cancels delivery.</param>
     /// <returns>A task completing when the frame was handled or explicitly dropped.</returns>
     ValueTask ApplyHapticOutputAsync(
         HapticOutputFrame frame,
         CancellationToken cancellationToken);
 
-    /// <summary>Stops reading the physical controller and puts its original mode back.</summary>
+    /// <summary>Stops physical-controller reading and restores the package's documented native controller baseline.</summary>
     /// <param name="context">Handoff scope and deadline.</param>
     /// <param name="cancellationToken">Cancels waiting while still requiring best-effort cleanup.</param>
     /// <returns>A task completing once the plugin let go of the controller.</returns>
@@ -144,7 +149,7 @@ public sealed record PluginDetectionResult
 /// <summary>Inputs to one process-long start.</summary>
 public sealed record PluginStartContext
 {
-    /// <summary>Semantic publication surface implemented by WSGM.</summary>
+    /// <summary>Borrowed host publication surface, retained for this plugin lifetime and never disposed by the plugin.</summary>
     public required IPluginHostAdapter Host { get; init; }
 
     /// <summary>Cycle generation owning all handles opened during startup.</summary>
@@ -160,7 +165,7 @@ public sealed record PluginStartContext
     /// </remarks>
     public required string StateDirectory { get; init; }
 
-    /// <summary>Whether physical-controller acquisition should be attempted.</summary>
+    /// <summary>Whether to acquire physical-controller ownership; other services may still run when false.</summary>
     public required bool ControllerManagementEnabled { get; init; }
 }
 

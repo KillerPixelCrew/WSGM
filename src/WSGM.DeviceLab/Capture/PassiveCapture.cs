@@ -233,6 +233,7 @@ internal interface IPassiveCaptureSource
     /// <param name="step">Observe-only step.</param>
     /// <param name="emit">Callback into the shared timeline.</param>
     /// <param name="cancellationToken">Step deadline or caller cancellation.</param>
+    /// <returns>Completion when observation stops and all emitted callbacks finish; the source must cooperate with cancellation.</returns>
     Task ObserveAsync(
         ObservationStep step,
         Func<PassiveObservation, ValueTask> emit,
@@ -264,9 +265,11 @@ internal sealed class PassiveCaptureCoordinator
         _sources = indexed;
     }
 
-    /// <summary>Runs every recipe step under its own hard duration bound.</summary>
+    /// <summary>Runs recipe steps sequentially with a cancellation deadline for each source.</summary>
+    /// <remarks>Deadlines require source cooperation; the coordinator awaits the source and cannot forcibly stop it.</remarks>
     /// <param name="recipe">Inert observe-only recipe.</param>
     /// <param name="cancellationToken">Whole-session cancellation.</param>
+    /// <returns>Completion after all steps finish or record unavailable/timed-out evidence; caller cancellation propagates.</returns>
     public async Task RunAsync(ObserveOnlyRecipe recipe, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(recipe);

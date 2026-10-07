@@ -12,6 +12,7 @@ namespace WSGM.LogonService;
 ///     SYSTEM (SeTcbPrivilege) — the linked-token route that fails with error 1346
 ///     from user land works fine from this side.
 /// </summary>
+/// <param name="host">Windows operations; handles acquired through it remain owned by each admitted session.</param>
 internal sealed class SessionLauncher(ISessionHost host)
 {
     /// <summary>
@@ -38,6 +39,8 @@ internal sealed class SessionLauncher(ISessionHost host)
     ///     Handles a logon (live SESSIONCHANGE event: <paramref name="logonAge" />
     ///     null; startup catch-up: the measured age). Runs on a worker thread.
     /// </summary>
+    /// <param name="sessionId">Interactive session receiving the event or catch-up observation.</param>
+    /// <param name="logonAge">Measured age for catch-up, or null for a live logon event.</param>
     internal void OnSessionLogon(uint sessionId, TimeSpan? logonAge)
     {
         bool alreadyLaunched;
@@ -48,11 +51,7 @@ internal sealed class SessionLauncher(ISessionHost host)
                 return;
             }
 
-            // Claim the slot under the SAME lock as the check. A live
-            // WTS_SESSION_LOGON and the startup catch-up sweep can process one
-            // session concurrently; claiming only after the launch let both
-            // observe "not launched yet", start two WSGM --boot processes and
-            // leak the loser's user token plus its process handle.
+            // Live logon and catch-up can race; admission and duplicate detection share this lock.
             alreadyLaunched = Sessions.ContainsKey(sessionId) || !InFlight.Add(sessionId);
         }
 
@@ -72,6 +71,7 @@ internal sealed class SessionLauncher(ISessionHost host)
         }
     }
 
+    /// <summary>Closes launch/recovery admission; existing watchdogs retain handles until their waits finish.</summary>
     internal void Stop()
     {
         lock (Gate)
@@ -181,6 +181,7 @@ internal sealed class SessionLauncher(ISessionHost host)
     ///     watchdog thread, which may still be waiting on them — it closes them when
     ///     the launched process exits.
     /// </summary>
+    /// <param name="sessionId">Windows session whose launch and health-watch state should be retired.</param>
     internal void OnSessionLogoff(uint sessionId)
     {
         lock (Gate)

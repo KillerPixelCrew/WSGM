@@ -23,16 +23,8 @@ internal enum ProfileChangeKind
 ///     The one owner of the Global and per-game profiles and of which application they resolve for.
 /// </summary>
 /// <remarks>
-///     Every surface writes through here: the overlay rows, Steam's Quick Access rows, Steam's per-game
-///     toggle and reset, and the manual power and refresh funnels. Every consumer reads the same
-///     snapshot. That is what makes the overlay header, Steam's toggle and every applied value agree
-///     about which game is running and which layer is in force. The rules are in
-///     <c>docs\profiles.md</c>.
-///     <para>
-///         Writes are serialized and saved before they are published, so a value that could not be
-///         saved never reaches a device. Nothing here touches the disk on the caller's thread: the
-///         configuration mutation runs on a worker.
-///     </para>
+///     Shared by Steam and overlay consumers. Serializes edits and publishes only after the supplied
+///     mutation delegate saves successfully. The delegate owns disk scheduling; subscribers own device writes.
 /// </remarks>
 internal sealed class ProfileService
 {
@@ -123,6 +115,7 @@ internal sealed class ProfileService
 
     /// <summary>Reads fresh profiles after earlier edits finish, without rewriting the file.</summary>
     /// <param name="cancellationToken">Cancels the reload.</param>
+    /// <returns>Completion after the stored profile snapshot is reloaded and any changed state is published.</returns>
     internal async Task ReloadAsync(CancellationToken cancellationToken = default)
     {
         await MutateAsync((_, _) => false, cancellationToken).ConfigureAwait(false);
@@ -176,6 +169,11 @@ internal sealed class ProfileService
     }
 
     /// <summary>Stores one field value.</summary>
+    /// <param name="field">Integer field supported by this service.</param>
+    /// <param name="value">Value stored in the currently active profile layer.</param>
+    /// <param name="cancellationToken">Cancels waiting and cooperative persistence stages.</param>
+    /// <returns>The snapshot published after persistence.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The field is not an integer profile field.</exception>
     internal Task<ProfileSnapshot> SetAsync(ProfileField field, int value,
         CancellationToken cancellationToken = default)
     {
@@ -358,6 +356,12 @@ internal sealed class ProfileService
     }
 
     /// <summary>Creates or updates a game profile's name, processes and switch.</summary>
+    /// <param name="id">Existing profile identifier; null or an unknown identifier creates a new named profile.</param>
+    /// <param name="name">Profile display name.</param>
+    /// <param name="processNames">Executable names used to match the profile.</param>
+    /// <param name="enabled">Whether matching applications use this profile.</param>
+    /// <param name="cancellationToken">Cancels waiting and cooperative persistence stages.</param>
+    /// <returns>The saved profile identifier.</returns>
     internal async Task<string> SaveGameAsync(string? id, string name, IReadOnlyList<string> processNames,
         bool enabled, CancellationToken cancellationToken = default)
     {
@@ -372,6 +376,9 @@ internal sealed class ProfileService
     }
 
     /// <summary>Deletes a game profile. Matching applications then use Global.</summary>
+    /// <param name="id">Profile identifier to remove.</param>
+    /// <param name="cancellationToken">Cancels waiting and cooperative persistence stages.</param>
+    /// <returns>True when a profile was removed and the change persisted.</returns>
     internal async Task<bool> DeleteGameAsync(string id, CancellationToken cancellationToken = default)
     {
         var result = await MutateAsync((config, _) => ProfileEdits.DeleteGame(config, id), cancellationToken)

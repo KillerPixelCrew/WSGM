@@ -141,6 +141,7 @@ public sealed class KeepAwakeService : IDisposable
     ///     The session's Steam client the download overview is read through, or null where there is
     ///     none (overlay-test), which then never sees a download.
     /// </param>
+    /// <returns>A running service owned by the caller; dispose it to cancel polling and release its power holds.</returns>
     public static KeepAwakeService StartNew(
         SteamMonitor? monitor,
         bool autoEnabled,

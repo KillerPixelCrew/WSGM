@@ -11,19 +11,12 @@ using WSGM.Interop;
 
 namespace WSGM.Shell;
 
-/// <summary>
-///     Resolves and rasterizes per-window application icons for the taskbar.
-///     Resolution follows the taskbar-replacement fallback chain (RetroBar/ManagedShell
-///     order, adapted big-first because the bar renders ~32 px tiles): WM_GETICON
-///     (ICON_BIG, then ICON_SMALL2/ICON_SMALL — all via SendMessageTimeout with
-///     SMTO_ABORTIFHUNG so a wedged app cannot stall the bar), the window class icon
-///     (GCLP_HICON/GCLP_HICONSM), WM_QUERYDRAGICON, and finally the first icon resource
-///     of the owning process's executable (ExtractIconExW — deliberately not
-///     SHGetFileInfo, so icon lookup does not depend on shell icon-cache or COM initialization).
-///     HICONs obtained from another window are foreign, still-owned USER handles:
-///     they are CopyIcon'd before rendering and only the copy is destroyed —
-///     destroying the original would yank it out from under the owning app.
-/// </summary>
+/// <summary>Resolves window icons and rasterizes them for the taskbar.</summary>
+/// <remarks>
+///     Tries bounded window messages, class icons, drag icons and executable resources in order.
+///     Foreign HICONs remain owned by their source: rendering uses a CopyIcon result and destroys only
+///     that copy. Executable extraction avoids dependence on shell icon-cache and COM initialization.
+/// </remarks>
 public sealed class WindowIconCache
 {
     private readonly Dictionary<nint, Bitmap?> _byWindow = [];
@@ -252,6 +245,9 @@ internal static class IconRasterizer
     ///     DrawIconEx fully transparent (alpha 0 everywhere); a second DI_MASK pass
     ///     reconstructs their opacity (mask black = opaque).
     /// </summary>
+    /// <param name="hIcon">Borrowed live icon handle; the caller retains ownership and keeps it valid during drawing.</param>
+    /// <param name="size">Positive square output dimension in physical pixels.</param>
+    /// <returns>A new caller-owned bitmap to dispose, or null when native drawing fails; managed allocation failures propagate.</returns>
     internal static Bitmap? Rasterize(nint hIcon, int size)
     {
         var pixels = new byte[size * size * 4];

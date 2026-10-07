@@ -48,6 +48,8 @@ struct ShellWindow
 class Session;
 static thread_local std::unordered_map<HWINEVENTHOOK, Session*> sessions;
 
+/// Owns hooks, thumbnails, compositor objects and the helper HWND on its creating UI thread.
+/// Destruction restores only the host style bits this session changes. No member is thread-safe.
 class Session
 {
     HWND owner{}, helper{};
@@ -282,6 +284,8 @@ public:
         if (comInitialized) CoUninitialize();
     }
 
+    /// Borrows a same-process, same-thread host; records callback only after the first successful update.
+    /// Throws an HRESULT on initialization failure; destruction also handles partial initialization.
     void Start(HWND host, float sigma, FailureCallback callback)
     {
         DWORD process{};
@@ -349,6 +353,7 @@ public:
         notify = callback;
     }
 
+    /// Refreshes desktop geometry/composition; reentrant updates are no-ops. Reports the first failure once.
     HRESULT Refresh() noexcept
     {
         if (GetCurrentThreadId() != thread) return RPC_E_WRONG_THREAD;
@@ -376,6 +381,9 @@ public:
     }
 };
 
+/// Creates an owned session on owner's UI thread. output must be non-null and is cleared on failure.
+/// sigma is a finite physical-pixel Gaussian deviation in [0, 60]. callback is borrowed until destroy;
+/// it must not throw or destroy the session inline. Success transfers ownership to *output.
 extern "C" __declspec(dllexport) HRESULT __cdecl BackdropCreate(HWND owner, float sigma, FailureCallback callback, Session** output) noexcept
 {
     if (!output) return E_POINTER;
@@ -392,13 +400,15 @@ extern "C" __declspec(dllexport) HRESULT __cdecl BackdropCreate(HWND owner, floa
     catch (...) { return E_FAIL; }
 }
 
+/// Changes a live session on its creating thread. Null returns E_POINTER; failed sessions return E_FAIL.
 extern "C" __declspec(dllexport) HRESULT __cdecl BackdropSetBlur(Session* session, float sigma) noexcept
 {
     return session ? session->SetBlur(sigma) : E_POINTER;
 }
 
+/// Consumes a session once on its creating thread, releasing native callbacks before their managed root.
+/// Null is harmless; the caller must prevent double destruction and destruction from a failure callback.
 extern "C" __declspec(dllexport) void __cdecl BackdropDestroy(Session* session) noexcept
 {
-    // The managed owner guarantees UI-thread disposal, including window close and hide.
     delete session;
 }

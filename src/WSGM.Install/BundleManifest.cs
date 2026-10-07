@@ -11,10 +11,7 @@ namespace WSGM.Install;
 
 /// <summary>One plugin a WSGM release bundles, as <c>eng/build-bundle.ps1</c> describes it.</summary>
 /// <remarks>
-///     The lists read as empty when a bundle.json written before they existed leaves them out: the
-///     source-generated reader sets an absent init-only property to null rather than keeping its
-///     initializer, and a 2.0.3 bundle has no <c>testedHardware</c> or <c>replaces</c>, which is
-///     what closed Settings on 2026-09-28.
+///     List getters normalize null to empty so older bundle manifests can omit optional metadata.
 /// </remarks>
 public sealed record BundledPlugin
 {
@@ -207,6 +204,8 @@ public sealed record BundleManifest
     /// <summary>Reads a bundle manifest file, or returns null when it does not exist.</summary>
     /// <param name="path">File path.</param>
     /// <returns>The manifest, or null.</returns>
+    /// <exception cref="InvalidDataException">An existing manifest is malformed or uses an unsupported schema.</exception>
+    /// <remarks>Unlike a missing file, read and parse failures propagate; callers must choose their recovery policy.</remarks>
     public static BundleManifest? TryRead(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);

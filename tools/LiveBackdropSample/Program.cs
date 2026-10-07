@@ -10,6 +10,7 @@ using Avalonia.Threading;
 
 namespace LiveBackdropSample;
 
+/// <summary>Starts the attended window used to inspect the live desktop-backdrop implementation.</summary>
 internal static class Program
 {
     [STAThread]
@@ -19,10 +20,13 @@ internal static class Program
         .StartWithClassicDesktopLifetime(args);
 }
 
+/// <summary>Composes one sample window with backdrop controls and a local diagnostic log.</summary>
 internal sealed class SampleApplication : Application
 {
+    /// <inheritdoc />
     public override void Initialize() => Styles.Add(new FluentTheme());
 
+    /// <inheritdoc />
     public override void OnFrameworkInitializationCompleted()
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)

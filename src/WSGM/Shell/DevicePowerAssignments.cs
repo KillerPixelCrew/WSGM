@@ -6,6 +6,12 @@ using WSGM.Core;
 
 namespace WSGM.Shell;
 
+/// <summary>Generation and profile context captured before resolving or saving a device power assignment.</summary>
+/// <param name="Profiles">Saved layers and application selection used for the edit.</param>
+/// <param name="PluginId">Current package identifier, or null when no package is selected.</param>
+/// <param name="Cycle">Current device lifecycle generation.</param>
+/// <param name="Enabled">Whether device integration is enabled.</param>
+/// <param name="OnAc">True on AC, false on battery, or null when the source is unknown.</param>
 internal sealed record DevicePowerAssignmentContext(
     ProfileSnapshot Profiles,
     string? PluginId,
@@ -13,9 +19,12 @@ internal sealed record DevicePowerAssignmentContext(
     bool Enabled,
     bool? OnAc)
 {
+    /// <summary>Active profile application identifier, or null for desktop/global context.</summary>
     internal string? ApplicationId => Profiles.Active.ApplicationId;
 
     /// <summary>The assignment in force for a power source, and the layer it came from.</summary>
+    /// <param name="ac">True for the AC assignment; false for battery.</param>
+    /// <returns>The effective assignment, possibly null, and its originating profile layer.</returns>
     internal Resolved<DevicePowerPresetReference?> Resolve(bool ac)
     {
         return ac
@@ -42,6 +51,10 @@ internal sealed record DevicePowerAssignmentState(
     ProfileSource BatterySource = ProfileSource.None);
 
 /// <summary>Applies a saved assignment once per source, application, configuration or device-cycle change.</summary>
+/// <param name="presets">Shared one-shot device/Windows preset owner.</param>
+/// <param name="context">Reads current profile, package, generation, and power-source context.</param>
+/// <param name="save">Persists an assignment in the captured edit layer; null removes that layer's assignment.</param>
+/// <param name="restoreFirst">Optional task indicating initial desired-value restoration; incomplete restoration defers reconciliation.</param>
 internal sealed class DevicePowerAssignments(
     DevicePowerPresets presets,
     Func<DevicePowerAssignmentContext> context,
@@ -53,6 +66,7 @@ internal sealed class DevicePowerAssignments(
     private (long Cycle, string? Application, bool Ac, DevicePowerPresetReference? Assignment)? _attempted;
     private string _status = string.Empty;
 
+    /// <summary>Whether integration is enabled and the known power source resolves an assignment for this package.</summary>
     internal bool HasCurrentAssignment
     {
         get
@@ -63,6 +77,8 @@ internal sealed class DevicePowerAssignments(
         }
     }
 
+    /// <summary>Projects the editor's own layer and the effective source of each assignment.</summary>
+    /// <returns>A captured editor state; AutoTDP projects the active source as custom without saving that display value.</returns>
     internal DevicePowerAssignmentState Snapshot()
     {
         var current = context();
@@ -81,6 +97,12 @@ internal sealed class DevicePowerAssignments(
             game is null, current.Resolve(true).Source, current.Resolve(false).Source);
     }
 
+    /// <summary>Validates an explicit assignment against current context, saves it, and reconciles once.</summary>
+    /// <param name="ac">True to edit the AC assignment; false to edit battery.</param>
+    /// <param name="id">Current declared preset identifier, or null to remove the layer's assignment.</param>
+    /// <param name="cancellationToken">Cancels admission and application; an already saved assignment remains saved.</param>
+    /// <returns>Completion of save and the applicable one-shot reconciliation attempt.</returns>
+    /// <exception cref="InvalidOperationException">The profile/device/source context changed or the preset is no longer declared.</exception>
     internal async Task AssignAsync(bool ac, string? id, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -148,6 +170,10 @@ internal sealed class DevicePowerAssignments(
         return true;
     }
 
+    /// <summary>Applies a changed assignment once or records successfully applied values drifting to custom.</summary>
+    /// <param name="cancellationToken">Cancels lane admission and remaining preset work.</param>
+    /// <returns>Completion of this pass; unknown/unavailable inputs or pending initial restoration defer work.</returns>
+    /// <remarks>An uncertain/failed attempt is not retried for the same context. Explicit assignment edits permit another attempt.</remarks>
     internal async Task ReconcileAsync(CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -169,8 +195,7 @@ internal sealed class DevicePowerAssignments(
             return;
         }
 
-        // After a resume the device's desired values are restored first. The preset write shares the
-        // plugin's one command lane, and competing with it is what left lighting zones unrestored.
+        // Desired-value restoration precedes presets on the shared device command lane.
         if (restoreFirst?.Invoke() is { IsCompleted: false })
         {
             return;
@@ -238,11 +263,7 @@ internal sealed class DevicePowerAssignments(
             return;
         }
 
-        // The same assignment resolving for another application is not a change. Every desktop
-        // window switch used to re-run the whole preset: an identity read, the scenario and both
-        // watt writes with their readbacks over WMI, and a Windows power mode set, all to land on
-        // the values the device already showed. Skip when the previous apply succeeded for this
-        // assignment on this power source and the device still reports it.
+        // Reuse a successful matching assignment across application switches on the same device cycle/source.
         if (_applied
             && _attempted is { } previous
             && previous.Cycle == current.Cycle

@@ -37,7 +37,8 @@ one device package whose hardware rules match the machine, as
 `plugins/curated` and does not ship. The retired Generic PC repository held only a design scaffold:
 Windows-wide features belong in Core, device-specific integrations in plugins.
 
-Test a change with the project that covers it, from the repository root:
+Build first and follow the root `AGENTS.md` manual-first validation policy. After the maintainer's
+manual check, run the focused test project from the repository root:
 
 ```powershell
 dotnet test tests/WSGM.Device.Sdk.Tests/WSGM.Device.Sdk.Tests.csproj
@@ -129,10 +130,13 @@ capabilities it lays out. An unplaced capability keeps the semantic home WSGM de
 and a semantic role naming an undeclared section rejects the whole set. Layout is grouping only:
 WSGM still owns every title string, icon geometry and control shape it renders.
 
-Every hardware write must recheck current identity and bounds, serialize its real transport, read
-back when the hardware supports it, and restore the captured original state on failure or stop.
-Unknown identity or ranges fail closed. A partial device is valid: publish the working capabilities
-and a specific unavailable reason for the others.
+Every hardware write must recheck current identity, availability, bounds, both generations and the
+active-time deadline, and serialize its real transport. Capture the first original before a
+temporary mutation when it can be read; journal restoration according to the package's documented
+policy. A successful write without matching readback is `AppliedUnverified`, with the written value
+published as observed. Missing readback never requires rollback or a second write. Report uncertain
+effects truthfully and never retry them blindly. Unknown identity or ranges fail closed. A partial
+device is valid: publish the working capabilities and a specific unavailable reason for the others.
 
 ## 2. Build and run safely
 

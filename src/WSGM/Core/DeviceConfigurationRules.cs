@@ -3,6 +3,7 @@ using System.Collections.Generic;
 
 namespace WSGM.Core;
 
+/// <summary>Repairs device settings scopes, profiles, glyph selection, and OEM assignments without opening plugin code.</summary>
 internal static class DeviceConfigurationRules
 {
     /// <summary>
@@ -10,10 +11,10 @@ internal static class DeviceConfigurationRules
     /// </summary>
     /// <param name="device">The section to normalize in place.</param>
     /// <remarks>
-    ///     Internal rather than private so its rules can be tested directly. It touches only the object
-    ///     handed to it and reads no file, which is what keeps a test off the developer's real
-    ///     configuration.
+    ///     Performs structural repair only; live capability bounds are validated separately against
+    ///     the installed plugin declaration. No files or hardware are read.
     /// </remarks>
+    /// <returns>Diagnostics for discarded cached declarations or curves; the supplied configuration is mutated in place.</returns>
     internal static IReadOnlyList<string> Normalize(DeviceIntegrationConfig device)
     {
         List<string> diagnostics = [];

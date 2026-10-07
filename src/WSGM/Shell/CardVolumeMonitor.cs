@@ -9,39 +9,12 @@ using WSGM.Interop;
 
 namespace WSGM.Shell;
 
-/// <summary>
-///     Keeps Steam's install-folder list honest about which SD card is actually
-///     in the reader, driven by volume arrival/removal instead of by the user noticing.
-/// </summary>
+/// <summary>Reconciles Steam libraries with removable media after volume arrival and removal.</summary>
 /// <remarks>
-///     <para>
-///         <b>Why this exists.</b> A card reader hands every card the same drive letter, and
-///         Steam keys install folders by PATH with no dedup. Swap a card and Steam still holds
-///         the previous card's library at <c>E:\SteamLibrary</c> — its app list, its capacity,
-///         its content id. Ejecting does not clear it, because the registration was never tied
-///         to the card; only a Steam restart rebuilds the list from disk. Adding the new card
-///         on top produces TWO registrations at one path, which is what the user sees as "the
-///         new card shows the previous card's games but the right size" (live-verified against
-///         a running client, 2026-08-20). The reconcile below is what makes an insert behave
-///         the way it does on a Steam Deck: the card that is in the reader is the library Steam
-///         has.
-///     </para>
-///     <para>
-///         <b>Detection is reader-agnostic on purpose.</b> The signal is a
-///         <c>GUID_DEVINTERFACE_VOLUME</c> device notification (see
-///         <see cref="MessageWindow.RegisterVolumeNotifications" />), not a WMI query for a
-///         disk model — a model match only ever works for the one reader it was written
-///         against. The notification
-///         arrives BEFORE Windows has finished mounting and lettering the volume, so every
-///         reaction goes through <see cref="SettleDelay" /> first and the whole set of drives is
-///         rescanned rather than the reported device being resolved back to a mount point.
-///     </para>
-///     <para>
-///         Steam is only ever changed through its own front-end (see <c>docs\steam-cef.md</c>): registrations
-///         are removed and added over the CEF bridge, never by hand-writing
-///         <c>libraryfolders.vdf</c> under a live client. With Steam closed there is nothing to
-///         reconcile — its next start reads the file and rebuilds the list correctly by itself.
-///     </para>
+///     Steam identifies registrations by path, so different cards sharing a drive letter require removal
+///     of the old registration before adding the current one. Volume notifications precede mounting;
+///     reconciliation waits for settling and rescans mounted drives. Live changes use Steam's CEF API.
+///     When Steam is closed, its next startup reads the library files without reconciliation here.
 /// </remarks>
 internal sealed class CardVolumeMonitor : IDisposable
 {

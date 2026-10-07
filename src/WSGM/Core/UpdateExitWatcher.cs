@@ -73,6 +73,9 @@ public static class UpdateExitWatcher
         return $"D:(A;;0x00100002;;;{userSid ?? "WD"})(A;;0x00100002;;;BA)S:(ML;;NW;;;ME)";
     }
 
+    /// <summary>Resolves the installer completion event associated with an exit reason.</summary>
+    /// <param name="reason">Reason selected for the resident exit.</param>
+    /// <returns>The stable session-local event name for update/uninstall, or null for other reasons.</returns>
     internal static string? HandoffEventNameFor(ApplicationShutdownReason reason)
     {
         return reason switch
@@ -83,6 +86,9 @@ public static class UpdateExitWatcher
         };
     }
 
+    /// <summary>Signals that the resident cleanup attempt settled, even when its outcome was incomplete.</summary>
+    /// <param name="reason">Update or uninstall channel to signal; other reasons are ignored.</param>
+    /// <param name="outcome">Outcome written to the log; the event itself carries no success/failure payload.</param>
     internal static void ReportHandoff(
         ApplicationShutdownReason reason,
         ApplicationShutdownOutcome outcome)
@@ -275,6 +281,13 @@ public static class UpdateExitWatcher
         thread.Start();
     }
 
+    /// <summary>Creates a session event with the updater access policy, or opens an existing compatible event.</summary>
+    /// <param name="eventName">Stable cross-process event name.</param>
+    /// <param name="operation">Human-readable context for failure diagnostics.</param>
+    /// <param name="userSid">Current user SID, or null for the compatibility fallback in <see cref="BuildEventSddl" />.</param>
+    /// <param name="clearStaleSignal">Whether to reset a prior signal before returning the handle.</param>
+    /// <param name="manualReset">Reset mode when creating a new event; an existing event keeps its original mode.</param>
+    /// <returns>A caller-owned native handle to close with CloseHandle, or zero after a logged native failure.</returns>
     internal static nint CreateOrOpenEvent(
         string eventName,
         string operation,

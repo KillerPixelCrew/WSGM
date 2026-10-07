@@ -140,7 +140,9 @@ internal sealed partial class IntelGraphicsMemoryTransport
         }
     }
 
-    /// <summary>Checks write access and returns an existing DWORD unchanged, preserving an absent override.</summary>
+    /// <summary>Checks write access and rewrites an existing DWORD unchanged, preserving an absent override.</summary>
+    /// <param name="admission">Caller cancellation, deadline and live-session admission, checked immediately before any setter.</param>
+    /// <returns>True when an existing DWORD was written unchanged or no override exists; false for missing registry access, an invalid value type or a registry failure. Admission failures propagate.</returns>
     public bool ProbeSupport(WriteAdmission admission)
     {
         if (_adapterPath is null)

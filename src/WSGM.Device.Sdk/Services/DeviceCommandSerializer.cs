@@ -23,13 +23,7 @@ namespace WSGM.Device.Sdk.Services;
 public sealed class DeviceCommandSerializer : IDisposable
 {
     /// <summary>How often the observation loop re-reads and republishes what the plugin observes.</summary>
-    /// <remarks>
-    ///     Comfortably inside WSGM's 30-second freshness policy, so an observation is replaced twice before it
-    ///     can expire. Without the loop a plugin published state at start, at resume and after a command, and
-    ///     never again, so every readable capability went stale thirty seconds into the cycle. The visible form
-    ///     was the QAM's TDP row disappearing, taking AutoTDP ("No primary power limit is available to
-    ///     control") with it.
-    /// </remarks>
+    /// <remarks>Ten seconds keeps successful publications within WSGM's thirty-second freshness window.</remarks>
     private static readonly TimeSpan ObservationInterval = TimeSpan.FromSeconds(10);
 
     /// <summary>How long a pass waits for an in-flight command before skipping; the command republishes.</summary>
@@ -70,15 +64,16 @@ public sealed class DeviceCommandSerializer : IDisposable
         _publish = publish ?? throw new ArgumentNullException(nameof(publish));
     }
 
-    /// <summary>Stops observation; pending operations retain their managed serialization gate.</summary>
+    /// <summary>Requests observation cancellation without waiting for an in-flight operation to finish.</summary>
+    /// <remarks>Does not dispose the serialization gate or prevent later calls; stop the owning cycle first.</remarks>
     public void Dispose()
     {
         StopObservation();
     }
 
     /// <summary>Runs a lifecycle transition once no command or refresh is in flight.</summary>
-    /// <param name="operation">The transition.</param>
-    /// <param name="cancellationToken">Cancels waiting for the gate.</param>
+    /// <param name="operation">Transition run while holding the gate; it owns cancellation of its own work.</param>
+    /// <param name="cancellationToken">Cancels gate acquisition only; it is not passed to the transition.</param>
     /// <returns>A task completing when the transition has finished.</returns>
     public async ValueTask RunAsync(Func<ValueTask> operation, CancellationToken cancellationToken)
     {
@@ -95,8 +90,8 @@ public sealed class DeviceCommandSerializer : IDisposable
     }
 
     /// <summary>Runs a lifecycle transition once no command or refresh is in flight.</summary>
-    /// <param name="operation">The transition.</param>
-    /// <param name="cancellationToken">Cancels waiting for the gate.</param>
+    /// <param name="operation">Transition run while holding the gate; it owns cancellation of its own work.</param>
+    /// <param name="cancellationToken">Cancels gate acquisition only; it is not passed to the transition.</param>
     /// <typeparam name="T">The transition's result type.</typeparam>
     /// <returns>The transition's result.</returns>
     public async ValueTask<T> RunAsync<T>(Func<ValueTask<T>> operation, CancellationToken cancellationToken)
@@ -115,9 +110,15 @@ public sealed class DeviceCommandSerializer : IDisposable
 
     /// <summary>Admits a command, runs it in its serialized turn, and republishes what it changed.</summary>
     /// <param name="command">The command.</param>
-    /// <param name="execute">Validates and applies the command against the current cycle.</param>
-    /// <param name="cancellationToken">Cancels the command.</param>
-    /// <returns>The command's result.</returns>
+    /// <param name="execute">
+    ///     Revalidates identity, generations, deadline, value and service availability, then returns a truthful
+    ///     result. The serializer does not impose these checks or translate exceptions from this callback.
+    /// </param>
+    /// <param name="cancellationToken">Cancels gate acquisition and is passed to execution and publication.</param>
+    /// <returns>
+    ///     Rejected if quiescing or canceled before gate acquisition; otherwise the callback's result, except
+    ///     an applied scenario becomes indeterminate when resulting state cannot be republished.
+    /// </returns>
     /// <remarks>
     ///     A command is refused while the cycle is inactive or quiescing, both before and after it waits for
     ///     its turn. After an applied write every state is refreshed and republished within the command's
@@ -198,7 +199,8 @@ public sealed class DeviceCommandSerializer : IDisposable
         _ = Task.Run(() => ObserveAsync(loop.Token), loop.Token);
     }
 
-    /// <summary>Stops the periodic refresh and cancels any post-command publication still running.</summary>
+    /// <summary>Requests cancellation of periodic refresh and any post-command publication without joining them.</summary>
+    /// <remarks>Use <see cref="RunAsync(Func{ValueTask}, CancellationToken)" /> to wait behind an in-flight operation.</remarks>
     public void StopObservation()
     {
         var loop = _observation;

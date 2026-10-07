@@ -271,6 +271,7 @@ public partial class OverlayWindow
     }
 
     /// <summary>Attaches the semantic coordinator projection used by the optional Device tab.</summary>
+    /// <param name="source">Borrowed current plugin projection; null detaches the prior source and clears its presentation.</param>
     internal void AttachCommonPlugins(CommonPluginOverlaySource? source)
     {
         CommonPluginRows.Children.Clear();
@@ -370,6 +371,7 @@ public partial class OverlayWindow
     }
 
     /// <summary>Attaches the shared performance projection without transferring its lifetime.</summary>
+    /// <param name="source">Borrowed performance projection; null detaches the prior source.</param>
     internal void AttachPerformanceSource(PerformanceOverlayBridge? source)
     {
         if (ReferenceEquals(_performanceSource, source))

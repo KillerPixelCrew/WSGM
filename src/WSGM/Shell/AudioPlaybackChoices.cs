@@ -5,8 +5,11 @@ using WindowsDeviceControl;
 namespace WSGM.Shell;
 
 /// <summary>One supported playback format presented as a channel or encoding choice.</summary>
+/// <param name="Format">A probed supported device format represented by this choice.</param>
+/// <param name="Label">Localized or user-facing display text.</param>
 internal sealed record AudioPlaybackChoice(CoreAudio.AudioDeviceFormat Format, string Label)
 {
+    /// <inheritdoc />
     public override string ToString()
     {
         return Label;
@@ -16,6 +19,9 @@ internal sealed record AudioPlaybackChoice(CoreAudio.AudioDeviceFormat Format, s
 /// <summary>Separates channel layout from encoding without offering unsupported combinations.</summary>
 internal static class AudioPlaybackChoices
 {
+    /// <summary>Offers one supported format per channel layout, preferring the current encoding.</summary>
+    /// <param name="capabilities">One endpoint snapshot; no new device queries are made.</param>
+    /// <returns>Distinct channel-layout choices, each backed by a complete supported format.</returns>
     internal static IReadOnlyList<AudioPlaybackChoice> Channels(AudioPlaybackCapabilities capabilities)
     {
         var current = capabilities.CurrentFormat;
@@ -31,6 +37,9 @@ internal static class AudioPlaybackChoices
             .ToArray();
     }
 
+    /// <summary>Offers supported encodings for the current channel count and mask.</summary>
+    /// <param name="capabilities">One endpoint snapshot; no new device queries are made.</param>
+    /// <returns>Distinct format choices compatible with the current channel layout.</returns>
     internal static IReadOnlyList<AudioPlaybackChoice> Formats(AudioPlaybackCapabilities capabilities)
     {
         var current = capabilities.CurrentFormat;

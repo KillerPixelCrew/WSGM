@@ -47,6 +47,10 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     // Touched only by the publication loop.
     private string _loggedProjection = "";
 
+    // A reader can retain its disk interface and cached capacity after Windows ejects its volume.
+    // Remember mounted readers until the disk leaves, so that interface is not a new blank library.
+    private readonly HashSet<string> _mountedDriveIds = new(StringComparer.Ordinal);
+
     // Both managers' collections are UI-thread owned and are read here from the publication loop and
     // from command threads, so those read this immutable copy instead. Rebuilt on the UI thread on
     // every change to either collection.
@@ -357,6 +361,7 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
         var snapshot = Volatile.Read(ref _snapshot);
         var ejectable = snapshot.Drives;
         var formattable = snapshot.Targets;
+        _mountedDriveIds.IntersectWith(formattable.Select(static target => target.Id));
         if (ejectable.Length == 0 && formattable.Length == 0)
         {
             // Read live: a first scan that finds nothing changes no collection, so a flag kept in the
@@ -382,6 +387,16 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
         // One drive row per format target, because that is the manager that knows a disk by number
         // and can say whether it is erasable at all.
         var drives = formattable
+            .Where(target =>
+            {
+                var wasMounted = _mountedDriveIds.Contains(target.Id);
+                if (volumes.Any(volume => volume.Disk == target.DiskNumber && volume.Ready))
+                {
+                    _mountedDriveIds.Add(target.Id);
+                }
+
+                return DriveAvailable(target, volumes, ejectable, wasMounted);
+            })
             .Select(target => new SteamStorageDrive(
                 IdOf(snapshot.DriveIds, target.Id),
                 target.Name,
@@ -397,6 +412,7 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
         var devices = ejectable
             .Where(entry => !entry.Ejected)
             .Select(entry => BlockDevice(snapshot, entry, volumes))
+            .Where(device => device.DriveId == 0 || drives.Any(drive => drive.Id == device.DriveId))
             .ToList();
 
         // Steam gates its two drive-menu entries on these: Eject on unmount support, Format on
@@ -415,6 +431,28 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
             unmountSupported,
             devices.Count > 0,
             _trimRunning);
+    }
+
+    /// <summary>Distinguishes a present format candidate from an ejected reader's retained disk.</summary>
+    /// <param name="target">The physical format candidate.</param>
+    /// <param name="volumes">The latest mounted-volume facts.</param>
+    /// <param name="ejectable">The eject manager's current rows and outcomes.</param>
+    /// <param name="wasMounted">Whether this reader previously carried a mounted volume.</param>
+    /// <returns>True for mounted media or an initially letterless candidate, false after eject.</returns>
+    internal static bool DriveAvailable(
+        FormatTargetEntry target, IReadOnlyList<StorageVolumeFacts> volumes,
+        IReadOnlyList<RemovableDriveEntry> ejectable, bool wasMounted)
+    {
+        if (ejectable.Any(entry => entry.Ejected
+                                  && (string.Equals(entry.Id, target.Id, StringComparison.Ordinal)
+                                      || (char.IsAsciiLetter(target.PreferredLetter)
+                                          && entry.VolumeLetters.Contains(target.PreferredLetter)))))
+        {
+            return false;
+        }
+
+        return volumes.Any(volume => volume.Disk == target.DiskNumber && volume.Ready)
+               || (!wasMounted && !volumes.Any(volume => volume.Disk == target.DiskNumber));
     }
 
     /// <summary>The number Steam addresses a drive or volume by.</summary>

@@ -99,7 +99,11 @@ public sealed partial class LegacyMotionSensors : IDisposable
     /// <summary>The Sensor API path for the Intel ISS physical gyrometer.</summary>
     private string GyrometerPath { get; }
 
-    /// <inheritdoc />
+    /// <summary>Unsubscribes callbacks, attempts to restore report intervals, and releases owned COM sensors.</summary>
+    /// <remarks>
+    ///     Idempotent after successful cleanup. Unsubscription may wait for native callbacks; do not call from
+    ///     a reading callback. Restoration failures are traced and do not claim verified hardware recovery.
+    /// </remarks>
     public void Dispose()
     {
         // Before the handles go: a sink left registered on a released sensor is a callback into
@@ -122,7 +126,15 @@ public sealed partial class LegacyMotionSensors : IDisposable
     ///     accelerometer leaves a gyro-only source, as it does in HC.
     /// </summary>
     /// <param name="sources">Where to look, in order of preference.</param>
-    /// <returns>An owned sensor set, or null when no gyrometer is available.</returns>
+    /// <returns>
+    ///     A sensor set the caller must dispose or transfer to <see cref="LegacyMotionStream" />;
+    ///     null when no usable gyrometer is found or supported Sensor API acquisition fails.
+    /// </returns>
+    /// <remarks>
+    ///     Requests the fastest supported reporting intervals and captures originals for disposal.
+    ///     This opens native resources and can change report timing; it is not passive detection.
+    ///     Gyrometer and accelerometer may be selected from different source families.
+    /// </remarks>
     public static LegacyMotionSensors? TryOpen(IReadOnlyList<LegacyMotionSensorSource> sources)
     {
         ArgumentNullException.ThrowIfNull(sources);
@@ -294,13 +306,13 @@ public sealed partial class LegacyMotionSensors : IDisposable
         return candidate;
     }
 
-    /// <summary>Reads one physical gyroscope report and the latest physical acceleration.</summary>
+    /// <summary>Reads one gyroscope report and, when available, the current accelerometer report.</summary>
     /// <param name="reading">The sensor-space values and timestamp; meaningful only when fresh.</param>
     /// <param name="error">The decisive COM or value failure when the read failed.</param>
     /// <returns>
-    ///     Whether this poll produced a new hardware report. Repeat reports are this transport's
-    ///     concern, not the caller's: the gyrometer's opaque report counter is the only way to tell
-    ///     them apart, and it is read here before the values it would otherwise qualify.
+    ///     Fresh with a usable reading, Duplicate for a repeated report key, or Failed with an error.
+    ///     The key is the hardware counter when supported, otherwise the sensor timestamp.
+    ///     A present accelerometer that fails to read makes the whole poll fail.
     /// </returns>
     public MotionSensorReadResult TryRead(out MotionSensorReading reading, out string? error)
     {
@@ -346,6 +358,9 @@ public sealed partial class LegacyMotionSensors : IDisposable
     }
 
     /// <summary>HC's legacy match: the friendly name the device JSON declares, case aside.</summary>
+    /// <param name="friendlyName">Friendly name reported by the sensor, or null when absent.</param>
+    /// <param name="expectedFriendlyName">Exact name declared by the device motion profile.</param>
+    /// <returns>Whether the names match using ordinal case-insensitive comparison without trimming.</returns>
     internal static bool MatchesExpectedIdentity(string? friendlyName, string expectedFriendlyName)
     {
         return string.Equals(friendlyName, expectedFriendlyName, StringComparison.OrdinalIgnoreCase);

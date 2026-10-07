@@ -33,3 +33,13 @@ the installer.
 
 MIT, see `LICENSE`. The plugin links only the MIT SDK and ships no Handheld Companion code: HC is CC
 BY-NC-SA 4.0 and is only ever talked to over the pipe.
+
+## Current implementation boundary
+
+The project and test project are scaffolds, not a host-to-HC implementation. The
+[IPC proposal](docs/ipc-protocol.md) describes a possible future transport; it does not create an
+entry type, register a package with the common host, or restore the retired WSGM DeviceHost IPC
+architecture. Before implementing it, use the current
+[Device SDK API reference](../WSGM.Device.Sdk/docs/reference.md) for the lifecycle, generation,
+publication and uncertainty rules the adapter would have to satisfy. HC must remain the sole
+hardware owner for this design to work.

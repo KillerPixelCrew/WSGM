@@ -40,6 +40,7 @@ internal sealed class SteamPanelFoldsBackend : ISteamPanelFoldsBackend
     internal event Action? Changed;
 
     /// <summary>The open sections.</summary>
+    /// <returns>The persisted set of section identities currently marked open.</returns>
     internal SteamPanelFoldsState ReadState()
     {
         return new SteamPanelFoldsState(_folds.Open);

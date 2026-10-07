@@ -36,18 +36,25 @@ public sealed class ArtworkView : ServiceSubView
     /// <inheritdoc />
     protected override string LogScope => "Artwork";
 
+    /// <summary>Supplies the media/data root before opening local previews.</summary>
+    /// <param name="context">Borrowed user-data context; no directory or media work starts here.</param>
     internal void ConfigureContext(UserDataContext context)
     {
         _context = context;
     }
 
+    /// <summary>Requests return to the importer that opened this artwork workflow; the host owns navigation.</summary>
     internal event Action? ReturnRequested;
 
+    /// <summary>Creates a surface-local browser from the shared artwork owner.</summary>
+    /// <param name="source">Borrowed durable owner, or null to dispose and detach this view's browser.</param>
     internal void Attach(SteamArtworkBrowserSource? source)
     {
         AttachSession(source?.CreateViewSession());
     }
 
+    /// <summary>Replaces and disposes the previous surface-local browser, then follows the new session on the UI thread.</summary>
+    /// <param name="source">Owned browser session; null detaches. Do not pass the currently attached instance again.</param>
     internal void AttachSession(IArtworkBrowseSession? source)
     {
         _source?.Dispose();
@@ -55,6 +62,11 @@ public sealed class ArtworkView : ServiceSubView
         AttachSource(source);
     }
 
+    /// <summary>Opens one game through the attached artwork browser before displaying its editor.</summary>
+    /// <param name="id">Steam application or shortcut ID.</param>
+    /// <param name="name">Fallback display title.</param>
+    /// <param name="replaceHome">True to replace the current level; false to push a nested artwork level.</param>
+    /// <returns>Completion of browser open and navigation; an unattached view is a no-op.</returns>
     internal async Task OpenGameAsync(uint id, string name, bool replaceHome = false)
     {
         if (_source is null)
@@ -74,6 +86,8 @@ public sealed class ArtworkView : ServiceSubView
         }
     }
 
+    /// <inheritdoc />
+    /// <remarks>Cancels transient artwork browsing; the shared durable artwork owner remains alive.</remarks>
     internal override void Leave()
     {
         _source?.CancelBrowsing();

@@ -14,7 +14,7 @@ using WSGM.Plugin.Sdk;
 
 namespace WSGM.Shell;
 
-/// <summary>What answers WSGM's settings page in Steam.</summary>
+/// <summary>Applies shared WSGM settings through the session's configuration and plugin owners.</summary>
 internal interface IWsgmSteamSettingsBackend
 {
     /// <summary>Changes one setting.</summary>
@@ -41,19 +41,9 @@ internal sealed record InstalledCommonPlugin(string PluginId, string Name, bool 
 
 /// <summary>WSGM's own settings, reached from a WSGM row in Steam's main menu.</summary>
 /// <remarks>
-///     <para>
-///         A limited set of WSGM's global settings, drawn with Steam's own Settings components by the
-///         toolkit's renderer: which Steam features WSGM injects, how it starts, Steam Input, and the
-///         installed plugins' settings. Every one of them configures WSGM itself, which is what
-///         WSGM Settings is for; this is a second place to reach them from, not a second owner.
-///     </para>
-///     <para>
-///         Each change is one field written through the config store's read-modify-write path, so it
-///         never rewrites anything else. The shell's config reload then applies it live, exactly as
-///         a save from WSGM Settings does. The start settings also rewrite boot.json in the same
-///         transaction, and Steam Input management reconciles the shim after the save, outside the
-///         lock, through the helper WSGM Settings uses.
-///     </para>
+///     Borrows configuration and plugin callbacks shared with WSGM Settings. Changes use the config
+///     store's atomic read-modify-write path; startup settings include boot.json in that transaction.
+///     Steam Input reconciliation runs after persistence and is tracked for shutdown.
 /// </remarks>
 internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISteamNavigationPanelBackend
 {

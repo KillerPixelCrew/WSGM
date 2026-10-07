@@ -8,19 +8,9 @@ namespace WSGM.PackagedLaunch;
 
 /// <summary>The launcher's rotating diagnostic log.</summary>
 /// <remarks>
-///     <para>
-///         The same shape, size and rotation as <c>launch.log</c>, written by the same
-///         <see cref="RotatingFileLog" />, in the same directory, because a
-///         maintainer reading a launch problem should not have to learn a second format. Steam starts
-///         this process per game, so a transcript per launch — what the spike wrote — would
-///         accumulate a file per session forever.
-///     </para>
-///     <para>
-///         What must never appear here: environment variable values or the environment block, SDDL,
-///         window titles, module lists, and token SIDs beyond a yes/no and an integrity word. Names
-///         and counts are enough to diagnose a launch, and the rest is either user content or a
-///         standing invitation to paste a session token into an issue.
-///     </para>
+///     Shares launch.log's format, directory, and bounded rotation through <see cref="RotatingFileLog" />.
+///     Messages must exclude environment values, SDDL, window titles, module lists, and token SIDs;
+///     record operation names, counts, and elevation categories instead.
 /// </remarks>
 internal static class PackagedLaunchLog
 {
@@ -49,18 +39,21 @@ internal static class PackagedLaunchLog
     }
 
     /// <summary>Records something that happened.</summary>
+    /// <param name="message">Diagnostic text without sensitive environment values, window titles, or token identity.</param>
     internal static void Info(string message)
     {
         Write("info ", message);
     }
 
     /// <summary>Records something that did not work but did not stop the session.</summary>
+    /// <param name="message">Diagnostic text describing the recoverable failure.</param>
     internal static void Warn(string message)
     {
         Write("warn ", message);
     }
 
     /// <summary>Records a refusal or a failure that ends the session.</summary>
+    /// <param name="message">Diagnostic text describing the session-ending failure.</param>
     internal static void Error(string message)
     {
         Write("error", message);
@@ -101,8 +94,7 @@ internal static class PackagedLaunchLog
 
         lock (Gate)
         {
-            // The file first and never gated on the console: a Steam-launched run once stalled on
-            // its first console write and produced no diagnostics at all.
+            // Persist first because a Steam-launched process can block while writing to its console.
             Log.Append(line);
             if (!_console)
             {

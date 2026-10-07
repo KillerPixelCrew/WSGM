@@ -335,3 +335,21 @@ records are in [AutoTDP](autotdp-controller.md).
   whether a failed save can be rolled back without deleting an external profile.
 - Perform a frametime read from a rendering game.
 - Decide whether to clean the `EnableStat=1` leftovers from the affected RTSS profiles.
+
+## Source routes
+
+| Boundary                                           | Source                                                                                    |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Registration, file identity and compatible exports | [RtssDiscovery](../src/WSGM/Core/RtssDiscovery.cs)                                        |
+| Starting the installed application                 | [RtssLauncher](../src/WSGM/Core/RtssLauncher.cs)                                          |
+| Profile API and installed native-library lifetime  | [RtssNativeAdapter](../src/WSGM/Core/RtssNativeAdapter.cs)                                |
+| Typed status, target and adapter contract          | [RtssModels](../src/WSGM/Core/RtssModels.cs)                                              |
+| Shared-memory frametime snapshots                  | [RtssFrametimeReader](../src/WSGM/Core/RtssFrametimeReader.cs)                            |
+| Performance overlay composition                    | [RtssOsd](../src/WSGM/Core/RtssOsd.cs)                                                    |
+| Application/profile reconciliation                 | [ApplicationPerformanceReconciler](../src/WSGM/Shell/ApplicationPerformanceReconciler.cs) |
+| Session construction and disposal                  | [ShellSession.Performance](../src/WSGM/Shell/ShellSession.Performance.cs)                 |
+
+RTSS observations feed both performance presentation and AutoTDP. Their readback can update
+effective state and diagnose an external edit, but cannot become a new saved preference.
+Installation is a separate setup action; reading these files or building their fake-backed tests is
+not a live RTSS acceptance run.

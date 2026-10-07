@@ -15,6 +15,13 @@ internal readonly record struct SteamCustomLaunchFields(
 /// <summary>Builds Steam-native custom launch commands without a WSGM wrapper.</summary>
 internal static class SteamCustomLaunchCommand
 {
+    /// <summary>Builds regular-game and shortcut launch fields for an EXE or supported script.</summary>
+    /// <param name="path">Nonblank EXE, CMD, BAT, or PS1 target path.</param>
+    /// <param name="customArguments">Optional single-line arguments; whitespace is trimmed.</param>
+    /// <param name="commandProcessor">Optional CMD interpreter override; null resolves ComSpec or System32.</param>
+    /// <param name="powerShell">Optional PowerShell executable override; null resolves Windows PowerShell.</param>
+    /// <returns>Steam launch fields retaining the regular-title %command% placeholder.</returns>
+    /// <exception cref="ArgumentException">The target is blank/unsupported or arguments contain NUL/newline characters.</exception>
     internal static SteamCustomLaunchFields Build(
         string path, string? customArguments, string? commandProcessor = null,
         string? powerShell = null)
@@ -38,6 +45,9 @@ internal static class SteamCustomLaunchCommand
         };
     }
 
+    /// <summary>Checks the custom-action extension without testing existence or trust.</summary>
+    /// <param name="path">Target path to classify.</param>
+    /// <returns>True for EXE, CMD, BAT, or PS1, case-insensitively.</returns>
     internal static bool IsSupported(string path)
     {
         var extension = Path.GetExtension(path);
@@ -79,6 +89,8 @@ internal static class SteamCustomLaunchCommand
     ///     shortcut Target fields), shared with the launch-wrapper command builder. Distinct from
     ///     <see cref="SelfElevation.Quote" />, which quotes conditionally for argv round-trips.
     /// </summary>
+    /// <param name="value">Non-null Steam-facing field value.</param>
+    /// <returns>The always-quoted value with embedded double quotes escaped.</returns>
     internal static string Quote(string value)
     {
         return $"\"{value.Replace("\"", "\\\"")}\"";

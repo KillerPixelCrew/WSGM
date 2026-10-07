@@ -49,24 +49,42 @@ public sealed class CommonPluginConfiguration
     public Dictionary<string, PluginValue>? Values { get; set; } = new(StringComparer.Ordinal);
 }
 
+/// <summary>Isolated saved preference snapshot for optimistic instance-level edits.</summary>
+/// <param name="Revision">Nonnegative intent revision; zero represents no saved preferences.</param>
+/// <param name="Values">Read-only copy of explicitly saved values, excluding declaration defaults and readback.</param>
 internal sealed record SavedPluginConfiguration(long Revision, IReadOnlyDictionary<string, PluginValue> Values);
 
+/// <summary>Strict persistence boundary for common-plugin preferences with optimistic concurrency.</summary>
 internal interface IPluginConfigurationStore
 {
+    /// <summary>Reads one instance's saved preferences without activating plugin code.</summary>
+    /// <param name="identity">Exact package and instance identity.</param>
+    /// <returns>An isolated snapshot, or revision zero and empty values when none was saved.</returns>
+    /// <exception cref="InvalidOperationException">Stored preferences are malformed or duplicated.</exception>
     SavedPluginConfiguration Read(PluginInstanceIdentity identity);
 
+    /// <summary>Merges explicit changes only if the saved intent revision still matches.</summary>
+    /// <param name="identity">Exact package and instance identity.</param>
+    /// <param name="expectedRevision">Revision read by the editor before making changes.</param>
+    /// <param name="changes">Nonempty valid preference map to merge; absent keys keep their prior values.</param>
+    /// <returns>The new isolated snapshot with its incremented revision.</returns>
+    /// <exception cref="InvalidOperationException">Stored preferences are invalid or the revision changed.</exception>
+    /// <exception cref="ArgumentException">The changes are empty or contain an invalid key/value.</exception>
     SavedPluginConfiguration Save(PluginInstanceIdentity identity, long expectedRevision,
         IReadOnlyDictionary<string, PluginValue> changes);
 }
 
 /// <summary>Uses the same strict, serialized and atomic configuration owner as the rest of WSGM.</summary>
+/// <param name="store">Borrowed strict configuration owner; no default overwrite is allowed on a failed read.</param>
 internal sealed class ApplicationPluginConfigurationStore(ConfigStore store) : IPluginConfigurationStore
 {
+    /// <inheritdoc />
     public SavedPluginConfiguration Read(PluginInstanceIdentity identity)
     {
         return ReadFrom(store.Read().RequireConfig(), identity);
     }
 
+    /// <inheritdoc />
     public SavedPluginConfiguration Save(PluginInstanceIdentity identity, long expectedRevision,
         IReadOnlyDictionary<string, PluginValue> changes)
     {
@@ -78,6 +96,11 @@ internal sealed class ApplicationPluginConfigurationStore(ConfigStore store) : I
         return ReadFrom(config, identity);
     }
 
+    /// <summary>Validates and copies an instance's saved preferences from a configuration graph.</summary>
+    /// <param name="config">Non-null configuration to inspect without mutation.</param>
+    /// <param name="identity">Exact package/instance key.</param>
+    /// <returns>An isolated read-only value map and revision; empty at revision zero when absent.</returns>
+    /// <exception cref="InvalidOperationException">Duplicate identities, negative revisions, or invalid preference data were found.</exception>
     internal static SavedPluginConfiguration ReadFrom(AppConfig config, PluginInstanceIdentity identity)
     {
         var matches = config.PluginConfigurations.Where(entry =>
@@ -103,6 +126,14 @@ internal sealed class ApplicationPluginConfigurationStore(ConfigStore store) : I
                 : new Dictionary<string, PluginValue>(StringComparer.Ordinal)));
     }
 
+    /// <summary>Merges preferences into a caller-owned configuration after validating optimistic concurrency.</summary>
+    /// <param name="config">Exclusive mutable configuration; this method does not persist it.</param>
+    /// <param name="identity">Exact package/instance key.</param>
+    /// <param name="expectedRevision">Previously observed revision that must still match.</param>
+    /// <param name="changes">Nonempty valid values to merge over the saved map.</param>
+    /// <exception cref="InvalidOperationException">Existing data is invalid or the revision no longer matches.</exception>
+    /// <exception cref="ArgumentException">The change map is empty or invalid.</exception>
+    /// <exception cref="OverflowException">The saved revision cannot be incremented.</exception>
     internal static void SaveInto(AppConfig config, PluginInstanceIdentity identity, long expectedRevision,
         IReadOnlyDictionary<string, PluginValue> changes)
     {

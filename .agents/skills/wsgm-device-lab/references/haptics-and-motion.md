@@ -72,7 +72,7 @@ Declare measured physics in `HapticCapabilities`. A voice-coil/LRA that renders 
 zero defaults. Do not floor continuous rumble. Test explicit zero on target removal, game exit,
 suspend, disconnect, integration/controller disable, output-router fault, and plugin stop.
 
-The Claw's DirectInput physical report is:
+The reference Claw 8 AI+ A2VM's DirectInput physical report is:
 
 ```text
 05 01 00 00 <weak/high-frequency> <strong/low-frequency> 00...
@@ -80,11 +80,12 @@ The Claw's DirectInput physical report is:
 
 Both channels are real `0..255` amplitudes. The measured Claw ERM bounded-event floor is `56/255`
 (about 0.22) and minimum pulse is 10 ms. Successful identical writes may coalesce; a failed write
-must not enter that success cache, so a later explicit output can try again. The plugin drops a
-nonzero frame that arrives within 4 ms of the previous successful write and never drops a zero
-frame. It declares `MaxFramesPerSecond = 250`, so the router paces frames before they reach that
-check. `ClawControllerService.cs` also records a measured continuous floor of about 24/255, for
-information only.
+must not enter that success cache, so a later explicit output can try again. The plugin writes each
+changed frame once under its output gate and updates the cache only after success. It declares
+`MaxFramesPerSecond = 250`; WSGM's output router owns pacing and never delays a stop. The A1M has a
+separate HC-derived binary path: motors on at 193 or off, 10 frames/second and a 100 ms minimum
+pulse. `ClawControllerService.cs` also records the A2VM's measured continuous floor of about 24/255
+for information only.
 
 ## Generic motion discovery
 
@@ -109,8 +110,8 @@ information only.
    remove the capture path. Production uses transition/freshness logs only.
 
 The generic SDK permits finite gyro-only or accelerometer-only motion publication; omit the absent
-half rather than synthesizing it. Requiring both physical sources to open is a measured Claw package
-decision below, not a universal contract.
+half rather than synthesizing it. The Claw source opens gyrometer and accelerometer independently in
+the model's source order; a missing accelerometer leaves a gyro-only stream.
 
 ## Claw motion evidence, not a generic default
 
@@ -134,7 +135,8 @@ The reference A2VM uses the ST LSM6DSO behind Intel ISS `VID_8087&PID_0AC2`:
 - Motion reaches controller frames through `GyroFrameResampler`, which reports the average angular
   velocity since the previous frame. A reading older than 50 ms (`MotionService.MaximumMotionAge`)
   stops contributing, so a quiet sensor decays to zero rather than repeating its last value.
-- Both physical sources must match and open; do not synthesize a missing half.
+- Select gyrometer and accelerometer independently. A gyro-only source is valid; do not synthesize
+  acceleration. MS-1T52 prefers the measured physical sensors, then the standard Sensor API source.
 - Sensor to application axes: `(X, Y, Z) -> (X, Z, -Y)`.
 
 The stationary bias calibrator uses 200-report rest windows, per-axis gyro span at most 2 deg/s,

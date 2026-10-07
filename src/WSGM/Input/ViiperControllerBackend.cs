@@ -405,19 +405,6 @@ internal sealed class ViiperControllerBackend : IControllerTargetBackend
     }
 
     /// <summary>
-    ///     Puts the usbip-win2 install folder on this process's PATH when <c>usbip.exe</c> is not
-    ///     already reachable through it.
-    /// </summary>
-    /// <remarks>
-    ///     VIIPER attaches the device by running <c>usbip.exe</c> from PATH. usbip-win2 up to 0.9.7.8
-    ///     added its folder to the machine PATH; 0.9.8.1's rewritten installer does not, and its
-    ///     upgrade removes the old entry, so after the update every attach failed with "executable
-    ///     file not found in %PATH%" (2026-09-27). The folder is read from the package's own uninstall
-    ///     entry, with the default location as the fallback, and only this process's environment is
-    ///     changed. Go reads PATH from the process at each lookup, so this must run before the first
-    ///     attach; it runs once per process, since the answer cannot change underneath a running WSGM.
-    /// </remarks>
-    /// <summary>
     ///     Subscribes to the host's feedback reports so rumble reaches the physical device.
     /// </summary>
     /// <remarks>
@@ -530,6 +517,9 @@ internal sealed class ViiperControllerBackend : IControllerTargetBackend
     ///     timer in the native callback would let an old pulse stop a newer route or leave a latched
     ///     physical motor running during teardown.
     /// </remarks>
+    /// <param name="kind">Virtual target protocol that produced the report.</param>
+    /// <param name="report">Borrowed feedback bytes; consumed synchronously and not retained.</param>
+    /// <returns>Decoded motor intent and optional pulse duration, or null for unsupported or malformed feedback.</returns>
     internal static DecodedHapticFeedback? DecodeFeedback(
         ManagedControllerTarget kind,
         ReadOnlySpan<byte> report)
@@ -729,12 +719,11 @@ internal sealed class ViiperControllerBackend : IControllerTargetBackend
 
     /// <summary>Runs one native call; a status the caller needs is captured inside the action.</summary>
     /// <remarks>
-    ///     Deliberately the only overload. A former <c>Func&lt;int&gt;</c> twin forwarded here through
-    ///     <c>() => _ = action()</c>, and that lambda's int-valued body binds to <c>Func&lt;int&gt;</c>
-    ///     — itself — rather than <c>Action</c>, so every removal and shutdown recursed until the
-    ///     thread's stack was gone (device-observed 2026-09-01: Windows reported that it could not
-    ///     create a new stack guard page). One delegate shape leaves nothing to resolve.
+    ///     Keep a single Action overload: an expression lambda forwarded through a Func&lt;int&gt;
+    ///     overload can resolve back to itself and recurse during cleanup.
     /// </remarks>
+    /// <param name="action">Native operation attempted once.</param>
+    /// <param name="operation">Diagnostic operation label; expected native availability errors are logged.</param>
     internal static void SafeNative(Action action, string operation)
     {
         try
@@ -752,6 +741,10 @@ internal sealed class ViiperControllerBackend : IControllerTargetBackend
     private sealed class AttachFailedException(string message) : InvalidOperationException(message);
 }
 
+/// <summary>Protocol-level motor intent before physical capabilities and calibration are applied.</summary>
+/// <param name="LowFrequency">Normalized low-frequency motor intensity.</param>
+/// <param name="HighFrequency">Normalized high-frequency motor intensity.</param>
+/// <param name="StopAfter">Pulse duration, or null for latched output until another frame.</param>
 internal readonly record struct DecodedHapticFeedback(
     float LowFrequency,
     float HighFrequency,

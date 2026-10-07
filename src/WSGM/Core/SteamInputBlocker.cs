@@ -9,7 +9,7 @@ namespace WSGM.Core;
 
 /// <summary>
 ///     The process's owner of WSGM's Steam Input block lease.
-///     The injected gate runs only in Steam and prevents Steam Input from opening
+///     The Steam-loaded gate runs only in Steam and prevents Steam Input from opening
 ///     controllers while a focus-taking WSGM surface needs SDL to read them. The
 ///     pipe-backed lease is released automatically if WSGM crashes.
 /// </summary>
@@ -135,7 +135,7 @@ internal sealed class SteamInputBlocker(SteamInputShim shim, Func<ISteamInputLea
     ///     Records <paramref name="owner" />'s claim and brings the lease up on a worker.
     ///     Never waits for a native operation, so a surface calls it on the UI thread the moment it
     ///     needs the controller. A surface opening over another one joins the live lease without
-    ///     release/re-inject churn.
+    ///     release/reacquire churn. Returning records intent; it does not prove the native lease is held.
     /// </summary>
     /// <param name="owner">A name from <see cref="NewOwner" />.</param>
     public void Hold(string owner)
@@ -159,7 +159,7 @@ internal sealed class SteamInputBlocker(SteamInputShim shim, Func<ISteamInputLea
     /// </summary>
     /// <param name="owner">The owner whose claim ends.</param>
     /// <param name="reason">Why the claim ends; logged for device diagnosis.</param>
-    /// <returns>Completes once the lease reflects the claim, including any claim ending before it.</returns>
+    /// <returns>Completes after serialized reconciliation; a detached native release may still be running.</returns>
     public Task Drop(string owner, string reason)
     {
         lock (_ownersSync)

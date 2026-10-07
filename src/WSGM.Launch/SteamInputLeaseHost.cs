@@ -8,11 +8,10 @@ namespace WSGM.Launch;
 ///     Owns this wrapper's Steam Input block lease for the target's lifetime.
 /// </summary>
 /// <remarks>
-///     The lease injects into the running <c>steam.exe</c>, so it must be acquired by
-///     the process Steam actually launched — which under WSGM's game mode is elevated.
-///     A medium-integrity process cannot write into an elevated Steam, so acquisition
-///     has to happen <em>before</em> the de-elevation hand-off, and the lease is held
-///     by the elevated parent while the medium child runs the game.
+///     The default route connects to Steam's resident shim; only the explicit injection flag permits
+///     loading the gate into the running <c>steam.exe</c>. Acquisition belongs to the process Steam
+///     actually launched, before the de-elevation hand-off, so the injecting route retains Steam's
+///     integrity. The parent holds either kind of lease while the medium child runs the game.
 /// </remarks>
 internal sealed class SteamInputLeaseHost : IDisposable
 {
@@ -53,6 +52,9 @@ internal sealed class SteamInputLeaseHost : IDisposable
         _client.Dispose();
     }
 
+    /// <summary>Creates an unconnected client using the explicit shim or injection route.</summary>
+    /// <param name="options">Lease mode and optional target/payload overrides.</param>
+    /// <returns>A client owned by the caller; creating it does not acquire a lease.</returns>
     internal static SteamInputClient CreateClient(LaunchOptions options)
     {
         var defaults = new SteamInputClientOptions();
@@ -68,6 +70,8 @@ internal sealed class SteamInputLeaseHost : IDisposable
     }
 
     /// <summary>Acquires a lease, or returns <see langword="null" /> if it cannot.</summary>
+    /// <param name="options">Lease route and optional target/payload overrides.</param>
+    /// <returns>An owner to retain for the complete target lifetime, or null for a logged acquisition failure.</returns>
     /// <remarks>
     ///     Deliberately fails open: a controller that Steam keeps hold of is a
     ///     degraded experience, but a game that refuses to start is a broken one. The

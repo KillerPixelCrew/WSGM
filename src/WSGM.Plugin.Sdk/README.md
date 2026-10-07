@@ -12,8 +12,9 @@ It references two libraries, and the types it uses from them are part of the con
   the host's copy of the toolkit, so API 4 covers that closure too, and a plugin built against an
   older toolkit is refused at manifest read rather than failing at load or first call.
 
-It does not reference the UI or Windows Device Control. The device package uses the Device SDK's own
-lifecycle and runtime; nothing maps one onto the other.
+It does not reference Avalonia or Windows Device Control. The device package uses the Device SDK's
+own lifecycle and runtime, driven directly by `DeviceCoordinator`; the common host rejects its
+category. Nothing maps one lifecycle onto the other.
 
 GPU packages use `PluginCategories.Gpu` (`wsgm.gpu`). They are independent common plugins, may
 coexist across vendors and adapters, and do not consume the sole Device slot. Their typed
@@ -24,6 +25,9 @@ a driver that has not declared them.
 
 `eng/new-plugin.ps1` creates a common project, and `eng/package-plugin.ps1` builds an archive. See
 `docs/plugin-system.md` for installation, explicit update and reload, and the provider fixture.
+
+[The API reference](docs/reference.md) maps every public contract file, lifecycle call, optional
+interface and result to its host behavior.
 
 ## Categories and slots
 

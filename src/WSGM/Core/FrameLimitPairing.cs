@@ -64,9 +64,10 @@ public static class FrameLimitPairing
     /// <param name="nativeHz">Refresh rates the panel itself advertises.</param>
     /// <param name="acceptedHz">Every rate the driver accepted, including synthesized ones.</param>
     /// <returns>
-    ///     The rate to set, or <see langword="null" /> when the refresh rate must be left alone — which
-    ///     is always the answer under <see cref="FrameLimitStrategy.FrameLimitOnly" />, and the answer
-    ///     anywhere else when no available mode is an exact multiple of the cap.
+    ///     The preferred exact multiple, or the lowest candidate at least as high as the cap when no
+    ///     exact multiple exists. FrameDoubling prefers an exact multiple of at least twice the cap.
+    ///     Returns <see langword="null" /> for FrameLimitOnly, a cap below the supported minimum, or
+    ///     when the selected strategy has no candidate that can present the cap.
     /// </returns>
     public static int? SelectRefreshHz(
         FrameLimitStrategy strategy,
@@ -87,11 +88,7 @@ public static class FrameLimitPairing
             _ => []
         };
 
-        // FrameDoubling wants each frame shown at least twice: a doubled cadence is the one LFC and
-        // frame-hold smoothing can work with, where an exact 1:1 mode (30 FPS at 30 Hz) presents a
-        // low-refresh flickery image the panel is honest about but the user asked to avoid
-        // (maintainer-directed 2026-09-02). Still the LOWEST such mode, because refresh rate is a
-        // power cost: 60 Hz carries a 30 FPS cap as smoothly as 120 Hz and costs less.
+        // Prefer a doubled cadence for FrameDoubling, then minimize refresh to limit power cost.
         if (strategy is FrameLimitStrategy.FrameDoubling)
         {
             var doubled = candidates
@@ -105,9 +102,7 @@ public static class FrameLimitPairing
             }
         }
 
-        // The lowest exact multiple, because refresh rate is a power cost: a 30 FPS cap held at
-        // 30 Hz costs meaningfully less than the same cap held at 120 Hz. Under NativeModes this is
-        // the whole policy; under FrameDoubling it is the fallback when no doubled mode exists.
+        // Exact cadence is preferred before the noninteger fallback under either coupled strategy.
         var exact = candidates
             .Where(hz => hz >= capFps && hz % capFps == 0)
             .OrderBy(hz => hz)
@@ -118,11 +113,7 @@ public static class FrameLimitPairing
             return exact;
         }
 
-        // No exact cadence, and the cap is still a number the user chose. SteamOS's unified slider
-        // names a refresh rate for EVERY cap — it does not go blank between the clean multiples —
-        // so the fallback is the lowest mode that can still present the cap without dropping
-        // frames. Judder against a non-integer cadence is the honest cost of an arbitrary cap; a
-        // panel left at 120 Hz for a 47 FPS cap costs power for nothing.
+        // Arbitrary caps still need a mode; choose the lowest candidate that can present every frame.
         return candidates
             .Where(hz => hz >= capFps)
             .OrderBy(hz => hz)
@@ -136,12 +127,9 @@ public static class FrameLimitPairing
     /// <param name="acceptedHz">Every rate the driver accepted, including synthesized ones.</param>
     /// <returns>The inclusive range, or null when the panel cannot hold a cap worth offering.</returns>
     /// <remarks>
-    ///     A RANGE, not a set of stops, under every strategy. SteamOS's own Frame Limit row is one
-    ///     continuous slider bookended by the panel's limits — verified against a Steam Deck showing
-    ///     "60 FPS (60 Hz)" between bookends 10 and 60 — and the pairing is what snaps, not the cap:
-    ///     the user picks any number and <see cref="SelectRefreshHz" /> answers with the mode that
-    ///     presents it. Offering only cadence-exact stops made the coupled strategies feel like a
-    ///     different control from the uncoupled one, which is precisely what Valve merged away.
+    ///     Every strategy offers a continuous integer range with a 30 FPS floor. NativeModes uses the
+    ///     advertised-rate ceiling; the other strategies use the accepted-rate ceiling. Refresh pairing
+    ///     chooses a supported mode independently of the chosen cap.
     /// </remarks>
     public static (int Minimum, int Maximum)? FrameLimitRange(
         FrameLimitStrategy strategy,
@@ -166,9 +154,9 @@ public static class FrameLimitPairing
     /// <param name="nativeHz">Refresh rates the panel itself advertises.</param>
     /// <param name="acceptedHz">Every rate the driver accepted, including synthesized ones.</param>
     /// <returns>
-    ///     The caps, ascending, with zero first for "off". Under a coupled strategy only caps that have
-    ///     an exact-cadence mode behind them appear, so every stop on the slider is one the backend can
-    ///     honour exactly.
+    ///     Zero first for "off", followed by every integer in the inclusive FrameLimitRange under
+    ///     every strategy. Returns only zero when no playable range is available; refresh pairing,
+    ///     rather than the cap list, chooses the closest supported cadence.
     /// </returns>
     public static IReadOnlyList<int> FrameLimitOptions(
         FrameLimitStrategy strategy,
@@ -181,10 +169,7 @@ public static class FrameLimitPairing
             return [0];
         }
 
-        // Every integer in the range, under EVERY strategy, with zero first for off. There are no
-        // cadence stops any more: the cap is free and SelectRefreshHz answers it with a mode, which
-        // is how SteamOS's own unified Frame Limit row behaves. Callers that want the two ends
-        // should ask FrameLimitRange rather than reading them back off this list.
+        // Zero is the uncapped sentinel; actual slider bounds come from FrameLimitRange.
         List<int> caps = [0];
         for (var cap = range.Minimum; cap <= range.Maximum; cap++)
         {

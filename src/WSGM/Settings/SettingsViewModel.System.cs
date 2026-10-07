@@ -162,6 +162,7 @@ public sealed partial class SettingsViewModel
     ///     Reads startup sources on a worker. The synchronous Windows adapter waits for an
     ///     asynchronous console command and must never run under the UI synchronization context.
     /// </summary>
+    /// <returns>Detected startup entries; the scan itself does not disable them or accept takeover policy.</returns>
     internal async Task<IReadOnlyList<SteamAutostartSource>> ScanSteamAutostartAsync()
     {
         try

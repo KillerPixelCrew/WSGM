@@ -10,11 +10,9 @@ using System.Text.Json.Serialization;
 namespace WSGM.Core;
 
 /// <summary>
-///     What the logon service needs to know about one user's WSGM install,
-///     projected from config.json into %LOCALAPPDATA%\WSGM\boot.json by WSGM itself.
-///     The service reads it as SYSTEM, treats it as untrusted user data, and does
-///     nothing with it beyond launching <see cref="ExePath" /> AS THAT USER (which is
-///     why a user-writable manifest is not an escalation).
+///     Per-user sign-in policy projected into %LOCALAPPDATA%\WSGM\boot.json.
+///     The service launches the named executable as the session user, optionally with that user's
+///     linked elevated token. Parsing does not establish executable identity or path ownership.
 /// </summary>
 public sealed class BootManifest
 {
@@ -28,14 +26,12 @@ public sealed class BootManifest
     public bool DesktopResident { get; set; }
 
     /// <summary>
-    ///     Whether WSGM should be launched with the user's elevated (linked)
-    ///     token. Precomputed from the same condition Core\SelfElevation checks —
-    ///     elevated startup apps or an elevated Steam install — so the service needs
-    ///     no config parsing and no UAC prompt fires at logon.
+    ///     Requests the user's linked elevated token when available. WSGM projects its shared
+    ///     elevation policy here so the service needs no application configuration dependency.
     /// </summary>
     public bool Elevate { get; set; }
 
-    /// <summary>Full path of the WSGM.exe to launch (the installed copy).</summary>
+    /// <summary>Executable path supplied by WSGM; readers must separately check availability before launch.</summary>
     public string ExePath { get; set; } = "";
 }
 
@@ -58,6 +54,8 @@ public static class BootManifestStore
     ///     Parses manifest JSON, returning null for anything unusable
     ///     (malformed JSON, wrong shape, unknown schema version, missing exe path).
     /// </summary>
+    /// <param name="json">Untrusted manifest text.</param>
+    /// <returns>A schema-1 manifest with a nonblank executable path, or null; no path identity check is performed.</returns>
     public static BootManifest? TryParse(string json)
     {
         try
@@ -82,6 +80,8 @@ public static class BootManifestStore
     ///     Reads and parses the manifest at <paramref name="path" />; null when
     ///     absent, unreadable or unparsable.
     /// </summary>
+    /// <param name="path">Manifest file to read with concurrent replacement permitted.</param>
+    /// <returns>The parsed manifest, or null when it cannot be read or accepted.</returns>
     public static BootManifest? TryLoad(string path)
     {
         try
@@ -104,6 +104,9 @@ public static class BootManifestStore
     ///     Atomically writes the manifest to <paramref name="path" />
     ///     (temp file + replace, same pattern as configuration saves).
     /// </summary>
+    /// <param name="path">Destination file, including its parent directory.</param>
+    /// <param name="manifest">Policy to serialize; this method does not validate it.</param>
+    /// <remarks>Creates the parent directory. Serialization and filesystem failures propagate to the caller.</remarks>
     public static void Save(string path, BootManifest manifest)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);

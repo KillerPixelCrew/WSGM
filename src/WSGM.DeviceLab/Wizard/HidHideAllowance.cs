@@ -50,6 +50,9 @@ internal interface IHidHideDevice
 ///     adds meanwhile is kept. The hiding switch and an inverse-mode list are never touched. The entry is
 ///     recorded in <see cref="LabMachineState" /> before it is written.
 /// </remarks>
+/// <param name="device">Borrowed HidHide reader/writer used to preserve other applications' entries.</param>
+/// <param name="state">Durable machine record written before adding this allowance.</param>
+/// <param name="selfPath">Resolved NT device path of the lab executable; unresolved paths are refused by TryAllow.</param>
 internal sealed class HidHideAllowance(IHidHideDevice device, LabMachineState state, string selfPath)
 {
     /// <summary>Allowance against the real HidHide driver for this executable.</summary>

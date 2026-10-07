@@ -22,6 +22,7 @@ internal sealed record PluginPackagePage(
     IReadOnlyList<PluginPackageRowState> Rows);
 
 /// <summary>One badge on a plugin card, with its tone as flags the page's badge classes bind to.</summary>
+/// <param name="badge">Package-declared badge whose semantic kind selects the themed background and foreground.</param>
 public sealed class PluginBadgeView(PluginBadge badge)
 {
     /// <summary>What the badge says.</summary>

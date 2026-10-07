@@ -9,8 +9,8 @@ namespace WSGM.Plugin.Sdk;
 /// <param name="Id">Stable action identity within the plugin.</param>
 /// <param name="Label">Plain display label.</param>
 /// <param name="Arguments">
-///     Bounded primitive arguments and defaults, validated like settings but never persisted as
-///     preferences.
+///     Primitive argument declarations and defaults validated by <see cref="PluginConfigurationRules" />.
+///     Action arguments are never persisted as preferences; the provider enforces operation-specific limits.
 /// </param>
 public sealed record PluginAction(string Id, string Label, IReadOnlyList<PluginSetting> Arguments);
 
@@ -31,7 +31,8 @@ public enum PluginActionOrigin
 /// <param name="OperationId">Unique host-generated request identity.</param>
 /// <param name="ActionId">Admitted named action.</param>
 /// <param name="Origin">User or host policy origin.</param>
-/// <param name="Arguments">Complete validated immutable argument snapshot.</param>
+/// <param name="Arguments">Complete validated argument snapshot, including declaration defaults.</param>
+/// <remarks>The record retains the supplied dictionary; the producer must not mutate it after dispatch.</remarks>
 public sealed record PluginActionRequest(
     Guid OperationId,
     string ActionId,
@@ -57,7 +58,7 @@ public enum PluginActionOutcome
 /// <summary>Outcome tied to one exact operation identity.</summary>
 /// <param name="OperationId">Request identity being answered.</param>
 /// <param name="Outcome">Dispatch or confirmation status.</param>
-/// <param name="Detail">Bounded plain explanation.</param>
+/// <param name="Detail">Optional plain explanation; null when no diagnostic detail is needed.</param>
 /// <param name="SteamRoute">Optional host-admitted Steam route to navigate to after a successful user action.</param>
 public sealed record PluginActionResult(
     Guid OperationId,

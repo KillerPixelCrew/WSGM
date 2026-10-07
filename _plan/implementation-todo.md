@@ -1051,3 +1051,13 @@ existing 60-second overall allowance. Card discovery is saved and badge state pu
 waiting for tab readiness, including for cards inserted with existing games. Regression tests
 cover the request bound, readiness across successive waits and cancellation; execution awaits the
 maintainer's manual pass.
+
+The storage bridge also hides an ejected volume's parent reader, including the retained disk
+interface/capacity after a Windows eject, until ready media returns. Initially letterless format
+candidates remain visible. Focused regressions cover retained reader capacity, reinsertion,
+not-ready volumes, blank/Linux candidates and the eject outcome before the next scan; these await
+the same manual pass.
+
+The integrated Release solution build passed with zero warnings and errors; the Steam asset drift
+check passed. Test execution and live card-swap/eject acceptance remain deferred. The development
+installation is running, so its files must not be replaced until WSGM is closed.

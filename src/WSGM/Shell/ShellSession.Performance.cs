@@ -108,6 +108,8 @@ public sealed partial class ShellSession
     }
 
     /// <summary>Applies the Device Integration master switch to AutoTDP at every entry point.</summary>
+    /// <param name="config">Current device integration switches.</param>
+    /// <returns>True only when both device integration and AutoTDP are enabled.</returns>
     internal static bool ShouldRunAutoTdp(DeviceIntegrationConfig config)
     {
         return config is { Enabled: true, AutoTdpEnabled: true };

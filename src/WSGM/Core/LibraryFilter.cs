@@ -210,6 +210,7 @@ public sealed class FilterNode
     ///     Deep-copies this node (so an editor can cancel without mutating the
     ///     saved tree).
     /// </summary>
+    /// <returns>A new node with recursively copied children and independent mutable lists.</returns>
     public FilterNode Clone()
     {
         return new FilterNode
@@ -249,6 +250,9 @@ public interface ISdCardResolver
     ///     App ids on the card(s) selected by <paramref name="scope" /> /
     ///     <paramref name="contentId" />. Empty when no such card is known.
     /// </summary>
+    /// <param name="scope">Inserted, all known, or one explicitly selected card.</param>
+    /// <param name="contentId">Stable card identity used only for Specific scope.</param>
+    /// <returns>The matching app IDs, or an empty collection when no selected card is known.</returns>
     IReadOnlyCollection<long> Resolve(SdCardScope scope, string contentId);
 }
 
@@ -287,6 +291,7 @@ public static partial class LibraryFilter
     ///     express both directions through their own params).
     /// </summary>
     /// <param name="kind">The filter kind.</param>
+    /// <returns>True for collection, tag, regex, SD-card, and merge predicates.</returns>
     public static bool CanInvert(FilterKind kind)
     {
         return kind is
@@ -299,6 +304,7 @@ public static partial class LibraryFilter
     ///     <c>isValidParams</c>): non-empty lists/patterns, a merge with ≥1 child, etc.
     /// </summary>
     /// <param name="node">The node to validate.</param>
+    /// <returns>Whether required fields and all merge children are valid; an empty merge is invalid.</returns>
     public static bool IsValid(FilterNode node)
     {
         return node.Kind switch
@@ -447,6 +453,7 @@ public static partial class LibraryFilter
     /// </param>
     /// <param name="categories">Category prefilter bitfield.</param>
     /// <param name="cards">Resolver for SD-card membership.</param>
+    /// <returns>A self-contained JavaScript IIFE returning a JSON result; no Steam evaluation occurs here.</returns>
     public static string BuildEvaluation(FilterNode root, Categories categories, ISdCardResolver cards)
     {
         var emit = new Emitter(cards);
@@ -479,6 +486,7 @@ public static partial class LibraryFilter
     /// <summary>Compiles just the predicate expression for a node (exposed for tests).</summary>
     /// <param name="node">The node to compile.</param>
     /// <param name="cards">Resolver for SD-card membership.</param>
+    /// <returns>The predicate expression only; any hoisted lookup declarations are omitted.</returns>
     internal static string CompilePredicate(FilterNode node, ISdCardResolver cards)
     {
         return NodeExpr(node, new Emitter(cards));
@@ -634,6 +642,7 @@ public static partial class LibraryFilter
     /// <param name="steam">The session's Steam client.</param>
     /// <param name="filterExpressions">Self-contained filter IIFEs.</param>
     /// <param name="cancellationToken">Cancels the exchange.</param>
+    /// <returns>Evaluation results in expression order; unanswered/invalid exchanges produce failed results.</returns>
     public static async Task<IReadOnlyList<FilterEvalResult>> EvaluateAsync(
         SteamClient steam, IReadOnlyList<string> filterExpressions, CancellationToken cancellationToken = default)
     {

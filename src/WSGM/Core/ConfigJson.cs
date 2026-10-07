@@ -3,6 +3,7 @@ using System.Text.Json.Serialization.Metadata;
 
 namespace WSGM.Core;
 
+/// <summary>Creates isolated configuration copies through the source-generated persistence contract.</summary>
 internal static class ConfigJson
 {
     /// <summary>

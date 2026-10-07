@@ -50,12 +50,14 @@ internal sealed class ManagedUiPad
     internal GamepadButtons Buttons => (GamepadButtons)Volatile.Read(ref _buttons);
 
     /// <summary>Records one physical sample. Allocation-free; called for every sample.</summary>
+    /// <param name="sample">Validated physical sample from any producer thread; only its latest UI button state is retained.</param>
     internal void Publish(CanonicalControllerSample sample)
     {
         Volatile.Write(ref _buttons, (uint)Translate(sample));
     }
 
     /// <summary>Makes the pad the UI's source, or hands the UI back to SDL with nothing held.</summary>
+    /// <param name="active">False clears held buttons before handing UI polling back to SDL; true enables this source.</param>
     internal void SetActive(bool active)
     {
         if (!active)
@@ -67,6 +69,8 @@ internal sealed class ManagedUiPad
     }
 
     /// <summary>Translates one canonical sample into the UI button vocabulary.</summary>
+    /// <param name="sample">Canonical buttons, left stick and triggers.</param>
+    /// <returns>UI button mask including synthesized stick directions and trigger presses.</returns>
     internal static GamepadButtons Translate(CanonicalControllerSample sample)
     {
         GamepadButtons held = 0;

@@ -11,10 +11,14 @@ using System.Text;
 
 namespace WSGM.DeviceLab.Inventory;
 
+/// <summary>Collects bounded PE metadata without loading or executing the inspected binary.</summary>
 internal static class NativePeInspector
 {
     private const int MaximumExportNameBytes = 1024;
 
+    /// <summary>Reads file identity, export names, signature metadata and hash from a native binary.</summary>
+    /// <param name="path">File to inspect; a read handle denies concurrent write/delete sharing.</param>
+    /// <returns>Metadata or a classified unavailable result; a signature label is not execution approval.</returns>
     public static NativeBinaryInventory Inspect(string path)
     {
         string resolved;

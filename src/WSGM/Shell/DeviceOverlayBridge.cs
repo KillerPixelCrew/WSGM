@@ -30,7 +30,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     private bool _disposed;
     private int _sampleObservers;
 
-    /// <param name="coordinator">The device coordinator.</param>
+    /// <summary>Subscribes a presentation adapter to existing device, glyph, power, and optional graphics owners.</summary>
+    /// <param name="coordinator">The borrowed device coordinator; disposal removes subscriptions without stopping it.</param>
     /// <param name="autoTdp">AutoTDP, or null when it is not running.</param>
     /// <param name="gpu">
     ///     The graphics coordinator, whose variable-refresh capability the Power and thermals section shows
@@ -61,6 +62,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         }
     }
 
+    /// <inheritdoc />
     public event Action? Changed;
 
     /// <inheritdoc />
@@ -69,6 +71,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         return _coordinator.CycleAuthoredProfileAsync(cancellationToken);
     }
 
+    /// <inheritdoc />
     public DeviceOverlaySnapshot Snapshot()
     {
         var state = _coordinator.State;
@@ -206,6 +209,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         };
     }
 
+    /// <inheritdoc />
     public async Task InvokeAsync(
         DeviceOverlayCapability capability,
         CancellationToken cancellationToken = default)
@@ -241,6 +245,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
+    /// <inheritdoc />
     public Task SetHostSelectionAsync(string rowId, string? value, CancellationToken cancellationToken = default)
     {
         return rowId switch
@@ -256,17 +261,20 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         };
     }
 
+    /// <inheritdoc />
     public Task SetPhysicalGlyphSelectionAsync(DeviceGlyphSelection selection,
         CancellationToken cancellationToken = default)
     {
         return _coordinator.SetPhysicalGlyphSelectionAsync(selection, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task ToggleAutoTdpAsync(CancellationToken cancellationToken = default)
     {
         return _coordinator.ToggleAutoTdpAsync(cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task CycleControllerTargetAsync(CancellationToken cancellationToken = default)
     {
         return _coordinator.SetControllerTargetAsync(
@@ -276,11 +284,13 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task RetryDeviceCycleAsync(CancellationToken cancellationToken = default)
     {
         return _coordinator.RetryAfterFaultAsync(cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task UseGlobalAsync(string overrideId, CancellationToken cancellationToken = default)
     {
         return ProfileSettingKey.TryParse(overrideId, out var key)
@@ -328,6 +338,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         return new SampleLease(this);
     }
 
+    /// <inheritdoc />
     public void Dispose()
     {
         if (_disposed)
@@ -876,6 +887,9 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     ///     The sustained limit and variable refresh are stored as typed profile values rather than
     ///     device values, so their source is read from those; everything else from the desired value.
     /// </remarks>
+    /// <param name="view">Capability with its effective desired-value source.</param>
+    /// <param name="layers">Current profile layers for typed power/refresh values, or null when unavailable.</param>
+    /// <returns>The setting identifier whose game override can be cleared, or null when no game override supplies it.</returns>
     internal static string? OverrideIdFor(DeviceCapabilityView view, ProfileLayers? layers)
     {
         return view.Descriptor.Role switch
@@ -941,6 +955,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     }
 
     /// <summary>Projects the declared overlay sections for presentation, in declared order.</summary>
+    /// <param name="sections">Publisher sections, augmented by the predefined sections needed for host presentation.</param>
+    /// <returns>Sections and categories in sort order with declaration order breaking ties.</returns>
     internal static IReadOnlyList<DeviceOverlayPluginSection> ProjectSections(
         IReadOnlyList<CapabilitySection> sections)
     {
@@ -1167,6 +1183,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     }
 
     /// <summary>What follows a value in a unit, with its leading space where one belongs.</summary>
+    /// <param name="unit">Declared measurement unit.</param>
+    /// <returns>A formatted suffix with spacing, or empty for units without a supported textual suffix.</returns>
     internal static string UnitSuffix(CapabilityUnit unit)
     {
         return unit switch

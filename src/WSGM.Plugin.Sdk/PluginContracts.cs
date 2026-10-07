@@ -26,7 +26,10 @@ public sealed record PluginInstanceIdentity(string PluginId, string InstanceId);
 /// <param name="Generation">Positive host-owned lifecycle generation.</param>
 /// <param name="Mode">Current resident-session mode.</param>
 /// <param name="Deadline">Active-time deadline for cooperative completion; timeout does not prove work stopped.</param>
-/// <param name="StateDirectory">Host-assigned private state directory, not a security boundary.</param>
+/// <param name="StateDirectory">
+///     Host-assigned durable state directory. The plugin owns file schemas, bounds, atomic updates and
+///     recovery; the directory is not a security boundary.
+/// </param>
 public sealed record PluginContext(
     PluginInstanceIdentity Instance,
     long Generation,
@@ -95,7 +98,7 @@ public interface IPluginHost
     }
 }
 
-/// <summary>Common lifecycle shared by Device adapters and independent plugins.</summary>
+/// <summary>Resident lifecycle for independent common plugins; device packages use their dedicated runtime.</summary>
 /// <remarks>Accepted plugins currently run in-process. Cancellation requires cooperative unwind, not automatic retry.</remarks>
 public interface IPlugin : IAsyncDisposable
 {
@@ -103,10 +106,13 @@ public interface IPlugin : IAsyncDisposable
     string Id { get; }
 
     /// <summary>Starts one generation, unwinding acquired resources if startup fails.</summary>
-    /// <param name="host">Generation-validating host publication boundary.</param>
+    /// <param name="host">Borrowed publication boundary retained until stop; the plugin must not dispose it.</param>
     /// <param name="context">Instance, mode and deadline.</param>
     /// <param name="cancellationToken">Cancels startup and requires cooperative cleanup.</param>
-    /// <returns>Initial plugin health.</returns>
+    /// <returns>
+    ///     Ready for a usable instance, Unavailable while a prerequisite is missing, or Failed when recovery
+    ///     requires intervention. Health does not transfer ownership of resources back to the host.
+    /// </returns>
     ValueTask<PluginHealth> StartAsync(IPluginHost host, PluginContext context, CancellationToken cancellationToken);
 
     /// <summary>Receives a Desktop/Game transition without unloading the resident plugin.</summary>
@@ -136,6 +142,7 @@ public interface IPlugin : IAsyncDisposable
     /// <summary>Stops publication and releases resources before disposal, including after incomplete startup.</summary>
     /// <param name="context">Stopping generation and cleanup deadline.</param>
     /// <param name="cancellationToken">Cancels waiting without claiming cleanup succeeded.</param>
-    /// <returns>True only when resource release was confirmed.</returns>
+    /// <returns>True only when resource release was confirmed; false leaves cleanup unconfirmed.</returns>
+    /// <remarks>Must tolerate incomplete startup and repeated cleanup requests. Do not publish after successful stop.</remarks>
     ValueTask<bool> StopAsync(PluginContext context, CancellationToken cancellationToken);
 }

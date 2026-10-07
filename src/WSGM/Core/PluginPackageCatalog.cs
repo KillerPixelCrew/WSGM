@@ -75,6 +75,8 @@ internal sealed record DevicePackageDiscovery
 }
 
 /// <summary>One installed non-device package, admitted by metadata only.</summary>
+/// <param name="PackagePath">Canonical package file path selected by catalog version ordering.</param>
+/// <param name="Manifest">Validated common-plugin metadata; no plugin code has been loaded.</param>
 internal sealed record CommonInstalledPlugin(string PackagePath, CommonManifest Manifest)
 {
     /// <summary>The SHA-256 of the package file as upper-case hex, read when it was discovered.</summary>
@@ -82,6 +84,9 @@ internal sealed record CommonInstalledPlugin(string PackagePath, CommonManifest 
 }
 
 /// <summary>One package file that was not selected, and why.</summary>
+/// <param name="PackagePath">Unselected package file, retained on disk.</param>
+/// <param name="Id">Package identity shared with the selected winner.</param>
+/// <param name="Reason">Human-readable selection reason.</param>
 internal sealed record PluginPackageNotice(string PackagePath, string Id, string Reason);
 
 /// <summary>Everything one read of the Plugins folder found. Discovery never loads plugin code.</summary>
@@ -99,6 +104,7 @@ internal sealed record PluginPackageCatalog
     /// <summary>Files that could not be read or failed validation, with the reason.</summary>
     public required IReadOnlyList<string> Errors { get; init; }
 
+    /// <summary>Shared empty inventory; use a record copy to attach folder-read errors.</summary>
     internal static PluginPackageCatalog Empty { get; } = new()
     {
         Device = new DevicePackageDiscovery { Inventory = new DevicePackageInventory { PackageFiles = [] } },

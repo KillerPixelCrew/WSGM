@@ -5,6 +5,7 @@ using System.Linq;
 
 namespace WSGM.Core;
 
+/// <summary>Normalizes the stored library configuration in place before consumers use it.</summary>
 internal static class GameLibraryRules
 {
     /// <summary>Canonical extensions from either token lists or space/comma/semicolon separated input.</summary>
@@ -26,6 +27,7 @@ internal static class GameLibraryRules
     ///     of the document by <see cref="AppConfigRules" />.
     /// </summary>
     /// <param name="library">The section to repair in place.</param>
+    /// <returns>An empty diagnostic list; these repairs do not produce warning entries.</returns>
     internal static IReadOnlyList<string> Normalize(GameLibraryConfig library)
     {
         library.DisabledSources =

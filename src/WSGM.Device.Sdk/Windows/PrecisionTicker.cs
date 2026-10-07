@@ -5,12 +5,11 @@ using Microsoft.Win32.SafeHandles;
 
 namespace WSGM.Device.Sdk.Windows;
 
-/// <summary>Wakes a polling thread at a fixed interval with about a millisecond of accuracy.</summary>
+/// <summary>Waits on a high-resolution periodic Windows timer, with a timed-wait fallback.</summary>
 /// <remarks>
-///     <c>WaitHandle.WaitOne(8 ms)</c> sleeps for the whole 15.6 ms system tick unless something raised the
-///     machine's timer resolution, which halved the ROG Ally pad's 125 Hz poll. A high-resolution waitable
-///     timer keeps the rate without raising the resolution for the whole machine, the way HC polls on its
-///     8 ms precision timer. Where Windows has no such timer, the ticker falls back to a plain wait.
+///     Does not change the machine-wide timer resolution. Actual scheduling accuracy depends on Windows;
+///     missed ticks are not queued. Owns the native timer, but not the supplied token's wait handle.
+///     Stop the polling thread before disposing this instance.
 /// </remarks>
 public sealed partial class PrecisionTicker : IDisposable
 {
@@ -24,7 +23,8 @@ public sealed partial class PrecisionTicker : IDisposable
 
     /// <summary>Starts ticking.</summary>
     /// <param name="interval">Time between ticks, at least one millisecond.</param>
-    /// <param name="cancellationToken">Ends every wait as soon as it is cancelled.</param>
+    /// <param name="cancellationToken">Signals waits to finish; its source must remain alive while the ticker is used.</param>
+    /// <exception cref="ArgumentOutOfRangeException">The interval is shorter than one millisecond.</exception>
     public PrecisionTicker(TimeSpan interval, CancellationToken cancellationToken)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(interval, TimeSpan.FromMilliseconds(1));
@@ -53,7 +53,10 @@ public sealed partial class PrecisionTicker : IDisposable
     }
 
     /// <summary>Waits for the next tick.</summary>
-    /// <returns>True on a tick; false once the token is cancelled.</returns>
+    /// <returns>
+    ///     True on a timer signal or fallback interval; false when cancellation wins the wait.
+    ///     A timer and cancellation signaled together can still return true.
+    /// </returns>
     public bool Wait()
     {
         if (_timer is null)

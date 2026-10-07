@@ -6,15 +6,12 @@ using WSGM.Core;
 namespace WSGM.Input;
 
 /// <summary>
-///     Polls all connected controllers through SDL3 on the UI thread while
-///     enabled. Emits edge-triggered button events with D-pad/stick auto-repeat.
+///     Polls the active managed controller, or connected SDL3 controllers, on the UI thread while
+///     enabled. Keeps SDL hotplug pumping and emits button edges with D-pad/stick auto-repeat.
 /// </summary>
 internal sealed class GamepadService : IUiButtonSource, IDisposable
 {
-    // Monotonic (Environment.TickCount64) rather than wall-clock deadlines: a
-    // backward system-clock adjustment — w32time resyncing shortly after logon,
-    // or a resume from Modern Standby — would otherwise leave the next repeat
-    // parked in the future and the D-pad would silently stop repeating.
+    // Monotonic deadlines keep clock corrections and resume from suppressing direction repeats.
     private const long RepeatInitialMs = 400;
     private const long RepeatRateMs = 150;
 
@@ -58,8 +55,7 @@ internal sealed class GamepadService : IUiButtonSource, IDisposable
     /// <summary>Creates an inactive UI-thread polling service.</summary>
     public GamepadService()
     {
-        // The convenience ctor taking a callback auto-starts the timer, which made
-        // IsRunning permanently true and broke every "start if not running" guard.
+        // The callback constructor auto-starts; this service must remain inactive until Start.
         _timer = new DispatcherTimer(DispatcherPriority.Input) { Interval = TimeSpan.FromMilliseconds(16) };
         _timer.Tick += (_, _) => Poll();
     }
@@ -67,7 +63,7 @@ internal sealed class GamepadService : IUiButtonSource, IDisposable
     /// <summary>Gets whether the UI-thread polling timer is active.</summary>
     public bool IsRunning => _timer.IsEnabled;
 
-    /// <summary>Stops this service's timer. SDL stays initialized process-wide.</summary>
+    /// <summary>Stops the UI-thread timer without disposing shared SDL state or emitting synthetic releases.</summary>
     public void Dispose()
     {
         _timer.Stop();
@@ -93,10 +89,7 @@ internal sealed class GamepadService : IUiButtonSource, IDisposable
     {
         if (_timer.IsEnabled)
         {
-            // Already polling. Clearing the per-pad state here would make the next
-            // 16 ms tick report every STILL-HELD button as a fresh press: a hold
-            // chord that opened a surface while its buttons are down would confirm
-            // or dismiss that surface immediately.
+            // Preserve held state so opening another surface cannot manufacture fresh press edges.
             return;
         }
 
@@ -108,14 +101,14 @@ internal sealed class GamepadService : IUiButtonSource, IDisposable
         Log.Info("Gamepad polling started.");
     }
 
-    /// <summary>Stops polling without shutting down SDL's process-wide state.</summary>
+    /// <summary>Stops polling on the UI thread without shutting down SDL or emitting releases; Start resets the baseline.</summary>
     public void Stop()
     {
         _timer.Stop();
     }
 
     /// <summary>Adds the managed controller, which replaces the SDL pads while management is active.</summary>
-    /// <param name="pad">The managed controller's UI state.</param>
+    /// <param name="pad">Borrowed thread-safe sample projection; switching source takes effect on the next UI poll.</param>
     internal void UseManagedPad(ManagedUiPad pad)
     {
         _managed = pad;

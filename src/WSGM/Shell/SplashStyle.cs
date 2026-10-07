@@ -59,6 +59,7 @@ internal static class SplashStyle
     /// </summary>
     /// <param name="text">User-supplied color string, e.g. <c>#RRGGBB</c>.</param>
     /// <param name="fallback">Color used when the string cannot be parsed.</param>
+    /// <returns>The parsed trimmed color, or the supplied fallback for absent or invalid text.</returns>
     internal static Color ParseColor(string? text, Color fallback)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -90,6 +91,7 @@ internal static class SplashStyle
     ///     Estimated logical size of the element, used to
     ///     keep absolute placements fully on screen.
     /// </param>
+    /// <returns>Absolute canvas coordinates or anchor alignment/margins, according to the configured placement mode.</returns>
     internal static SplashElementLayout MapPlacement(
         SplashElementPlacement placement, Size screenSize, Size elementHint)
     {

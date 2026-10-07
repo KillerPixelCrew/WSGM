@@ -187,7 +187,8 @@ public static partial class HidDevices
     /// <summary>Whether two location paths name the same composite USB device.</summary>
     /// <param name="left">One location path.</param>
     /// <param name="right">The other.</param>
-    /// <returns>True when they agree without their interface components.</returns>
+    /// <returns>True when normalized composite locations agree, including two empty locations.</returns>
+    /// <remarks>Callers requiring a physical identity match must reject empty locations before comparison.</remarks>
     public static bool SamePhysicalLocation(string left, string right)
     {
         return string.Equals(CompositeLocation(left), CompositeLocation(right), StringComparison.OrdinalIgnoreCase);
@@ -196,7 +197,7 @@ public static partial class HidDevices
     /// <summary>Opens a collection for reading and writing.</summary>
     /// <param name="collection">The collection.</param>
     /// <param name="overlapped">Opens it for asynchronous I/O.</param>
-    /// <returns>The open handle.</returns>
+    /// <returns>A shared read/write handle owned by the caller, which must dispose it.</returns>
     /// <exception cref="Win32Exception">The collection could not be opened.</exception>
     public static SafeFileHandle Open(HidCollection collection, bool overlapped)
     {
@@ -215,7 +216,9 @@ public static partial class HidDevices
 
     /// <summary>Opens a collection as an unbuffered asynchronous stream of whole reports.</summary>
     /// <param name="collection">The collection.</param>
-    /// <returns>The stream; every read and write is one report, so no buffer sits in between.</returns>
+    /// <returns>An unbuffered asynchronous stream owned by the caller; disposing it closes the HID handle.</returns>
+    /// <remarks>Use descriptor-sized reports and check read lengths; the stream does not validate report contents.</remarks>
+    /// <exception cref="Win32Exception">The collection could not be opened.</exception>
     public static FileStream OpenStream(HidCollection collection)
     {
         return new FileStream(Open(collection, true), FileAccess.ReadWrite, 0, true);
@@ -224,7 +227,11 @@ public static partial class HidDevices
     /// <summary>Whether the collection answers a feature read for one report ID.</summary>
     /// <param name="collection">The collection.</param>
     /// <param name="reportId">The report ID to read.</param>
-    /// <returns>True when the read succeeded. A feature read changes nothing on the device.</returns>
+    /// <returns>True when the driver accepted the feature read; false for a short feature shape or open/read failure.</returns>
+    /// <remarks>
+    ///     Opens and closes a temporary handle. This performs real HID I/O, does not validate returned bytes,
+    ///     and must only be used with a package-approved report whose read semantics are known.
+    /// </remarks>
     public static bool AnswersFeature(HidCollection collection, byte reportId)
     {
         ArgumentNullException.ThrowIfNull(collection);
@@ -247,9 +254,10 @@ public static partial class HidDevices
     }
 
     /// <summary>Sends one feature report, padded to the collection's declared length.</summary>
-    /// <param name="handle">An open handle to the collection.</param>
+    /// <param name="handle">An open handle to this collection, retained and disposed by the caller.</param>
     /// <param name="collection">The collection.</param>
-    /// <param name="report">The report, starting with its ID.</param>
+    /// <param name="report">Nonempty report starting with its ID; remaining declared report bytes are zero-filled.</param>
+    /// <exception cref="InvalidOperationException">The report is empty or exceeds the declared report length.</exception>
     /// <exception cref="Win32Exception">The driver refused the report; its effect is unknown.</exception>
     public static void SetFeature(SafeFileHandle handle, HidCollection collection, ReadOnlySpan<byte> report)
     {
@@ -269,9 +277,10 @@ public static partial class HidDevices
     }
 
     /// <summary>Sends one output report, padded to the collection's declared length.</summary>
-    /// <param name="handle">An open, synchronous handle to the collection.</param>
+    /// <param name="handle">An open synchronous handle to this collection, retained and disposed by the caller.</param>
     /// <param name="collection">The collection.</param>
-    /// <param name="report">The report, starting with its ID.</param>
+    /// <param name="report">Nonempty report starting with its ID; remaining declared report bytes are zero-filled.</param>
+    /// <exception cref="InvalidOperationException">The report is empty or exceeds the declared report length.</exception>
     /// <exception cref="IOException">The write failed or was short; its effect is unknown.</exception>
     public static void WriteOutput(SafeFileHandle handle, HidCollection collection, ReadOnlySpan<byte> report)
     {

@@ -4,10 +4,10 @@ Device Integration is an optional, process-long WSGM subsystem that hosts one de
 in-process. It is independent from Steam and from Desktop/Game Mode transitions: turning it off
 leaves the shell, overlay, Steam Input lease, storage, artwork, launch features, RTSS and core
 recovery usable. With it off, the coordinator still answers the Settings diagnostics read, but runs
-no device cycle, controller target, hardware write, AutoTDP, power-assignment loop or Windows power
-mode notification; those start with the first device cycle. This document records the decisions
-behind the runtime and the device findings that produced them. It does not describe the mechanism
-step by step.
+no device cycle, managed controller target, device-package hardware write or AutoTDP. Independent
+common plugins and Windows power-scheme controls retain their own lifecycles. This document records
+the decisions behind the runtime and the device findings that produced them. It does not describe
+the mechanism step by step.
 
 DeviceCoordinator owns the sole DevicePluginRuntime, device lifecycle policy and ordered controller
 cleanup; hardware behavior stays in the package. The common PluginHost handles independent common
@@ -24,19 +24,18 @@ Related:
 
 ## One plugin slot
 
-Exactly one installed package may exist. Normal startup counts package roots before anything else
-runs: manifest validation, device matching, elevation, Explorer exit, Avalonia, plugin loading,
-HidHide and virtual-controller creation all come later. Zero packages leaves Device Integration
-unavailable. One package is validated and asked to detect the machine; a malformed or nonmatching
-package faults only Device Integration and reports the exact package error. Two or more roots refuse
-normal UI and shell startup before any device code runs, listing every package name and absolute
-path. Recovery, setup, update, uninstall, `--restore-shell` and plugin-removal maintenance bypass
-the refusal without starting device code; `--overlay-test` stays simulated.
+WSGM runs at most one distinct device package ID. `PluginPackageCatalog.Discover` validates the
+archive metadata without loading code, chooses the highest version of each ID, and reports older
+files as superseded. Zero device candidates leaves Device Integration unavailable. One candidate is
+validated for runtime compatibility and asked to detect the machine. Multiple distinct device IDs
+produce `multiple-device-packages`: the coordinator stays Passive and WSGM itself starts normally.
+Invalid archives are reported as catalog errors. Common plugins do not consume this single-device
+slot. Recovery and `--overlay-test` do not start real device code.
 
-WSGM never ranks, selects, disables or prefers one package over another. A package is
-administrator-installed hardware code running with WSGM's authority. There are no trust tiers,
-publisher grants, signer rotation or revocation, quarantine catalog or de-elevated plugin class to
-rank with, so ambiguity is refused rather than resolved.
+WSGM never ranks different device package IDs by hardware fit or chooses one to resolve ambiguity. A
+package is administrator-installed hardware code running with WSGM's authority. There are no trust
+tiers, publisher grants, signer rotation or revocation, quarantine catalog or de-elevated plugin
+class to rank with, so ambiguity is refused rather than resolved.
 
 Packages are `.wsgmpkg` files in the administrator-protected `%ProgramFiles%\WSGM\Plugins` folder,
 and WSGM loads them straight from the file. A developer package goes to the same folder: there is no
@@ -76,9 +75,10 @@ Plugins publish only the public semantic SDK. WMI, HID, sensor, lighting, firmwa
 recovery implementation stays inside the plugin. A plugin cannot supply XAML, JavaScript, URLs,
 Steam selectors, shell or file operations, or a raw hardware broker. The SDK (`WSGM.Device.Sdk`,
 MIT, maintained under `src\WSGM.Device.Sdk`; `AGENTS.md` explains the licence) deliberately holds no
-implementation modules, generic resource leases, WSGM UI policy, source-arbitration projections,
-evidence ids or locks, source generators, Steam selectors or CDP patches. Add an abstraction to it
-only when the Claw plugin and a materially different plugin both need it.
+WSGM UI policy, Steam selectors, CDP patches or vendor-specific protocol implementations. Alongside
+the contracts it provides shared service lifecycle, command serialization, recovery journals, HID
+discovery, Sensor API motion, keyboard hooks and input normalization, plus source-generated JSON.
+Add an abstraction only when materially different packages need it.
 
 Glyph artwork and control maps are static plugin data. WSGM validates them and owns every Avalonia
 and Steam adaptation. A missing, ambiguous or mismatched profile leaves Valve's glyphs and WSGM's
@@ -460,7 +460,7 @@ instead of treating exit code zero as proof that the signed driver registered. A
 requests a reboot; an already-present driver does not; a failed, newer-unreviewed, missing or
 malformed result is shown without rolling back WSGM.
 
-### Motion streams while the plugin owns the controller
+### Motion has a device-cycle lifetime
 
 The gyroscope and accelerometer are the highest-rate data WSGM moves. On the Claw the sensor poll
 alone cost WSGM 12 % of its idle CPU and the Intel sensor driver host another 5 % of a core with
@@ -468,8 +468,9 @@ nothing consuming a sample ([performance](perf/README.md)). For a while WSGM the
 whether anything read motion (Steam's IMU mode write and SDL's watchdog heartbeat on the Steam Deck
 target, behind a "Motion only on request" setting) and told the plugin to stop its sensors in
 between. Device SDK API 10 removed that demand signal and the setting with it. WSGM sends the plugin
-nothing about motion: a plugin streams motion for as long as it owns the controller and attaches the
-latest reading to each controller sample.
+nothing about demand. The current Claw and Ally service arrays start motion with the device cycle
+and stop it on suspend/stop; toggling controller management changes the controller service only.
+When controller acquisition is active it attaches the latest reading to each sample.
 
 What remains of the fix is at the source. The SDK's `LegacyMotionStream` takes Sensor API reports by
 driver event and polls only where an event sink cannot be registered, and `MotionSampleBuilder`

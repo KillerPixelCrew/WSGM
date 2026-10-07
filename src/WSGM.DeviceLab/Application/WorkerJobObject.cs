@@ -21,12 +21,16 @@ internal sealed partial class WorkerJobObject : IDisposable
         _handle = handle;
     }
 
+    /// <summary>Closes the job once, terminating any worker processes still contained in it.</summary>
     public void Dispose()
     {
         var handle = Interlocked.Exchange(ref _handle, null);
         handle?.Dispose();
     }
 
+    /// <summary>Creates a job with kill-on-close configured before any worker is assigned.</summary>
+    /// <returns>A caller-owned job.</returns>
+    /// <exception cref="Win32Exception">Windows refused job creation or configuration.</exception>
     internal static unsafe WorkerJobObject Create()
     {
         var handle = CreateJobObjectW(0, null);
@@ -53,6 +57,9 @@ internal sealed partial class WorkerJobObject : IDisposable
         throw new Win32Exception(configurationError, "Could not configure disposable worker containment.");
     }
 
+    /// <summary>Adds a started worker to this job before its authorization secret is sent.</summary>
+    /// <param name="process">Borrowed worker process; the supervisor retains its ownership.</param>
+    /// <exception cref="Win32Exception">Windows refused containment.</exception>
     internal void Assign(Process process)
     {
         ArgumentNullException.ThrowIfNull(process);

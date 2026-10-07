@@ -372,6 +372,7 @@ internal sealed class ControllerService(
     ///     Best effort: every step runs, a failed one is traced and recorded in the recovery journal for
     ///     the next start, and the service ends idle. Nothing here is a reason to keep the device down.
     /// </remarks>
+    /// <returns>Completion of the bounded release attempt; does not guarantee mode restoration or controller readback.</returns>
     public async ValueTask ReleaseControllerAsync(
         Deadline deadline,
         CancellationToken cancellationToken)

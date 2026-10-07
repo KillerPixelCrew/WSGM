@@ -8,15 +8,8 @@ namespace WSGM.PackagedLaunch;
 
 /// <summary>Records what each privileged step asked for and whether it got it.</summary>
 /// <remarks>
-///     <para>
-///         The attended trials that proved this feature ran elevated, and nobody knows what it
-///         actually needs. This exists so that one failed unelevated run answers that from its log,
-///         instead of needing a new build with more probes in it.
-///     </para>
-///     <para>
-///         One line, on the first failure only: which step, which access, which error, and this
-///         process's own elevation. A journal that narrated every success would bury it.
-///     </para>
+///     Records only the first denied step, requested access, error, and process elevation.
+///     It does not elevate the launcher or retry the operation.
 /// </remarks>
 internal sealed class PrivilegeJournal
 {
@@ -40,12 +33,8 @@ internal sealed class PrivilegeJournal
             + $"This launcher is running {Elevation()}. If the overlay did not work, this is why.");
     }
 
-    /// <summary>Reports what access the game process actually grants, once.</summary>
+    /// <summary>Reports the identified game process's injector and query access for an attended diagnostic.</summary>
     /// <param name="processId">The game process.</param>
-    /// <remarks>
-    ///     The rehabilitated form of the spike's rights probe: once against the identified game,
-    ///     behind a flag, rather than on every poll against everything.
-    /// </remarks>
     internal static void ReportAccess(int processId)
     {
         var injector = NativeMethods.OpenProcess(NativeMethods.InjectorAccess, false, (uint)processId);
@@ -71,6 +60,7 @@ internal sealed class PrivilegeJournal
     }
 
     /// <summary>How this process is running, in the words a log reader needs.</summary>
+    /// <returns>Elevated or unelevated according to the current principal's administrator membership, or an unreadable-elevation message.</returns>
     internal static string Elevation()
     {
         try

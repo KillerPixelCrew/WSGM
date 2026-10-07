@@ -18,15 +18,17 @@ namespace WSGM.Core;
 
 /// <summary>One validated <c>.wsgmpkg</c>, held open read-only for as long as its code may run.</summary>
 /// <remarks>
-///     Nothing is unpacked to disk. Opening reads every entry into memory once, under the same bounds the
-///     unpacked slot used to enforce, and keeps the file handle open with <see cref="FileShare.Read" />
+///     Nothing is unpacked to disk. Opening reads every entry into memory once under package layout and
+///     size bounds, and keeps the file handle open with <see cref="FileShare.Read" />
 ///     so the package cannot be replaced or deleted while it is loaded. A package holds managed
 ///     assemblies, their symbols and data only: a native image cannot be loaded from memory, so one is
 ///     refused here rather than failing later inside plugin code.
 /// </remarks>
 internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
 {
+    /// <summary>Required case-insensitive filename extension for an installed plugin package.</summary>
     internal const string Extension = ".wsgmpkg";
+    /// <summary>Required root manifest entry name within the package.</summary>
     internal const string ManifestName = "plugin.wsgm.json";
 
     private readonly Dictionary<string, byte[]> _entries;
@@ -56,10 +58,13 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
     /// <summary>The common manifest, when this is a non-device package.</summary>
     internal CommonManifest? CommonManifest { get; }
 
+    /// <summary>Gets the validated package identity from its device or common manifest.</summary>
     internal string Id => DeviceManifest?.Id ?? CommonManifest!.Id;
 
+    /// <summary>Gets the manifest version string used by catalog selection.</summary>
     internal string Version => DeviceManifest?.Version ?? CommonManifest!.Version;
 
+    /// <summary>Gets the package-root managed entry assembly name.</summary>
     internal string EntryAssembly => DeviceManifest?.EntryAssembly ?? CommonManifest!.EntryAssembly;
 
     /// <summary>The WSGM version the package was built for, or null when packing did not stamp one.</summary>
@@ -76,6 +81,8 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
     /// <summary>Whether the entry point is an x64 managed assembly, which a device package requires.</summary>
     internal bool EntryIsX64Assembly { get; private init; }
 
+    /// <summary>Closes the package file lock; repeated disposal is harmless.</summary>
+    /// <remarks>Stop plugin code before disposal. Cached entry bytes remain managed memory until this object is collected.</remarks>
     public void Dispose()
     {
         if (_disposed)
@@ -123,6 +130,9 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
     }
 
     /// <summary>The SHA-256 of the package file, as upper-case hex, read through the handle already open.</summary>
+    /// <returns>The full file SHA-256 as uppercase hexadecimal; the shared handle position is advanced to EOF.</returns>
+    /// <exception cref="ObjectDisposedException">The file owner has been disposed.</exception>
+    /// <remarks>Serialize callers using the shared file handle; disk read failures propagate.</remarks>
     internal string HashFile()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -131,6 +141,8 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
     }
 
     /// <summary>Whether a stamped version names this host's release, with an omitted patch read as zero.</summary>
+    /// <param name="wsgmVersion">Stamped release version, or null for an unstamped package.</param>
+    /// <returns>True only for a parseable matching major/minor/patch release; revision is ignored.</returns>
     internal static bool IsForThisHost(string? wsgmVersion)
     {
         return System.Version.TryParse(wsgmVersion, out var parsed) && Normalize(parsed) == HostVersion;
@@ -145,6 +157,9 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
     /// <param name="fileName">Assembly file name, optionally below one culture directory.</param>
     /// <param name="assembly">The assembly image.</param>
     /// <param name="symbols">Matching portable symbols, when the package carries them.</param>
+    /// <returns>True when the normalized entry exists; false leaves both outputs null.</returns>
+    /// <remarks>Each returned read-only stream is caller-owned and must be disposed; package bytes are shared without copying.</remarks>
+    /// <exception cref="ObjectDisposedException">The package owner has been disposed.</exception>
     internal bool TryOpenAssembly(string fileName, out MemoryStream assembly, out MemoryStream? symbols)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);

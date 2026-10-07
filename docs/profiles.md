@@ -155,8 +155,10 @@ power preset waits for that pass instead of competing with it for the plugin's c
 
 Lighting is also restored from readiness publications, bounded by `DeviceLightingRestore`: at most
 three attempts per zone, value and cycle. A refused command wrote nothing and may be tried again. An
-uncertain one (`TimedOut`, `Indeterminate`) waits until a readback taken after it shows the zone
-does not hold the value. That readback is the re-read the no-blind-retry rule asks for.
+uncertain one (`TimedOut`, `Indeterminate`) prevents the same desired value from being written again
+automatically, even after another observation. A different desired value is a new write and can
+proceed without waiting for readback; repeating the uncertain value requires an explicit user
+action. `DeviceDesiredWriteAdmission` owns this rule for lighting and other desired values.
 
 Each lighting restore logs one line per zone:
 
@@ -169,3 +171,24 @@ Each lighting restore logs one line per zone:
 profile with an id already used, drops an executable already claimed by an earlier profile, keeps
 learned executables of the right shape, validates preset references, masks colours to 24 bits and
 drops device values with no key.
+
+## Source routes and data flow
+
+[ProfileConfig](../src/WSGM/Core/Profiles/ProfileConfig.cs) defines the saved shape;
+[ProfileConfigRules](../src/WSGM/Core/Profiles/ProfileConfigRules.cs) normalizes it;
+[ProfileFields](../src/WSGM/Core/Profiles/ProfileFields.cs) names the settings;
+[ProfileResolver](../src/WSGM/Core/Profiles/ProfileResolver.cs) resolves inheritance; and
+[ProfileEdits](../src/WSGM/Core/Profiles/ProfileEdits.cs) performs value edits. These are policy
+functions and do not touch hardware.
+
+[RunningApplicationCoordinator](../src/WSGM/Shell/RunningApplicationCoordinator.cs) delivers the
+single running-application answer to [ProfileService](../src/WSGM/Shell/ProfileService.cs).
+ProfileService serializes persistence and publishes the resulting snapshot. Consumers then apply
+that snapshot:
+[ApplicationPerformanceReconciler](../src/WSGM/Shell/ApplicationPerformanceReconciler.cs) for
+performance policy, [DeviceCoordinator](../src/WSGM/Shell/DeviceCoordinator.cs) for device values,
+and [GpuCoordinator](../src/WSGM/Shell/GpuCoordinator.cs) for independent graphics publishers.
+[DeviceDesiredWriteAdmission](../src/WSGM/Shell/DeviceDesiredWriteAdmission.cs) decides whether a
+desired device value may be restored, while
+[DeviceLightingRestore](../src/WSGM/Shell/DeviceLightingRestore.cs) adds the lighting attempt
+budget. Neither readback nor an automatic restore writes new profile preferences.

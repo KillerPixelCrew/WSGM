@@ -348,6 +348,7 @@ internal sealed class FirmwareChordSuppressor : IFirmwareChordSuppressor
         _handler = Decide;
     }
 
+    /// <inheritdoc />
     public ValueTask<bool> StartAsync(
         Action<Exception> fault,
         Action<FirmwareChord> chord,
@@ -368,11 +369,13 @@ internal sealed class FirmwareChordSuppressor : IFirmwareChordSuppressor
             _state.Reset);
     }
 
+    /// <inheritdoc />
     public ValueTask StopAsync(CancellationToken cancellationToken)
     {
         return _hook.StopAsync(cancellationToken);
     }
 
+    /// <inheritdoc />
     public ValueTask DisposeAsync()
     {
         return _hook.DisposeAsync();

@@ -5,7 +5,7 @@ namespace WSGM.Core;
 
 /// <summary>
 ///     Projects the current config into boot.json for the logon service
-///     (WSGM-side only — the shared contract lives in Core\BootManifest). Called on
+///     (WSGM-side only; the shared contract lives in src/Shared/Boot/BootManifest.cs). Called on
 ///     --setup, on settings saves that touch the inputs, and at every shell/boot
 ///     start so a stale Elevate/ExePath heals itself on the next session.
 /// </summary>
@@ -19,6 +19,7 @@ public static class BootManifestWriter
     /// </summary>
     /// <param name="context">The explicit directory receiving the boot manifest.</param>
     /// <param name="read">The read that supplies the projection.</param>
+    /// <returns>True when the projection was written; false when the read or publication was unavailable.</returns>
     public static bool WriteCurrent(ConfigReadResult read, UserDataContext context)
     {
         if (read.Outcome is not (ConfigReadOutcome.Loaded or ConfigReadOutcome.Absent)
@@ -62,6 +63,7 @@ public static class BootManifestWriter
     /// </summary>
     /// <param name="config">The configuration used for elevation; it is not modified.</param>
     /// <param name="context">The explicit directory receiving the boot manifest.</param>
+    /// <returns>True when both sign-in startup choices were written as disabled; otherwise false.</returns>
     public static bool WriteSignInDisabled(AppConfig config, UserDataContext context)
     {
         return WriteProjection(config, context, false);

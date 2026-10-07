@@ -6,44 +6,15 @@ namespace WSGM.PackagedLaunch;
 
 /// <summary>
 ///     The overlay route for a native UWP title: bridge Steam's IPC objects into the AppContainer,
-///     route the engine's gamepad activation through Steam, and keep the foreground on the game's
-///     own window.
+///     then route the supported engine gamepad-activation path through Steam.
 /// </summary>
 /// <remarks>
-///     <para>
-///         Each piece exists because removing it broke something in the recorded trial, and the
-///         order they are listed in is the order they had to be fixed:
-///     </para>
-///     <list type="number">
-///         <item>
-///             Loading Steam's renderer alone registered the game with Steam — the process appeared
-///             in Steam's own log and <c>gameoverlayui64</c> started for it — and produced no
-///             working overlay and no input. Registration is not a functional pass.
-///         </item>
-///         <item>
-///             Inside an AppContainer, Steam's object names resolve to a private namespace, so the
-///             game and Steam created different objects with the same names. The broker fixes that.
-///             Getting <c>SteamWebHelper_GPUProcRenderEvent</c> exactly right is what removed
-///             "Failed creating CEF paint event: 5" and let the overlay survive Alt-Tab.
-///         </item>
-///         <item>
-///             The overlay then worked and the controller still did not. Unity asks for
-///             <c>IActivationFactory</c> and then queries the statics from it; Steam wraps the
-///             direct statics request but not that second step, so the game got Windows' own
-///             factory and saw zero pads. The input bridge routes only that path.
-///         </item>
-///         <item>
-///             Input then worked until the first Alt-Tab, because the frame window belongs to
-///             ApplicationFrameHost and Steam Input follows the foreground's owner. Raising the
-///             game-owned CoreWindow restored it with nothing reinjected.
-///         </item>
-///     </list>
-///     <para>
-///         The bridge is a WSGM-built DLL with game-side hooks, which is materially more exposure to
-///         an anti-cheat than the packaged Win32 route's use of Valve's own signed binaries. Nothing
-///         here establishes that any anti-cheat accepts it.
-///     </para>
+///     AppContainer object namespaces isolate Steam's IPC names. The broker supplies the shared
+///     objects before the renderer loads; the input bridge then routes the supported activation-factory
+///     path through Steam. Foreground-window ownership is maintained separately by the session.
+///     Game-side hooks are WSGM code; this route does not establish anti-cheat compatibility.
 /// </remarks>
+/// <param name="injector">Shared injector whose uncertainty latch prevents further remote work after an indeterminate operation.</param>
 internal sealed class AppContainerOverlayRoute(GameInjector injector) : IDisposable
 {
     private OverlayObjectBroker? _broker;
@@ -70,9 +41,7 @@ internal sealed class AppContainerOverlayRoute(GameInjector injector) : IDisposa
             return new RouteOutcome(false, "Activation returned no process to set Steam up in.");
         }
 
-        // Every payload this route loads - Steam's client and renderer, the bridge, the environment
-        // stub - is x64. A 32-bit game cannot load any of it, so the route is refused rather than
-        // written into a process it cannot work in.
+        // The bridge, Steam's components, and remote call stubs require a native x64 target.
         if (ProcessInspector.IsNativeX64(gameProcessId) is not true)
         {
             return new RouteOutcome(false,
@@ -152,8 +121,6 @@ internal sealed class AppContainerOverlayRoute(GameInjector injector) : IDisposa
         var input = injector.Call(gameProcessId, BridgePath, "InitializeInputBridge");
         if (input != 0)
         {
-            // The overlay still works. This is the controller, and saying so precisely is the
-            // difference between a known limitation and a mystery.
             PackagedLaunchLog.Warn(
                 $"The gamepad activation bridge did not initialize (result {Describe(input)}). The "
                 + "overlay is unaffected; this game's engine may not be one the bridge covers.");
@@ -167,16 +134,8 @@ internal sealed class AppContainerOverlayRoute(GameInjector injector) : IDisposa
     /// <summary>Reports what the bridge did, once the session is over.</summary>
     /// <param name="gameProcessId">The game process.</param>
     /// <remarks>
-    ///     <para>
-    ///         Two numbers worth having. The routed count separates "the input bridge was installed"
-    ///         from "the game actually asked and was answered", which are not the same thing.
-    ///     </para>
-    ///     <para>
-    ///         The initially-owned mutex count answers the open design question: the spike could not
-    ///         say whether Steam ever asks for a mutex it wants to own outright, and the bridge
-    ///         refuses that case rather than compromising over it. A non-zero count here means the
-    ///         case is real and needs a design, and is exactly the evidence that was missing.
-    ///     </para>
+    ///     Routed queries distinguish installed hooks from actual engine use. Initially-owned mutex
+    ///     requests are counted separately because ownership cannot be transferred safely by the broker.
     /// </remarks>
     internal void Report(int gameProcessId)
     {

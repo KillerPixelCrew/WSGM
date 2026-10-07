@@ -3,6 +3,7 @@ using WSGM.Interop;
 
 namespace WSGM.Launch;
 
+/// <summary>Queries the wrapper token without changing its elevation.</summary>
 internal static partial class Elevation
 {
     private const uint TokenQuery = 0x0008;
@@ -10,6 +11,8 @@ internal static partial class Elevation
     private const int TokenElevationType = 18;
     private const uint TokenElevationTypeFull = 2;
 
+    /// <summary>Checks the current process token's elevation flag.</summary>
+    /// <returns>True when elevated, false when limited, or null if the token cannot be queried.</returns>
     internal static bool? IsCurrentProcessElevated()
     {
         if (OpenProcessToken(GetCurrentProcess(), TokenQuery, out var token) == 0)
@@ -39,6 +42,7 @@ internal static partial class Elevation
     ///     token for Task Scheduler to hand out on any of them, which is exactly the
     ///     condition the de-elevation fail-open exists to serve.
     /// </summary>
+    /// <returns>True for a full split token, false for other token types, or null on query failure.</returns>
     internal static bool? HasLinkedLimitedToken()
     {
         if (OpenProcessToken(GetCurrentProcess(), TokenQuery, out var token) == 0)

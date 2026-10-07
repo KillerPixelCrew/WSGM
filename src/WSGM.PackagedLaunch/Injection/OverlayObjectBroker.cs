@@ -35,7 +35,7 @@ internal sealed class OverlayObjectBroker : IDisposable
 {
     private const int RequestSize = 552;
 
-    /// <summary>A refusal storm is one line plus a count, not one line per refusal.</summary>
+    /// <summary>Maximum individual refusal entries before a single suppression notice.</summary>
     private const int RefusalsLogged = 3;
 
     private readonly OverlayObjectAllowList _allowed;
@@ -58,6 +58,8 @@ internal sealed class OverlayObjectBroker : IDisposable
         _allowed = new OverlayObjectAllowList(pid, gameId);
     }
 
+    /// <summary>Signals the broker worker, joins it, then releases its mapped view and desktop-side handles.</summary>
+    /// <remarks>The join is synchronous; duplicated game-side handles belong to the target process.</remarks>
     public void Dispose()
     {
         if (stopEvent != IntPtr.Zero)
@@ -82,6 +84,11 @@ internal sealed class OverlayObjectBroker : IDisposable
         stopEvent = IntPtr.Zero;
     }
 
+    /// <summary>Creates an unnamed transport and publishes its duplicated handles into one game's environment.</summary>
+    /// <param name="pid">Target game process that receives the handles.</param>
+    /// <param name="environment">Steam environment entries containing the numeric SteamOverlayGameId.</param>
+    /// <param name="injector">Session injector whose uncertainty latch controls remote environment writes.</param>
+    /// <returns>The owned broker, or null when identity, transport or remote publication fails.</returns>
     internal static OverlayObjectBroker? Start(int pid, IReadOnlyList<string> environment, GameInjector injector)
     {
         var gameId = string.Empty;

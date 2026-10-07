@@ -16,6 +16,9 @@ using WSGM.Device.Sdk.Windows;
 namespace WSGM.Device.Asus.RogAlly;
 
 /// <summary>Front OEM buttons from the vendor collection's 0x5A input reports.</summary>
+/// <param name="vendor">Shared vendor-report reader started and stopped by this service.</param>
+/// <param name="host">Host OEM-event and diagnostic callbacks.</param>
+/// <param name="buttons">Shared button deduplication, holds and latches.</param>
 internal sealed class VendorEventService(
     IAllyVendorHid vendor,
     IPluginHostAdapter host,
@@ -148,6 +151,9 @@ internal sealed class VendorEventService(
 }
 
 /// <summary>OEM buttons the firmware sends as keyboard keys: M1/M2 and the Xbox models' front keys.</summary>
+/// <param name="keyboard">Shared hook source whose watched set follows service/controller ownership.</param>
+/// <param name="host">Host OEM-event and diagnostic callbacks.</param>
+/// <param name="buttons">Shared state combining keyboard and vendor button contributions.</param>
 internal sealed class KeyboardOemService(
     IAllyKeyboardSource keyboard,
     IPluginHostAdapter host,
@@ -218,6 +224,7 @@ internal sealed class KeyboardOemService(
     /// <param name="remapped">Whether HC's M1/M2 table is applied, which swaps the keys' sides.</param>
     /// <param name="cancellationToken">Cancels hook installation.</param>
     /// <remarks>The hook is installed with the first watched key and removed when none is left.</remarks>
+    /// <returns>Completion after watch/mapping changes and any required hook start or stop; disabling clears held rear keys.</returns>
     public async ValueTask SetRearEnabledAsync(
         bool enabled,
         bool remapped,

@@ -27,6 +27,8 @@ internal static class Xbox360Report
     private const uint Y = 0x8000;
 
     /// <summary>Writes one canonical sample into an Xbox 360 input state.</summary>
+    /// <param name="sample">Validated canonical sample in application coordinates.</param>
+    /// <param name="destination">Writable buffer of exactly Length bytes; the encoder initializes the complete report.</param>
     internal static void Write(CanonicalControllerSample sample, Span<byte> destination)
     {
         if (destination.Length != Length)

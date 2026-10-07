@@ -11,7 +11,8 @@ Implement in this order:
 1. Exact, side-effect-free detection and an informative no-match reason.
 2. Direct device-owned services with fakeable parsers/codecs and serialized transports.
 3. Settings declaration, descriptor set, physical devices/haptics, OEM controls, then initial state.
-4. Semantic commands with per-command revalidation, readback, rollback, and restoration.
+4. Semantic commands with per-command revalidation, truthful optional readback and journalled
+   temporary-state restoration; no automatic retry or rollback merely because readback is absent.
 5. Controller acquisition/input normalization/output mapping and ordered release, if supported.
 6. Bounded diagnostics and transition logging.
 7. Hardware-free lifecycle, partial-availability, cancellation, and cleanup tests.
@@ -30,7 +31,7 @@ others; do not fail the whole plugin because one optional service is missing.
   "id": "com.example.handheld",
   "name": "Example Handheld",
   "version": "1.0.0",
-  "apiVersion": 11,
+  "apiVersion": 12,
   "entryAssembly": "Example.Handheld.dll",
   "entryType": "Example.Handheld.DevicePlugin"
 }
@@ -41,17 +42,19 @@ the manifest API integer, not the SDK NuGet or assembly version. The entry assem
 code; the loader requires one public, concrete, non-generic `IDevicePlugin` with a public
 parameterless constructor and a `PackageId` matching the manifest.
 
-Keep package-local managed/native dependencies beside the entry assembly. `WSGM.Device.Sdk`,
+Keep package-local managed dependencies beside the entry assembly. Packages cannot carry native
+images; native APIs come from Windows or installed vendor prerequisites. `WSGM.Device.Sdk`,
 `WSGM.Plugin.Sdk`, SteamUiToolkit, `WinRT.Runtime` and `Microsoft.Windows.SDK.NET` always resolve to
 the host's copy, whatever the package ships. Declare prerequisites and report them unavailable;
-never install a driver, edit machine policy, restart a device, or run an installer from plugin code.
+never invent a prerequisite installer in the SDK. Device-specific repair needs a documented package
+policy, such as the Claw OEM event repair using MSI's already-installed support files.
 
 ## Capabilities, layout, and settings
 
 - Prefer the existing `CapabilityRole`, value kind, unit, display key, reason code, and persistence
   vocabulary. Closed vocabularies keep the host, not plugin text or UI code, in control of
   rendering.
-- Publish a complete `CapabilityDescriptorSet`, including its sections, categories, API 6 layout
+- Publish a complete `CapabilityDescriptorSet`, including its sections, categories, API 5 layout
   hints (`Prominence`, `LayoutPair`), power presets and power pair. Any changed descriptor or layout
   requires a new descriptor generation.
 - A value record is a tagged union by contract; constructors do not enforce that exactly one field
@@ -120,7 +123,7 @@ publication and trace, call SDK validators explicitly, and cover:
 - cancellation after each acquisition stage;
 - stale cycle/descriptor generations;
 - verified, unverified, rejected, timed-out, and indeterminate commands;
-- partial-write rollback and first-original restoration;
+- truthful partial-write outcomes, no blind retry, and first-original restoration;
 - suspend/resume under a fresh generation, and controller re-enable within the same one;
 - a pad missing at acquire or dropping off the bus: Degraded, then attached when it returns;
 - release and stop after repeated calls or failures;
@@ -148,7 +151,8 @@ When compatibility is deliberately broken, also update:
 The Device Lab scaffold template and `tests/Shared/PluginManifestFixture.cs` take
 `DeviceApi.Version` automatically.
 
-Deliver these changes together in one WSGM pull request. A green SDK build alone is insufficient
+Deliver these changes together in one coordinated WSGM change, following the root commit workflow;
+create a pull request only when the maintainer requests one. A green SDK build alone is insufficient
 because lifecycle, input, haptic, and OEM behavior is mostly proven in WSGM and real-plugin tests.
 
 Build before the maintainer's manual test. Run the tests afterwards, and pack only when a package is

@@ -44,12 +44,15 @@ unplugged external GPU). WSGM enables a matched graphics package by default. The
 Settings offers a matched one that is not installed and lists the others as not for this PC's
 graphics.
 
-The profile page asks every first-run choice once: Full or Minimal, Steam first or Desktop first,
-start at sign-in, and Customize for each integration including the Steam autostart takeover. Setup
-passes them as setup answers (`--setup --answers=<file>`, `Core\SetupAnswers.cs`). An update or
-repair starts from the values WSGM exports (`--export-setup-answers`), so it never silently undoes
-Settings. A quiet fresh install never takes over Steam's autostart; a quiet update keeps an accepted
-takeover. Quick Setup is retired, and WSGM Settings changes the choices afterwards.
+The Profile page asks Full or Minimal, Steam first or Desktop first, start at sign-in and consent to
+take over Steam's autostart. Customize is a separate following step in installs, updates and
+repairs, with a description for each integration switch. A fresh install starts with Full when a
+device plugin is selected and Minimal without one, until the user explicitly chooses a level or
+edits a switch. Setup passes the choices as setup answers (`--setup --answers=<file>`,
+`Core\SetupAnswers.cs`). An update or repair starts from the values WSGM exports
+(`--export-setup-answers`), so it never silently undoes Settings. A quiet fresh install never takes
+over Steam's autostart; a quiet update keeps an accepted takeover. Quick Setup is retired, and WSGM
+Settings changes the choices afterwards.
 
 On a fresh installation, selecting Device Integration also enables controller management so the
 installed device plugin can supply controller input. Updates and repairs preserve the saved
@@ -173,16 +176,21 @@ install and upgrade take two setup runs and a restart; the mechanism and the evi
    chosen ones.
 10. `WSGM.exe --setup --answers=<file>` (per-user files, migrate off any legacy shell registration,
     the Xbox-FSE guard, the boot manifest, the answers), then `WSGM.LogonService.exe --install`
-    (create-or-reconfigure, failure actions, start), then the USB/IP driver and HidHide when the
-    plugin needs them, then shortcuts and the Installed apps entry.
-11. Start WSGM in its previous mode (`--shell`, or Settings), or the session on a fresh install.
+    (create-or-reconfigure, failure actions, start). A controller package adds the USB/IP version
+    check and HidHide step. The USB/IP check can arrange the separate restart run described below;
+    it never replaces the driver in this run. Selected RTSS installation, the bundled WebView2
+    runtime, shortcuts and the Installed apps entry follow.
+11. After successful interactive completion, start WSGM in its previous mode (`--shell`, or
+    Settings), or the session on a fresh install. A quiet update or repair restarts the previous
+    runtime; a quiet fresh install does not start it. No path starts WSGM while a driver update is
+    pending.
 
 Setup holds one machine-wide owner before staging or choosing packages. A durable
 `%PROGRAMDATA%\WSGM\setup-transaction.json` retains the previous application, plugin set, setup
 executable, package cache, bundle metadata and registered version until file installation commits. A
 fatal failure restores that set before restarting the previous runtime. Recovery that cannot finish
-retains its journal and backups, and does not start a mismatched runtime. Normal WSGM and sign-in
-startup refuse an incomplete transaction; the early desktop escape remains available.
+retains its journal and backups, and does not start a mismatched runtime. Resident-shell and sign-in
+startup refuse an incomplete transaction; Settings and the early desktop escape remain available.
 
 A later setup first stops the relevant owners and recovers the transaction before detecting
 installed packages or preparing answers. Committed or fully restored journals require only backup
@@ -260,11 +268,29 @@ lease, and `WTS_SESSION_LOGOFF` requests the five-second session-end shutdown be
 Display-mute owns its own lease for unlock recovery, so toggling that feature cannot deregister the
 shell's logoff signal.
 
-## Restart follows the USB/IP driver only
+## The USB/IP driver gets a separate boot
 
-Setup asks for a restart only when it installed the USB/IP driver and the driver either reported a
-reboot or reported nothing (stay conservative when the status file is missing). Ordinary updates
-never ask. A quiet run never restarts; it only logs the need.
+Normal install, update and repair call `Install-UsbipDriver.ps1 -CheckOnly`, including when USB/IP
+is already present. The script compares its installed version with the pinned payload; presence
+alone is insufficient. A missing or outdated driver makes setup disable the sign-in service and
+schedule its installed executable through RunOnce with `/finishdrivers`. The application and package
+installation finishes, but WSGM is not started. The interactive result is the Restart page with
+**Restart now**; if automatic resumption could not be scheduled, the page asks the user to run setup
+again after restarting. A manual completion run must include `/finishdrivers`, because a normal run
+still performs only the version check.
+
+`/finishdrivers` is the only mode that installs or upgrades USB/IP. Its plan contains the driver
+step and `WSGM.LogonService.exe --install` to turn sign-in startup back on. It does not replay the
+profile, replace packages or repeat the application installation. The mode is the authority, without
+a marker file or an inferred service-start-type check. This avoids replacing a driver to which WSGM
+already attached a controller in the current boot; the failure evidence is in
+[device integration](device-integration.md#the-usbip-driver-is-replaced-on-a-boot-of-its-own).
+
+A quiet run never restarts Windows itself. A pending driver-update boot returns 6, which the caller
+must handle. The actual driver install can also report a further reboot requirement; a missing
+status file reports failure and conservatively sets that requirement. An application-only update
+with an up-to-date controller driver does not acquire a restart requirement merely for updating
+WSGM.
 
 ## Media preview runtime
 
@@ -276,3 +302,63 @@ not download this component. A failure is reported without disabling unrelated W
 preview controls explain runtime/playback failures. Uninstall leaves this shared Microsoft runtime
 installed because other applications may use it. The app carries the loader/Core SDK and notices,
 without introducing WPF or WinForms UI dependencies.
+
+## Command-line and result contract
+
+[`SetupOptions`](../src/WSGM.Setup/SetupOptions.cs) parses the setup switches. With no mode switch,
+setup detects a fresh installation, an older version to update, the same version to repair/remove,
+or a newer version that it refuses to replace. Version comparison includes the fourth assembly
+version component, the build revision.
+[`SetupUserIdentity`](../src/WSGM.Install/SetupUserIdentity.cs) refuses a different administrator
+account before per-user configuration or recovery state is changed; setup must run as the account
+that uses WSGM.
+
+| Option                             | Meaning                                                                                            |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `/quiet` or `/silent`              | Run the same engine without the page flow, using current answers or explicit input                 |
+| `/update`, `/repair`, `/uninstall` | Select the maintenance workflow; uninstall alone accepts `/removedata` and `/keepcomponents`       |
+| `/finishdrivers`                   | Complete the scheduled driver-install boot and re-enable the sign-in service                       |
+| `/answers=<file>`                  | Supply setup answers instead of the exported/default answers in a quiet install                    |
+| `/plugin=<id>` or `/plugin=none`   | Select a bundled device package or no device package in a quiet install                            |
+| `/removedata`                      | Uninstall settings/data as well, except recovery ledgers that must remain                          |
+| `/keepcomponents`                  | Leave WSGM-installed USB/IP and HidHide installed on uninstall                                     |
+| `/payload=<dir>`                   | Use an expanded payload directory for a development setup executable built without an embedded ZIP |
+
+Answers and plugin overrides are consumed by `QuietSetup`; the interactive page flow obtains its
+choices from the pages. Unknown switches are rejected. These commands install, remove or recover
+live machine state and are not documentation/build validation commands.
+
+| Quiet result | Meaning                                                                        |
+| ------------ | ------------------------------------------------------------------------------ |
+| `0`          | The plan completed successfully                                                |
+| `1`          | Setup failed, including another setup already owning the machine               |
+| `2`          | A newer WSGM version is installed                                              |
+| `3`          | Uninstall still reports hidden controller devices                              |
+| `4`          | Steam is missing                                                               |
+| `5`          | No embedded or supplied setup payload is available                             |
+| `6`          | WSGM autostart is disabled and a restart is needed to finish the driver update |
+| `64`         | Command-line parsing failed before the plan started                            |
+
+The detailed result remains in `setup.log`: optional-component failures can be reported by their
+step without undoing the successful application transaction. A quiet `/update` failure also writes
+`update-failed.txt` and shows the error described above.
+
+## Source ownership
+
+| Source                                                                                                                                                                                                                                     | Responsibility                                                                                                              |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| [`Program.cs`](../src/WSGM.Setup/Program.cs), [`SetupOptions.cs`](../src/WSGM.Setup/SetupOptions.cs), [`QuietSetup.cs`](../src/WSGM.Setup/QuietSetup.cs)                                                                                   | Command admission, `Global\WSGM.SetupOwner`, UI/quiet dispatch, kept choices and process results                            |
+| [`UI/SetupViewModel.cs`](../src/WSGM.Setup/UI/SetupViewModel.cs), [`UI/Pages.cs`](../src/WSGM.Setup/UI/Pages.cs), [`UI/ProfilePage.cs`](../src/WSGM.Setup/UI/ProfilePage.cs)                                                               | Flow, page-specific close policy, choices, feature descriptions and separate Customize step                                 |
+| [`SetupPayload.cs`](../src/WSGM.Setup/SetupPayload.cs)                                                                                                                                                                                     | Embedded ZIP or expanded development payload, bundle loading and staged extraction                                          |
+| [`Engine/SetupEngine.cs`](../src/WSGM.Setup/Engine/SetupEngine.cs)                                                                                                                                                                         | Detect, prepare answers, build and execute install/uninstall/driver plans, rollback and restart admission                   |
+| [`Engine/SetupFileTransaction.cs`](../src/WSGM.Setup/Engine/SetupFileTransaction.cs)                                                                                                                                                       | Durable file and registration rollback journal, backup retention and interrupted-setup recovery                             |
+| [`Engine/RuntimeShutdown.cs`](../src/WSGM.Setup/Engine/RuntimeShutdown.cs) and [`Engine/WindowsSetup.cs`](../src/WSGM.Setup/Engine/WindowsSetup.cs)                                                                                        | Service state, exit-event handoff, current-session process checks, anchor retirement, deletion and deferred cleanup         |
+| [`Engine/Registration.cs`](../src/WSGM.Setup/Engine/Registration.cs)                                                                                                                                                                       | Installed version, legacy uninstaller, shortcuts, Installed apps registration and driver-resume RunOnce                     |
+| [`Engine/RtssInstaller.cs`](../src/WSGM.Setup/Engine/RtssInstaller.cs), [`Engine/WebViewRuntimeInstaller.cs`](../src/WSGM.Setup/Engine/WebViewRuntimeInstaller.cs), [`Install-UsbipDriver.ps1`](../src/WSGM.Setup/Install-UsbipDriver.ps1) | Component-specific presence/version checks, pinned payload validation and installer execution                               |
+| [`WSGM.Install`](../src/WSGM.Install)                                                                                                                                                                                                      | Shared bundle schema, machine/display inventory, ranked offers, component roles, account identity and update-failure record |
+| [`Shared/Install/InstallLayout.cs`](../src/Shared/Install/InstallLayout.cs)                                                                                                                                                                | Product roots and pending-transaction admission shared with the logon service                                               |
+| [`Core/SetupAnswers.cs`](../src/WSGM/Core/SetupAnswers.cs), [`Core/Installer.cs`](../src/WSGM/Core/Installer.cs) and [`Program.cs`](../src/WSGM/Program.cs)                                                                                | Export/apply user choices and runtime-owned restoration one-shots                                                           |
+| [`build.ps1`](../build.ps1) and [`eng/build-bundle.ps1`](../eng/build-bundle.ps1)                                                                                                                                                          | Explicit payload allowlist, source-built native components, curated packages and final setup executable                     |
+
+See [development](development.md) for building the payload and [logging](logging.md) for the
+distinction between application, service, launcher and setup logs.

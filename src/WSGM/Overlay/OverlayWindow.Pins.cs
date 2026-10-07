@@ -280,6 +280,9 @@ public partial class OverlayWindow
     }
 
     /// <summary>Determines whether a tagged card is an original row in the active pin set.</summary>
+    /// <param name="tag">Semantic tag attached to the focused control.</param>
+    /// <param name="pinned">Current set of pinned group IDs.</param>
+    /// <returns>True for an original source row whose group is pinned; pinned copies are excluded.</returns>
     internal static bool IsOriginalPinnedRow(object? tag, IReadOnlySet<string> pinned)
     {
         return tag is string id
@@ -398,6 +401,7 @@ public partial class OverlayWindow
     ///     icon, otherwise pin/unpin the focused row. Logged either way — this is
     ///     remote-diagnosis territory.
     /// </summary>
+    /// <param name="focused">Current focus target, or null; contextual pin or tray behavior is selected from its semantic identity.</param>
     internal void RequestSecondaryAction(InputElement? focused)
     {
         if (focused is Control { DataContext: TrayIconEntry entry } control)

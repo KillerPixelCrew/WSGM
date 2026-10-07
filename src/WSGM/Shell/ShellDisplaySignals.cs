@@ -22,6 +22,7 @@ internal sealed class ShellDisplayPresence : IDisplayPresence
 ///     nothing, every wait falls back to the backstop delay and the waiter still finds the display on
 ///     its next look.
 /// </summary>
+/// <param name="window">Borrowed display-notification window; null uses only the backstop delay. Each wait revokes its own event handler.</param>
 internal sealed class ShellDisplayChangeSignal(DisplayChangeWindow? window) : IDisplayChangeSignal
 {
     /// <inheritdoc />

@@ -5,13 +5,8 @@ using Avalonia.Threading;
 namespace WSGM.Input;
 
 /// <summary>
-///     The union/hold-timer chord state machine shared by the recorder and the
-///     watcher, modelled on Handheld Companion's InputsManager: buttons accumulate into
-///     a union that only clears on full release (so a combo does not need frame-perfect
-///     presses), and a hold timer restarted on every state change promotes the chord to
-///     "hold". State is tracked per physical pad: a chord must complete on ONE
-///     controller — buttons held on another pad neither join the union nor block the
-///     full-release detection.
+///     UI-thread chord tracker shared by recording and activation. Buttons accumulate per physical pad
+///     until full release; a hold fires 600 ms after that pad's last state change.
 /// </summary>
 internal sealed class ChordTracker : IDisposable
 {
@@ -23,6 +18,7 @@ internal sealed class ChordTracker : IDisposable
 
     private readonly Dictionary<uint, Pad> _pads = new();
 
+    /// <summary>Stops every hold timer and clears episodes without raising release or cancellation events.</summary>
     public void Dispose()
     {
         Reset();
@@ -40,7 +36,9 @@ internal sealed class ChordTracker : IDisposable
     /// </summary>
     public event Action<Pad>? Released;
 
-    /// <summary>Feed one pad's full state (from GamepadService.StateChanged).</summary>
+    /// <summary>Feeds one changed full button state on the UI thread.</summary>
+    /// <param name="padId">Stable identity for the physical source; different sources never form a shared chord.</param>
+    /// <param name="state">Complete held mask; zero completes and removes the episode, including on disconnect.</param>
     public void OnState(uint padId, GamepadButtons state)
     {
         if (!_pads.TryGetValue(padId, out var pad))
@@ -54,13 +52,12 @@ internal sealed class ChordTracker : IDisposable
             _pads[padId] = pad = newPad;
         }
 
-        // Every state change restarts the hold clock: it measures "time since the
-        // last change", which is what lets a second button join the combo late.
+        // Restart on changes so another button can join the same hold episode.
         pad.HoldTimer.Stop();
 
         if (state != 0)
         {
-            pad.Union |= state; // union, cleared only on full release
+            pad.Union |= state;
             pad.HoldTimer.Start();
             return;
         }
@@ -68,17 +65,11 @@ internal sealed class ChordTracker : IDisposable
         Released?.Invoke(pad);
         pad.Union = 0;
         pad.HoldConsumed = false;
-        // Evict on full release: SDL hands every replug a fresh joystick instance
-        // id, so after removal (GamepadService synthesizes a 0-state) this entry
-        // could never be reused — keeping it would leak one Pad+timer per replug.
-        // Safe for a still-connected pad too: the next press creates a fresh Pad
-        // whose state (Union=0, HoldConsumed=false, timer stopped) is exactly the
-        // post-release reset above, so chord accumulation semantics are unchanged.
-        // The hold timer was stopped before this branch, so nothing keeps firing.
+        // SDL allocates a new identity on replug; eviction prevents an abandoned timer per old identity.
         _pads.Remove(padId);
     }
 
-    /// <summary>Abandons every pad's in-flight episode.</summary>
+    /// <summary>Stops timers and clears all episodes on the UI thread without notifying consumers.</summary>
     public void Reset()
     {
         foreach (var pad in _pads.Values)
@@ -92,6 +83,7 @@ internal sealed class ChordTracker : IDisposable
     /// <summary>One pad's chord episode. Union accumulates until full release.</summary>
     internal sealed class Pad
     {
+        /// <summary>UI-thread timer restarted by each state change and stopped before release notification.</summary>
         public readonly DispatcherTimer HoldTimer = new() { Interval = Hold };
 
         /// <summary>
@@ -100,6 +92,7 @@ internal sealed class ChordTracker : IDisposable
         /// </summary>
         public bool HoldConsumed;
 
+        /// <summary>Every button observed during this episode; inspect during Released before it resets.</summary>
         public GamepadButtons Union;
     }
 }

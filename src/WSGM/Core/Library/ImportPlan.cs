@@ -90,6 +90,8 @@ public sealed class ImportedEntry
     /// </remarks>
     public bool OwnsProfile { get; set; }
 
+    /// <summary>Copies this import record for a detached caller projection.</summary>
+    /// <returns>A new record object carrying the same scalar and string values.</returns>
     internal ImportedEntry Copy()
     {
         var copy = (ImportedEntry)MemberwiseClone();

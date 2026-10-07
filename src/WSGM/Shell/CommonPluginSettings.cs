@@ -16,6 +16,11 @@ internal sealed class CommonPluginSettings
     private readonly IConfigurablePlugin _plugin;
     private readonly IPluginConfigurationStore _store;
 
+    /// <summary>Captures and validates a plugin's setting schema and its allowed choices.</summary>
+    /// <param name="plugin">Borrowed configuration receiver; calls must be serialized by its registration.</param>
+    /// <param name="store">Desired-preference store; effective-state publications never write it.</param>
+    /// <param name="identity">Instance whose saved revisions are read and changed.</param>
+    /// <exception cref="ArgumentException">The declared schema is invalid.</exception>
     internal CommonPluginSettings(IConfigurablePlugin plugin, IPluginConfigurationStore store,
         PluginInstanceIdentity identity)
     {
@@ -36,15 +41,26 @@ internal sealed class CommonPluginSettings
         _identity = identity;
     }
 
+    /// <summary>The last composed delivery, including defaults; null before a valid delivery is prepared.</summary>
     internal PluginConfiguration? Desired { get; private set; }
+    /// <summary>The last delivery result; null before delivery, and unconfirmed while a delivery is outstanding.</summary>
     internal PluginConfigurationResult? Result { get; private set; }
+    /// <summary>The captured read-only schema, with separate read-only copies of choice lists.</summary>
     internal IReadOnlyList<PluginSetting> Schema { get; }
 
+    /// <summary>Delivers saved values and declared defaults without saving either the response or defaults.</summary>
+    /// <param name="context">Current instance generation and delivery deadline.</param>
+    /// <param name="cancellationToken">Cancels delivery; a dispatched configuration may already have taken effect.</param>
+    /// <returns>The plugin's confirmation, or rejected/unconfirmed when the schema or confirmation is invalid.</returns>
     internal Task<PluginConfigurationResult> RestoreAsync(PluginContext context, CancellationToken cancellationToken)
     {
         return DeliverAsync(_store.Read(_identity), PluginConfigurationOrigin.Restore, context, cancellationToken);
     }
 
+    /// <summary>Delivers a newer saved revision once; the same revision returns its previous result without retrying.</summary>
+    /// <param name="context">Current instance generation and delivery deadline.</param>
+    /// <param name="cancellationToken">Cancels a new delivery; it does not undo a dispatched write.</param>
+    /// <returns>The previous result, a new delivery result, or rejection when the saved revision moved backwards.</returns>
     internal Task<PluginConfigurationResult> RefreshAsync(PluginContext context, CancellationToken cancellationToken)
     {
         var saved = _store.Read(_identity);
@@ -58,6 +74,14 @@ internal sealed class CommonPluginSettings
         };
     }
 
+    /// <summary>Validates and saves explicit preference edits before delivering the resulting configuration once.</summary>
+    /// <param name="expectedRevision">Saved revision against which this edit was made; stale edits throw.</param>
+    /// <param name="changes">Declared keys and valid values to copy into the saved change set.</param>
+    /// <param name="context">Current instance generation and delivery deadline.</param>
+    /// <param name="cancellationToken">Cancels before saving or during delivery; cancellation after save does not revert preferences.</param>
+    /// <returns>The delivery result. Rejected or unconfirmed delivery leaves the saved desired preferences intact.</returns>
+    /// <exception cref="InvalidOperationException">The saved revision differs from the expected revision.</exception>
+    /// <exception cref="ArgumentException">An edit or existing saved value does not match the current schema.</exception>
     internal async Task<PluginConfigurationResult> ChangeAsync(long expectedRevision,
         IReadOnlyDictionary<string, PluginValue> changes,
         PluginContext context, CancellationToken cancellationToken)

@@ -7,9 +7,13 @@ using WSGM.Core;
 
 namespace WSGM.Shell;
 
+/// <summary>Projects device presets and profile-aware power-source assignments into Steam.</summary>
+/// <param name="presets">Borrowed device preset reader, or null when the device offers no presets.</param>
+/// <param name="assignments">Borrowed assignment owner, or null when automatic/profile assignment is unavailable.</param>
 internal sealed class NativeQamPowerPresetService(DevicePowerPresets? presets, DevicePowerAssignments? assignments)
     : ISteamPowerPresetBackend
 {
+    /// <inheritdoc />
     public async Task<SteamUiCommandResult> SetAssignmentAsync(bool ac, string? option,
         CancellationToken cancellationToken)
     {
@@ -30,6 +34,8 @@ internal sealed class NativeQamPowerPresetService(DevicePowerPresets? presets, D
         }
     }
 
+    /// <summary>Reads device presets and combines them with the current AC/battery assignment scope.</summary>
+    /// <returns>Choices, observed preset and assignments; unavailable dependencies produce an unavailable state, and Custom is a display-only option.</returns>
     internal async ValueTask<SteamPowerPresetState?> ReadAsync()
     {
         if (presets is null)

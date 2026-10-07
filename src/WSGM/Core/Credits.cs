@@ -57,6 +57,9 @@ public static class Credits
     /// <remarks>Settable for the UI tests, whose baselines cannot follow a revision that every commit moves.</remarks>
     public static string VersionText { get; internal set; } = Describe(typeof(Credits).Assembly.GetName().Version);
 
+    /// <summary>Formats release and optional build revision for the About surface.</summary>
+    /// <param name="version">Assembly version, or null for unknown development metadata.</param>
+    /// <returns>Major.minor.patch with a positive revision suffix, or development build when unknown.</returns>
     internal static string Describe(Version? version)
     {
         if (version is null)

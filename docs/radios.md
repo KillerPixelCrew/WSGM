@@ -71,3 +71,21 @@ exercised through the overlay's radio panel, pairing included.
 Compile and isolated tests prove the managed contracts. Power, discovery, pairing ceremonies, audio
 reconnection, location consent, and shell-less or elevated behaviour still need device verification
 on the reference handheld.
+
+## Source routes
+
+[RadioManager](../src/WSGM/Shell/RadioManager.cs) owns radio observations and operations;
+[RadioEntries](../src/WSGM/Shell/RadioEntries.cs) holds UI-facing entries;
+[BluetoothDeviceCatalog](../src/WSGM/Shell/BluetoothDeviceCatalog.cs) merges endpoint identity and
+rejects stale discovery callbacks. The pairing state belongs to the manager, so closing one panel
+does not make another consumer's discovery request disappear.
+
+[AudioManager](../src/WSGM/Shell/AudioManager.cs) owns live volume/mute and endpoints;
+[AudioDiscovery](../src/WSGM/Shell/AudioDiscovery.cs) coordinates discovery;
+[AudioPlaybackChoices](../src/WSGM/Shell/AudioPlaybackChoices.cs) and
+[AudioEndpointText](../src/WSGM/Shell/AudioEndpointText.cs) project choices and wording.
+[NativeQamAudioService](../src/WSGM/Shell/NativeQamAudioService.cs) and
+[NativeQamAudioFormatService](../src/WSGM/Shell/NativeQamAudioFormatService.cs) expose the same
+state to Steam. Saved Game Mode audio policy is owned separately by
+[AudioProfileService](../src/WSGM/Shell/AudioProfileService.cs), described in
+[power and display](power-and-display.md#game-mode-audio-profiles).

@@ -1,16 +1,18 @@
-// What WSGM's tabbed store pages (Themes, Animations) share and differ in only by their patch id.
-//
-// Function declarations, so a page fragment that sorts ahead of this one can call them at its top
-// level: the fragments are one scope, and these are hoisted to its start.
-
-// A page's command sender. A refusal is explained by the host in its next state and the page draws
-// that, so nothing is swallowed here.
+/**
+ * Creates a command sender for pages whose error banner comes from host state.
+ * @param patchId Registered WSGM page command identity.
+ * @returns A sender resolving to the backend result, or undefined on rejection; the page relies on host publication for error display.
+ */
 function wsgmPageAct(patchId: string) {
   return (command: string, payload: any = {}) => request(patchId, command, payload).catch(() => undefined);
 }
 
-// The tabbed frame's active tab, tab switch and banner, sent back as the host's setTab and dismiss
-// commands.
+/**
+ * Projects published page navigation and notices into the shared tabbed frame.
+ * @param act Page sender accepting setTab and dismiss commands.
+ * @param state Published activeTab, error and notice fields.
+ * @returns Frame props; errors take precedence over notices and no message yields a null banner.
+ */
 function wsgmPageFrame(act: (command: string, payload?: any) => unknown, state) {
   const banner = state.error || state.notice;
   return {

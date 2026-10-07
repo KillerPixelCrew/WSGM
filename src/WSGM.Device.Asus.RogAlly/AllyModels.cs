@@ -44,6 +44,10 @@ internal readonly record struct AxisMap(
     float SignZ)
 {
     /// <summary>HC's <c>AxisSwap {X: X, Y: Z, Z: Y}</c> with the given output signs.</summary>
+    /// <param name="signX">Multiplier applied to output X from raw X.</param>
+    /// <param name="signY">Multiplier applied to output Y from raw Z.</param>
+    /// <param name="signZ">Multiplier applied to output Z from raw Y.</param>
+    /// <returns>The requested axis transform; multipliers are retained without validation.</returns>
     public static AxisMap SwapYz(float signX, float signY, float signZ)
     {
         return new AxisMap(0, 2, 1, signX, signY, signZ);
@@ -66,6 +70,11 @@ internal readonly record struct AxisMap(
 }
 
 /// <summary>A power shortcut as HC declares it: one watt target and one ASUS performance mode.</summary>
+/// <param name="Id">Stable preset identifier published to the host.</param>
+/// <param name="Name">User-facing preset name.</param>
+/// <param name="Watts">Target package wattage associated with this shortcut.</param>
+/// <param name="Scenario">ASUS performance-mode identifier.</param>
+/// <param name="WindowsMode">Windows power-mode preference paired with the device settings.</param>
 internal sealed record AllyPreset(string Id, string Name, int Watts, string Scenario, DevicePowerMode WindowsMode);
 
 /// <summary>Everything that differs between the four supported Ally models.</summary>
@@ -268,6 +277,9 @@ internal static class AllyModels
     ];
 
     /// <summary>Returns the exact model for an identity, or null when this package does not apply.</summary>
+    /// <param name="identity">SMBIOS snapshot containing baseboard manufacturer and product.</param>
+    /// <returns>The exact supported model, or null when the baseboard identity is outside this package.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="identity" /> is null.</exception>
     public static AllyModel? Match(DeviceIdentitySnapshot identity)
     {
         ArgumentNullException.ThrowIfNull(identity);
@@ -275,6 +287,9 @@ internal static class AllyModels
     }
 
     /// <summary>Returns the exact model for a baseboard manufacturer and product.</summary>
+    /// <param name="manufacturer">Baseboard manufacturer; null or a non-ASUS value does not match.</param>
+    /// <param name="product">Baseboard product, trimmed and compared case-insensitively against exact model aliases.</param>
+    /// <returns>The first exact supported model, or null for missing or unmatched fields.</returns>
     public static AllyModel? Match(string? manufacturer, string? product)
     {
         if (!string.Equals(manufacturer?.Trim(), Manufacturer, StringComparison.OrdinalIgnoreCase)
@@ -301,6 +316,9 @@ internal static class AllyModels
     ///     models the Xbox button is the Guide, Library is Quick Access, and Armoury Crate carries no
     ///     Steam button because WSGM opens its overlay from it.
     /// </remarks>
+    /// <param name="model">Model whose physical front-button layout determines the action.</param>
+    /// <param name="code">Event byte decoded from a 0x5A vendor input report.</param>
+    /// <returns>Logical OEM control, press/release edge and canonical button contribution, or null for an ignored code.</returns>
     public static AllyVendorAction? VendorAction(AllyModel model, byte code)
     {
         var (left, right) = model.Layout is AllyFrontLayout.Xbox
@@ -322,6 +340,8 @@ internal static class AllyModels
     }
 
     /// <summary>The OEM controls a model publishes.</summary>
+    /// <param name="model">Model determining the front layout and published rear controls.</param>
+    /// <returns>The model's ordered OEM descriptors; this does not probe current input availability.</returns>
     public static IReadOnlyList<OemControlDescriptor> OemControls(AllyModel model)
     {
         return model.Layout is AllyFrontLayout.Xbox
@@ -346,6 +366,9 @@ internal static class AllyModels
     }
 
     /// <summary>ASUS performance modes, by the value ATKACPI and HC's OEMPowerMode use.</summary>
+    /// <param name="scenario">Performance, Turbo or Silent scenario identifier.</param>
+    /// <returns>The native performance-mode byte: 0, 1 or 2 respectively.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="scenario" /> is unrecognized.</exception>
     public static byte ScenarioValue(string scenario)
     {
         return scenario switch

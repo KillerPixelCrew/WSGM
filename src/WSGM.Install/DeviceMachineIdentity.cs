@@ -10,6 +10,7 @@ namespace WSGM.Install;
 public static class DeviceMachineIdentity
 {
     /// <summary>Reads stable SMBIOS values exposed by Windows in the hardware registry hive.</summary>
+    /// <returns>A normalized identity with null fields for absent registry values.</returns>
     public static DeviceIdentitySnapshot Collect()
     {
         using var bios = Registry.LocalMachine.OpenSubKey(
@@ -34,6 +35,8 @@ public static class DeviceMachineIdentity
     }
 
     /// <summary>Builds a stable, non-secret local key for persisted per-device intent.</summary>
+    /// <param name="identity">Identity whose manufacturer, baseboard, revision and SKU form the key.</param>
+    /// <returns>The first 24 uppercase hexadecimal digits of the normalized identity's SHA-256 hash.</returns>
     public static string StableKey(DeviceIdentitySnapshot identity)
     {
         ArgumentNullException.ThrowIfNull(identity);

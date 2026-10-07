@@ -171,6 +171,7 @@ internal static unsafe partial class NativeStorage
 
     /// <summary>Decodes a STORAGE_DEVICE_NUMBER buffer.</summary>
     /// <param name="buffer">At least <see cref="DeviceNumberRecordSize" /> bytes.</param>
+    /// <returns>Native device type, disk number and partition number from the fixed-layout record.</returns>
     internal static (int DeviceType, int DeviceNumber, int PartitionNumber) ReadDeviceNumber(
         ReadOnlySpan<byte> buffer)
     {
@@ -184,6 +185,7 @@ internal static unsafe partial class NativeStorage
     ///     removable from the device, and whether the device itself is hot-pluggable.
     /// </summary>
     /// <param name="buffer">At least <see cref="HotplugRecordSize" /> bytes.</param>
+    /// <returns>Independent removable-media and hot-pluggable-device flags.</returns>
     internal static (bool MediaRemovable, bool DeviceHotplug) ReadHotplugInfo(
         ReadOnlySpan<byte> buffer)
     {
@@ -197,6 +199,7 @@ internal static unsafe partial class NativeStorage
     ///     privilege and touches no media.
     /// </summary>
     /// <param name="letter">The drive letter.</param>
+    /// <returns>Caller-owned handle, possibly invalid on failure; inspect IsInvalid and dispose after use.</returns>
     internal static SafeFileHandle OpenVolumeForQuery(char letter)
     {
         return CreateFileW($@"\\.\{letter}:", 0, FileShareReadWrite, 0, OpenExisting, 0, 0);
@@ -204,6 +207,7 @@ internal static unsafe partial class NativeStorage
 
     /// <summary>Opens a volume for the lock/dismount/eject sequence.</summary>
     /// <param name="letter">The drive letter.</param>
+    /// <returns>Caller-owned handle, possibly invalid on failure; inspect IsInvalid and dispose after use.</returns>
     internal static SafeFileHandle OpenVolumeForEject(char letter)
     {
         return CreateFileW($@"\\.\{letter}:", GenericRead | GenericWrite, FileShareReadWrite, 0,
@@ -211,6 +215,8 @@ internal static unsafe partial class NativeStorage
     }
 
     /// <summary>Opens the exact enumerated disk interface for a media eject request.</summary>
+    /// <param name="path">Exact currently enumerated device-interface path; this method does not revalidate its physical identity.</param>
+    /// <returns>Caller-owned handle; inspect IsInvalid and LastWin32Error before use, then dispose it.</returns>
     internal static SafeFileHandle OpenDeviceForMediaEject(string path)
     {
         return CreateFileW(path, GenericRead | GenericWrite, FileShareReadWrite, 0, OpenExisting, 0, 0);
@@ -218,6 +224,7 @@ internal static unsafe partial class NativeStorage
 
     /// <summary>Opens a device-interface path for attribute queries only.</summary>
     /// <param name="path">A path from <see cref="ListDiskInterfaces" />.</param>
+    /// <returns>Caller-owned handle, possibly invalid on failure; inspect IsInvalid and dispose after use.</returns>
     internal static SafeFileHandle OpenVolumeForQueryPath(string path)
     {
         return CreateFileW(path, 0, FileShareReadWrite, 0, OpenExisting, 0, 0);
@@ -225,6 +232,7 @@ internal static unsafe partial class NativeStorage
 
     /// <summary>Opens a physical disk for attribute queries only.</summary>
     /// <param name="number">The disk number.</param>
+    /// <returns>Caller-owned handle, possibly invalid on failure; inspect IsInvalid and dispose after use.</returns>
     internal static SafeFileHandle OpenDiskForQuery(int number)
     {
         return CreateFileW($@"\\.\PhysicalDrive{number}", 0, FileShareReadWrite, 0, OpenExisting, 0, 0);
@@ -235,6 +243,7 @@ internal static unsafe partial class NativeStorage
     ///     (IOCTL_DISK_GET_LENGTH_INFO) demand read access.
     /// </summary>
     /// <param name="number">The disk number.</param>
+    /// <returns>Caller-owned handle, possibly invalid on failure; inspect IsInvalid and dispose after use.</returns>
     internal static SafeFileHandle OpenDiskForRead(int number)
     {
         return CreateFileW($@"\\.\PhysicalDrive{number}", GenericRead, FileShareReadWrite, 0,
@@ -245,6 +254,7 @@ internal static unsafe partial class NativeStorage
     /// <param name="volume">An open volume handle.</param>
     /// <param name="deviceType">The FILE_DEVICE_* type of the underlying device.</param>
     /// <param name="deviceNumber">The physical disk number.</param>
+    /// <returns>True for a complete native record; false sets deviceType to zero and deviceNumber to -1.</returns>
     internal static bool TryGetDeviceNumber(
         SafeFileHandle volume, out int deviceType, out int deviceNumber)
     {
@@ -270,6 +280,7 @@ internal static unsafe partial class NativeStorage
     /// <param name="disk">An open physical-disk handle.</param>
     /// <param name="mediaRemovable">Whether the media can leave the device.</param>
     /// <param name="deviceHotplug">Whether the device itself is hot-pluggable.</param>
+    /// <returns>True for a complete record; false clears both flags and must not be treated as verified fixed media.</returns>
     internal static bool TryGetHotplugInfo(
         SafeFileHandle disk, out bool mediaRemovable, out bool deviceHotplug)
     {
@@ -296,6 +307,7 @@ internal static unsafe partial class NativeStorage
     ///     them). A drive vanishing mid-walk is skipped, matching the per-drive
     ///     tolerance every previous copy of this loop had.
     /// </summary>
+    /// <returns>New snapshot of resolvable volume identities and mount points; inaccessible or vanished volumes are skipped.</returns>
     internal static List<MountedVolume> MountedVolumes()
     {
         var result = new List<MountedVolume>();
@@ -336,6 +348,7 @@ internal static unsafe partial class NativeStorage
     ///     between them makes the list call report CR_BUFFER_SMALL — so the pair is
     ///     retried with a freshly queried size before giving up.
     /// </summary>
+    /// <returns>Present disk-interface paths, or an empty list when configuration-manager enumeration fails.</returns>
     internal static string[] ListDiskInterfaces()
     {
         return ListInterfaces(DiskInterfaceGuid);
@@ -347,6 +360,7 @@ internal static unsafe partial class NativeStorage
     ///     <see cref="OpenVolumeForQueryPath" /> for a device-number query, which maps
     ///     it back to its disk.
     /// </summary>
+    /// <returns>Present volume-interface paths, or an empty list when configuration-manager enumeration fails.</returns>
     internal static string[] ListVolumeInterfaces()
     {
         return ListInterfaces(NativeMethods.GuidDevInterfaceVolume);
@@ -411,6 +425,7 @@ internal static unsafe partial class NativeStorage
     /// <summary>Resolves a device-interface path to its devnode.</summary>
     /// <param name="interfacePath">A path from <see cref="ListDiskInterfaces" />.</param>
     /// <param name="devInst">The devnode handle.</param>
+    /// <returns>True when a nonempty interface instance ID resolves to a current devnode; otherwise false.</returns>
     internal static bool TryGetDevNode(string interfacePath, out uint devInst)
     {
         devInst = 0;
@@ -433,6 +448,7 @@ internal static unsafe partial class NativeStorage
     ///     list row keys on.
     /// </summary>
     /// <param name="devInst">The devnode.</param>
+    /// <returns>Device instance ID bounded to the native buffer, or an empty string on query failure.</returns>
     internal static string GetDeviceInstanceId(uint devInst)
     {
         // CM_Get_Device_IDW; capped at MAX_DEVICE_ID_LEN (200). Decode bounded:
@@ -453,6 +469,7 @@ internal static unsafe partial class NativeStorage
     ///     else the device description, else an empty string.
     /// </summary>
     /// <param name="devInst">The devnode.</param>
+    /// <returns>Friendly name, device description, or an empty string when neither is available.</returns>
     internal static string GetDeviceDisplayName(uint devInst)
     {
         var name = ReadDevNodeString(devInst, DrpFriendlyName);
@@ -503,6 +520,7 @@ internal static unsafe partial class NativeStorage
     ///     to the immediate parent when no ancestor claims removability.
     /// </summary>
     /// <param name="diskDevInst">The disk devnode.</param>
+    /// <returns>The first removable node within four inspected levels, otherwise the immediate parent or original node.</returns>
     internal static uint FindEjectTarget(uint diskDevInst)
     {
         var node = diskDevInst;
@@ -529,6 +547,7 @@ internal static unsafe partial class NativeStorage
 
     /// <summary>Reads the disk's total size in bytes, or 0 on failure.</summary>
     /// <param name="disk">A disk handle opened with read access.</param>
+    /// <returns>Native byte length, or zero when the IOCTL fails or returns a short record.</returns>
     internal static long GetDiskLength(SafeFileHandle disk)
     {
         long length = 0;
@@ -539,6 +558,8 @@ internal static unsafe partial class NativeStorage
     }
 
     /// <summary>Reads capacity without requiring a privileged physical-disk read handle.</summary>
+    /// <param name="disk">Borrowed disk handle with query access; it is not closed by this method.</param>
+    /// <returns>Nonnegative geometry capacity in bytes, or zero when unavailable.</returns>
     internal static long GetDiskCapacityForQuery(SafeFileHandle disk)
     {
         var buffer = stackalloc byte[256];
@@ -549,6 +570,8 @@ internal static unsafe partial class NativeStorage
     }
 
     /// <summary>Decodes DISK_GEOMETRY_EX.DiskSize after its 24-byte DISK_GEOMETRY.</summary>
+    /// <param name="buffer">Borrowed DISK_GEOMETRY_EX record; at least 32 bytes are needed for DiskSize.</param>
+    /// <returns>Nonnegative byte capacity; zero for a short record or negative native value.</returns>
     internal static long ReadGeometryCapacity(ReadOnlySpan<byte> buffer)
     {
         return buffer.Length >= 32 ? Math.Max(0, BinaryPrimitives.ReadInt64LittleEndian(buffer[24..32])) : 0;
@@ -561,6 +584,7 @@ internal static unsafe partial class NativeStorage
     /// <param name="disk">An open disk handle (query access suffices).</param>
     /// <param name="busType">The STORAGE_BUS_TYPE value, -1 on failure.</param>
     /// <param name="product">Vendor + product strings, trimmed, possibly empty.</param>
+    /// <returns>True for a complete descriptor header; false leaves busType at -1 and product empty.</returns>
     internal static bool TryGetDeviceDescriptor(
         SafeFileHandle disk, out int busType, out string product)
     {
@@ -586,6 +610,7 @@ internal static unsafe partial class NativeStorage
     ///     combined vendor+product identity string.
     /// </summary>
     /// <param name="buffer">The descriptor, header plus trailing string data.</param>
+    /// <returns>Bus type and trimmed vendor/product text; (-1, empty) for a short header.</returns>
     internal static (int BusType, string Product) ReadDeviceDescriptor(
         ReadOnlySpan<byte> buffer)
     {
@@ -630,6 +655,7 @@ internal static unsafe partial class NativeStorage
     /// </summary>
     /// <param name="disk">An open disk handle.</param>
     /// <param name="partitions">The partition types found.</param>
+    /// <returns>True when the layout IOCTL succeeds, including a layout with no recognized partitions; false otherwise.</returns>
     internal static bool TryGetPartitionTypes(
         SafeFileHandle disk, out List<PartitionType> partitions)
     {
@@ -669,6 +695,7 @@ internal static unsafe partial class NativeStorage
     ///     MBR layouts always report 4-slot multiples) are skipped.
     /// </summary>
     /// <param name="buffer">The layout buffer as returned by the IOCTL.</param>
+    /// <returns>Native style and complete decoded entries; a short header returns RAW style with no partitions.</returns>
     internal static (int Style, List<PartitionType> Partitions)
         ReadDriveLayout(ReadOnlySpan<byte> buffer)
     {
@@ -774,6 +801,7 @@ internal static unsafe partial class NativeStorage
     ///     media-level eject. Fails while any other handle is open on the volume.
     /// </summary>
     /// <param name="volume">A volume opened via <see cref="OpenVolumeForEject" />.</param>
+    /// <returns>True when the exclusive lock was obtained; false preserves the native error for LastWin32Error.</returns>
     internal static bool LockVolume(SafeFileHandle volume)
     {
         return DeviceIoControl(volume, FsctlLockVolume, 0, 0, 0, 0, out _, 0);
@@ -781,6 +809,7 @@ internal static unsafe partial class NativeStorage
 
     /// <summary>Dismounts the file system, flushing it first.</summary>
     /// <param name="volume">A locked volume handle.</param>
+    /// <returns>True when Windows accepted the dismount; false preserves the native error for LastWin32Error.</returns>
     internal static bool DismountVolume(SafeFileHandle volume)
     {
         return DeviceIoControl(volume, FsctlDismountVolume, 0, 0, 0, 0, out _, 0);
@@ -793,6 +822,7 @@ internal static unsafe partial class NativeStorage
     ///     success.
     /// </summary>
     /// <param name="volume">A locked, dismounted volume handle.</param>
+    /// <returns>True when Windows accepted media eject; false preserves the native error for LastWin32Error.</returns>
     internal static bool EjectMedia(SafeFileHandle volume)
     {
         byte allow = 0;
@@ -801,6 +831,7 @@ internal static unsafe partial class NativeStorage
     }
 
     /// <summary>The calling thread's last Win32 error, for log lines.</summary>
+    /// <returns>Last P/Invoke error on the current thread; read immediately after the failed native operation.</returns>
     internal static int LastWin32Error()
     {
         return Marshal.GetLastPInvokeError();

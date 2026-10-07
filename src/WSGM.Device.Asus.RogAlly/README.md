@@ -165,11 +165,29 @@ dotnet test tests/WSGM.Device.Asus.RogAlly.Tests/WSGM.Device.Asus.RogAlly.Tests.
 
 The tests need no hardware: they drive the plugin through fake transports. Packaging follows the
 Claw plugin: `./eng/pack-device.ps1 -Source src/WSGM.Device.Asus.RogAlly -RequireGlyphs`. The
-curated bundle entry keeps the package out of setup
-(`plugins/curated/wsgm.device.asus.rog-ally.json`, `"bundle": false`) until a lab report has been
-reviewed.
+curated entry includes the package in setup (`plugins/curated/wsgm.device.asus.rog-ally.json`,
+`"bundle": true`) with validation marked `blind`. Setup matches its declared hardware rules;
+inclusion is not a hardware acceptance claim. Follow the root manual-first validation policy before
+running the automated tests above.
 
 ## Licence
 
 MIT, see `LICENSE`. The package links only the MIT Device SDK. No HC or HHD code is included; see
 `THIRD_PARTY_NOTICES.md` for the glyph artwork.
+
+## Source map
+
+[RogAllyPlugin](RogAllyPlugin.cs) creates the service cycle; its
+[Surface](RogAllyPlugin.Surface.cs), [Commands](RogAllyPlugin.Commands.cs),
+[Observation](RogAllyPlugin.Observation.cs) and [Recovery](RogAllyPlugin.Recovery.cs) partials own
+semantic publication, dispatch and recovery ordering. [AllyModels](AllyModels.cs) contains every
+per-model fact; [AllyIdentity](AllyIdentity.cs) matches it against live identity.
+
+[AllyServices](AllyServices.cs) adapts the shared SDK service lifecycle;
+[AllyAcpiCapabilities](AllyAcpiCapabilities.cs) implements power, fans and charge over
+[AsusAcpi](AsusAcpi.cs). [AllyHid](AllyHid.cs) and [AllyProtocol](AllyProtocol.cs) own controller
+and Aura messages; [AllyControllerService](AllyControllerService.cs) owns acquisition/reconnect and
+release. [AllyInput](AllyInput.cs), [AllyOemServices](AllyOemServices.cs) and
+[AllyMotion](AllyMotion.cs) produce canonical input. [AllyRecoveryJournal](AllyRecoveryJournal.cs)
+binds temporary originals to the correct firmware. Follow [PROVENANCE.md](PROVENANCE.md) before
+treating any source-derived mapping as measured hardware behavior.

@@ -14,28 +14,18 @@ using WSGM.Interop;
 namespace WSGM.Shell;
 
 /// <summary>
-///     Removable-storage state and safe eject for the quick access sheet.
-///     Explorer's "Safely Remove Hardware" tray icon does not exist in game mode,
-///     so this is how a card switcher gets a microSD or USB drive out safely.
-///     Two eject paths, chosen per physical disk from IOCTL_STORAGE_GET_HOTPLUG_INFO:
-///     hot-pluggable devices (USB sticks and drives) get the PnP device eject, which
-///     removes all their volumes at once; removable media in a built-in reader
-///     (microSD) gets the volume-level lock/dismount/eject — a device eject there
-///     disables the reader itself until reboot.
-///     Enumeration opens volume and disk handles, so nothing heavy runs on the UI
-///     thread: volume arrival and removal notifications, explicit refreshes and a 10 s
-///     fallback for reader media and volumeless disks trigger full re-enumeration,
-///     off-thread, publishing back through the dispatcher. Rows are reconciled in
-///     place: rebuilding the collection would drop the control under the gamepad
-///     cursor.
+///     Owns the UI-bound removable-storage inventory and serialized device or media eject workflow.
 /// </summary>
+/// <remarks>
+///     Invoke lifecycle and row-mutating actions on the Avalonia UI thread. Native enumeration and
+///     eject run on workers; volume notifications, explicit refresh and a ten-second fallback refresh
+///     the inventory. Hot-pluggable disks use PnP device eject; built-in readers use media eject to
+///     preserve the reader. Dispose releases timers and notifications but does not cancel an in-flight eject.
+/// </remarks>
 public sealed class RemovableDriveManager : ObservableObject, IDisposable
 {
-    // ---- eject ----
-
     /// <summary>
-    ///     How often a refused eject is retried before giving up: transient
-    ///     handles (indexer, Defender) clear within a beat, real vetoes do not.
+    ///     Total attempts for PnP vetoes or a lettered volume lock, with 500 ms between attempts.
     /// </summary>
     private const int EjectAttempts = 3;
 
@@ -248,6 +238,7 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
     /// </summary>
     /// <param name="deviceHotplug">The device itself is hot-pluggable.</param>
     /// <param name="mediaRemovable">The media can leave the device.</param>
+    /// <returns>UsbDevice for a hot-pluggable disk, otherwise Media for removable media, otherwise null.</returns>
     internal static EjectKind? Classify(bool deviceHotplug, bool mediaRemovable)
     {
         return deviceHotplug ? EjectKind.UsbDevice
@@ -263,6 +254,7 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
     /// </summary>
     /// <param name="disk">The physical disk number.</param>
     /// <param name="systemDisks">The guarded disks from <see cref="ResolveSystemDisks" />.</param>
+    /// <returns>The current external-storage eject kind, or null for a guarded, unreadable or internal disk.</returns>
     internal static EjectKind? ClassifyDisk(int disk, HashSet<int> systemDisks)
     {
         if (systemDisks.Contains(disk))
@@ -279,6 +271,7 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
 
     /// <summary>Formats a capacity for the row's status line.</summary>
     /// <param name="bytes">The size in bytes; nothing is shown for 0.</param>
+    /// <returns>Invariant decimal MB/GB/TB text, or empty for nonpositive sizes.</returns>
     internal static string FormatSize(long bytes)
     {
         if (bytes <= 0)
@@ -299,6 +292,7 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
 
     /// <summary>Formats a device's drive letters ("E:" / "E:, F:").</summary>
     /// <param name="letters">The letters, in the order they were found.</param>
+    /// <returns>Comma-separated letter/colon pairs, or empty for no letters.</returns>
     internal static string FormatLetters(IReadOnlyList<char> letters)
     {
         return string.Join(", ", letters.Select(l => $"{l}:"));
@@ -362,6 +356,10 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
         return result;
     }
 
+    /// <summary>Adds one synthetic volumeless entry when a disk with known capacity has no mounted volume.</summary>
+    /// <param name="volumes">Working projection list modified only when an entry is missing.</param>
+    /// <param name="disk">Current physical disk number; negative values are ignored.</param>
+    /// <param name="capacity">Whole-disk bytes; nonpositive values are ignored.</param>
     internal static void AddUnletteredDisk(List<(char Letter, int Disk, long Size)> volumes, int disk, long capacity)
     {
         if (disk >= 0 && capacity > 0 && volumes.All(volume => volume.Disk != disk))
@@ -377,6 +375,7 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
     ///     not. Shared with the Format flow's target list, which must never offer
     ///     these either.
     /// </summary>
+    /// <returns>Successfully resolved Windows and application disk numbers; failed lookups do not invent an identity.</returns>
     internal static HashSet<int> ResolveSystemDisks()
     {
         var disks = new HashSet<int>();
@@ -480,6 +479,13 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
     ///     <see cref="StatusText" /> with the outcome.
     /// </summary>
     /// <param name="entry">The row to eject.</param>
+    /// <returns>Completion after the eject attempt and observer cleanup, or immediately for a disabled row. Inspect the row and StatusText for the outcome.</returns>
+    /// <remarks>
+    ///     Up to three PnP-veto or lettered-volume-lock attempts are made, 500 ms apart. A lettered volume
+    ///     is safe after successful lock and dismount even if mechanical eject is unsupported. Unlettered
+    ///     media requires explicit eject success. Library reconciliation runs before and after the attempt;
+    ///     ordinary failures update the row instead of escaping. No cancellation token is accepted.
+    /// </remarks>
     public async Task EjectAsync(RemovableDriveEntry entry)
     {
         if (!entry.ActionEnabled)
@@ -487,10 +493,7 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
             return;
         }
 
-        // Claim the row BEFORE queueing behind another row's eject: ActionEnabled is
-        // the only thing that stops a second press, and while the gate is held for a
-        // different device the row would still look idle — the duplicate run then
-        // lands on an already-removed device and overwrites the success message.
+        // Claim before awaiting the shared gate so a second press cannot queue the same row.
         entry.Busy = true;
         await _ejectGate.WaitAsync();
         var observer = EjectObserver;
@@ -534,8 +537,6 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
                 StatusText = result.Message;
             }
 
-            // The outcome decides whether the intent stands. A refused eject must not leave the
-            // library unregistered and held out of Steam's list: the card never went anywhere.
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -723,12 +724,11 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
     }
 
     /// <summary>
-    ///     Turns a PnP veto into something the user can act on. The open
-    ///     handles almost always belong to a running game or an active Steam
-    ///     download/install — Steam itself does not hold library volumes at idle.
+    ///     Formats a PnP veto using its reported application or service name when available.
     /// </summary>
     /// <param name="vetoType">The veto reason Windows reported.</param>
     /// <param name="vetoName">The vetoing module/service/path, possibly empty.</param>
+    /// <returns>A refusal message; generic open-handle guidance suggests possible holders without identifying one.</returns>
     internal static string DescribeVeto(NativeStorage.PnpVetoType vetoType, string vetoName)
     {
         return vetoType switch
@@ -767,7 +767,9 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
         uint DevInst,
         char VolumeLetter)
     {
+        /// <summary>Current disk interface path for media without a drive letter; empty when unavailable.</summary>
         internal string DiskPath { get; init; } = "";
+        /// <summary>Drive letters included in this eject action, used by library reconciliation.</summary>
         internal IReadOnlyList<char> VolumeLetters { get; init; } = [];
     }
 

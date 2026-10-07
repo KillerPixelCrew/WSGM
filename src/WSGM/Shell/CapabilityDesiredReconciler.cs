@@ -40,6 +40,10 @@ internal sealed record CapabilityReconcilePass(
 }
 
 /// <summary>What one reconciliation pass did.</summary>
+/// <param name="Applied">Commands reporting application, including accepted writes without independent readback.</param>
+/// <param name="Unchanged">Candidates already at their desired value.</param>
+/// <param name="Refused">Dispatched commands returning an outcome other than application.</param>
+/// <param name="Skipped">Candidates deferred by missing state, availability, value bounds, prior uncertainty, or owner policy.</param>
 internal readonly record struct CapabilityReconcileCounts(int Applied, int Unchanged, int Refused, int Skipped);
 
 /// <summary>
@@ -155,6 +159,8 @@ internal static class CapabilityDesiredReconciler
     }
 
     /// <summary>A capability's name in the log.</summary>
+    /// <param name="view">Capability whose semantic and optional instance identifiers are formatted.</param>
+    /// <returns>The capability identifier alone, or identifiers separated by a slash.</returns>
     internal static string Name(DeviceCapabilityView view)
     {
         return view.Descriptor.InstanceId is { Length: > 0 } instance

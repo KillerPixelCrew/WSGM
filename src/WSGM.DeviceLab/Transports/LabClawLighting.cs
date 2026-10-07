@@ -14,10 +14,13 @@ namespace WSGM.DeviceLab.Transports;
 internal interface ILabClawLighting : IDisposable
 {
     /// <summary>Reads the exact original 32-byte profile.</summary>
+    /// <returns>A detached, validated 32-byte profile suitable for restoring; malformed replies throw.</returns>
     [LabWorkerSnapshot]
     byte[] Original();
 
     /// <summary>Writes a complete profile once and verifies it.</summary>
+    /// <param name="profile">Complete validated 32-byte profile; the caller retains the array.</param>
+    /// <returns>True when the subsequent profile read matches every byte; false for a mismatch. Transport failures throw without retry.</returns>
     [LabWorkerWrite]
     bool Apply(byte[] profile);
 }
@@ -82,7 +85,12 @@ internal sealed class LabClawLighting : ILabClawLighting
             : throw new InvalidOperationException("No Claw lighting profile for this device.");
     }
 
-    /// <summary>Sets all zones to one test colour while preserving the profile's other bytes.</summary>
+    /// <summary>Copies the profile with every zone set to one test colour and brightness set to 100.</summary>
+    /// <param name="original">Validated 32-byte baseline, left unchanged.</param>
+    /// <param name="red">Red channel byte for every zone.</param>
+    /// <param name="green">Green channel byte for every zone.</param>
+    /// <param name="blue">Blue channel byte for every zone.</param>
+    /// <returns>A new profile with test brightness and RGB bytes replaced; all other bytes are retained.</returns>
     internal static byte[] Colour(byte[] original, byte red, byte green, byte blue)
     {
         Validate(original);

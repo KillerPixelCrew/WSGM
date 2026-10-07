@@ -52,7 +52,8 @@ internal static unsafe class SdlGamepads
         (SDL_GamepadButton.SDL_GAMEPAD_BUTTON_MISC2, GamepadButtons.RightPadPress)
     ];
 
-    /// <summary>Initializes SDL's gamepad subsystem once for the process.</summary>
+    /// <summary>Initializes SDL's gamepad subsystem on the UI thread once for the process.</summary>
+    /// <remarks>Missing/native initialization failures are logged and latched; later calls do not retry.</remarks>
     public static void EnsureInitialized()
     {
         if (_initialized || _failed)
@@ -74,12 +75,8 @@ internal static unsafe class SdlGamepads
             // SDL's Deck driver feeds a lizard-mode watchdog with a feature report every 200 reports,
             // and it was one more reader of the 6 ms endpoint.
             SDL_SetHint(SDL_HINT_GAMECONTROLLER_IGNORE_DEVICES, "0x28de/0x1205");
-            // No background joystick thread. SDL's thread polls the XInput slots every 300 ms for
-            // the whole session, two to three percent of a core on the Claw with the pad hidden
-            // behind HidHide, and after a resume on 2026-09-26 it looped at a full core until the
-            // overlay opened and pumped SDL on the UI thread (docs/perf). Device changes are
-            // noticed when WSGM polls, which is exactly when it can use a pad: the notification
-            // window SDL creates here lives on the UI thread, whose message loop dispatches to it.
+            // The UI-thread message loop and Update own hotplug; a background XInput poller wastes CPU
+            // while HidHide hides the device and has spun after resume (see docs/perf).
             SDL_SetHint(SDL_HINT_JOYSTICK_THREAD, "0");
 
             if (!SDL_InitSubSystem(SDL_InitFlags.SDL_INIT_GAMEPAD))
@@ -128,6 +125,7 @@ internal static unsafe class SdlGamepads
     ///     left stick folded into the D-pad flags and triggers as buttons. The returned
     ///     list is reused across calls — consume it before the next Update().
     /// </summary>
+    /// <returns>The shared reusable snapshot list; consume immediately and do not mutate or retain it across calls.</returns>
     public static List<PadSnapshot> Update()
     {
         Snapshot.Clear();

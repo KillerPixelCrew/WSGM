@@ -16,6 +16,7 @@ namespace WSGM.PackagedLaunch;
 ///         is requested. See <see cref="PackageDebugRecoveryRecord" />.
 ///     </para>
 /// </remarks>
+/// <param name="journal">Shared recovery journal that retains package exemption claims across launcher failures.</param>
 internal sealed class PackageDebugExemption(PackageDebugRecoveryRecord journal) : IDisposable
 {
     private string? _packageFullName;

@@ -9,6 +9,7 @@ using WSGM.Device.Sdk.Services;
 namespace WSGM.Device.Msi.Claw;
 
 /// <summary>A cycle service whose temporary changes the recovery journal restores on release.</summary>
+/// <param name="serviceId">Stable journal/service identity used across cycles and package versions.</param>
 internal abstract class ClawJournalledService(string serviceId) : DeviceService<ClawIdentityState>(serviceId)
 {
     /// <summary>Writes a pending original back. A restore is complete once its writes went through.</summary>
@@ -17,6 +18,14 @@ internal abstract class ClawJournalledService(string serviceId) : DeviceService<
     ///     explicit command. A release without the time to write leaves its entry pending for the next
     ///     start, and a restore that throws records the failure so nothing writes it again automatically.
     /// </remarks>
+    /// <typeparam name="TSnapshot">Capability-specific original-state representation.</typeparam>
+    /// <param name="context">Current identity and deadline; restoration requires the captured firmware binding.</param>
+    /// <param name="journal">Borrowed durable recovery owner; status writes are attempted without caller cancellation.</param>
+    /// <param name="readSnapshot">Extracts a valid typed original, or null when the entry cannot be restored.</param>
+    /// <param name="restoreAsync">Writes the original once; completion means accepted writes, without a required confirming read.</param>
+    /// <param name="cancellationToken">Cancels before dispatch or inside restore; an interrupted restore is recorded as failed.</param>
+    /// <returns>The service state after restoration, skipping, or insufficient-budget release.</returns>
+    /// <remarks>Transport, cancellation, and journal failures propagate; failed attempts are not automatically replayed.</remarks>
     protected async ValueTask<DeviceServiceResult> RestoreJournalledAsync<TSnapshot>(
         DeviceCycleContext<ClawIdentityState> context,
         ClawRecoveryJournal journal,
@@ -111,12 +120,16 @@ internal static class ClawFirmwareIdentities
     public const string Mcu = "mcu";
 
     /// <summary>The power and fan binding for a BIOS version, <c>bios:&lt;version&gt;</c>.</summary>
+    /// <param name="biosVersion">SMBIOS BIOS version to preserve verbatim in the binding.</param>
+    /// <returns>The bios:-prefixed binding; no version parsing is performed.</returns>
     public static string Bios(string biosVersion)
     {
         return "bios:" + biosVersion;
     }
 
     /// <summary>True for a power or fan binding as this build writes it: <c>bios:&lt;version&gt;</c>.</summary>
+    /// <param name="identity">Non-null saved firmware binding.</param>
+    /// <returns>True for an ordinal bios: prefix without a legacy MSI_ACPI suffix.</returns>
     public static bool IsBios(string identity)
     {
         return identity.StartsWith("bios:", StringComparison.Ordinal) && !IsLegacy(identity);
@@ -128,6 +141,8 @@ internal static class ClawFirmwareIdentities
     ///     <c>ec:1T52EMS1.109;msi-acpi:8.0</c>. Such an entry is restored once when this start reads the same
     ///     binding, and discarded otherwise.
     /// </summary>
+    /// <param name="identity">Non-null saved firmware binding.</param>
+    /// <returns>True for an ec:/bios: binding carrying the legacy ;msi-acpi: marker.</returns>
     public static bool IsLegacy(string identity)
     {
         return (identity.StartsWith("ec:", StringComparison.Ordinal)
@@ -136,6 +151,8 @@ internal static class ClawFirmwareIdentities
     }
 
     /// <summary>True for a legacy binding without an EC or BIOS version, which cannot tell two firmwares apart.</summary>
+    /// <param name="identity">Non-null legacy firmware binding.</param>
+    /// <returns>True when it begins with the exact ec:unknown; sentinel.</returns>
     public static bool IsUnknownEc(string identity)
     {
         return identity.StartsWith("ec:unknown;", StringComparison.Ordinal);

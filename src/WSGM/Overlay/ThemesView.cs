@@ -23,6 +23,8 @@ public sealed partial class ThemesView : ServiceSubView
         AttachSession(service?.CreateBrowserSession());
     }
 
+    /// <summary>Replaces and disposes the previous surface-local browser, then follows the new session on the UI thread.</summary>
+    /// <param name="session">Owned browser session; null detaches. Do not pass the currently attached instance again.</param>
     internal void AttachSession(IThemeBrowseSession? session)
     {
         _browser?.Dispose();

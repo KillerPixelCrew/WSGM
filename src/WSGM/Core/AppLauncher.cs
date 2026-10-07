@@ -6,8 +6,7 @@ using System.IO;
 namespace WSGM.Core;
 
 /// <summary>
-///     Starts apps normally, elevated (runas), or via protocol. Ported from the
-///     battle-tested AnyFSE launch logic (MIT).
+///     Starts executable and protocol targets, returning activation failures as launch results.
 /// </summary>
 public static class AppLauncher
 {
@@ -18,6 +17,8 @@ public static class AppLauncher
     ///     Whether a configured launch target is a protocol URL rather than a
     ///     file path (protocols carry no args/elevation and cannot be relaunch-watched).
     /// </summary>
+    /// <param name="path">Configured non-null launch target.</param>
+    /// <returns>True when the target contains <c>://</c>; this is classification, not URL validation.</returns>
     public static bool IsProtocol(string path)
     {
         return path.Contains("://");
@@ -153,6 +154,9 @@ public static class AppLauncher
         }
     }
 
+    /// <summary>Resolves a launch target's working directory without failing launch preparation.</summary>
+    /// <param name="path">Executable path, absolute or relative to the process directory.</param>
+    /// <returns>The parent of the full path, or an empty string when it cannot be resolved.</returns>
     internal static string SafeDirectory(string path)
     {
         try
@@ -166,5 +170,8 @@ public static class AppLauncher
     }
 
     /// <summary>Reports whether a launch request started and whether UAC was declined.</summary>
+    /// <param name="Process">Caller-owned process wrapper when available; null for shell/protocol activation or failure.</param>
+    /// <param name="Started">Whether Windows accepted activation; does not imply a new process or readiness.</param>
+    /// <param name="ElevationDeclined">Whether UAC was declined, even if the subsequent normal launch succeeded.</param>
     public sealed record LaunchResult(Process? Process, bool Started, bool ElevationDeclined);
 }

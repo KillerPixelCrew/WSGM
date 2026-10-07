@@ -49,6 +49,9 @@ internal sealed class NativePackageSource : IDisposable
     }
 
     /// <summary>Secures an existing directory tree root, or returns null when the path is absent.</summary>
+    /// <param name="path">Directory whose complete ancestor chain must be retained without following links.</param>
+    /// <returns>An owned source, or null for an absent path or a nondirectory ancestor.</returns>
+    /// <exception cref="InvalidDataException">An ancestor is a reparse point.</exception>
     internal static NativePackageSource? TryOpen(string path)
     {
         var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
@@ -110,6 +113,8 @@ internal sealed class NativePackageSource : IDisposable
     }
 
     /// <summary>Opens one enumerated entry without following a reparse point.</summary>
+    /// <param name="path">Entry discovered under the already retained source root.</param>
+    /// <returns>An owned entry handle; the caller must reject reparse points before consuming it.</returns>
     internal NativePackageSourceEntry OpenEntry(string path)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -119,6 +124,7 @@ internal sealed class NativePackageSource : IDisposable
     }
 
     /// <summary>Keeps an opened directory name stable through the remainder of traversal.</summary>
+    /// <param name="entry">Ordinary directory whose handle transfers to this source.</param>
     internal void RetainDirectory(NativePackageSourceEntry entry)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -300,6 +306,7 @@ internal sealed class NativePackageSourceEntry : IDisposable
     }
 
     /// <summary>Transfers ownership of the underlying no-follow handle.</summary>
+    /// <returns>The handle, now owned by the caller; this entry no longer closes it.</returns>
     internal SafeFileHandle TakeHandle()
     {
         var handle = _handle

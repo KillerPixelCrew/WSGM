@@ -20,6 +20,7 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
 
     private LegacyMotionStream? _stream;
 
+    /// <inheritdoc />
     public ValueTask<bool> StartAsync(
         ClawModel model,
         Action<MotionSample> publish,
@@ -48,6 +49,7 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
         }
     }
 
+    /// <inheritdoc />
     public async ValueTask StopAsync(CancellationToken cancellationToken)
     {
         LegacyMotionStream? stream;
@@ -65,6 +67,7 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
         }
     }
 
+    /// <inheritdoc />
     public ValueTask DisposeAsync()
     {
         return StopAsync(CancellationToken.None);
@@ -72,6 +75,8 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
 
     /// <summary>HC's source order: the standard sensors, then the physical pair where the model declares it.</summary>
     /// <remarks>MS-1T52 takes the physical pair first on its own evidence.</remarks>
+    /// <param name="model">Catalog model declaring physical-field support and source preference.</param>
+    /// <returns>A fresh priority-ordered source list; discovery selects gyro and accelerometer independently.</returns>
     internal static LegacyMotionSensorSource[] Sources(ClawModel model)
     {
         return model.PreferPhysicalSensors
@@ -89,6 +94,9 @@ internal sealed class WindowsClawMotionSource : IClawMotionSource
     ///     gyro and accelerometer are (1, 1, -1). The Neptune encoder applies the inverse when it writes
     ///     the raw packet slots.
     /// </remarks>
+    /// <param name="raw">Raw sensor axes in the caller's sensor units.</param>
+    /// <param name="signs">Model-specific axis multipliers applied after swapping Y and Z.</param>
+    /// <returns>The application-basis vector in the same units; apply this transform exactly once.</returns>
     internal static Vector3 ToApplicationBasis(Vector3 raw, Vector3 signs)
     {
         return new Vector3(raw.X, raw.Z, raw.Y) * signs;

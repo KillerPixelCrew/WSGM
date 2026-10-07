@@ -45,6 +45,7 @@ public abstract partial class OverlaySubView : UserControl
     /// </summary>
     internal SteamClient? Steam { get; set; }
 
+    /// <summary>Whether the view owns a deeper level that should consume Back before the window changes sections.</summary>
     internal bool HasNestedLevel => NavigationStack.Count > 0;
 
     /// <summary>
@@ -53,8 +54,11 @@ public abstract partial class OverlaySubView : UserControl
     /// </summary>
     public event Action? CloseRequested;
 
+    /// <summary>UI-thread notification that navigation changed and transient surface state may need to close.</summary>
     internal event Action? LevelChanged;
 
+    /// <summary>Invalidates pending view generations and releases the mounted content and navigation stack.</summary>
+    /// <remarks>Does not cancel service-owned durable work. Derived views cancel their own transient browsing before calling base.</remarks>
     internal virtual void Leave()
     {
         NavigationGeneration++;
@@ -76,6 +80,7 @@ public abstract partial class OverlaySubView : UserControl
     ///     Handles a Back/B press: pops one level, or requests close at the top.
     ///     Returns true when it consumed the press.
     /// </summary>
+    /// <returns>Always true: consumes a nested level or raises CloseRequested at the root. Call on the UI thread.</returns>
     public bool Back()
     {
         NavigationGeneration++;
@@ -131,10 +136,9 @@ public abstract partial class OverlaySubView : UserControl
         }
     }
 
-    /// <summary>
-    ///     Lists the Steam library, degrading to an empty list so a picker renders
-    ///     "no games" instead of failing the whole sub-view when Steam cannot answer.
-    /// </summary>
+    /// <summary>Reads the Steam library through the shared lookup, preserving an unavailable service as an error.</summary>
+    /// <returns>The current library, including an empty list when Steam successfully reports no titles.</returns>
+    /// <exception cref="InvalidOperationException">The lookup failed; callers must render an unavailable state.</exception>
     private protected async Task<IReadOnlyList<SteamLibraryApp>> SafeGamesAsync()
     {
         var result = await OverlayLibraryLookup.ReadAsync(Steam);
@@ -146,6 +150,10 @@ public abstract partial class OverlaySubView : UserControl
         return result.Games;
     }
 
+    /// <summary>Opens the owning window's controller-accessible local picker.</summary>
+    /// <param name="folder">True to choose a directory, false to choose a file.</param>
+    /// <param name="extensions">Allowed file extensions; ignored for directory selection.</param>
+    /// <returns>The accepted path, or null on cancellation or when no OverlayWindow owns this view.</returns>
     private protected Task<string?> PickPathAsync(bool folder, params string[] extensions)
     {
         return TopLevel.GetTopLevel(this) is OverlayWindow window

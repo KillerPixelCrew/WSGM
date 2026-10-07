@@ -316,3 +316,23 @@ See [protocol.md](protocol.md) for the shared wire contract.
 The main repository's GPL licensing applies to this plugin and its authored firmware. The common SDK
 keeps its MIT boundary. PlatformIO downloads the separately licensed IRremoteESP8266, ArduinoJson
 and Adafruit NeoPixel dependencies, and Wi-Fi, mDNS and NVS come from the Arduino ESP32 core.
+
+## Source map and request flow
+
+[IrPlugin](IrPlugin.cs) implements common lifecycle, static preferences/actions/contributions,
+library operations and effective-state publication. [IrEndpoint](IrEndpoint.cs) owns serial/TCP
+links, protocol identification, correlated request/reply handling, cancellation and catalog paging.
+[IrPayload](IrPayload.cs) owns payload/library/scene/pairing records, validation and atomic JSON
+storage. [IrRejectedException](IrRejectedException.cs) distinguishes refusal before dispatch from an
+uncertain external result.
+
+An explicit host action enters the plugin's serialized operation path, validates its arguments and
+endpoint identity, dispatches at most once, then translates the reply into the common action result.
+A transport acknowledgment confirms dispatch, not appliance state. Library and pairing files remain
+separate so command backups never contain the network token.
+
+[Firmware/src/main.cpp](Firmware/src/main.cpp) is the protocol-2 endpoint, IR engine, Wi-Fi/NVS
+owner and optional web server. [Firmware/embed_remotes.py](Firmware/embed_remotes.py) validates and
+embeds remote definitions/pages; [Firmware/platformio.ini](Firmware/platformio.ini) pins the build
+configuration. [protocol.md](protocol.md) is the shared wire reference. Host unit tests and firmware
+build validation cannot replace the protocol-2 hardware acceptance still outstanding above.

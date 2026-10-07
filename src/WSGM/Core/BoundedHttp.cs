@@ -22,7 +22,10 @@ internal static class BoundedHttp
     /// <param name="tooLarge">Makes the exception thrown when the body is larger.</param>
     /// <param name="cancellationToken">Cancels the read.</param>
     /// <param name="stallTimeout">How long a read may wait for data, or null for the default.</param>
-    /// <returns>The body, positioned at its start.</returns>
+    /// <returns>A new caller-owned stream positioned at zero; dispose it after consuming the body.</returns>
+    /// <exception cref="OperationCanceledException">The caller canceled the read.</exception>
+    /// <exception cref="IOException">A body read exceeded the stall timeout.</exception>
+    /// <remarks>The content stream is disposed. Size failures throw the exception produced by <paramref name="tooLarge" />.</remarks>
     internal static async Task<MemoryStream> ReadAsync(
         HttpContent content, int maximum, Func<Exception> tooLarge, CancellationToken cancellationToken,
         TimeSpan? stallTimeout = null)
@@ -44,13 +47,20 @@ internal static class BoundedHttp
 
     /// <summary>Copies the whole body to a stream: the declared length is checked first, then every read.</summary>
     /// <param name="content">The answer's content.</param>
-    /// <param name="output">Where the body goes.</param>
+    /// <param name="output">Caller-owned writable stream; writes start at its current position and leave it open.</param>
     /// <param name="maximum">The most bytes accepted.</param>
     /// <param name="tooLarge">Makes the exception thrown when the body is larger.</param>
     /// <param name="cancellationToken">Cancels the copy.</param>
     /// <param name="copied">Receives the total bytes copied after each write, when supplied.</param>
     /// <param name="stallTimeout">How long a read may wait for data, or null for <see cref="DefaultStallTimeout" />.</param>
-    /// <exception cref="IOException">The body sent nothing for the stall timeout.</exception>
+    /// <returns>A task completing after EOF and the final output write.</returns>
+    /// <exception cref="OperationCanceledException">The caller canceled a read or write.</exception>
+    /// <exception cref="IOException">The body sent nothing for the stall timeout, or a stream operation failed.</exception>
+    /// <remarks>
+    /// The input content stream is disposed. Size failures throw <paramref name="tooLarge" />'s result;
+    /// output already written is retained on any failure. The timeout applies to each input read, not
+    /// the whole transfer or output writes. Callback exceptions propagate to the caller.
+    /// </remarks>
     internal static async Task CopyAsync(
         HttpContent content, Stream output, long maximum, Func<Exception> tooLarge,
         CancellationToken cancellationToken, TimeSpan? stallTimeout = null, Action<long>? copied = null)

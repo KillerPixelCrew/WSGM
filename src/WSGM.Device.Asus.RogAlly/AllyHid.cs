@@ -22,6 +22,8 @@ internal static class AllyControllerNodes
     ///     the XInput-compatible HID collection whose instance path carries <c>&amp;IG_</c>. The vendor,
     ///     keyboard and lighting collections are not hidden: the plugin itself reads them.
     /// </remarks>
+    /// <param name="productIds">Product IDs admitted for this model under the ASUS vendor ID.</param>
+    /// <returns>Present XUSB, Xbox composite and XInput-compatible HID nodes; vendor, keyboard and lighting collections are excluded.</returns>
     public static IReadOnlyList<DeviceNode> Find(IReadOnlyCollection<ushort> productIds)
     {
         return
@@ -38,10 +40,16 @@ internal static class AllyControllerNodes
 internal interface IAllyVendorHid : IAsyncDisposable
 {
     /// <summary>Finds the collection. False when this model exposes none.</summary>
+    /// <param name="cancellationToken">Cancels admission before synchronous collection discovery.</param>
+    /// <returns>Whether a usable collection was found; false also covers current unavailability.</returns>
     ValueTask<bool> IsAvailableAsync(CancellationToken cancellationToken);
 
     /// <summary>Starts reading 0x5A input reports; the callback receives the event code byte.</summary>
     /// <remarks>The fault callback runs once if the reader stops on its own, such as when the MCU re-enumerates.</remarks>
+    /// <param name="callback">Sequential reader callback receiving each nonzero vendor event and its observation time.</param>
+    /// <param name="fault">Reader failure callback; avoid blocking or throwing from it.</param>
+    /// <param name="cancellationToken">Cancels admission before opening the stream; StopAsync owns the running-reader lifetime.</param>
+    /// <returns>True when already reading or a reader was started; false when no readable vendor collection is available.</returns>
     ValueTask<bool> StartAsync(
         Func<byte, DateTimeOffset, ValueTask> callback,
         Action<Exception> fault,
@@ -50,6 +58,9 @@ internal interface IAllyVendorHid : IAsyncDisposable
     ValueTask StopAsync(CancellationToken cancellationToken);
 
     /// <summary>Sends one 0x5A configuration feature report, as HC's <c>ConfigureController</c> does.</summary>
+    /// <param name="report">Feature report beginning with 0x5A, normally a 64-byte controller table.</param>
+    /// <param name="cancellationToken">Cancels waiting for serialized write admission; an accepted native write is not undone.</param>
+    /// <returns>Completion after one feature write; unavailable transport or native refusal throws without retry.</returns>
     ValueTask WriteConfigurationAsync(ReadOnlyMemory<byte> report, CancellationToken cancellationToken);
 }
 
@@ -63,6 +74,8 @@ internal interface IAllyAuraHid : IAsyncDisposable
     ValueTask WriteOutputAsync(ReadOnlyMemory<byte> report, CancellationToken cancellationToken);
 
     /// <summary>Puts the Windows Dynamic Lighting lamp array in autonomous mode, as HHD does.</summary>
+    /// <param name="cancellationToken">Cancels waiting for the serialized lighting-write gate.</param>
+    /// <returns>True after one autonomous-mode request, false when no compatible lamp array exists; native failures propagate.</returns>
     ValueTask<bool> DisableDynamicLightingAsync(CancellationToken cancellationToken);
 }
 
@@ -71,6 +84,7 @@ internal interface IAllyAuraHid : IAsyncDisposable
 ///     HC selects the collection whose feature report 0x5A reads (<c>ROGAlly.cs:416-436</c>), and so does this.
 ///     Configuration uses feature reports as HC does (<c>ROGAlly.cs:646-668</c>).
 /// </remarks>
+/// <param name="productIds">Model-specific ASUS controller product IDs searched for a collection answering feature report 0x5A.</param>
 internal sealed class WindowsAllyVendorHid(IReadOnlyCollection<ushort> productIds) : IAllyVendorHid
 {
     private readonly Lock _gate = new();
@@ -273,6 +287,7 @@ internal sealed class WindowsAllyVendorHid(IReadOnlyCollection<ushort> productId
 }
 
 /// <summary>Windows transport for the Aura collection and, on the Xbox models, the lamp array.</summary>
+/// <param name="productIds">Model-specific ASUS product IDs searched for Aura and lamp-array collections.</param>
 internal sealed class WindowsAllyAuraHid(IReadOnlyCollection<ushort> productIds) : IAllyAuraHid
 {
     private readonly Lock _gate = new();

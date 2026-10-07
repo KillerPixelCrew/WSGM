@@ -21,6 +21,9 @@ public static class Installer
     /// <summary>Gets the running WSGM executable path.</summary>
     public static string InstalledExePath => Path.Combine(InstallDir, "WSGM.exe");
 
+    /// <summary>Resolves a companion executable beside the current process image.</summary>
+    /// <param name="fileName">Trusted companion filename without directory components.</param>
+    /// <returns>The sibling path, falling back to the application base directory when the process path is unavailable.</returns>
     internal static string SiblingExecutable(string fileName)
     {
         var directory = Path.GetDirectoryName(Environment.ProcessPath);
@@ -34,6 +37,8 @@ public static class Installer
     ///     uninstaller runs so the HKLM writes succeed directly; each step is isolated
     ///     so one failure cannot stop the rest.
     /// </summary>
+    /// <param name="store">Strict persistence holding the original policy and autostart recovery snapshots.</param>
+    /// <returns>Whether all reported restore steps succeeded; pending scaling entries can remain for disconnected displays.</returns>
     public static bool RestoreMachineSettings(ConfigStore store)
     {
         var complete = true;

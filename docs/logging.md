@@ -1,9 +1,10 @@
 # Logging
 
-`%LOCALAPPDATA%\WSGM\wsgm.log` is the whole of remote diagnosis. There are no toasts and no taskbar
-in shell mode, so a problem that is not in this file did not happen as far as anyone helping is
-concerned. That makes both halves of the job real: a line that is missing costs a diagnosis, and a
-line that repeats costs every other line around it.
+`%LOCALAPPDATA%\WSGM\wsgm.log` is the primary remote-diagnosis surface for the resident application.
+Game Mode has no Explorer taskbar, so lifecycle changes and failures must reach this file. Setup,
+the logon service and the game launchers also keep their own logs, listed below, for work outside
+the resident process. A line that is missing costs a diagnosis, and a line that repeats costs every
+other line around it.
 
 ## Levels
 
@@ -57,8 +58,11 @@ contracts in [device plugin system](device-plugin-system.md) and
 [the Steam CEF system](steam-cef-system.md); do not rename those to match, and write new ones in the
 dotted style.
 
-Plugin keys are namespaced by the host as `plugin/{scope}/{key}`, so a plugin only needs a name
-unique within its own scope.
+The device package's keys are namespaced by the host as `plugin/{scope}/{key}`. Common plugins use
+`plugin/{pluginId}/{scope}/{key}`, so two packages can use the same local scope and key. Their
+visible lines follow the same prefix with `: message`; blank scopes become `plugin` and blank keys
+become `state`. [`PluginLogLine`](../src/WSGM/Shell/PluginLogLine.cs) owns this formatting, after
+the host checks that the publishing plugin is still current.
 
 ## Verbosity
 
@@ -70,12 +74,55 @@ over the stored value.
 Raising verbosity must not turn the log into the thing `Debug` exists to prevent. If a verbose log
 is unreadable, the fix is a `Change` key or a threshold, not a quieter default.
 
-## The file
+## Files and retention
 
-One process-wide static, `File.AppendAllText` per line, so a suppressed line costs no I/O at all. 5
-MB cap with one `.old` archive kept, checked every 256 KB of writes rather than per line, and
-serialized across processes by a named mutex, because the shell, Settings and elevated one-shots all
-append to the same file. Rotation failure is survivable and never throws; logging must never be the
-thing that breaks a session.
+Paths below use the account running the process. Setup/service logs use ProgramData; they do not
+depend on a signed-in user's profile.
 
-`Log` stays uninitialized in tests, and no test may touch `%LOCALAPPDATA%\WSGM`.
+| File                                      | Writer and purpose                                                  | Rotation                                                        |
+| ----------------------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `%LOCALAPPDATA%\WSGM\wsgm.log`            | Resident session, Settings and runtime maintenance one-shots        | Best-effort rotation above 5 MiB to `wsgm.old.log`; one archive |
+| `%LOCALAPPDATA%\WSGM\launch.log`          | `WSGM.Launch`, including lease and de-elevation handoff failures    | 2 MiB threshold, `launch.log.1`, `.2`, `.3`                     |
+| `%LOCALAPPDATA%\WSGM\packaged-launch.log` | Packaged and followed game sessions, route choice and recovery      | 2 MiB threshold, `packaged-launch.log.1`, `.2`, `.3`            |
+| `%ProgramData%\WSGM\wsgm-service.log`     | Logon admission, token choice, launched PID and watchdog fallback   | 1 MiB threshold, `wsgm-service.log.old`                         |
+| `%ProgramData%\WSGM\setup.log`            | Setup detection, per-step result, rollback and component operations | Appended without size rotation in the current implementation    |
+| `%ProgramData%\WSGM\update-failed.txt`    | Latest failed quiet update, read by WSGM at startup and in Settings | One failure record; cleared after a successful update           |
+
+[`Core/Log.cs`](../src/WSGM/Core/Log.cs) is process-wide. It formats local timestamps with
+milliseconds and a padded five-character level (`[info ]`, `[warn ]`, `[error]`, `[debug]`). Its
+process-local lock keeps repeat suppression and appending ordered. Each actual append encodes UTF-8
+and opens a `FileStream` with `FileMode.Append` and `FileShare.ReadWrite | FileShare.Delete`; up to
+three short retries follow an `IOException`, and a failed write is dropped. Suppressed `Debug` calls
+perform no append, although callers still construct their strings. High-rate telemetry and input
+paths must therefore avoid logging calls altogether.
+
+`Local\WSGM.LogRotate` serializes rotation attempts across shell, Settings and one-shots, not every
+append. Acquiring it never waits. Rotation checks run at initialization and after approximately 256
+KiB of rendered-line characters, with the real file size checked under the mutex. Concurrent
+appenders or failed rotations can exceed the threshold; it is a retention target rather than a hard
+write limit. `Change` also maintains its suppression state for messages below the current level, so
+raising verbosity does not force an unchanged keyed message to reappear immediately.
+
+[`Shared/Process/RotatingFileLog.cs`](../src/Shared/Process/RotatingFileLog.cs) is linked into the
+launchers and logon service. It uses the same UTF-8 append sharing but checks its size on each
+append and has a process-local lock, without the main logger's named rotation mutex or repeat
+counter. The launcher adapters add `[pid N]` so overlapping game sessions can be separated.
+`PackagedLaunchLog.Change` suppresses equal messages but does not add the main logger's poll-count
+suffix. The service uses uppercase levels; setup uses an unbracketed uppercase level. Do not assume
+every component has the main logger's verbosity control or rotation implementation.
+
+[`WsgmSteamUiLog`](../src/WSGM/Core/WsgmSteamUiLog.cs) installs the Steam toolkit sink immediately
+after the main logger initializes. Plugin diagnostics pass through `PluginLogLine` and inherit the
+resident threshold and keyed suppression. The native library, setup and wrapper logs do not become
+verbose merely because `AppConfig.LogVerbosity` changes.
+
+For a missing sign-in launch, pair `wsgm-service.log` with the first `Run mode` entry in `wsgm.log`.
+For an update, start with `setup.log` and `update-failed.txt`; for a game handoff, use the matching
+launcher log and its PID. Environment variable values/blocks, SDDL, window titles, module lists and
+token SIDs are excluded from packaged-launch diagnostics. Record outcomes and identities needed to
+correlate the failure, without copying game arguments or session credentials into log messages.
+
+`Log` stays uninitialized in tests, and no test may touch `%LOCALAPPDATA%\WSGM`. Test a logging
+primitive only with explicit temporary paths. Lifecycle flow and its early recovery paths are in
+[boot and shell](boot-and-shell.md); setup and launcher behavior is covered by [setup](setup.md),
+[elevation](elevation.md) and [packaged-game launcher](packaged-game-launcher.md).

@@ -1,13 +1,5 @@
-// The Animations page in Steam: SteamDeckRepo's boot movies browsed, downloaded, and chosen for
-// Big Picture's start.
-//
-// Laid out the way Animation Changer lays out its browser: a toolbar over a grid of cards, one
-// movie's preview and details, and the library with the choice. Drawn with Steam's own components
-// where one fits and the toolkit's UI kit for the rest, the tabbed frame and the detail included.
-// WSGM owns the list, the library, the choice, the sorts and the override file; the toolkit owns
-// the page gate, the kit, the modal frame and the fail-closed component discovery used here. Only
-// the boot movie is offered: nothing on Windows drives Steam's suspend flow, so its suspend movies
-// never play.
+// Boot-animation frontend; host services own downloads, selection and override files.
+// Windows does not drive Steam suspend movies, so this page offers boot movies only.
 const AnimationsPatchId = "wsgm.animations";
 
 let animationsUi: any = null;
@@ -299,8 +291,11 @@ function AnimationsSettings({ state }: any) {
   );
 }
 
-// Declared once for the life of the asset, and drawn by the toolkit's page frame only once the gate
-// holds: the frame says why when it does not.
+/**
+ * Renders animation browsing, the installed library and settings from host state.
+ * @param context Registered page accessors for Steam components, latest state and publication refusal.
+ * @returns The page React tree, including loading or refusal state when data is unavailable.
+ */
 function AnimationsPage({ context }: any) {
   const react = context.react();
   const h = react.createElement;

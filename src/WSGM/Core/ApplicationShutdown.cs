@@ -7,18 +7,26 @@ namespace WSGM.Core;
 /// <summary>The one process-level shutdown policy selected before Avalonia teardown begins.</summary>
 internal enum ApplicationShutdownReason
 {
+    /// <summary>Ordinary resident exit with the normal cleanup budget.</summary>
     Normal,
+    /// <summary>Installer replacement; stop within the update handoff budget.</summary>
     Update,
+    /// <summary>Windows session termination with the shortest cleanup budget.</summary>
     SessionEnd,
+    /// <summary>Installer removal with the longer restoration budget.</summary>
     Uninstall
 }
 
 /// <summary>Bounded outcome of the process-owned graceful shutdown attempt.</summary>
 internal enum ApplicationShutdownOutcome
 {
+    /// <summary>Cleanup completed before the outer deadline.</summary>
     Clean,
+    /// <summary>Cleanup began but failed to prove completion.</summary>
     Unverified,
+    /// <summary>The outer deadline elapsed; cleanup may still be running.</summary>
     TimedOut,
+    /// <summary>Cleanup could not start, or the process owner failed.</summary>
     Failed
 }
 
@@ -28,9 +36,13 @@ internal static class ApplicationShutdownRequest
     private static int _reason;
     private static int _sessionEnding;
 
+    /// <summary>Gets the highest-priority reason requested so far: uninstall, update, session end, then normal.</summary>
     internal static ApplicationShutdownReason Current => (ApplicationShutdownReason)Volatile.Read(ref _reason);
+    /// <summary>Gets whether any caller reported Windows session termination, independently of reason priority.</summary>
     internal static bool SessionEnding => Volatile.Read(ref _sessionEnding) != 0;
 
+    /// <summary>Records an exit reason without downgrading a stronger existing request.</summary>
+    /// <param name="reason">Requested shutdown policy; session end also sets the independent session-ending marker.</param>
     internal static void Request(ApplicationShutdownReason reason)
     {
         if (reason is ApplicationShutdownReason.SessionEnd)
@@ -50,6 +62,7 @@ internal static class ApplicationShutdownRequest
         }
     }
 
+    /// <summary>Clears process-wide exit markers for isolated policy checks; never call during a live shutdown.</summary>
     internal static void ResetForTests()
     {
         Interlocked.Exchange(ref _reason, (int)ApplicationShutdownReason.Normal);
@@ -69,6 +82,10 @@ internal static class ApplicationShutdownRequest
 }
 
 /// <summary>Owns the single process exit attempt independently of Avalonia's shutdown events.</summary>
+/// <param name="sessionShutdown">Optional session cleanup receiving its policy and absolute UTC deadline.</param>
+/// <param name="forcedExit">Terminates the process with the selected exit code unless Windows is already ending the session.</param>
+/// <param name="reportHandoff">Publishes the outcome after the bounded cleanup attempt; called once even if late cleanup continues.</param>
+/// <param name="utcNow">UTC clock override, or null to use the system clock.</param>
 internal sealed class ApplicationRuntime(
     Func<ApplicationShutdownReason, DateTimeOffset, ValueTask>? sessionShutdown,
     Action<int> forcedExit,
@@ -83,11 +100,16 @@ internal sealed class ApplicationRuntime(
     private volatile bool _osEnding;
     private volatile bool _startupFailed;
 
+    /// <summary>Gets whether the shared exit attempt has been published, including a completed attempt.</summary>
     internal bool ExitRequested => _exit is not null;
+    /// <summary>Gets whether startup failure must force a nonzero process exit code.</summary>
     internal bool StartupFailed => _startupFailed;
 
+    /// <summary>Gets the current absolute UTC cleanup deadline; meaningful after exit has been requested.</summary>
     internal DateTimeOffset Deadline => new(Interlocked.Read(ref _deadlineTicks), TimeSpan.Zero);
 
+    /// <summary>Starts the single exit attempt or joins it, tightening its deadline for later urgent requests.</summary>
+    /// <returns>The shared completion task; it does not imply cleanup succeeded. Process exit is attempted before completion.</returns>
     internal Task RequestExit()
     {
         TaskCompletionSource completion;
@@ -118,6 +140,8 @@ internal sealed class ApplicationRuntime(
         return completion.Task;
     }
 
+    /// <summary>Marks Windows session termination and joins cleanup without calling the forced-exit delegate.</summary>
+    /// <returns>The shared exit completion task.</returns>
     internal Task RequestOsSessionEnd()
     {
         _osEnding = true;
@@ -125,6 +149,8 @@ internal sealed class ApplicationRuntime(
         return RequestExit();
     }
 
+    /// <summary>Marks startup as failed and joins cleanup, forcing exit code 1 on the ordinary termination path.</summary>
+    /// <returns>The shared exit completion task.</returns>
     internal Task StartupFailedExit()
     {
         _startupFailed = true;
@@ -216,11 +242,17 @@ internal sealed class ApplicationRuntime(
 /// </summary>
 internal static class ApplicationShutdownCoordinator
 {
+    /// <summary>Maps a cleanup outcome to the process status exposed to callers.</summary>
+    /// <param name="outcome">Final classification of the shutdown attempt.</param>
+    /// <returns>Zero only for clean completion; otherwise one.</returns>
     internal static int ExitCodeFor(ApplicationShutdownOutcome outcome)
     {
         return outcome is ApplicationShutdownOutcome.Clean ? 0 : 1;
     }
 
+    /// <summary>Gets the total process cleanup budget for an exit reason.</summary>
+    /// <param name="reason">Shutdown policy selected by the process owner.</param>
+    /// <returns>10 seconds for update, 5 for session end, 20 for uninstall, or 15 for normal exit.</returns>
     internal static TimeSpan BudgetFor(ApplicationShutdownReason reason)
     {
         return reason switch
@@ -232,6 +264,13 @@ internal static class ApplicationShutdownCoordinator
         };
     }
 
+    /// <summary>Runs cleanup within the reason-specific outer deadline using the system UTC clock.</summary>
+    /// <param name="shutdownAsync">Starts cleanup once and receives its absolute UTC deadline.</param>
+    /// <param name="reason">Determines the default budget and diagnostic context.</param>
+    /// <param name="budgetOverride">Positive replacement budget, or null for the reason-specific default.</param>
+    /// <returns>The completion classification; timing out does not cancel the cleanup task.</returns>
+    /// <exception cref="ArgumentNullException">The cleanup delegate is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The selected budget is not positive.</exception>
     internal static Task<ApplicationShutdownOutcome> ShutdownAsync(
         Func<DateTimeOffset, ValueTask> shutdownAsync,
         ApplicationShutdownReason reason,
@@ -246,9 +285,18 @@ internal static class ApplicationShutdownCoordinator
     }
 
     /// <summary>
-    ///     Test seam for the process deadline clock and timer. Production always supplies
-    ///     UTC and <see cref="Task.Delay(TimeSpan)" /> through the overload above.
+    ///     Runs cleanup against caller-supplied timing and an optional deadline that can tighten
+    ///     while cleanup is running. Late work is observed but is not canceled by this coordinator.
     /// </summary>
+    /// <param name="shutdownAsync">Starts cleanup once and receives its absolute UTC deadline.</param>
+    /// <param name="reason">Determines the default budget and diagnostic context.</param>
+    /// <param name="budgetOverride">Positive replacement budget, or null for the reason-specific default.</param>
+    /// <param name="utcNow">Clock used to compare the absolute deadline.</param>
+    /// <param name="delayAsync">Creates the outer deadline task; completion or cancellation means the budget elapsed.</param>
+    /// <param name="currentDeadline">Optional source of a deadline that another exit request may shorten.</param>
+    /// <returns>Clean, unverified, failed-to-start, or timed-out completion; late cleanup faults remain observed.</returns>
+    /// <exception cref="ArgumentNullException">A required delegate is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">The selected budget is not positive.</exception>
     internal static async Task<ApplicationShutdownOutcome> ShutdownAsync(
         Func<DateTimeOffset, ValueTask> shutdownAsync,
         ApplicationShutdownReason reason,

@@ -23,6 +23,9 @@ internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, ID
     // not evidence that the row the user touched was describing the output that is default now.
     private volatile Offered? _offered;
 
+    /// <summary>Creates the audio projection and subscribes to default-output changes.</summary>
+    /// <param name="audio">Borrowed session audio manager; disposal releases only this service's event subscription.</param>
+    /// <param name="profiles">Borrowed owner of endpoint format capabilities, writes and persisted audio preferences.</param>
     internal NativeQamAudioFormatService(AudioManager audio, AudioProfileService profiles)
     {
         _audio = audio ?? throw new ArgumentNullException(nameof(audio));
@@ -55,6 +58,10 @@ internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, ID
     }
 
     /// <summary>Applies a native Settings selection only to the output its row described.</summary>
+    /// <param name="endpointId">Endpoint id published with the row; must still name the default output.</param>
+    /// <param name="formatId">Exact id in the last published format/channel choices.</param>
+    /// <param name="cancellationToken">Cancels the profile owner's endpoint write.</param>
+    /// <returns>The write result, or a refusal if the endpoint or offered choice has changed.</returns>
     internal async Task<SteamUiCommandResult> SetFormatForEndpointAsync(string endpointId, string formatId,
         CancellationToken cancellationToken)
     {
@@ -74,6 +81,10 @@ internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, ID
     }
 
     /// <summary>Applies a native Settings selection only to the output its row described.</summary>
+    /// <param name="endpointId">Endpoint id published with the row; must still name the default output.</param>
+    /// <param name="spatialId">GUID string from the last published spatial-format choices.</param>
+    /// <param name="cancellationToken">Cancels the profile owner's endpoint write.</param>
+    /// <returns>The write result, or a refusal if the endpoint or offered choice has changed.</returns>
     internal async Task<SteamUiCommandResult> SetSpatialForEndpointAsync(string endpointId, string spatialId,
         CancellationToken cancellationToken)
     {
@@ -95,13 +106,15 @@ internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, ID
     /// <summary>Raised when a changed default endpoint requires new options to be published.</summary>
     internal event Action? StateChanged;
 
-    /// <summary>Reads the current output's bounded capability state.</summary>
+    /// <summary>Reads the current output's format and spatial capabilities.</summary>
+    /// <returns>The current choices and selection, or an unavailable state with a reason when the endpoint cannot be read.</returns>
     internal async ValueTask<SteamAudioFormatState?> ReadAsync()
     {
         return (await ReadEndpointAsync().ConfigureAwait(false)).State;
     }
 
     /// <summary>Returns choices together with the exact endpoint that offered them.</summary>
+    /// <returns>Capabilities paired with their endpoint identity; an unavailable state and null id clear command admission when no endpoint can be read.</returns>
     internal async ValueTask<(SteamAudioFormatState State, string? EndpointId)> ReadEndpointAsync()
     {
         var capabilities = await _profiles.ReadPlaybackCapabilitiesAsync(CancellationToken.None).ConfigureAwait(false);

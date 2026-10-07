@@ -21,10 +21,10 @@ public delegate bool KeyboardHookHandler(in KeyboardHookEvent key);
 
 /// <summary>A <c>WH_KEYBOARD_LL</c> hook on its own thread with its own message loop.</summary>
 /// <remarks>
-///     A handheld's OEM buttons often arrive as keyboard keys, and Windows opens keyboards exclusively,
-///     so a hook is how a package claims them, as HC's keyboard chords are. The hook thread installs,
-///     pumps messages, and unhooks in its own <c>finally</c>; a failed install or an unexpected end of the
-///     loop is reported, never silent, and a later start begins cleanly.
+///     Supports suppression of known OEM keyboard chords but cannot identify the physical keyboard
+///     that produced an event. Pair it with an attributed OEM source when identity matters. The owned
+///     thread installs, pumps and unhooks in its <c>finally</c>. A failed install returns false;
+///     an unexpected loop termination invokes the fault callback. A later start can install again.
 /// </remarks>
 public sealed partial class LowLevelKeyboardHook : IAsyncDisposable
 {
@@ -64,10 +64,13 @@ public sealed partial class LowLevelKeyboardHook : IAsyncDisposable
     /// <summary>Installs the hook on its own thread.</summary>
     /// <param name="handler">Decides each key event.</param>
     /// <param name="fault">Told when the hook's message loop ends without a stop request.</param>
-    /// <param name="cancellationToken">Cancels waiting for the install.</param>
+    /// <param name="cancellationToken">Cancels installation waiting and then requests bounded hook cleanup.</param>
     /// <param name="prepare">Runs on the hook thread just before the install, for reading key state.</param>
     /// <param name="stopped">Runs on the hook thread after it unhooked, however it ended.</param>
-    /// <returns>Whether the hook is installed.</returns>
+    /// <returns>True after installation; false after install failure or while an existing thread has no hook.</returns>
+    /// <remarks>An existing thread keeps its original callbacks; another start does not replace them.</remarks>
+    /// <exception cref="OperationCanceledException">Waiting was canceled and cleanup completed.</exception>
+    /// <exception cref="TimeoutException">Cancellation cleanup could not join the hook thread within one second.</exception>
     public async ValueTask<bool> StartAsync(
         KeyboardHookHandler handler,
         Action<Exception> fault,
@@ -105,8 +108,9 @@ public sealed partial class LowLevelKeyboardHook : IAsyncDisposable
     }
 
     /// <summary>Removes the hook and ends its thread.</summary>
-    /// <param name="cancellationToken">Cancels waiting for the thread.</param>
-    /// <returns>A task completing once the thread ended.</returns>
+    /// <param name="cancellationToken">Cancels waiting, not the already requested unhook and thread shutdown.</param>
+    /// <returns>Completion after the thread ended, or immediately when no thread exists.</returns>
+    /// <exception cref="OperationCanceledException">The caller stopped waiting; shutdown may still be running.</exception>
     /// <exception cref="TimeoutException">The hook thread did not end within a second.</exception>
     public async ValueTask StopAsync(CancellationToken cancellationToken)
     {

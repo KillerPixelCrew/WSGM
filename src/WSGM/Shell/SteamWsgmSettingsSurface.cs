@@ -19,7 +19,6 @@ internal static class SteamWsgmSettingsSurface
     /// <summary>The renderer that draws it.</summary>
     public const string Template = "wsgm-settings";
 
-    /// <summary>The longest key the page publishes, with room to spare.</summary>
     /// <summary>The name the page's gate registers under.</summary>
     public const string GateName = "wsgmSettings";
 
@@ -43,11 +42,11 @@ internal static class SteamWsgmSettingsSurface
         ]);
 
     /// <summary>Declares the page's state and its exact command vocabulary.</summary>
-    /// <param name="enabled">Whether the page may be installed and published.</param>
-    /// <param name="read">Reads the current page model.</param>
+    /// <param name="enabled">Whether state may be published; patch installation is coordinated separately.</param>
+    /// <param name="read">Reads the current model; null skips this publication without retracting the previous state.</param>
     /// <param name="backend">Answers changes.</param>
     /// <param name="id">Module identity for diagnostics.</param>
-    /// <returns>The module.</returns>
+    /// <returns>A module borrowing its backend and readers; construction does not install its patch.</returns>
     public static ISteamUiModule Module(
         Func<bool> enabled,
         Func<ValueTask<WsgmSteamSettingsState?>> read,
@@ -69,7 +68,10 @@ internal static class SteamWsgmSettingsSurface
             ]);
     }
 
-    /// <summary>Reads <c>{key, value}</c>: a bounded key and a value the backend checks against the row.</summary>
+    /// <summary>Reads <c>{key, value}</c>, retaining a cloned value for backend row validation.</summary>
+    /// <param name="payload">An object containing exactly key and value.</param>
+    /// <param name="value">Parsed request with a cloned JSON value independent of the payload document; default on failure.</param>
+    /// <returns>True when the key is nonblank and the value is neither object, null nor undefined; the backend validates row-specific types.</returns>
     internal static bool TryReadSet(JsonElement payload, out SetRequest value)
     {
         value = default;
@@ -86,6 +88,8 @@ internal static class SteamWsgmSettingsSurface
     }
 
     /// <summary>One change: the row's key and its new value.</summary>
+    /// <param name="Key">Published row identity.</param>
+    /// <param name="Value">Cloned new JSON value; row semantics are validated by the backend.</param>
     internal readonly record struct SetRequest(string Key, JsonElement Value);
 }
 

@@ -428,6 +428,10 @@ internal sealed unsafe partial class NvApi : INvProfiles, IDisposable
     }
 
     /// <summary>Reads the colour block (command 1) or asks whether one is supported (command 3).</summary>
+    /// <param name="display">Current NVAPI display id; the caller revalidates topology before native access.</param>
+    /// <param name="command">NV_COLOR_CMD value: 1 reads current color, 3 validates a complete proposed combination.</param>
+    /// <param name="input">Native color-v5 buffer to clone, or null for a fresh zeroed query buffer.</param>
+    /// <returns>A new color-v5 buffer containing the driver response; the supplied input is unchanged and native failures throw.</returns>
     internal byte[] Color(uint display, byte command, byte[]? input = null)
     {
         var buffer = ColorBuffer(command, input);
@@ -441,6 +445,9 @@ internal sealed unsafe partial class NvApi : INvProfiles, IDisposable
     }
 
     /// <summary>Writes a colour block, checking admission immediately before the native call.</summary>
+    /// <param name="display">Revalidated NVAPI display id.</param>
+    /// <param name="data">Complete native color-v5 state; copied before the command/version fields are set.</param>
+    /// <param name="admission">Cancellation, deadline and live-session permission checked immediately before the setter.</param>
     internal void SetColor(uint display, byte[] data, WriteAdmission admission)
     {
         var buffer = ColorBuffer(2, data);

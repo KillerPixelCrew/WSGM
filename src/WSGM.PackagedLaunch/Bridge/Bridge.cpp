@@ -6,8 +6,8 @@
 #include <cwchar>
 #include "MinHook.h"
 
-// One serialized request, with unnamed mapping/events duplicated by the wrapper.
-// No pipe namespace, security-descriptor change, or per-frame traffic is needed.
+// Wire layout shared with OverlayObjectBroker: one serialized request in an unnamed mapping.
+// The wrapper duplicates mapping/event handles into this process; it enforces the exact object allowlist.
 struct Request
 {
     uint32_t version;
@@ -130,21 +130,9 @@ static volatile LONG initialOwnerRequested;
 
 static HANDLE BrokerMutex(const wchar_t* name, BOOL owner)
 {
-    // An initially-owned mutex cannot be brokered. CreateMutexW with bInitialOwner gives the
-    // caller ownership at the instant the object exists; a broker in another process can only
-    // create it unowned and hand the handle over, leaving the object free and visible under its
-    // real Steam name in between. Anything else in Steam's overlay IPC can take it in that
-    // window, and the acquisition that would close the gap has to happen inside this hook, on
-    // whatever thread the renderer is initialising on, while the request lock is held.
-    //
-    // The spike did exactly that, waited up to five seconds for it, and treated WAIT_ABANDONED
-    // as success. That is indistinguishable from "another party died holding this and the
-    // structure it protects may be half written".
-    //
-    // Whether Steam ever asks for one is unknown: it was never observed. So this refuses and
-    // records the request rather than guessing. If the counter is still zero after a session,
-    // the case does not arise and this code is simply correct. If it is not, the log says so and
-    // the design question can be answered with evidence instead of a compromise.
+    // A cross-process broker cannot preserve CreateMutex's atomic initial ownership. Creating it
+    // unowned and waiting here exposes a race; WAIT_ABANDONED also cannot establish valid protected
+    // state. Refuse and count these requests rather than approximating that contract.
     if (owner)
     {
         InterlockedIncrement(&initialOwnerRequested);

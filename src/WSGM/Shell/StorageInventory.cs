@@ -50,14 +50,11 @@ internal sealed record StorageDiskFacts(
     bool HasLinuxPartitions);
 
 /// <summary>
-///     One read of the machine's storage: every mounted disk volume and every external disk, with the disk
-///     number as the one identity both carry. The eject list, the format targets, Steam's storage pages and the
-///     card and library scans all project from a read like this instead of walking the disks themselves, so
-///     within one read they cannot disagree about which card is which.
+///     Shared observations of mounted disk volumes and classified external disks, joined by current disk number.
 /// </summary>
 /// <remarks>
-///     An immutable value, not a cache: whoever needs fresh facts reads again. The checks that guard a
-///     destructive step against a swapped card keep their own fresh handles.
+///     Queries run sequentially and can race hotplug. Consumers must reread before destructive actions;
+///     disk numbers are current coordinates, not persistent hardware identities.
 /// </remarks>
 /// <param name="Volumes">Every mounted volume on a disk, external or not.</param>
 /// <param name="ExternalDisks">
@@ -78,12 +75,14 @@ internal sealed record StorageInventory(
 
     /// <summary>The external disk with this number, or null when it is not one.</summary>
     /// <param name="disk">The physical disk number.</param>
+    /// <returns>The first matching classified external disk, or null if absent, excluded or unreadable during capture.</returns>
     internal StorageDiskFacts? FindDisk(int disk)
     {
         return ExternalDisks.FirstOrDefault(candidate => candidate.Number == disk);
     }
 
     /// <summary>The ready volumes on external disks.</summary>
+    /// <returns>A deferred, read-only filter over this snapshot, without querying current device state.</returns>
     internal IEnumerable<StorageVolumeFacts> ReadyExternalVolumes()
     {
         return Volumes.Where(volume => volume.Ready && FindDisk(volume.Disk) is not null);
@@ -93,7 +92,7 @@ internal sealed record StorageInventory(
     ///     Reads the inventory: one mounted-volume walk, one disk-interface walk and one classification per
     ///     disk. Worker thread only: this opens volume and disk handles.
     /// </summary>
-    /// <returns>What the machine has mounted and attached right now.</returns>
+    /// <returns>Readable current volume/disk facts; failed identity or hotplug queries omit that disk.</returns>
     internal static StorageInventory Read()
     {
         var systemDisks = SystemDisks();

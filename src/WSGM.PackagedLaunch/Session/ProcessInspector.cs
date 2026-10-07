@@ -36,10 +36,8 @@ internal sealed record WindowEntry(IntPtr Handle, string ClassName, bool Visible
 
 /// <summary>Reads the few process facts this launcher acts on.</summary>
 /// <remarks>
-///     Deliberately small. The spike described processes exhaustively because it was answering
-///     questions; this reads identity, token shape and lifetime, which is what routing, containment
-///     and the exit decision need. Nothing here enumerates modules or walks the whole machine on a
-///     timer.
+///     Reads identity, token shape, windows, and lifetime for routing and containment. Observations
+///     are snapshots; a process or window can exit immediately after inspection.
 /// </remarks>
 internal static class ProcessInspector
 {
@@ -51,6 +49,7 @@ internal static class ProcessInspector
     private const int LongPathCharacters = 32_768;
 
     /// <summary>Every process currently running, or an empty list when the snapshot failed.</summary>
+    /// <returns>Entries yielded by the process snapshot; empty on initial failure and potentially partial if enumeration stops early.</returns>
     internal static IReadOnlyList<ProcessEntry> Snapshot()
     {
         var snapshot = NativeMethods.CreateToolhelp32Snapshot(NativeMethods.Th32CsSnapProcess, 0);
@@ -88,6 +87,7 @@ internal static class ProcessInspector
     /// <summary>Reads one process, or null when it is gone or cannot be opened.</summary>
     /// <param name="processId">The process to read.</param>
     /// <param name="name">Its image name from the snapshot, when one is already known.</param>
+    /// <returns>A process snapshot with unavailable individual facts left empty, or null if the process cannot be opened.</returns>
     internal static ProcessFacts? Describe(int processId, string? name = null)
     {
         return WithProcess(processId, process => new ProcessFacts(
@@ -100,6 +100,8 @@ internal static class ProcessInspector
     }
 
     /// <summary>The package family a process carries, or null when it carries none.</summary>
+    /// <param name="processId">Process whose package identity is queried.</param>
+    /// <returns>Package family name, or null if absent, exited, inaccessible, or unreadable.</returns>
     internal static string? PackageFamilyNameOf(int processId)
     {
         return WithProcess(processId, PackageFamilyNameOf);
@@ -110,6 +112,8 @@ internal static class ProcessInspector
     ///     Process ids are reused, so a recovery record that names one is only trustworthy together
     ///     with the start time of the process that held it.
     /// </remarks>
+    /// <param name="processId">Process whose creation time is queried.</param>
+    /// <returns>UTC creation time, or null if the process cannot be opened or queried.</returns>
     internal static DateTime? StartedAt(int processId)
     {
         return WithProcess(processId, StartedAtOf);
@@ -164,6 +168,7 @@ internal static class ProcessInspector
     ///     admitted when it actually hosts a CoreWindow belonging to this process, and never
     ///     otherwise: every packaged app on the machine shares that host.
     /// </remarks>
+    /// <returns>Observed top-level windows owned by the process or hosting its CoreWindow; handles are borrowed and may become stale.</returns>
     internal static IReadOnlyList<WindowEntry> WindowsOf(int processId)
     {
         List<WindowEntry> found = [];
@@ -188,6 +193,9 @@ internal static class ProcessInspector
     }
 
     /// <summary>Whether a frame window hosts a CoreWindow belonging to this process.</summary>
+    /// <param name="frame">Borrowed window handle whose descendants are inspected.</param>
+    /// <param name="processId">Process that must own the CoreWindow.</param>
+    /// <returns>True when a matching Windows.UI.Core.CoreWindow is observed below the frame.</returns>
     internal static bool HostsCoreWindowOf(IntPtr frame, int processId)
     {
         var hosts = false;
@@ -216,6 +224,7 @@ internal static class ProcessInspector
 
     /// <summary>The full path of a process's image, or null when it cannot be read.</summary>
     /// <param name="processId">The process.</param>
+    /// <returns>Full image path, or null when the process or its image path cannot be queried.</returns>
     internal static string? ImagePathOf(int processId)
     {
         return WithProcess(processId, ImagePathOf);
@@ -228,6 +237,7 @@ internal static class ProcessInspector
     ///     only limited query access. Used to recognise a game that runs from a shared runtime, such as
     ///     Java, by the instance folder its launcher passed it; the line itself is never logged.
     /// </remarks>
+    /// <returns>Command-line text, which can be empty, or null on an inaccessible or unsuccessful query.</returns>
     internal static string? CommandLineOf(int processId)
     {
         return WithProcess(processId, CommandLineOf);
@@ -261,8 +271,9 @@ internal static class ProcessInspector
         return null;
     }
 
-    /// <summary>The 8.3 form of a path, or null when Windows keeps none for it.</summary>
+    /// <summary>Asks Windows for the short-path form, which may retain long components.</summary>
     /// <param name="path">An existing path.</param>
+    /// <returns>Windows' short-path representation, possibly unchanged, or null when the query fails.</returns>
     internal static string? ShortPathOf(string path)
     {
         var length = NativeMethods.GetShortPathNameW(path, null, 0);

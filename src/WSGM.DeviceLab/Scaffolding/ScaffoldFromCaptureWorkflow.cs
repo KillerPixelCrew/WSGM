@@ -334,6 +334,8 @@ internal static partial class ScaffoldFromCaptureWorkflow
     ///     inside a checkout, so its scaffold instead records the absolute path of the exact SDK assembly
     ///     shipped beside it. An unresolved MSBuild property is never emitted.
     /// </remarks>
+    /// <param name="boundaries">Filesystem boundaries identifying the source checkout, when one is available.</param>
+    /// <returns>An XML-escaped MSBuild project or assembly reference; throws when no exact SDK reference can be resolved.</returns>
     [UnconditionalSuppressMessage("SingleFile", "IL3000",
         Justification =
             "The portable single-file build has no SDK assembly on disk; the empty location is refused below with an explanation, and a checkout still scaffolds through the project reference.")]

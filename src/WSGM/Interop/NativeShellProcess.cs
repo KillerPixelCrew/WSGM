@@ -64,6 +64,8 @@ internal static partial class NativeShellProcess
     ///     protected process. The one shared image-path primitive for every caller that only
     ///     needs the path, not the full inspection.
     /// </summary>
+    /// <param name="processId">Process identity to inspect without retaining a handle.</param>
+    /// <returns>Full executable image path, or null when the process is absent or inaccessible.</returns>
     internal static string? TryGetImagePath(uint processId)
     {
         var process = NativeMethods.OpenProcess(ProcessQueryLimitedInformation, false, processId);
@@ -86,6 +88,8 @@ internal static partial class NativeShellProcess
     ///     Reads a process's terminal-services session without opening a .NET Process, which would
     ///     snapshot every process on the machine. Null when Windows does not answer.
     /// </summary>
+    /// <param name="processId">Process identity to inspect.</param>
+    /// <returns>Terminal-services session identity, or null when Windows cannot resolve it.</returns>
     internal static int? TryGetSessionId(uint processId)
     {
         return ProcessIdToSessionId(processId, out var session) ? checked((int)session) : null;
@@ -259,6 +263,10 @@ internal static partial class NativeShellProcess
         [MarshalAs(UnmanagedType.Bool)] out bool result);
 
     /// <summary>Waits for one owned process handle without blocking the caller.</summary>
+    /// <param name="processHandle">Borrowed synchronize-capable handle; keep it open until the task completes.</param>
+    /// <param name="timeout">Maximum elapsed wait, including worker scheduling delay.</param>
+    /// <param name="cancellationToken">Cancels the wait without stopping the process.</param>
+    /// <returns>True when the handle signals; false on timeout or native wait failure. Cancellation propagates.</returns>
     internal static async Task<bool> WaitForExitAsync(
         nint processHandle,
         TimeSpan timeout,
@@ -326,6 +334,8 @@ internal static partial class NativeShellProcess
     }
 
     /// <summary>Gets whether an owned process handle has signaled.</summary>
+    /// <param name="processHandle">Borrowed synchronize-capable process handle.</param>
+    /// <returns>True only for a signaled handle; timeout and native failure return false.</returns>
     internal static bool HasExited(nint processHandle)
     {
         return Win32Common.WaitForSingleObject(processHandle, 0) == WaitObject0;
@@ -335,6 +345,9 @@ internal static partial class NativeShellProcess
     ///     Queries whether a terminal-services session is currently active. Recovery callers
     ///     use this after owner loss so logoff never causes a replacement desktop to be launched.
     /// </summary>
+    /// <param name="sessionId">Nonnegative terminal-services session identity.</param>
+    /// <param name="error">Zero for a successful query, otherwise the Win32 or malformed-response error.</param>
+    /// <returns>True only for WTSActive; false for another session state or query failure.</returns>
     internal static bool IsSessionActive(int sessionId, out int error)
     {
         if (!Win32Common.WTSQuerySessionInformationW(
@@ -367,6 +380,12 @@ internal static partial class NativeShellProcess
 }
 
 /// <summary>Process attributes relevant to accepting a normal desktop shell or launch owner.</summary>
+/// <param name="ProcessId">Inspected process identity.</param>
+/// <param name="ImagePath">Executable path, or null when unavailable.</param>
+/// <param name="SessionId">Terminal-services session, or null when unavailable.</param>
+/// <param name="Integrity">Token integrity classification; Unknown when unavailable.</param>
+/// <param name="JobMembership">Observed job membership; Unknown when unavailable.</param>
+/// <param name="Errors">Independent Win32 query errors; a missing observation is not evidence of a safe owner.</param>
 internal readonly record struct NativeShellProcessInfo(
     uint ProcessId,
     string? ImagePath,
@@ -376,6 +395,9 @@ internal readonly record struct NativeShellProcessInfo(
     NativeShellProcessErrors Errors)
 {
     /// <summary>Creates an unavailable inspection result.</summary>
+    /// <param name="processId">Process that could not be opened.</param>
+    /// <param name="error">Win32 OpenProcess error.</param>
+    /// <returns>A result with unknown attributes and the opening error retained.</returns>
     internal static NativeShellProcessInfo Unavailable(uint processId, int error)
     {
         return new NativeShellProcessInfo(
@@ -389,6 +411,11 @@ internal readonly record struct NativeShellProcessInfo(
 }
 
 /// <summary>Exact Win32 failures produced by each independent process-inspection query.</summary>
+/// <param name="Open">OpenProcess failure, or zero.</param>
+/// <param name="Image">Image-path query failure, or zero.</param>
+/// <param name="Session">Session query failure, or zero.</param>
+/// <param name="Integrity">Token/integrity query failure, or zero.</param>
+/// <param name="Job">Job-membership query failure, or zero.</param>
 internal readonly record struct NativeShellProcessErrors(
     int Open,
     int Image,
@@ -438,6 +465,9 @@ internal sealed class NativeShellLaunchParent : IDisposable
     private nint _tokenHandle;
 
     /// <summary>Creates the owned handle pair.</summary>
+    /// <param name="processId">Verified parent identity for diagnostics.</param>
+    /// <param name="processHandle">Owned process handle transferred to this wrapper.</param>
+    /// <param name="tokenHandle">Owned token handle transferred to this wrapper; both handles close on disposal.</param>
     internal NativeShellLaunchParent(uint processId, nint processHandle, nint tokenHandle)
     {
         ProcessId = processId;
@@ -480,6 +510,8 @@ internal sealed partial class NativeShellChildProcess : IDisposable
     private nint _processHandle;
 
     /// <summary>Creates an owned child-process handle.</summary>
+    /// <param name="processId">Created process identity for diagnostics only.</param>
+    /// <param name="processHandle">Owned exact process handle transferred to this wrapper; closes on disposal.</param>
     internal NativeShellChildProcess(uint processId, nint processHandle)
     {
         ProcessId = processId;
@@ -503,6 +535,9 @@ internal sealed partial class NativeShellChildProcess : IDisposable
     }
 
     /// <summary>Waits boundedly for the exact created process to exit.</summary>
+    /// <param name="timeout">Maximum wait for the exact child.</param>
+    /// <param name="cancellationToken">Cancels observation without stopping the child.</param>
+    /// <returns>True when already disposed or exited, false on timeout/native wait failure; keep the wrapper alive until completion.</returns>
     internal Task<bool> WaitForExitAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
     {
         var handle = _processHandle;
@@ -515,6 +550,7 @@ internal sealed partial class NativeShellChildProcess : IDisposable
     ///     Terminates only the exact owned child. Used solely when anchor setup or its
     ///     authenticated stop handshake failed before the child could be released normally.
     /// </summary>
+    /// <returns>True when already released/exited or termination was accepted; it does not wait for process exit.</returns>
     internal bool TryTerminate()
     {
         var handle = _processHandle;

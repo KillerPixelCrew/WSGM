@@ -23,6 +23,10 @@ internal sealed record AllyPowerState(int? Sustained, int? Slow, int? Fast, int?
 }
 
 /// <summary>The fan curves captured together, one per channel the firmware exposes.</summary>
+/// <param name="Cpu">CPU curve as eight temperatures followed by eight duties, or null when unreadable.</param>
+/// <param name="Gpu">GPU curve in the same format, or null when unreadable.</param>
+/// <param name="Mid">Mid-fan curve, or null when the channel is unavailable or unreadable.</param>
+/// <param name="Mode">Performance mode used to select the queried curves, or null when unknown.</param>
 internal sealed record AllyFanSnapshot(byte[]? Cpu, byte[]? Gpu, byte[]? Mid, int? Mode)
 {
     public bool Readable => Cpu is not null && Gpu is not null;
@@ -36,6 +40,9 @@ internal sealed record AllyFanSnapshot(byte[]? Cpu, byte[]? Gpu, byte[]? Mid, in
 ///     so the boost descriptor drives SPPT and FPPT as one value. Writes go SPL, then SPPT and FPPT,
 ///     as HC writes them.
 /// </remarks>
+/// <param name="acpi">Shared serialized ATKACPI transport; this capability does not own its lifetime.</param>
+/// <param name="model">Exact model supplying admitted watt limits.</param>
+/// <param name="delay">Cancellable spacing between writes and after a mode change.</param>
 internal sealed class AllyPowerCapability(
     IAsusAcpi acpi,
     AllyModel model,
@@ -61,6 +68,7 @@ internal sealed class AllyPowerCapability(
     public int Maximum => _model.MaximumWatts;
 
     /// <summary>What the firmware reports. A limit it reports as 0 W, as the Xbox Ally X does, is unknown.</summary>
+    /// <returns>Independently queried limits and mode, with null for unavailable or invalid values; no write is performed.</returns>
     public AllyPowerState Read()
     {
         return new AllyPowerState(
@@ -77,6 +85,7 @@ internal sealed class AllyPowerCapability(
     ///     HC never reads these back and simply writes (<c>ROGAlly.cs:694-702</c>). Where the firmware is
     ///     silent, what this cycle last wrote is the best available statement of the device's state.
     /// </remarks>
+    /// <returns>Each last-written value when present, otherwise its current firmware reading; this is not write verification.</returns>
     public AllyPowerState Effective()
     {
         var read = Read();
@@ -92,6 +101,11 @@ internal sealed class AllyPowerCapability(
     ///     Every write to SPL or the boost pair names both (<c>DevicePowerPair.TryResolve</c>); the plugin
     ///     derives neither from the other. The boost value goes to SPPT and FPPT together, HC's short limit.
     /// </remarks>
+    /// <param name="command">Admitted command whose identity is retained in the result.</param>
+    /// <param name="sustained">SPL watts, within this model's limits.</param>
+    /// <param name="boost">SPPT and FPPT watts, within this model's limits.</param>
+    /// <param name="cancellationToken">Cancels inter-write delays; earlier native writes can already have occurred.</param>
+    /// <returns>Rejected for an invalid range, unverified after all writes return, or indeterminate after failure; no rollback occurs.</returns>
     public async ValueTask<CapabilityCommandResult> ApplyLimitsAsync(
         CapabilityCommand command,
         int sustained,
@@ -137,6 +151,11 @@ internal sealed class AllyPowerCapability(
     }
 
     /// <summary>Restores the captured mode, then SPL, SPPT and FPPT, without any readback.</summary>
+    /// <param name="original">Complete captured mode and all three limits.</param>
+    /// <param name="cancellationToken">Cancels the settling and spacing delays; completed writes are not undone.</param>
+    /// <returns>True after all native writes return; incomplete snapshots, cancellation and native failures throw.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="original" /> is null.</exception>
+    /// <exception cref="InvalidOperationException">The snapshot lacks any limit or performance mode.</exception>
     public async ValueTask<bool> RestoreAsync(AllyPowerState original, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(original);
@@ -205,6 +224,7 @@ internal sealed class AllyPowerCapability(
 
 /// <summary>Battery charge ceiling over ATKACPI.</summary>
 /// <remarks>HC writes 0-100 through DEVS 0x00120057 (<c>AsusACPI.cs:335-341</c>).</remarks>
+/// <param name="acpi">Shared ATKACPI transport for the persistent charge-limit setting.</param>
 internal sealed class AllyChargeLimitCapability(IAsusAcpi acpi)
 {
     /// <summary>
@@ -254,6 +274,8 @@ internal sealed class AllyChargeLimitCapability(IAsusAcpi acpi)
 ///     <c>AsusACPI.cs:281-298</c>). Turning custom control off writes HC's default tables back
 ///     (<c>ROGAlly.cs:466-478</c>); this plugin writes the curves it captured first when it has them.
 /// </remarks>
+/// <param name="acpi">Shared ATKACPI transport for fan queries and curve writes.</param>
+/// <param name="delay">Cancellable spacing between fan-channel writes.</param>
 internal sealed class AllyFanCapability(IAsusAcpi acpi, Func<TimeSpan, CancellationToken, Task> delay)
 {
     internal const int PointCount = 8;
@@ -298,6 +320,7 @@ internal sealed class AllyFanCapability(IAsusAcpi acpi, Func<TimeSpan, Cancellat
     }
 
     /// <summary>The CPU and GPU fan readings, in HC's duty units.</summary>
+    /// <returns>CPU and GPU scalar readings, independently null when the firmware does not expose a valid scalar.</returns>
     public (int? Cpu, int? Gpu) ReadFans()
     {
         return (Scalar(AsusAcpiId.CpuFanSpeed), Scalar(AsusAcpiId.GpuFanSpeed));
@@ -309,6 +332,10 @@ internal sealed class AllyFanCapability(IAsusAcpi acpi, Func<TimeSpan, Cancellat
     }
 
     /// <summary>Encodes eight semantic points as the firmware's sixteen bytes.</summary>
+    /// <param name="points">Exactly eight increasing temperatures with nondecreasing duties, within the admitted ranges.</param>
+    /// <param name="curve">Sixteen encoded bytes on success; ignore the allocated or partially filled array on failure.</param>
+    /// <param name="error">Null on success, otherwise the validation message.</param>
+    /// <returns>Whether the points form a valid curve with at least one nonzero duty; 100-percent duties are clamped to 99.</returns>
     public static bool TryEncode(IReadOnlyList<CurvePoint> points, out byte[] curve, out string? error)
     {
         curve = new byte[AsusAcpiProtocol.CurveLength];
@@ -363,6 +390,10 @@ internal sealed class AllyFanCapability(IAsusAcpi acpi, Func<TimeSpan, Cancellat
     }
 
     /// <summary>Returns the fans to firmware control: the captured curves, else HC's defaults.</summary>
+    /// <param name="command">Admitted command whose identity is retained in the result.</param>
+    /// <param name="original">Captured CPU/GPU curves, or null for HC defaults; a missing mid-fan curve uses the selected CPU curve.</param>
+    /// <param name="cancellationToken">Cancels channel-spacing delays without reverting completed writes.</param>
+    /// <returns>Unverified after the curve writes return, or indeterminate after failure; no readback or rollback occurs.</returns>
     public ValueTask<CapabilityCommandResult> ApplyAutomaticAsync(
         CapabilityCommand command,
         AllyFanSnapshot? original,
@@ -375,6 +406,8 @@ internal sealed class AllyFanCapability(IAsusAcpi acpi, Func<TimeSpan, Cancellat
     }
 
     /// <summary>Writes HC's factory tables, the state HC returns the fans to (<c>ROGAlly.cs:466-478</c>).</summary>
+    /// <param name="cancellationToken">Cancels channel-spacing delays; a partial write sequence can remain.</param>
+    /// <returns>Completion after CPU/GPU and any applicable mid-fan writes; native failures and cancellation propagate.</returns>
     public async ValueTask WriteFactoryAsync(CancellationToken cancellationToken)
     {
         await WriteChannelsAsync(DefaultCpuCurve, DefaultGpuCurve, DefaultCpuCurve, cancellationToken)

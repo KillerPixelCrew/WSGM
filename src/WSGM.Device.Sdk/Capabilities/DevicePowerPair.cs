@@ -40,8 +40,8 @@ public static class DevicePowerPair
     /// <summary>Reads the sustained and boost wattage a command on either limit of a declared pair asks for.</summary>
     /// <param name="command">A command on the sustained or the boost limit.</param>
     /// <param name="descriptors">The descriptor set the command was admitted against.</param>
-    /// <param name="sustained">The sustained wattage to write.</param>
-    /// <param name="boost">The boost wattage to write.</param>
+    /// <param name="sustained">Sustained power in watts; use only when the method returns true.</param>
+    /// <param name="boost">Boost power in watts; use only when the method returns true.</param>
     /// <param name="error">Why the command cannot be written, or null on success.</param>
     /// <returns>
     ///     Whether the command names a limit in a declared pair, carries both wattages, the paired one fits
@@ -98,7 +98,11 @@ public static class DevicePowerPair
     /// <summary>Validates every declared pair against the complete descriptor set.</summary>
     /// <param name="descriptors">The current capability descriptors.</param>
     /// <param name="error">The invalid declaration, or null on success.</param>
-    /// <returns>Whether all pairs have two distinct compatible watt controls.</returns>
+    /// <returns>True when every declared pair has unique, distinct writable integer watt controls with valid bounds.</returns>
+    /// <remarks>
+    ///     An empty set or a set without declared pairs is valid. Read support is not required.
+    ///     This validates pair structure only, not each descriptor's complete shape or current availability.
+    /// </remarks>
     public static bool TryValidate(IReadOnlyList<CapabilityDescriptor> descriptors, out string? error)
     {
         ArgumentNullException.ThrowIfNull(descriptors);
@@ -132,6 +136,8 @@ public static class DevicePowerPair
     }
 
     /// <summary>Whether a descriptor is a single-instance writable integer watt limit with a range and step.</summary>
+    /// <param name="descriptor">Capability declaration to check without reading hardware.</param>
+    /// <returns>True for an uninstanced writable integer-watt control with positive minimum/step and ordered bounds.</returns>
     internal static bool IsLimit(CapabilityDescriptor descriptor)
     {
         return descriptor is
@@ -147,6 +153,9 @@ public static class DevicePowerPair
     }
 
     /// <summary>Whether a wattage is inside a limit's range and on its step.</summary>
+    /// <param name="watts">Requested whole-watt value.</param>
+    /// <param name="descriptor">Bounded limit descriptor; a supplied step must be positive.</param>
+    /// <returns>Whether the value lies within both bounds and aligns to the step from the minimum.</returns>
     internal static bool Fits(int watts, CapabilityDescriptor descriptor)
     {
         return watts >= descriptor.Minimum && watts <= descriptor.Maximum

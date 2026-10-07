@@ -12,9 +12,9 @@ public interface IPluginSteamFrontend
     /// <summary>Handles one request from an admitted frontend in the current plugin generation.</summary>
     /// <param name="moduleId">The manifest module that sent the request.</param>
     /// <param name="method">Package-defined method name.</param>
-    /// <param name="payload">Package-defined JSON input.</param>
+    /// <param name="payload">Package-defined JSON input; clone before retaining beyond the invocation.</param>
     /// <param name="cancellationToken">Canceled when the request or plugin stops.</param>
-    /// <returns>Package-defined JSON response.</returns>
+    /// <returns>Detached JSON response, or null for no payload; it must remain usable after this method returns.</returns>
     Task<JsonElement?> InvokeFrontendAsync(string moduleId, string method, JsonElement payload,
         CancellationToken cancellationToken);
 

@@ -13,36 +13,12 @@ public sealed record RouteOutcome(bool Succeeded, string Detail, bool Degraded =
 ///     activation returns, and let Steam's own child-process handoff carry it into the game.
 /// </summary>
 /// <remarks>
-///     <para>
-///         This is the shape that worked for PowerWash Simulator 2 on 2026-09-14, and the controls
-///         recorded beside it are why it is built this way:
-///     </para>
-///     <list type="bullet">
-///         <item>
-///             Activation alone kept Steam's running state but never brought the renderer into the
-///             game, so the shortcut ran with no overlay and the desktop input profile.
-///         </item>
-///         <item>
-///             Launching the game executable directly made it exit and replace itself through Gaming
-///             Services, outside Steam's tracking entirely.
-///         </item>
-///         <item>
-///             Launching the helper directly got Steam's renderer into that helper, and then
-///             <c>dllhost</c> started a replacement helper without it.
-///         </item>
-///     </list>
-///     <para>
-///         What worked was the one remaining order: let activation create the helper, set Steam's
-///         session and components up in that helper immediately, and let Steam follow the handoff
-///         itself. In the successful run the real game already had the renderer at the supervisor's
-///         first observation, before anything was done to the game process.
-///     </para>
-///     <para>
-///         So this route deliberately does nothing to the game. The spike also performed delayed
-///         environment writes and loads in the game and could not say whether they mattered; leaving
-///         them out is both the simpler design and less to justify to an anti-cheat.
-///     </para>
+///     Activation may replace the helper outside the wrapper's process tree. This route prepares
+///     Steam's environment and client stack in the activation-returned helper before loading the
+///     renderer, then observes the real game for Steam's handoff. It performs no delayed writes to
+///     the game process.
 /// </remarks>
+/// <param name="injector">Shared injector used only to prepare the activation-returned helper; its uncertainty latch is retained.</param>
 internal sealed class PackagedWin32OverlayRoute(GameInjector injector)
 {
     /// <summary>Sets Steam up in the launch helper activation returned.</summary>
@@ -55,9 +31,7 @@ internal sealed class PackagedWin32OverlayRoute(GameInjector injector)
             return new RouteOutcome(false, "Activation returned no process to set Steam up in.");
         }
 
-        // Every payload this route loads - Steam's client and renderer, the bridge, the environment
-        // stub - is x64. A 32-bit game cannot load any of it, so the route is refused rather than
-        // written into a process it cannot work in.
+        // Steam's components and the environment stub require a verified native x64 target.
         if (ProcessInspector.IsNativeX64(helperProcessId) is not true)
         {
             return new RouteOutcome(false,

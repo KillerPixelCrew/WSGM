@@ -57,6 +57,7 @@ internal sealed class VolumeButtonService : IDisposable
     }
 
     /// <summary>Enables or disables WSGM's replacement-shell volume handling.</summary>
+    /// <param name="active">True requests shell-hook ownership; false relinquishes it and hides the OSD. Invoke on the UI thread; disposed or unchanged state is ignored.</param>
     internal void SetGameModeActive(bool active)
     {
         if (_disposed || _gameModeActive == active)

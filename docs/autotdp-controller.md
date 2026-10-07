@@ -66,8 +66,8 @@ capability lookup, paired limits, one write in flight, manual pause, restore on 
 The original watts survive device cycle changes such as lock, sleep and restart. Stop restores them
 through the currently published primary power capability, including the pair's original watts. If
 the capability is unavailable, the restore obligation is retained and logged. The device package
-owns the limit range and the sustained/boost relationship. Nothing here changes QAM or overlay
-ownership.
+declares the limit range and paired descriptors; WSGM chooses the sustained/boost values and the
+plugin writes that pair in its firmware's order. Nothing here changes QAM or overlay ownership.
 
 There is no learning. No floor, learned or failed, is kept for a context or across sessions. Control
 starts from the limit the hardware reports and every conclusion is re-tested from fresh evidence.
@@ -345,7 +345,10 @@ today.
 
 ## Verification
 
-Replay first, hardware second:
+The replay fixtures and rule tests below explain the software evidence. For new changes, follow the
+root manual-first validation policy: build, let the maintainer perform the intended manual check,
+then run the focused automated checks unless explicitly requested sooner. Historical captures are
+not a new hardware pass.
 
 - Fixtures in `tests\WSGM.Tests\Fixtures\AutoTdp` drive the controller through the recorded shapes:
   steady capped play descends, late frames on a saturated GPU climb a step at a time, and a loading
@@ -464,3 +467,15 @@ the deadline, the device bounds and the sensor sample), so a file recorded under
 drive another. Where the file also holds a recorded decision it pairs it with the replayed one.
 `tests\WSGM.Tests\Fixtures\AutoTdp` holds hand-authored traces of the shapes that matter, with their
 provenance in a README beside them.
+
+## Source routes
+
+[AutoTdp.cs](../src/WSGM/Core/AutoTdp.cs) contains the deterministic state machine, sample/decision
+records and tuning defaults. [AutoTdpService](../src/WSGM/Shell/AutoTdpService.cs) binds it to the
+application, observed limiter and device capability, serializes writes and keeps the restore
+obligation. [AutoTdpTrace](../src/WSGM/Core/AutoTdpTrace.cs) defines trace data and
+[AutoTdpTraceRecorder](../src/WSGM/Shell/AutoTdpTraceRecorder.cs) writes it away from the control
+thread. [RtssFrametimeReader](../src/WSGM/Core/RtssFrametimeReader.cs) supplies raw windows; it does
+not classify them. [DeviceCoordinator](../src/WSGM/Shell/DeviceCoordinator.cs) owns shutdown order
+and the common power lane. Change the state machine for policy, the service for orchestration, and
+the plugin for firmware sequencing.

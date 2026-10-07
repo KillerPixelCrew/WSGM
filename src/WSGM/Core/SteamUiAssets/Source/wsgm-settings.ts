@@ -1,14 +1,12 @@
-// WSGM's settings page in Steam, opened from WSGM's row in Steam's main menu.
-//
-// Thin on purpose. The toolkit's settings renderer draws every row with Steam's own Settings
-// components - the routed sidebar, sections, fields and confirm modal - so the page looks and
-// navigates exactly like Steam's Settings, and the toolkit's page gate owns its lifecycle. WSGM owns
-// the rows and every decision about them.
+// WSGM settings frontend; host descriptors and commands are shared with the overlay.
 const WsgmSettingsPatchId = "wsgm.settings";
 const WsgmSettingsRoute = "/wsgm/settings";
 
-// Declared once for the life of the asset, so the page keeps its drafts and the controller's focus
-// across router renders.
+/**
+ * Renders host settings sections with the shared native settings renderer.
+ * @param context Registered page accessors for Steam components, latest state and publication refusal.
+ * @returns The page React tree, including loading or refusal state when data is unavailable.
+ */
 function WsgmSettingsPage({ context }: any) {
   const state = context.state() ?? {};
   return renderSteamSettings(context.ui(), {

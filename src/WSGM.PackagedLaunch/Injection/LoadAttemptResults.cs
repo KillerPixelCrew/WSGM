@@ -13,6 +13,7 @@ public sealed class LoadAttemptResults
     /// <param name="processLatched">Whether uncertainty has closed all work on the process.</param>
     /// <param name="load">The single load operation.</param>
     /// <returns>The first attempt's success result.</returns>
+    /// <remarks>The loader's exception propagates, but its identity remains recorded as failed to prevent a retry.</remarks>
     public bool Load(string identity, bool processLatched, Func<bool> load)
     {
         if (processLatched)

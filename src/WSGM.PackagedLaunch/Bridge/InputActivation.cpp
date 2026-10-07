@@ -76,13 +76,13 @@ namespace
     }
 }
 
-// Called after renderer injection. Handles and the factory live until game exit.
+// Called once after renderer injection and MinHook initialization. Returns Win32 or HRESULT status;
+// retained factory/string and hooks live until game exit, including a failed hook-enable attempt.
 extern "C" __declspec(dllexport) DWORD WINAPI InitializeInputBridge(void*)
 {
     if (originalQuery) return ERROR_ALREADY_INITIALIZED;
 
-    // Nothing to route for. Reported as its own result rather than installed and left to route
-    // zero queries, which would look identical to a bridge that was working.
+    // Unsupported engines get an explicit result instead of a successful bridge that routes nothing.
     if (!AnyGameModulePresent()) return ERROR_NOT_SUPPORTED;
 
     HRESULT initialized = RoInitialize(RO_INIT_MULTITHREADED);
@@ -131,6 +131,7 @@ extern "C" __declspec(dllexport) DWORD WINAPI InitializeInputBridge(void*)
     return error;
 }
 
+// Diagnostic count of successful routed statics queries; no claim about game compatibility.
 extern "C" __declspec(dllexport) DWORD WINAPI InputBridgeRoutes(void*)
 {
     return static_cast<DWORD>(InterlockedCompareExchange(&routed, 0, 0));

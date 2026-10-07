@@ -48,12 +48,16 @@ public sealed class ArtworkConfig
     /// <summary>Whether the Manage tab is offered.</summary>
     public bool ShowManage { get; set; } = true;
 
+    /// <summary>Builds the change key for provider cache invalidation.</summary>
+    /// <returns>A credential-bearing comparison string; never log or publish it.</returns>
     internal string ProviderSignature()
     {
         return string.Join('\u001f', SteamGridDbApiKey.Trim(), ScreenscraperEnabled,
             ScreenscraperUser.Trim(), ScreenscraperUserPassword.Trim());
     }
 
+    /// <summary>Builds the change key for artwork-browser tab layout.</summary>
+    /// <returns>The tab order, default and visibility choices in a stable comparison string.</returns>
     internal string TabSignature()
     {
         return string.Join('\u001f', DefaultTab, TabOrder, ShowGrid, ShowWide, ShowHero,

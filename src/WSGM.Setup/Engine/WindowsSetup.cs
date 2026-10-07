@@ -57,6 +57,7 @@ internal static class WindowsSetup
     internal const int UninstallGraceIterations = 40;
 
     /// <summary>Mirrors Core\Steam.cs: HKCU SteamExe, then the machine-wide install path.</summary>
+    /// <returns>True when a recorded Steam executable exists; does not check running state.</returns>
     public static bool SteamInstalled()
     {
         using var user = Registry.CurrentUser.OpenSubKey(@"Software\Valve\Steam");
@@ -71,6 +72,7 @@ internal static class WindowsSetup
     }
 
     /// <summary>Reads the logon service state, or null when it is in a transitional state or unreadable.</summary>
+    /// <returns>Known stopped/running/absent state, or null for a transition or inspection failure.</returns>
     public static ServiceState? InspectService()
     {
         var manager = NativeMethods.OpenSCManagerW(null, null, NativeMethods.ScManagerConnect);
@@ -217,6 +219,7 @@ internal static class WindowsSetup
     }
 
     /// <summary>Whether a WSGM shell holds its session mutex.</summary>
+    /// <returns>Whether the current session's named shell marker can be opened; not a UI health check.</returns>
     public static bool ShellRunning()
     {
         if (Mutex.TryOpenExisting(ShellMutex, out var mutex))
@@ -330,6 +333,7 @@ internal static class WindowsSetup
     }
 
     /// <summary>The image path of the WSGM running in this session, so a rollback restarts that one.</summary>
+    /// <returns>First readable WSGM image in the setup session, or null.</returns>
     public static string? RunningWsgmPath()
     {
         using var self = Process.GetCurrentProcess();
@@ -367,6 +371,7 @@ internal static class WindowsSetup
     }
 
     /// <summary>Force-stops an image in this session only; another signed-in user's WSGM is never touched.</summary>
+    /// <param name="image">Executable image name passed to the session-filtered taskkill command.</param>
     public static void ForceStopCurrentSession(string image)
     {
         if (!NativeMethods.ProcessIdToSessionId((uint)Environment.ProcessId, out var session))
@@ -416,6 +421,8 @@ internal static class WindowsSetup
     ///     Whether Steam or a launch wrapper runs in this session. Setup never terminates either: either
     ///     can own a running game that needs its normal save and exit.
     /// </summary>
+    /// <param name="includeSteam">Whether Steam itself joins the wrapper blocker list.</param>
+    /// <returns>Distinct blocking process names in this session; inaccessible/exited processes are skipped.</returns>
     public static IReadOnlyList<string> Blockers(bool includeSteam)
     {
         // WSGM.Deelevate and steam-input-lease are the wrappers' retired names; a 1.0 install may still run them.
@@ -477,6 +484,10 @@ internal static class WindowsSetup
     }
 
     /// <summary>Runs a program hidden and returns its exit code, or -1 when it could not start.</summary>
+    /// <param name="file">Executable path to start directly.</param>
+    /// <param name="arguments">Command-line arguments for that executable.</param>
+    /// <param name="timeout">Initial wait budget, default ten minutes; expiry logs a warning and then waits without a deadline.</param>
+    /// <returns>Child exit code, or -1 on a caught start/access failure; a slow child is not terminated.</returns>
     public static int Run(string file, string arguments, TimeSpan? timeout = null)
     {
         try
@@ -511,6 +522,8 @@ internal static class WindowsSetup
     }
 
     /// <summary>Starts a program without waiting, visibly, as the user would.</summary>
+    /// <param name="file">Executable or shell target to start.</param>
+    /// <param name="arguments">Arguments passed through shell execution.</param>
     public static void Start(string file, string arguments)
     {
         try
@@ -524,6 +537,8 @@ internal static class WindowsSetup
     }
 
     /// <summary>A tool in System32, never resolved through PATH.</summary>
+    /// <param name="name">System executable file name, supplied by trusted setup code.</param>
+    /// <returns>Path under the Windows system directory.</returns>
     public static string SystemTool(string name)
     {
         return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), name);

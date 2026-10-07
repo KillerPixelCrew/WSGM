@@ -21,8 +21,10 @@ public sealed class SamplePlugin : IPlugin, IPluginSteamFrontend
     /// <inheritdoc />
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     /// <inheritdoc />
+    /// <remarks>All module ids share the same atomically read in-memory count.</remarks>
     public JsonElement? ReadFrontendState(string moduleId) => JsonSerializer.SerializeToElement(new { count = Volatile.Read(ref _count) });
     /// <inheritdoc />
+    /// <remarks>Only increment changes the count; other methods return the current snapshot. Cancellation is checked before mutation.</remarks>
     public Task<JsonElement?> InvokeFrontendAsync(string moduleId, string method, JsonElement payload, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();

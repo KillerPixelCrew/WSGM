@@ -59,6 +59,8 @@ internal sealed class ColorStore
     }
 
     /// <summary>Records what a write applied; a failed save is logged and costs only recognition later.</summary>
+    /// <param name="display">Stable output instance identity used by the persisted color record.</param>
+    /// <param name="settings">Values successfully written to that display; retained in memory even if persistence fails.</param>
     public void Set(string display, ColorSettings settings)
     {
         _settings[display] = settings;
@@ -218,15 +220,18 @@ internal sealed unsafe class ColorPipeline
     public bool HasMatrix => _matrixBlock is not null;
 
     /// <summary>The support key of the LUT or the matrix: the plugin probes each block once.</summary>
+    /// <param name="matrix">True for the matrix block; false for the one-dimensional LUT.</param>
+    /// <returns>A display-qualified key shared by every control that probes the same native block.</returns>
     public string SupportKey(bool matrix)
     {
         return matrix ? _matrixKey : _curveKey;
     }
 
-    /// <summary>Returns the raw current LUT or matrix unchanged, without rebuilding it.</summary>
-    /// <param name="matrix">Whether to probe the matrix rather than the LUT.</param>
+    /// <summary>Probes a block setter with its raw current LUT or matrix, without rebuilding it.</summary>
+    /// <param name="matrix">Whether to probe the matrix rather than the LUT; true requires HasMatrix.</param>
     /// <param name="admission">Rechecked after the query and before the setter.</param>
     /// <remarks>A block the driver holds nothing for is its neutral default; nothing is written for it.</remarks>
+    /// <returns>The exact-block read/write outcome; a missing stored block succeeds without creating an override.</returns>
     public ControlWrite ProbeSupport(bool matrix, WriteAdmission admission)
     {
         var block = matrix ? _matrixBlock!.Value : _lutBlock;

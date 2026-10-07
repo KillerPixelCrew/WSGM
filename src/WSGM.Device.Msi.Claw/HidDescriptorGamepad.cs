@@ -71,6 +71,8 @@ internal sealed unsafe class HidDescriptorGamepad : IDisposable
 
     /// <summary>Reads the descriptor of an open gamepad collection.</summary>
     /// <exception cref="IOException">The descriptor lacks a stick axis or cannot be read.</exception>
+    /// <param name="handle">Borrowed open HID collection handle; it is neither closed nor retained by the decoder.</param>
+    /// <returns>A caller-owned decoder holding native preparsed data; dispose it after decoding stops.</returns>
     public static HidDescriptorGamepad Create(SafeFileHandle handle)
     {
         if (!NativeHid.HidD_GetPreparsedData(handle, out var preparsed))
@@ -114,7 +116,13 @@ internal sealed unsafe class HidDescriptorGamepad : IDisposable
         }
     }
 
-    /// <summary>Decodes one input report; false for a report of another id or HC's idle report.</summary>
+    /// <summary>Decodes one input report using required stick usages; the reader filters MCU idle reports before this call.</summary>
+    /// <param name="report">Complete input report including report ID; its memory is used only during this call.</param>
+    /// <param name="timestamp">Observation time assigned to the sample and used to merge held OEM buttons.</param>
+    /// <param name="oemButtons">Optional OEM press latch, or null to omit OEM buttons.</param>
+    /// <param name="sample">Canonical complete sample on success; default on failure.</param>
+    /// <returns>True when required stick usages decode; false after disposal or an incompatible/unreadable report.</returns>
+    /// <remarks>Serialize decoding and disposal because usage scratch storage and preparsed data are shared.</remarks>
     public bool TryDecode(
         ReadOnlySpan<byte> report,
         DateTimeOffset timestamp,
@@ -173,6 +181,8 @@ internal sealed unsafe class HidDescriptorGamepad : IDisposable
     }
 
     /// <summary>HC's DirectInput button index to the canonical button.</summary>
+    /// <param name="index">Zero-based DirectInput button index.</param>
+    /// <returns>The mapped button, or None for unrepresented indices, including digital trigger bits.</returns>
     internal static CanonicalButtons Button(int index)
     {
         return index switch
@@ -194,6 +204,8 @@ internal sealed unsafe class HidDescriptorGamepad : IDisposable
     }
 
     /// <summary>A POV value from the descriptor's logical minimum, clockwise from up in eighths.</summary>
+    /// <param name="position">Hat value relative to its logical minimum; 0–7 run clockwise from up.</param>
+    /// <returns>The cardinal/diagonal D-pad mask, or None outside 0–7.</returns>
     internal static CanonicalButtons DecodeHat(int position)
     {
         return position switch

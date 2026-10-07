@@ -22,6 +22,7 @@ internal static class ServiceInstaller
     ///     (NOT delayed auto-start — delayed would lose the logon race; the startup
     ///     catch-up only covers the autologon remainder).
     /// </summary>
+    /// <returns>Zero after registration and an accepted start; one on a required installation failure.</returns>
     internal static int Install()
     {
         var exe = Environment.ProcessPath;
@@ -135,6 +136,7 @@ internal static class ServiceInstaller
     ///     Stops (bounded) and deletes the service. A missing service is
     ///     success — the uninstaller must be idempotent.
     /// </summary>
+    /// <returns>Zero when deleted or already absent; one if access, stop confirmation, or deletion fails.</returns>
     internal static int Uninstall()
     {
         var scm = NativeMethods.OpenSCManagerW(null, null, NativeMethods.ScManagerAllAccess);

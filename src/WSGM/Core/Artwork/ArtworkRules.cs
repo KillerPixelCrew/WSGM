@@ -4,6 +4,7 @@ using System.Linq;
 
 namespace WSGM.Core;
 
+/// <summary>Normalizes the stored artwork configuration in place before consumers use it.</summary>
 internal static class ArtworkRules
 {
     /// <summary>Brings the artwork section into a shape the Steam browser can render.</summary>
@@ -14,6 +15,7 @@ internal static class ArtworkRules
     ///     value cannot hide a tab the show switches still say is visible, and the default tab always
     ///     names one that exists.
     /// </remarks>
+    /// <returns>An empty diagnostic list; these repairs do not produce warning entries.</returns>
     internal static IReadOnlyList<string> Normalize(ArtworkConfig artwork)
     {
         artwork.SteamGridDbApiKey = artwork.SteamGridDbApiKey?.Trim() ?? "";

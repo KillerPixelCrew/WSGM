@@ -36,6 +36,7 @@ internal static class RtssInstaller
         new("https://ftp.nluug.nl/pub/games/PC/guru3d/afterburner/[Guru3D]-RTSSSetup737Build28314.zip");
 
     /// <summary>Whether RTSS is installed, by whoever: the registration WSGM's RTSS discovery reads.</summary>
+    /// <returns>True when an RTSS registration names Unwinder; does not validate runtime readiness or version.</returns>
     public static bool Present()
     {
         foreach (var view in new[] { RegistryView.Registry32, RegistryView.Registry64 })

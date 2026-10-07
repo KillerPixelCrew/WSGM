@@ -521,6 +521,7 @@ public partial class SettingsWindow : Window
     ///     instead of Settings; navigation returns here when the preview closes. The
     ///     preview never outlives this window (see the Closed handler).
     /// </summary>
+    /// <param name="splash">Unsaved splash snapshot; a preview owner replaces any previous preview.</param>
     internal void ShowSplashPreview(SplashConfig splash)
     {
         // Closing a previous preview restores window navigation via its Closed

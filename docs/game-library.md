@@ -18,14 +18,16 @@ includes source/folder setup, filtered review, launch choices, staged title/bulk
 results. Current artwork for an imported game opens Tools → Steam Artwork Changer inside the same
 window, then Back returns to the importer with its review state intact.
 
-On both surfaces:
+Both surfaces expose the workflows below. The card-button shortcuts described here belong to the
+Steam page; the Overlay uses focusable command and choice rows within its own navigation.
 
 - **Sources.** A sidebar lists every launcher WSGM knows, each detected on its own. A found one has
   a checkbox and a title count; one that is not installed is shown greyed as "Not found". A
   shortcuts folder the user added is listed under Custom. "Add folder…" opens the "Add a shortcuts
-  folder" sheet: the folder, chosen in a native folder picker, whether its subfolders are read too,
-  and which file types it offers. Unticking a source takes its titles out of the review at once,
-  leaves it out of the next scan and never offers its imported titles for removal.
+  folder" sheet: the folder, chosen in that surface's controller-accessible picker, whether its
+  subfolders are read too, and which file types it offers. Unticking a source takes its titles out
+  of the review at once, leaves it out of the next scan and never offers its imported titles for
+  removal.
 - **Collections.** A Steam checkbox under the sources keeps one Steam collection per launcher and
   per shortcuts folder, named after it and holding the titles WSGM imported from it. Turning it on
   brings titles imported earlier in at once; turning it off leaves the collections as they are.
@@ -120,6 +122,37 @@ sources ──detect/discover──▶ games ──plan──▶ entries ──c
 | Toolkit          | `external\steam-ui-toolkit`                                                                                    | The page gate and modal frame, the capsule drawn with Steam's own library classes, a folder and file picker Steam does not have, the confirmed shortcut add, the one-call shortcut read, and state delivered in parts.     |
 | Overlay view     | `Overlay\GameLibraryView.cs`                                                                                   | Surface two: sources, review and apply, one level at a time.                                                                                                                                                               |
 | Settings         | `AppConfig.GameLibrary`, Settings → Steam                                                                      | The mode new single-player Xbox titles start on, whether titles with no launch route are offered, which artwork provider a title starts on, the disabled sources and the shortcuts folders.                                |
+
+## From a command to a published review
+
+`ShellSession` composes `GameLibraryService` with the source list, configuration and import-state
+stores, toolkit-backed shortcut delegates, artwork providers and controller-profile writer.
+`ShellSession.GameLibrary.cs` distinguishes an unreadable whole library from an empty one and maps a
+sent-but-unconfirmed add to an uncertain result. Such an add is not repeated automatically.
+
+`ScanAsync` starts a generation with its own cancellation token. Discovery and the whole-library
+read produce inputs for the pure `ImportPlan`; stored choices are reapplied and stable entry IDs are
+preserved. `GameLibraryArtwork` fills candidates asynchronously and signals changes. A newer
+generation or shutdown invalidates old work. `ReadState` supplies the compact review and its
+revision, while `ReadDetails`/artwork-option requests supply detail on demand.
+
+Both command adapters call that same service: `SteamLibraryImportSurface` connects the CEF page to
+it, and `IGameLibraryOverlaySource` in `Shell/OverlayToolSessions.cs` supplies the Overlay.
+`GameLibraryView.cs` and `.Tools.cs` own local navigation/filter state; `ServiceSubView` marshals
+publications to the dispatcher and reconciles keyed controls. The Overlay initially shows 48 review
+entries and reveals another 48 on Load more; source, tab and text filters determine the list.
+`OverlayPreviewImage` owns thumbnail loading and disposal, so a view does not decode the entire
+library at once.
+
+`ApplyAsync` freezes editing while the selected batch is processed. Each write rechecks its live
+shortcut premise, persists successful records as it goes, applies the selected artwork and
+controller target, and reports partial progress rather than pretending the run was transactional.
+The optional collection sync has its own serialization. `CloseAdmission` cancels the work and
+`StopAsync` waits within the session's supplied deadline; views only unsubscribe when they close.
+
+Useful verification entry points are `tests/WSGM.Tests/Core`, the library/artwork service cases
+under `tests/WSGM.Tests/Shell`, and the content-tool interaction/capture cases under
+`tests/WSGM.UiTests`. Fixture checks do not validate live launcher routes or Steam injection.
 
 ## Identity
 

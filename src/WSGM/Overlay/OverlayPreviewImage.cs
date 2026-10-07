@@ -27,6 +27,9 @@ internal sealed class OverlayPreviewImage : Border, IOverlayRefreshable
     private Bitmap? _bitmap;
     private CancellationTokenSource? _load;
 
+    /// <summary>Creates a lazy thumbnail whose load and bitmap lifetime follow mounting and visibility.</summary>
+    /// <param name="source">Local path, HTTPS URL or supported data URI; null/empty renders No preview.</param>
+    /// <param name="height">Thumbnail height in device-independent pixels.</param>
     internal OverlayPreviewImage(string? source, double height = 140)
     {
         _source = source;
@@ -68,6 +71,8 @@ internal sealed class OverlayPreviewImage : Border, IOverlayRefreshable
         };
     }
 
+    /// <inheritdoc />
+    /// <remarks>No-op: the image source is immutable. The parent must replace this control when source identity changes.</remarks>
     public void RefreshFrom(Control replacement)
     {
     }

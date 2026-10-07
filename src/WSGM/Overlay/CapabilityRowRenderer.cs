@@ -19,6 +19,9 @@ internal static class CapabilityRowRenderer
 
     /// <summary>Whether a republished row can keep its control, so focus and drafts survive.</summary>
     /// <remarks>Values never take part; a title, writability or category change still rebuilds the row.</remarks>
+    /// <param name="before">Descriptor currently represented by the mounted control.</param>
+    /// <param name="after">New published descriptor.</param>
+    /// <returns>True when identities, generations and layout-affecting fields match; values are ignored.</returns>
     internal static bool SameRowLayout(DeviceOverlayCapability before, DeviceOverlayCapability after)
     {
         return before.CapabilityId == after.CapabilityId
@@ -35,6 +38,9 @@ internal static class CapabilityRowRenderer
     }
 
     /// <summary>Whether two row lists keep their controls, row by row.</summary>
+    /// <param name="before">Mounted rows in display order.</param>
+    /// <param name="after">New published rows in display order.</param>
+    /// <returns>True when counts and every corresponding row layout match.</returns>
     internal static bool SameRowLayouts(IReadOnlyList<DeviceOverlayCapability> before,
         IReadOnlyList<DeviceOverlayCapability> after)
     {
@@ -62,6 +68,9 @@ internal static class CapabilityRowRenderer
     ///     An editor can report after its row was republished, and the sources check only the row they are
     ///     given, so eligibility is rechecked here at invocation.
     /// </remarks>
+    /// <param name="published">Current authoritative rows.</param>
+    /// <param name="seen">Descriptor captured when the user began the action.</param>
+    /// <returns>The current invokable row with matching identity and generations, otherwise null.</returns>
     internal static DeviceOverlayCapability? CurrentInvokable(IEnumerable<DeviceOverlayCapability> published,
         DeviceOverlayCapability seen)
     {
@@ -76,6 +85,8 @@ internal static class CapabilityRowRenderer
     }
 
     /// <summary>The row as the overlay presents it.</summary>
+    /// <param name="capability">Published capability to label for the Overlay.</param>
+    /// <returns>A copy labelled Firmware power mode for scenario controls, otherwise the original value.</returns>
     internal static DeviceOverlayCapability Present(DeviceOverlayCapability capability)
     {
         return capability.Role == CapabilityRole.ScenarioMode

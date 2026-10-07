@@ -14,41 +14,18 @@ using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Shell;
 
-/// <summary>The Game Library: the one backend both of its surfaces drive.</summary>
+/// <summary>Shared Game Library backend for Steam and the overlay.</summary>
 /// <remarks>
-///     <para>
-///         Sources discover games, the plan decides what a sync would do, the user's stored choices
-///         are laid over it, the artwork stage gathers candidates in the background, and an apply
-///         writes shortcuts, records, controller overrides and the chosen artwork. The Steam page and
-///         the overlay view both render <see cref="ReadState" /> and call the same methods, and every
-///         label either shows comes from here, so a change made in one is what the other shows next,
-///         in the same words.
-///     </para>
-///     <para>
-///         A scan writes nothing to Steam. It runs on a worker, never on the caller's thread and never
-///         under the lock the surfaces read through: it detects and reads the ticked sources together,
-///         reads Steam's shortcuts once, classifies, and publishes a plan. The dry run is the default
-///         rather than a mode.
-///     </para>
-///     <para>
-///         Applies are serialized, one write at a time. The library is read once per run and each
-///         entry's own shortcut is read again immediately before its write, so a library that changed
-///         between scan and apply is not acted on from stale state. A failure stops the run and
-///         reports how far it got; it does not roll back, because removing a batch of somebody's
-///         shortcuts over one failed write is a worse outcome than stopping.
-///     </para>
-///     <para>
-///         An entry's id is derived from its source and key, so the same title keeps it across scans.
-///         A surface that acts on an entry after a rescan acts on the title it showed, and the user's
-///         selection survives the rescan.
-///     </para>
+///     Scans run on workers and publish review plans without writing Steam. Applies serialize writes and
+///     re-read each shortcut before changing it. A failure stops the run without rolling back completed
+///     writes. Stable source-derived entry identities preserve selections across scans. Both surfaces
+///     consume the same state, labels and commands.
 /// </remarks>
 internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, IDisposable, IChangeSource
 {
     private const string NotEditable =
         "Only a title that is being imported or is already in Steam can be changed here.";
 
-    /// <summary>How long disposal waits for a write in flight to be recorded.</summary>
     /// <summary>The answer to any change to the list while an apply is working through it.</summary>
     /// <remarks>
     ///     An apply composes a title's shortcut, writes it, and then records the mode and writes the
@@ -1126,6 +1103,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     ///     and rebuilding every entry each time was the whole library projected over and over while
     ///     nothing had changed.
     /// </remarks>
+    /// <returns>The latest published review snapshot; this read does not start a scan.</returns>
     public GameLibraryState ReadState()
     {
         lock (_gate)
@@ -1200,6 +1178,8 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     }
 
     /// <summary>Waits for active writes within the caller's shutdown deadline.</summary>
+    /// <param name="deadline">Shared monotonic shutdown budget for joining admitted work.</param>
+    /// <returns>Completion after work settles or the deadline expires; timeout does not undo completed imports.</returns>
     internal async Task StopAsync(Deadline deadline)
     {
         CloseAdmission();
@@ -1291,6 +1271,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     }
 
     /// <summary>Takes a configuration reload: the artwork settings and the library's own may have changed.</summary>
+    /// <param name="settings">Fresh library settings used to drop disabled sources and queue any required rescan.</param>
     internal void ConfigurationChanged(GameLibraryConfig settings)
     {
         _artwork?.ConfigurationChanged();
@@ -2728,6 +2709,8 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     }
 
     /// <summary>What an input mode is called on either surface.</summary>
+    /// <param name="mode">Packaged launch input mode.</param>
+    /// <returns>The shared Steam and overlay display label.</returns>
     internal static string ModeLabel(ImportMode mode)
     {
         return mode is ImportMode.SteamIntegration ? "Steam overlay" : "Controller only";

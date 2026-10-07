@@ -16,14 +16,12 @@ using WSGM.Shell;
 namespace WSGM.Overlay;
 
 /// <summary>
-///     Owns the overlay activation surfaces (hotkey, raw-input touch swipes) and the
-///     focus-taking WSGM surface itself: the quick access sheet (ShowOverlay), which
-///     also carries the Open apps strip, the tray icons and the status pills with
-///     their radio/audio/eject panels. One controller
-///     owns all of it because it shares every piece of invariant-critical state: the
-///     Steam Input lease, the touch-swipe disarm/re-arm cycle,
-///     the gamepad service, and the focus-restore discipline.
+///     Owns the fullscreen overlay, activation inputs, gamepad navigation and paired capture/lease transitions.
 /// </summary>
+/// <remarks>
+///     Construct, open and dispose on the Avalonia UI thread. Session services are borrowed; window-local
+///     subscriptions and input claims are released on close or disposal. Native lease work is asynchronous.
+/// </remarks>
 public sealed partial class OverlayController : IDisposable
 {
     private const string QuickAccessSurface = "quick-access";
@@ -70,9 +68,6 @@ public sealed partial class OverlayController : IDisposable
     /// <summary>
     ///     The session's audio manager, shared with the sheet's status pills rather than owned.
     /// </summary>
-    /// <remarks>
-    ///     Null in overlay-test, where no session owns one and the cluster creates its own.
-    /// </remarks>
     private readonly AudioManager _sessionAudio;
 
     /// <summary>
@@ -88,9 +83,6 @@ public sealed partial class OverlayController : IDisposable
     /// <summary>
     ///     The session's radio manager, shared with the sheet's status pills rather than owned.
     /// </summary>
-    /// <remarks>
-    ///     Null in overlay-test, where no session owns one and the cluster creates its own.
-    /// </remarks>
     private readonly RadioManager _sessionRadios;
 
     private readonly OverlaySources _sources;
@@ -100,18 +92,7 @@ public sealed partial class OverlayController : IDisposable
 
     private readonly ConfigStore _store;
 
-    /// <summary>What every navigation surface here subscribes to.</summary>
-    /// <remarks>
-    ///     The surfaces take the router rather than <see cref="GamepadService" /> so they see whichever
-    ///     source is delivering. With controller management off this is SDL, exactly as before. With it
-    ///     on, WSGM's own UI can finally be driven by the controls SDL cannot see on a handheld — the
-    ///     rear paddles, Quick Access, and the trackpad clicks.
-    ///     <para>
-    ///         The chord watcher deliberately stays on the raw SDL service. The chord is what opens the
-    ///         overlay, so it has to keep working when the managed source is not running, and it is the one
-    ///         thing that must not change behaviour with the source.
-    ///     </para>
-    /// </remarks>
+    /// <summary>Names of UI surfaces currently holding this controller's shared input claim.</summary>
     private readonly HashSet<string> _uiSurfaces = new(StringComparer.Ordinal);
 
     private readonly OverlayWindow.SessionState _windowSession = new();
@@ -1046,6 +1027,7 @@ public sealed partial class OverlayController : IDisposable
     ///     reload then hands back the same list. A preview surface (Settings' Test sheet)
     ///     never writes.
     /// </summary>
+    /// <param name="id">Stable section or capability pin ID; a toggle is saved in sequence with earlier toggles.</param>
     internal void OnPinToggleRequested(string id)
     {
         List<string> pins = [.. _pins];

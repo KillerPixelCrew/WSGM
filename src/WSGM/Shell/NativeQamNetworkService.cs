@@ -29,7 +29,7 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
     /// <summary>Creates the service and starts the indicator poll.</summary>
     /// <param name="radios">The session's radio manager.</param>
     /// <param name="indicatorActive">Whether the header indicator publication is active.</param>
-    /// <param name="publish">Queues a state publication toward Steam.</param>
+    /// <param name="publish">Queues a state publication; timer callbacks invoke it on a thread-pool thread.</param>
     internal NativeQamNetworkService(
         RadioManager radios,
         Func<bool> indicatorActive,
@@ -74,6 +74,7 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
     }
 
     /// <inheritdoc />
+    /// <remarks>The stop is always queued; this implementation does not observe the cancellation token.</remarks>
     public async Task<SteamUiCommandResult> StopScanAsync(CancellationToken cancellationToken)
     {
         await StopScanningAsync().ConfigureAwait(false);
@@ -81,6 +82,7 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
     }
 
     /// <summary>Unsubscribes from scan results and stops the sweep, on the UI thread.</summary>
+    /// <returns>Completes after the UI-thread unsubscribe and scan-stop request, without disposing the borrowed radio manager.</returns>
     internal Task StopScanningAsync()
     {
         return NativeQamUi.RunAsync(StopScanningCore);
@@ -100,11 +102,10 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
 
     /// <summary>Reads the network state to publish.</summary>
     /// <param name="indicatorEnabled">Whether the connected AP joins the scanned list.</param>
+    /// <returns>A detached Steam network projection; a requested status refresh completes before UI-owned rows are read.</returns>
     internal async ValueTask<SteamNetworkState?> ReadStateAsync(bool indicatorEnabled)
     {
-        // The connected network is merged in from the live status rather than the scan list, which
-        // is what makes the header Wi-Fi indicator show a signal on Windows at all. The radio
-        // manager reads it, so the sheet and Steam never disagree about which network is joined.
+        // A connected network may not be present in the latest scan results.
         if (indicatorEnabled)
         {
             await _radios.RefreshWifiStatusAsync().ConfigureAwait(false);

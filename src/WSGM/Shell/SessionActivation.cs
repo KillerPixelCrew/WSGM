@@ -9,11 +9,15 @@ namespace WSGM.Shell;
 /// <summary>Hands shortcut activation to the mutex-owning session without starting another runtime.</summary>
 internal sealed class SessionActivation : IDisposable
 {
+    /// <summary>Per-session named event used by secondary WSGM activations.</summary>
     internal const string EventName = @"Local\WSGM.Activate";
     private readonly EventWaitHandle? _signal;
     private readonly RegisteredWaitHandle? _wait;
     private bool _disposed;
 
+    /// <summary>Registers activation delivery to the Avalonia dispatcher when the named event can be opened.</summary>
+    /// <param name="activate">UI-thread activation callback, ignored after disposal.</param>
+    /// <param name="eventName">Named auto-reset event shared with secondary processes.</param>
     internal SessionActivation(Action activate, string eventName = EventName)
     {
         _signal = TryCreateSignal(eventName);
@@ -33,6 +37,7 @@ internal sealed class SessionActivation : IDisposable
             null, Timeout.Infinite, false);
     }
 
+    /// <summary>Unregisters the wait and releases the event; queued dispatcher callbacks become no-ops.</summary>
     public void Dispose()
     {
         Volatile.Write(ref _disposed, true);
@@ -40,6 +45,9 @@ internal sealed class SessionActivation : IDisposable
         _signal?.Dispose();
     }
 
+    /// <summary>Creates or opens the activation event with the shared event-access policy.</summary>
+    /// <param name="eventName">Session-local event identity.</param>
+    /// <returns>A caller-owned event handle, or null when the native event cannot be opened.</returns>
     internal static EventWaitHandle? TryCreateSignal(string eventName = EventName)
     {
         var handle = UpdateExitWatcher.CreateOrOpenEvent(eventName, "Shell activation", null,

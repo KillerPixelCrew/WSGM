@@ -26,7 +26,7 @@ and generation-checked health are in [common plugin contracts](plugin-system.md)
 ```text
                      WSGM.exe (one ShellSession per interactive session)
   ┌──────────────────────────────────────────────────────────────────────────────────────┐
-  │ Program.Main ── cardinality gate (counts package roots, refuses > 1)                  │
+  │ PluginPackageCatalog ── newest file per id; multiple device ids stay Passive        │
   │ ShellSession ── creates at most one DeviceCoordinator (Shell\DeviceCoordinator.cs)    │
   │   ├─ Global\WSGM.DeviceOwner marker (process lifetime)                               │
   │   ├─ DevicePluginRuntime (Shell\DevicePluginRuntime.cs)                              │
@@ -97,7 +97,7 @@ the Device SDK's `PluginPackageLayout`. Nothing limits how many files a package 
 | Native images | none: every `.dll`, `.exe` or `.sys` must carry a CLR header      |
 
 Packages carry managed code only because WSGM loads them from memory, where a native image cannot be
-loaded. A plugin that needs a system DLL, such as the Claw's `ControlLib.dll` from the Intel driver,
+loaded. A plugin that needs a system DLL, such as the Intel graphics package's `ControlLib.dll`,
 resolves it through the normal system search path.
 
 ## 3. Discovery
@@ -765,7 +765,7 @@ package id and version, cycle generation, capability counts) over the named pipe
 
 The native QAM and AutoTDP consume the same router. AutoTDP takes the first writable integer
 `PowerSustainedLimit`, ticks every second, and never retries an uncertain write. It additionally
-requires a verified active frame-rate limit: one service availability result guards enable commands
+requires an observed active frame-rate limit: one service availability result guards enable commands
 and disables both UI controls with the same reason, and a limiter-off event relinquishes runtime
 control but keeps the enabled setting, so control resumes when a limiter returns
 ([AutoTDP](autotdp-controller.md) has the ownership contract). The QAM's TDP control requires a
@@ -856,7 +856,7 @@ question:
 
 | Area          | Lines                                                                                                                                                                                                                                                                     |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Startup       | `Device plugin startup inventory: <cardinality>, roots=<n>.` and the refusal texts in §3                                                                                                                                                                                  |
+| Startup       | `Device cycle passive: <reason>; devicePackages=<n>.` and catalog errors in §3                                                                                                                                                                                            |
 | Maintenance   | every line prefixed `Device plugin maintenance:`                                                                                                                                                                                                                          |
 | Cycle         | `Device cycle: state=…`, `Device cycle active: …`, `Device cycle passive: …`, `Device definition matched: …`, `Device plugin fault: …`, `Device plugin restart n/2 scheduled`, `Device cycle faulted after restart exhaustion`, `Device cycle <operation> was incomplete` |
 | Controller    | `Controller management: state=…`, `Managed controller target created/kept/replaced: …`, `Controller released: …`, `Controller release: …`, `Controller forwarding paused for suspend`, `Controller forwarding resumed: …`, `Controller management disabled/enabled.`      |
@@ -889,53 +889,60 @@ Identity: `DetectAsync` matches the SMBIOS baseboard manufacturer
 (`MS-1T41`, `MS-1T42`, `MS-1T52`, `MS-1T8K`, `MS-1T91`), as Handheld Companion does, and returns
 that model's definition id (`ms-1t52` for the reference unit). Only `MS-1T52` has hardware evidence.
 Start re-reads identity and refuses a changed model. The WMI-backed services need only the MSI_ACPI
-provider; the EC (or BIOS) version and the interface version bind the recovery journal but gate
-nothing, and failing to read them changes nothing. The MCU revision (USB `bcdDevice`) is recorded
-but never gated on; it only picks the lighting and paddle-mapping addresses from HC's firmware
-table. Like HC, the plugin writes without readback: a matching read upgrades a result to verified, a
-mismatch publishes the written value.
+provider. Power and fan recovery entries bind to the BIOS version; older EC/interface bindings are
+reconciled by `ClawRecoveryJournal.Decide`. An unreadable BIOS leaves no new restore point but does
+not gate an otherwise supported write. The MCU revision (USB `bcdDevice`) is recorded but never
+gated on; it only picks the lighting and paddle-mapping addresses from HC's firmware table. Like HC,
+the plugin writes without readback: a matching read upgrades a result to verified, a mismatch
+publishes the written value.
 
 Transports: `MSI_ACPI` over WMI with 32-byte packages, a 3 s per-operation timeout and a required
-status byte; the `MSI_Event` WMI event source for the front buttons; a HID vendor collection for the
-MCU (profile read and write, mode switch with a 1 s acknowledgement and 50 ms topology polling); the
-HID gamepad collection for DirectInput reports at about 125 Hz; the IMU through the SDK's legacy
-Sensor API stream (`LegacyMotionStream`) with the gyrometer at a 10 ms report interval; and a
-low-level keyboard hook that retains the pre-refactor G/Tab down, orphan-up and repeat/release
-suppression, checked against the maintainer's BlockWinG proof of concept. The shortcut policy and
-software-only validation limits are in `device-integration.md`, "Claw OEM chord suppression".
+success status for getters; setters trust the completed WMI invocation, as HC does; the `MSI_Event`
+WMI event source for the front buttons; a HID vendor collection for the MCU (profile read and write,
+mode switch with a 1 s acknowledgement and 50 ms topology polling); the HID gamepad collection for
+DirectInput reports at about 125 Hz; the IMU through the SDK's legacy Sensor API stream
+(`LegacyMotionStream`) with the gyrometer at a 10 ms report interval; and a low-level keyboard hook
+that retains the pre-refactor G/Tab down, orphan-up and repeat/release suppression, checked against
+the maintainer's BlockWinG proof of concept. The shortcut policy and software-only validation limits
+are in `device-integration.md`, "Claw OEM chord suppression".
 
-Capabilities (one descriptor set per cycle, generation 1):
+Capabilities below use the reference Claw 8 AI+ A2VM bounds. `ClawModels.cs` supplies the other
+models' power limits; the [package README](../src/WSGM.Device.Msi.Claw/README.md#power-profiles)
+lists every range. The set starts at generation 1 for each cycle:
 
-| Id                      | Instances                      | Role                  | Kind        | Bounds                           | R/W    | Persistence      | Section          |
-| ----------------------- | ------------------------------ | --------------------- | ----------- | -------------------------------- | ------ | ---------------- | ---------------- |
-| `power.primary-limit`   | –                              | `PowerSustainedLimit` | Integer W   | 8–37                             | R/W    | Volatile         | power / limits   |
-| `power.boost-limit`     | –                              | `PowerSlowLimit`      | Integer W   | 8–37                             | R/W    | Volatile         | power / limits   |
-| `battery.charge-limit`  | –                              | `ChargeLimit`         | Integer %   | 60–100                           | R/W    | DevicePersistent | power / charging |
-| `power.scenario`        | –                              | `ScenarioMode`        | Choice      | comfort, green, eco, user, sport | R      | Volatile         | power            |
-| `fan.mode`              | –                              | `FanMode`             | Choice      | automatic, custom, full-speed    | R/W    | Volatile         | power / control  |
-| `fan.curve`             | –                              | `FanCurve`            | Curve %     | six points, 0–100                | R/W    | Volatile         | power / control  |
-| `fan.measured-rpm`      | left, right                    | `FanMeasuredRpm`      | Integer rpm | 0–10000                          | R      | Volatile         | info / readings  |
-| `telemetry.temperature` | –                              | `Telemetry`           | Integer °C  | 0–110                            | R      | Volatile         | info / readings  |
-| `lighting.brightness`   | –                              | `LightingBrightness`  | Integer %   | 0–100                            | R/W    | DevicePersistent | lighting         |
-| `lighting.zone-color`   | left-ring, right-ring, buttons | `LightingZoneColor`   | Color       | 24-bit                           | R/W    | DevicePersistent | lighting / zones |
-| `controller.source`     | –                              | `ControllerSource`    | Choice      | device, plugin, unavailable      | R      | Volatile         | info / ownership |
-| `motion.source`         | –                              | `MotionSource`        | Choice      | device, plugin, unavailable      | R      | Volatile         | info / ownership |
-| `haptic.rumble`         | –                              | `HapticSink`          | action      | –                                | action | Volatile         | info / ownership |
+| Id                      | Instances                      | Role                  | Kind        | Bounds                                     | R/W    | Persistence      | Section          |
+| ----------------------- | ------------------------------ | --------------------- | ----------- | ------------------------------------------ | ------ | ---------------- | ---------------- |
+| `power.primary-limit`   | –                              | `PowerSustainedLimit` | Integer W   | 8–37                                       | R/W    | Volatile         | power / limits   |
+| `power.boost-limit`     | –                              | `PowerSlowLimit`      | Integer W   | 8–37                                       | R/W    | Volatile         | power / limits   |
+| `battery.charge-limit`  | –                              | `ChargeLimit`         | Integer %   | 60, 80, 100                                | R/W    | DevicePersistent | power / charging |
+| `power.scenario`        | –                              | `ScenarioMode`        | Choice      | comfort, green, eco, user, sport, inactive | R/W    | Volatile         | power            |
+| `fan.mode`              | –                              | `FanMode`             | Choice      | automatic, custom, full-speed              | R/W    | Volatile         | power / control  |
+| `fan.curve`             | –                              | `FanCurve`            | Curve %     | six points, 0–100                          | R/W    | Volatile         | power / control  |
+| `fan.measured-rpm`      | left, right                    | `FanMeasuredRpm`      | Integer rpm | 0–10000                                    | R      | Volatile         | info / readings  |
+| `telemetry.temperature` | –                              | `Telemetry`           | Integer °C  | 0–110                                      | R      | Volatile         | info / readings  |
+| `lighting.brightness`   | –                              | `LightingBrightness`  | Integer %   | 0–100                                      | R/W    | DevicePersistent | rgb              |
+| `lighting.zone-color`   | left-ring, right-ring, buttons | `LightingZoneColor`   | Color       | 24-bit                                     | R/W    | DevicePersistent | rgb / zones      |
+| `controller.source`     | –                              | `ControllerSource`    | Choice      | device, plugin, unavailable                | R      | Volatile         | info / ownership |
+| `motion.source`         | –                              | `MotionSource`        | Choice      | device, plugin, unavailable                | R      | Volatile         | info / ownership |
+| `haptic.rumble`         | –                              | `HapticSink`          | action      | –                                          | action | Volatile         | info / ownership |
 
 The declared shared sections are `power` (icon Power; categories limits, charging, control titled
 "Fans"), `rgb` (category zones) and `info` (icon Gauge; categories ownership, readings). Fan RPM is
-`480000 / raw`. Every WMI write is bracketed by the recovery journal with a 2 s minimum write
-budget, and "verified without readback" is normalized to `AppliedUnverified`.
+`480000 / raw`. Temporary power and fan mutations use the recovery journal when their original state
+and binding can be captured; persistent charge and lighting choices are not reverted on normal stop.
+A command needs the 2 s minimum write budget. Accepted writes without matching readback return
+`AppliedUnverified` and publish the written value as observed.
 
 **The fan curve is one capability, not a left and a right.** Both fans sit on one heatsink and the
 firmware ramps them together, so two independently authored curves described a machine that does not
-exist. `ApplyCurveAsync` writes both channels under ONE pre-write snapshot, so a failure on the
-second restores the first; two `ApplyCurveAsync` calls could not, because the second call's snapshot
-would already contain the first call's write. Only the six curve offsets are shared between the
-channels; every other byte in each package is that channel's own and is preserved. The published
-state is the left channel's table, which the pair can only disagree with if something outside WSGM
-wrote one of them. The descriptor declares 0–100 bounds so the curve editor has a stated range to
-draw and clamp against; an undeclared bound means "no limit" to the router.
+exist. `ApplyCurveAsync` reads one snapshot and writes both channels, preserving each channel's
+unmodified bytes. A failure after the first channel is an uncertain partial write, with no immediate
+rollback or retry. The temporary-state journal retains its original for release/recovery. The
+preparatory table read supplies bytes the protocol must preserve; it is not verification of a
+previous write. Only the six curve offsets are shared between channels. The published state is the
+left channel's table, which the pair can only disagree with if something outside WSGM wrote one of
+them. The descriptor declares 0–100 bounds so the curve editor has a stated range to draw and clamp
+against; an undeclared bound means "no limit" to the router.
 
 **The readings are on Info, not Power.** Power is where a person goes mid-game to change how the
 device behaves, and it used to end in a Thermals group of numbers to watch. The CPU temperature is
@@ -973,10 +980,12 @@ rest. Readings older than 50 ms stop contributing angular velocity and the frame
 per-sample line into `wsgm.log`; only the measured offset and read failure transitions are logged.
 No acceleration or orientation is synthesized.
 
-Haptics: low and high frequency native, triggers unsupported, 250 frames per second,
-`MinimumStartIntensity = 56/255` and `MinimumPulse = 10 ms` (Claw sweep, 2026-09-02). Output report
-`0x05 0x01 … weak strong`; the host paces output to the declared frame rate, identical values are
-not rewritten, and release writes zero before stopping the reader.
+Haptics on the reference A2VM: low and high frequency native, triggers unsupported, 250 frames per
+second, `MinimumStartIntensity = 56/255` and `MinimumPulse = 10 ms` (Claw sweep, 2026-09-02). Output
+report `0x05 0x01 … weak strong`; the host paces output to the declared frame rate, identical values
+are not rewritten, and release writes zero before stopping the reader. The A1M instead declares 10
+frames per second and a 100 ms minimum pulse, with each motor driven on at 193 or off according to
+HC; this path has no hardware pass.
 
 OEM controls: `oem1` "Claw button" and `oem2` "Quick Settings" are front controls from WMI codes
 `0x29` and `0x58`, the only codes HC maps; `oem3` M1 and `oem4` M2 are rear controls requiring
@@ -984,8 +993,11 @@ acquisition.
 
 Recovery: `temporary-state.v1.json` in the host-supplied state directory, at most three entries for
 `msi-power`, `msi-fans` and `physical-controller`, written atomically. On start the plugin restores
-an entry whose firmware identity matches, blocks the service after a failed restore, and otherwise
-reports only.
+pending power/fan entries whose BIOS binding still matches. A different binding discards the
+captured original; an unavailable binding leaves it waiting. A failed or unverified prior restore is
+kept without another automatic write and does not block the service; a later explicit command can
+re-arm it. A malformed/unreadable journal does block journalled mutations. Controller recovery
+rechecks the physical pad independently, including when controller management is off.
 
 Glyphs: one profile `msi-claw` for all five definition ids, 23 named assets (20 control SVGs at
 32×32, one full-controller SVG, left and right PNGs at 643×464), 20 control mappings with the
@@ -1059,5 +1071,6 @@ exact build, device, observed result and cleanup.
 ## 21. Known gaps
 
 - OEM assignments have no authoring UI, and will not get one (§13).
-- `eng\dev-deploy.ps1` swaps inside `installed` without the machine-wide objects (§6).
+- `eng\dev-deploy.ps1` replaces package files in the protected Plugins folder without acquiring the
+  machine-wide device-owner objects (§6); it is an explicitly attended deployment tool.
 - Unload of the plugin context is requested, never verified (§7).

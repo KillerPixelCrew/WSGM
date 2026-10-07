@@ -41,6 +41,7 @@ internal static class LogonDecision
     ///     The startup catch-up found the session logged on longer ago than its window; always false
     ///     for a live logon event.
     /// </param>
+    /// <returns>One launch request or skip reason; token availability is resolved by the caller.</returns>
     internal static LogonAction Decide(BootManifest? manifest, bool alreadyLaunched, bool stale)
     {
         if (alreadyLaunched)
@@ -62,6 +63,9 @@ internal static class LogonDecision
         };
     }
 
+    /// <summary>Projects admitted boot policy into fixed runtime arguments; Game Mode takes precedence.</summary>
+    /// <param name="manifest">Manifest for a launch already admitted by Decide.</param>
+    /// <returns>--boot for Game Mode, otherwise --shell --desktop-resident.</returns>
     internal static string ArgumentsFor(BootManifest manifest)
     {
         return manifest.GameModeBoot ? "--boot" : "--shell --desktop-resident";

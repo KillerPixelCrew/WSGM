@@ -17,8 +17,10 @@ moving machine policy into the SDK.
 - `src/WSGM.Device.Sdk` (MIT, `DeviceApi.Version`) is the device hardware contract: `IDevicePlugin`,
   `IPluginHostAdapter`, capabilities, controller, haptics, OEM controls, glyphs and `PluginTrace`.
 - `src/WSGM.Plugin.Sdk` (MIT, `PluginApi.Version`) is the common plugin contract used by independent
-  plugins such as `src/WSGM.Plugin.Ir`. The Shell's common `PluginHost` admits the Device runtime
-  through `DevicePluginCompatibilityAdapter`. See `docs/plugin-system.md`.
+  plugins such as `src/WSGM.Plugin.Ir`. The Shell's common `PluginHost` refuses the Device category;
+  `DeviceCoordinator` drives `DevicePluginRuntime` directly. See `docs/plugin-system.md` and
+  `src/WSGM.Plugin.Sdk/docs/reference.md`. Current source is Device API 12 and common API 4; check
+  their version constants before changing a contract.
 - Device plugins declare preferences with a settings manifest
   (`IPluginHostAdapter.PublishSettingsManifestAsync`) and receive the complete set through
   `ApplySettingsAsync`. `IConfigurablePlugin`, host-owned revisions and `IPluginHost.PublishState`
@@ -34,9 +36,36 @@ moving machine policy into the SDK.
 | `src/WSGM.Device.HandheldCompanion` | Design scaffold with no entry type, so it cannot be installed. Its named-pipe `docs/ipc-protocol.md` is a proposal, not retired DeviceHost IPC.                                        |
 | `src/WSGM.DeviceLab`                | Evidence tool. Use `wsgm-device-lab`.                                                                                                                                                  |
 
-Only one device package can be installed at a time. With Device Integration off, no Device plugin
-lifecycle, controller target, Device hardware write or AutoTDP runs, while core, common plugins and
-Windows power schemes keep working. `docs/device-plugin-authoring.md` has the project topology.
+Only one distinct device package ID can run at a time. The catalog selects the newest file per ID;
+multiple device IDs keep Device Integration passive while WSGM starts normally. With Device
+Integration off, no Device plugin lifecycle, controller target, Device hardware write or AutoTDP
+runs, while core, common plugins and Windows power schemes keep working.
+`docs/device-plugin-authoring.md` has the project topology.
+
+## Route the task and reuse the existing pieces
+
+| Change                                                    | Existing owner or reusable element                                                                                                                      |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Per-model identity, register, report or axis fact         | Package model table and PROVENANCE.md; keep the SDK and host free of model checks.                                                                      |
+| Hardware service acquisition, suspend, release or restore | Compose `DeviceService`, `DeviceServiceLifecycle`, `DeviceCommandSerializer` and `DeviceRecoveryJournal`; keep transport/restore policy in the package. |
+| A hardware control                                        | Extend the package's descriptor/state/command path and use existing capability roles, value shapes, layout and profile fields.                          |
+| Desired values, profiles, AutoTDP or power coordination   | WSGM's capability router, ProfileService and DeviceCoordinator, not a second policy store inside a plugin.                                              |
+| Physical input, motion, OEM or haptics                    | Publish canonical SDK records; reuse HID/motion/reconnect helpers. WSGM owns virtual targets, HidHide, Steam Input and action routing.                  |
+| Independent integration or GPU control                    | Common Plugin SDK and its existing lifecycle/action/capability channel; do not consume the Device slot.                                                 |
+| An unresolved hardware fact                               | Device Lab's attended evidence workflow, not runtime probing or a guessed protocol.                                                                     |
+
+Start with the concrete owner and its nearest existing implementation. Prefer a small named method
+or composition of these helpers to a new coordinator, framework, compatibility layer or duplicate
+state machine. Keep changes easy to follow from the user action through validation, the one owning
+service and its result. Generalize only when multiple real packages need the same semantics.
+
+A new device/GPU control shown in Steam must also work in the WSGM overlay through the same
+capability, command owner, availability and profile rules. Reuse the shared projection; do not add a
+Steam-only hardware path. For the Steam surface, follow
+[the CEF toolkit skill](../wsgm-steam-cef-toolkit/SKILL.md) and its existing modules/components.
+Update public XML comments and the relevant SDK reference plus user/architecture guide whenever a
+contract or documented behavior changes. Read the matching source tests to understand invariants;
+run them only under the root manual-first policy.
 
 ## Establish the boundary first
 
@@ -76,7 +105,7 @@ Device Lab capture, a hardware action, controller/HidHide changes, or running WS
   publication validation, desired state and profiles, UI/localization, virtual targets, Steam Input,
   HidHide, AutoTDP, and OEM action policy.
 - Device Lab owns inventory, evidence capture, compiled read probes, scaffolding, offline package
-  checks, and the single attended hardware-test door.
+  checks, and its separate attended CLI/wizard hardware workflows.
 
 A plugin is loaded in-process with WSGM's authority. The collectible load context isolates package
 dependencies; it is not a security or crash boundary. Never describe validation as sandboxing.
@@ -107,8 +136,9 @@ dependencies; it is not a security or crash boundary. Never describe validation 
   to its declared channels (`HapticCapabilities.Clamp`), drops unsupported channels without
   redistribution, and always has an explicit zero path.
 - A pad that is missing or drops off the bus is a state, not a fault: report the controller service
-  Degraded and wait for it with `DeviceReconnect`, attaching when it appears. Motion streams for as
-  long as the plugin owns the controller; there is no host demand signal.
+  Degraded and wait for it with `DeviceReconnect`, attaching when it appears. There is no host
+  motion-demand signal. The current Claw/Ally service arrays acquire motion for the device cycle,
+  independently of controller-management toggles.
 - Trace decisions and transitions, not samples. Use `PluginTrace.Change` for a polled value and keep
   correctness evidence at Info/Warn/Error rather than Debug alone.
 
@@ -116,13 +146,13 @@ dependencies; it is not a security or crash boundary. Never describe validation 
 
 Prefer an existing semantic role, value type, reason code, lifecycle method, or closed vocabulary. A
 one-device need is not a public abstraction: require both the Claw reference plugin and a materially
-different future plugin before generalizing it into the SDK. Do not restore deleted IPC, pipe,
-ring-buffer, wire-message, authoring-helper, capability-registry, or generic resource-coordinator
-layers.
+different plugin before generalizing it into the SDK. Do not restore deleted IPC, pipe, ring-buffer,
+wire-message, authoring-helper, capability-registry, or generic resource-coordinator layers.
 
 For a public contract change, update XML documentation, the consolidated SDK reference, SDK tests,
-host consumers, Device Lab, and every device project together in one WSGM pull request. All
-first-party device projects reference the same SDK source.
+host consumers, Device Lab, and every device project together in one coordinated WSGM change. Follow
+the root commit workflow; do not create a pull request unless requested. All first-party device
+projects reference the same SDK source.
 
 ## Finish with evidence
 

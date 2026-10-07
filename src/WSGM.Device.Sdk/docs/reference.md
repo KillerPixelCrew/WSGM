@@ -913,8 +913,9 @@ Combine it with `PluginTrace.Install(adapter)` to capture the plugin's own diagn
 
 The compiler catches none of these; the host relies on all of them.
 
-- Detect without side effects. `DetectAsync` opens nothing mutable and matches exactly; an unknown
-  board, firmware or range returns `Matched = false` with a reason.
+- Detect without side effects. `DetectAsync` opens nothing mutable and matches exact supported
+  identity. Firmware is a detection gate only when the package requires it; the first-party Claw and
+  Ally packages do not reject a supported board simply because optional firmware reads fail.
 - Revalidate on every command: identity, firmware, range and current state. Then check
   `ExpectedDescriptorGeneration` and `ExpectedCycleGeneration` and return `Rejected` with
   `GenerationChanged` when either is stale.
@@ -927,8 +928,11 @@ The compiler catches none of these; the host relies on all of them.
   the descriptor generation whenever any descriptor changes.
 - Stamp generations. Every capability state and descriptor set carries the current cycle generation;
   a stale one is refused.
-- Restore what you changed. Capture original state before writing volatile settings, restore it on
-  stop or failure, and record in the state directory only what could not be restored.
+- Journal the first original before a temporary mutation when it can be captured, so a process
+  failure cannot lose the restore obligation. Restore according to the package's documented
+  release/recovery policy; the SDK does not prescribe an immediate rollback after a partial write.
+  Clear completed entries, preserve incomplete ones, and never convert observed state to a user
+  edit.
 - Release the controller as best effort: stop the motors and the reader, write the original mode
   back, trace what failed and return.
 - Treat a pad that drops off the bus as a state, not a fault: report the service degraded and take

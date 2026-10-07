@@ -9,11 +9,9 @@ namespace WSGM.Input;
 
 /// <summary>Carries the virtual target's rumble back to the physical pad.</summary>
 /// <remarks>
-///     HC hands each vibration straight to the controller, and so does this, with the three things the
-///     motors need: clamping and the motor floor the plugin declared, pacing to its frame rate, and the
-///     end of a bounded pulse. The motors latch the last value, so the one guard kept is the epoch: a frame
-///     that was already on its way when output stopped is dropped rather than landing after the stop. A
-///     sink failure is logged and the next frame is tried; it never silences rumble for the session.
+///     Clamps to device capabilities, paces to the declared output rate and stops bounded pulses.
+///     Epoch checks reject queued frames after stop or target replacement. Sink failures are logged;
+///     later frames remain eligible. The backend and physical sink are borrowed, not disposed.
 /// </remarks>
 internal sealed class ControllerOutputRouter : IAsyncDisposable
 {
@@ -51,6 +49,10 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
     private DateTimeOffset _pulseDeadline;
     private ControllerTargetHandle? _target;
 
+    /// <summary>Subscribes to backend feedback and starts the serialized physical-output worker.</summary>
+    /// <param name="backend">Borrowed virtual target backend; callbacks may arrive on a native thread.</param>
+    /// <param name="sink">Borrowed physical output owner.</param>
+    /// <param name="timeProvider">Pulse and pacing clock; null uses system time.</param>
     internal ControllerOutputRouter(
         IControllerTargetBackend backend,
         IPhysicalHapticSink sink,
@@ -66,8 +68,10 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
         _worker = RunAsync();
     }
 
+    /// <summary>Feedback rejected while detached, disposed or previewing, or when enqueueing fails; not a hardware-loss count.</summary>
     internal int DroppedFrames => Volatile.Read(ref _droppedFrames);
 
+    /// <summary>Whether the current owned sink and target support the bounded physical-motor preview.</summary>
     internal bool CanPreview
     {
         get
@@ -83,6 +87,9 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
         }
     }
 
+    /// <summary>Detaches feedback, cancels timers and joins the output worker; repeated disposal is harmless.</summary>
+    /// <returns>Completion of worker cleanup, including an explicit stop for an active calibration preview.</returns>
+    /// <remarks>The target owner must stop ordinary output before disposal; borrowed backend and sink remain alive.</remarks>
     public async ValueTask DisposeAsync()
     {
         bool stopPreview;
@@ -117,6 +124,8 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
         _lifetime.Dispose();
     }
 
+    /// <summary>Replaces the streaming calibration snapshot with a detached, bounded copy.</summary>
+    /// <param name="config">Strength/floor percentages and pulse duration; later caller edits do not affect this router.</param>
     internal void ApplyCalibration(RumbleCalibrationConfig config)
     {
         // Detached once per settings change. The streaming path only reads this immutable snapshot.
@@ -128,6 +137,12 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
         });
     }
 
+    /// <summary>Applies gain, device channel clamping and the optional bounded-pulse motor floor.</summary>
+    /// <param name="frame">Canonical output before calibration.</param>
+    /// <param name="capabilities">Physical output limits and supported channels.</param>
+    /// <param name="calibration">Normalized calibration snapshot.</param>
+    /// <param name="bounded">Whether nonzero channels need the motor-start floor for a bounded pulse.</param>
+    /// <returns>A calibrated frame; silent channels remain silent.</returns>
     internal static HapticOutputFrame Calibrate(HapticOutputFrame frame, HapticCapabilities capabilities,
         RumbleCalibrationConfig calibration, bool bounded)
     {
@@ -147,6 +162,9 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
     }
 
     /// <summary>One explicit, bounded test. Game feedback cannot extend or replace the preview.</summary>
+    /// <param name="testFloor">True to preview the configured/plugin motor floor; false for the calibrated quarter-strength sample.</param>
+    /// <param name="cancellationToken">Cancels sink acquisition or preview dispatch; cleanup invalidates the preview on failure.</param>
+    /// <returns>True when the bounded preview was accepted; false when unavailable or already previewing.</returns>
     internal async Task<bool> PreviewAsync(bool testFloor, CancellationToken cancellationToken)
     {
         await _sinkGate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -223,6 +241,8 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
         }
     }
 
+    /// <summary>Stops an active calibration preview; no-op when none is running.</summary>
+    /// <returns>Completion of the best-effort silent-frame dispatch.</returns>
     internal Task StopPreviewAsync()
     {
         lock (_gate)
@@ -236,6 +256,8 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
         return StopAsync("calibration-preview", CancellationToken.None);
     }
 
+    /// <summary>Changes the output route and invalidates pending frames and pulse state.</summary>
+    /// <param name="target">Current backend target; the previous route must already have been stopped.</param>
     internal void Attach(ControllerTargetHandle target)
     {
         ArgumentNullException.ThrowIfNull(target);
@@ -252,7 +274,7 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
     /// <summary>Stops the motors with an explicit silent frame and drops anything still queued.</summary>
     /// <param name="reason">Why output stopped, for the log.</param>
     /// <param name="cancellationToken">Cancels waiting for the sink.</param>
-    /// <returns>A task completing once the stop frame was handed to the plugin.</returns>
+    /// <returns>Completion of the stop attempt; absent/unowned sinks are skipped and non-cancellation failures are logged.</returns>
     internal async Task StopAsync(string reason, CancellationToken cancellationToken)
     {
         lock (_gate)
@@ -284,6 +306,8 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
         }
     }
 
+    /// <summary>Invalidates one current route without issuing a physical stop; stale generations are ignored.</summary>
+    /// <param name="targetGeneration">Generation previously attached; stop output before detaching an owned sink.</param>
     internal void Detach(long targetGeneration)
     {
         lock (_gate)

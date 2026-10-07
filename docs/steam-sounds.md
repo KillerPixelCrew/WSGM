@@ -91,3 +91,19 @@ Windows Steam Stable and Beta, complete and incomplete packs, repeated switching
 failures, active-pack removal, WSGM and Steam restart, CEF reload, client updates and
 controller-only navigation. Automated regression suites and the repository gate run after that
 manual pass under the contributor guide's manual-first policy.
+
+## Code path
+
+| Layer                         | Source and contract                                                                                                                                                                                |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pack discovery and validation | `Core/Sounds/`: manifest/resource models, local library and ZIP installation. Current Steam filenames are the resource vocabulary; unsupported or missing mappings remain explicit.                |
+| Session policy                | `Shell/SoundPackService.cs`: serialized actions, selection persistence, detached data URLs, publication revision and decoder-status reconciliation.                                                |
+| Overlay and preview           | `Overlay/SoundsView.cs` projects the service; `SoundPackService` owns a WindowsDeviceControl `AudioFilePreview` for Media Foundation playback and invalidates outgoing preview requests.           |
+| Host composition              | `Shell/SteamUiSessionHost.cs` registers `SteamSoundOverrideSurface.Module` with CEF host-surface enablement, the current revision and `ReportPlaybackStatus`. Custom QAM rows need not be enabled. |
+| Steam playback                | Toolkit `Surfaces/SteamSoundOverrideSurface.cs` and `SteamUiAssets/Source/gates/sound-overrides.ts` validate status, decode replacement variants and restore the claimed audio-manager member.     |
+
+The [toolkit sound contract](../external/steam-ui-toolkit/docs/sound-overrides.md) defines the wire
+state and status report. The bridge sends large host publications in 262,144-character parts; that
+is a chunk size rather than an aggregate sound-pack limit. Status reports in the opposite direction
+still use the bounded CDP notification path. Preview success and Steam decoding success are separate
+observations, and neither proves that an event was heard in a live client.

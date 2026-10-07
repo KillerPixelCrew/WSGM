@@ -179,12 +179,17 @@ public sealed class SystemStatus : ObservableObject, IDisposable
     }
 
     /// <summary>Formats the sheet clock ("21:37"). 24-hour, culture-independent.</summary>
+    /// <param name="now">Clock value to format as supplied, without timezone conversion.</param>
+    /// <returns>Invariant 24-hour hour and minute text.</returns>
     internal static string FormatClock(DateTime now)
     {
         return now.ToString("HH:mm", CultureInfo.InvariantCulture);
     }
 
     /// <summary>Formats the sheet date ("Fri 08 Aug") with the culture's day/month names.</summary>
+    /// <param name="now">Date to format as supplied.</param>
+    /// <param name="culture">Culture providing abbreviated weekday and month names.</param>
+    /// <returns>Weekday, two-digit day and abbreviated month, without a year.</returns>
     internal static string FormatDate(DateTime now, CultureInfo culture)
     {
         return now.ToString("ddd dd MMM", culture);
@@ -194,6 +199,10 @@ public sealed class SystemStatus : ObservableObject, IDisposable
     ///     Maps a GetSystemPowerStatus result to the indicator state: hidden
     ///     (no battery / unknown markers) or a percent with display text.
     /// </summary>
+    /// <param name="callSucceeded">Whether GetSystemPowerStatus returned valid output.</param>
+    /// <param name="batteryFlag">Native battery flags; bit 0x80 excludes absent and unknown batteries.</param>
+    /// <param name="lifePercent">Native percentage; values above 100 are unknown or invalid.</param>
+    /// <returns>A visible battery with percentage text, or false, zero and empty text when unavailable.</returns>
     internal static (bool HasBattery, int Percent, string Text) InterpretBattery(
         bool callSucceeded, byte batteryFlag, byte lifePercent)
     {

@@ -45,6 +45,8 @@ internal interface IPluginActionInvoker
 ///     each one is independently worth attempting and there is nothing to abort. Nothing is ever
 ///     retried in either mode.
 /// </summary>
+/// <param name="invoker">Borrowed dispatcher resolving each action against the current plugin generation.</param>
+/// <param name="log">Optional transition logger; must not throw or record secret arguments.</param>
 internal sealed class PluginActionSequence(IPluginActionInvoker invoker, Action<string>? log = null)
 {
     /// <summary>Runs steps in order, stopping at the first that did not succeed.</summary>
@@ -60,7 +62,7 @@ internal sealed class PluginActionSequence(IPluginActionInvoker invoker, Action<
     /// <summary>Runs every step, reporting each.</summary>
     /// <param name="steps">Configured steps.</param>
     /// <param name="cancellationToken">Cancels the sequence between and during steps.</param>
-    /// <returns>One result per step.</returns>
+    /// <returns>One result per attempted step; caller cancellation leaves later steps unattempted.</returns>
     internal Task<IReadOnlyList<PluginActionStepResult>> RunAllAsync(
         IReadOnlyList<PluginActionStep> steps, CancellationToken cancellationToken)
     {
@@ -140,6 +142,7 @@ internal sealed class PluginActionSequence(IPluginActionInvoker invoker, Action<
 ///     moment it runs so a plugin that restarted between two steps is not addressed with a stale
 ///     one.
 /// </summary>
+/// <param name="host">Borrowed resident host used to resolve current instance generations.</param>
 internal sealed class PluginHostActionInvoker(PluginHost host) : IPluginActionInvoker
 {
     /// <inheritdoc />

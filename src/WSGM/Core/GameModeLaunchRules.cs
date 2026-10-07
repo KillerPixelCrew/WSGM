@@ -5,14 +5,22 @@ using WindowsDeviceControl;
 
 namespace WSGM.Core;
 
+/// <summary>Repairs persisted display, audio, and action preferences before transition execution.</summary>
 internal static class GameModeLaunchRules
 {
+    /// <summary>Chooses explicit desktop audio over the pending return snapshot.</summary>
+    /// <param name="launch">User-authored transition preferences.</param>
+    /// <param name="recovery">Captured audio restoration intent.</param>
+    /// <returns>The existing selected reference, or null when neither source requests audio restoration.</returns>
     internal static AudioProfilePreference? DesktopAudio(GameModeLaunchConfiguration launch,
         GameModeLaunchRecovery recovery)
     {
         return launch.DesktopAudio ?? recovery.PendingReturnAudio;
     }
 
+    /// <summary>Repairs malformed transition fields and validates retained display layouts in place.</summary>
+    /// <param name="launch">Exclusive caller-owned preferences to mutate.</param>
+    /// <returns>Diagnostics for dropped or retained-but-unusable layouts; no hardware validation is performed.</returns>
     internal static IReadOnlyList<string> Normalize(GameModeLaunchConfiguration launch)
     {
         List<string> diagnostics = [];
@@ -70,6 +78,9 @@ internal static class GameModeLaunchRules
         return layout;
     }
 
+    /// <summary>Repairs endpoint identities and audio ranges, dropping fields that lack a target output.</summary>
+    /// <param name="profile">Preference to mutate, or null for no preference.</param>
+    /// <returns>The same repaired instance, or null when no actionable field remains.</returns>
     internal static AudioProfilePreference? NormalizeAudioProfile(AudioProfilePreference? profile)
     {
         if (profile is null)

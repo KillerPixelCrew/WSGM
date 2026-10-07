@@ -9,6 +9,7 @@ namespace WSGM.Core;
 internal static class LockScreenSettings
 {
     /// <summary>Reports confirmed disabled sign-in, or false when Windows state is unavailable.</summary>
+    /// <returns>True only when the current Windows snapshot reports sign-in disabled; false also covers read failures.</returns>
     public static bool SignInOnWakeDisabled()
     {
         try
@@ -97,6 +98,9 @@ internal static class LockScreenSettings
         }
     }
 
+    /// <summary>Copies wake-security recovery facts into a mutable configuration without saving it.</summary>
+    /// <param name="config">Exclusive caller-owned configuration to mutate.</param>
+    /// <param name="snapshot">Pre-change Windows state, including every captured scheme.</param>
     internal static void CaptureInto(AppConfig config, WakeSecuritySnapshot snapshot)
     {
         config.PreviousConsoleLockSchemeValues =
@@ -111,6 +115,10 @@ internal static class LockScreenSettings
         config.PreviousLockOnWakeSnapshotCaptured = true;
     }
 
+    /// <summary>Reconstructs the Windows wake-security snapshot represented by persisted recovery fields.</summary>
+    /// <param name="config">Configuration containing recovery state, including legacy sentinel values.</param>
+    /// <returns>A recovery snapshot; missing capture uses the legacy policy and empty scheme fallback.</returns>
+    /// <exception cref="FormatException">A saved scheme identifier is not a GUID.</exception>
     internal static WakeSecuritySnapshot RecoverySnapshot(AppConfig config)
     {
         return new WakeSecuritySnapshot(

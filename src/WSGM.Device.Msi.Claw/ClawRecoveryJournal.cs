@@ -29,6 +29,7 @@ internal sealed class ClawRecoveryJournal()
     /// <param name="entry">The entry.</param>
     /// <param name="binding">This start's binding, or null when the BIOS version or MSI_ACPI is unavailable.</param>
     /// <param name="legacyBinding">This start's binding in the form earlier builds wrote, or null.</param>
+    /// <returns>Restore only an eligible pending matching binding; otherwise wait, retain unresolved state, or discard a changed binding.</returns>
     internal static ClawReconciliationAction Decide(
         DeviceRecoveryEntry<ClawRecoveryState> entry,
         string? binding,

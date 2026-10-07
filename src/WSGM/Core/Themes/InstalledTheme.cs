@@ -265,6 +265,7 @@ public sealed class InstalledTheme
     }
 
     /// <summary>Every block the theme owns: its own, then each patch's, in order.</summary>
+    /// <returns>Live injection objects in application order; enumerating does not enable them.</returns>
     public IEnumerable<ThemeInject> AllInjects()
     {
         foreach (var inject in Injects)
@@ -290,6 +291,7 @@ public sealed class InstalledTheme
     }
 
     /// <summary>The snapshot the UI reads.</summary>
+    /// <returns>A presentation snapshot containing the theme and its current patch selections.</returns>
     public ThemeSnapshot Snapshot()
     {
         return new ThemeSnapshot(

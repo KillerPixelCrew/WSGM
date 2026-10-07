@@ -84,6 +84,12 @@ internal static class Descriptors
     ///     Read-only rows are one machine-wide observation: never carried between games, never written,
     ///     and not kept by the driver across a restart.
     /// </remarks>
+    /// <param name="id">Stable capability identity.</param>
+    /// <param name="instance">Adapter/display instance identity, or null for an uninstanced capability.</param>
+    /// <param name="label">Driver or package label, sanitized for host display.</param>
+    /// <param name="members">Allowed observed enum values and their display labels, in publication order.</param>
+    /// <param name="placement">Section, category and order; read-only policy overrides its profile scope and timing.</param>
+    /// <returns>A volatile, global-only choice descriptor that supports reads but no writes.</returns>
     public static CapabilityDescriptor ReadOnlyChoice(
         string id,
         string? instance,
@@ -95,6 +101,13 @@ internal static class Descriptors
     }
 
     /// <summary>A number the driver reports and nothing can set.</summary>
+    /// <param name="id">Stable capability identity.</param>
+    /// <param name="instance">Adapter/display instance identity, or null for an uninstanced capability.</param>
+    /// <param name="label">Driver or package label, sanitized for host display.</param>
+    /// <param name="range">Inclusive integer bounds and step advertised for observation.</param>
+    /// <param name="unit">Display unit for the reported number.</param>
+    /// <param name="placement">Section, category and order; read-only policy overrides its profile scope and timing.</param>
+    /// <returns>A volatile, global-only integer descriptor that supports reads but no writes.</returns>
     public static CapabilityDescriptor ReadOnlyRange(
         string id,
         string? instance,

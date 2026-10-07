@@ -53,6 +53,7 @@ public sealed class QuickAccessFolds
 
     /// <summary>Whether a section is open. One never touched is folded.</summary>
     /// <param name="id">The section's id.</param>
+    /// <returns>True when the persisted set contains the exact section ID; untouched sections are folded.</returns>
     public bool IsOpen(string id)
     {
         lock (_gate)

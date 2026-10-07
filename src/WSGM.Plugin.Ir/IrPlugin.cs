@@ -5,6 +5,11 @@ using WSGM.Plugin.Sdk;
 namespace WSGM.Plugin.Ir;
 
 /// <summary>Independent IR command library and versioned endpoint integration.</summary>
+/// <remarks>
+///     Startup reads private library and pairing files; endpoints are opened and identified lazily by actions.
+///     One lane serializes configuration, emission and shutdown. Endpoint emission acknowledgment does not
+///     verify appliance state, and uncertain actions stop sequences without automatic retry.
+/// </remarks>
 public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPluginUi
 {
     private const string UsbTransport = "usb", WifiTransport = "wifi";
@@ -21,7 +26,7 @@ public sealed class IrPlugin : IPlugin, IConfigurablePlugin, IPluginActions, IPl
     private long _sequence;
     private bool _stopped = true;
 
-    /// <summary>Creates an inactive plugin. Resources are acquired only by explicit connection.</summary>
+    /// <summary>Creates an inactive plugin; endpoint actions open and identify their transport on demand.</summary>
     public IrPlugin() : this(IrEndpointConnection.Create)
     {
     }

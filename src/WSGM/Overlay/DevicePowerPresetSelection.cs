@@ -6,6 +6,9 @@ using WSGM.Shell;
 namespace WSGM.Overlay;
 
 /// <summary>UI-thread projection of the shared preset service for one open overlay.</summary>
+/// <param name="service">Borrowed session preset owner.</param>
+/// <param name="readOnly">True for a preview that must not write assignments.</param>
+/// <param name="assignments">Optional shared AC/battery assignment owner; null disables assignment.</param>
 internal sealed class DevicePowerPresetSelection(
     DevicePowerPresets service,
     bool readOnly,
@@ -20,6 +23,7 @@ internal sealed class DevicePowerPresetSelection(
     internal bool CanAssign => !_disposed && !readOnly && !Busy && State.Presets.Count > 0 && assignments is not null;
     internal DevicePowerAssignmentState? Assignments { get; private set; }
 
+    /// <summary>Cancels this UI projection's lifetime and prevents later publication; borrowed session owners remain alive.</summary>
     public void Dispose()
     {
         if (_disposed)
@@ -33,8 +37,13 @@ internal sealed class DevicePowerPresetSelection(
         Changed = null;
     }
 
+    /// <summary>Raised on the captured UI context when projected state or busy status changes.</summary>
     internal event Action? Changed;
 
+    /// <summary>Changes one AC/battery preset assignment through the shared assignment owner.</summary>
+    /// <param name="ac">True for AC power, false for battery.</param>
+    /// <param name="id">Preset ID, or null to clear that source assignment.</param>
+    /// <returns>Completion of assignment and refresh; unavailable/read-only/busy state is a no-op.</returns>
     internal async Task AssignAsync(bool ac, string? id)
     {
         if (!CanAssign)
@@ -76,6 +85,8 @@ internal sealed class DevicePowerPresetSelection(
         }
     }
 
+    /// <summary>Reads shared state without overlapping this projection's active operation.</summary>
+    /// <returns>Completion of the refresh; disposed/busy projections are a no-op and late results are not published.</returns>
     internal async Task RefreshAsync()
     {
         if (_disposed || Busy || _refreshing)

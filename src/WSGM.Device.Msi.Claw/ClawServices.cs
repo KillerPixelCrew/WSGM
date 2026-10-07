@@ -54,6 +54,7 @@ internal sealed class OemEventService(
     ///     A QS press from the firmware's keyboard chord, called from the keyboard hook. Queued so the
     ///     hook returns at once.
     /// </summary>
+    /// <param name="chord">Detected QS chord; QuickSettingsLong maps to a long press, other values to a short press.</param>
     public void RaiseChord(FirmwareChord chord)
     {
         var press = chord is FirmwareChord.QuickSettingsLong ? OemPressKind.Long : OemPressKind.Short;

@@ -28,6 +28,7 @@ internal static class LaunchWrapperStore
     /// <param name="store">The configuration persistence the snapshots live in.</param>
     /// <param name="snapshot">What to remember; replaces any entry for the same game.</param>
     /// <param name="cancellationToken">Cancels the off-thread work.</param>
+    /// <returns>Completion after the replacement snapshot is persisted; cancellation only prevents worker admission.</returns>
     internal static Task RememberAsync(ConfigStore store, LaunchWrapperConfig snapshot,
         CancellationToken cancellationToken = default)
     {
@@ -44,6 +45,7 @@ internal static class LaunchWrapperStore
     /// <param name="store">The configuration persistence the snapshots live in.</param>
     /// <param name="appId">The Steam app id, or a shortcut's generated id.</param>
     /// <param name="cancellationToken">Cancels the off-thread work.</param>
+    /// <returns>Completion after removal is persisted, including when the entry was already absent.</returns>
     internal static Task ForgetAsync(ConfigStore store, long appId, CancellationToken cancellationToken = default)
     {
         return Task.Run(() => store.Update(config =>

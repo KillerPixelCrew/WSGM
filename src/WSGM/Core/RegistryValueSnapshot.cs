@@ -12,6 +12,7 @@ namespace WSGM.Core;
 ///     names are load-bearing on installed devices, so this type never names them
 ///     itself and they must never change.
 /// </summary>
+/// <typeparam name="T">Persisted representation of the registry value after coercion.</typeparam>
 internal sealed class RegistryValueSnapshot<T>
 {
     private readonly T _absentValue;
@@ -41,6 +42,7 @@ internal sealed class RegistryValueSnapshot<T>
     /// </param>
     /// <param name="load">Reads the four bound AppConfig properties.</param>
     /// <param name="store">Writes the four bound AppConfig properties.</param>
+    /// <summary>Binds one registry value to its durable configuration snapshot fields.</summary>
     public RegistryValueSnapshot(string valueName, T absentValue, T writeFallback,
         RegistryValueKind defaultKind, Func<object, T> coerce,
         Func<RegistryValueKind, RegistryValueKind> normalizeKind,
@@ -60,6 +62,8 @@ internal sealed class RegistryValueSnapshot<T>
     ///     Reads the value's current presence, content and kind from the key.
     ///     A null key reads as absent.
     /// </summary>
+    /// <param name="key">Caller-owned registry key to read, or null to represent an absent key.</param>
+    /// <returns>An uncaptured state retaining presence and raw registry kind; access/coercion failures propagate.</returns>
     public State ReadCurrent(RegistryKey? key)
     {
         if (key is null)
@@ -79,17 +83,24 @@ internal sealed class RegistryValueSnapshot<T>
     ///     marking the snapshot as captured. Does not save the config — callers decide
     ///     when persisting is safe relative to their registry writes.
     /// </summary>
+    /// <param name="config">Caller-owned mutable configuration receiving the snapshot.</param>
+    /// <param name="current">Previously read registry facts to mark as captured.</param>
     public void Capture(AppConfig config, State current)
     {
         _store(config, current with { Captured = true });
     }
 
+    /// <summary>Checks whether a durable snapshot has been recorded for this policy value.</summary>
+    /// <param name="config">Configuration containing the bound snapshot fields.</param>
+    /// <returns>True when capture occurred, including when the original registry value was absent.</returns>
     public bool IsCaptured(AppConfig config)
     {
         return _load(config).Captured;
     }
 
     /// <summary>True when restore should write a value back rather than delete it.</summary>
+    /// <param name="config">Configuration containing the bound snapshot fields.</param>
+    /// <returns>The recorded presence flag; does not check whether capture occurred.</returns>
     public bool HasValue(AppConfig config)
     {
         return _load(config).Exists;
@@ -100,6 +111,9 @@ internal sealed class RegistryValueSnapshot<T>
     ///     saved value with its original (normalized) kind, or delete the value if the
     ///     snapshot says it was absent.
     /// </summary>
+    /// <param name="key">Caller-owned writable registry key; kept open after the operation.</param>
+    /// <param name="config">Configuration containing a previously captured snapshot.</param>
+    /// <remarks>Caller must check <see cref="IsCaptured" /> first. Registry failures propagate; configuration is not saved or cleared.</remarks>
     public void Restore(RegistryKey key, AppConfig config)
     {
         if (HasValue(config))
@@ -117,5 +131,9 @@ internal sealed class RegistryValueSnapshot<T>
     ///     The four persisted facts about a snapshotted value, mirroring one
     ///     AppConfig field group (SnapshotCaptured / ValueExists / value / ValueKind).
     /// </summary>
+    /// <param name="Captured">Whether these facts have been durably captured for restoration.</param>
+    /// <param name="Exists">Whether the original registry value existed.</param>
+    /// <param name="Value">Coerced original value, or the configured absent-value fallback.</param>
+    /// <param name="Kind">Original registry type, or the configured default for an absent value.</param>
     internal readonly record struct State(bool Captured, bool Exists, T Value, RegistryValueKind Kind);
 }

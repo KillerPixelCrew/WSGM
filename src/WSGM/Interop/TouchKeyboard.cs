@@ -13,6 +13,7 @@ namespace WSGM.Interop;
 internal static class TouchKeyboard
 {
     /// <summary>Toggles the keyboard and reports whether Windows accepted the request.</summary>
+    /// <returns>True when COM accepted the toggle request; false when the service is unavailable or the call fails.</returns>
     internal static bool Toggle()
     {
         object? instance = null;

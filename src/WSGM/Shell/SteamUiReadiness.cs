@@ -5,18 +5,12 @@ using WSGM.Core;
 
 namespace WSGM.Shell;
 
-/// <summary>Single policy gate for autonomous CEF work during Steam startup.</summary>
+/// <summary>Session policy gate shared by autonomous CEF consumers and one-shot startup work.</summary>
 /// <remarks>
-///     Two mechanisms consult it. Everything that talks to Steam continuously (the persistent
-///     transport behind the patch host, the running-application probe and every static evaluator) is
-///     switched at the transport itself by <see cref="TransportShouldBeOpen" />, because a
-///     cold-starting Steam opens its CEF port seconds before it has a Big Picture window, and the first
-///     connection would otherwise inject the whole native-QAM patch set into that headless session.
-///     Operations that run once (the tab boot sync and Steam's startup movie choice) wait through
-///     <see cref="RunWhenReadyAsync" /> for the transport to open, as the session's gate reports it
-///     through <see cref="Observe" />. Device evidence for both dates is in
-///     <c>docs\boot-and-shell.md</c>. One instance per session: the session's gate is its only
-///     writer, and the card watchers and the keep-awake poll read <see cref="IsReady" /> from it.
+///     The session is the sole writer. Continuous consumers consult the transport gate; one-shot work
+///     waits through <see cref="RunWhenReadyAsync" />. This runtime policy uses session and window state,
+///     not Steam-log verification. Before manual CEF debugging, confirm Steam and Big Picture startup
+///     in current-run Steam logs; an early debugger connection can hang the entire Steam UI.
 /// </remarks>
 internal sealed class SteamUiReadiness
 {

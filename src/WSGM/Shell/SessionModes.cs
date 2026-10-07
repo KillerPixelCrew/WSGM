@@ -132,6 +132,11 @@ public sealed class SessionModes
     }
 
     /// <summary>Creates the mode owner with the desktop Steam probes and launch operation it uses.</summary>
+    /// <param name="config">Configuration retained until ApplyConfig replaces it.</param>
+    /// <param name="monitor">Borrowed monitor whose exit notifications drive relaunch policy.</param>
+    /// <param name="steamRunning">Fresh Steam-process presence probe.</param>
+    /// <param name="steamInstalled">Steam installation probe.</param>
+    /// <param name="launchSteamDesktop">Optional launcher receiving input-management, unelevated-launch and CEF switches; null uses the production launcher.</param>
     internal SessionModes(AppConfig config, SteamMonitor? monitor, Func<bool> steamRunning,
         Func<bool> steamInstalled, Func<bool, bool, bool, bool>? launchSteamDesktop)
     {
@@ -225,6 +230,7 @@ public sealed class SessionModes
     public event Action? GameModeEntered;
 
     /// <summary>Surfaces a shell-transition warning through the overlay's existing warning path.</summary>
+    /// <param name="warning">User-facing transition warning forwarded to SteamStartFailed subscribers.</param>
     internal void ReportWarning(string warning)
     {
         SteamStartFailed?.Invoke(warning);
@@ -234,6 +240,7 @@ public sealed class SessionModes
     ///     Applies a freshly loaded config (settings saved in another process).
     ///     Reloads replace the config wholesale, so no runtime state may live on it.
     /// </summary>
+    /// <param name="config">Replacement configuration retained by this session; call on the UI thread.</param>
     public void ApplyConfig(AppConfig config)
     {
         _config = config;
@@ -360,6 +367,7 @@ public sealed class SessionModes
     ///     Waits for the one already-running shell transition to leave its Explorer and UI
     ///     boundaries. The application shutdown coordinator supplies the sole outer deadline.
     /// </summary>
+    /// <returns>Completion when no transition remains. This method has no timeout; the shutdown owner must bound its wait.</returns>
     internal async Task WaitForTransitionAsync()
     {
         while (Volatile.Read(ref _explorerTransition) is { } transition)
@@ -699,6 +707,7 @@ public sealed class SessionModes
     ///     transport, ask Steam to leave Big Picture, then wait for that window to go away before the
     ///     rest of the return runs. No-op when Steam isn't running.
     /// </summary>
+    /// <returns>Completion after the close attempts settle or their waits expire; the window may still exist on failure.</returns>
     internal async Task ExitBigPictureAndSettleAsync()
     {
         // Live check, not the up-to-5 s-stale monitor poll: entering desktop mode
@@ -719,12 +728,7 @@ public sealed class SessionModes
             return;
         }
 
-        // The protocol request went unanswered. That is not a slow Steam: on 2026-09-26 its CEF
-        // renderer had stopped answering thirteen seconds earlier, so nothing consumed the URL and
-        // the fullscreen window simply stayed up while the rest of the return rebuilt the desktop
-        // underneath it. Post the close straight to the window, which needs neither the shell
-        // protocol handler nor Steam's main thread, and record what the window manager thinks of
-        // that window either way.
+        // A hung renderer may ignore the protocol request; try WM_CLOSE directly before returning.
         var window = await Task.Run(Steam.FindBigPictureWindow).ConfigureAwait(false);
         if (window == IntPtr.Zero)
         {
@@ -876,10 +880,9 @@ public sealed class SessionModes
     }
 
     /// <summary>
-    ///     The one Steam start + warning flow (shared by boot and the overlay):
-    ///     install check, then Big Picture launch. Returns the user-facing warning to
-    ///     surface, or null on success.
+    ///     Requests a Big Picture launch using the current configuration, unless shutdown has begun.
     /// </summary>
+    /// <returns>A user-facing launch warning, or null when launch was accepted or shutdown suppressed it. Null does not establish Steam or Big Picture readiness.</returns>
     public string? StartBigPicture()
     {
         if (Volatile.Read(ref _shutdownRequested) != 0)

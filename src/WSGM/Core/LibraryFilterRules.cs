@@ -3,8 +3,12 @@ using System.Linq;
 
 namespace WSGM.Core;
 
+/// <summary>Repairs nullable members in saved library filter trees without changing filter intent.</summary>
 internal static class LibraryFilterRules
 {
+    /// <summary>Recursively replaces null fields and removes null child entries.</summary>
+    /// <param name="node">Non-null root of an acyclic mutable filter tree.</param>
+    /// <returns>An empty diagnostic list; this structural repair does not validate predicate meaning.</returns>
     internal static IReadOnlyList<string> Normalize(FilterNode node)
     {
         NormalizeNode(node);

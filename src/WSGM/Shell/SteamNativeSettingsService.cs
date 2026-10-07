@@ -16,6 +16,20 @@ namespace WSGM.Shell;
 
 /// <summary>Projects the existing Quick Access owners into Steam's native settings pages.</summary>
 /// <remarks>No polling, hardware lifetime or configuration belongs to this projection.</remarks>
+/// <param name="brightness">Borrowed live panel-brightness adapter.</param>
+/// <param name="resolution">Borrowed display-mode adapter, or null to omit resolution.</param>
+/// <param name="performance">Borrowed RTSS, frame-cap and VRR adapter.</param>
+/// <param name="tdp">Borrowed sustained/boost power-limit adapter.</param>
+/// <param name="autoTdp">Borrowed AutoTDP setting and status adapter.</param>
+/// <param name="powerProfiles">Borrowed Windows power-profile adapter.</param>
+/// <param name="powerPresets">Borrowed device preset-assignment adapter.</param>
+/// <param name="cpuBoost">Borrowed CPU boost adapter, or null to omit the row.</param>
+/// <param name="hybridCores">Borrowed processor core-placement adapter.</param>
+/// <param name="audioFormat">Borrowed endpoint-format adapter, or null to omit advanced audio controls.</param>
+/// <param name="graphics">Borrowed graphics settings projection, or null when no graphics owner is available.</param>
+/// <param name="coordinator">Borrowed device capability and rumble owner, or null for an inactive device integration.</param>
+/// <param name="profiles">Borrowed owner of the active application, editing scope and profile operations.</param>
+/// <param name="displayTimeouts">Borrowed display-timeout owner, or null to omit timeout controls.</param>
 internal sealed class SteamNativeSettingsService(
     NativeQamBrightnessService brightness,
     NativeQamResolutionService? resolution,
@@ -61,6 +75,8 @@ internal sealed class SteamNativeSettingsService(
         return offered.Write(value, cancellationToken);
     }
 
+    /// <summary>Stops the shared device rumble preview when its owner exists.</summary>
+    /// <returns>A successful command after the stop completes; absence is a successful no-op, and owner failures propagate.</returns>
     internal async Task<SteamUiCommandResult> StopRumblePreviewAsync()
     {
         if (coordinator is not null)
@@ -72,6 +88,8 @@ internal sealed class SteamNativeSettingsService(
     }
 
     /// <summary>Reads fresh state from the same adapters that publish Quick Access.</summary>
+    /// <returns>Fresh native settings pages and revision; the completed read atomically replaces the exact offered command set.</returns>
+    /// <remarks>Concurrent reads are serialized. Dependencies remain borrowed, and row keys retain the profile/device generation they describe.</remarks>
     internal async ValueTask<SteamNativeSettingsState?> ReadAsync()
     {
         await _reads.WaitAsync().ConfigureAwait(false);
@@ -512,6 +530,9 @@ internal sealed class SteamNativeSettingsService(
         }
     }
 
+    /// <summary>Builds a native row bound to the capability's device and descriptor generations.</summary>
+    /// <param name="capability">Projected descriptor, current value, write admission and profile override metadata.</param>
+    /// <returns>A color/text-specific row or the shared graphics row, with a generation-qualified key and override accent.</returns>
     internal static SteamSettingsRow DeviceRow(DeviceOverlayCapability capability)
     {
         var key = "device/" + capability.CapabilityId +
@@ -569,6 +590,10 @@ internal sealed class SteamNativeSettingsService(
         return NativeQamUi.CommandResult(result, "The device refused the setting.");
     }
 
+    /// <summary>Validates a JSON value against one currently offered, enabled row.</summary>
+    /// <param name="row">The exact descriptor shown to the user.</param>
+    /// <param name="value">Proposed JSON value; choices, range steps, text length and opaque RGB colors are checked by kind.</param>
+    /// <returns>True only for an enabled writable kind with a valid value; action rows require boolean true.</returns>
     internal static bool ValidValue(SteamSettingsRow row, JsonElement value)
     {
         if (row.Disabled)
@@ -595,6 +620,10 @@ internal sealed class SteamNativeSettingsService(
         };
     }
 
+    /// <summary>Parses the native editor's opaque RGB color vocabulary.</summary>
+    /// <param name="value">A #RRGGBB string or hsla(h, s%, l%, 1); finite hue is wrapped into one turn.</param>
+    /// <param name="color">Packed 24-bit RGB on success; zero on failure.</param>
+    /// <returns>True for a complete supported color with valid saturation/lightness and full opacity.</returns>
     internal static bool TryColor(JsonElement value, out int color)
     {
         color = 0;
@@ -650,6 +679,10 @@ internal sealed class SteamNativeSettingsService(
     }
 
     /// <summary>Keeps commands from a former editing scope out of the current offered set.</summary>
+    /// <param name="key">Base semantic command key.</param>
+    /// <param name="active">Application and game-profile identity the row describes.</param>
+    /// <param name="editsGame">Whether that row edits the game override rather than global defaults.</param>
+    /// <returns>The base key with a hash of the complete editing-scope identity, so stale-scope commands cannot match the new offered set.</returns>
     internal static string ProfileKey(string key, ActiveProfile active, bool editsGame)
     {
         var identity = string.Join('\0', active.ApplicationId ?? string.Empty, active.GameProfileId ?? string.Empty,

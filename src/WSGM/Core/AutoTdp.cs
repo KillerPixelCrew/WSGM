@@ -64,17 +64,18 @@ internal enum AutoTdpWindowClass
 }
 
 /// <summary>The plugin-published bounds of the primary power capability.</summary>
-/// <param name="Minimum">Lowest limit the device accepts.</param>
-/// <param name="Maximum">Highest limit the device accepts.</param>
-/// <param name="Step">Smallest change the device accepts.</param>
+/// <param name="Minimum">Lowest power limit in watts.</param>
+/// <param name="Maximum">Highest power limit in watts.</param>
+/// <param name="Step">Positive device increment in watts.</param>
 internal sealed record AutoTdpLimits(int Minimum, int Maximum, int Step)
 {
     /// <summary>Whether the bounds describe a usable control.</summary>
     internal bool IsUsable => Step > 0 && Minimum > 0 && Maximum >= Minimum + Step;
 
-    /// <summary>Clamps a candidate limit onto the device grid.</summary>
-    /// <param name="value">The candidate limit.</param>
-    /// <returns>A limit the device accepts.</returns>
+    /// <summary>Clamps a candidate to the inclusive wattage bounds without rounding it to the step grid.</summary>
+    /// <param name="value">Candidate limit in watts; the caller maintains step alignment.</param>
+    /// <returns>The candidate bounded by Minimum and Maximum.</returns>
+    /// <exception cref="ArgumentException">Minimum exceeds Maximum.</exception>
     internal int Clamp(int value)
     {
         return Math.Clamp(value, Minimum, Maximum);
@@ -115,7 +116,7 @@ internal sealed record AutoTdpWindow(
 /// <param name="TargetFrametimeMs">The deadline this tick is judged against.</param>
 /// <param name="Window">The newest RTSS window, or null when nothing is rendering.</param>
 /// <param name="GpuLoadPercent">GPU load, or null when no sensor provider is publishing.</param>
-/// <param name="CpuLoadPercent">Total CPU load, recorded for diagnosis and used by no rule.</param>
+/// <param name="CpuLoadPercent">Total CPU utilization percent, or null; its change across probes can limit probe growth.</param>
 /// <remarks>
 ///     A tick with no window still reaches the controller. RTSS drops an application's entry once it
 ///     is two seconds stale, so a long enough stall makes the renderer disappear entirely — and a
@@ -191,10 +192,8 @@ internal readonly record struct AutoTdpControllerSnapshot(
 ///     named in <c>docs\autotdp-controller.md</c>, and each is skipped when no sensor provider is
 ///     publishing, so the controller degrades to frametime-only rather than behaving differently.
 ///     <para>
-///         Nothing is learned. No floor survives a probe, a context or a session: every conclusion is
-///         re-tested from fresh evidence, and the single piece of memory is a bounded backoff that
-///         slows repeat probing at one operating point without ever forbidding it. The failed-probe
-///         floor this replaced held a handheld at 24 W for 25 minutes of capped 60 FPS play.
+///         No learned floor survives a probe, context, or session. Fresh evidence is required, and
+///         bounded backoff slows repeated probes at one operating point without forbidding them.
 ///     </para>
 ///     <para>
 ///         Pure and single-threaded on purpose. Every input arrives as an argument, every decision is a
@@ -271,8 +270,8 @@ internal sealed class AutoTdpController
 
     /// <summary>Stable window time before the first downward probe at an operating point.</summary>
     /// <remarks>
-    ///     Five seconds, from ten. The dwell only has to show the scene is steady; the probe's own
-    ///     windows judge the step, and a failure doubles the dwell from here to a minute.
+    ///     The dwell establishes a steady scene; probe windows judge the step. Failure doubles this
+    ///     delay up to the maximum dwell without creating a permanent wattage floor.
     /// </remarks>
     private const double StabilityDwellMs = 5_000;
 

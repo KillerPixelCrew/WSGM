@@ -95,6 +95,7 @@ internal sealed unsafe partial class AdlxSession : IDriverSession
     {
     }
 
+    /// <inheritdoc />
     public DriverModel Discover()
     {
         var objects = new List<AdlxObject>();
@@ -177,6 +178,7 @@ internal sealed unsafe partial class AdlxSession : IDriverSession
         }
     }
 
+    /// <inheritdoc />
     public ApplicationProfileSyncResult Sync(ApplicationProfileSync sync, WriteAdmission admission,
         CancellationToken token)
     {
@@ -185,6 +187,7 @@ internal sealed unsafe partial class AdlxSession : IDriverSession
         return new ApplicationProfileSyncResult(0, 0, []);
     }
 
+    /// <inheritdoc />
     public void Dispose()
     {
         if (_library == 0)

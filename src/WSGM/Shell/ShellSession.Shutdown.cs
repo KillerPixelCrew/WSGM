@@ -37,6 +37,9 @@ public sealed partial class ShellSession
     }
 
     /// <summary>Returns the session's single cleanup task; called by the runtime on the UI thread.</summary>
+    /// <param name="reason">Shutdown reason; the first call starts cleanup with this reason.</param>
+    /// <param name="deadline">Outer deadline; later calls can tighten it but cannot extend it.</param>
+    /// <returns>The shared cleanup task, which may fault with accumulated failures or unverified teardown.</returns>
     internal ValueTask ShutdownAsync(ApplicationShutdownReason reason, DateTimeOffset deadline)
     {
         TightenShutdownDeadline(deadline);
@@ -552,6 +555,8 @@ public sealed partial class ShellSession
     /// <param name="work">The work to join.</param>
     /// <param name="deadlineCancellation">Cancelled when the shutdown's deadline is reached or tightened.</param>
     /// <param name="name">What the work is, for the timeout message.</param>
+    /// <returns>Completion of the underlying work, propagating its failure or cancellation.</returns>
+    /// <exception cref="TimeoutException">The deadline expired before the work finished; the work itself is not stopped.</exception>
     internal static async Task JoinWithinDeadlineAsync(Task work, CancellationToken deadlineCancellation, string name)
     {
         if (work.IsCompleted)
@@ -645,6 +650,8 @@ public sealed partial class ShellSession
     ///     every step still ran is guaranteed by the step helpers above; this only decides how what
     ///     failed is reported.
     /// </remarks>
+    /// <param name="failures">Collected cleanup failures; an empty collection represents no recorded failure.</param>
+    /// <returns>A wrapper retaining one or all failures, or null for an empty collection.</returns>
     internal static Exception? ShutdownFailure(IReadOnlyList<Exception> failures)
     {
         ArgumentNullException.ThrowIfNull(failures);

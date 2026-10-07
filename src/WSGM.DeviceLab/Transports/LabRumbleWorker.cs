@@ -10,19 +10,25 @@ namespace WSGM.DeviceLab.Transports;
 /// <summary>The bounded motor output exposed by the hardware worker.</summary>
 internal interface ILabRumbleWorker : IDisposable
 {
-    /// <summary>Captures the operator's silent baseline before a motor write.</summary>
+    /// <summary>Creates the motor checkpoint description without reading a hardware baseline.</summary>
+    /// <returns>A statement that motor state is unreadable and cleanup must send zero; not evidence that motors are already silent.</returns>
     [LabWorkerSnapshot]
     string Original();
 
     /// <summary>Writes one bounded frame and returns its evidence, including a failed write.</summary>
+    /// <param name="frame">Motor strengths, each within 0–100 percent; invalid frames throw before writing.</param>
+    /// <param name="purpose">Reason recorded with the attempted write.</param>
+    /// <returns>The logged write outcome, including transport refusal or uncertainty; failures are not retried.</returns>
     [LabWorkerWrite]
     LabRumbleWrite Write(LabRumbleFrame frame, string purpose);
 
     /// <summary>Updates the live slider without waiting for a per-frame acknowledgement.</summary>
+    /// <param name="frame">Motor strengths in 0–100 percent; a zero frame requests a logged stream stop.</param>
     [LabWorkerStream]
     void SetIntensity(LabRumbleFrame frame);
 
     /// <summary>Returns the worker's streamed frame evidence after the slider stops.</summary>
+    /// <returns>A detached list of stream, stream-stop and worker-zero writes, including failures; ordinary pulse writes are excluded.</returns>
     IReadOnlyList<LabRumbleWrite> StreamWrites();
 
     /// <summary>Sends a final zero, also used when the worker closes the service.</summary>

@@ -23,6 +23,53 @@ public sealed class GameModeDisplayPageTests
         new(@"\\?\DISPLAY#DESK01", null, null, "Desk monitor", 0, 0, 4);
 
     [AvaloniaFact]
+    public async Task DriverUpdateRebindsTheUniqueEdidModelAndKeepsTheDraftAndSavedCatalog()
+    {
+        using UiFixture fixture = new();
+        var old = new DisplayTargetIdentity("old-path", 1, 2, "Monitor", 1, 0, 2);
+        var current = old with
+        {
+            DevicePath = "new-path", AdapterLowPart = 9, TargetId = 7, EdidIdentity = "serial-42"
+        };
+        fixture.Saved.GameModeLaunch.Kind = GameModeLaunchKind.Custom;
+        fixture.Saved.GameModeLaunch.KnownDisplays =
+            [new KnownDisplay { Target = old }, new KnownDisplay { Target = current }];
+        fixture.Saved.GameModeLaunch.GameLayout = new DisplayLayout([
+            new DisplayLayoutOutput(old, 0, 0, 1920, 1080, DisplayRefresh.FromHertz(60), 0, 125)
+        ]);
+        fixture.Saved.GameModeLaunch.WaitForDisplay = old;
+        fixture.Displays = Desktop(current);
+        var window = Open(fixture);
+        var model = Model(window);
+        await ExecuteDisplayCommandAsync(model.RefreshDisplaysCommand);
+        var row = Assert.Single(model.GameLayout.Rows);
+        Assert.True(row.Present);
+        Assert.True(row.Active);
+        Assert.Equal(125, row.DpiPercent);
+        Assert.Equal(current, Assert.Single(model.KnownDisplays).Target);
+        UiFixture.Click(window, window.GetVisualDescendants().OfType<Button>()
+            .Single(button => Equals(button.Content, "Save changes")));
+        Assert.Equal(current, Assert.Single(fixture.Saved.GameModeLaunch.KnownDisplays).Target);
+        Assert.Equal(current, Assert.Single(fixture.Saved.GameModeLaunch.GameLayout!.Outputs).Target);
+        Assert.Equal(current, fixture.Saved.GameModeLaunch.WaitForDisplay);
+    }
+
+    [AvaloniaFact]
+    public async Task LegacyModelIsNotReboundWhenTwoConnectedMonitorsShareIt()
+    {
+        using UiFixture fixture = new();
+        var old = new DisplayTargetIdentity("old-path", 1, 2, "Monitor", 1, 0, 2);
+        var first = old with { DevicePath = "first", EdidIdentity = "serial-1" };
+        var second = old with { DevicePath = "second", TargetId = 3, EdidIdentity = "serial-2" };
+        fixture.Saved.GameModeLaunch.KnownDisplays = [new KnownDisplay { Target = old }];
+        fixture.Displays = Desktop(first, second);
+        var model = Model(Open(fixture));
+        await ExecuteDisplayCommandAsync(model.RefreshDisplaysCommand);
+        Assert.Equal(3, model.KnownDisplays.Count);
+        Assert.Contains(model.GameLayout.Rows, row => row.Target == old && !row.Present);
+    }
+
+    [AvaloniaFact]
     public async Task WindowsDisabledDisplayOffersModesAndKeepsTheSelectedResolutionAndRefresh()
     {
         using UiFixture fixture = new();

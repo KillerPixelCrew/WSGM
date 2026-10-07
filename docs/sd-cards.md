@@ -5,8 +5,8 @@ whether its library is registered, and why every write addresses a volume rather
 letter. Registering a card's library with a running Steam, the duplicate-registration behaviour that
 makes a swapped card show the previous card's games, and the reconcile on volume arrival and removal
 are in [steam-cef.md](steam-cef.md) ("Registering a library with a running Steam"). The format
-mechanism itself, the three-diskpart sequence and the volume-arrival wait it survives, is beside the
-code in `src\WSGM\Shell\AGENTS.md`.
+mechanism and volume-arrival wait are described below; the implementation is
+[`SdFormatManager.cs`](../src/WSGM/Shell/SdFormatManager.cs).
 
 Format SD Card is reached through Overlay Tools > Storage. Card Manager stays focused on tracked
 library management; formatting keeps the same picker and explicit erase confirmation.
@@ -75,6 +75,13 @@ library on a volume that is gone, which its own UI renders as a disconnected dri
 cleans up.
 
 ## Physical media discovery for Format and Eject
+
+Steam's storage projection removes both the volume and its parent reader after an eject. A reader
+may retain its physical disk interface and the card's last capacity while the volume is gone;
+publishing that disk by itself makes Steam show the reader name as an empty library with all space
+used. The bridge remembers which readers carried mounted media until their disk leaves the
+inventory, and offers them again once a ready volume returns. Initially letterless format candidates
+remain available.
 
 Format and Eject discover physical disk interfaces independently of mounted drive letters, so
 Linux-only partitions stay visible without a Windows filesystem. Discovery uses query access;
@@ -176,16 +183,56 @@ measured on the reference device. The tab sync, the Card Manager and a rename ru
 the answer rather than keeping a snapshot from the last volume notification, because media slipped
 into a reader whose volume already exists raises no notification.
 
-## Format SD Card lives inside the Card Manager
+## Storage routes and the formatting transaction
 
-Formatting a card and managing tracked cards are one subject, so the Format button is a Card Manager
-action rather than a Tools entry. `CardManagerView` raises `FormatRequested`; the overlay leaves
-that sub-view and enters `PanelFormat`, because two Tools sub-views must not own the surface at
-once. Cancel and Back return to the Card Manager through `LeaveFormatSubViewToOrigin`, which
-rescans, so a card that was just formatted appears immediately.
+`OverlayWindow.Navigation.cs` registers `SteamStorageFormat` under `SystemStorage` in the Tools
+destination. `OverlayWindow.Storage.cs` opens that route from Format SD Card and Add Steam Library;
+the Steam Library page also offers Add Steam Library, which selects Tools > Storage before opening
+it. Back and Cancel return to Storage, and leaving clears the pending target. Card Manager is a
+separate `SteamCardManager` route under Steam Library and has no format command. `ShowSdCard` and
+`ShowCardManager` are independently derived from `Cef.Enabled` and their own feature switches, so
+formatting does not depend on Card Manager being enabled.
 
-The two feature toggles stay independent. `OverlayViewModel.ShowFormatInTools`
-(`ShowSdCard && !ShowCardManager`) brings the Tools button back when the Card Manager is switched
-off, so `Cef.SdFormat` can never be on with no way to reach it. `_formatReturnsToCards` is cleared
-in `LeaveFormatSubView` so the `Activated` teardown cannot bounce a fresh summon back into the Card
-Manager.
+The file/folder picker for Add Steam Library is still the native Avalonia storage dialog and needs a
+pointer. It is separate from the in-window picker used by Library Importer and content tools. The
+format flow itself is controller-accessible: choose a disk, review the erase confirmation, edit the
+volume/library name through the overlay keyboard, and explicitly start the operation.
+
+`SdFormatManager.FormatAsync` serializes runs with `_formatGate`. Its operations seam separates
+orchestration from the Windows disk and Steam calls. After checking elevation and strictly
+validating the initial target, it suspends media watching and removes the existing Steam library
+registration. It then:
+
+1. Reopens the physical disk and rechecks identity before `clean` and creating a primary partition.
+2. Waits up to 20 seconds for the new volume to appear, then attempts a quick NTFS format using 128
+   KiB allocation units. There are at most three format attempts with a two-second pause between
+   failures, and each attempt reopens and revalidates the disk independently.
+3. Checks Windows' assigned drive letter. It assigns one when missing, or restores the card's
+   previous letter when Windows chose another, again after revalidation. It creates the Steam
+   library structure and registers the resulting library.
+
+These are three stages, not a guarantee of exactly three diskpart processes. The chosen disk must
+remain removable and must not be a system disk; changes in known capacity or bus abort. Failure to
+open/query the disk is unreadable evidence, not proof it was swapped. An unavailable bus query is
+tolerated. After `clean`, old filesystem or partition data cannot identify the media, and swaps
+between otherwise indistinguishable equal-capacity cards cannot be proved by these checks. An old
+registration can be restored only while the old marker still exists; erase retires that identity.
+Cancellation or failure therefore reports the stage reached instead of promising to undo a
+destructive operation.
+
+## Code ownership and verification
+
+| Area                      | Source under `src/WSGM`                                                                                                           | Responsibility                                                                                                             |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Inventory                 | `Shell/StorageInventory.cs`, `Interop/NativeStorage.cs`                                                                           | Detached mounted-volume and physical-interface inventory; Windows disk, volume and ejection calls.                         |
+| Eject                     | `Shell/RemovableDriveManager.cs`, `RemovableDriveEntries.cs`                                                                      | Reconcile eject rows, revalidate targets and invoke the library observer before media leaves.                              |
+| Registration policy       | `Shell/LibraryPolicy.cs`, `CardVolumeMonitor.cs`, `CardAcfWatcher.cs`                                                             | Decide registration and retained eject intent, detect volume/manifest changes, and recheck scanned identity before acting. |
+| Library identity and tabs | `Shell/LibraryTabManager.cs`, `SteamLibraryMarker.cs`, `Core/SteamLibraryFolders.cs`, `SteamLibraryVdf.cs`, `SteamLibraryTabs.cs` | Follow medium-owned labels and content IDs, edit guarded VDF structures and materialize custom tabs.                       |
+| Formatting                | `Shell/SdFormatManager.cs`, `SdFormatEntries.cs`                                                                                  | Own target validation, serialized destructive stages, library creation and failure reporting.                              |
+| Steam projection          | `Shell/SteamStorageBridge.cs`                                                                                                     | Expose the session's storage owners through the toolkit's Steam storage surface.                                           |
+| Overlay projection        | `Overlay/OverlayWindow.Storage.cs`, `CardManagerView.cs`, `LibraryTabsView.cs`, `EjectPanel.axaml.cs`                             | Present intent and progress using the shared managers, without a second storage policy.                                    |
+
+Storage, marker, VDF and policy regression cases live under `tests/WSGM.Tests/Shell` and
+`tests/WSGM.Tests/Core`; UI route checks live under `tests/WSGM.UiTests`. They use temporary paths,
+synthetic inventories and operation delegates. They do not format or eject live media and do not
+replace attended validation of a particular reader or Windows storage stack.

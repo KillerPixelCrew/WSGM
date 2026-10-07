@@ -492,6 +492,11 @@ public sealed unsafe class MessageWindow : IDisposable
     ///     logged, because CreateWindowExW then fails on the unknown class and throws
     ///     <paramref name="failureMessage" /> anyway.
     /// </summary>
+    /// <param name="className">Process-local class name; an existing registration must use the same procedure.</param>
+    /// <param name="wndProc">Unmanaged procedure that must remain valid for the registered class lifetime.</param>
+    /// <param name="failureMessage">Exception text used when CreateWindowExW fails.</param>
+    /// <returns>Owned message-only HWND; the caller must destroy it on its creating thread.</returns>
+    /// <exception cref="InvalidOperationException">The message-only window could not be created.</exception>
     internal static nint CreateMessageOnlyWindow(
         string className,
         delegate* unmanaged<nint, uint, nint, nint, nint> wndProc,
@@ -511,6 +516,8 @@ public sealed unsafe class MessageWindow : IDisposable
     ///     Registers a native window class for this process. Re-registering an existing class is successful.
     /// </summary>
     /// <returns><see langword="true" /> when the class is available; otherwise, <see langword="false" />.</returns>
+    /// <param name="className">Process-local class name; this helper does not replace a prior registration.</param>
+    /// <param name="wndProc">Procedure pointer valid for the registered class lifetime.</param>
     internal static bool RegisterWindowClass(
         string className,
         delegate* unmanaged<nint, uint, nint, nint, nint> wndProc)

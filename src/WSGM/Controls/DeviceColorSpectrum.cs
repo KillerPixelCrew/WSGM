@@ -21,6 +21,7 @@ internal sealed class DeviceColorSpectrum : ColorSpectrum
     /// <summary>Hue degrees moved per step; a full sweep is 40 presses.</summary>
     private const double HueStep = 9;
 
+    /// <summary>Creates a focusable hue editor using the base ColorSpectrum theme.</summary>
     internal DeviceColorSpectrum()
     {
         Focusable = true;

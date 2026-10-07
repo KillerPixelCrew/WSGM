@@ -20,12 +20,12 @@ namespace WSGM;
 public enum RunMode
 {
     /// <summary>
-    ///     Runs the game-mode shell session (service boot or --shell). Explorer
-    ///     stays the registered Windows shell; this session ends it and takes the screen.
+    ///     Runs the resident session, with Game Mode takeover or Desktop residency selected by startup options.
+    ///     Explorer remains the registered Windows shell.
     /// </summary>
     Shell,
 
-    /// <summary>Runs the settings or welcome UI without changing shell state.</summary>
+    /// <summary>Opens Settings, handing off to a resident session when available.</summary>
     Settings,
 
     /// <summary>Runs the manual overlay smoke-test session.</summary>
@@ -659,6 +659,10 @@ public static class Program
     ///     fallback. The try/finally is the contract: a failed pre-stop can never prevent WSGM cleanup
     ///     from starting. Uninstall deliberately does not stop Steam.
     /// </remarks>
+    /// <param name="reason">Installer shutdown reason; only Update invokes the Steam pre-stop.</param>
+    /// <param name="stopForUpdate">Synchronous bounded pre-stop action run before shutdown admission.</param>
+    /// <param name="requestShutdown">Nonthrowing callback that records the reason; invoked even if pre-stop fails.</param>
+    /// <param name="shutdownLifetime">Callback that requests application-lifetime exit after the reason is recorded.</param>
     internal static void RunInstallerExitRequest(
         ApplicationShutdownReason reason,
         Action stopForUpdate,
@@ -937,6 +941,8 @@ internal static class CrashLoopBreaker
     }
 
     /// <summary>Call AFTER RecordStart so the current start counts toward the 3.</summary>
+    /// <param name="root">Data directory containing the startup marker.</param>
+    /// <returns>True for at least three recorded starts in the last two minutes; false for missing or unreadable markers. Stale entries may be pruned.</returns>
     public static bool IsLooping(string root)
     {
         try
@@ -973,9 +979,9 @@ internal static class CrashLoopBreaker
     }
 
     /// <summary>
-    ///     Clears the marker after the breaker fired, so the next manual
-    ///     shell start begins with a clean slate instead of being disarmed again.
+    ///     Attempts to clear the crash-loop marker after the breaker fires.
     /// </summary>
+    /// <param name="root">Data directory containing the startup marker; deletion failures are ignored.</param>
     public static void Reset(string root)
     {
         try

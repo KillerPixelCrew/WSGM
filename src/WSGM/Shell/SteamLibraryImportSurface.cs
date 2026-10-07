@@ -49,12 +49,12 @@ internal static partial class SteamLibraryImportSurface
         ]);
 
     /// <summary>Declares the page's state and its exact command vocabulary.</summary>
-    /// <param name="enabled">Whether the page may be installed and published.</param>
-    /// <param name="read">Reads the current page model.</param>
+    /// <param name="enabled">Whether state may be published; patch installation is coordinated separately.</param>
+    /// <param name="read">Reads the current model; null skips this publication without retracting the previous state.</param>
     /// <param name="revision">The model's revision, so an unchanged library is not serialized again.</param>
     /// <param name="backend">Answers user operations.</param>
     /// <param name="id">Module identity for diagnostics.</param>
-    /// <returns>The module.</returns>
+    /// <returns>A module borrowing its backend and readers; construction does not install its patch.</returns>
     public static ISteamUiModule Module(
         Func<bool> enabled,
         Func<ValueTask<GameLibraryState?>> read,

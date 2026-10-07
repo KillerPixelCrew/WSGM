@@ -12,6 +12,8 @@ using WSGM.Setup.Engine;
 namespace WSGM.Setup.UI;
 
 /// <summary>One entry of the rail's step list.</summary>
+/// <param name="number">Displayed one-based step number, replaced by a check mark when done.</param>
+/// <param name="label">Step name in the navigation rail.</param>
 internal sealed class RailStep(int number, string label) : Observable
 {
     private string _state = "";
@@ -62,6 +64,11 @@ internal sealed class SetupViewModel : Observable
     }
 
     /// <summary>Composes page commands with an already prepared engine and flow.</summary>
+    /// <param name="options">Launch options used by later setup actions.</param>
+    /// <param name="engine">Prepared engine, or null before detection; required before running a plan.</param>
+    /// <param name="page">Initial page instance whose close policy and actions are used.</param>
+    /// <param name="flow">Ordered page identifiers, copied into the view model.</param>
+    /// <param name="step">Zero-based current position in the flow.</param>
     internal SetupViewModel(SetupOptions options, SetupEngine? engine, Page page,
         IReadOnlyList<string> flow, int step)
     {
@@ -98,6 +105,7 @@ internal sealed class SetupViewModel : Observable
     private bool FinishingDrivers => _flow.Contains("finishdrivers");
 
     /// <summary>Whether the window may close now; each page says (<see cref="Page.OnClose" />).</summary>
+    /// <returns>True to close immediately; false when closure is refused or a confirmation page was opened.</returns>
     public bool RequestClose()
     {
         switch (Page.OnClose)
@@ -414,6 +422,10 @@ internal sealed class SetupViewModel : Observable
     }
 
     /// <summary>Runs the engine's prepared steps and publishes their summary when they finish.</summary>
+    /// <param name="steps">Prepared engine steps, executed in their supplied order on a worker.</param>
+    /// <param name="uninstall">Whether progress and completion use the uninstall flow.</param>
+    /// <param name="dispatch">Schedules progress notifications on the UI thread; null uses the Avalonia dispatcher.</param>
+    /// <returns>Completion after the engine finishes and the summary page is selected; unexpected exceptions propagate.</returns>
     internal async Task RunPlanAsync(IReadOnlyList<SetupStep> steps, bool uninstall,
         Action<Action>? dispatch = null)
     {

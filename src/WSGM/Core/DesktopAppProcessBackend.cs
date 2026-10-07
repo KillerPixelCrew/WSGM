@@ -10,8 +10,10 @@ using WSGM.Interop;
 namespace WSGM.Core;
 
 /// <summary>Current-session adapter for the explicitly listed desktop integrations.</summary>
+/// <param name="context">Interactive user-data context used for temporary least-privilege task definitions.</param>
 internal sealed class DesktopAppProcessBackend(UserDataContext context) : IDesktopAppBackend
 {
+    /// <inheritdoc />
     public IReadOnlyList<DesktopAppInstance> Capture(DesktopAppRule rule)
     {
         List<DesktopAppInstance> instances = [];
@@ -58,6 +60,7 @@ internal sealed class DesktopAppProcessBackend(UserDataContext context) : IDeskt
         return instances;
     }
 
+    /// <inheritdoc />
     public async Task StopAsync(DesktopAppInstance instance, CancellationToken cancellationToken)
     {
         Process process;
@@ -156,12 +159,14 @@ internal sealed class DesktopAppProcessBackend(UserDataContext context) : IDeskt
         }
     }
 
+    /// <inheritdoc />
     public bool IsRunning(DesktopAppInstance instance)
     {
         return Capture(instance.Rule).Any(current =>
             string.Equals(current.ExecutablePath, instance.ExecutablePath, StringComparison.OrdinalIgnoreCase));
     }
 
+    /// <inheritdoc />
     public async Task<ScheduledTaskLaunchDisposition> RestartAsync(DesktopAppInstance instance, DateTimeOffset deadline)
     {
         var appDeadline = DateTimeOffset.UtcNow.AddSeconds(5);

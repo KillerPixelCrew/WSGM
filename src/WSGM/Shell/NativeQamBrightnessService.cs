@@ -21,6 +21,8 @@ internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDis
     private int _lastPolled = -1;
     private long _revision;
 
+    /// <summary>Starts two-second background polling through the Windows backlight backend.</summary>
+    /// <param name="active">Live admission predicate for polling and writes; explicit reads do not require it to be true.</param>
     internal NativeQamBrightnessService(Func<bool> active)
         : this(active,
             () => Backlight.TryReadBrightness(out var percent) ? percent : null,
@@ -28,6 +30,11 @@ internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDis
     {
     }
 
+    /// <summary>Creates a serialized brightness adapter with an owned polling timer.</summary>
+    /// <param name="active">Live admission predicate for periodic polling and writes.</param>
+    /// <param name="read">Borrowed read callback returning a percentage, or null when unavailable; invoked under the state lock.</param>
+    /// <param name="write">Borrowed write callback returning whether Windows accepted the percentage; invoked under the state lock.</param>
+    /// <param name="pollInterval">Timer due time and interval; the caller must dispose this service to stop polling.</param>
     internal NativeQamBrightnessService(
         Func<bool> active, Func<int?> read, Func<int, bool> write, TimeSpan pollInterval)
     {
@@ -37,6 +44,7 @@ internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDis
         _poll = new Timer(OnPoll, null, pollInterval, pollInterval);
     }
 
+    /// <summary>Returns the last observed or accepted brightness without reading the panel; null before a successful read or when unavailable.</summary>
     internal SteamBrightnessState? Current
     {
         get
@@ -97,8 +105,12 @@ internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDis
         }
     }
 
+    /// <summary>Raised synchronously under the state lock when brightness or availability changes.</summary>
+    /// <remarks>Runs on the reader or writer thread. Handlers must not block and must marshal UI work themselves.</remarks>
     internal event Action? Changed;
 
+    /// <summary>Reads the panel on a worker thread and updates the cached state under the shared lock.</summary>
+    /// <returns>A valid 0–100 percent reading and revision, or null when disposed, unavailable or out of range; callback exceptions propagate.</returns>
     internal async ValueTask<SteamBrightnessState?> ReadAsync()
     {
         return await Task.Run(ReadCurrent).ConfigureAwait(false);

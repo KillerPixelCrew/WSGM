@@ -8,10 +8,9 @@ namespace WSGM.Device.Sdk.Capabilities;
 ///     A request to change or invoke one capability.
 /// </summary>
 /// <remarks>
-///     The generation fields make a command refusable rather than merely late. A command authored against
-///     descriptor generation 4 must not be applied after the plugin republished generation 5, because the
-///     range it was validated against no longer exists — the plugin rejects it and WSGM re-issues from
-///     the current descriptors. Without that, a stale slider position becomes a hardware write.
+///     Both generations must still match the plugin's current cycle and descriptor set at dispatch.
+///     The plugin also validates the value, live service availability and deadline before writing.
+///     Rejection does not authorize the plugin to resubmit a command or choose a replacement value.
 /// </remarks>
 public sealed record CapabilityCommand
 {
@@ -53,11 +52,9 @@ public sealed record CapabilityCommand
 ///     How a command finished.
 /// </summary>
 /// <remarks>
-///     Six outcomes rather than success and failure, because the three unhappy ones need different
-///     handling. <see cref="Indeterminate" /> in particular is returned to the owning service and must
-///     never be retried blindly for a
-///     persistent write: the plugin does not know whether the write landed, and a second attempt could
-///     double-apply it.
+///     <see cref="TimedOut" /> and <see cref="Indeterminate" /> do not prove that the write failed to
+///     reach hardware. Neither outcome authorizes an automatic retry. <see cref="AppliedUnverified" />
+///     is a successful transport write, distinct from an uncertain write.
 /// </remarks>
 [JsonConverter(typeof(JsonStringEnumConverter<CommandOutcome>))]
 public enum CommandOutcome
@@ -69,7 +66,7 @@ public enum CommandOutcome
     /// </summary>
     Accepted,
 
-    /// <summary>Written, with no readback available to confirm it.</summary>
+    /// <summary>Written successfully; independent readback was absent, failed, or did not confirm the value.</summary>
     AppliedUnverified,
 
     /// <summary>Written and confirmed by an independent read.</summary>
@@ -120,7 +117,7 @@ public sealed record CapabilityCommandResult
 [JsonConverter(typeof(JsonStringEnumConverter<RollbackResult>))]
 public enum RollbackResult
 {
-    /// <summary>Nothing was written, so nothing needed restoring.</summary>
+    /// <summary>No command-time rollback was performed; this does not imply that nothing was written.</summary>
     NotRequired,
 
     /// <summary>The previous value was restored and confirmed by readback.</summary>
@@ -129,6 +126,6 @@ public enum RollbackResult
     /// <summary>A restore was written but could not be confirmed.</summary>
     RestoredUnverified,
 
-    /// <summary>The restore failed. The resource is faulted and journalled for reconciliation.</summary>
+    /// <summary>The attempted restore failed; the plugin must report any unresolved recovery obligation.</summary>
     RestoreFailed
 }

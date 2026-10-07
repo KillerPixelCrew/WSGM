@@ -229,7 +229,9 @@ internal sealed class ArcSyncDisplay
         return _profile.Claim(key);
     }
 
-    /// <summary>Returns the exact current profile, including OFF and every custom parameter.</summary>
+    /// <summary>Probes the profile setter with the exact current profile, including OFF and every custom parameter.</summary>
+    /// <param name="admission">Caller cancellation, deadline and live-session admission, checked immediately before any setter.</param>
+    /// <returns>The shared profile probe outcome, preserving the raw enabled state and custom values.</returns>
     public ControlWrite ProbeSupport(WriteAdmission admission)
     {
         return _profile.ProbeSupport(admission);

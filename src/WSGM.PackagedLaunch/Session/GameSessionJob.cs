@@ -173,6 +173,7 @@ internal sealed class GameSessionJob : IDisposable
     ///     identity, but it is not what owns the swap chain, so checks about the overlay must not
     ///     settle on it.
     /// </remarks>
+    /// <returns>True when the image name is gamelaunchhelper.exe, ignoring case.</returns>
     internal static bool IsLaunchHelper(ProcessFacts facts)
     {
         ArgumentNullException.ThrowIfNull(facts);
@@ -181,7 +182,7 @@ internal sealed class GameSessionJob : IDisposable
 
     /// <summary>Adds one of the game's processes to the job.</summary>
     /// <param name="facts">The process to contain, known by its id and start time.</param>
-    /// <returns>Whether the process is now in the job.</returns>
+    /// <returns>Whether this call assigned the process; previously attempted identities return false.</returns>
     /// <remarks>
     ///     <para>
     ///         Assignment can legitimately fail: a packaged app already lives in a system-managed job,
@@ -236,12 +237,9 @@ internal sealed class GameSessionJob : IDisposable
         }
     }
 
-    /// <summary>Gives up the contained processes so closing the job does not end them.</summary>
+    /// <summary>Attempts to remove kill-on-close before a cooperative cancellation leaves the game running.</summary>
     /// <remarks>
-    ///     The job is kill-on-close, which is what makes Steam's Stop button end the whole game
-    ///     tree. A managed cancellation promises the opposite — the log says the game is left
-    ///     running — so the limit has to come off before the handle closes, or the promise is a lie
-    ///     and Ctrl+C kills the game.
+    ///     Failure is logged and leaves kill-on-close set, so a later close can still end the game.
     /// </remarks>
     internal void Abandon()
     {
@@ -274,7 +272,8 @@ internal sealed class GameSessionJob : IDisposable
         }
     }
 
-    /// <summary>How many contained processes are still running, or null when there is no job.</summary>
+    /// <summary>Reads the kernel's active-process count for this job.</summary>
+    /// <returns>The count, or null when the job is unavailable or its query fails.</returns>
     /// <remarks>
     ///     The kernel already counts this, which is cheaper and more accurate than enumerating the
     ///     machine on a timer to find out whether the game is still there.

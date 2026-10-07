@@ -35,6 +35,8 @@ internal sealed record LabMsiOriginal(
 }
 
 /// <summary>Raw custom and full-speed flags, including firmware-owned bits.</summary>
+/// <param name="Custom">Complete custom-mode flag byte, including bits the lab does not interpret.</param>
+/// <param name="FullSpeed">Complete full-speed flag byte, including bits the lab does not interpret.</param>
 internal sealed record LabMsiFanState(byte Custom, byte FullSpeed);
 
 /// <summary>
@@ -80,9 +82,12 @@ internal interface ILabMsiWmi : IDisposable
     void WriteChargeRaw(int raw);
 
     /// <summary>Reads both fan mode flags.</summary>
+    /// <returns>The two raw flag bytes; missing mechanisms or failed reads throw.</returns>
     LabMsiFanState ReadFans();
 
     /// <summary>Writes fan mode flags and reads them back.</summary>
+    /// <param name="state">Exact flag bytes to restore or test, preserving unrelated firmware bits.</param>
+    /// <returns>True when both bytes read back exactly; false on mismatch. Earlier writes remain applied if a later operation fails.</returns>
     [LabWorkerWrite]
     bool WriteFans(LabMsiFanState state);
 }

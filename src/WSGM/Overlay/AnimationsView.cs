@@ -22,6 +22,8 @@ public sealed partial class AnimationsView : ServiceSubView
     /// <inheritdoc />
     protected override string LogScope => "Animations";
 
+    /// <summary>Supplies the media/data root before opening local previews.</summary>
+    /// <param name="context">Borrowed user-data context; no directory or media work starts here.</param>
     internal void ConfigureContext(UserDataContext context)
     {
         _context = context;
@@ -34,6 +36,8 @@ public sealed partial class AnimationsView : ServiceSubView
         AttachSession(service?.CreateBrowserSession());
     }
 
+    /// <summary>Replaces and disposes the previous surface-local browser, then follows the new session on the UI thread.</summary>
+    /// <param name="session">Owned browser session; null detaches. Do not pass the currently attached instance again.</param>
     internal void AttachSession(IAnimationBrowseSession? session)
     {
         _browser?.Dispose();

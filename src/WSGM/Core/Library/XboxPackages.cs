@@ -116,6 +116,7 @@ public static class XboxPackages
     ///     <c>WindowsApps</c> is access-controlled, so an unreadable package file is an ordinary
     ///     outcome that means one piece of evidence is unavailable, not that anything is wrong.
     /// </remarks>
+    /// <returns>File text, or null for absence, denied access, invalid paths or read failure.</returns>
     public static string? ReadPackageFile(string path)
     {
         try

@@ -11,6 +11,8 @@ internal static class UsbipTool
 {
     private static int _exposed;
 
+    /// <summary>Adds an installed USBip folder to this process PATH at most once, logging when unavailable.</summary>
+    /// <remarks>Does not install or repair USBip and does not modify the user or machine environment.</remarks>
     internal static void ExposeOnce()
     {
         if (Interlocked.Exchange(ref _exposed, 1) != 0)
@@ -44,6 +46,12 @@ internal static class UsbipTool
         }
     }
 
+    /// <summary>Locates USBip using PATH, installed-package metadata and the standard installation folder.</summary>
+    /// <param name="path">Current process PATH.</param>
+    /// <param name="entries">Installed-program metadata to inspect without mutation.</param>
+    /// <param name="programFiles">Program Files root for the final USBip fallback.</param>
+    /// <param name="fileExists">Filesystem existence check supplied by the caller.</param>
+    /// <returns>A PATH hit, discovered folder, or a missing result with neither set.</returns>
     internal static UsbipLocation Resolve(string path, IEnumerable<UninstallEntry> entries,
         string programFiles, Func<string, bool> fileExists)
     {
@@ -73,4 +81,7 @@ internal static class UsbipTool
     }
 }
 
+/// <summary>USBip discovery result; no executable is started.</summary>
+/// <param name="OnPath">Whether usbip.exe already resolves from PATH.</param>
+/// <param name="Folder">Directory to prepend when not on PATH; null if already found there or missing.</param>
 internal readonly record struct UsbipLocation(bool OnPath, string? Folder);

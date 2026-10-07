@@ -32,6 +32,7 @@ internal sealed class PluginCapabilityChannel : ICapabilityHost, ICapabilityPubl
     private bool _open;
     private long _stateSequence;
 
+    /// <summary>Creates one instance's capability channel from its admitted manifest roles and borrowed plugin surface.</summary>
     /// <param name="identity">The plugin instance.</param>
     /// <param name="declared">The capability roles its manifest declares.</param>
     /// <param name="plugin">The plugin's capability surface.</param>
@@ -74,6 +75,7 @@ internal sealed class PluginCapabilityChannel : ICapabilityHost, ICapabilityPubl
         }
     }
 
+    /// <inheritdoc />
     public long CycleGeneration
     {
         get
@@ -85,6 +87,7 @@ internal sealed class PluginCapabilityChannel : ICapabilityHost, ICapabilityPubl
         }
     }
 
+    /// <inheritdoc />
     public ValueTask PublishDescriptorsAsync(CapabilityDescriptorSet descriptors, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(descriptors);
@@ -115,6 +118,7 @@ internal sealed class PluginCapabilityChannel : ICapabilityHost, ICapabilityPubl
         return ValueTask.CompletedTask;
     }
 
+    /// <inheritdoc />
     public ValueTask PublishCapabilityStateAsync(CapabilityState state, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(state);
@@ -135,12 +139,16 @@ internal sealed class PluginCapabilityChannel : ICapabilityHost, ICapabilityPubl
         return ValueTask.CompletedTask;
     }
 
+    /// <inheritdoc />
     public IReadOnlyList<CapabilityRole> DeclaredCapabilities { get; }
 
+    /// <inheritdoc />
     public event Action<CapabilityDescriptorSet>? DescriptorSetReceived;
 
+    /// <inheritdoc />
     public event Action<CapabilityStateDelta>? CapabilityStateReceived;
 
+    /// <inheritdoc />
     public async Task<DeviceCommandDispatch> ExecuteCommandAsync(CapabilityCommand command,
         CancellationToken cancellationToken)
     {
@@ -194,6 +202,7 @@ internal sealed class PluginCapabilityChannel : ICapabilityHost, ICapabilityPubl
         }
     }
 
+    /// <inheritdoc />
     public void Dispose()
     {
         Close();

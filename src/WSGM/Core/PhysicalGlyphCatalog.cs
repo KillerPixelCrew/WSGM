@@ -6,18 +6,31 @@ using WSGM.Device.Sdk.Glyphs;
 
 namespace WSGM.Core;
 
+/// <summary>Reason a physical-device glyph surface must retain or return to native Steam artwork.</summary>
 internal enum PhysicalGlyphFallbackReason
 {
+    /// <summary>A matching reviewed physical profile was selected.</summary>
     None,
+    /// <summary>Device integration is disabled, so no device artwork is eligible.</summary>
     DeviceIntegrationDisabled,
+    /// <summary>The user explicitly selected Steam's native glyphs.</summary>
     NativeSteamSelected,
+    /// <summary>No profile matches the active exact device definition.</summary>
     ExactDeviceMismatch,
+    /// <summary>The input source does not identify the integrated handheld controls.</summary>
     SourceNotHandheld,
+    /// <summary>The selected profile does not declare this physical control.</summary>
     ControlAbsent,
+    /// <summary>Declared artwork could not be found.</summary>
     ArtworkMissing,
+    /// <summary>The consuming surface rejected the supplied artwork.</summary>
     RenderRejected
 }
 
+/// <summary>Selected physical profile and fallback diagnostics for all glyph consumers.</summary>
+/// <param name="Profile">Shared immutable imported profile, or null to use native Steam presentation.</param>
+/// <param name="FallbackReason">Reason no physical profile was selected, or None on success.</param>
+/// <param name="FellBackFromMissingManualProfile">Whether a missing or incompatible manual selection required automatic fallback.</param>
 internal sealed record PhysicalGlyphSelectionResult(
     ImportedGlyphProfile? Profile,
     PhysicalGlyphFallbackReason FallbackReason,
@@ -32,6 +45,8 @@ internal sealed class PhysicalGlyphCatalog : IDisposable
     private bool _disposed;
     private Dictionary<string, ImportedGlyphProfile> _profiles = new(StringComparer.Ordinal);
 
+    /// <summary>Clears profile references and event subscribers after consumers have stopped using the catalog.</summary>
+    /// <remarks>Repeated disposal is harmless; the owner must serialize teardown with updates and selection.</remarks>
     public void Dispose()
     {
         if (_disposed)
@@ -48,6 +63,7 @@ internal sealed class PhysicalGlyphCatalog : IDisposable
         Changed = null;
     }
 
+    /// <summary>Raised synchronously on the updating thread after device/profile state changes; subscribers must marshal UI work.</summary>
     internal event Action? Changed;
 
     /// <summary>Records which device definition the active plugin matched.</summary>
@@ -75,6 +91,11 @@ internal sealed class PhysicalGlyphCatalog : IDisposable
         Changed?.Invoke();
     }
 
+    /// <summary>Atomically replaces the profile lookup after validating unique ordinal profile identities.</summary>
+    /// <param name="profiles">Imported immutable profiles to retain by reference; the enumeration is copied before publication.</param>
+    /// <exception cref="ArgumentNullException">The enumeration is null.</exception>
+    /// <exception cref="ArgumentException">Two profiles have the same identity.</exception>
+    /// <exception cref="ObjectDisposedException">The catalog has been disposed.</exception>
     internal void ReplacePackageProfiles(IEnumerable<ImportedGlyphProfile> profiles)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -101,6 +122,12 @@ internal sealed class PhysicalGlyphCatalog : IDisposable
         Changed?.Invoke();
     }
 
+    /// <summary>Selects a reviewed exact-device profile or an explicit native-Steam fallback.</summary>
+    /// <param name="deviceIntegrationEnabled">Whether physical device integration is active.</param>
+    /// <param name="selectionMode">Native, automatic, or manually reviewed profile preference.</param>
+    /// <param name="manualProfileId">Requested manual identity, or null; unavailable choices fall back to automatic selection.</param>
+    /// <returns>The selected shared immutable profile and fallback diagnostics; automatic ties use ordinal profile ID order.</returns>
+    /// <exception cref="ObjectDisposedException">The catalog has been disposed.</exception>
     internal PhysicalGlyphSelectionResult SelectProfile(
         bool deviceIntegrationEnabled,
         DeviceGlyphSelection selectionMode,

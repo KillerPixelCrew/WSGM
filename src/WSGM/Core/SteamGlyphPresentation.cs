@@ -37,11 +37,18 @@ internal sealed class SteamInputGlyphDeliveryState
 /// <param name="Url">A data URI of the package's bytes, or the path of a glyph Steam itself ships.</param>
 internal sealed record SteamInputGlyphAssetReference(string Url);
 
+/// <summary>One Valve glyph resource replaced by physical-device artwork.</summary>
+/// <param name="ValvePath">Steam resource path matched by the stylesheet.</param>
+/// <param name="Control">Logical control whose presentation is replaced.</param>
+/// <param name="Asset">Resolved package data URI or native Steam glyph URL.</param>
 internal sealed record SteamInputGlyphResourceMapping(
     string ValvePath,
     GlyphControlId Control,
     SteamInputGlyphAssetReference Asset);
 
+/// <summary>One full or partial controller-diagram resource.</summary>
+/// <param name="Slot">Diagram slot: full, left, or right.</param>
+/// <param name="Asset">Resolved immutable artwork reference.</param>
 internal sealed record SteamInputGlyphControllerImageMapping(
     string Slot,
     SteamInputGlyphAssetReference Asset);
@@ -53,6 +60,13 @@ internal sealed record SteamInputGlyphHighlightMapping(
     GlyphControlId Control,
     SteamInputGlyphAssetReference Asset);
 
+/// <summary>Immutable projection of an imported device profile for Steam glyph and controller-diagram delivery.</summary>
+/// <param name="ProfileId">Stable reviewed profile identity.</param>
+/// <param name="Revision">Profile revision used to invalidate prior presentation.</param>
+/// <param name="StableResources">Resolved Valve resource replacements.</param>
+/// <param name="ControllerImages">Available controller-diagram slots.</param>
+/// <param name="AbsentControls">Controls the physical device does not provide.</param>
+/// <param name="Highlights">Control highlight images in the full diagram's coordinate space.</param>
 internal sealed record SteamInputGlyphPresentation(
     string ProfileId,
     int Revision,
@@ -110,20 +124,14 @@ internal sealed record SteamInputGlyphPresentation(
         ("/steaminputglyphs/shared_l2.svg", GlyphControlId.LeftTrigger),
         ("/steaminputglyphs/shared_r2.svg", GlyphControlId.RightTrigger),
 
-        // The sd_* family, which is what the page actually draws while WSGM presents a Steam Deck
-        // virtual pad — read off the live Steam Input page on the reference Claw, where the German
-        // row labels name each one: sd_l1 "Linke Schultertaste", sd_r1 "Rechte Schultertaste".
-        // Without these the shoulders, triggers and rear paddles kept Valve's artwork while every
-        // face button and d-pad glyph was correctly replaced.
+        // Steam Deck virtual targets use the sd_* resources even when shared-family glyphs are replaced.
         ("/steaminputglyphs/sd_l1.svg", GlyphControlId.LeftShoulder),
         ("/steaminputglyphs/sd_r1.svg", GlyphControlId.RightShoulder),
         ("/steaminputglyphs/sd_l2.svg", GlyphControlId.LeftTrigger),
         ("/steaminputglyphs/sd_r2.svg", GlyphControlId.RightTrigger),
 
-        // The Deck's rear pairs. M1 is the LEFT paddle and M2 the RIGHT one — measured on the
-        // reference unit and recorded in the plugin's own notes, which explicitly correct
-        // Handheld Companion for having them inverted. The second pair (l5/r5) has no counterpart
-        // on this device and is declared absent by the profile instead.
+        // Physical M1 is left and M2 is right, as measured on the reference device.
+        // Profiles declare the second rear pair absent when the device has no counterpart.
         ("/steaminputglyphs/sd_l4.svg", GlyphControlId.RearM1),
         ("/steaminputglyphs/sd_r4.svg", GlyphControlId.RearM2),
         ("/steaminputglyphs/sd_l5.svg", GlyphControlId.RearLeft2),

@@ -58,6 +58,7 @@ public static class ExplorerReadiness
     /// <param name="settleElapsed">Time since the settle began, or null before it did.</param>
     /// <param name="settleDuration">Configured settle delay (ExplorerLogonSettleMs).</param>
     /// <param name="maxWait">Hard cap (pass <see cref="MaxWait" /> outside tests).</param>
+    /// <returns>The next takeover action; Big Picture under the cover takes precedence over timeout and settling.</returns>
     public static ExplorerReadinessAction Decide(
         bool shellWindowPresent, bool taskbarPresent, bool bigPictureVisible,
         TimeSpan elapsed, TimeSpan? settleElapsed, TimeSpan settleDuration, TimeSpan maxWait)

@@ -12,12 +12,12 @@ internal static class ComboCommit
 {
     /// <summary>Attaches the commit rule to an existing dropdown.</summary>
     /// <typeparam name="T">The item type a committed choice must have.</typeparam>
-    /// <param name="editor">The dropdown.</param>
+    /// <param name="editor">The UI-thread dropdown; attach once for its lifetime because handlers are not detached.</param>
     /// <param name="refreshing">
     ///     True while the owner sets the selection itself; that selection becomes the baseline instead of
     ///     being committed.
     /// </param>
-    /// <param name="commit">Receives a choice that differs from the baseline and the last commit.</param>
+    /// <param name="commit">Runs on the UI thread for a changed, correctly typed choice while the editor is enabled.</param>
     internal static void Attach<T>(ComboBox editor, Func<bool> refreshing, Action<T> commit) where T : class
     {
         var committed = editor.SelectedItem;

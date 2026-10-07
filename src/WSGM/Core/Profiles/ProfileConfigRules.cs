@@ -6,6 +6,7 @@ using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Core;
 
+/// <summary>Normalizes the stored profiles configuration in place before consumers use it.</summary>
 internal static class ProfileConfigRules
 {
     /// <summary>Brings the profile store into a shape the resolver can rely on.</summary>
@@ -16,6 +17,7 @@ internal static class ProfileConfigRules
     ///     longer exists is dropped, so that layer falls back to the one below it instead of naming
     ///     nothing.
     /// </remarks>
+    /// <returns>An empty diagnostic list; these repairs do not produce warning entries.</returns>
     internal static IReadOnlyList<string> Normalize(ProfileConfig profiles, DeviceIntegrationConfig device)
     {
         HashSet<string> authored = new(device.PluginSettings.SelectMany(scope => scope.Profiles)

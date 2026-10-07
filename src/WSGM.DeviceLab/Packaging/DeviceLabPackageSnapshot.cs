@@ -54,6 +54,10 @@ internal sealed class DeviceLabPackageSnapshot : IDisposable
     }
 
     /// <summary>Captures a bounded no-follow view of an existing package directory.</summary>
+    /// <param name="root">Existing expanded package directory.</param>
+    /// <param name="issues">Receives structural refusals; a returned snapshot may still contain issues.</param>
+    /// <param name="cancellationToken">Cancels traversal and releases all retained handles on failure.</param>
+    /// <returns>An owned snapshot retaining accepted file bytes and directory identities until disposal.</returns>
     internal static DeviceLabPackageSnapshot Capture(
         string root,
         ICollection<PluginPackageValidationIssue> issues,
@@ -133,6 +137,9 @@ internal sealed class DeviceLabPackageSnapshot : IDisposable
     }
 
     /// <summary>Looks up one captured file without reopening its source path.</summary>
+    /// <param name="relativePath">Package-relative path with either slash convention.</param>
+    /// <param name="file">Borrowed file owned by this snapshot, valid until snapshot disposal.</param>
+    /// <returns>Whether the captured set contains that path.</returns>
     internal bool TryGetFile(string relativePath, out DeviceLabPackageFile file)
     {
         return _files.TryGetValue(relativePath.Replace('\\', '/'), out file!);
@@ -144,6 +151,10 @@ internal sealed class DeviceLabPackageFile : IDisposable
 {
     private readonly FileStream _stream;
 
+    /// <summary>Takes ownership of an already retained regular-file handle.</summary>
+    /// <param name="relativePath">Canonical package-relative path.</param>
+    /// <param name="handle">Read handle whose ownership transfers to this file.</param>
+    /// <param name="length">Length measured from that handle.</param>
     internal DeviceLabPackageFile(string relativePath, SafeFileHandle handle, long length)
     {
         RelativePath = relativePath;
@@ -173,6 +184,9 @@ internal sealed class DeviceLabPackageFile : IDisposable
     }
 
     /// <summary>Reads stable owned bytes without reopening the path.</summary>
+    /// <param name="maximumBytes">Maximum accepted retained file length.</param>
+    /// <param name="bytes">Complete file bytes on success; empty when over the bound.</param>
+    /// <returns>Whether the length was accepted and read; I/O errors propagate.</returns>
     internal bool TryReadAllBytes(int maximumBytes, out byte[] bytes)
     {
         bytes = [];

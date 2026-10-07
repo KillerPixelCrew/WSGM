@@ -14,6 +14,12 @@ using WSGM.Plugin.Sdk;
 
 namespace WSGM.Shell;
 
+/// <summary>Installed instance and its current admission outcome, including failures retained for presentation.</summary>
+/// <param name="Identity">Configured or implicitly enabled package/instance key.</param>
+/// <param name="Manifest">Selected validated package metadata.</param>
+/// <param name="Registration">Live registration, or null when no runtime has been admitted.</param>
+/// <param name="Error">Load or runtime failure detail, or null when none is retained.</param>
+/// <param name="SteamCefEnabled">Whether current user policy admits this instance's unrestricted frontend.</param>
 internal sealed record CommonPluginInstanceView(
     PluginInstanceIdentity Identity,
     PluginManifest Manifest,
@@ -64,6 +70,7 @@ internal sealed class CommonPluginManager
     private long _requestedRevision;
     private volatile bool _stopping;
 
+    /// <summary>Creates the resident package reconciler without loading or starting a package.</summary>
     /// <param name="host">The plugin host instances are admitted to.</param>
     /// <param name="installedRoot">The Plugins folder.</param>
     /// <param name="stateRoot">The root of every instance's state directory.</param>

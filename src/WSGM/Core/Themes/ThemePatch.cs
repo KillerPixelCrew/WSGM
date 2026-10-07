@@ -117,6 +117,7 @@ public sealed class ThemePatch
     }
 
     /// <summary>The value to save: the option, or the option with its components' values.</summary>
+    /// <returns>A new JSON value or object containing the selected option and component values.</returns>
     public JsonNode SavedValue()
     {
         if (Components.Count == 0)
@@ -168,6 +169,7 @@ public sealed class ThemePatch
     }
 
     /// <summary>The snapshot the UI reads.</summary>
+    /// <returns>A presentation snapshot of the option order, selection and component values.</returns>
     public ThemePatchSnapshot Snapshot()
     {
         return new ThemePatchSnapshot(

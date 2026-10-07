@@ -18,18 +18,8 @@ namespace WSGM.Input;
 /// </summary>
 internal sealed class GamepadNavigation : IDisposable
 {
-    // A single physical D-pad press reaches this class twice when Steam Input is
-    // live under a keyboard-focused window (Settings): once as WSGM's own SDL pad
-    // edge, once as Steam's desktop-layout arrow key. Whichever path moves focus
-    // first arms a window that swallows the other's duplicate for the same press.
-    // The window must exceed the OS keyboard auto-repeat interval relative to the
-    // 150 ms pad repeat cadence, or the follower slips through between repeats and
-    // double-steps.
-    // Every deadline below is monotonic (Environment.TickCount64), never wall
-    // clock: a backward system-clock adjustment — w32time resyncing shortly after
-    // logon, or a resume from Modern Standby — would otherwise leave the deadlines
-    // seconds in the future and suppress pad or keyboard steps wholesale, which
-    // reads on the device as "the controller went dead" with nothing in the log.
+    // Suppress Steam's mirrored key/pad duplicate across the 150 ms repeat cadence.
+    // Monotonic deadlines remain valid through system-clock corrections and resume.
     private const long CrossSourceSuppressionMs = 250;
     private readonly Action _back;
     private readonly Func<InputElement?>? _focusScope;
@@ -68,7 +58,8 @@ internal sealed class GamepadNavigation : IDisposable
     private long _suppressTabKeyboardUntil;
     private long _suppressTabPadUntil;
 
-    /// <summary>Attaches controller navigation to a window.</summary>
+    /// <summary>Attaches one UI-thread navigation owner to a window and borrowed button source.</summary>
+    /// <remarks>Dispose before replacing this owner. It does not start polling or acquire an input lease.</remarks>
     /// <param name="gamepad">The source of controller button presses.</param>
     /// <param name="window">The window whose focusable controls are navigated.</param>
     /// <param name="back">The action invoked for the controller Back button.</param>
@@ -309,6 +300,8 @@ internal sealed class GamepadNavigation : IDisposable
     ///     Maps each physical direction to Avalonia's matching spatial
     ///     direction. Kept pure so the layout-navigation contract is unit-tested.
     /// </summary>
+    /// <param name="buttons">Semantic direction mask after source repeat processing.</param>
+    /// <returns>The first direction in Up, Down, Left, Right order, or null if none is held.</returns>
     internal static NavigationDirection? DirectionForButtons(GamepadButtons buttons)
     {
         if (buttons.HasFlag(GamepadButtons.DPadUp))
@@ -338,6 +331,12 @@ internal sealed class GamepadNavigation : IDisposable
     ///     Applies one controller step to a slider and clamps it to the
     ///     control's range. Invalid/non-positive tick sizes fall back to one unit.
     /// </summary>
+    /// <param name="value">Current editor value.</param>
+    /// <param name="minimum">Inclusive lower bound.</param>
+    /// <param name="maximum">Inclusive upper bound; must not be below minimum.</param>
+    /// <param name="tickFrequency">Positive step; nonfinite or nonpositive values use one unit.</param>
+    /// <param name="increase">True for one positive step, false for one negative step.</param>
+    /// <returns>The stepped value clamped to the supplied bounds.</returns>
     internal static double AdjustSliderValue(
         double value,
         double minimum,
@@ -353,6 +352,10 @@ internal sealed class GamepadNavigation : IDisposable
     ///     Applies one controller step to an open selector. An unselected
     ///     list enters at the nearest end; established selections stop at an edge.
     /// </summary>
+    /// <param name="selectedIndex">Current index, or a negative value for no selection.</param>
+    /// <param name="itemCount">Available item count.</param>
+    /// <param name="increase">True to move forward, false to move backward.</param>
+    /// <returns>The bounded next index; -1 for an empty list.</returns>
     internal static int AdjustComboBoxIndex(int selectedIndex, int itemCount, bool increase)
     {
         if (itemCount <= 0)

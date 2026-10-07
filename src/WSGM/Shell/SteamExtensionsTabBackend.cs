@@ -125,6 +125,7 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
     }
 
     /// <summary>What the tab should currently show.</summary>
+    /// <returns>Current built-in and plugin contributions; plugins using the reserved WSGM prefix are omitted.</returns>
     internal SteamExtensionsTabState ReadState()
     {
         List<SteamExtensionsTabItem> items = [];

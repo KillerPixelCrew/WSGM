@@ -62,6 +62,8 @@ public static class ShellRegistration
     ///     value once (upgrades keep the original snapshot — Restore never clears the
     ///     captured flag) and then writes 0.
     /// </summary>
+    /// <param name="store">Strict persistence that captures the first original policy before writing HKCU.</param>
+    /// <param name="config">Session snapshot receiving the persisted recovery fields.</param>
     public static void ApplyGamingHomeGuard(ConfigStore store, AppConfig config)
     {
         try
@@ -107,6 +109,7 @@ public static class ShellRegistration
     ///     the saved pre-existing one). Safe to call from a broken state — reads config
     ///     defensively and never throws.
     /// </summary>
+    /// <param name="store">Recovery snapshot source; unreadable data uses conservative legacy ownership checks.</param>
     public static void Uninstall(ConfigStore store)
     {
         try
@@ -177,6 +180,8 @@ public static class ShellRegistration
     ///     if the command starts with a quote, otherwise everything up to the first
     ///     space (matching how Winlogon itself launches the value).
     /// </summary>
+    /// <param name="command">Shell command line, or null/blank for no registration.</param>
+    /// <returns>The first executable token, or null for no value or an unterminated/empty quoted token.</returns>
     internal static string? ExtractExecutablePath(string? command)
     {
         if (string.IsNullOrWhiteSpace(command))

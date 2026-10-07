@@ -12,6 +12,10 @@ namespace WSGM.Core;
 internal static class Protobuf
 {
     /// <summary>Reads one varint and advances past it.</summary>
+    /// <param name="data">Complete message buffer.</param>
+    /// <param name="position">Nonnegative cursor; partial consumption remains visible on failure.</param>
+    /// <param name="value">Decoded value on success.</param>
+    /// <returns>Whether a terminating byte appeared within the 64-bit read bound.</returns>
     internal static bool TryReadVarint(ReadOnlySpan<byte> data, ref int position, out ulong value)
     {
         value = 0;
@@ -34,6 +38,10 @@ internal static class Protobuf
     }
 
     /// <summary>Reads one length-delimited field and advances past it.</summary>
+    /// <param name="data">Complete message buffer.</param>
+    /// <param name="position">Nonnegative cursor; a failed length read can still advance it.</param>
+    /// <param name="bytes">Borrowed slice of data on success.</param>
+    /// <returns>Whether the declared field fits inside the remaining buffer.</returns>
     internal static bool TryReadBytes(ReadOnlySpan<byte> data, ref int position, out ReadOnlySpan<byte> bytes)
     {
         bytes = default;
@@ -48,6 +56,10 @@ internal static class Protobuf
     }
 
     /// <summary>Skips one field of the given wire type; false for a group or a truncated field.</summary>
+    /// <param name="data">Complete message buffer.</param>
+    /// <param name="position">Nonnegative cursor advanced by consumed data.</param>
+    /// <param name="wireType">Supported protobuf wire type: 0, 1, 2 or 5.</param>
+    /// <returns>Whether the field was supported and fully skipped; failure does not rewind the cursor.</returns>
     internal static bool TrySkip(ReadOnlySpan<byte> data, ref int position, int wireType)
     {
         switch (wireType)

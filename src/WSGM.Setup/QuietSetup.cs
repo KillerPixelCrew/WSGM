@@ -30,6 +30,8 @@ internal static class QuietSetup
     internal const int RestartToFinishDrivers = 6;
 
     /// <summary>Runs the requested mode and returns the exit code.</summary>
+    /// <param name="options">Parsed mode and component/data choices.</param>
+    /// <returns>A quiet-setup status code, including restart-required; quiet setup does not restart Windows.</returns>
     public static int Run(SetupOptions options)
     {
         using var engine = SetupEngine.Detect(options.PayloadDirectory);

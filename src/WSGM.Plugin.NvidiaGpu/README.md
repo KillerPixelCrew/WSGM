@@ -91,3 +91,18 @@ scenario or GPU test suite was requested or run for this implementation. The pac
 as `blind`. PROVENANCE.md records references and the local GPU inventory without claiming a hardware
 pass. Regression sources cover ownership, partial saves, inheritance, external edits, shared
 profiles, color field preservation and action admission.
+
+## Source map
+
+[NvidiaGpuPlugin](NvidiaGpuPlugin.cs) binds the common interfaces to the shared
+[DriverRuntime](../Shared/Gpu/DriverRuntime.cs), which owns generations, support probes,
+observation, command serialization and driver-loss recovery. [NvSession](NvSession.cs) owns native
+session and control discovery. [NvApi](NvApi.cs) binds documented calls;
+[NvApiPrivate](NvApiPrivate.cs) isolates optional private entry points and layouts.
+
+[NvSettings](NvSettings.cs) declares DRS controls, driver-supported values and profile scope;
+[NvProfiles](NvProfiles.cs) owns per-application changes and the restoration journal;
+[NvOutputControls](NvOutputControls.cs) owns display identity, color/dither/HDR state preservation
+and write sequencing. Shared [DriverStateFile](../Shared/Gpu/DriverStateFile.cs) performs atomic
+private-state replacement and preserves unreadable records. The host's game profiles remain the
+source of desired values; this package's journal records ownership of native changes.

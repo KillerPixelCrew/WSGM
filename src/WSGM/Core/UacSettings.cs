@@ -53,6 +53,9 @@ public static class UacSettings
     ///     Runs in the ELEVATED instance: writes the policy values, snapshotting
     ///     the previous ones into config first so the change can be undone exactly.
     /// </summary>
+    /// <param name="store">Strict configuration persistence used to save recovery before machine-policy writes.</param>
+    /// <param name="disablePrompts">True selects silent administrator elevation; false restores saved or Windows-default values.</param>
+    /// <returns>True on accepted writes and recovery update; false logs failure and may leave a partial policy change.</returns>
     public static bool ApplyDirect(ConfigStore store, bool disablePrompts)
     {
         try
@@ -127,6 +130,8 @@ public static class UacSettings
     ///     elevated for the registry write and waits for it. Returns false if elevation
     ///     was declined or the write failed.
     /// </summary>
+    /// <param name="disablePrompts">True requests silent administrator elevation; false requests restoration.</param>
+    /// <returns>Whether the elevated helper exited successfully; timeout does not stop that helper.</returns>
     public static bool RequestChange(bool disablePrompts)
     {
         return SelfElevation.RunElevatedAction(disablePrompts ? "--set-uac-silent" : "--restore-uac", "UAC change");

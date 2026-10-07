@@ -42,6 +42,9 @@ internal sealed record LabMachineChanges
 }
 
 /// <summary>One motor route recorded before the first worker write.</summary>
+/// <param name="RecordId">Confirmed knowledge-record ID, or null for a generic Windows route.</param>
+/// <param name="RouteId">Discovered route identity to match again before cleanup.</param>
+/// <param name="Target">Route-specific device or slot identity; must match the rediscovered route exactly.</param>
 internal sealed record LabPendingRumbleRoute(string? RecordId, string RouteId, string Target);
 
 /// <summary>
@@ -53,6 +56,7 @@ internal sealed record LabPendingRumbleRoute(string? RecordId, string RouteId, s
 ///     absent entry is a no-op); a change without a record would be a leak. A record that exists but cannot
 ///     be read is never written over: it may hold the only copy of the originals.
 /// </remarks>
+/// <param name="path">Machine-change ledger path, normalized at construction; construction does not create or read the file.</param>
 internal sealed class LabMachineState(string path)
 {
     private readonly object _gate = new();

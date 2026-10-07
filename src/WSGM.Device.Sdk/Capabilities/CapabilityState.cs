@@ -19,7 +19,7 @@ public enum HardwareStateQuality
     /// <summary>Never read. No claim is made about the hardware.</summary>
     Unknown,
 
-    /// <summary>Read from hardware, without independent confirmation.</summary>
+    /// <summary>Read from hardware or published after an accepted write, without independent confirmation.</summary>
     Observed,
 
     /// <summary>Read back and confirmed to match what was applied.</summary>
@@ -55,13 +55,14 @@ public sealed record CapabilityState
     /// <summary>Why it is unavailable or degraded. Null when it is healthy.</summary>
     public CapabilityReason? Reason { get; init; }
 
-    /// <summary>The value observed on the hardware, in the descriptor's value shape.</summary>
+    /// <summary>The last read or successfully written value, or null when unknown or action-only.</summary>
+    /// <remarks>Must match the descriptor's value shape; <see cref="Quality" /> records its evidence.</remarks>
     public CapabilityValue? ObservedValue { get; init; }
 
     /// <summary>How much <see cref="ObservedValue" /> can be trusted.</summary>
     public required HardwareStateQuality Quality { get; init; }
 
-    /// <summary>When the observation was taken, in UTC.</summary>
+    /// <summary>When the read or accepted write was observed, in UTC; null when no observation exists.</summary>
     public DateTimeOffset? ObservedAt { get; init; }
 
     /// <summary>Descriptor generation this state was produced against.</summary>
@@ -75,8 +76,10 @@ public sealed record CapabilityState
 ///     A capability value in whichever shape its descriptor declares.
 /// </summary>
 /// <remarks>
-///     A closed set of shapes rather than an opaque payload: an arbitrary blob would be a passthrough,
-///     and a passthrough is how device-specific structure leaks into a semantic contract.
+///     Exactly the field selected by <see cref="Kind" /> carries a value; unused scalar fields stay null
+///     and unused curves stay empty. Construction and factory methods do not validate descriptor bounds.
+///     Validate with <see cref="CapabilityValueValidation" /> before accepting a value. Collection
+///     properties retain the supplied list, which must not be mutated after publication.
 /// </remarks>
 public sealed record CapabilityValue
 {

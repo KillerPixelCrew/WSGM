@@ -5,11 +5,15 @@ using System.Linq;
 namespace WSGM.Core;
 
 /// <summary>One configuration field edited by Settings and by another WSGM surface.</summary>
+/// <param name="Name">Stable dotted configuration key used for dirty-field tracking.</param>
+/// <param name="Read">Reads the field from a supplied snapshot without mutating it.</param>
+/// <param name="Write">Writes a value of that field's expected runtime type into the supplied configuration.</param>
 internal sealed record WsgmSharedSetting(string Name, Func<AppConfig, object> Read, Action<AppConfig, object> Write);
 
 /// <summary>The shared fields whose fresh values an unedited Settings window must preserve.</summary>
 internal static class WsgmSharedSettings
 {
+    /// <summary>Gets the shared fields whose concurrent external edits participate in Settings merge.</summary>
     internal static IReadOnlyList<WsgmSharedSetting> All { get; } =
     [
         new("Cef.Enabled", config => config.Cef.Enabled, (config, value) => config.Cef.Enabled = (bool)value),
@@ -49,6 +53,10 @@ internal static class WsgmSharedSettings
             (config, value) => config.DeviceIntegration.GlyphSelection = (DeviceGlyphSelection)value)
     ];
 
+    /// <summary>Finds the shared-field accessor for an exact configuration key.</summary>
+    /// <param name="name">Case-sensitive dotted key from <see cref="All" />.</param>
+    /// <returns>The unique accessor for that key.</returns>
+    /// <exception cref="InvalidOperationException">The key is absent or duplicated in the registry.</exception>
     internal static WsgmSharedSetting Get(string name)
     {
         return All.Single(field => field.Name == name);

@@ -10,6 +10,7 @@ internal static class LabRumbleNative
 
     /// <summary>Whether an XInput slot has a controller.</summary>
     /// <param name="slot">Slot 0 to 3.</param>
+    /// <returns>True only when XInput successfully reads the slot; false for a disconnected slot or any read error.</returns>
     public static bool XInputConnected(uint slot)
     {
         return XInputGetState(slot, out _) == 0;

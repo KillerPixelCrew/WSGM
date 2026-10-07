@@ -542,8 +542,10 @@ public partial class BootSplashWindow : Window
     /// <summary>
     ///     Fades the whole window (layered alpha) over what's underneath, then
     ///     invokes <paramref name="onDone" />. Degrades to an immediate callback when the
-    ///     platform handle is unavailable.
+    ///     platform handle is unavailable or another fade is active. Call on the UI thread.
     /// </summary>
+    /// <param name="duration">Positive fade duration.</param>
+    /// <param name="onDone">UI-thread callback invoked after fading, or synchronously when no handle exists or a fade is already active.</param>
     public void BeginFadeOut(TimeSpan duration, Action onDone)
     {
         if (_hwnd == 0 || _fadeTimer is not null)

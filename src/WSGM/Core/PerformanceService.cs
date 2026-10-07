@@ -8,9 +8,8 @@ using System.Threading.Tasks;
 namespace WSGM.Core;
 
 /// <summary>
-///     One session-owned RTSS service shared by every UI projection. Adapter access and commands are
-///     serialized, polling runs for the session lifetime, and RTSS failures never
-///     escape into shell/session transitions.
+///     One session-owned RTSS service shared by every UI projection. Serializes adapter commands,
+///     polls for the session lifetime, and projects adapter failures into shared state.
 /// </summary>
 internal sealed class PerformanceService : IAsyncDisposable
 {
@@ -57,10 +56,10 @@ internal sealed class PerformanceService : IAsyncDisposable
     private PerformanceState _state;
 
     /// <summary>Creates the service and starts its RTSS poll.</summary>
-    /// <param name="adapter">The RTSS adapter.</param>
+    /// <param name="adapter">The RTSS adapter owned and disposed by this service.</param>
     /// <param name="launcher">Starts and watches RTSS; the service disposes it.</param>
     /// <param name="persistValue">Saves one changed value to the profile layer in force.</param>
-    /// <param name="profiles">The initial profile snapshot.</param>
+    /// <param name="profiles">The initial profile snapshot, or null for an empty snapshot.</param>
     /// <param name="enabled">Whether RTSS integration is switched on.</param>
     /// <param name="pollInterval">The RTSS poll interval; must be positive.</param>
     /// <param name="commandTimeout">How long one RTSS command may take; must be positive.</param>
@@ -98,6 +97,7 @@ internal sealed class PerformanceService : IAsyncDisposable
         _pollTask = Task.Run(PollAsync);
     }
 
+    /// <summary>Latest immutable state snapshot, safe to read across threads.</summary>
     internal PerformanceState Current
     {
         get
@@ -109,6 +109,7 @@ internal sealed class PerformanceService : IAsyncDisposable
         }
     }
 
+    /// <summary>Whether the session currently permits RTSS control.</summary>
     internal bool Enabled
     {
         get
@@ -120,8 +121,11 @@ internal sealed class PerformanceService : IAsyncDisposable
         }
     }
 
+    /// <summary>Interval between background availability and drift checks.</summary>
     internal TimeSpan PollInterval { get; }
 
+    /// <summary>Closes admission and cancels polling before disposing the owned adapter.</summary>
+    /// <returns>Completion of shutdown; a busy worker exceeding the wait budget retains its resources.</returns>
     public async ValueTask DisposeAsync()
     {
         if (_disposed)
@@ -173,6 +177,7 @@ internal sealed class PerformanceService : IAsyncDisposable
         }
     }
 
+    /// <summary>Publishes meaningful state changes on the calling worker; UI subscribers must marshal to their dispatcher.</summary>
     internal event Action<PerformanceState>? StateChanged;
 
     /// <summary>
@@ -209,7 +214,7 @@ internal sealed class PerformanceService : IAsyncDisposable
     /// <param name="profiles">The profile store and the running application it resolves for.</param>
     /// <param name="enabled">Whether WSGM may change RTSS at all.</param>
     /// <param name="cancellationToken">Cancels the writes.</param>
-    /// <returns>A task completing once the resolved values were written.</returns>
+    /// <returns>Completion of the apply attempt; unavailable or unchanged values can be skipped.</returns>
     /// <remarks>
     ///     The running application comes from the snapshot rather than a separate target, so RTSS and
     ///     every other per-game consumer agree about what is running. An older snapshot than the one in
@@ -264,6 +269,13 @@ internal sealed class PerformanceService : IAsyncDisposable
         }
     }
 
+    /// <summary>Persists a validated preference, then attempts its serialized RTSS write.</summary>
+    /// <param name="control">The control to update.</param>
+    /// <param name="value">Value to validate against the ready adapter's bounds.</param>
+    /// <param name="origin">Submitting surface or workflow; sanitized for diagnostics.</param>
+    /// <param name="correlationId">Request token; an empty token is replaced.</param>
+    /// <param name="cancellationToken">Cancels queue admission or cooperative processing.</param>
+    /// <returns>Terminal command state, including refusal, failure, or deferral until an executable is known.</returns>
     internal Task<PerformanceCommandState> SetAsync(
         PerformanceControl control,
         int value,
@@ -331,10 +343,7 @@ internal sealed class PerformanceService : IAsyncDisposable
 
         try
         {
-            // Rechecked after the wait, not only before it. A Settings or config update can switch
-            // RTSS integration off while this command is queued, and that path takes no adapter
-            // gate of its own — with a disabled policy there are no desired values to apply — so
-            // without this the queued command still wrote its value into a switched-off feature.
+            // A queued command must recheck shutdown and policy after acquiring the adapter gate.
             if (_disposed)
             {
                 return UpdateCommand(Command(
@@ -374,6 +383,9 @@ internal sealed class PerformanceService : IAsyncDisposable
         }
     }
 
+    /// <summary>Joins or starts the shared availability and readback refresh.</summary>
+    /// <param name="cancellationToken">Cancels only this caller's wait, not the shared refresh.</param>
+    /// <returns>A task completing when the shared refresh finishes.</returns>
     internal Task RefreshAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -603,12 +615,8 @@ internal sealed class PerformanceService : IAsyncDisposable
                 applicationOptedIn = _profiles.EditsGame;
             }
 
-            // Saving an RTSS profile that does not exist creates it, which sprayed a profile onto
-            // every executable that ever took focus (device-observed 2026-09-02). A running
-            // application's own profile is therefore written only when the user opted the
-            // application in, or when RTSS already carries that profile — whose explicit values
-            // would otherwise stay the stronger RTSS layer and silently override the global write.
-            // Everything else goes to the global profile, which covers the application anyway.
+            // Avoid creating per-executable profiles without opt-in. Existing profiles still need
+            // updating because their explicit values override the global profile.
             var profile = EffectiveRtssProfile(target, applicationOptedIn);
             lock (_stateGate)
             {
@@ -988,8 +996,7 @@ internal sealed class PerformanceService : IAsyncDisposable
 
     private void RaiseStateChanged(PerformanceState state)
     {
-        // A poll that reads back the same values only moves RefreshedAt, which no subscriber shows.
-        // Raising it anyway rebuilt the overlay rows and republished Steam's page on every poll.
+        // Timestamp-only refreshes do not change any subscriber's displayed state.
         var previous = Interlocked.Exchange(ref _raisedState, state);
         if (previous is not null && previous == state with { RefreshedAt = previous.RefreshedAt })
         {

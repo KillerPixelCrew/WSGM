@@ -12701,16 +12701,8 @@
   }
   registerGate("nativeComponents", createNativeComponentHost());
   // @fragment consumer/animations.ts
-  // The Animations page in Steam: SteamDeckRepo's boot movies browsed, downloaded, and chosen for
-  // Big Picture's start.
-  //
-  // Laid out the way Animation Changer lays out its browser: a toolbar over a grid of cards, one
-  // movie's preview and details, and the library with the choice. Drawn with Steam's own components
-  // where one fits and the toolkit's UI kit for the rest, the tabbed frame and the detail included.
-  // WSGM owns the list, the library, the choice, the sorts and the override file; the toolkit owns
-  // the page gate, the kit, the modal frame and the fail-closed component discovery used here. Only
-  // the boot movie is offered: nothing on Windows drives Steam's suspend flow, so its suspend movies
-  // never play.
+  // Boot-animation frontend; host services own downloads, selection and override files.
+  // Windows does not drive Steam suspend movies, so this page offers boot movies only.
   const AnimationsPatchId = "wsgm.animations";
   let animationsUi = null;
   const animationsAct = wsgmPageAct(AnimationsPatchId);
@@ -13032,8 +13024,11 @@
       ),
     );
   }
-  // Declared once for the life of the asset, and drawn by the toolkit's page frame only once the gate
-  // holds: the frame says why when it does not.
+  /**
+   * Renders animation browsing, the installed library and settings from host state.
+   * @param context Registered page accessors for Steam components, latest state and publication refusal.
+   * @returns The page React tree, including loading or refusal state when data is unavailable.
+   */
   function AnimationsPage({ context }) {
     const react = context.react();
     const h = react.createElement;
@@ -13073,11 +13068,7 @@
     Page: AnimationsPage,
   });
   // @fragment consumer/artwork-browser.ts
-  // SteamGridDB-compatible artwork browser owned by WSGM.
-  //
-  // The page deliberately renders with Steam's own component exports. WSGM owns artwork data and
-  // behavior; steam-ui-toolkit owns the page gate, the modal frame, the file picker and the fail-closed
-  // component discovery used here.
+  // Artwork frontend; host services own searches and file writes, and the toolkit owns native UI primitives.
   const ArtworkBrowserPatchId = "wsgm.artwork-browser";
   // The resolved components and the latest state, for the modals: a modal is drawn outside the page's
   // tree, so it reads them here and hears about new state through the listeners the page notifies.
@@ -13112,11 +13103,19 @@
   });
   const readableFilter = (value) =>
     value.replace("image/", "").replaceAll("_", " ").replace("x", "×");
+  /**
+   * Sends one artwork action to the shared host service.
+   * @param command Allowlisted artwork command.
+   * @param payload JSON action arguments.
+   * @returns The backend result promise; callers own refusal handling.
+   */
   const sendArtworkCommand = (command, payload = {}) =>
     request(ArtworkBrowserPatchId, command, payload);
-  // Browse Local: Steam's own file picker, drawn from Steam's components and driven by the controller,
-  // rather than a Windows dialog that opens behind Big Picture. The host reads the file where it lies;
-  // a page request is held to a few kilobytes and an image would never fit in one.
+  /**
+   * Opens the controller-accessible file picker and sends the chosen path to the host.
+   * @param tab Artwork slot; icon additionally permits ICO files.
+   * @param failed Receives an applyLocal refusal; cancellation sends no command.
+   */
   const chooseLocalArtwork = (tab, failed) => {
     void showSteamFilePicker(artworkUi, {
       title: "Choose an image",
@@ -13132,7 +13131,12 @@
       );
     });
   };
-  // Every modal on this page, in Steam's modal frame with the page's own class for its layout.
+  /**
+   * Opens a page-styled modal through Steam's native modal host.
+   * @param className Page-specific layout classes.
+   * @param render Body renderer receiving the close callback.
+   * @returns True if a modal was opened, or false when required native components are unavailable.
+   */
   const showArtworkModal = (className, render) =>
     showSteamModal(artworkUi, {
       title: "SteamGridDB",
@@ -13439,8 +13443,11 @@
       ),
     );
   }
-  // Declared once for the life of the asset, and drawn by the toolkit's page frame only once the gate
-  // holds: the frame says why when it does not.
+  /**
+   * Renders artwork selection and coordinates the modals subscribed to its host snapshot.
+   * @param context Registered page accessors for Steam components, latest state and publication refusal.
+   * @returns The page React tree, including loading or refusal state when data is unavailable.
+   */
   function ArtworkBrowserPage({ context }) {
     const react = context.react();
     const h = react.createElement;
@@ -13737,20 +13744,10 @@
     Page: ArtworkBrowserPage,
   });
   // @fragment consumer/chord-reset.ts
-  // The guide button chord layout's "reset to defaults", reported to the host.
-  //
-  // WSGM keeps Steam's last-resort chord template (`controller_base/chord_neptune.vdf`) equal to the
-  // user's autosaved layout, because Steam's editor reloads that template after every autosave for a
-  // Steam Deck type controller and threw the edits away (see SteamGuideChordMirror). With the template
-  // mirrored, the editor's reset loads the mirror instead of Valve's defaults. The editor resets by
-  // calling SteamClient.Input.SetSelectedConfigForApp(443510, controllerIndex, "default://…") from
-  // Steam's configurator store in this context, three seconds before it reloads, so the call is the
-  // place to tell the host to put Valve's file back in time.
-  //
-  // The wrapper forwards every call unchanged and only sends the command for the chord pseudo-app's
-  // default selection while the host says the mirror is active. It is a member claim, so a bridge
-  // replaced without its dispose (a JS context reload) reclaims the wrapper it left instead of wrapping
-  // it again, and removal hands back exactly the function it displaced.
+  /**
+   * Observes chord-layout default resets while the host reports an active template mirror.
+   * @returns Install/remove controls and diagnostics; a failed release retains ownership for a later removal attempt.
+   */
   function createWsgmChordReset() {
     const patchId = "wsgm.chord-reset";
     const ChordAppId = 443510;
@@ -13828,22 +13825,10 @@
   }
   registerGate("wsgmChordReset", createWsgmChordReset());
   // @fragment consumer/controller-caps.ts
-  // The virtual controller's capabilities, as Steam's UI sees them.
-  //
-  // Steam's controller pages decide what to draw from each controller's capability bits, which the
-  // client reports per controller type: a Steam Deck controller always carries ATTRIBCAP_TRACKPAD and
-  // ATTRIBCAP_CAPJOYSTICK, so WSGM's Steam Deck target puts trackpad and stick-touch settings in front
-  // of a handheld that has neither. The glyph stylesheet hides the rows it can anchor on a glyph, but
-  // the configurator's quick settings ("right trackpad behavior", its sensitivity and inversion) are
-  // plain labelled fields with nothing to anchor, and every such list grows with each client build.
-  //
-  // Every store reads the list through one generated RPC namespace, SteamInputManager.GetControllerList,
-  // and converts each entry's `capabilities` with BigInt. This wraps that one function and clears the
-  // bits the host names on the controller the host names (its vendor and product id), so the pages
-  // draw the handheld the device plugin describes. The native side and the layouts are untouched: the
-  // mask only changes what this UI process believes. After hooking, unhooking or a mask change, the
-  // list's query cache is invalidated and the two stores that hold the list are asked to query it
-  // again, the same call they make on Steam's own list-changed notification.
+  /**
+   * Masks host-selected capability bits only for the matching VID/PID in Steam UI controller-list responses.
+   * @returns Install/remove controls and diagnostics; a failed release retains ownership for a later removal attempt.
+   */
   function createWsgmControllerCaps() {
     const patchId = "wsgm.controller-caps";
     const ServiceTokens = ["SteamInputManager.GetControllerList#1", "GetControllerListHandler"];
@@ -13852,11 +13837,7 @@
       typeof value === "object" &&
       typeof value.GetControllerList === "function" &&
       typeof value.RegisterForNotifyControllerListChanged === "function";
-    // The stores that hold a copy of the list and draw the controller pages from it: the controller
-    // store and the configurator store. Each is found by what it is; a store that has moved is
-    // skipped, not guessed. Both read through react-query under this key with an infinite stale time,
-    // so the cache is invalidated first or their query answers from it without reaching the RPC
-    // (live-verified 2026-09-26: two refreshes, nothing masked, until the key was invalidated).
+    // These stores cache controller lists indefinitely; invalidate the query before refreshing them.
     const ListQueryKey = ["ControllerList"];
     const StoreFingerprints = [
       [
@@ -14029,17 +14010,10 @@
   }
   registerGate("wsgmControllerCaps", createWsgmControllerCaps());
   // @fragment consumer/download-sort.ts
-  // Name / Size / Type sort buttons in the header of Big Picture's download queue ("Up Next"),
-  // reordering the queue through Steam's own SteamClient.Downloads.SetQueueIndex.
-  //
-  // Every shape decision here is a device-verified finding: the Focusable requirement, the JSX-runtime
-  // injection point, the tight component predicates, the whole-pending-list scope and the unknown-size
-  // ranking are in docs/steam-cef.md §12. Re-probe with tools/WsgmLibTest/run-prod-sort.mjs before
-  // shipping a change here.
-  //
-  // The header is intercepted through the toolkit's shared JSX-runtime claim rather than by wrapping
-  // jsx and jsxs here: the library stat on a game's page claims the same runtime, and two wrappers
-  // would each hand back the other on removal.
+  /**
+   * Adds host-defined download ordering through reversible Steam render and method claims.
+   * @returns Install/remove controls and diagnostics; a failed release retains ownership for a later removal attempt.
+   */
   function createWsgmDownloadSort() {
     const patchId = "wsgm.download-sort";
     const transformName = "wsgm.download-sort";
@@ -14432,14 +14406,7 @@
   }
   registerGate("wsgmDownloadSort", createWsgmDownloadSort());
   // @fragment consumer/library-import.ts
-  // The Game Library's page in Steam: bring games from other launchers into Steam, with their artwork.
-  //
-  // Laid out the way Steam ROM Manager lays out its preview, and drawn entirely with Steam's own
-  // components so it behaves like the rest of Big Picture under a controller: a sidebar of sources
-  // ticked with Steam's checkbox, Steam's tabs over a toolbar and a grid of Steam library capsules
-  // grouped by source, an all-artwork view with one row per title, and one title's artwork. WSGM owns
-  // the data, every label and every decision; the toolkit owns the page gate, the capsule, the modal
-  // frame, the folder picker and the fail-closed component discovery used here.
+  // Library-import frontend; shared host services own discovery, review decisions and writes.
   const LibraryImportPatchId = "wsgm.library-import";
   const EmulatorPatchId = "wsgm.emulators";
   const EmulatorProgressId = "wsgm.emulators.progress";
@@ -14498,8 +14465,12 @@
   const emulatorReport = (message) => {
     for (const reporter of [...emulatorReporters]) reporter(message);
   };
-  // A command whose refusal the page shows: the host explains every refusal, and a control that did
-  // nothing without saying why is the defect this avoids.
+  /**
+   * Sends an import command and presents request rejection through the page reporters.
+   * @param command Allowlisted import command.
+   * @param payload JSON action arguments.
+   * @returns The backend result, or undefined after reporting a rejection; clears the previous message first.
+   */
   const importAct = (command, payload = {}) => {
     importReport(null);
     return request(LibraryImportPatchId, command, payload).catch((error) => {
@@ -16118,8 +16089,12 @@
       ),
     );
   }
-  // The page. Declared once for the life of the asset, so React keeps its selection, its view and the
-  // controller's focus across router renders; the toolkit's frame draws it only once the gate holds.
+  /**
+   * Renders shared import review state and dispatches host commands for every persistent action.
+   * @param context Registered page accessors for Steam components, latest state and publication refusal.
+   * @param page Identifies the importer or standalone emulator manager route.
+   * @returns The page React tree, including loading or refusal state when data is unavailable.
+   */
   function LibraryImportPage({ context, page }) {
     const react = context.react();
     const h = react.createElement;
@@ -16801,17 +16776,20 @@
   })();
   registerGate("wsgmLibraryTabs", libraryTabsClaim);
   // @fragment consumer/page-kit.ts
-  // What WSGM's tabbed store pages (Themes, Animations) share and differ in only by their patch id.
-  //
-  // Function declarations, so a page fragment that sorts ahead of this one can call them at its top
-  // level: the fragments are one scope, and these are hoisted to its start.
-  // A page's command sender. A refusal is explained by the host in its next state and the page draws
-  // that, so nothing is swallowed here.
+  /**
+   * Creates a command sender for pages whose error banner comes from host state.
+   * @param patchId Registered WSGM page command identity.
+   * @returns A sender resolving to the backend result, or undefined on rejection; the page relies on host publication for error display.
+   */
   function wsgmPageAct(patchId) {
     return (command, payload = {}) => request(patchId, command, payload).catch(() => undefined);
   }
-  // The tabbed frame's active tab, tab switch and banner, sent back as the host's setTab and dismiss
-  // commands.
+  /**
+   * Projects published page navigation and notices into the shared tabbed frame.
+   * @param act Page sender accepting setTab and dismiss commands.
+   * @param state Published activeTab, error and notice fields.
+   * @returns Frame props; errors take precedence over notices and no message yields a null banner.
+   */
   function wsgmPageFrame(act, state) {
     const banner = state.error || state.notice;
     return {
@@ -16823,14 +16801,7 @@
     };
   }
   // @fragment consumer/themes.ts
-  // The Themes page in Steam: CSSLoader-compatible themes browsed from DeckThemes, installed and managed.
-  //
-  // Laid out the way CSS Loader lays out its store and its settings, and drawn with Steam's own
-  // components where one fits and the toolkit's UI kit for the rest, so it behaves like the rest of
-  // Big Picture under a controller: Steam's tabs over a toolbar and a grid of cards, one theme's
-  // details with its screenshots, and the installed themes as the same settings rows a host's settings
-  // page uses. WSGM owns the data, every label and every decision; the toolkit owns the page gate, the
-  // settings rows, the kit, the modal frame and the fail-closed component discovery used here.
+  // Theme frontend; shared host services own catalogue, profiles, settings and CSS deployment.
   const ThemesPatchId = "wsgm.themes";
   let themesUi = null;
   const themesAct = wsgmPageAct(ThemesPatchId);
@@ -16840,8 +16811,12 @@
     { id: "profiles", title: "Profiles" },
     { id: "settings", title: "Settings" },
   ];
-  // One row's change, sent as the command its key names. The rows are the settings renderer's, so a
-  // theme's switch, a patch and a component all draw and navigate like Steam's own settings.
+  /**
+   * Dispatches a committed settings row to the host command encoded by its key.
+   * @param row Published row whose NUL-separated key identifies the command and target.
+   * @param value Edited value, converted according to the row kind.
+   * @param commit False for draft updates, which are not sent to the host.
+   */
   const themesRowChange = (row, value, commit = true) => {
     if (!commit) return;
     const [kind, theme, patch, component] = String(row.key).split("\u0000");
@@ -16876,8 +16851,11 @@
     }
   };
   const themesKey = (...parts) => parts.join("\u0000");
-  // The rows one installed theme is drawn with: its switch, and while it is on, its patches and the
-  // components of each patch's chosen option, indented under it.
+  /**
+   * Builds settings descriptors from one installed theme snapshot.
+   * @param theme Host-published theme and its patch/component choices.
+   * @returns Rows headed by the enable switch; disabled themes omit patch controls.
+   */
   const themesRowsOf = (theme) => {
     const rows = [];
     const description =
@@ -17398,8 +17376,11 @@
       ),
     );
   }
-  // Declared once for the life of the asset, and drawn by the toolkit's page frame only once the gate
-  // holds: the frame says why when it does not.
+  /**
+   * Renders theme browsing, installation, profiles and settings from host state.
+   * @param context Registered page accessors for Steam components, latest state and publication refusal.
+   * @returns The page React tree, including loading or refusal state when data is unavailable.
+   */
   function ThemesPage({ context }) {
     const react = context.react();
     const h = react.createElement;
@@ -17448,16 +17429,14 @@
     Page: ThemesPage,
   });
   // @fragment consumer/wsgm-settings.ts
-  // WSGM's settings page in Steam, opened from WSGM's row in Steam's main menu.
-  //
-  // Thin on purpose. The toolkit's settings renderer draws every row with Steam's own Settings
-  // components - the routed sidebar, sections, fields and confirm modal - so the page looks and
-  // navigates exactly like Steam's Settings, and the toolkit's page gate owns its lifecycle. WSGM owns
-  // the rows and every decision about them.
+  // WSGM settings frontend; host descriptors and commands are shared with the overlay.
   const WsgmSettingsPatchId = "wsgm.settings";
   const WsgmSettingsRoute = "/wsgm/settings";
-  // Declared once for the life of the asset, so the page keeps its drafts and the controller's focus
-  // across router renders.
+  /**
+   * Renders host settings sections with the shared native settings renderer.
+   * @param context Registered page accessors for Steam components, latest state and publication refusal.
+   * @returns The page React tree, including loading or refusal state when data is unavailable.
+   */
   function WsgmSettingsPage({ context }) {
     const state = context.state() ?? {};
     return renderSteamSettings(context.ui(), {

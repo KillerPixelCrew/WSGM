@@ -24,6 +24,10 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
     private readonly TextBlock _status = new() { Text = "Preview is stopped", TextWrapping = TextWrapping.Wrap };
     private readonly MediaViewport _viewport;
 
+    /// <summary>Creates stopped media controls; WebView2/media initialization waits for explicit Play.</summary>
+    /// <param name="context">Borrowed user-data root for the WebView2 profile and temporary preview media.</param>
+    /// <param name="source">Preview source consumed by this instance; immutable for its lifetime.</param>
+    /// <param name="image">True for animated-image playback without video-specific seek/volume controls.</param>
     internal OverlayMediaPreview(UserDataContext context, string source, bool image = false)
     {
         Spacing = 8;
@@ -59,6 +63,8 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
         }
     }
 
+    /// <inheritdoc />
+    /// <remarks>No-op to preserve playback. The parent must replace this instance when media identity changes.</remarks>
     public void RefreshFrom(Control replacement)
     {
     }
@@ -116,7 +122,8 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
 
         internal event Action<string>? Status;
 
-        protected override IPlatformHandle CreateNativeControlCore(IPlatformHandle parent)
+        /// <inheritdoc />
+    protected override IPlatformHandle CreateNativeControlCore(IPlatformHandle parent)
         {
             if (parent.HandleDescriptor != "HWND")
             {
@@ -133,7 +140,8 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
             return new PlatformHandle(_handle, "HWND");
         }
 
-        protected override void DestroyNativeControlCore(IPlatformHandle control)
+        /// <inheritdoc />
+    protected override void DestroyNativeControlCore(IPlatformHandle control)
         {
             _load?.Cancel();
             _load?.Dispose();

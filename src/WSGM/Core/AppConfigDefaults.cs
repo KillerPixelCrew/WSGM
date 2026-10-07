@@ -1,6 +1,6 @@
 namespace WSGM.Core;
 
-// Shared read-only templates. Never mutate or return these objects to a caller.
+/// <summary>Shared normalization templates; never mutate or expose these instances to callers.</summary>
 internal static class AppConfigDefaults
 {
     // The single source of the normalization bounds: AppearancePage.axaml mirrors
@@ -49,6 +49,7 @@ internal static class AppConfigDefaults
     // repair pass (unknown enum NAME) and to Normalize (unknown enum NUMBER, null
     // string) alike, so the two passes cannot drift apart. Never mutate them and
     // never hand them to a caller.
+    /// <summary>Default field values for repair; clone values that would otherwise expose mutable state.</summary>
     internal static readonly AppConfig Defaults = new();
 
     /// <summary>What one missing or unreadable splash FIELD is repaired to.</summary>
@@ -62,12 +63,14 @@ internal static class AppConfigDefaults
     /// </remarks>
     internal static readonly SplashConfig SplashFieldDefaults = new();
 
+    /// <summary>Read-only fallback values for one splash element placement.</summary>
     internal static readonly SplashElementPlacement PlacementDefaults = new();
 
     // Spelled out rather than left to the property initializers: a repaired filter falls back to
     // the neutral filter a user would recognise ("installed", ANDed, inserted cards), which is not
     // the same as enum member zero. Both repair passes read this one instance, so they cannot
     // disagree about what an unreadable value becomes.
+    /// <summary>Read-only neutral installed-game filter used by both JSON and object repair.</summary>
     internal static readonly FilterNode FilterDefaults = new()
     {
         Kind = FilterKind.Installed,

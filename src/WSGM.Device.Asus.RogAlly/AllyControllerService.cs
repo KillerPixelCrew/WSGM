@@ -18,6 +18,7 @@ using WSGM.Device.Sdk.Windows;
 namespace WSGM.Device.Asus.RogAlly;
 
 /// <summary>The IMU, attached to controller samples with the Claw's frame resampler.</summary>
+/// <param name="source">Shared motion source whose stream is started and stopped for each service cycle.</param>
 internal sealed class AllyMotionService(IAllyMotionSource source)
     : DeviceService<AllyIdentityState>(AllyServiceIds.Motion)
 {
@@ -95,6 +96,13 @@ internal sealed class AllyMotionService(IAllyMotionSource source)
 }
 
 /// <summary>The physical pad: controller tables, sample stream, haptics and the HidHide identities.</summary>
+/// <param name="source">Physical XInput discovery, sampling and rumble transport.</param>
+/// <param name="vendor">Shared vendor HID transport for controller configuration tables.</param>
+/// <param name="motion">Motion service sampled alongside each controller frame.</param>
+/// <param name="keyboard">Keyboard service controlling the rear-key watch and mapping.</param>
+/// <param name="buttons">Shared OEM-button holds and latches merged into controller samples.</param>
+/// <param name="host">Host callbacks for controller delivery, physical-device hiding and diagnostics.</param>
+/// <param name="journal">Durable restore obligation for the MCU controller tables.</param>
 internal sealed class ControllerService(
     IAllyControllerSource source,
     IAllyVendorHid vendor,
@@ -219,6 +227,7 @@ internal sealed class ControllerService(
     ///     ends idle. The zero-rumble write fails whenever the pad has already dropped off the bus, which
     ///     is exactly when a release happens, so it cannot be a reason to report anything.
     /// </remarks>
+    /// <returns>Completion after best-effort cleanup; ordinary motor, reader and table failures are traced and the service ends idle.</returns>
     public async ValueTask ReleaseControllerAsync(
         Deadline deadline,
         CancellationToken cancellationToken)
@@ -273,6 +282,10 @@ internal sealed class ControllerService(
     }
 
     /// <remarks>The host already clamped the frame to <see cref="OutputCapabilities" />.</remarks>
+    /// <summary>Serializes rumble updates, suppressing small repeated changes while always admitting a transition to zero.</summary>
+    /// <param name="frame">Host-clamped low/high motor frame; unsupported trigger channels are not written.</param>
+    /// <param name="cancellationToken">Cancels waiting for the output gate or the transport operation.</param>
+    /// <returns>Completion after an admitted motor write, or immediately when not owned or the change is suppressed; transport failures propagate.</returns>
     public async ValueTask ApplyHapticsAsync(HapticOutputFrame frame, CancellationToken cancellationToken)
     {
         await _outputGate.WaitAsync(cancellationToken).ConfigureAwait(false);

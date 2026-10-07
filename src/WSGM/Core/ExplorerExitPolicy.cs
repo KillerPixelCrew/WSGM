@@ -2,20 +2,22 @@ using System;
 
 namespace WSGM.Core;
 
+/// <summary>Next nonterminating action while the captured Explorer retires its desktop shell.</summary>
 internal enum ExplorerExitAction
 {
+    /// <summary>Continue observing ownership and absence without dispatching another request.</summary>
     Wait,
+    /// <summary>Ask windows owned by the retired process to close; never terminate the process.</summary>
     RequestClose,
+    /// <summary>The shell has remained absent long enough to proceed, even if a retired process lingers.</summary>
     Complete
 }
 
 /// <summary>Explorer is only ever asked to leave. Nothing in the entry terminates it.</summary>
 /// <remarks>
-///     Terminating the shell process is what Winlogon's AutoRestartShell answers with a respawned
-///     Explorer (2026-08-08, b1c3958a). That lesson was lost when 41f8251d released a lingering process
-///     after 2 s, and an Xbox Ally X, whose orderly exit takes longer, then fought a respawn on every
-///     entry (2026-09-25). A retired process is asked to close its windows, as Task Manager's End task
-///     asks, and otherwise left to finish on its own.
+///     Forced termination can trigger Winlogon's AutoRestartShell and race desktop takeover.
+///     Request orderly exit, then close only the retired owner's windows and observe bounded absence;
+///     a lingering process without shell surfaces may remain alive beside Game Mode.
 /// </remarks>
 internal static class ExplorerExitPolicy
 {
@@ -43,6 +45,13 @@ internal static class ExplorerExitPolicy
     /// </remarks>
     internal static readonly TimeSpan LingerLimit = TimeSpan.FromSeconds(10);
 
+    /// <summary>Chooses the next exit action from observed shell absence and the retired process state.</summary>
+    /// <param name="shellSurfacePresent">Whether any current shell taskbar/desktop surface remains.</param>
+    /// <param name="originalExited">Whether the captured original process has exited.</param>
+    /// <param name="absentFor">Continuous duration without shell surfaces; reset when any surface reappears.</param>
+    /// <param name="closeRequested">Whether WM_CLOSE has already been dispatched to the retired owner.</param>
+    /// <param name="uncleanExit">Whether the original process exited abnormally, requiring extra respawn observation.</param>
+    /// <returns>Wait, one close request, or completion; never a termination decision.</returns>
     internal static ExplorerExitAction Decide(
         bool shellSurfacePresent,
         bool originalExited,

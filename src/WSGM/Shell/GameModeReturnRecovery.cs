@@ -33,11 +33,17 @@ internal static class GameModeReturnRecovery
         }
     }
 
+    /// <summary>Captures the recovery record for a later conditional clear.</summary>
+    /// <param name="store">Configuration store read synchronously.</param>
+    /// <returns>Serialized recovery state used as a concurrency fingerprint.</returns>
     internal static string PendingFingerprint(ConfigStore store)
     {
         return Fingerprint(store.Read().RequireConfig().GameModeLaunchRecovery);
     }
 
+    /// <summary>Clears recovery state only if it still matches the restored record.</summary>
+    /// <param name="store">Configuration store mutated synchronously.</param>
+    /// <param name="fingerprint">Fingerprint captured before restoration; a mismatch preserves the newer record.</param>
     internal static void ClearRestored(ConfigStore store, string fingerprint)
     {
         store.Update(fresh =>
@@ -57,6 +63,13 @@ internal static class GameModeReturnRecovery
         return JsonSerializer.Serialize(recovery, ConfigJsonContext.Tolerant.GameModeLaunchRecovery);
     }
 
+    /// <summary>Serializes recovery attempts and applies recorded display and audio state.</summary>
+    /// <param name="store">Configuration store containing pending recovery.</param>
+    /// <param name="cancellationToken">Cancels the caller’s wait and cooperative stages; admitted native work may continue.</param>
+    /// <param name="audio">Borrowed audio service used after display restoration.</param>
+    /// <param name="report">Failure reporter, or null to log warnings.</param>
+    /// <param name="applyLayout">Optional layout writer; null uses Windows display control on a worker.</param>
+    /// <returns>True when no recovery is owed or all requested restores succeeded. The record is not cleared here.</returns>
     internal static async Task<bool> RestorePendingAsync(ConfigStore store, CancellationToken cancellationToken,
         AudioProfileService audio, Action<string>? report = null,
         Func<DisplayLayout, CancellationToken, Task<bool>>? applyLayout = null)

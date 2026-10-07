@@ -211,14 +211,15 @@ with the maintainer's `BlockWinG.zip` proof of concept. The dummy-key pair, exte
 firmware-derived QS and MSI_Event within 500 ms count as one press. This is a source comparison and
 restoration, not a new attended suppression pass.
 
-## Everything here came off a physical device
+## Hardware evidence and reference-derived behavior
 
-On the Claw 8 AI+ A2VM, every register, report layout and WMI method was established on real
-hardware, and `PROVENANCE.md` records the revision it was confirmed against. The other four models
-run the same code paths HC runs on them, from HC's source alone. Detection and startup require an
-MSI baseboard in the model table; startup repeats that check from SMBIOS and returns before it
-queries MSI's WMI provider, the controller inventory, HID endpoints or power state on any other
-machine.
+The Claw 8 AI+ A2VM supplied the measured report layout and the hardware observations recorded in
+`PROVENANCE.md`, with their dates and revisions. Later refactors and HC-derived behavior still need
+the individual checks called out above; reference-unit status is not a fresh pass for every path.
+The other four models run the corresponding HC code paths from source evidence alone. Detection and
+startup require an MSI baseboard in the model table; startup repeats that check from SMBIOS and
+returns before it queries MSI's WMI provider, the controller inventory, HID endpoints or power state
+on any other machine.
 
 ## Building
 

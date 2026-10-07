@@ -56,7 +56,7 @@ requires unwind; cancellation is not rollback.
 - Descriptors, physical-device identities, OEM controls and the settings manifest are whole-set
   replacements. Omitting an item withdraws it. If a new settings manifest fails validation, the host
   keeps the previous one.
-- The descriptor set carries its sections, categories and placement. It also carries the API 6
+- The descriptor set carries its sections, categories and placement. It also carries the API 5
   layout hints: `Prominence` (Normal, Primary or Compact) and `LayoutPair`, which must name a
   different descriptor in the same explicit section and category. It carries power presets and the
   power pair too. The production router checks `CapabilityLayout.TryValidate`,
@@ -96,9 +96,10 @@ The optional sustained/boost pair works like this:
 - `Rejected`: nothing was attempted.
 - `TimedOut` or `Indeterminate`: the effect is unknown. Never blindly retry a persistent write.
 
-Capture the original value immediately before the first mutation and preserve that first original
-through retries or reopen. Restore it on failure/stop where policy requires it. Report rollback and
-device-persistent uncertainty rather than converting it into success.
+Capture the original before the first temporary mutation when it can be read, and preserve that
+first original through reopen and explicit later commands. Journal before writing; restore under the
+package's release/recovery policy. The first-party packages do not immediately roll back an
+uncertain power/fan write. Readback is optional evidence, not a prerequisite for a supported write.
 
 State quality steers host automation only through `Stale` and `Faulted`. WSGM re-applies a desired
 value automatically whenever the capability is available, its state is neither stale nor faulted,
@@ -124,9 +125,10 @@ automatically; a different desired value is a new write and goes ahead, with no 
   returns; one that throws ends the wait and faults the controller until a user action (controller
   management off and on), so its writes are never repeated. This is how both first-party packages
   survive a wake.
-- Motion streams for as long as the plugin owns the controller; the host sends no demand signal.
-  Keep one `MotionSampleBuilder` for the device's life so a restarted stream keeps its measured
-  zero-rate offset.
+- The host sends no motion-demand signal. Current Claw/Ally motion services run with the device
+  cycle and controller-management toggles change only controller ownership. Keep one
+  `MotionSampleBuilder` for the device's life so a restarted stream keeps its measured zero-rate
+  offset.
 - A `HapticOutputFrame` is a readonly record struct holding the whole motor state, with no target or
   generation: a newer frame replaces an older one, and the path from the virtual target allocates
   nothing per frame. The plugin clamps to its declared channels with `HapticCapabilities.Clamp` and

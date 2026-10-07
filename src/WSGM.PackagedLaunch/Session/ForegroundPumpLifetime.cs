@@ -35,8 +35,9 @@ public sealed class ForegroundPumpLifetime
         }
     }
 
-    /// <summary>Waits within the caller's startup bound.</summary>
+    /// <summary>Waits for creation or exit, or until the startup bound expires.</summary>
     /// <param name="timeout">The startup bound.</param>
+    /// <remarks>A return does not establish success; inspect <see cref="Window" /> afterwards.</remarks>
     public void WaitReady(TimeSpan timeout)
     {
         _ready.Wait(timeout);
@@ -89,6 +90,7 @@ public sealed class ForegroundPumpLifetime
 
     /// <summary>Releases the signal only after a confirmed join.</summary>
     /// <param name="joined">Whether the pump is known to have exited.</param>
+    /// <remarks>Call once after the join attempt; a failed join retains the signal for the surviving pump.</remarks>
     public void CompleteJoin(bool joined)
     {
         if (joined)

@@ -13,11 +13,13 @@ type-identity boundary between the host and your plugin, so anything it referenc
 would inherit.
 
 The common identity and lifecycle contracts shared with non-device plugins live in a separate MIT
-assembly at [ `../WSGM.Plugin.Sdk`](../WSGM.Plugin.Sdk/README.md). The resident common host admits
-this Device runtime through a compatibility adapter. Device API 7 marks the manufacturer's
-companion-application button on an OEM control. It keeps API 6's manifest hardware rules and
-declared capability roles, which setup reads without loading code, and API 5's presentation hints
-and allocation-free controller and motion samples.
+assembly at [WSGM.Plugin.Sdk](../WSGM.Plugin.Sdk/README.md). WSGM's device coordinator owns the
+device runtime directly; the common host admits independent integrations and refuses the Device
+category. The current exact compatibility level is **Device API 12** (`DeviceApi.Version`), separate
+from the NuGet package version. Its history is in the
+[reference](docs/reference.md#version-history). Current contracts include active-time deadlines,
+paired power limits, profile scope and apply timing, shared service/recovery helpers, and
+allocation-free controller, motion and haptic frames.
 
 ## What a plugin is
 
@@ -58,9 +60,10 @@ write. See the [reference](docs/reference.md#capabilitydescriptor).
 
 A sustained-power descriptor can declare `PowerPresets`: named shortcuts combining its watt limit,
 the device's slow watt limit, a `DevicePowerMode` and optional AC and battery `ScenarioMode`
-choices. WSGM applies the scenario first and confirms every target. WSGM owns application and
-Windows access; the plugin supplies the device-specific numbers. Validate the whole descriptor set
-with `DevicePowerPreset.TryValidate`. Presets do not enforce values after selection.
+choices. WSGM applies the scenario first and requires every write to finish successfully, verified
+or unverified, before continuing. WSGM owns application and Windows access; the plugin supplies the
+device-specific numbers. Validate the whole descriptor set with `DevicePowerPreset.TryValidate`.
+Presets do not enforce values after selection.
 
 For paired power control at runtime, a sustained descriptor may name `PairedPowerLimitId`. The host
 then decides both limits: every write to either one carries the other in
@@ -74,19 +77,20 @@ subjects. WSGM can contribute its own controls to the shared pages.
 
 ## What is in here
 
-| Namespace       | What it carries                                                          |
-| --------------- | ------------------------------------------------------------------------ |
-| `Plugin`        | `IDevicePlugin`, the host adapter, and `PluginTrace` logging             |
-| `Lifecycle`     | cycle start and stop, controller handoff, deadlines                      |
-| `Capabilities`  | capability descriptors, commands, states and refusal reasons             |
-| `Input`         | canonical controller state, haptic output, OEM controls, device identity |
-| `Identity`      | the device identity snapshot a plugin matches against                    |
-| `Glyphs`        | glyph packages: profiles, layout, import and asset validation            |
-| `Settings`      | plugin-declared settings sections that WSGM renders and validates        |
-| `Services`      | service states and walks, the command gate and the recovery journal      |
-| `Packaging`     | `plugin.wsgm.json` reading, validation and limits                        |
-| `Serialization` | the source-generated JSON context for all of the above                   |
-| `Testing`       | `TestPluginHostAdapter`, to drive your plugin's lifecycle without WSGM   |
+| Namespace       | What it carries                                                                |
+| --------------- | ------------------------------------------------------------------------------ |
+| `Plugin`        | `IDevicePlugin`, the host adapter, and `PluginTrace` logging                   |
+| `Lifecycle`     | cycle start and stop, controller handoff, deadlines                            |
+| `Capabilities`  | capability descriptors, commands, states and refusal reasons                   |
+| `Input`         | canonical controller state, haptic output, OEM controls, device identity       |
+| `Identity`      | the device identity snapshot a plugin matches against                          |
+| `Glyphs`        | glyph packages: profiles, layout, import and asset validation                  |
+| `Settings`      | plugin-declared settings sections that WSGM renders and validates              |
+| `Services`      | service states and walks, the command gate and the recovery journal            |
+| `Packaging`     | `plugin.wsgm.json` reading, validation and limits                              |
+| `Serialization` | the source-generated JSON context for all of the above                         |
+| `Testing`       | `TestPluginHostAdapter`, to record publications without the production router  |
+| `Windows`       | HID discovery, Sensor API motion, keyboard hooks, reconnect and timing helpers |
 
 ## The rules this contract enforces
 
@@ -97,17 +101,20 @@ does not pretend to sandbox you. Asset handling checks integrity (identifiers, c
 bounds, well-formedness) and passes your bytes through unchanged. Do not mistake validation for
 isolation.
 
-**Report the truth, including uncertainty.** A capability command returns what actually happened. A
-write whose result you could not confirm is reported as uncertain, never retried silently, and never
-reported as success. WSGM shows the user exactly what you tell it.
+**Report the truth, including uncertainty.** A transport-accepted write is successful even without
+matching readback: return `AppliedUnverified`, publish the written value as `Observed`, and leave
+`ReadbackValue` absent. An independent matching read upgrades it to `AppliedVerified`. A timeout or
+interruption whose hardware effect is unknown is `TimedOut` or `Indeterminate`; never retry that
+write automatically. Missing readback alone is not an uncertain write.
 
 **Revalidate on every command:** identity, firmware, range and current state, every time. The
 helpers are shaped to make that the easy path, and a capability that cannot revalidate is awkward to
 express on purpose.
 
-**Declare dependencies, never install or repair them.** No SDK path copies a driver, edits a
-registry key, restarts a device or runs an installer. A missing prerequisite makes one feature
-unavailable and says so.
+**Keep prerequisite policy outside the SDK.** No SDK path installs drivers or companion software. A
+missing prerequisite must produce a truthful unavailable reason. Any device-specific recovery
+belongs to the package; for example, the Claw package can repair its OEM event provider only when
+MSI's own installed support files are present.
 
 **Controllers, Steam and HidHide are not yours.** Canonical input goes out, canonical output comes
 back. Plugins never call the virtual-controller backend, never own WSGM's Steam Input lease and

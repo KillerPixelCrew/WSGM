@@ -9,36 +9,71 @@ using WSGM.Plugin.Sdk;
 
 namespace WSGM.Plugin.Gpu;
 
+/// <summary>Driver-discovered presentation and controls owned by one live native session.</summary>
+/// <param name="Sections">Capability groups to publish through the host.</param>
+/// <param name="Controls">Native control adapters; use only while their session remains alive.</param>
 internal sealed record DriverModel(IReadOnlyList<CapabilitySection> Sections, IReadOnlyList<DriverControl> Controls);
 
+/// <summary>A native driver session accessed exclusively through DriverRuntime's serialized lane.</summary>
 internal interface IDriverSession : IDisposable
 {
     /// <summary>Starts one observation pass or command; the session may load driver state once for it.</summary>
     void BeginPass();
 
+    /// <summary>Discovers the control model for the open driver session.</summary>
+    /// <returns>Sections and adapters whose native resources remain owned by this session.</returns>
     DriverModel Discover();
+
+    /// <summary>Applies one host-owned application profile synchronization request.</summary>
+    /// <param name="sync">Desired profile policy and ownership records.</param>
+    /// <param name="admission">Checked immediately before each native setter.</param>
+    /// <param name="token">Cancels preparatory work; a dispatched write must not be retried.</param>
+    /// <returns>Accepted, rejected or uncertain profile work and retained recovery state.</returns>
     ApplicationProfileSyncResult Sync(ApplicationProfileSync sync, WriteAdmission admission, CancellationToken token);
 }
 
+/// <summary>Classifies a native driver failure for command result and session recovery decisions.</summary>
+/// <param name="message">Diagnostic detail safe for the host log.</param>
+/// <param name="attempted">Whether a write may already have reached the driver.</param>
+/// <param name="lost">Whether the native session is no longer usable.</param>
 internal sealed class DriverFailure(string message, bool attempted = false, bool lost = false) : Exception(message)
 {
+    /// <summary>Whether at least one setter may have reached the driver; false does not classify session health.</summary>
     internal bool Attempted { get; } = attempted;
+    /// <summary>Whether the session is unusable and must retire before reopening.</summary>
     internal bool Lost { get; } = lost;
 }
 
+/// <summary>One driver's capability adapter; policy, serialization and publication remain in DriverRuntime.</summary>
+/// <param name="descriptor">Stable capability identity, range and presentation metadata.</param>
 internal abstract class DriverControl(CapabilityDescriptor descriptor)
 {
+    /// <summary>Stable descriptor used for command validation and host publication.</summary>
     internal CapabilityDescriptor Descriptor { get; } = descriptor;
+    /// <summary>Capability and instance identifiers joined for the session's internal lookup.</summary>
     internal string Key => Descriptor.CapabilityId + "/" + Descriptor.InstanceId;
+    /// <summary>Support-probe cache key; adapters may share a probe result across related controls.</summary>
     internal virtual string SupportKey => Key;
+    /// <summary>Reads the control from its live native session on the runtime's serialized lane.</summary>
+    /// <returns>The observed typed value; failures throw rather than fabricate a known value.</returns>
     internal abstract CapabilityValue Read();
+    /// <summary>Attempts one native setter after checking the supplied write admission.</summary>
+    /// <param name="value">Descriptor-compatible requested value.</param>
+    /// <param name="admission">Deadline/cancellation gate checked immediately before native mutation.</param>
+    /// <remarks>Returning does not independently confirm hardware state; the runtime performs readback separately.</remarks>
     internal abstract void Write(CapabilityValue value, WriteAdmission admission);
 
+    /// <summary>Probes setter support by writing the current value through the native setter.</summary>
+    /// <param name="current">Value just read from this control.</param>
+    /// <param name="admission">Gate checked before the probe write; this operation is not read-only.</param>
     internal virtual void ProbeSupport(CapabilityValue current, WriteAdmission admission)
     {
         Write(current, admission);
     }
 
+    /// <summary>Checks the supported Boolean, choice, or integer command shape against this control's descriptor.</summary>
+    /// <param name="value">Requested value, or null for a descriptor declaring an action.</param>
+    /// <returns>Whether this adapter accepts the shape, range, and step; hardware admission is checked later.</returns>
     internal bool Accepts(CapabilityValue? value)
     {
         if (Descriptor.SupportsAction)
@@ -66,6 +101,8 @@ internal abstract class DriverControl(CapabilityDescriptor descriptor)
 }
 
 /// <summary>Serialized resident driver ownership shared by the AMD and NVIDIA package assemblies.</summary>
+/// <param name="id">Stable common-plugin id.</param>
+/// <param name="open">Opens a session over the host state directory and change logger.</param>
 internal sealed class DriverRuntime(string id, Func<string, Action<string, string>, IDriverSession> open)
     : IPlugin, ICapabilityPlugin
 {
@@ -90,6 +127,7 @@ internal sealed class DriverRuntime(string id, Func<string, Action<string, strin
     private volatile bool _running;
     private IDriverSession? _session;
 
+    /// <inheritdoc />
     public async ValueTask<CapabilityCommandResult> ExecuteCommandAsync(CapabilityCommand command,
         CancellationToken cancellationToken)
     {
@@ -211,6 +249,7 @@ internal sealed class DriverRuntime(string id, Func<string, Action<string, strin
         }
     }
 
+    /// <inheritdoc />
     public async ValueTask<ApplicationProfileSyncResult> SyncApplicationProfilesAsync(ApplicationProfileSync sync,
         CancellationToken cancellationToken)
     {
@@ -242,8 +281,10 @@ internal sealed class DriverRuntime(string id, Func<string, Action<string, strin
         }
     }
 
+    /// <inheritdoc />
     public string Id => id;
 
+    /// <inheritdoc />
     public async ValueTask<PluginHealth> StartAsync(IPluginHost host, PluginContext context,
         CancellationToken cancellationToken)
     {
@@ -292,6 +333,7 @@ internal sealed class DriverRuntime(string id, Func<string, Action<string, strin
         }
     }
 
+    /// <inheritdoc />
     public ValueTask SessionChangedAsync(PluginContext context, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -299,11 +341,13 @@ internal sealed class DriverRuntime(string id, Func<string, Action<string, strin
         return ValueTask.CompletedTask;
     }
 
+    /// <inheritdoc />
     public async ValueTask SuspendAsync(PluginContext context, CancellationToken cancellationToken)
     {
         await StopAsync(context, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <inheritdoc />
     public async ValueTask ResumeAsync(PluginContext context, CancellationToken cancellationToken)
     {
         await StartAsync(_host!, context, cancellationToken).ConfigureAwait(false);
@@ -314,6 +358,9 @@ internal sealed class DriverRuntime(string id, Func<string, Action<string, strin
     ///     When the token ends first, stop reports itself unconfirmed: the retiring task keeps the native lane
     ///     and the DLL until the running driver call returns, then closes them.
     /// </remarks>
+    /// <param name="context">Lifecycle context supplied by the host; retirement does not use it.</param>
+    /// <param name="cancellationToken">Bounds the caller's wait; does not cancel an in-flight native call.</param>
+    /// <returns>True when retirement completed; false when the wait was cancelled and cleanup continues.</returns>
     public async ValueTask<bool> StopAsync(PluginContext context, CancellationToken cancellationToken)
     {
         _running = false;
@@ -330,7 +377,9 @@ internal sealed class DriverRuntime(string id, Func<string, Action<string, strin
         }
     }
 
-    /// <summary>Starts or joins retirement and returns; the host bounds dispose with its own deadline.</summary>
+    /// <summary>Closes runtime admission and schedules native retirement without waiting for it.</summary>
+    /// <returns>An already completed value task; use the stop result to determine whether release was confirmed.</returns>
+    /// <remarks>Outstanding driver calls retain the session and DLL until the retirement task can close them.</remarks>
     public ValueTask DisposeAsync()
     {
         if (_disposed)

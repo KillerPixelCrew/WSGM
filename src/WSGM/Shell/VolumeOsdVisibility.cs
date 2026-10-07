@@ -15,6 +15,7 @@ internal static class VolumeOsdVisibility
     ///     Returns false for confirmed exclusive fullscreen, a locked/not-present session,
     ///     or a failed system query.
     /// </summary>
+    /// <returns>Whether the current successful notification-state query permits the OSD; query failures suppress it.</returns>
     internal static bool CanShow()
     {
         var result = NativeMethods.SHQueryUserNotificationState(out var state);
@@ -40,6 +41,9 @@ internal static class VolumeOsdVisibility
     ///     QUNS_BUSY is deliberately allowed: Steam Big Picture and borderless-fullscreen
     ///     games commonly report it without holding exclusive fullscreen.
     /// </summary>
+    /// <param name="hresult">SHQueryUserNotificationState result; any negative HRESULT suppresses the OSD.</param>
+    /// <param name="state">Raw notification state, meaningful only on success.</param>
+    /// <returns>False for a failed query, not-present session or exclusive Direct3D fullscreen; true for other states, including busy and unknown values.</returns>
     internal static bool AllowsVolumeOsd(int hresult, int state)
     {
         return hresult >= 0 && state is not NativeMethods.QunsNotPresent

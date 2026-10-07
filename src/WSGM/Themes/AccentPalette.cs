@@ -68,6 +68,8 @@ public static class AccentPalette
     ///     RGB) pick an unreadable on-accent foreground — so the applied accent is
     ///     always opaque.
     /// </summary>
+    /// <param name="accent">sRGB accent whose color channels are retained.</param>
+    /// <returns>The same RGB channels with alpha 255.</returns>
     internal static Color ForceOpaque(Color accent)
     {
         return new Color(0xFF, accent.R, accent.G, accent.B);
@@ -78,12 +80,16 @@ public static class AccentPalette
     ///     accent. Black wins when its WCAG contrast ratio against the accent exceeds
     ///     white's, which reduces to relative luminance &gt; 0.1791.
     /// </summary>
+    /// <param name="accent">Accent RGB; alpha does not participate in contrast selection.</param>
+    /// <returns>True above relative luminance 0.1791, otherwise false to prefer white.</returns>
     internal static bool UseBlackForeground(Color accent)
     {
         return RelativeLuminance(accent) > 0.1791;
     }
 
     /// <summary>WCAG relative luminance of an sRGB color (0 = black, 1 = white).</summary>
+    /// <param name="color">sRGB color; alpha is ignored.</param>
+    /// <returns>WCAG relative luminance from zero through one.</returns>
     internal static double RelativeLuminance(Color color)
     {
         return 0.2126 * Linearize(color.R) + 0.7152 * Linearize(color.G) + 0.0722 * Linearize(color.B);

@@ -51,10 +51,10 @@ internal static class SteamChordResetSurface
         "Guide chord reset hook");
 
     /// <summary>Declares the hook's state and its one command.</summary>
-    /// <param name="enabled">Whether the hook may be installed and published.</param>
+    /// <param name="enabled">Whether hook state may be published; patch installation is coordinated separately.</param>
     /// <param name="mirror">The mirror the hook reports to.</param>
     /// <param name="id">Module identity for diagnostics.</param>
-    /// <returns>The module.</returns>
+    /// <returns>A module borrowing its backend and readers; construction does not install its patch.</returns>
     public static ISteamUiModule Module(Func<bool> enabled, SteamGuideChordMirror mirror, string id = "chord-reset")
     {
         ArgumentNullException.ThrowIfNull(mirror);
@@ -88,6 +88,9 @@ internal static class SteamChordResetSurface
     }
 
     /// <summary>Accepts the empty payload the hook sends and nothing else.</summary>
+    /// <param name="payload">Null, undefined or an empty object; any nonempty shape is rejected.</param>
+    /// <param name="value">Always true; the command represents an event with no data.</param>
+    /// <returns>True only when the payload carries no command arguments.</returns>
     internal static bool TryReadReset(JsonElement payload, out bool value)
     {
         value = true;

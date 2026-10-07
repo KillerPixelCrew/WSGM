@@ -8,23 +8,26 @@ verified on the reference MSI Claw. Boot and shell transitions are in
 [boot and shell](boot-and-shell.md); the frame limit itself in [RTSS](rtss.md).
 
 Windows Device Control owns the first reusable CCD display-profile primitives. `DisplayTopology`
-captures active paths in Windows priority order, identifies monitors primarily by device-interface
-path with EDID manufacturer/product fallback, and skips a display whose name cannot be read rather
-than failing the rest. Friendly names and GDI `DISPLAY1` numbering are presentation metadata;
-adapter LUID and target ID are current route coordinates and are refreshed after hotplug.
-Enumeration is read-only. The library has no wait of its own: WSGM's `Shell\DisplayArrivalWaiter.cs`
-is the one display wait, settling on two equal `DisplayLayouts.Observe` fingerprints.
-`DisplayLayouts` holds the editable form: a `DisplayLayout` names each display's placement, mode,
-scaling and advanced colour state by value. `Validate` rematches each saved target to the current
-topology and asks Windows to validate without changing anything. `Apply` snapshots rollback state,
-writes once and takes Windows' acceptance as the result without reading it back; a refused
-application gets one rollback to the snapshot, scaling and colour included. A failed rollback
-reports its own status, never a claim that the prior desktop was restored. Every display write
-(layout, mode, scaling, HDR) shares one gate in the library, and its results are codes and native
-statuses; `Core\DisplayText.cs` words them for Settings, the overlay and the log. A layout output
-with rotation 0 keeps the display's current rotation. The design uses DisplayMagician as behavioral
-reference while the MIT library implementation comes from documented Windows CCD contracts rather
-than copied GPL source.
+captures active paths in Windows priority order, identifies monitors by EDID manufacturer/product
+and serial when available, and skips a display whose name cannot be read rather than failing the
+rest. Friendly names and GDI `DISPLAY1` numbering are presentation metadata; adapter LUID and target
+ID are current route coordinates and are refreshed after hotplug. Enumeration is read-only. The
+library has no wait of its own: WSGM's `Shell\DisplayArrivalWaiter.cs` is the one display wait,
+settling on two equal `DisplayLayouts.Observe` fingerprints. That fingerprint covers target
+identity, availability, active status, placement, dimensions and refresh rate; it does not establish
+that rotation, HDR or scaling has settled. `DisplayTopology` captures topology for observation and
+diagnostics; its public API does not replay a captured native path array. `DisplayLayouts` holds the
+editable form: a `DisplayLayout` names each display's placement, mode, scaling and advanced colour
+state by value. `Validate` rematches each saved target to the current topology and asks Windows to
+validate without changing anything. `Apply` snapshots rollback state, writes once and takes Windows'
+acceptance as the result without reading it back; a refused application gets one rollback to the
+snapshot, scaling and colour included. A failed rollback reports its own status, never a claim that
+the prior desktop was restored. `AlreadyActive` skips the topology write but still applies requested
+HDR and scaling. Every display write (layout, mode, scaling, HDR) shares one gate in the library,
+and its results are codes and native statuses; `Core\DisplayText.cs` words them for Settings, the
+overlay and the log. A layout output with rotation 0 keeps the display's current rotation. The
+design uses DisplayMagician as behavioral reference while the MIT library implementation comes from
+documented Windows CCD contracts rather than copied GPL source.
 
 ## Windows power schemes
 
@@ -235,14 +238,17 @@ Reading the current preset:
   source's assignment with Custom, including PL1, PL2, Windows mode and the firmware scenario when
   the preset includes it. The other source remains unchanged.
 - The open overlay refreshes once per second; QAM refreshes with its regular state publication.
-  Missing or stale observations disable selection instead of guessing a preset.
+  Unavailable, stale or faulted capability states disable selection. An available capability with
+  unknown readback remains commandable; missing observed values prevent a named preset match and
+  therefore show Custom, rather than disabling a supported write.
 - Disabling Device Integration removes the preset choices and leaves the Windows scheme picker.
 
 A failure can leave some underlying values changed. WSGM reports that partial result, stops, and
-does not retry or roll back across Windows and device controls. The plugin's existing per-command
-power rollback remains intact. Preview surfaces cannot apply presets, and closing the overlay
-cancels remaining work and prevents late UI updates. Validation uses fake device/Windows backends
-and emitted dropdown fixtures; it does not change live power settings or a running Steam client.
+does not retry or roll back across Windows and device controls. Device packages retain their own
+temporary-state restoration policy; the first-party packages do not immediately roll back an
+uncertain power command. Preview surfaces cannot apply presets, and closing the overlay cancels
+remaining work and prevents late UI updates. Validation uses fake device/Windows backends and
+emitted dropdown fixtures; it does not change live power settings or a running Steam client.
 
 ## AC and battery assignments
 
@@ -321,6 +327,15 @@ TV exposes no EDID until the switch selects this PC. Settings > Display shows on
 display whether or not it is connected, badges the absent ones, and offers Forget to prune the
 catalog. Discovery runs on a worker and refreshes rows in place without discarding either draft. New
 custom layouts start from the observed arrangement; Game Mode starts at 100% scaling.
+
+EDID serial identity is persisted with each monitor, so driver updates and shuffled Windows routes
+do not create another remembered display. Discovery reads the exact interface's cached registry
+descriptor without activating the monitor. Without a valid serial, the library retains exact-path
+matching. Settings recovers an older catalog entry by EDID model only when exactly one connected
+monitor has that model, at most one retired identity needs recovery, and no conflicting saved serial
+exists. It merges duplicates, retains both drafts and the display-wait selection, and removes
+retired entries on Save. Ambiguous same-model entries stay disconnected rather than being guessed.
+Names, display numbers and connector numbers are never used to choose a replacement.
 
 Connected displays disabled in Windows are queried through their monitor interface's EDID, including
 DisplayID detailed timings for high-refresh and ultrawide modes. Those advertised candidates are
@@ -645,7 +660,7 @@ boolean, and why the offered set comes from the driver's own supported mask rath
 list.
 
 The mode goes through IGCL like every other 3D feature, globally and per game. The Claw's first
-implementation wrote `<adapter>DKeys\Global_AsyncFlipMode` instead, after a 2026-09-10 probe
+implementation wrote `<adapter>\3DKeys\Global_AsyncFlipMode` instead, after a 2026-09-10 probe
 concluded that IGCL could not set the mode: it read "an enable byte and a value of zero" and a write
 changed nothing. The header explains that result. An enum value is one `uint32 EnableType` at the
 start of the value union, so reading it as a flag followed by a value sees the low byte of the mode
@@ -695,3 +710,20 @@ is not journalled and not restored on stop: putting it back would silently undo 
 for. It is the one Intel setting still written to the registry, because IGCL has no call for it, and
 the only one the Intel package publishes as global-only with a restart timing. Only the write is
 verified; the split itself is not.
+
+## Source routes
+
+| Concern                                    | WSGM policy and lifecycle                                                                                                                                                                                             |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Windows scheme, mode and processor policy  | [WindowsPowerPolicy](../src/WSGM/Core/WindowsPowerPolicy.cs), [PowerSchemes](../src/WSGM/Core/PowerSchemes.cs), [WindowsPowerModes](../src/WSGM/Core/WindowsPowerModes.cs)                                            |
+| Device presets and AC/DC assignments       | [DevicePowerPresets](../src/WSGM/Shell/DevicePowerPresets.cs), [DevicePowerAssignments](../src/WSGM/Shell/DevicePowerAssignments.cs), [PowerLimitProjection](../src/WSGM/Shell/PowerLimitProjection.cs)               |
+| Display entry and return                   | [GameModeEntryTransaction](../src/WSGM/Shell/GameModeEntryTransaction.cs), [DesktopReturnSequence](../src/WSGM/Shell/DesktopReturnSequence.cs), [GameModeReturnRecovery](../src/WSGM/Shell/GameModeReturnRecovery.cs) |
+| Connected-display settling and diagnostics | [DisplayArrivalWaiter](../src/WSGM/Shell/DisplayArrivalWaiter.cs), [DisplayLayoutDiagnostics](../src/WSGM/Shell/DisplayLayoutDiagnostics.cs)                                                                          |
+| Resolution, cadence and scaling            | [DisplayResolutionService](../src/WSGM/Core/DisplayResolutionService.cs), [RefreshRatePairingService](../src/WSGM/Core/RefreshRatePairingService.cs), [DisplayScale](../src/WSGM/Core/DisplayScale.cs)                |
+| Audio profile capture/apply                | [AudioProfileService](../src/WSGM/Shell/AudioProfileService.cs)                                                                                                                                                       |
+| Session display signals and download mute  | [ShellDisplaySignals](../src/WSGM/Shell/ShellDisplaySignals.cs), [DisplayPowerSignal](../src/WSGM/Shell/DisplayPowerSignal.cs), [DisplayOffMuteService](../src/WSGM/Shell/DisplayOffMuteService.cs)                   |
+| Keep awake and timeout choices             | [KeepAwakeService](../src/WSGM/Shell/KeepAwakeService.cs), [WakeLock](../src/WSGM/Core/WakeLock.cs), [DisplayTimeouts](../src/WSGM/Shell/DisplayTimeouts.cs)                                                          |
+
+Reusable Windows calls and their result contracts are documented in the
+[Windows Device Control reference](../external/windows-device-control/README.md). GPU-specific
+controls belong to the [graphics packages](plugin-system.md#graphics-packages-wsgmgpu).

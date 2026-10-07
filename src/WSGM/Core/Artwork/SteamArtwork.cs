@@ -34,6 +34,10 @@ internal static class SteamArtwork
     //   Logo             <id>_logo.<ext>  Wide  <id>.<ext>   Icon  <id>_icon.<ext>
     private static readonly string[] GridExtensions = ["png", "jpg", "jpeg", "webp", "ico"];
 
+    /// <summary>Builds Steam's unsigned app-id filename stem for a custom artwork slot.</summary>
+    /// <param name="appId">Normalized unsigned app or shortcut id.</param>
+    /// <param name="asset">Artwork slot.</param>
+    /// <returns>The basename without a file extension.</returns>
     internal static string GridStem(uint appId, ArtworkAsset asset)
     {
         var id = appId.ToString(CultureInfo.InvariantCulture);
@@ -239,6 +243,7 @@ internal static class SteamArtwork
     /// <param name="appId">The Steam app id.</param>
     /// <param name="asset">Which slot.</param>
     /// <param name="cancellationToken">Cancels the operation.</param>
+    /// <returns>The accepted reset result or an explained failure; cancellation propagates.</returns>
     public static async Task<ArtworkResult> ClearAsync(
         SteamClient steam, long appId, ArtworkAsset asset, CancellationToken cancellationToken = default)
     {
@@ -274,6 +279,7 @@ internal static class SteamArtwork
     /// </summary>
     /// <param name="appId">The Steam app id (signed shortcut ids accepted).</param>
     /// <param name="asset">Which slot.</param>
+    /// <returns>The newest matching custom file, the store icon cache path for a Steam title, or null when unavailable.</returns>
     public static string? FindCustomArtFile(long appId, ArtworkAsset asset)
     {
         try

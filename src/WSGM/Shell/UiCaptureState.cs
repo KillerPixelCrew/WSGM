@@ -5,7 +5,7 @@ using WSGM.Device.Sdk.Input;
 
 namespace WSGM.Shell;
 
-/// <summary>Reference-counted controller capture for WSGM's visible surfaces.</summary>
+/// <summary>Tracks one controller-capture claim per visible surface. Access must be serialized by the caller.</summary>
 internal sealed class UiCaptureState
 {
     private readonly HashSet<string> _surfaces = new(StringComparer.Ordinal);
@@ -16,6 +16,8 @@ internal sealed class UiCaptureState
 
     /// <summary>Claims capture and remembers controls held before the first surface opened.</summary>
     /// <returns><see langword="true" /> when this claim started capture.</returns>
+    /// <param name="surfaceId">Unique surface identity; duplicate claims do not increase the count.</param>
+    /// <param name="heldAtOpen">Buttons held when the first surface opens, withheld until released.</param>
     internal bool Claim(string surfaceId, CanonicalButtons heldAtOpen)
     {
         var wasCaptured = IsCaptured;
@@ -37,6 +39,8 @@ internal sealed class UiCaptureState
     }
 
     /// <summary>Releases a claim and reports whether the last known surface closed.</summary>
+    /// <param name="surfaceId">Identity used by Claim; unknown identities are ignored.</param>
+    /// <returns>True only when a known claim was removed and no surfaces remain.</returns>
     internal bool Release(string surfaceId)
     {
         if (_surfaces.Remove(surfaceId))
@@ -55,6 +59,8 @@ internal sealed class UiCaptureState
     ///     While a surface holds capture, and afterwards until every control the UI was still using has
     ///     been observed up, so the game never sees a press whose start it did not see.
     /// </remarks>
+    /// <param name="buttons">Current buttons; this call updates the remembered release mask.</param>
+    /// <returns>True while capture is held or a button held at release is still down.</returns>
     internal bool Withholds(CanonicalButtons buttons)
     {
         if (IsCaptured)

@@ -7,28 +7,13 @@ using WSGM.Interop;
 
 namespace WSGM.Shell;
 
-/// <summary>
-///     Hosts the system tray in game mode by owning a top-level window whose
-///     class is literally named "Shell_TrayWnd" — Shell_NotifyIcon locates the tray
-///     via FindWindow on that class and delivers requests as WM_COPYDATA (the
-///     mechanism every replacement shell uses; see TrayProtocol for the wire format).
-///     Without this window there is NO tray in game mode: explorer isn't running, so
-///     apps that close to the tray silently lose their icon.
-///     Lifecycle contract (device-verified coexistence risk): explorer's taskbar
-///     creates its own Shell_TrayWnd, and shell32 routes ALL tray traffic to
-///     whichever one FindWindow sees first — two live hosts fight over Z-order
-///     (ManagedShell needs a 100 ms polling war). WSGM therefore NEVER coexists:
-///     this host is destroyed BEFORE explorer starts (SessionModes.DesktopModeStarting)
-///     and recreated after game mode kills explorer (SessionModes.GameModeEntered).
-///     Created once per game-mode span and kept alive throughout — apps whose tray
-///     window is message-only never receive the TaskbarCreated broadcast, so a host
-///     restart would lose their icons permanently.
-///     Elevation gate: WSGM usually runs elevated (High IL) while most tray apps are
-///     Medium IL, and UIPI silently drops WM_COPYDATA sent upward — without an
-///     explicit ChangeWindowMessageFilterEx(MSGFLT_ALLOW) no ordinary app could ever
-///     register. No shipped replacement shell runs elevated, so this exact gate is
-///     WSGM-specific and device-verification-critical (hence the logging).
-/// </summary>
+/// <summary>Hosts game-mode tray icons through a Shell_TrayWnd window and WM_COPYDATA.</summary>
+/// <remarks>
+///     UI-thread owner. Destroy the host before Explorer starts and recreate it only after Explorer exits:
+///     shell32 routes tray traffic to the first matching window. Keep one host throughout a game-mode span
+///     because message-only clients do not receive TaskbarCreated and cannot re-register after a restart.
+///     Elevated hosts must allow WM_COPYDATA through UIPI for ordinary applications to register icons.
+/// </remarks>
 public sealed unsafe class TrayHost : IDisposable
 {
     private const string TrayClassName = "Shell_TrayWnd";
@@ -132,6 +117,7 @@ public sealed unsafe class TrayHost : IDisposable
     ///     thread (its message pump services the WndProc) and only while explorer is
     ///     NOT running. Returns null when a host already exists or creation fails.
     /// </summary>
+    /// <returns>The caller-owned tray host, or null if a host already exists, Explorer owns the desktop shell, or creation fails.</returns>
     public static TrayHost? Create()
     {
         Dispatcher.UIThread.VerifyAccess();
@@ -143,10 +129,7 @@ public sealed unsafe class TrayHost : IDisposable
 
         if (ExplorerControl.IsDesktopShellRunning())
         {
-            // Explorer's own Shell_TrayWnd is live; competing means a Z-order war (see class
-            // doc). Refuse loudly instead. Only the desktop shell counts: a folder window or the
-            // retired shell process still winding down after its taskbar is gone owns no
-            // Shell_TrayWnd, and refusing on it failed every return to Game Mode (2026-09-25).
+            // Only the desktop shell owns Shell_TrayWnd; folder windows and a retiring process do not.
             Log.Warn("Tray host not created: Explorer's desktop shell is running in this session.");
             return null;
         }

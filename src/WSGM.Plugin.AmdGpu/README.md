@@ -61,3 +61,19 @@ inventory and no hardware scenario or GPU test suite was executed. The curated s
 `blind`. PROVENANCE.md records sources, ABI details and the hardware acceptance still required by
 issue #179. Regression sources cover one-byte booleans, pointer-sized display IDs, reference
 lifetime, driver-loss invalidation and signed range/step behavior.
+
+## Source map
+
+[AmdGpuPlugin](AmdGpuPlugin.cs) binds the common interfaces to the shared
+[DriverRuntime](../Shared/Gpu/DriverRuntime.cs). The shared runtime owns generations, observation,
+support probes, command serialization and driver-loss recovery;
+[WriteAdmission](../Shared/Gpu/WriteAdmission.cs) rechecks the cancellation/deadline boundary
+immediately before a setter.
+
+[AdlxNative](AdlxNative.cs) defines the native ABI and interface invocation;
+[AdlxSession](AdlxSession.cs) owns library/interface lifetime and GPU/display discovery;
+[AdlxSession.Graphics](AdlxSession.Graphics.cs) builds GPU-wide 3D controls;
+[AdlxSession.Display](AdlxSession.Display.cs) builds display controls and preserves unedited fields;
+[AdlDitherApi](AdlDitherApi.cs) isolates the optional ADL bridge. Match ABI changes against
+[PROVENANCE.md](PROVENANCE.md) and the pinned headers. A successful compile does not establish a new
+driver or hardware pass.

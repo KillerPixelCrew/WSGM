@@ -460,6 +460,11 @@ public partial class OverlayWindow
     }
 
     /// <summary>Keeps the first restoration record, unwrapping a manually configured launch fix when needed.</summary>
+    /// <param name="appId">Steam application or shortcut identity.</param>
+    /// <param name="isShortcut">Whether the target is a non-Steam shortcut.</param>
+    /// <param name="details">Current Steam launch fields read for this target.</param>
+    /// <param name="existing">Previously owned launch snapshot, if any.</param>
+    /// <returns>A launch snapshot when a safe unwrapped baseline is available, otherwise null.</returns>
     internal static LaunchWrapperConfig? CaptureLaunchSnapshot(long appId, bool isShortcut, SteamAppDetails details,
         LaunchWrapperConfig? existing)
     {

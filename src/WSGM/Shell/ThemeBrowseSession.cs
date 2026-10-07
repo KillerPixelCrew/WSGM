@@ -38,9 +38,12 @@ internal sealed class ThemeBrowseSession : IThemeBrowseSession
         owner.Changed += Publish;
     }
 
+    /// <inheritdoc />
     public string Tab { get; set; } = "installed";
+    /// <inheritdoc />
     public event Action? Changed;
 
+    /// <inheritdoc />
     public void Dispose()
     {
         _owner.Changed -= Publish;
@@ -50,6 +53,7 @@ internal sealed class ThemeBrowseSession : IThemeBrowseSession
         _detailWork?.Dispose();
     }
 
+    /// <inheritdoc />
     public SteamThemesState ReadState()
     {
         var shared = _owner.ReadState();
@@ -80,6 +84,7 @@ internal sealed class ThemeBrowseSession : IThemeBrowseSession
         }
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> BrowseAsync(string filter, string order, string search, CancellationToken token)
     {
         lock (_gate)
@@ -93,6 +98,7 @@ internal sealed class ThemeBrowseSession : IThemeBrowseSession
         return Fetch(false);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> LoadMoreAsync(CancellationToken token)
     {
         lock (_gate)
@@ -108,6 +114,7 @@ internal sealed class ThemeBrowseSession : IThemeBrowseSession
         return Fetch(true);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> OpenAsync(string id, CancellationToken token)
     {
         CancellationToken cancellation;
@@ -166,6 +173,7 @@ internal sealed class ThemeBrowseSession : IThemeBrowseSession
         }
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> CloseDetailAsync(CancellationToken token)
     {
         lock (_gate)
@@ -179,6 +187,7 @@ internal sealed class ThemeBrowseSession : IThemeBrowseSession
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
+    /// <inheritdoc />
     public void CancelQueries()
     {
         lock (_gate)
@@ -191,6 +200,7 @@ internal sealed class ThemeBrowseSession : IThemeBrowseSession
         }
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> SetTabAsync(string tab, CancellationToken cancellationToken)
     {
         Tab = tab;
@@ -198,79 +208,94 @@ internal sealed class ThemeBrowseSession : IThemeBrowseSession
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> InstallAsync(string id, CancellationToken cancellationToken)
     {
         return _owner.InstallAsync(id, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> UpdateAsync(string name, CancellationToken cancellationToken)
     {
         return _owner.UpdateAsync(name, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> UpdateAllAsync(CancellationToken cancellationToken)
     {
         return _owner.UpdateAllAsync(cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> DeleteAsync(string name, CancellationToken cancellationToken)
     {
         return _owner.DeleteAsync(name, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> SetEnabledAsync(string name, bool enabled, CancellationToken cancellationToken)
     {
         return _owner.SetEnabledAsync(name, enabled, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> SetPatchAsync(string theme, string patch, string value,
         CancellationToken cancellationToken)
     {
         return _owner.SetPatchAsync(theme, patch, value, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> SetComponentAsync(string theme, string patch, string component, string value,
         CancellationToken cancellationToken)
     {
         return _owner.SetComponentAsync(theme, patch, component, value, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> SetProfileAsync(string name, CancellationToken cancellationToken)
     {
         return _owner.SetProfileAsync(name, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> CreateProfileAsync(string name, CancellationToken cancellationToken)
     {
         return _owner.CreateProfileAsync(name, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> RefreshAsync(CancellationToken cancellationToken)
     {
         return _owner.RefreshAsync(cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> SetHiddenAsync(string name, bool hidden, CancellationToken cancellationToken)
     {
         return _owner.SetHiddenAsync(name, hidden, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> DismissAsync(CancellationToken cancellationToken)
     {
         return _owner.DismissAsync(cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> SetSettingAsync(string key, JsonElement value,
         CancellationToken cancellationToken)
     {
         return _owner.SetSettingAsync(key, value, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> SetThemesEnabledAsync(bool enabled, CancellationToken cancellationToken)
     {
         return _owner.SetThemesEnabledAsync(enabled, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> SetTranslationsBranchAsync(string branch, CancellationToken cancellationToken)
     {
         return _owner.SetTranslationsBranchAsync(branch, cancellationToken);

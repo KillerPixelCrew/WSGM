@@ -1,3 +1,9 @@
+/**
+ * @file
+ * Protocol-2 USB/TCP endpoint for bounded IR capture and emission on the XIAO IR Mate.
+ * The main loop owns learning, sequence progression, network clients and feedback timers.
+ * A transmission reply confirms emission only; it cannot verify appliance state.
+ */
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <string>
@@ -74,6 +80,7 @@ char hostname[24];
 uint32_t learningDeadline = 0, feedbackDeadline = 0, clientActivity = 0;
 bool touchWasDown = false, mdnsStarted = false, feedbackActive = false;
 
+/** Starts or extends motor/LED feedback; duration is milliseconds on the wrap-safe millis clock. */
 void feedback(uint32_t duration)
 {
     led.setPixelColor(0, led.Color(0, 0, 32));
@@ -84,6 +91,13 @@ void feedback(uint32_t duration)
     feedbackActive = true;
 }
 
+/**
+ * Writes one newline-terminated protocol reply synchronously.
+ * @param out Borrowed request channel; no ownership transfer.
+ * @param id Exact request identity, or empty when the request identity could not be parsed.
+ * @param status Protocol outcome; success does not imply appliance readback.
+ * @param payload Optional data copied into the reply before this call returns.
+ */
 void reply(Print& out, const String& id, const char* status, JsonDocument* payload = nullptr)
 {
     JsonDocument message;
@@ -136,7 +150,14 @@ bool parseState(const char* hex, uint8_t* state, size_t& length)
     return true;
 }
 
-// Send paths return a protocol status so requests, web presses and sequences share one implementation.
+/**
+ * Validates and synchronously emits a raw mark/space envelope.
+ * @param payload carrierHz is 20,000..60,000; timingsUs contains 2..1,024 durations of 1..65,535 us.
+ * @param repeats Additional transmissions, 0..4.
+ * @param gap Inter-transmission delay in milliseconds, 0..200.
+ * @return A static protocol status. Validation failures emit nothing; transmitted confirms emission only.
+ * One envelope is at most two seconds; all repeats and gaps are at most five seconds.
+ */
 const char* sendRaw(JsonVariantConst payload, int repeats, int gap)
 {
     JsonArrayConst timings = payload["timingsUs"].as<JsonArrayConst>();
@@ -398,8 +419,13 @@ void describe(JsonDocument& data)
     data["sequenceRunning"] = sequence.active;
 }
 
-// Answers one chunk of the catalog text. Chunks hold at most CatalogChunkBytes and end on a UTF-8
-// boundary, so each is valid text; the host joins all of them in order and parses the result.
+/**
+ * Copies one UTF-8-safe catalog slice into the response document without emitting IR.
+ * @param requested Zero-based chunk index; null selects zero.
+ * @param data Receives chunk, index and total count on success.
+ * @return ok, or invalid-chunk without a usable response slice.
+ * Each slice is at most CatalogChunkBytes before JSON escaping; join all slices before parsing.
+ */
 const char* catalogChunk(JsonVariantConst requested, JsonDocument& data)
 {
     if (!requested.isNull() && !requested.is<uint32_t>()) return "invalid-chunk";
@@ -448,6 +474,12 @@ bool storeSettings(const char* const keys[], const String values[], size_t lengt
     return saved;
 }
 
+/**
+ * Validates one complete request's envelope, protocol and channel authorization, then executes it once.
+ * @param channel Borrowed reply channel; learning retains its stream until completion or cancellation.
+ * @param line One bounded JSON frame without its newline.
+ * USB possession admits credential updates; TCP requires the pairing token except for identify.
+ */
 void dispatch(Channel& channel, const String& line)
 {
     Print& out = channel.stream;
@@ -843,6 +875,7 @@ void setup()
     connectWifi();
 }
 
+/** Services bounded input turns, sequence deadlines, learning and feedback; never retries an emission. */
 void loop()
 {
     pump(usb);

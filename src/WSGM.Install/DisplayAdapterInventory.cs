@@ -25,6 +25,7 @@ public static partial class DisplayAdapterInventory
     private const int Success = 0;
 
     /// <summary>Lists present PCI display adapters, or an empty list when Windows cannot answer.</summary>
+    /// <returns>Adapters with parseable PCI vendor and device ids; virtual or malformed entries are omitted.</returns>
     public static IReadOnlyList<DisplayAdapterIdentity> Collect()
     {
         const uint flags = FilterClass | FilterPresent;
@@ -45,6 +46,7 @@ public static partial class DisplayAdapterInventory
     /// <summary>Whether any present adapter carries one of the vendor ids.</summary>
     /// <param name="adapters">Present adapters.</param>
     /// <param name="vendorIds">Four-digit hexadecimal PCI vendor ids.</param>
+    /// <returns>Whether any adapter matches a supplied vendor, using a case-insensitive comparison.</returns>
     public static bool AnyVendor(IReadOnlyList<DisplayAdapterIdentity> adapters, IEnumerable<string> vendorIds)
     {
         ArgumentNullException.ThrowIfNull(adapters);
@@ -65,6 +67,7 @@ public static partial class DisplayAdapterInventory
 
     /// <summary>Parses a double-null-terminated instance id list.</summary>
     /// <param name="multiString">Instance ids separated by NUL characters.</param>
+    /// <returns>Only entries carrying parseable PCI vendor and device ids.</returns>
     internal static IReadOnlyList<DisplayAdapterIdentity> Parse(string multiString)
     {
         var adapters = new List<DisplayAdapterIdentity>();

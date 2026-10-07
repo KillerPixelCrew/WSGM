@@ -667,6 +667,8 @@ public sealed class AudioManager : ObservableObject, IDisposable
     ///     Reconciles endpoint rows in place so a periodic refresh does not
     ///     destroy an open combo box or its focused item.
     /// </summary>
+    /// <param name="entries">UI-owned rows to update in place; retained endpoints keep their row instances and order.</param>
+    /// <param name="fresh">Current endpoints; missing rows are removed and new IDs appended in snapshot order.</param>
     internal static void Reconcile(
         ObservableCollection<AudioEndpointEntry> entries,
         IReadOnlyList<CoreAudio.AudioEndpoint> fresh)
@@ -914,12 +916,15 @@ public sealed class AudioManager : ObservableObject, IDisposable
         private int _completed;
 
         /// <summary>Claims the next revision for a new selection.</summary>
+        /// <returns>The revision to carry through this selection's write and completion.</returns>
         internal int Begin()
         {
             return Interlocked.Increment(ref _requested);
         }
 
         /// <summary>Whether this revision is still the newest selection.</summary>
+        /// <param name="revision">Revision returned by <see cref="Begin" /> for the write being checked.</param>
+        /// <returns>True if no later selection has been requested; completion does not retire the revision.</returns>
         internal bool IsCurrent(int revision)
         {
             return revision == Volatile.Read(ref _requested);
@@ -936,6 +941,7 @@ public sealed class AudioManager : ObservableObject, IDisposable
         ///     Records this revision's write as finished. A stale revision is
         ///     ignored: the newer selection it lost to is still pending.
         /// </summary>
+        /// <param name="revision">Revision whose write settled; an older revision cannot clear a newer pending selection.</param>
         internal void Complete(int revision)
         {
             if (IsCurrent(revision))

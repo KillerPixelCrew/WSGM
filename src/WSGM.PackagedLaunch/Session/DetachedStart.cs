@@ -44,6 +44,7 @@ internal sealed class StartedLauncher : IDisposable
     }
 
     /// <summary>The program's exit code once it has exited, or null while it runs or when unreadable.</summary>
+    /// <returns>The retained process handle's exit code, or null while active or unreadable.</returns>
     internal int? ExitCode()
     {
         return NativeMethods.GetExitCodeProcess(_handle, out var code) && code != StillActive

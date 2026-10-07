@@ -97,6 +97,7 @@ internal sealed class CardAcfWatcher : IDisposable
     /// <param name="store">The configuration store the card libraries are read from.</param>
     /// <param name="steam">The session's Steam client the tab syncs run through.</param>
     /// <param name="readiness">The session's Steam UI readiness, which a sync waits on.</param>
+    /// <returns>A running watcher owned by the caller; dispose before the borrowed message window and Steam services.</returns>
     internal static CardAcfWatcher StartNew(
         MessageWindow window, ConfigStore store, SteamClient steam, SteamUiReadiness readiness)
     {
@@ -110,6 +111,7 @@ internal sealed class CardAcfWatcher : IDisposable
     ///     reconciler from re-opening one until the returned scope is disposed. Cards that
     ///     remain mounted are re-watched when the last scope ends.
     /// </summary>
+    /// <returns>An independent suspension scope. Dispose it after eject or format; watching resumes after the last scope ends.</returns>
     internal IDisposable Suspend()
     {
         lock (_gate)

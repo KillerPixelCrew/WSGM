@@ -26,9 +26,13 @@ public static class PluginManifestReader
     ///     and capabilities. Display adapter vendor ids come back uppercase.
     /// </summary>
     /// <param name="json">UTF-8 manifest bytes.</param>
-    /// <param name="manifest">Validated manifest, or null.</param>
-    /// <param name="errors">Reasons for rejection.</param>
-    /// <returns>Whether metadata is admissible; this does not establish code trust.</returns>
+    /// <param name="manifest">Validated metadata on true; null on every false result.</param>
+    /// <param name="errors">Empty on success; human-readable rejection reasons on failure.</param>
+    /// <returns>True for compatible metadata; false for malformed, oversized, unknown-member or invalid JSON.</returns>
+    /// <remarks>
+    ///     Applies <see cref="ManifestLimits.MaxDocumentBytes" /> and <see cref="ManifestLimits.MaxDepth" />.
+    ///     Does not inspect package files, load assemblies, resolve dependencies or establish code trust.
+    /// </remarks>
     public static bool TryRead(ReadOnlySpan<byte> json, out PluginManifest? manifest, out IReadOnlyList<string> errors)
     {
         manifest = null;

@@ -1,9 +1,19 @@
 # Steam CEF diagnostic map
 
+## Attachment prerequisite
+
+Before any debugger/CDP/MCP connection or target listing, confirm from the current Steam run's logs
+that Steam and Big Picture have fully started. An early connection can hang the entire UI and leave
+Steam requiring force-close; it does not authorize that recovery. Begin with disk logs and offline
+source. Missing or inconclusive readiness evidence means remain disconnected. Follow
+[live-tools.md](live-tools.md) for the ordered log, listener and target preflight.
+
 ## Capture the affected run
 
 Find the active WSGM log root from current configuration or code; do not assume an old machine path.
-Then narrow by timestamp and high-signal lines instead of dumping every log:
+Read the current Steam installation's `logs/cef_log.txt` and `logs/webhelper_js.txt` as well; record
+affirmative completed-start evidence for Steam and Big Picture before any CEF connection. Then
+narrow WSGM records by timestamp and high-signal lines instead of dumping every log:
 
 ```powershell
 $wsgmLogRoot = '<confirmed log directory>'
@@ -15,17 +25,17 @@ nothing about the failing run.
 
 ## Walk layers in order
 
-| Layer                    | Evidence that should exist                                                                         | If it does not                                                                  |
-| ------------------------ | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| 1. Policy and lifecycle  | `Cef.Enabled`, feature policy, game/desktop mode, transition state                                 | Explain which gate is intentionally closed before debugging JavaScript          |
-| 2. Big Picture readiness | `Big Picture window detected` before transport-open in game mode                                   | Investigate `SteamUiReadiness`, window detection, or transition ordering        |
-| 3. CDP discovery         | listener owned by Steam; `/json/list` has SharedJSContext and, for visible work, shaped MainWindow | Separate flag/cold-start failure from wrong target selection                    |
-| 4. Transport generation  | one open persistent transport, attached session, no stale-generation completion                    | Investigate reconnect, cancellation, or duplicate attachment                    |
-| 5. Patch lifecycle       | patch probe, apply, verify in order; no timeout or removal after failed verify                     | Inspect fingerprint, dependency, ownership marker, and exact phase failure      |
-| 6. Bridge contract       | publication accepted; no `steam.ui.bridge.rejected`; sequence and generation current               | Compare emitted JSON with registered vocabulary and built validators            |
-| 7. State projection      | non-null valid state and expected availability                                                     | Inspect backend/provider before render code; `null` publishes nothing           |
-| 8. Render surface        | gate installed, Valve component uniquely found, row/tab/badge placed                               | Inspect literal token drift, cached availability, placement, and visible target |
-| 9. Command path          | request, routed command, backend refusal/success, response, refreshed publication                  | Preserve refusal; do not retry an uncertain write automatically                 |
+| Layer                    | Evidence that should exist                                                           | If it does not                                                                  |
+| ------------------------ | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| 1. Policy and lifecycle  | `Cef.Enabled`, feature policy, game/desktop mode, transition state                   | Explain which gate is intentionally closed before debugging JavaScript          |
+| 2. Big Picture readiness | Current Steam logs confirm full startup; WSGM window/gate records corroborate        | Investigate `SteamUiReadiness`, window detection, or transition ordering        |
+| 3. CDP discovery         | Only after log confirmation: Steam-owned listener and unique shaped targets          | Separate flag/cold-start failure from wrong target selection                    |
+| 4. Transport generation  | one open persistent transport, attached session, no stale-generation completion      | Investigate reconnect, cancellation, or duplicate attachment                    |
+| 5. Patch lifecycle       | patch probe, apply, verify in order; no timeout or removal after failed verify       | Inspect fingerprint, bridge readiness, ownership marker and exact phase failure |
+| 6. Bridge contract       | publication accepted; no `steam.ui.bridge.rejected`; sequence and generation current | Compare emitted JSON with registered vocabulary and built validators            |
+| 7. State projection      | non-null valid state and expected availability                                       | Inspect backend/provider before render code; `null` publishes nothing           |
+| 8. Render surface        | gate installed, Valve component uniquely found, row/tab/badge placed                 | Inspect literal token drift, cached availability, placement, and visible target |
+| 9. Command path          | request, routed command, backend refusal/success, response, refreshed publication    | Preserve refusal; do not retry an uncertain write automatically                 |
 
 Healthy game-mode cold boot evidence is ordered:
 
@@ -38,27 +48,29 @@ steam.ui.patch.<id> ... Verified
 
 Patch work before the readiness line points to a transport-gate regression, not a missing row token.
 
-For desktop cold starts, distinguish the enabled transport policy from actual attachment: toolkit
-discovery requires a validated MainWindow, not a login popup. The 2026-09-05 failure and whole-path
-audit are recorded in `docs/steam-cef.md`, "Desktop cold start login failure, 2026-09-05". A
-missing-factory `reading 'call'` followed by missing exports can mean an early module load poisoned
-webpack's cache, even if its source is present by the time of inspection. Do not retry the module to
-investigate that state.
+For production desktop cold starts, distinguish enabled transport policy from actual attachment. The
+stricter attended debugging rule still requires Steam-log confirmation for both Steam and Big
+Picture; the runtime itself has no Steam-log parser. Toolkit discovery requires a validated
+MainWindow, not a login popup. The 2026-09-05 failure and whole-path audit are recorded in
+`docs/steam-cef.md`, "Desktop cold start login failure, 2026-09-05". A missing-factory
+`reading 'call'` followed by missing exports can mean an early module load poisoned webpack's cache,
+even if its source is present by the time of inspection. Do not retry the module to investigate that
+state.
 
 ## Symptom routing
 
-| Symptom                                        | First checks                                                        | Common causes                                                                          |
-| ---------------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Startup hangs or headless Steam                | readiness and transport-open ordering                               | attaching to SharedJSContext before the `SDL_app` Big Picture window                   |
-| All injected surfaces absent                   | policy, transport, session generation, bridge install               | master disabled, transition pending, wrong target, stale generation                    |
-| One QAM row absent                             | patch status, publication validation, render/data gates             | token drift, closed vocabulary rejection, cached availability                          |
-| Row disappears after a change                  | exact backend outcome, projected publication, and normalizer result | enum removed by projection, value outside validator bookends, missing required field   |
-| Row renders but write fails                    | request/action generation, backend refusal, response publication    | stale action, unsupported capability, uncertain device state                           |
-| Custom tabs appear only after sidebar activity | boot tab-sync completion and retry evidence                         | badge success incorrectly treated as tab success; store not ready                      |
-| Card badge missing                             | visible shaped MainWindow and hero-image signal                     | evaluating the headless context, matching only `library_hero`, stale app signal        |
-| Download order wrong                           | parser includes index 0, scheduled/unqueued handling, pause state   | skipped first item, incomplete requeue, sort resuming a paused item                    |
-| Glyph wrong or absent                          | selected glyph policy and parsed stylesheet evidence                | probing current DOM instead of stylesheet, feature gate disabled                       |
-| Library registration wrong                     | serialized JSON, path identity, stable folder id                    | bad escaping, treating `nFolderIndex` as array index, rejecting allowed duplicate path |
+| Symptom                                        | First checks                                                                                   | Common causes                                                                                                       |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Startup hangs or headless Steam                | readiness and transport-open ordering                                                          | attaching to SharedJSContext before the `SDL_app` Big Picture window                                                |
+| All injected surfaces absent                   | policy, transport, session generation, bridge install                                          | master disabled, transition pending, wrong target, stale generation                                                 |
+| One QAM row absent                             | patch status, publication validation, render/data gates                                        | token drift, closed vocabulary rejection, cached availability                                                       |
+| Row disappears after a change                  | exact backend outcome, projected publication, and normalizer result                            | enum removed by projection, value outside validator bookends, missing required field                                |
+| Row renders but write fails                    | request/action generation, backend refusal, response publication                               | stale action, unsupported capability, uncertain device state                                                        |
+| Custom tabs appear only after sidebar activity | boot tab-sync completion and retry evidence                                                    | badge success incorrectly treated as tab success; store not ready                                                   |
+| Card badge missing                             | SharedJSContext badge/details patch status, current library publication and native tile anchor | incompatible tile/JSX shape, absent anchor, stale library reading; current-game DOM detection is a separate feature |
+| Download order wrong                           | parser includes index 0, scheduled/unqueued handling, pause state                              | skipped first item, incomplete requeue, sort resuming a paused item                                                 |
+| Glyph wrong or absent                          | selected glyph policy and parsed stylesheet evidence                                           | probing current DOM instead of stylesheet, feature gate disabled                                                    |
+| Library registration wrong                     | serialized JSON, path identity, stable folder id                                               | bad escaping, treating `nFolderIndex` as array index, rejecting allowed duplicate path                              |
 
 ## Contract traps already paid for
 
@@ -83,8 +95,11 @@ authorization failures, not a state payload that the client accepted and then no
 
 ## Narrow offline checks
 
-These avoid live Steam and device mutation, but they are not filesystem-read-only: builds and tests
-write ordinary artifacts, and asset checks may create and remove temporary generated files.
+Asset drift/build checks may run before manual acceptance. Automated .NET tests, emitted-asset
+claims and test-bearing gates wait for the maintainer's manual pass unless explicitly requested
+sooner, under root AGENTS.md. The commands below are a menu, not permission to run all of them. They
+avoid live Steam and device mutation, but are not filesystem-read-only: builds and tests write
+ordinary artifacts, and asset checks may create and remove temporary generated files.
 
 ```powershell
 npm run steam-assets:check

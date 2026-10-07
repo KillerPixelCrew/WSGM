@@ -11,6 +11,7 @@ namespace WSGM.DeviceLab.Transports;
 internal interface ILabCuratedInitWorker : IDisposable
 {
     /// <summary>Reads the mode before a change, or null for an unreadable button table.</summary>
+    /// <returns>The recognized original mode, or null without a plan, readable mode or mode-based mechanism.</returns>
     [LabWorkerSnapshot]
     int? Original();
 
@@ -18,10 +19,12 @@ internal interface ILabCuratedInitWorker : IDisposable
     /// <param name="cancellationToken">
     ///     Ends the wait for the controller to come back; a command already sent stays sent and is not retried.
     /// </param>
+    /// <returns>Command and re-enumeration evidence with any problem; an already-selected mode needs no write.</returns>
     [LabWorkerWrite]
     LabInitResult Send(CancellationToken cancellationToken);
 
     /// <summary>Reads the current mode after sleep.</summary>
+    /// <returns>The recognized mode, or null when the plan has no readable mode; throws if no plan was opened.</returns>
     int? CurrentMode();
 
     /// <summary>

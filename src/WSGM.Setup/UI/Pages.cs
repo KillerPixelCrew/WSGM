@@ -34,6 +34,7 @@ internal abstract class Observable : INotifyPropertyChanged
 }
 
 /// <summary>A command that runs an action.</summary>
+/// <param name="execute">Action invoked synchronously on the caller's thread; the command is always enabled and ignores its parameter.</param>
 internal sealed class Command(Action execute) : ICommand
 {
     public event EventHandler? CanExecuteChanged
@@ -90,6 +91,10 @@ internal enum CloseBehaviour
 }
 
 /// <summary>A page that only explains something: a refusal or a check in progress.</summary>
+/// <param name="eyebrow">Context label above the heading.</param>
+/// <param name="title">Page heading.</param>
+/// <param name="lead">Explanatory text; empty hides the lead area.</param>
+/// <param name="primary">Primary button label; empty hides the button. The page permits window close.</param>
 internal sealed class MessagePage(string eyebrow, string title, string lead, string primary = "Close") : Page
 {
     public override string Eyebrow { get; } = eyebrow;
@@ -162,6 +167,7 @@ internal sealed class MaintainPage(Version version, Action repair, Action uninst
 }
 
 /// <summary>One device plugin that matches this machine.</summary>
+/// <param name="offer">Hardware-matched plugin and evidence used for labels; selection initially remains false.</param>
 internal sealed class CandidateOption(PluginOffer offer) : Observable
 {
     private bool _selected;
@@ -185,6 +191,8 @@ internal sealed class CandidateOption(PluginOffer offer) : Observable
 }
 
 /// <summary>One common or graphics plugin setup can add.</summary>
+/// <param name="plugin">Bundled plugin represented by this option.</param>
+/// <param name="isChecked">Initial inclusion choice, editable through Checked.</param>
 internal sealed class CommonOption(BundledPlugin plugin, bool isChecked) : Observable
 {
     private bool _checked = isChecked;
@@ -324,6 +332,11 @@ internal sealed class HardwarePage : Page
 }
 
 /// <summary>One line of the Customize panel.</summary>
+/// <param name="key">Stable feature key written to setup answers.</param>
+/// <param name="label">Switch label shown to the user.</param>
+/// <param name="description">Explanatory text; empty omits it.</param>
+/// <param name="on">Initial requested switch state.</param>
+/// <param name="parent">Parent feature key for dependency and indentation, or null for a top-level option.</param>
 internal sealed class FeatureOption(string key, string label, string description, bool on, string? parent) : Observable
 {
     private bool _enabled = true;
@@ -367,6 +380,7 @@ internal sealed class DriversPage : Page
 }
 
 /// <summary>One line of the progress and summary pages.</summary>
+/// <param name="step">Borrowed engine step; the row reads its current state when Update raises notifications.</param>
 internal sealed class StepRow(SetupStep step) : Observable
 {
     public SetupStep Step { get; } = step;
@@ -460,6 +474,7 @@ internal sealed class SummaryPage(
 }
 
 /// <summary>Shown when the window is asked to close mid-flow; holds the page to go back to.</summary>
+/// <param name="resume">Existing page instance restored by Keep going, preserving its choices.</param>
 internal sealed class ConfirmClosePage(Page resume) : Page
 {
     public Page Resume { get; } = resume;
@@ -475,6 +490,8 @@ internal sealed class ConfirmClosePage(Page resume) : Page
 ///     The end of a run that turned WSGM's autostart off so the USB/IP driver can be replaced on the next
 ///     boot. The only way forward is the restart; setup comes back on its own afterwards.
 /// </summary>
+/// <param name="steps">Completed run's rows displayed in the restart summary.</param>
+/// <param name="resumes">Whether setup is scheduled to reopen automatically after restart; false asks the user to run it again.</param>
 internal sealed class RestartPage(IReadOnlyList<StepRow> steps, bool resumes) : Page
 {
     public override string Eyebrow => "Restart";

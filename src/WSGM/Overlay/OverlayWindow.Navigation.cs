@@ -344,6 +344,9 @@ public partial class OverlayWindow
     }
 
     /// <summary>The user-facing name of a destination — the strip label and the header eyebrow.</summary>
+    /// <param name="destination">Stable top-level destination.</param>
+    /// <returns>The visible destination label.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The destination is not a defined top-level route.</exception>
     internal static string DestinationLabel(OverlayDestination destination)
     {
         return destination switch
@@ -467,6 +470,7 @@ public partial class OverlayWindow
     ///     Every way back — B, Escape and the header button — arrives here, so the header affordance is
     ///     resolved once on the way out instead of at each branch's own return.
     /// </remarks>
+    /// <returns>True when the current nested editor or route consumes Back; false when rail/home handling should continue.</returns>
     internal bool TryCancelSubView()
     {
         var handled = CancelOpenPage();

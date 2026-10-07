@@ -20,7 +20,9 @@ public static class CapabilityValueValidation
     ///     An integer lies within the declared minimum and maximum and on the step counted from the minimum.
     ///     A choice is one of the declared options. A colour is 24-bit RGB. A curve has at least one point,
     ///     strictly ascending inputs and outputs within the declared bounds. Text is plain text within the
-    ///     declared maximum length.
+    ///     declared maximum length. This is not descriptor validation: omitted integer bounds are unbounded,
+    ///     omitted or nonpositive steps impose no step, and unrelated payload fields are not checked.
+    ///     <see cref="CapabilityValueKind.None" /> does not match a writable value.
     /// </remarks>
     public static bool ValueMatches(
         CapabilityValue value,

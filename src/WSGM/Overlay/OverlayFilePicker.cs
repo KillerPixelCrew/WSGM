@@ -22,6 +22,9 @@ internal sealed class OverlayFilePicker : UserControl
     private long _generation;
     private CancellationTokenSource? _load;
 
+    /// <summary>Creates an in-window path picker; mounting starts drive enumeration and detaching cancels pending reads.</summary>
+    /// <param name="folder">True for directory selection, false for files.</param>
+    /// <param name="extensions">Accepted file extensions compared without case; an empty set permits every file type.</param>
     internal OverlayFilePicker(bool folder, IEnumerable<string> extensions)
     {
         _folder = folder;
@@ -37,9 +40,12 @@ internal sealed class OverlayFilePicker : UserControl
         };
     }
 
+    /// <summary>Current first header action, or null before the initial directory view is built.</summary>
     internal ActionButton? DefaultFocusTarget { get; private set; }
 
+    /// <summary>Reports an accepted path or null for cancellation/detach; the host must accept completion at most once.</summary>
     internal event Action<string?>? Completed;
+    /// <summary>Requests the host keyboard with initial path and acceptance callback; the picker validates accepted input.</summary>
     internal event Action<string, Action<string>>? TextEntryRequested;
 
     /// <summary>Lists a folder, or the drives for null.</summary>

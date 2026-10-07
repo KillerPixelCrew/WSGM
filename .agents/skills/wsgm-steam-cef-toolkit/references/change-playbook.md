@@ -1,5 +1,15 @@
 # Steam CEF change playbook
 
+## Never attach during startup
+
+Before any debugger/CDP/MCP connection, even read-only target discovery, establish from the current
+Steam run's logs that Steam and Big Picture are fully started. An early connection can hang the
+entire UI and leave Steam requiring force-close. Remain offline when the logs are missing or
+inconclusive; a reachable port, process, window alone or fixed delay is not the required log
+evidence. Follow [the ordered preflight](../../wsgm-steam-cef-debugging/references/live-tools.md).
+This is a rule for attended investigation, not a change to the production desktop-mode transport
+policy.
+
 ## Choose the owner first
 
 Ask these questions in order:
@@ -19,6 +29,17 @@ Ask these questions in order:
 Do not introduce a WSGM-local substitute for a missing toolkit primitive. Do not push WSGM policy
 down into the toolkit.
 
+## Establish both UI entry points
+
+Always deliver the same capability or workflow in Overlay when adding or changing a Steam Big
+Picture feature. Identify the shared owner/state/command first, then choose existing elements from
+[reusable-elements.md](reusable-elements.md) and the corresponding
+[Overlay style guide](ui-and-overlay-parity.md). Plan the two entry points, current capability
+gates, pending/error/empty state, controller focus/back navigation and cancellation/disposal
+together. Do not write a second policy or Windows backend. If the necessary shared element is
+missing, extend one existing primitive and document it; do not leave copied markup or speculative
+wrappers behind.
+
 ## Add or restore a Valve-backed surface
 
 1. Find the nearest existing toolkit surface, gate, publication, and tests. Extend them when they
@@ -33,11 +54,15 @@ down into the toolkit.
    state and command vocabulary, JSON context, validators, and lifecycle tests.
 5. Add the WSGM adapter, backend integration, projection, command route, policy, module
    registration, and focused WSGM tests.
-6. Make `null` mean no publication. Refuse invalid or uncertain writes instead of fabricating a
-   default or retrying blindly.
+6. Make `null` mean no publication: it leaves the previous page state intact. Publish the surface's
+   explicit empty state to clear content. Refuse invalid or uncertain writes instead of fabricating
+   a default or retrying blindly.
 7. Regenerate the runtime asset and verify that its vocabulary comes from the real built asset, not
    from a duplicate hand-maintained list.
-8. Update `docs/steam-cef-system.md` for the current design and `docs/steam-cef.md` only when new
+8. Add or update the same capability in Overlay using the shared owner and commands. Review both
+   presentation paths against the parity guide; neither a Steam-only control nor an Overlay-only
+   backend is complete delivery of the Big Picture change.
+9. Update `docs/steam-cef-system.md` for the current design and `docs/steam-cef.md` only when new
    dated live evidence was actually collected.
 
 Known contract traps include enum fields removed by a closed validator, numeric values outside the

@@ -27,17 +27,12 @@ internal interface IDisplayChangeSignal
 }
 
 /// <summary>
-///     Waits until every requested monitor is connected and the picture has stopped moving.
-///     The reference setup puts a TV behind an HDMI switch, so the target does not exist in Windows at
-///     all until the switch selects this PC, and how long that takes is up to a person and a piece of
-///     consumer hardware. There is therefore no deadline here, only cancellation: the splash offers
-///     Cancel and the user decides when to give up. A timeout would only ever fire on the honest case.
-///     Arrival is not a single event. A monitor coming up behind a switch enumerates, disappears and
-///     re-enumerates while the sink negotiates, so the waiter requires two identical observations a
-///     settle apart before it reports the display present. The change hint is an optimisation; the
-///     backstop poll is what makes the wait correct when no hint is delivered. This is the only display
-///     wait: Windows Device Control has none of its own.
+///     Waits without a deadline for requested monitors and two matching topology fingerprints 500 ms apart.
 /// </summary>
+/// <param name="presence">Synchronous topology reader; Win32 read failures count as unsettled observations.</param>
+/// <param name="signal">Change hints with a five-second polling backstop when no hint arrives.</param>
+/// <param name="delay">Cancellable delay used between candidate stable observations.</param>
+/// <remarks>Call off the UI thread: observations are synchronous. Fingerprints exclude HDR, scaling and rotation.</remarks>
 internal sealed class DisplayArrivalWaiter(
     IDisplayPresence presence,
     IDisplayChangeSignal signal,
@@ -54,8 +49,8 @@ internal sealed class DisplayArrivalWaiter(
     private static readonly TimeSpan Backstop = TimeSpan.FromSeconds(5);
 
     /// <summary>Waits until every target is connected and two observations agree.</summary>
-    /// <param name="targets">Monitors that must be present. An empty list returns at once.</param>
-    /// <param name="cancellationToken">The only way this call ends other than success.</param>
+    /// <param name="targets">Monitors that must be available. Even an empty list requires two stable observations.</param>
+    /// <param name="cancellationToken">Ends the unbounded wait; unrelated reader or signal failures still propagate.</param>
     /// <returns>The settled observation.</returns>
     /// <exception cref="OperationCanceledException">The wait was cancelled.</exception>
     internal async Task<DisplayArrangement> WaitAsync(
@@ -73,8 +68,6 @@ internal sealed class DisplayArrivalWaiter(
                     return observed;
                 }
 
-                // First sighting, or the topology moved since the last one. Look again after the
-                // settle rather than acting on a monitor that is still negotiating.
                 stable = observed.Fingerprint;
                 await delay(Settle, cancellationToken).ConfigureAwait(false);
                 continue;
@@ -111,8 +104,7 @@ internal sealed class DisplayArrivalWaiter(
     }
 
     /// <summary>
-    ///     A query that throws is a driver mid-change, which is the state this waiter exists
-    ///     to sit through. It counts as "not settled", never as an error.
+    ///     Converts a Win32 read failure into an unsettled observation; other failures propagate.
     /// </summary>
     private DisplayArrangement? TryObserve()
     {

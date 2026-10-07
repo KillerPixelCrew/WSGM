@@ -32,6 +32,11 @@ internal enum ControllerManagementState
 }
 
 /// <summary>The complete controller-management projection consumed by the overlay and diagnostics.</summary>
+/// <param name="State">Current management lifecycle state.</param>
+/// <param name="Target">Resolved target type, possibly retained while idle; null when off, unavailable or faulted.</param>
+/// <param name="TargetSource">Profile layer supplying the target; None also covers the built-in default.</param>
+/// <param name="ApplicationId">Canonical identity when the target comes from a game profile; otherwise null.</param>
+/// <param name="Detail">Displayable lifecycle, availability or failure detail.</param>
 internal sealed record ControllerManagerStatus(
     ControllerManagementState State,
     ManagedControllerTarget? Target,
@@ -1009,7 +1014,8 @@ internal sealed class ControllerManager : IAsyncDisposable
 
     /// <summary>Shows the physical pad again when no virtual controller is driving it.</summary>
     /// <param name="reason">Why, for the log.</param>
-    /// <param name="cancellationToken">Cancels waiting for the transition gate.</param>
+    /// <param name="cancellationToken">Cancels waiting for the transition gate or cooperative HidHide cleanup.</param>
+    /// <returns>Completion after cleanup is attempted, or immediately when active or disposed. Cleanup failures are logged.</returns>
     /// <remarks>For a fault restart that gave up: the pad it kept hidden must not stay hidden.</remarks>
     internal async Task ShowPhysicalControllerAsync(string reason, CancellationToken cancellationToken)
     {

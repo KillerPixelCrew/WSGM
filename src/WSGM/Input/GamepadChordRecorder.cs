@@ -43,16 +43,17 @@ internal sealed class GamepadChordRecorder : IDisposable
         _tracker.Dispose();
     }
 
-    /// <summary>(buttons, isHold). Empty buttons = cancelled/timed out.</summary>
+    /// <summary>UI-thread completion with (buttons, isHold); empty buttons mean an expired recording.</summary>
+    /// <remarks>Disposal does not raise completion. Callers keep the previous binding for an empty result.</remarks>
     public event Action<GamepadButtons, bool>? Recorded;
 
-    /// <summary>Begins recording the next complete chord from a single controller.</summary>
+    /// <summary>Starts or restarts UI-thread recording of one complete chord, starting the borrowed poller if needed.</summary>
+    /// <remarks>The recording expires after three seconds without a state change; it never owns or stops the poller.</remarks>
     public void Start()
     {
         _tracker.Reset();
         _recording = true;
-        // Unsubscribe first so a Start() without an intervening Finish() cannot
-        // stack a second subscription.
+        // Restart without stacking subscriptions.
         _gamepad.StateChanged -= OnStateChanged;
         _gamepad.StateChanged += OnStateChanged;
         if (!_gamepad.IsRunning)
