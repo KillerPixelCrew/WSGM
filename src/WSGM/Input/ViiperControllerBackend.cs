@@ -55,6 +55,9 @@ internal sealed class ViiperControllerBackend : IControllerTargetBackend
     private const byte HapticEventCommandId = 0xDC;
     private const byte HapticGainCommandId = 0xE2;
 
+    /// <summary>DS4 output-report update flag that marks the motor bytes as valid.</summary>
+    private const byte Ds4UpdateRumble = 0x01;
+
     /// <summary>Feedback command ids Steam sends that deliberately produce no motor output.</summary>
     /// <remarks>
     ///     Configuration and identity chatter observed live: clear-mappings, attribute and string
@@ -471,8 +474,11 @@ internal sealed class ViiperControllerBackend : IControllerTargetBackend
                 // Steam's known configuration chatter is dropped silently; a command id this
                 // decoder has never seen gets a few bounded samples in the log, because that is
                 // how every haptic shape above was found and a future Steam protocol change
-                // would otherwise read as "rumble is broken" with no evidence.
-                if (KnownIgnoredFeedback.Contains(report[0]))
+                // would otherwise read as "rumble is broken" with no evidence. Only the Deck
+                // protocol leads with a command id; the other targets' frames that carry no
+                // rumble are routine.
+                if (target.Kind is not ManagedControllerTarget.SteamDeckComposite
+                    || KnownIgnoredFeedback.Contains(report[0]))
                 {
                     return;
                 }
@@ -531,11 +537,15 @@ internal sealed class ViiperControllerBackend : IControllerTargetBackend
                 ManagedControllerTarget.Xbox360 when report.Length >= 2 => new DecodedHapticFeedback(
                     report[0] / (float)byte.MaxValue,
                     report[1] / (float)byte.MaxValue),
-                // DS4 orders the small/high-frequency motor first and the large/low-frequency motor
-                // second, followed by LED and flash state that WSGM deliberately does not own.
-                ManagedControllerTarget.DualShock4 when report.Length >= 7 => new DecodedHapticFeedback(
-                    report[1] / (float)byte.MaxValue,
-                    report[0] / (float)byte.MaxValue),
+                // DS4 leads with the output report's update flags, then the small/high-frequency
+                // motor and the large/low-frequency motor, followed by LED and flash state that
+                // WSGM deliberately does not own. The motor bytes count only when the rumble flag
+                // is set; an LED-only update would otherwise stop the motors.
+                ManagedControllerTarget.DualShock4 when report.Length >= 8
+                                                        && (report[0] & Ds4UpdateRumble) != 0 =>
+                    new DecodedHapticFeedback(
+                        report[2] / (float)byte.MaxValue,
+                        report[1] / (float)byte.MaxValue),
                 _ => null
             };
         }

@@ -23,7 +23,7 @@ public sealed class ControllerDependencyAdapterTests
     [InlineData(ManagedControllerTarget.Xbox360, new byte[] { 128, 255 }, 128 / 255f, 1f)]
     [InlineData(
         ManagedControllerTarget.DualShock4,
-        new byte[] { 64, 192, 0, 0, 0, 0, 0 },
+        new byte[] { 0x07, 64, 192, 0, 0, 0, 0, 0 },
         192 / 255f,
         64 / 255f)]
     public void TargetFeedbackUsesTheCorrectMotorOrder(
@@ -38,6 +38,17 @@ public sealed class ControllerDependencyAdapterTests
         Assert.Equal(expectedLow, feedback.LowFrequency, 5);
         Assert.Equal(expectedHigh, feedback.HighFrequency, 5);
         Assert.Null(feedback.StopAfter);
+    }
+
+    [Fact]
+    public void DualShock4FeedbackWithoutTheRumbleFlagProducesNoOutput()
+    {
+        // An LED-only output report carries zero motor bytes that must not stop the motors.
+        byte[] report = [0x02, 0, 0, 255, 0, 0, 0, 0];
+
+        Assert.Null(ViiperControllerBackend.DecodeFeedback(
+            ManagedControllerTarget.DualShock4,
+            report));
     }
 
     [Fact]

@@ -9,7 +9,13 @@ how to move the pin. Why VIIPER rather than HIDMaestro is in `README.md`.
 
 - Repository: [`KillerPixelCrew/VIIPER`](https://github.com/KillerPixelCrew/VIIPER), branch `wsgm`
 - Commit: the `external\viiper` gitlink
-- Upstream: [`Alia5/VIIPER`](https://github.com/Alia5/VIIPER) `main`, merged at `41c66b1`
+- Upstream: [`Alia5/VIIPER`](https://github.com/Alia5/VIIPER) `main`, merged at `3111299`
+
+The `3111299` merge kept the fork's `server.go` workers and Windows attach over upstream's rewrites
+of both. Upstream's fix for the CPU spin on an interrupt-IN URB the device answers with no data is
+ported into the generic worker, which now leaves such a URB pending until an UNLINK or the stream
+teardown. Upstream's DS4 output state gained a leading update-flags byte, so the raw DS4 feedback
+WSGM decodes is eight bytes, and WSGM takes the motor bytes only when the rumble flag is set.
 
 The downstream changes used to live here as `.patch` files applied at build time. They are commits
 on the fork now, which is what this repository's contributor guide asks of any dependency we have to
@@ -48,7 +54,7 @@ create` defaults to the wrong repository. Always pass `--repo KillerPixelCrew/VI
   allocation-free completion path for devices that implement `usb.InterruptInSource`, in place of
   upstream's per-URB completion goroutines. The Steam Deck uses that path; what it saves, and how
   it was measured, is in [docs/perf](../../docs/perf/README.md#inside-viiper-what-one-controller-report-costs).
-- Windows attach: a cancellable overlapped `plugin_hardware` IOCTL that negotiates three driver
+- Windows attach: a cancellable overlapped `plugin_hardware` IOCTL that negotiates four driver
   layouts, and does not retry an attach whose outcome is uncertain.
 - `device/steamdeck`, which upstream does not have, and the input gate that `xbox360`, `keyboard`,
   `mouse` and `dualshock4` use so updates do not allocate.
@@ -64,8 +70,9 @@ the server idle or pacing work. Until those exist upstream, moving to patch file
 re-fitting the `server.go` and attach rewrites on every sync, which is the churn the commits
 replaced. The route that shrinks the fork is upstreaming instead:
 
-- Bug fixes that stand alone: the attach layout negotiation (41c66b1 matches English error text, has
-  no 0.9.7.8 layout and misplaces the new fields), plug-out on remove, the cancellable IOCTL, the
+- Bug fixes that stand alone: the attach layout negotiation (upstream's `a7471ed` declares the same
+  four layouts but falls back only on `ERROR_INVALID_USER_BUFFER`, which 0.9.7.x never answers, and
+  leaves `wsk_events` off), plug-out on remove, the cancellable IOCTL, the
   `xbox360` secondary-endpoint resubmit loop, accept backoff and panic recovery.
 - The Steam Deck device, once it uses upstream's input pattern instead of the fork's input gate.
 - The idle and pacing work, proposed as `IdleMode` and `IdleKeepaliveInterval` options with measured
@@ -112,7 +119,7 @@ returns no data.
 ### `f29a4b2`, the attach layouts
 
 Ours, and without it `viiper_device_attach` cannot succeed against usbip-win2 0.9.7.8. The Alia5
-merge extended it to the 0.9.8.0 layout. The whole story is under "The attach ABI break" below. It
+merge extended it to the 0.9.8.0 layout and `efa74e4` to 0.9.8.1's. The whole story is under "The attach ABI break" below. It
 was found by running the call, not by reading the code.
 
 ### `8179541` and `935eacb`, add no longer attaches
@@ -290,7 +297,7 @@ open a PR with `gh pr create --repo KillerPixelCrew/VIIPER --base wsgm`. Before 
 
 1. `eng\build-viiper.ps1 -Validate` runs end to end from the new revision, including the check that
    `libviiper.h` matches the library's exports.
-2. `go test ./...` fails only in the places named under "Build baseline".
+2. `go test ./...` passes, or fails only in places named under "Build baseline".
 3. WSGM's controller tests pass, and a controller is created, attached, driven and removed on real
    hardware. The pin does not move on a green build alone, because every fault the commits above
    exist for was found by running the thing.
@@ -316,14 +323,12 @@ needed.
 
 ## Build baseline
 
-Checked with Go 1.27.0 and WinLibs GCC 16.1 on 2026-09-24, after the Alia5 merge.
-`eng\build-viiper.ps1 -Validate` runs `go vet ./...`, the Deck and `clib` tests and the build, and
-stages `libviiper.dll` with the same 19 exports as before the merge.
+Checked with Go 1.27.1 and WinLibs GCC 16.1 on 2026-10-07, after the `3111299` merge.
+`eng\build-viiper.ps1 -Validate` runs `go vet ./...`, the Deck and `clib` tests, the check that
+`libviiper.h` matches the library's exports, and the build.
 
-`go test ./...` fails in exactly two places, both present before the merge and neither on WSGM's path:
-`device/xboxelite2` (paddle bit ordering and profile button layouts) and `device/xboxgip` (LEB128
-fragment length). The `internal/server/api` test build that used to fail is fixed by the merge. A
-new failure is a regression worth investigating.
+`go test ./...` passes in full. The `device/xboxelite2` and `device/xboxgip` failures recorded on
+2026-09-24 were fixed on the fork since. A failure is a regression worth investigating.
 
 **The binding is verified end to end against the real library and the real driver.** Every entry
 point WSGM uses returns success: `viiper_init`, `viiper_bus_create`,
@@ -372,6 +377,14 @@ explicit padding, pins the offsets at compile time, and sets `wsk_events`. 0.9.8
 mismatch with `STATUS_INVALID_BUFFER_SIZE`, which arrives as `ERROR_INVALID_USER_BUFFER` (1784)
 rather than 0.9.7.x's `ERROR_INSUFFICIENT_BUFFER`, still before acting, so the loop now tries 1120,
 1116 and 1100 and treats either error as a layout rejection.
+
+**usbip-win2 0.9.8.1 moved every field after the port.** It inserted a 4-byte `location_hash`
+after `port_output` (`imported_device_location` in `include/usbip/vhci.h`), so the bus ID sits at
+offset 12, the serial at 1104, `wsk_events` at 1120, and the structure is 1124 bytes. An older
+driver reads only the prefix its size covers, which is why one buffer used to serve every layout;
+0.9.8.1 breaks that, so its layout is a separate structure, also pinned at compile time, tried
+before the 1120, 1116 and 1100 sizes. Without it every size failed and each attach fell back to
+`usbip.exe`, whose console window took the foreground (Xbox Ally X and a desktop, 2026-09-28).
 
 **Do not simplify that loop to a single size, and do not replace it with a version probe.** The
 driver's own rejection is the authority on which layout it wants. A version number read from
