@@ -295,14 +295,73 @@ public sealed partial class SettingsViewModel
                 continue;
             }
 
-            var existing = KnownDisplays.FirstOrDefault(display => display.Target?.Matches(observed.Target) == true);
+            var ambiguous = arrangement.Targets.Count(target => target.Available
+                                                                && observed.Target.Matches(target.Target)) > 1;
+            var existing = KnownDisplays.FirstOrDefault(display => display.Target?.Matches(observed.Target) == true
+                                                                   && (!ambiguous || string.Equals(
+                                                                       display.Target.DevicePath,
+                                                                       observed.Target.DevicePath,
+                                                                       StringComparison.OrdinalIgnoreCase)));
+            // Older configurations did not save the EDID serial. Recover only a model that has
+            // exactly one connected representative, never a display number or connector route.
+            var legacy = KnownDisplays.Where(display => display.Target is { } target
+                                                        && target.EdidIdentity is null &&
+                                                        SameDisplayModel(target, observed.Target)).ToArray();
+            if (legacy.Length > 0 && arrangement.Targets.Count(target => target.Available
+                                                                         && SameDisplayModel(target.Target,
+                                                                             observed.Target)) == 1
+                                  && legacy.Where(display => !display.Target!.Matches(observed.Target))
+                                      .Select(display => display.Target!.DevicePath)
+                                      .Distinct(StringComparer.OrdinalIgnoreCase).Count() <= 1
+                                  && !KnownDisplays.Any(display => display.Target is { EdidIdentity: not null } target
+                                                                   && SameDisplayModel(target, observed.Target) &&
+                                                                   !target.Matches(observed.Target)))
+            {
+                var recoverable = KnownDisplays.Where(display => legacy.Contains(display)
+                                                                 || display.Target?.Matches(observed.Target) == true)
+                    .ToArray();
+                existing = recoverable.FirstOrDefault(display =>
+                    GameLayout.Rows.Any(row => row.Display == display && row.Active)
+                    || DesktopLayout.Rows.Any(row => row.Display == display && row.Active)) ?? legacy[0];
+                foreach (var duplicate in recoverable.Where(display => display != existing))
+                {
+                    existing.Modes = [.. existing.Modes.Concat(duplicate.Modes).Distinct()];
+                    existing.HdrSupported |= duplicate.HdrSupported;
+                    existing.MaximumDpiPercent = Math.Max(existing.MaximumDpiPercent, duplicate.MaximumDpiPercent);
+                    if (duplicate.Target is { } forgotten)
+                    {
+                        _forgottenDisplays.Add(forgotten);
+                        if (_waitForDisplay?.Matches(forgotten) == true)
+                        {
+                            _waitForDisplay = observed.Target;
+                        }
+                    }
+
+                    duplicate.Target = observed.Target;
+                    KnownDisplays.Remove(duplicate);
+                }
+            }
+
             if (existing is null)
             {
                 existing = new KnownDisplay { Target = observed.Target };
                 KnownDisplays.Add(existing);
             }
 
-            existing.Target = observed.Target;
+            if (existing.Target is { } previous && _waitForDisplay?.Matches(previous) == true)
+            {
+                _waitForDisplay = observed.Target;
+            }
+
+            if (existing.Target is { } retired && !retired.Matches(observed.Target))
+            {
+                _forgottenDisplays.Add(retired);
+            }
+
+            existing.Target = observed.Target with
+            {
+                EdidIdentity = observed.Target.EdidIdentity ?? existing.Target?.EdidIdentity
+            };
             existing.LastSeen = arrangement.CapturedAt;
             // Disabled sources still expose monitor EDID. Retain the broader driver-mode list
             // remembered while active rather than replacing it with descriptor-only timings.
@@ -338,6 +397,29 @@ public sealed partial class SettingsViewModel
                 existing.Modes.Add(running);
             }
         }
+    }
+
+    private static bool SameDisplayModel(DisplayTargetIdentity first, DisplayTargetIdentity second)
+    {
+        if (first.EdidManufacturerId.HasValue && first.EdidProductCodeId.HasValue
+                                              && second.EdidManufacturerId.HasValue &&
+                                              second.EdidProductCodeId.HasValue)
+        {
+            return first.EdidManufacturerId == second.EdidManufacturerId
+                   && first.EdidProductCodeId == second.EdidProductCodeId;
+        }
+
+        // Windows derives this hardware ID from EDID. The following instance segment is volatile.
+        var firstParts = first.DevicePath.Split('#');
+        var secondParts = second.DevicePath.Split('#');
+        return firstParts.Length == 4 && secondParts.Length == 4
+                                      && firstParts[1].Length > 0
+                                      && string.Equals(firstParts[0], @"\\?\DISPLAY",
+                                          StringComparison.OrdinalIgnoreCase)
+                                      && string.Equals(secondParts[0], @"\\?\DISPLAY",
+                                          StringComparison.OrdinalIgnoreCase)
+                                      && string.Equals(firstParts[1], secondParts[1],
+                                          StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

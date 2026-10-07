@@ -8,27 +8,26 @@ verified on the reference MSI Claw. Boot and shell transitions are in
 [boot and shell](boot-and-shell.md); the frame limit itself in [RTSS](rtss.md).
 
 Windows Device Control owns the first reusable CCD display-profile primitives. `DisplayTopology`
-captures active paths in Windows priority order, identifies monitors primarily by device-interface
-path with EDID manufacturer/product fallback, and skips a display whose name cannot be read rather
-than failing the rest. Friendly names and GDI `DISPLAY1` numbering are presentation metadata;
-adapter LUID and target ID are current route coordinates and are refreshed after hotplug.
-Enumeration is read-only. The library has no wait of its own: WSGM's `Shell\DisplayArrivalWaiter.cs`
-is the one display wait, settling on two equal `DisplayLayouts.Observe` fingerprints. That
-fingerprint covers target identity, availability, active status, placement, dimensions and refresh
-rate; it does not establish that rotation, HDR or scaling has settled. `DisplayTopology` captures
-topology for observation and diagnostics; its public API does not replay a captured native path
-array. `DisplayLayouts` holds the editable form: a `DisplayLayout` names each display's placement,
-mode, scaling and advanced colour state by value. `Validate` rematches each saved target to the
-current topology and asks Windows to validate without changing anything. `Apply` snapshots rollback
-state, writes once and takes Windows' acceptance as the result without reading it back; a refused
-application gets one rollback to the snapshot, scaling and colour included. A failed rollback
-reports its own status, never a claim that the prior desktop was restored. `AlreadyActive` skips the
-topology write but still applies requested HDR and scaling. Every display write (layout, mode,
-scaling, HDR) shares one gate in the library, and its results are codes and native statuses;
-`Core\DisplayText.cs` words them for Settings, the overlay and the log. A layout output with
-rotation 0 keeps the display's current rotation. The design uses DisplayMagician as behavioral
-reference while the MIT library implementation comes from documented Windows CCD contracts rather
-than copied GPL source.
+captures active paths in Windows priority order, identifies monitors by EDID manufacturer/product
+and serial when available, and skips a display whose name cannot be read rather than failing the
+rest. Friendly names and GDI `DISPLAY1` numbering are presentation metadata; adapter LUID and target
+ID are current route coordinates and are refreshed after hotplug. Enumeration is read-only. The
+library has no wait of its own: WSGM's `Shell\DisplayArrivalWaiter.cs` is the one display wait,
+settling on two equal `DisplayLayouts.Observe` fingerprints. That fingerprint covers target
+identity, availability, active status, placement, dimensions and refresh rate; it does not establish
+that rotation, HDR or scaling has settled. `DisplayTopology` captures topology for observation and
+diagnostics; its public API does not replay a captured native path array. `DisplayLayouts` holds the
+editable form: a `DisplayLayout` names each display's placement, mode, scaling and advanced colour
+state by value. `Validate` rematches each saved target to the current topology and asks Windows to
+validate without changing anything. `Apply` snapshots rollback state, writes once and takes Windows'
+acceptance as the result without reading it back; a refused application gets one rollback to the
+snapshot, scaling and colour included. A failed rollback reports its own status, never a claim that
+the prior desktop was restored. `AlreadyActive` skips the topology write but still applies requested
+HDR and scaling. Every display write (layout, mode, scaling, HDR) shares one gate in the library,
+and its results are codes and native statuses; `Core\DisplayText.cs` words them for Settings, the
+overlay and the log. A layout output with rotation 0 keeps the display's current rotation. The
+design uses DisplayMagician as behavioral reference while the MIT library implementation comes from
+documented Windows CCD contracts rather than copied GPL source.
 
 ## Windows power schemes
 
@@ -328,6 +327,15 @@ TV exposes no EDID until the switch selects this PC. Settings > Display shows on
 display whether or not it is connected, badges the absent ones, and offers Forget to prune the
 catalog. Discovery runs on a worker and refreshes rows in place without discarding either draft. New
 custom layouts start from the observed arrangement; Game Mode starts at 100% scaling.
+
+EDID serial identity is persisted with each monitor, so driver updates and shuffled Windows routes
+do not create another remembered display. Discovery reads the exact interface's cached registry
+descriptor without activating the monitor. Without a valid serial, the library retains exact-path
+matching. Settings recovers an older catalog entry by EDID model only when exactly one connected
+monitor has that model, at most one retired identity needs recovery, and no conflicting saved serial
+exists. It merges duplicates, retains both drafts and the display-wait selection, and removes
+retired entries on Save. Ambiguous same-model entries stay disconnected rather than being guessed.
+Names, display numbers and connector numbers are never used to choose a replacement.
 
 Connected displays disabled in Windows are queried through their monitor interface's EDID, including
 DisplayID detailed timings for high-refresh and ultrawide modes. Those advertised candidates are
