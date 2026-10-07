@@ -1059,5 +1059,8 @@ not-ready volumes, blank/Linux candidates and the eject outcome before the next 
 the same manual pass.
 
 The integrated Release solution build passed with zero warnings and errors; the Steam asset drift
-check passed. Test execution and live card-swap/eject acceptance remain deferred. The development
-installation is running, so its files must not be replaced until WSGM is closed.
+check passed. WSGM application tests and live card-swap/eject acceptance remain deferred.
+`build.ps1` completed, including its native dependency checks and all six bundled plugins. Setup
+2.1.0.1649 from source `abae696f` was copied to `Z:\WSGM-Setup-2.1.0.exe`; the previous setup was
+preserved. The copied SHA-256 matches the build:
+`221D82490377C4369CB768021AE757771E24E2FE31C4548ADA9901B37738EE6F`.
