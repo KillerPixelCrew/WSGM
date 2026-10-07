@@ -19,6 +19,12 @@ namespace WSGM.Core;
 /// </summary>
 internal static class UnelevatedLauncher
 {
+    /// <summary>Synchronously dispatches a least-privilege interactive task with a 30-second launch budget.</summary>
+    /// <param name="context">User-data directory used for the temporary task XML.</param>
+    /// <param name="exePath">Executable for the task action.</param>
+    /// <param name="arguments">Already-quoted arguments for that executable.</param>
+    /// <returns>Dispatch certainty; even Dispatched does not prove the child started or became ready.</returns>
+    /// <remarks>Blocks the caller. Task cleanup may consume a separate five-second budget.</remarks>
     public static ScheduledTaskLaunchDisposition TryStartViaScheduledTask(
         UserDataContext context, string exePath, string arguments = "")
     {
@@ -37,6 +43,14 @@ internal static class UnelevatedLauncher
     ///     Runs the scheduled-task handoff within a caller-owned absolute deadline. Task
     ///     creation and dispatch share that budget. Cleanup gets one separate short attempt if it closes.
     /// </summary>
+    /// <param name="context">User-data directory for temporary task XML; final deletion is best effort.</param>
+    /// <param name="exePath">Executable for the interactive task action.</param>
+    /// <param name="arguments">Already-quoted arguments for that executable.</param>
+    /// <param name="deadline">Absolute UTC deadline for XML preparation, task creation, and dispatch.</param>
+    /// <param name="workingDirectory">Optional explicit working directory; null uses the task XML builder's default.</param>
+    /// <param name="cancellationToken">Cancels preparation/dispatch; task cleanup remains best effort.</param>
+    /// <returns>Dispatch certainty; Unknown must suppress competing launch attempts.</returns>
+    /// <exception cref="OperationCanceledException">The caller canceled the operation.</exception>
     internal static async Task<ScheduledTaskLaunchDisposition> TryStartViaScheduledTaskAsync(
         UserDataContext context,
         string exePath,
@@ -116,6 +130,13 @@ internal static class UnelevatedLauncher
     ///     Runs create, dispatch, and cleanup commands through an injected runner so their
     ///     shared-deadline contract can be verified without invoking Task Scheduler.
     /// </summary>
+    /// <param name="taskName">Unique owned task name used for create, run, and delete.</param>
+    /// <param name="xmlPath">Existing task definition file supplied to schtasks.</param>
+    /// <param name="deadline">Absolute UTC budget shared by creation and dispatch.</param>
+    /// <param name="runCommand">Runner for schtasks arguments; its outcomes must preserve uncertain process-start effects.</param>
+    /// <param name="cancellationToken">Cancels dispatch; cleanup may use an uncancelled five-second fallback budget.</param>
+    /// <returns>Whether /Run was rejected, accepted, or left uncertain; deletion does not undo a dispatched child.</returns>
+    /// <exception cref="OperationCanceledException">The caller canceled the operation.</exception>
     internal static Task<ScheduledTaskLaunchDisposition> RunScheduledTaskSequenceAsync(
         string taskName,
         string xmlPath,
@@ -136,6 +157,14 @@ internal static class UnelevatedLauncher
     ///     Runs the scheduled-task sequence through an injected clock so deadline closure can
     ///     be verified deterministically without invoking Task Scheduler.
     /// </summary>
+    /// <param name="taskName">Unique owned task name used for create, run, and delete.</param>
+    /// <param name="xmlPath">Existing task definition file supplied to schtasks.</param>
+    /// <param name="deadline">Absolute UTC budget shared by creation and dispatch.</param>
+    /// <param name="runCommand">Runner for schtasks arguments; its outcomes must preserve uncertain process-start effects.</param>
+    /// <param name="utcNow">UTC clock used to test deadlines and budget cleanup.</param>
+    /// <param name="cancellationToken">Cancels dispatch; cleanup may use an uncancelled five-second fallback budget.</param>
+    /// <returns>Whether /Run was rejected, accepted, or left uncertain; deletion does not undo a dispatched child.</returns>
+    /// <exception cref="OperationCanceledException">The caller canceled the operation.</exception>
     internal static async Task<ScheduledTaskLaunchDisposition> RunScheduledTaskSequenceAsync(
         string taskName,
         string xmlPath,
@@ -231,6 +260,11 @@ internal static class UnelevatedLauncher
         }
     }
 
+    /// <summary>Builds an escaped XML definition for an interactive least-privilege task.</summary>
+    /// <param name="exePath">Executable path for the task action.</param>
+    /// <param name="arguments">Arguments supplied separately from the executable path.</param>
+    /// <param name="workingDirectory">Optional working directory passed to the shared XML builder.</param>
+    /// <returns>The task XML; no file or scheduler mutation is performed.</returns>
     internal static string BuildTaskXml(string exePath, string arguments = "", string? workingDirectory = null)
     {
         return ScheduledTaskXml.Build(exePath, arguments, workingDirectory);

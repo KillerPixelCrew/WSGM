@@ -77,6 +77,7 @@ public sealed partial class SettingsViewModel
     } = "No running device coordinator detected.";
 
     /// <summary>Refreshes the read-only owner snapshot without creating a device cycle.</summary>
+    /// <returns>Completion after the bounded resident-owner diagnostic query and UI publication; failures become status text.</returns>
     public async Task RefreshDeviceOwnerStatusAsync()
     {
         try

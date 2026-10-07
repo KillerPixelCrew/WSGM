@@ -46,13 +46,13 @@
   const assembling = new Map();
   let nextSequence = 0;
   let disposed = false;
-  // One reviewed runtime tap for every gate. Capturing webpack's runtime by pushing an empty
-  // chunk is the proven primitive; six private copies only made it possible for their safety and
-  // diagnostics to drift. This helper captures the runtime but never evaluates an unknown module.
-  // The resolver is kept once a capture succeeds (the factory throws while the runtime is
-  // unavailable, so nothing is cached until then), so every gate shares one chunk push and one
-  // source cache. It remembers no failure, so a module that threw during a cold start recovers.
+  // A successful capture is shared; failed cold-start captures remain retryable.
   let webpackResolver;
+  /**
+   * Returns this bridge's shared webpack resolver without evaluating unknown modules.
+   * @param scope Diagnostic label used only on the first successful capture.
+   * @returns The cached resolver; an unavailable runtime throws and can be retried later.
+   */
   const getWebpackRuntime = (scope) => (webpackResolver ??= createSteamUiModuleResolver(scope));
   const allowed = (patchId, command) => {
     const commands = config.allowed[patchId];
@@ -64,16 +64,7 @@
     if (typeof binding !== "function") throw new Error("Steam UI Runtime binding unavailable");
     binding(JSON.stringify(envelope));
   };
-  // The host REJECTS an action generation of zero, and several gates were passing exactly that —
-  // "sequence or action generation is invalid" against steam-ui.performance/updateSettings,
-  // steam-network.gate/startScan and stopScan, and steam-bluetooth.service/setDiscovering, on the
-  // reference device on 2026-08-30. Every Valve performance control's write, and every signal that
-  // Steam's network page had started looking for networks, was dropped by the bridge before the host
-  // ever saw it — which is why the Wi-Fi list never filled: the host was never told to scan.
-  //
-  // Zero was meant as "no user-initiated row action here", which is true of a gate. Rather than
-  // repeat the counter at each such call site, an absent or non-positive generation is allocated
-  // one here, so no caller can construct an invalid envelope at all.
+  // Every request requires a positive generation, including automatic service notifications.
   const actionGenerations = new Map();
   const nextActionGeneration = (patchId) => {
     const next = (actionGenerations.get(patchId) || 0) + 1;
@@ -90,8 +81,14 @@
     }
     return nextActionGeneration(patchId);
   };
-  // The generation is optional: a gate has no user-initiated row action to number, and one is
-  // allocated for it above. Row controls pass their own so an echo can be matched to the write.
+  /**
+   * Sends one allowlisted semantic request in the current bridge generation.
+   * @param patchId Registered command namespace.
+   * @param command Allowlisted command name.
+   * @param payload JSON-serializable payload; undefined becomes null.
+   * @param requestedGeneration Optional positive action generation; otherwise a new one is allocated.
+   * @returns A promise for the backend payload; rejects on refusal, overload, timeout, disposal or send failure.
+   */
   const request = (patchId, command, payload, requestedGeneration) => {
     if (!allowed(patchId, command)) return Promise.reject(new Error("command not allowlisted"));
     if (pending.size >= config.maximumPending) return Promise.reject(new Error("bridge busy"));
@@ -126,9 +123,12 @@
       }
     });
   };
-  // After dispose a subscription registers nothing and hands back a no-op. It does not throw: the
-  // old bridge's components can still run an effect before Steam unmounts them, and a throw there
-  // would take down the React tree it sits in.
+  /**
+   * Subscribes to a patch state with synchronous cached replay and isolated callback errors.
+   * @param patchId Registered publication identity.
+   * @param callback Receives each complete delivered state, including cached state if available.
+   * @returns An unsubscribe callback; after disposal a valid subscription returns a no-op.
+   */
   const subscribe = (patchId, callback) => {
     if (!Object.hasOwn(config.allowed, patchId) || typeof callback !== "function")
       throw new Error("subscription not allowlisted");
@@ -145,8 +145,12 @@
     }
     return () => set.delete(callback);
   };
-  // Tells a surface when its state could not be delivered: called with the reason, and with null
-  // once a state arrives again. Replayed on subscription like state is.
+  /**
+   * Subscribes to publication failures and their recovery with synchronous cached replay.
+   * @param patchId Registered publication identity.
+   * @param callback Receives a refusal reason, or null when a later state succeeds.
+   * @returns An unsubscribe callback; invalid identities or callbacks throw.
+   */
   const subscribeRefusal = (patchId, callback) => {
     if (!Object.hasOwn(config.allowed, patchId) || typeof callback !== "function")
       throw new Error("subscription not allowlisted");
@@ -308,6 +312,11 @@
   // early because an identical bridge is already installed, the whole IIFE returns and no fragment
   // registers over it.
   const gates = new Map();
+  /**
+   * Registers one gate implementation in this asset's shared bridge.
+   * @param name Gate identity used by host patch expressions.
+   * @param gate Gate lifecycle object retained until bridge disposal.
+   */
   const registerGate = (name, gate) => {
     gates.set(name, gate);
   };
@@ -345,43 +354,8 @@
     priorDisposeFailures,
   });
   // @fragment ownership.ts
-  // Ownership claims: the one primitive every gate needs and every gate used to hand-roll.
-  //
-  // Three ways to change Steam's front-end, and every gate uses one of them. Naming which is not
-  // decoration — it decides what "installed" means, what a probe may check, and what removal owes:
-  //
-  //   FEED A DATA CONSTRUCT   supplyNamespace / withdrawNamespace
-  //     Give a store the shape it was written against, where the client has none. Nothing is
-  //     displaced, so removal deletes. Perf, audio.
-  //
-  //   ANSWER AN RPC           claimMember / releaseMember  (with rpc.ts)
-  //     Overlay a method the client already has. Something IS displaced, so removal restores it, and
-  //     the overlay must carry it — see rpc.ts for the reply shape and the query invalidation that
-  //     make the answer visible. SteamOS Manager GetState, Bluetooth stubs, the brightness setter.
-  //
-  //   REVEAL WHAT IS GATED    claimValue / releaseValue, claimAccessor / releaseAccessor
-  //     Flip the one flag or getter that hides a surface the client can already serve. Narrow and
-  //     reversible, and never the platform constant: setting TS.IS_STEAMOS produces the same row
-  //     while changing unrelated client behaviour everywhere, which is the spoof D16 forbids.
-  //     Brightness availability, network availability.
-  //
-  // A gate changes something the client owns. Three things then have to be true, and getting any of
-  // them wrong has cost a device session:
-  //
-  //   1. It can recognise its OWN work. A probe that cannot tell "already ours" from "someone else's"
-  //      either refuses forever or overwrites a value that was never ours to change. Worse, a probe
-  //      that requires the pre-patch condition its own apply invalidates tears the patch down every
-  //      poll — the self-incompatibility teardown loop, paid for three times (the audio namespace,
-  //      the network getter, the brightness flag, whose row flickered on a ~25-second cycle).
-  //   2. It can hand back EXACTLY what was there. Keeping the original only in the installing
-  //      closure restores `undefined` to a bridge replaced in place, and Steam's `?? true` hooks then
-  //      keep a row visible after removal.
-  //   3. Both facts survive a separate CDP evaluation. Probes run in their own call, so the marker
-  //      must be a string key on the object — a Symbol from this scope is not reachable from there.
-  //
-  // Every claim below therefore writes two non-enumerable fields: a marker saying this is ours, and
-  // the original it displaced. Callers supply their own key names so no existing marker changes
-  // meaning; a renamed key would orphan the marker a previous build left on a running client.
+  // Durable ownership claims shared across CDP evaluations. Restore exact descriptors and inherited
+  // membership; never stack wrappers, replace a real backend or spoof global platform identity.
   const defineHidden = (host, key, value) => {
     Object.defineProperty(host, key, {
       value,
@@ -471,8 +445,14 @@
       });
     }
   };
-  // Claims a plain data field, a flag or value the client set that a gate replaces. Reclaiming a
-  // previous bridge's work keeps what THAT bridge displaced, never the value it installed.
+  /**
+   * Claims a field while preserving the exact underlying property across bridge replacements.
+   * @param host Object containing the field, or null when unavailable.
+   * @param field Existing field to replace.
+   * @param keys Stable marker/original property names shared by later evaluations.
+   * @param next Desired value; an unowned field already equal to it is refused.
+   * @returns Claim status and reclaim flag, or a diagnostic; failed installation attempts rollback.
+   */
   const claimValue = (host, field, keys, next) => {
     if (!host || !(field in host)) {
       return { ok: false, error: "claim target unavailable" };
@@ -505,8 +485,13 @@
       return { ok: false, error: String(error) };
     }
   };
-  // Hands a claimed field back. Releasing something never claimed is success, not an error: a gate
-  // that failed halfway must be able to unwind without knowing how far it got.
+  /**
+   * Restores a claimed field through its saved descriptor or original accessor setter.
+   * @param host Claimed object, or null.
+   * @param field Field named at installation.
+   * @param keys The same durable keys used to claim the field.
+   * @returns Success for an absent claim; otherwise restoration status and any diagnostic.
+   */
   const releaseValue = (host, field, keys) => {
     if (!host || !claimed(host, keys)) return { ok: true };
     try {
@@ -521,9 +506,14 @@
       return { ok: false, error: String(error) };
     }
   };
-  // Claims a member — a method a gate overlays, or a namespace it supplies where the client has
-  // none. The marker goes on the REPLACEMENT rather than the host, so `status` can ask the live
-  // object whether what is installed is ours without consulting any closure.
+  /**
+   * Replaces a member with a marked object/function without stacking prior toolkit wrappers.
+   * @param host Object whose member is replaced, or null.
+   * @param member Member to claim.
+   * @param keys Durable marker/original keys on the replacement.
+   * @param replacement Builds the replacement from the underlying original value.
+   * @returns Claim status; a replacement that cannot carry its marker is refused.
+   */
   const claimMember = (host, member, keys, replacement) => {
     if (!host) {
       return { ok: false, error: "claim host unavailable" };
@@ -548,8 +538,13 @@
       return { ok: false, error: String(error) };
     }
   };
-  // Hands a claimed member back to whatever it displaced. A member that was absent before the claim
-  // is deleted rather than set to undefined, so `member in host` reads as it did.
+  /**
+   * Restores only the currently marked member, including its prior inherited/absent state.
+   * @param host Object carrying the replacement, or null.
+   * @param member Claimed member name.
+   * @param keys Marker/original keys from installation.
+   * @returns Restoration status; an absent or no-longer-owned member is already released.
+   */
   const releaseMember = (host, member, keys) => {
     if (!host) return { ok: true };
     const current = host[member];
@@ -561,26 +556,22 @@
       return { ok: false, error: String(error) };
     }
   };
+  /**
+   * Checks the live member for this claim marker.
+   * @param host Object to inspect, or null/undefined.
+   * @param member Member name.
+   * @param keys Claim marker/original keys.
+   * @returns Whether the current member is marked as owned.
+   */
   const memberClaimed = (host, member, keys) => claimed(host?.[member], keys);
-  // Supplies a namespace the client does not have — the Performance and audio backends Valve's own
-  // components were written against and the Windows client never defines.
-  //
-  // Distinct from claimMember, which overlays something that EXISTS. Three differences matter:
-  //
-  //   - Refusing a real backend is correct. A client that grows one must not be shadowed by a
-  //     projection of a different machine's hardware.
-  //   - Reclaiming our own is mandatory. A namespace outlives the bridge backing it — the bridge is a
-  //     window property that dies with the JS context, SteamClient does not — so after a context
-  //     reload an orphaned namespace is left whose methods call a bridge that is gone. Refusing there
-  //     stranded the client permanently: the probe saw a namespace, called the patch incompatible,
-  //     and Steam's audio page stayed empty until Steam itself restarted.
-  //   - Removal DELETES rather than restores, because there was nothing there to hand back.
-  //
-  // Defined rather than assigned, and non-writable: assignment would throw against a previous
-  // bridge's non-writable definition, under the "use strict" this whole asset runs in — turning a
-  // reclaim into exactly the refusal above.
-  // Takes a marker alone rather than a ClaimKeys pair, because nothing is displaced: there is no
-  // original to remember, and removal deletes.
+  /**
+   * Supplies an absent namespace or reclaims an orphaned toolkit namespace.
+   * @param host Namespace parent, or null.
+   * @param name Property receiving the namespace.
+   * @param marker Durable ownership marker.
+   * @param factory Builds the supplied object; no real unmarked backend is replaced.
+   * @returns Claim/reclaim status or the refusal reason.
+   */
   const supplyNamespace = (host, name, marker, factory) => {
     if (!host) {
       return { ok: false, error: "namespace host unavailable" };
@@ -603,8 +594,13 @@
       return { ok: false, error: String(error) };
     }
   };
-  // Withdraws a supplied namespace. Only ever deletes one this bridge marked, so a real backend that
-  // appeared underneath is left alone.
+  /**
+   * Deletes only the namespace carrying the supplied marker.
+   * @param host Namespace parent, or null/undefined.
+   * @param name Namespace property name.
+   * @param marker Marker used when supplying the namespace.
+   * @returns Removal status; missing or foreign namespaces are left intact.
+   */
   const withdrawNamespace = (host, name, marker) => {
     if (!host || !claimed(host[name], { marker, original: marker })) return { ok: true };
     try {
@@ -614,16 +610,14 @@
       return { ok: false, error: String(error) };
     }
   };
-  // Claims an accessor property — a getter the client computes, that a gate answers differently.
-  //
-  // Separate from claimMember because the write has to be defineProperty rather than assignment:
-  // assigning to a getter-backed property either calls a setter that is not there or throws, and
-  // defining the replacement on the INSTANCE instead of where the accessor lives would shadow rather
-  // than replace, leaving the shadow behind after removal. The marker goes on the replacement getter
-  // and carries the whole original descriptor, because that is what has to be handed back.
-  //
-  // Refuses a non-configurable property rather than throwing: a client that locked it is a client
-  // this gate stands aside for.
+  /**
+   * Claims a configurable own accessor while retaining its complete original descriptor.
+   * @param host Object that defines the accessor, not an inheriting instance.
+   * @param property Own property to replace.
+   * @param keys Durable marker/original keys carried by the getter.
+   * @param getter Replacement getter.
+   * @returns Claim/reclaim status; unavailable or non-configurable properties are refused.
+   */
   const claimAccessor = (host, property, keys, getter) => {
     if (!host) {
       return { ok: false, error: "claim host unavailable" };
@@ -643,7 +637,13 @@
       return { ok: false, error: String(error) };
     }
   };
-  // Restores the descriptor a claimed accessor displaced.
+  /**
+   * Restores the descriptor saved by a still-owned accessor claim.
+   * @param host Object defining the accessor, or null.
+   * @param property Claimed property.
+   * @param keys Marker/original keys from installation.
+   * @returns Restoration status; missing saved originals remain failures.
+   */
   const releaseAccessor = (host, property, keys) => {
     if (!host) return { ok: true };
     try {
@@ -742,8 +742,27 @@
         return value;
       },
   );
+  /**
+   * Registers a named transform on the shared React.useMemo claim; throwing transforms preserve the previous result.
+   * @param host Steam React or JSX runtime object.
+   * @param name Unique transform identity for later release.
+   * @param transform Transformation callback; it must not recursively call the claimed wrappers.
+   * @returns Installation status; transforms run in registration order.
+   */
   const interceptMemo = memoClaim.intercept;
+  /**
+   * Withdraws one transform and restores the claimed functions when the last transform leaves.
+   * @param host Original React/JSX host; required while a wrapper remains installed.
+   * @param name Registered transform identity.
+   * @returns Cleanup status; unavailable hosts with remaining wrappers are reported as failures.
+   */
   const releaseMemo = memoClaim.release;
+  /**
+   * Checks that a named transform and all corresponding live wrappers are still owned.
+   * @param host React/JSX host to inspect.
+   * @param name Transform identity.
+   * @returns Whether both registration and wrapper ownership hold.
+   */
   const memoIntercepted = memoClaim.intercepted;
   const elementClaim = createSharedClaim(
     { marker: "__steamUiOwnedElements", original: "__steamUiOriginalElements" },
@@ -764,29 +783,45 @@
         return original.apply(this, arguments);
       },
   );
+  /**
+   * Registers a named JSX transform on the shared jsx/jsxs claims; the first defined result wins.
+   * @param host Steam React or JSX runtime object.
+   * @param name Unique transform identity for later release.
+   * @param transform Transformation callback; it must not recursively call the claimed wrappers.
+   * @returns Installation status; throwing transforms are skipped.
+   */
   const interceptElements = elementClaim.intercept;
+  /**
+   * Withdraws one transform and restores the claimed functions when the last transform leaves.
+   * @param host Original React/JSX host; required while a wrapper remains installed.
+   * @param name Registered transform identity.
+   * @returns Cleanup status; unavailable hosts with remaining wrappers are reported as failures.
+   */
   const releaseElements = elementClaim.release;
+  /**
+   * Checks that a named transform and all corresponding live wrappers are still owned.
+   * @param host React/JSX host to inspect.
+   * @param name Transform identity.
+   * @returns Whether both registration and wrapper ownership hold.
+   */
   const elementsIntercepted = elementClaim.intercepted;
   // @fragment rpc.ts
-  // Answering what Steam asks.
-  //
-  // The client calls a service method and reads a transport reply, not a bare value. Two gates
-  // answer such calls — the SteamOS Manager's GetState and the Bluetooth service's stubs — and both
-  // had built the same reply shape and the same query invalidation by hand.
-  //
-  // Overlaying the method itself is an ownership claim (claimMember); what is here is the rest of
-  // the job, which is the half that is easy to forget.
-  // The shape Steam reads back from a service call. BSuccess decides whether the caller proceeds at
-  // all, so a reply that omits it is discarded before its body is ever looked at; Body().toObject()
-  // is what the store then consumes.
+  /**
+   * Creates the success envelope expected by Steam service callers.
+   * @param body Response body returned by Body().toObject().
+   * @returns An object exposing BSuccess/BFailed/GetEResult/Body.
+   */
   const transportReply = (body) => ({
     BSuccess: () => true,
     BFailed: () => false,
     GetEResult: () => 1,
     Body: () => ({ ...body, toObject: () => body }),
   });
-  // A refused call in the same shape. k_EResultFail rather than an absent method, so a caller that
-  // compares the result reads a refusal instead of throwing where the comparison would have been.
+  /**
+   * Creates a refused Steam service response with EResult 2.
+   * @param body Failure response body.
+   * @returns The same transport shape as transportReply, marked failed.
+   */
   const transportFailure = (body) => ({
     ...transportReply(body),
     BSuccess: () => false,
@@ -806,7 +841,11 @@
   const QueryClientTokens = ["ReactQueryDevtools", "offlineFirst"];
   const isQueryClient = (value) =>
     typeof value?.invalidateQueries === "function" && typeof value?.getQueryState === "function";
-  // The query client, or null when the provider moved or no longer answers to that shape.
+  /**
+   * Resolves Steam's query client without exposing factory or export identities to callers.
+   * @param req Shared module resolver.
+   * @returns The uniquely shaped query client, or null on discovery/load failure.
+   */
   const resolveQueryClient = (req) => {
     try {
       return req?.exported(QueryClientTokens, isQueryClient) ?? null;
@@ -814,6 +853,11 @@
       return null;
     }
   };
+  /**
+   * Invalidates a Steam query after a supplied service reply changes.
+   * @param req Shared module resolver.
+   * @param queryKey Query key to invalidate.
+   */
   const invalidateQuery = (req, queryKey) => {
     try {
       resolveQueryClient(req)?.invalidateQueries({ queryKey });
@@ -822,22 +866,14 @@
     }
   };
   // @fragment file-picker.ts
-  // A folder and file picker for pages drawn inside Steam.
-  //
-  // Steam has no picker a page can open, and a Windows dialog opens behind Big Picture with no
-  // controller support. This draws one as a Steam modal from Steam's own components: its dialog
-  // frame, its focusable rows and its buttons. The host lists the file system through the
-  // steam-ui.file-picker commands (SteamFilePickerSurface on the C# side); nothing here reads the
-  // disk, and the page decides what to do with the path the user chose.
-  //
-  // Controller: A opens a folder or chooses a file, X uses the current folder, Y goes up a level,
-  // B cancels.
+  // Controller-accessible file selection; filesystem listing is delegated to the host bridge.
   const SteamFilePickerPatchId = "steam-ui.file-picker";
-  // Opens the picker. Resolves with the chosen path, or null when the user cancelled.
-  //
-  // ui       resolved Steam components: react, focusable, dialogButton, dialogButtonPrimary,
-  //          modalRoot, showModal
-  // options  { title, mode: "folder" | "file", extensions: [".lnk", ...], start: "D:\\Games" }
+  /**
+   * Opens a controller-accessible picker backed by the file-picker bridge commands.
+   * @param ui Steam's resolved React and native control components.
+   * @param options Optional title, folder/file mode, extension filters and starting path.
+   * @returns A promise for the selected path, or null on cancellation or unavailable modal components.
+   */
   const showSteamFilePicker = (ui, options = {}) =>
     new Promise((resolve) => {
       const react = ui?.react;
@@ -1149,6 +1185,11 @@
       return null;
     }
   };
+  /**
+   * Resolves React and native field components for row renderers.
+   * @param runtime Shared module resolver.
+   * @returns Available field components, or null when foundational module evidence is absent.
+   */
   const resolveSteamFieldComponents = (runtime) => {
     const react = resolveReact(runtime);
     const fieldsFactory = runtime.findUnique(FieldTokens);
@@ -1212,6 +1253,11 @@
       textField,
     };
   };
+  /**
+   * Resolves native page controls using shared module fingerprints and export shapes.
+   * @param runtime Shared module resolver; matching factory loads may throw.
+   * @returns The available component collection, or null when base fields cannot resolve.
+   */
   const resolveSteamUiComponents = (runtime) => {
     const fields = resolveSteamFieldComponents(runtime);
     if (!fields) return null;
@@ -1276,6 +1322,11 @@
   // titled section, and PanelSectionRow, which lays one control out inside it. Both come from the one
   // layout module that names them together; null when either is not a unique match there.
   const PanelLayoutTokens = ["PanelSectionTitle", "PanelSectionRow", "spinner"];
+  /**
+   * Resolves both native Quick Access section and row components.
+   * @param runtime Shared module resolver.
+   * @returns The pair, or null unless both exports match uniquely.
+   */
   const resolveSteamPanelComponents = (runtime) => {
     const factory = runtime.findUnique(PanelLayoutTokens);
     if (!factory) return null;
@@ -1324,12 +1375,18 @@
       },
     };
   };
-  // Steam's checkbox where the client has it, its toggle otherwise: both take label, description,
-  // checked, onChange and disabled, so a page draws either without knowing which it got.
+  /**
+   * Selects a native checkbox with a toggle fallback.
+   * @param ui Steam's resolved React and native control components.
+   * @returns The checkbox/toggle component, or null when neither exists.
+   */
   const steamCheckbox = (ui) => ui?.checkbox ?? ui?.toggleField ?? null;
-  // A dropdown for a toolbar: Steam's bare dropdown button where the client has it, its labelled
-  // DropDownField otherwise. Takes the dropdown's own props; `label` names the field, or titles the
-  // bare button's menu.
+  /**
+   * Draws a native toolbar dropdown, falling back to a labelled field.
+   * @param ui Steam's resolved React and native control components.
+   * @param props Native dropdown props, including options, current selection, label and change handler.
+   * @returns The dropdown element.
+   */
   const renderSteamDropdown = (ui, props) =>
     ui.dropdownControl
       ? ui.react.createElement(ui.dropdownControl, {
@@ -1347,10 +1404,12 @@
           disabled: props.disabled,
           layout: "below",
         });
-  // Opens a Steam modal around a body the caller draws. `render(close)` is called on every render of
-  // the modal, so a body that keeps state is a component the caller renders from it. `onCancel` runs
-  // when the user dismisses the modal with B or the backdrop, before it closes. Answers false when
-  // this client has no modal manager, so the caller can say why nothing opened.
+  /**
+   * Opens a native modal and supplies a close callback to its content.
+   * @param ui Steam's resolved React and native control components.
+   * @param options Optional title/class, content renderer and cancellation callback.
+   * @returns True when shown, false when modal components are unavailable.
+   */
   const showSteamModal = (ui, options) => {
     if (!ui?.showModal || !ui?.modalRoot) return false;
     const react = ui.react;
@@ -1372,9 +1431,11 @@
   };
   // Steam's gamepad button codes, as a Focusable's onButtonDown reports them in event.detail.button.
   const SteamGamepadButton = Object.freeze({ TriggerLeft: 7, TriggerRight: 8 });
-  // An onButtonDown handler that turns the triggers into a step: -1 for LT, +1 for RT. A trigger it
-  // handles goes no further, so the same press does not also scroll the page; any other button is
-  // left to Steam.
+  /**
+   * Creates a handler that consumes LT/RT and leaves other buttons to Steam.
+   * @param step Receives -1 for LT and +1 for RT.
+   * @returns A Steam Focusable onButtonDown handler.
+   */
   const onSteamTriggers = (step) => (event) => {
     const button = event?.detail?.button;
     if (button !== SteamGamepadButton.TriggerLeft && button !== SteamGamepadButton.TriggerRight)
@@ -1410,10 +1471,11 @@
     route.startsWith("/") &&
     route !== "/" &&
     !/[\u0000-\u001f\u007f]/u.test(route);
-  // Only a route returned by a successful host command is followed. Publications cannot inject a
-  // target, and the bounds keep this a router operation rather than an open-ended navigation API. A
-  // navigation entry's published route is the one exception, and it is followed by Valve's own entry
-  // only when the user selects that row.
+  /**
+   * Pushes an absolute non-root route through the existing Steam history.
+   * @param route Route without control characters; no length bound is imposed.
+   * @returns False for an invalid route or missing history; true after push. History exceptions propagate.
+   */
   const navigateSteamRoute = (route) => {
     if (!isNavigableRoute(route)) {
       return false;
@@ -1529,8 +1591,12 @@
     accent
       ? react.createElement("span", { style: { color: SteamAccentColor } }, text)
       : text || undefined;
-  // An element's props with its key carried along. The key lives on the element, not in props, and
-  // dropping it would re-key the node inside its parent's child list on every render.
+  /**
+   * Builds props that retain an existing React element's key.
+   * @param element Element whose identity is preserved.
+   * @param props Replacement props; defaults to the element's current props.
+   * @returns Original props for a null key; otherwise a shallow props copy containing the key.
+   */
   const keyed = (element, props = element.props) =>
     element.key === null ? props : { ...props, key: element.key };
   // A portal is not an element: isValidElement answers false, and its children sit on the portal
@@ -1596,7 +1662,11 @@
       return false;
     }
   };
-  // Ends a gate's bridge subscription, if it holds one, and answers the cleared handle.
+  /**
+   * Invokes an optional subscription disposer; cleanup exceptions propagate.
+   * @param unsubscribe Current disposer, or null.
+   * @returns Null, suitable for assigning back to the owner's subscription field.
+   */
   const endSubscription = (unsubscribe) => {
     unsubscribe?.();
     return null;
@@ -1858,28 +1928,9 @@
     return released;
   };
   // @fragment icons.ts
-  // Glyphs for the Quick Access rows and section headers the component host mounts.
-  //
-  // Valve draws every Quick Access icon as inline SVG that carries no size of its own: the shapes are
-  // filled with `currentColor` so they inherit the row's colour, and the panel's own CSS decides
-  // how big they are — `.FieldIcon svg` is 20px tall next to a label, and `.PanelSectionTitle > svg`
-  // is 18px. Field takes one through its `icon` prop, which SliderField, ToggleField and DropDownField
-  // all forward, so a row needs nothing but an element here.
-  //
-  // These are the toolkit's own drawings on a 24x24 grid, not copies of the client's artwork. Valve's
-  // icons live in the Steam bundle under Valve's terms; a library that ships under its own license
-  // cannot vendor them, and matching the drawing convention — solid shapes, `currentColor`, holes cut
-  // with `fill-rule="evenodd"` — is what makes a new glyph sit beside a Valve one without looking
-  // borrowed or bolted on.
-  //
-  // EVERY GLYPH IS USED EXACTLY ONCE. People navigate a panel like this by shape before they read the
-  // label, so a glyph that appears on a header and again on a row inside it, or on two rows that do
-  // different things, is worse than no glyph at all: it tells the eye two controls are the same when
-  // they are not. Adding a row means drawing a shape, never borrowing one.
-  //
-  // A shape is a tag and its attributes, in React's camelCase spelling because these are handed
-  // straight to Steam's own createElement. Composing an icon from rects and circles where the geometry
-  // allows keeps the path data short enough to read, which is the same reason Valve does it.
+  // Original 24×24 glyphs for native Steam rows; filled with currentColor and sized by the host.
+  // Each row has a distinct shape so controller navigation retains recognizable landmarks.
+  /** Named glyph shapes expressed as React SVG tags and attributes. */
   const SteamUiIconShapes = Object.freeze({
     // -- Profile scope --------------------------------------------------------------------------
     // An ID card: the question the section answers is whose settings these are, not what they do.
@@ -2252,10 +2303,11 @@
     sectionOpen: [["path", { d: "M12 16.4 4.6 9l1.8-1.8L12 12.8l5.6-5.6L19.4 9 12 16.4Z" }]],
     sectionClosed: [["path", { d: "M9 4.6 16.4 12 9 19.4 7.2 17.6l5.6-5.6-5.6-5.6L9 4.6Z" }]],
   });
-  // Builds icons with Steam's own React, and caches the result: a React element is immutable, so one
-  // per name and size can be handed to every render of every row rather than rebuilt on each pass.
-  // An unknown name returns null, which is what Field, PanelSection and the section header below all
-  // treat as "no icon" — a mistyped name loses a glyph, never a row.
+  /**
+   * Creates a decorative icon renderer with a cache owned by the supplied React runtime.
+   * @param react Steam's React runtime; elements must be rendered by this same instance.
+   * @returns A (name, size = 20) renderer; unknown icon names return null.
+   */
   const createIconRenderer = (react) => {
     const cache = new Map();
     return (name, size = 20) => {
@@ -2284,14 +2336,15 @@
       return element;
     };
   };
-  // A glyph the host supplies as SVG path data on a 24x24 grid: one path, filled with `currentColor`,
-  // holes cut with `fill-rule="evenodd"`. That is Valve's own convention for the main menu's icons -
-  // inline SVG with no size of its own, sized by the row's icon box - so a host's mark sits beside
-  // Home and Library as one of them. Only path commands and numbers are accepted, so a publication
-  // can describe a shape and nothing else; its length is the host's. Cached per React and path, so a
-  // glyph is never handed to a React that did not build it; null when the data is not a path.
+  // Only SVG path commands and numbers are accepted; publications cannot inject markup.
   const SteamGlyphPattern = /^[MmLlHhVvCcSsQqTtAaZz0-9.,\-\s]+$/u;
   const steamGlyphCaches = new WeakMap();
+  /**
+   * Renders host-supplied SVG path data as a decorative current-color glyph.
+   * @param react Steam's React runtime, which owns cached elements.
+   * @param d SVG path commands and numbers on a 24×24 grid; markup is rejected.
+   * @returns A cached or new SVG element, or null when the path fails validation.
+   */
   const renderSteamGlyph = (react, d) => {
     if (typeof d !== "string" || !SteamGlyphPattern.test(d)) return null;
     let steamGlyphCache = steamGlyphCaches.get(react);
@@ -2316,20 +2369,7 @@
     return element;
   };
   // @fragment library-capsule.ts
-  // A library capsule drawn exactly as Steam's library draws one.
-  //
-  // Steam's own capsule component takes an app overview from its stores, so it can only draw games
-  // Steam already has. A host page that shows titles Steam does not know yet - an importer's review,
-  // say - builds the same element from Steam's library class map instead: the item box with its
-  // portrait or landscape shape, the image class, the shine and the overlay areas. The focus ring,
-  // the grow-on-focus animation and the shine are Steam's CSS for those classes, not this file's.
-  //
-  // Mapped from the installed client on 2026-09-27: the library item module's class map carries
-  // LibraryItemBox, Portrait, Landscape, PortraitImage, LibraryItemBoxShine and the two overlay
-  // areas; its gamepad capsule composes LibraryItemBox with Portrait or Landscape, then the image,
-  // then the shine, then LibraryItemOverlayOuterArea around LibraryItemOverlayInnerArea.
-  // Every class the capsule uses. A map that lost one of them is not the map this was written
-  // against, so the capsule is unavailable rather than half-styled.
+  // Native library styling for host-owned titles that have no Steam app overview.
   const SteamLibraryClassNames = [
     "LibraryItemBox",
     "Portrait",
@@ -2339,7 +2379,11 @@
     "LibraryItemOverlayOuterArea",
     "LibraryItemOverlayInnerArea",
   ];
-  // Resolves Steam's library class map, or null when this client's differs.
+  /**
+   * Resolves all native CSS classes needed for a host-rendered library capsule.
+   * @param runtime Shared resolver; loading a matched factory may throw.
+   * @returns Mapped capsule classes, or null when the complete class contract is unavailable.
+   */
   const resolveSteamLibraryClasses = (runtime) => {
     const factory = runtime.findUnique([...SteamLibraryClassTokens]);
     if (!factory) return null;
@@ -2366,19 +2410,12 @@
     logo: "16 / 9",
     icon: "1 / 1",
   };
-  // Builds the capsule component over resolved Steam components and classes. Create it once per
-  // resolution and keep it: a component made on every render is a new type each time, and React
-  // would remount the grid and drop the controller's focus.
-  //
-  // Props:
-  //   asset        grid, wide, hero, logo or icon: the shape
-  //   image        the URL to show, or empty for the placeholder
-  //   placeholder  what to write in its place when there is no image
-  //   width        the capsule's width in pixels
-  //   dimmed       drawn faded, for an item that is left out
-  //   overlay      elements for the overlay area: badges, a selection mark
-  //   caption      an element for the bottom edge, such as which image of how many
-  //   focus        props for Steam's Focusable: onActivate, onSecondaryButton, action descriptions
+  /**
+   * Creates a reusable capsule component; retain its identity across renders to preserve focus.
+   * @param ui Steam's resolved React and native control components.
+   * @param classes Complete class map from resolveSteamLibraryClasses.
+   * @returns A component accepting asset/image/placeholder/width/dimmed/overlay/caption/focus props.
+   */
   const createSteamCapsule = (ui, classes) => {
     const react = ui.react;
     return function SteamCapsule(props) {
@@ -2484,8 +2521,12 @@
     };
   };
   // @fragment module-resolver.ts
-  // Keep this fragment valid JavaScript: the same bytes are embedded for standalone C# probes
-  // and composed into the bridge. Features supply fingerprints, never their own registry scan.
+  /**
+   * Captures Steam's webpack runtime and exposes unique source-fingerprint resolution.
+   * @param scope Diagnostic chunk-label suffix for this resolver capture.
+   * @returns A checked module reader with count/findUnique/resolve/exported helpers.
+   * @throws When the runtime is absent, a fingerprint is invalid or a requested match/load fails.
+   */
   function createSteamUiModuleResolver(scope) {
     let runtime;
     window.webpackChunksteamui?.push([
@@ -2564,11 +2605,14 @@
       cache.matches.set(key, found);
       return found;
     };
+    /** Counts matching factories without executing them; invalid tokens throw. */
     requirePresent.count = (tokens) => matches(tokens).length;
+    /** Returns the unique factory id/source pair, or null on absence or ambiguity. */
     requirePresent.findUnique = (tokens) => {
       const ids = matches(tokens);
       return ids.length === 1 ? [ids[0], sourceOf(runtime.m[ids[0]])] : null;
     };
+    /** Loads one uniquely matched module; invalid, absent, ambiguous or failed loads throw. */
     requirePresent.resolve = (tokens) => {
       const ids = matches(tokens);
       if (ids.length !== 1)
@@ -2577,10 +2621,12 @@
         );
       return requirePresent(ids[0]);
     };
-    // One export of a uniquely fingerprinted module, chosen by what it is. Client builds renumber
-    // modules and rename exports, so neither a module id nor an export name is an identity: the
-    // September 2026 beta did both and took down every gate that had named them. Aliases of one value
-    // count once; no fit or two distinct fits throws, so a moved export says so instead of guessing.
+    /**
+     * Selects one distinct export of a uniquely fingerprinted module.
+     * @param tokens Nonempty source tokens that must all match one factory.
+     * @param predicate Shape predicate; throwing getters and predicates are ignored.
+     * @returns The unique matching value; aliases count once. Absence or ambiguity throws.
+     */
     requirePresent.exported = (tokens, predicate) => {
       if (typeof predicate !== "function") throw new Error("Steam export predicate invalid");
       const exports = requirePresent.resolve(tokens);
@@ -2632,18 +2678,11 @@
   }
   // @steam-ui-module-resolver-end
   // @fragment page-gate.ts
-  // A host's own page inside Steam: its gate, its state and its frame, declared once.
-  //
-  // Every page a host draws needs the same lifecycle: resolve Steam's components, refuse to install
-  // when one it draws is missing, subscribe to the host's state for the page, tell a mounted page
-  // when that state changes, arrives refused or goes away, and draw nothing of its own until all of
-  // that holds. Written out per page it was written three times and had already drifted: one page
-  // kept drawing its last state after its gate was removed.
-  //
-  // A page is declared with `registerSteamPage`, which registers the gate under `gate` and the
-  // renderer under `template` (see pages.ts), and hands back what the page reads while it renders.
-  // The page component is the host's; the frame around it is this file's, so a page that could not
-  // resolve says why instead of showing "Loading…" for ever.
+  /**
+   * Registers a renderer and generation-bound gate for one host page.
+   * @param definition Stable renderer/gate/patch identities, component requirements and lifecycle callbacks.
+   * @returns Live page accessors; removal clears UI and state while the React instance may remain available.
+   */
   function registerSteamPage(definition) {
     let installed = false;
     let ui = null;
@@ -2750,12 +2789,7 @@
           lastError || "Loading…",
         );
       }
-      // Steam's own pages take the controller's focus when they open, from the page component
-      // they are drawn in. A host page has none, so focus stayed on whatever opened it, which is
-      // gone: B then found nothing on the page to answer it and Steam's back stack left the page.
-      // The page's root takes focus instead, so B reaches the page's own levels first, and the
-      // paged settings sidebar learns its list has had focus and sends B from the content back
-      // to it, as in Steam's Settings.
+      // The root must take focus so Back reaches page navigation before the router stack.
       return ui.focusable
         ? react.createElement(
             ui.focusable,
@@ -2780,16 +2814,37 @@
   const pluginFrontendChanged = () => {
     for (const listener of pluginFrontendListeners) listener();
   };
+  /**
+   * Observes contribution changes in this bridge generation.
+   * @param listener Callback invoked after registrations change.
+   * @returns An unsubscribe callback; there is no cached replay.
+   */
   const subscribePluginFrontends = (listener) => {
     pluginFrontendListeners.add(listener);
     return () => pluginFrontendListeners.delete(listener);
   };
+  /**
+   * Reads slots for currently active frontend contributions.
+   * @param kind Contribution category, such as menu or tab.
+   * @returns A new array excluding failed or closed owners.
+   */
   const pluginFrontendItems = (kind) =>
     [...pluginFrontendSlots.values()].filter(
       (slot) => slot.kind === kind && !slot.entry.failed && !slot.entry.closed,
     );
+  /**
+   * Renders currently active frontend contributions of one kind.
+   * @param kind Contribution category.
+   * @param react Steam's React runtime.
+   * @param props Additional props supplied by the containing surface.
+   * @returns An array of owner-bound React elements.
+   */
   const pluginFrontendElements = (kind, react, props = {}) =>
     pluginFrontendItems(kind).map((slot) => slot.element(react, props));
+  /**
+   * Owns trusted plugin frontend scripts, contributions and failure cleanup for this bridge.
+   * @returns Probe/load/status/unload controls; unloading awaits owned cleanup, while remove starts all unloads without awaiting.
+   */
   function createPluginFrontends() {
     const documents = () => {
       const docs = new Set([document]);
@@ -2994,29 +3049,87 @@
         return work;
       };
       const api = {
+        /**
+         * Owner module identity used for backend commands and subscriptions.
+         */
         id: spec.id,
+        /**
+         * Diagnostic module name used in frontend failure reports.
+         */
         module: spec.module,
+        /**
+         * Steam's existing React runtime; frontends must not load a second copy.
+         */
         react: reactRuntime(),
+        /**
+         * Shared generation-bound bridge; trusted frontend code is not sandboxed.
+         */
         bridge,
-        // The plugin is trusted session code. These are convenience primitives, not permissions.
+        /**
+         * Returns the shared module resolver; unavailable Steam runtime throws.
+         */
         resolveModules: getWebpackRuntime,
+        /**
+         * Resolves native settings controls; returns null when required evidence is absent.
+         */
         resolveComponents: () =>
           resolveSteamSettingsComponents(getWebpackRuntime("plugin-frontends")),
+        /**
+         * Native section, header and empty-state helpers for contributed surfaces.
+         */
         uiKit: {
           section: renderSteamUiGroup,
           header: renderSteamUiHeader,
           note: renderSteamUiEmpty,
         },
+        /**
+         * Wraps a callback so synchronous throws and rejected promises fail the owning plugin.
+         * @param callback Callback to invoke with the original receiver and arguments.
+         * @returns A guarded callback; failure triggers cleanup of this owner and sibling modules.
+         */
         guard: (callback) => guard(entry, spec.module, callback),
+        /**
+         * Registers owner cleanup, invoked in reverse order during unload or failure.
+         * @param callback Cleanup callback; an asynchronous result receives a two-second wait budget.
+         */
         onDispose: (callback) => entry.cleanups.push(callback),
+        /**
+         * Invokes an allowlisted backend method through this module.
+         * @param method Semantic backend method name.
+         * @param payload JSON arguments; defaults to null.
+         * @returns The bridge result promise; refusal and timeout reject.
+         */
         call: (method, payload = null) => request(spec.id, "invoke", { method, payload }),
+        /**
+         * Observes backend state with cached replay and owner failure handling.
+         * @param callback Receives complete state publications.
+         * @returns An unsubscribe callback, also retained for automatic owner cleanup.
+         */
         subscribe: (callback) => {
           const stop = subscribe(spec.id, guard(entry, spec.module, callback));
           entry.cleanups.push(stop);
           return stop;
         },
+        /**
+         * Waits for a frontend readiness predicate, checking every 50 ms for up to five seconds.
+         * @param check Returns true or an object with ok:true when ready.
+         * @returns A promise rejecting on timeout, predicate failure or owner shutdown.
+         */
         ready: (check) => ready(entry, spec.module, check),
+        /**
+         * Contributes a routed page; duplicate ids and nonabsolute paths are rejected.
+         * @param id Contribution id unique within this module.
+         * @param page Page descriptor with an absolute path.
+         * @param render Renderer wrapped in the owning plugin error boundary.
+         * @returns A registration promise; asynchronous failure marks the owner failed and starts cleanup.
+         */
         registerPage: (id, page, render) => register("page", id, page, render, "pages"),
+        /**
+         * Contributes a native navigation row, with an optional guarded activation callback.
+         * @param id Contribution id unique within this module.
+         * @param item Menu descriptor and optional onActivate callback.
+         * @returns A registration promise; owner status reports asynchronous failure.
+         */
         registerMenuEntry: (id, item) =>
           register(
             "menu",
@@ -3030,8 +3143,22 @@
             null,
             "navigationPanel",
           ),
+        /**
+         * Contributes a rendered Quick Access tab.
+         * @param id Contribution id unique within this module.
+         * @param tab Tab descriptor, including its title.
+         * @param render Renderer wrapped in the owning plugin error boundary.
+         * @returns A registration promise; owner status reports asynchronous failure.
+         */
         registerQuickAccessTab: (id, tab, render) =>
           register("tab", id, tab, render, "extensionsTab"),
+        /**
+         * Contributes a row through the native component host.
+         * @param id Contribution id unique within this module.
+         * @param placement quickSettings selects Quick Settings; every other value selects Performance.
+         * @param render Renderer wrapped in the owning plugin error boundary.
+         * @returns A registration promise; owner status reports asynchronous failure.
+         */
         registerQuickAccessRow: (id, placement, render) =>
           register(
             placement === "quickSettings" ? "quickSettings" : "perf",
@@ -3041,15 +3168,37 @@
             "nativeComponents",
             "settingsSections",
           ),
+        /**
+         * Contributes a library-card addition receiving the current surface props.
+         * @param id Contribution id unique within this module.
+         * @param render Renderer wrapped in the owning plugin error boundary.
+         * @returns A registration promise; owner status reports asynchronous failure.
+         */
         registerLibraryAddition: (id, render) =>
           register("library", id, {}, render, "libraryBadge"),
+        /**
+         * Contributes a game-details addition receiving the current surface props.
+         * @param id Contribution id unique within this module.
+         * @param render Renderer wrapped in the owning plugin error boundary.
+         * @returns A registration promise; owner status reports asynchronous failure.
+         */
         registerGamePageAddition: (id, render) =>
           register("gamePage", id, {}, render, "libraryDetails"),
+        /**
+         * Appends owner CSS to the main and reachable popup documents; unload removes the owned nodes.
+         * @param css CSS text evaluated with the same trust as the frontend script.
+         */
         addStyle: (css) => {
           entry.style = `${entry.style ?? ""}\n${css}`;
           for (const style of entry.styles) style.textContent = entry.style;
           refreshDocuments();
         },
+        /**
+         * Probes, applies and verifies a plugin-owned patch, retaining its remover for cleanup.
+         * @param id Diagnostic patch suffix within this module.
+         * @param patch Object providing probe, apply, verify and remove callbacks.
+         * @returns A promise; asynchronous failure marks the owner failed rather than escaping.
+         */
         registerPatch: (id, patch) => {
           const module = `${spec.module}/${id}`;
           const work = (async () => {
@@ -3062,16 +3211,35 @@
           entry.pending.push(work);
           return work;
         },
+        /**
+         * Schedules an owner-guarded callback and cancels it on cleanup.
+         * @param callback Callback whose failure fails the owner.
+         * @param milliseconds Delay passed to the browser timer.
+         * @returns The browser timeout handle.
+         */
         setTimeout: (callback, milliseconds) => {
           const timer = setTimeout(guard(entry, spec.module, callback), milliseconds);
           entry.cleanups.push(() => clearTimeout(timer));
           return timer;
         },
+        /**
+         * Schedules a repeating owner-guarded callback and cancels it on cleanup.
+         * @param callback Callback whose failure fails the owner.
+         * @param milliseconds Interval passed to the browser timer.
+         * @returns The browser interval handle.
+         */
         setInterval: (callback, milliseconds) => {
           const timer = setInterval(guard(entry, spec.module, callback), milliseconds);
           entry.cleanups.push(() => clearInterval(timer));
           return timer;
         },
+        /**
+         * Registers a guarded event listener and removes the same callback/options on cleanup.
+         * @param target EventTarget receiving the listener.
+         * @param type Browser event name.
+         * @param callback Listener whose failure fails the owner.
+         * @param options Listener options reused when removing it.
+         */
         addEventListener: (target, type, callback, options) => {
           const wrapped = guard(entry, spec.module, callback);
           target.addEventListener(type, wrapped, options);
@@ -3137,33 +3305,16 @@
   }
   registerGate("pluginFrontends", createPluginFrontends());
   // @fragment settings.ts
-  // A host's own settings, drawn as Steam draws its Settings page.
-  //
-  // Every element here is one of Steam's: the routed sidebar its Settings page is built on, its
-  // settings sections, and its toggle, dropdown, slider, text and value fields, buttons and confirm
-  // modal. Nothing is styled by this file, so a host's page looks and navigates exactly like
-  // Settings - and a component Steam no longer ships makes the page unavailable rather than
-  // replacing it with an imitation.
-  //
-  // Mapped against the live client on 2026-09-24:
-  //
-  //   module with `disableRouteReporting`   one export: the routed sidebar. Props { pages }, each page
-  //                                          { title, route, icon, content, visible }. It switches
-  //                                          pages with history.replace, so B leaves the whole page.
-  //   the field module (FieldTokens)         `DialogSettingsSection` (a titled section), the name/value
-  //                                          field (inlineWrap "shift-children-below", focusable), and
-  //                                          the small button (classes DialogButton, _DialogLayout, Small),
-  //                                          beside the toggle, dropdown, slider and text fields.
-  //   module with strMiddleButtonText,       one export: the generic confirm modal. Props { strTitle,
-  //     bProgressDialog and bAlertDialog     strDescription, strOKButtonText, bDestructiveWarning,
-  //                                          onOK, onCancel }.
-  //
-  // The rows are the host's, described by kind rather than by component, so any host page can
-  // publish them: see SteamSettingsRow on the C# side.
-  // The routed sidebar Steam's Settings page renders, by the one prop only it takes.
+  // Host settings use Steam's native routed sidebar and fields. Missing component contracts refuse
+  // installation; descriptors and command policy belong to the host.
   const SteamRoutedPagesTokens = ["disableRouteReporting"];
   // The generic confirm modal, by three props only its module names together.
   const SteamConfirmModalTokens = ["strMiddleButtonText", "bProgressDialog", "bAlertDialog"];
+  /**
+   * Resolves native Settings controls using unique authored-source and export-shape matches.
+   * @param runtime The shared module resolver; matched factory loads can throw.
+   * @returns The component collection, or null when required module evidence is absent.
+   */
   const resolveSteamSettingsComponents = (runtime) => {
     const ui = resolveSteamUiComponents(runtime);
     const fieldsFactory = runtime.findUnique(FieldTokens);
@@ -3197,7 +3348,9 @@
     });
     return { ...ui, settingsSection, valueField, smallButton, routedPages, confirmModal };
   };
-  // What a page needs from the resolution above to draw every row kind.
+  /**
+   * Component names required to draw every supported host Settings row.
+   */
   const SteamSettingsRequired = [
     "react",
     "focusable",
@@ -3306,7 +3459,15 @@
     );
   };
   const formatSteamColor = (color) => `hsla(${color.h}, ${color.s}%, ${color.l}%, ${color.a})`;
-  // Edits a colour in Steam's modal with Steam's sliders. Save sends it once; Cancel and B send nothing.
+  /**
+   * Opens a staged color editor; only Save dispatches the selected color.
+   * @param ui Steam's resolved React and native control components.
+   * @param title Modal title.
+   * @param current Parsed hue/saturation/lightness/alpha value.
+   * @param send Receives the saved hsla() color; cancellation never calls it.
+   * @param alpha Whether opacity is editable; false fixes an opaque color.
+   * @returns Whether the native modal could be shown.
+   */
   const showSteamColorEditor = (ui, title, current, send, alpha = true) => {
     const react = ui.react;
     const h = react.createElement;
@@ -3370,9 +3531,15 @@
   // row does. The words are the host's; the toolkit adds none and offers no control to unmark it.
   const steamSettingDescription = (ui, row) =>
     steamAccentDescription(ui.react, row.description, row.accent === true);
-  // One row, by kind. `draft` is what the user has changed and the host has not yet republished,
-  // so a toggle does not flick back while its write is in flight; `change` records a draft and sends
-  // the value; `action` asks the host to run a row's action.
+  /**
+   * Renders one typed host setting with native fields and shared refusal/draft handling.
+   * @param ui Steam's resolved React and native control components.
+   * @param row Published SteamSettingsRow descriptor.
+   * @param draft Locally staged value, or undefined to use the published value.
+   * @param change Handles edits and whether they should be committed.
+   * @param action Handles action rows.
+   * @returns The row element, or null for an unsupported row kind.
+   */
   const renderSteamSettingRow = (ui, row, draft, change, action) => {
     const h = ui.react.createElement;
     const key = `steam-setting-${row.key}`;
@@ -3589,18 +3756,12 @@
             ? (row.order ?? null)
             : (row.text ?? null),
     );
-  // The drafts of a set of host rows: what the user changed that the host has not published yet, so a
-  // toggle does not flick back while its write is in flight and typed text stays while it is typed.
-  //
-  // A draft remembers what its row was published with when it was made and is shown only while the
-  // row still carries that, so a publication that changes another row leaves it alone. A committed
-  // draft is written through `send`, which answers the write's request: a refusal drops that row's
-  // draft and shows the reason as the row's description until the row is changed again or published
-  // with another value, and an accepted write's draft gives way to the next `revision`. A `send` that
-  // answers nothing counts as accepted.
-  //
-  // `change(send)` is the change a row renderer calls, `draft(row)` the value to draw it with and
-  // `row(row)` the row with its refusal, if any, as its description.
+  /**
+   * Tracks per-row edits and refusals without letting older requests settle newer drafts.
+   * @param react Steam's React instance used by the consuming root.
+   * @param revision Published revision; a change releases committed drafts to the new state.
+   * @returns change(send), draft(row) and row(row) helpers for this mounted component.
+   */
   const useSteamSettingDrafts = (react, revision) => {
     const [state, setState] = react.useState({ drafts: {}, refusals: {} });
     react.useEffect(
@@ -3700,38 +3861,17 @@
       })),
     });
   }
+  /**
+   * Creates a routed native Settings view over host-owned descriptors.
+   * @param ui Steam's resolved React and native control components.
+   * @param props Base route, pages, publication revision and setting/action callbacks.
+   * @returns The settings view; the caller owns state persistence and command validation.
+   */
   const renderSteamSettings = (ui, props) =>
     ui.react.createElement(SteamSettingsView, { ui, ...props });
   // @fragment ui-kit.ts
-  // The UI kit: the elements a host draws around Steam's own fields.
-  //
-  // Steam ships a toggle, a dropdown, a slider, a text field, a button and a modal, and a page uses
-  // those wherever one fits, resolved from Steam's own modules. It ships nothing for the rest of what
-  // a page is made of: a section heading that folds, a block of rows, a row of actions, a swatch, a
-  // card in a grid. Those are drawn here, once, from plain elements and one stylesheet, in the
-  // vocabulary of Steam's own panels — its greys, its 2px radius, its focus outline — so a host's
-  // page and its Quick Access tab look like one thing and like the panels beside them.
-  //
-  // Every element takes `ui`, the components resolved for the page, and answers React elements built
-  // with Steam's React, so Steam's navigation treats them as its own. Focus is Steam's Focusable, and
-  // the `gpfocus` class it sets on the focused element is what the stylesheet lights up.
-  //
-  // The stylesheet is rendered by whichever root uses the kit (`steamUiKitStyle`), so it lands in the
-  // document the root is drawn into: the Quick Access popup, a page's window, a modal. Class names
-  // are prefixed `steam-ui-kit-` and the rules are flat, so a host can add to them without fighting
-  // specificity.
-  //
-  // One rule names a Steam class: the tabbed page's header row is picked by the substring
-  // `gamepadtabbedpage_TabHeaderRowWrapper` of its class, which survives the hash suffix Steam adds,
-  // to give that row the panel's background. Three more reach into Steam's own markup by structure
-  // rather than by any class name. A block zeroes the field bleed Steam's panel rows give their fields
-  // (`--field-negative-horizontal-margin`, 16px, so a field can run to the panel's edge): a block
-  // has a border, and a field runs to that. The Quick Access menu also gives a field's control
-  // container a 270px minimum width and its buttons a 160px one, from an id-scoped rule, so both are
-  // lifted with `!important`; a block's content is narrower than Valve's panel column, and a fixed
-  // minimum is what pushed dropdowns past the border. And `steam-ui-kit-battery` draws Valve's
-  // battery line at one line's height, finding the row as the element with three children whose middle
-  // one, the percentage, is not empty: the section around it has three as well, the last two empty.
+  // Shared elements around Steam's native fields. Use Steam React/Focusable and render the kit
+  // stylesheet in each consuming document. CSS selectors preserve Valve layout and focus behavior.
   const SteamUiKitStyles = `
 .steam-ui-kit-page{margin-top:var(--basicui-header-height,40px);height:calc(100% - var(--basicui-header-height,40px));display:flex;flex-direction:column;background:var(--gpSystemDarkestGrey,#0e141b);color:#dcdedf}
 .steam-ui-kit-pane{display:flex;flex-direction:column;gap:14px;padding:12px 4px 72px}
@@ -3838,6 +3978,11 @@
   // than fresh ones to diff.
   const steamUiKitStyles = new WeakMap();
   const steamUiKitIcons = new WeakMap();
+  /**
+   * Returns the cached kit stylesheet element; render it once in each consuming document root.
+   * @param react Steam's React instance used by the consuming root.
+   * @returns The style element shared by callers using this React instance.
+   */
   const steamUiKitStyle = (react) => {
     let element = steamUiKitStyles.get(react);
     if (!element) {
@@ -3854,11 +3999,12 @@
     }
     return icon;
   };
-  // A section heading: a glyph, the title and its detail line, and, when it folds, the kit's caret
-  // saying which way. A folding heading is Steam's Focusable, because Steam's own section title
-  // cannot take focus and a controller has to be able to land on the fold; one that does not fold is
-  // a plain heading, drawn the same so a fixed section and a folding one read as siblings. `sub` is
-  // the smaller heading a switch's own settings fold under inside a section.
+  /**
+   * Creates a section heading with optional controller-accessible folding.
+   * @param ui Steam's resolved React and native control components.
+   * @param props Title, optional icon/detail, fold state and toggle callback; sub selects nested styling.
+   * @returns A heading element; without onToggle it is not a focusable fold control.
+   */
   const renderSteamUiHeader = (ui, props) => {
     const h = ui.react.createElement;
     const folds = typeof props.onToggle === "function";
@@ -3893,16 +4039,13 @@
         )
       : h("div", { className }, ...children);
   };
-  // A block of a panel: a heading over its rows, with a subtle fill and border so the blocks beside
-  // each other read as groups. With `onToggle` the heading folds the body away; the body stays
-  // mounted while folded, so rows keep their subscriptions and what a folded block's detail line
-  // reports stays current. `hidden` takes the whole block out of layout, still mounted. Steam's
-  // gamepad navigation walks mounted Focusables whether they are drawn or not, so a folded body and a
-  // hidden block are Focusables with child focus disabled: the controller and the arrow keys move from
-  // a folded heading to the next block's, never into rows nobody can see. Without a
-  // title the block is a plain box around its rows. A root whose blocks are Steam's own PanelSections
-  // gives them the same look with the `steam-ui-kit-blocks` class, and `steam-ui-kit-valve` also
-  // restyles Valve's section titles to the kit's heading.
+  /**
+   * Creates a section whose hidden or folded descendants remain mounted but cannot receive focus.
+   * @param ui Steam's resolved React and native control components.
+   * @param props Section identity, optional title/icon/detail and fold/visibility controls.
+   * @param children Rows retained while the section is folded.
+   * @returns The grouped React element; the caller owns fold state.
+   */
   const renderSteamUiGroup = (ui, props, ...children) => {
     const h = ui.react.createElement;
     const folds = typeof props.onToggle === "function";
@@ -3936,8 +4079,12 @@
       box(collapsed, { className: "steam-ui-kit-group-body" }, ...children),
     );
   };
-  // Actions in a two-column grid: two short labels sit side by side, a long one takes the row. Each
-  // is Steam's DialogButton, so it navigates and lights up as Steam's do.
+  /**
+   * Creates a controller-navigable grid of native action buttons.
+   * @param ui Steam's resolved React and native control components.
+   * @param actions Stable ids, visible labels and activation callbacks in display order.
+   * @returns A two-column grid; long labels span both columns.
+   */
   const renderSteamUiActions = (ui, actions) => {
     const h = ui.react.createElement;
     return h(
@@ -3956,9 +4103,12 @@
       ),
     );
   };
-  // The foot of a list that is drawn a page at a time: one centred button that asks for the next page.
-  // A long list is paged rather than drawn whole, because every card is a Focusable and an image, and a
-  // few thousand of them stall Steam's renderer.
+  /**
+   * Creates the next-page control for a bounded list of rendered items.
+   * @param ui Steam's resolved React and native control components.
+   * @param props Optional label/disabled state and the callback requesting more items.
+   * @returns A centered native button; it does not fetch or append items itself.
+   */
   const renderSteamUiMore = (ui, props) => {
     const h = ui.react.createElement;
     return h(
@@ -3971,9 +4121,13 @@
       ),
     );
   };
-  // A page's pane: the column its toolbar, grid and notes stand in. It takes the controller's focus
-  // when it appears, which is when the page opens and when a detail or level over it closes: the
-  // element that had focus is gone then, and focus left on nothing sends B out of the page.
+  /**
+   * Creates a page column that acquires controller focus when mounted.
+   * @param ui Steam's resolved React and native control components.
+   * @param props Optional React key and additional class name.
+   * @param children Toolbar, list or other page content in navigation order.
+   * @returns The focusable pane, or a plain container when Focusable is unavailable.
+   */
   const renderSteamUiPane = (ui, props, ...children) => {
     const h = ui.react.createElement;
     const className = ["steam-ui-kit-pane", props.className].filter(Boolean).join(" ");
@@ -3985,9 +4139,13 @@
         )
       : h("div", { key: props.key, className }, ...children);
   };
-  // A level of a page drawn over its main view, such as one title's artwork: it takes the
-  // controller's focus when it opens, and B, handled here, goes back one level rather than leaving
-  // the page.
+  /**
+   * Creates a nested page level that handles Back before Steam leaves the route.
+   * @param ui Steam's resolved React and native control components.
+   * @param props Optional class and callback returning to the previous level.
+   * @param children Content of the nested level.
+   * @returns A focusable level with initial focus and the supplied Back action.
+   */
   const renderSteamUiLevel = (ui, props, ...children) =>
     ui.react.createElement(
       ui.focusable,
@@ -3999,11 +4157,20 @@
       },
       ...children,
     );
-  // A colour as a small square.
+  /**
+   * Creates a noninteractive color preview.
+   * @param react Steam's React instance used by the consuming root.
+   * @param color CSS color used as the swatch background.
+   * @returns The swatch element.
+   */
   const renderSteamUiSwatch = (react, color) =>
     react.createElement("div", { className: "steam-ui-kit-swatch", style: { background: color } });
-  // A card in a grid: a 16:10 image with a stats strip over its foot, a badge in its corner, a title
-  // and up to a few meta lines. Focusable and activatable as one thing.
+  /**
+   * Creates one activatable gallery card using Steam controller focus.
+   * @param ui Steam's resolved React and native control components.
+   * @param props Optional image/stats/badge, title, metadata and activation callback.
+   * @returns A single focus target containing the card content.
+   */
   const renderSteamUiCard = (ui, props) => {
     const h = ui.react.createElement;
     return h(
@@ -4041,17 +4208,33 @@
       ),
     );
   };
-  // A grid of cards.
+  /**
+   * Arranges rendered cards in a controller-navigable grid.
+   * @param ui Steam's resolved React and native control components.
+   * @param cards Already-created card elements in display order.
+   * @returns The grid element; callers bound the number of mounted cards.
+   */
   const renderSteamUiGrid = (ui, cards) =>
     ui.react.createElement(
       ui.focusable,
       { className: "steam-ui-kit-grid", "flow-children": "grid" },
       ...cards,
     );
-  // What a list shows when it has nothing, or why it could not be filled.
+  /**
+   * Creates an empty-list explanation or error message.
+   * @param react Steam's React instance used by the consuming root.
+   * @param text Visible reason or empty-state text.
+   * @param error Whether to use error styling.
+   * @returns The message element.
+   */
   const renderSteamUiEmpty = (react, text, error = false) =>
     react.createElement("div", { className: `steam-ui-kit-empty${error ? " error" : ""}` }, text);
-  // A line the user should read, with a way to dismiss it: a notice, or an error in red.
+  /**
+   * Creates a dismissible notice or error.
+   * @param ui Steam's resolved React and native control components.
+   * @param props Message, error flag and callback that clears the owning state.
+   * @returns The banner; dismissal is delegated to the caller.
+   */
   const renderSteamUiBanner = (ui, props) => {
     const h = ui.react.createElement;
     return h(
@@ -4061,15 +4244,26 @@
       h(ui.smallButton ?? ui.dialogButton, { onClick: props.onDismiss }, "Dismiss"),
     );
   };
-  // A toolbar of controls: dropdowns, a search box and buttons in one focusable row. A tool is
-  // `renderSteamUiTool`, which labels a control the way the store's filter row labels its own;
-  // `grow` lets a search box take what is left.
+  /**
+   * Groups existing controls in a horizontal controller-navigation row.
+   * @param ui Steam's resolved React and native control components.
+   * @param tools Rendered toolbar items, normally created with renderSteamUiTool.
+   * @returns The focusable toolbar element.
+   */
   const renderSteamUiToolbar = (ui, ...tools) =>
     ui.react.createElement(
       ui.focusable,
       { className: "steam-ui-kit-toolbar", "flow-children": "row" },
       ...tools,
     );
+  /**
+   * Labels a control within a toolbar.
+   * @param ui Steam's resolved React and native control components.
+   * @param label Visible label, or null to omit it.
+   * @param control Rendered native control.
+   * @param grow Whether this item occupies remaining toolbar space.
+   * @returns The labelled toolbar item.
+   */
   const renderSteamUiTool = (ui, label, control, grow = false) => {
     const h = ui.react.createElement;
     return h(
@@ -4079,7 +4273,12 @@
       control,
     );
   };
-  // Small buttons in a wrapping row: a theme's targets, a filter's values.
+  /**
+   * Creates a wrapping row of native buttons.
+   * @param ui Steam's resolved React and native control components.
+   * @param chips Labels, click handlers and optional controller action descriptions.
+   * @returns The controller-navigable chip row.
+   */
   const renderSteamUiChips = (ui, chips) => {
     const h = ui.react.createElement;
     return h(
@@ -4098,7 +4297,13 @@
       ),
     );
   };
-  // A box with a bold title line and whatever follows: the action column of a detail view.
+  /**
+   * Groups detail content under an optional heading.
+   * @param react Steam's React instance used by the consuming root.
+   * @param title Heading content; a false-like value omits the heading.
+   * @param children Content rendered below the heading.
+   * @returns The detail box element.
+   */
   const renderSteamUiBox = (react, title, ...children) =>
     react.createElement(
       "div",
@@ -4106,8 +4311,12 @@
       title ? react.createElement("div", { className: "steam-ui-kit-box-title" }, title) : null,
       ...children,
     );
-  // A gallery: one large image and, with more than one, a column of thumbnails that pick it and a
-  // counter over its corner.
+  /**
+   * Creates a selected image with controller-selectable thumbnails.
+   * @param ui Steam's resolved React and native control components.
+   * @param props Image URLs, selected index, selection callback and optional empty text.
+   * @returns The gallery; the displayed index is clamped without changing caller state.
+   */
   const renderSteamUiGallery = (ui, props) => {
     const h = ui.react.createElement;
     const images = props.images ?? [];
@@ -4146,9 +4355,12 @@
       ),
     );
   };
-  // A movie preview on the gallery's frame, 16:9: the movie playing quietly on a loop over its
-  // still, the still alone, or what stands in for it. Muted, because a preview that speaks is a
-  // preview that is closed.
+  /**
+   * Creates a muted looping preview, a poster fallback or empty-state text.
+   * @param react Steam's React instance used by the consuming root.
+   * @param props Optional media URL, poster URL and empty-state message.
+   * @returns The preview element; unmounting removes its video element.
+   */
   const renderSteamUiVideo = (react, props) =>
     react.createElement(
       "div",
@@ -4170,7 +4382,9 @@
               props.empty ?? "No preview",
             ),
     );
-  // The glyphs a store page's cards and boxes carry, drawn once here rather than per page.
+  /**
+   * Shared SVG path data for store-page metadata glyphs.
+   */
   const SteamUiGlyphs = Object.freeze({
     download: "M11 3h2v9.2l3.6-3.6 1.4 1.4-6 6-6-6 1.4-1.4L11 12.2zM4 19h16v2H4z",
     star: "M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4 6.1 20.5l1.2-6.5L2.5 9.4l6.6-.9z",
@@ -4179,9 +4393,16 @@
     target:
       "M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18zm0 2a7 7 0 1 0 0 14 7 7 0 0 0 0-14zm0 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8zm0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4z",
   });
+  /**
+   * Creates an SVG from the kit glyph vocabulary.
+   * @param react Steam's React instance used by the consuming root.
+   * @param name Key from SteamUiGlyphs.
+   * @returns The rendered glyph.
+   */
   const renderSteamUiGlyph = (react, name) => renderSteamGlyph(react, SteamUiGlyphs[name]);
-  // What a tabbed host page needs resolved before it can draw: Steam's fields, buttons, sections,
-  // tabs and modal. A page that needs no more passes this as its `required`.
+  /**
+   * Component names a tabbed page must resolve before installation.
+   */
   const SteamUiTabbedPageRequired = Object.freeze([
     "react",
     "focusable",
@@ -4198,9 +4419,12 @@
     "modalRoot",
     "showModal",
   ]);
-  // A host page in Steam's tabbed layout: the kit's stylesheet and the page's own, a banner with the
-  // notice or the error, and Steam's tabs, only the active one drawn. `content` answers the element
-  // for a tab id.
+  /**
+   * Creates a native tabbed host page and mounts only its active content.
+   * @param ui Steam's resolved React and native control components.
+   * @param props Page identity/label, optional CSS/banner, tabs, active id and tab callbacks.
+   * @returns The page with kit styles; an unknown active id selects the first tab.
+   */
   const renderSteamUiTabbedPage = (ui, props) => {
     const h = ui.react.createElement;
     const active = props.tabs.some((tab) => tab.id === props.active)
@@ -4226,9 +4450,12 @@
       }),
     );
   };
-  // One item's detail: its media, heading and text beside a column of boxes and actions, left with
-  // B. It takes the controller's focus when it opens: the card that opened it is gone, and focus left
-  // on nothing sends B to Steam's back stack, which leaves the page instead of the detail. `title` draws as the heading, `badge` beside it.
+  /**
+   * Creates an item detail view with its own controller Back action.
+   * @param ui Steam's resolved React and native control components.
+   * @param props Heading/badge/media, primary and aside content, and the Back callback.
+   * @returns The focused detail layout.
+   */
   const renderSteamUiDetail = (ui, props) => {
     const h = ui.react.createElement;
     return h(
@@ -4259,8 +4486,12 @@
       ),
     );
   };
-  // Asks before something is done: a sentence and two buttons in Steam's modal. Cancel and B send
-  // nothing.
+  /**
+   * Opens a native confirmation; Cancel and Back invoke no action.
+   * @param ui Steam's resolved React and native control components.
+   * @param props Title, explanation, confirm label and callback invoked on confirmation.
+   * @returns Whether the modal could be shown; a thrown confirmation callback is not swallowed.
+   */
   const showSteamUiConfirm = (ui, props) => {
     const h = ui.react.createElement;
     return showSteamModal(ui, {
@@ -4323,6 +4554,12 @@
       ),
     );
   }
+  /**
+   * Opens a native text prompt that submits only a trimmed nonempty value.
+   * @param ui Steam's resolved React and native control components.
+   * @param props Title, optional explanation/initial value, input label and confirmation callback.
+   * @returns Whether the modal could be shown; cancellation submits nothing.
+   */
   const showSteamUiPrompt = (ui, props) =>
     showSteamModal(ui, {
       title: props.title,
@@ -4330,9 +4567,10 @@
       render: (close) => ui.react.createElement(SteamUiPromptBody, { ...props, ui, close }),
     });
   // @fragment gates/audio.ts
-  // Audio is supplied as the namespace Steam's own store looks for, rather than drawn as a row.
-  // The store's availability flag is literally `null != SteamClient.System.Audio`, so defining this
-  // object is the entire gate — there is nothing to patch and nothing to hide.
+  /**
+   * Adapts Steam audio RPCs to host state and commands without claiming a real native audio backend.
+   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   */
   function createAudioNamespace() {
     const patchId = "steam-ui.audio";
     let installed = false;
@@ -4688,19 +4926,10 @@
   }
   registerGate("audio", createAudioNamespace());
   // @fragment gates/bluetooth.ts
-  // Bluetooth is a WebUI transport service whose backend does not exist on Windows. The service,
-  // its message shapes and every operation are present — GetState round-trips and answers
-  // is_service_available:false with empty adapters and devices — so the host replaces the stub's
-  // methods rather than implementing the service. `*Handler` exports are message descriptors,
-  // not registration hooks, so implementing it is not on offer.
-  //
-  // The second gate matters here as much as the first: availability is read through react-query
-  // with staleTime Infinity, so replacing the methods changes nothing until that cache is
-  // invalidated. Live-verified 2026-08-30 that the stub's methods are writable and configurable and
-  // that the query client's invalidateQueries is reachable.
-  //
-  // Client builds renumber the stub's module (the September 2026 beta did), so it is found by its
-  // service method name and by its shape.
+  /**
+   * Supplies Steam Bluetooth service responses and notifications from host publications.
+   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   */
   function createBluetoothService() {
     const patchId = "steam-ui.bluetooth";
     const queryKey = ["BluetoothManagerService", "State"];
@@ -4858,12 +5087,10 @@
   }
   registerGate("bluetooth", createBluetoothService());
   // @fragment gates/brightness.ts
-  // Not availability-only, despite the founding comment that said Steam's own backend works on
-  // Windows. It does not — device-disproved 2026-08-30: SetBrightness is a native stub and
-  // RegisterForBrightnessChanges never fires, so the store's observable sits at its constructed 1
-  // and the revealed slider moves nothing. The host is the backend: the gate forwards the slider's
-  // writes over the bridge and feeds the store's observable from the published state, both through
-  // the same \\.\LCD interface the host owns.
+  /**
+   * Binds Steam brightness controls to host display state and brightness commands.
+   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   */
   function createBrightnessGate() {
     const patchId = "steam-ui.brightness";
     const field = "is_display_brightness_available";
@@ -5059,13 +5286,10 @@
   }
   registerGate("brightness", createBrightnessGate());
   // @fragment gates/elements.ts
-  // The JSX-runtime claim (interceptElements in ownership.ts), for scripts outside this bundle.
-  //
-  // A consumer's own resident script runs in a separate evaluation and cannot reach the claim's
-  // functions, so it registers its transform here, through the bridge's gate registry, instead of
-  // wrapping the runtime itself: two wrappers on `jsx` would each hand back the other on removal, and a
-  // wrapper under a claim is invisible to the claim's own verification. This gate installs nothing of
-  // its own; it is the claim's front door, and a registration lives exactly as long as this bridge.
+  /**
+   * Exposes the shared JSX transform claim to scripts outside this bundle.
+   * @returns Named transform registration, removal and ownership checks; registrations belong to this bridge.
+   */
   function createElementsGate() {
     // The bridge's shared resolver, so no chunk is pushed on every registration and check.
     const runtime = () => getWebpackRuntime("elements").resolve([...JsxRuntimeTokens]);
@@ -5099,12 +5323,10 @@
   }
   registerGate("elements", createElementsGate());
   // @fragment gates/extensions-tab.ts
-  // The Quick Access Extensions tab.
-  //
-  // Decky demonstrates that a tab object is data added to the QAM's tab list, but this gate owns the
-  // narrow operation rather than exposing Decky's raw patch helpers to package code. The tab body is
-  // entirely host-rendered from a typed publication, so extensions cannot inject a React tree into a
-  // shared Steam surface.
+  /**
+   * Contributes the host Extensions tab through the shared Quick Access memo claim.
+   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   */
   function createExtensionsTab() {
     const patchId = "steam-ui.extensions-tab";
     const claimKeys = {
@@ -5716,11 +5938,10 @@
   }
   registerGate("extensionsTab", createExtensionsTab());
   // @fragment gates/game-context-menu.ts
-  // Host-owned per-game commands in Steam's library and gear context menu.
-  //
-  // The component already knows which app opened its menu. This gate only wraps that render method,
-  // reuses the exact item type Steam emitted, and sends a bounded app id plus host command identity.
-  // It never offers package JavaScript or React nodes a handle to Steam's private menu objects.
+  /**
+   * Adds host actions to Steam game context menus while preserving native entries.
+   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   */
   function createGameContextMenu() {
     const patchId = "steam-ui.game-context-menu";
     const renderClaimKeys = {
@@ -5947,51 +6168,10 @@
   }
   registerGate("gameContextMenu", createGameContextMenu());
   // @fragment gates/home-carousel.ts
-  // Big Picture Home's carousel, fed from the libraries attached right now.
-  //
-  // Mapped from the September 2026 client beta's shipped bundle on 2026-09-11:
-  //
-  //   <route "/library/home">    one of the router switch's children
-  //     Home                     a module-local React.memo; source carries "HomeTabsActive"
-  //       ...RecentSection
-  //         Carousel             module-local React.memo; source carries "#Showcase_RecentGames"
-  //           games = on()       module-local hook: Steam's own mix, capped at 20 app ids
-  //           Background { games, refOnItemFocus }        hero art for the focused game
-  //           RecentGames { games, onItemFocus, ... }     plain function
-  //             BoxCarousel { games, overscan: games.length }
-  //               VirtualizedBox   react-virtualized Grid, overscanColumnCount = overscan ?? 3
-  //
-  // Two facts decide the whole design.
-  //
-  // The list is one array of app ids passed as `games` to both the background and the carousel. That
-  // array is the data boundary: replacing it there feeds Steam's own components rather than building
-  // cards, and the background, focus restore and featured tile all follow it. Nothing upstream of it
-  // is reachable — the hook, the carousel and Home are all module-local — so the Home memo is taken
-  // from the router's route list in SharedJSContext's React tree, and its `type` is claimed. The
-  // carousel element is found in what Home renders.
-  //
-  // The claim reaches Homes mounted after it. Big Picture starts on Home, and since the client update
-  // of 2026-09-22 the router and Home mount together the moment Steam's services report initialized,
-  // so the Home on screen at install was drawn by the original and would stay Steam's until the user
-  // left and came back. Install therefore also adopts every mounted Home (adoptMountedType), which
-  // re-renders it through the claim at once.
-  //
-  // The carousel is already virtualized, and Home defeats that: it passes `overscan: games.length`,
-  // so every tile in the list is mounted. At Steam's cap of 20 that is harmless; at a whole library it
-  // is the memory flood. The Play Next carousel uses the same component with no overscan and gets the
-  // component's own default of 3, which is what this gate restores.
-  //
-  // Ordering is done here rather than by the host, deliberately: the candidate set is every installed
-  // and every owned game with its play and purchase timestamps, which is Steam's own data and already
-  // in this document; the host has no better copy to publish. The host owns which libraries count and
-  // whether uninstalled games appear; this owns reading Steam's data and projecting it into the
-  // carousel.
-  //
-  // Reactivity comes from Steam's own mobx-react-lite `useObserver`, the hook Steam's `on()` is
-  // built on: the wrapper reads the three collections it draws from inside it, so Steam re-renders
-  // the carousel when one of them recomputes. The host's publication re-renders it through
-  // `useSyncExternalStore`. The list itself is rebuilt only when one of those inputs actually changed,
-  // never on the carousel's own focus re-renders.
+  /**
+   * Replaces only the matched home-carousel collection using shared memo ownership.
+   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   */
   function createHomeCarousel() {
     const patchId = "steam-ui.home-carousel";
     const claimKeys = {
@@ -6531,6 +6711,10 @@
     if (!library) return null;
     return { name: library.name, installed };
   };
+  /**
+   * Adds host library badges using shared element transforms and published library identity.
+   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   */
   function createLibraryBadge() {
     const patchId = "steam-ui.library-badge";
     const claimKeys = {
@@ -6812,28 +6996,10 @@
     return { install, remove, status };
   }
   registerGate("libraryBadge", createLibraryBadge());
-  // The library as a stat on a game's own page, after Last Played and Play Time.
-  //
-  // Mapped from the Stable client (UI build of 2026-09-06) and the September 2026 beta on 2026-09-11,
-  // whose app-details module is the same in both:
-  //
-  //   PlayBar                  exported mobx observer class
-  //     StatusAndStats         exported mobx observer class
-  //       stats section        module-local mobx observer class, rendering
-  //         div.GameStatsSection   claim content, cloud status, install size, Last Played,
-  //                                Play Time or time left, achievements, controller support
-  //
-  // Every one of those pins a non-writable render on each instance, so no claim on a type or a
-  // prototype holds. The row passes through the JSX runtime when Steam creates it, and that is where
-  // this adds to it (interceptElements in ownership.ts): the div whose class is the play bar class
-  // map's `GameStatsSection` gets one more child. The stat is Valve's markup for Last Played, built
-  // from the same class map, so it takes the row's type, spacing and narrow-window rules, and its
-  // label is Steam's own `#Settings_Page_Library`, localized. The app is the overview the row's own
-  // children are given.
-  //
-  // The data is the library badge's publication, read by the same rules: a game on a library that is
-  // not attached shows its library dimmed, and one installed nowhere has no stat. The row draws with the
-  // page, so a new publication shows the next time the page renders.
+  /**
+   * Adds host metadata and frontend contributions to the matched game details page.
+   * @returns Install/remove controls and diagnostics for the reversible details-page claim.
+   */
   function createLibraryDetails() {
     const publicationId = "steam-ui.library-badge";
     const TransformName = "libraryDetails";
@@ -6990,11 +7156,10 @@
   }
   registerGate("libraryDetails", createLibraryDetails());
   // @fragment gates/native-settings.ts
-  // Append host fields to Steam's native Big Picture Settings pages. Offline read on 2026-10-06:
-  // one factory builds the Display/Power/Audio/Controller descriptor map through useMemo, then filters
-  // it into the native sidebar. Big Picture's own ordering already contains all four. Only Power's
-  // descriptor is hidden when Steam believes there is no battery. The shared memo claim changes that
-  // one descriptor while host sections exist; it never changes Steam's platform or battery identity.
+  /**
+   * Contributes host settings pages to Steam using reversible member and render claims.
+   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   */
   function createNativeSettings() {
     const patchId = "steam-ui.native-settings";
     const RootOriginal = "__steamUiNativeSettingsRootOriginal";
@@ -7365,38 +7530,10 @@
   }
   registerGate("nativeSettings", createNativeSettings());
   // @fragment gates/navigation.ts
-  // Steam's left slideout navigation panel, as an extension surface.
-  //
-  // The panel is module-private. Mapped against the live client on 2026-09-10:
-  //
-  //   memo          an exported React.memo, the VR-aware outer wrapper
-  //     container   navID "MainNavMenuContainer", role "application"
-  //       context   nav context
-  //         root    the panel root, props { loggedIn, menuOpen }   <- local, not exported
-  //           menu  role "menu", aria-label #MainMenu_Title, flow-children "column"
-  //             route entry   props { route, active, label, icon, onGamepadFocus }
-  //             action entry  props { label, action, active, icon, onGamepadFocus }
-  //
-  // Re-read on 2026-09-24: a route entry maps its route to an action entry through the router, so both
-  // draw the same row - Valve's Focusable with the menu's own Item, ItemIcon and ItemLabel classes,
-  // the active dot, and mouse and gamepad activation. A route entry also gives the row its active
-  // state and navigates with Valve's own route action; an action entry calls `action`. Power is an
-  // action entry, Library a route entry.
-  //
-  // The panel root builds its list from a module-local builder given `loggedIn` and maps it to entry
-  // elements keyed by the descriptor's own `key`. Neither the root nor the builder is exported, and
-  // the builder calls hooks — calling the module's own exported list builder from outside a render
-  // throws React error #321, which is how that was established rather than assumed. So both reading
-  // the entries and changing them have to happen during a render, and one wrapper serves both.
-  //
-  // The claim is on the exported memo's `type`, which is the only public handle on the panel. From
-  // there the descent reaches the panel root by rendering: a component's children do not exist until React
-  // renders it, so a walk over props.children alone arrives nowhere. That is the same mechanism
-  // `hideNativeRows` in components.ts already uses, pointed at a different target.
-  //
-  // Entries are identified by `route` and by their React key, never by index or by a generated class
-  // name. Both come from Valve's own descriptor and are stable across builds and languages; the
-  // rendered labels are localized and the class names are content hashes, so neither is an anchor.
+  /**
+   * Contributes navigation entries using native route/action rows and a reversible memo claim.
+   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   */
   function createNavigationPanel() {
     const patchId = "steam-ui.navigation-panel";
     const claimKeys = {
@@ -7745,14 +7882,10 @@
   }
   registerGate("navigationPanel", createNavigationPanel());
   // @fragment gates/network.ts
-  // Wi-Fi is hidden by one getter, not by an absent backend. Steam's Windows client genuinely
-  // tracks the wireless device — hasWirelessDevice and isWifiEnabled are true here without any
-  // help — and only `get networkManagementAvailable(){return TS.IS_STEAMOS}` keeps the UI away.
-  //
-  // Overriding that one property is narrow and reversible and affects one surface. Setting the
-  // constant it reads would produce the same row while changing unrelated client behaviour
-  // everywhere, which is the spoof D16 forbids. Live-verified 2026-08-30: the descriptor is
-  // configurable, the override flips the value, and restoring the saved descriptor puts it back.
+  /**
+   * Supplies Steam networking RPCs and scan notifications from host publications.
+   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   */
   function createNetworkGate() {
     const property = "networkManagementAvailable";
     const patchId = "steam-ui.network";
@@ -7974,12 +8107,21 @@
   // the match with the back stack, so B and the back gesture pop the page the way they pop /settings.
   // Using react-router's Route renders the same content and silently loses that.
   const steamPageRenderers = new Map();
+  /**
+   * Registers a renderer for one page template in this bridge generation.
+   * @param template Stable template key used by host page publications.
+   * @param render Renderer receiving Steam's React runtime and the published page descriptor.
+   */
   const registerSteamPageRenderer = (template, render) => {
     if (!template || template === "default" || steamPageRenderers.has(template)) {
       throw new Error(`Steam page renderer '${template}' is invalid or already registered.`);
     }
     steamPageRenderers.set(template, render);
   };
+  /**
+   * Installs host-owned routes and renders registered page templates inside Steam's router.
+   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   */
   function createPageHost() {
     const patchId = "steam-ui.pages";
     const claimKeys = {
@@ -8305,16 +8447,10 @@
   }
   registerGate("pages", createPageHost());
   // @fragment gates/performance.ts
-  // The performance surface is the largest absent backend: SystemPerfStore's constructor
-  // optional-chains through a SteamClient.System.Perf that does not exist on Windows, so its state
-  // stays empty and every control renders null. Availability for each control is read out of that
-  // same state, which is why supplying it also decides what appears — omit a limits field and
-  // Valve's own wrapper renders nothing.
-  //
-  // State is written into m_msgState directly rather than pushed through OnStateChanged, which
-  // would mean building a CMsgSystemPerfState protobuf in injected JavaScript to have the store
-  // immediately decode it again. Live-verified 2026-08-30 that the direct write is observed through
-  // every accessor the hooks use and restores cleanly.
+  /**
+   * Projects host performance state into Steam performance RPCs and semantic write commands.
+   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   */
   function createPerfNamespace() {
     const patchId = "steam-ui.performance";
     let installed = false;
@@ -8481,21 +8617,10 @@
   }
   registerGate("perf", createPerfNamespace());
   // @fragment gates/power-menu.ts
-  // Steam's own "Switch to Desktop" in the Big Picture power menu, answered by the host.
-  //
-  // Mapped from the installed client on 2026-09-28. The power menu is a module-private mobx observer
-  // function component: nothing exports it and its render cannot be claimed, so its root is found
-  // where it passes through the JSX runtime (interceptElements in ownership.ts). Valve draws the
-  // entry only when `TS.IN_GAMESCOPE` is set and then calls SteamOS's session service, which does
-  // nothing on Windows; spoofing that platform flag would also change every other branch of the menu.
-  // This gate draws the entry itself instead, with the item and separator types Steam's menu already
-  // rendered, Steam's localized `#SwitchToDesktop` label and Valve's destructive tone, at the end of
-  // the menu where Valve places it. Selecting it asks the host, which owns the switch.
-  //
-  // The root is recognised by its direct children, never by its localized label: one of them is the
-  // Sleep or Shutdown entry, and `#Quit_Shutdown` occurs nowhere else in the client. The entry is
-  // drawn only while the host publishes `visible`, so the host decides when a desktop exists to
-  // return to.
+  /**
+   * Projects host power-menu additions and visibility into Steam's existing menu.
+   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   */
   function createPowerMenu() {
     const patchId = "steam-ui.power-menu";
     const PowerTokens = new Set(["#Sleep", "#Quit_Sleep", "#Shutdown", "#Quit_Shutdown"]);
@@ -8671,33 +8796,10 @@
   }
   registerGate("powerMenu", createPowerMenu());
   // @fragment gates/screensaver.ts
-  // Big Picture's Screensaver settings, with the host's timeout rows beside Steam's own screensaver
-  // timeout.
-  //
-  // Mapped from the September 2026 client beta's shipped bundle on 2026-09-11:
-  //
-  //   Settings page list          the Settings root's hook builds it with React.useMemo, one entry per
-  //                               page: { visible, title, icon, route, content }
-  //     /settings/customization   content is a module-local page returning a list of sections
-  //       Screensaver section     module-local; draws "#Settings_Customization_Screensaver" and calls
-  //                               Screensaver.ForceScreensaver for its preview button. Its last row is
-  //                               Steam's "When idle, start screensaver after", which writes the
-  //                               system_idle_screensaver_ac_sec client setting
-  //
-  // Steam keeps per-source idle settings on its Power page, and shows that page only on a machine it
-  // believes has a battery or under gamescope; everywhere else the Screensaver section carries the one
-  // plugged-in timeout. The report therefore carries both values and whether Steam believes there is a
-  // battery, and the host decides which of its own timeouts each one bounds.
-  //
-  // Nothing of Steam's is restyled or rebuilt. The page list passes through the one shared useMemo
-  // claim (ownership.ts); there the customization page is replaced by a wrapper that renders it and
-  // swaps the Screensaver section for a wrapper that renders the section with the host's rows appended.
-  // Both wrappers are cached by the component they wrap, so React keeps one stable type per original,
-  // and both render exactly what Steam shipped once the gate is removed.
-  //
-  // The host owns what the rows offer: which timeouts, their observed values, and only the choices the
-  // screensaver timeout allows. This half reads Steam's settings inside Steam's own mobx observer, so a
-  // change made on the page re-renders the rows and reaches the host at once.
+  /**
+   * Projects the host screensaver setting into the matched Steam settings surface.
+   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   */
   function createScreensaverSettings() {
     const patchId = "steam-ui.screensaver";
     const MemoName = "screensaverSettings";
@@ -9033,8 +9135,10 @@
   }
   registerGate("screensaver", createScreensaverSettings());
   // @fragment gates/sound-overrides.ts
-  // Exact resource-name overrides on the Gamepad UI manager only. Pack format and discovery belong
-  // to the host. No Steam file changes and no interception of voice/chat audio managers.
+  /**
+   * Overrides selected Steam UI sounds and restores the displaced sound handlers on removal.
+   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   */
   function createSoundOverrides() {
     const patchId = "steam-ui.sound-overrides";
     const keys = { marker: "__steamUiSoundsClaimed", original: "__steamUiSoundsOriginal" };
@@ -9192,34 +9296,10 @@
   }
   registerGate("soundOverrides", createSoundOverrides());
   // @fragment gates/storage.ts
-  // Steam's own storage device manager, revived on Windows.
-  //
-  // Big Picture ships a complete SteamOS storage UI — drives, block devices, format, adopt, eject,
-  // trim — and on Windows it never appears. Mapped against the live client on 2026-09-10: the whole
-  // surface hangs off one question. Its hooks call
-  //
-  //   StorageDeviceManager.IsServiceAvailable#1
-  //
-  // through the WebUI service transport, and every other query is `enabled:` on that answer. The
-  // Windows client has no service behind it, so the answer never arrives and the UI stays inert.
-  //
-  // The transport is where this is claimable. Each generated client resolves
-  // `GetDefaultTransport().SendMsg(name, request, responseType, options)`, and `SendMsg` lives on the
-  // transport prototype as a writable, configurable property. Claiming it on the *instance* scopes
-  // the change to the one live transport and lets removal delete the own property so the prototype
-  // method shows through again, untouched.
-  //
-  // Everything not addressed to StorageDeviceManager is forwarded to the original synchronously and
-  // unexamined. This carries all of Steam's service traffic, so the filter is a name prefix checked
-  // first and nothing else happens on that path.
-  //
-  // The service vocabulary, read from the client's own message classes:
-  //
-  //   IsServiceAvailable, GetState, StateChanged, Eject, Adopt, Format, Unmount, TrimAll
-  //   CStorageDeviceManagerDrive        id, is_formattable, is_unformatted
-  //   CStorageDeviceManagerBlockDevice  block_device_id, drive_id, mount_paths, has_steam_library
-  //   CStorageDeviceManagerState        drives, block_devices, is_adopt_supported,
-  //                                     is_unmount_supported, is_trim_supported, is_trim_running
+  /**
+   * Supplies Steam storage RPCs while retaining unrelated native transport behavior.
+   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
+   */
   function createStorageService() {
     const patchId = "steam-ui.storage";
     const claimKeys = {
@@ -9528,34 +9608,10 @@
   }
   registerGate("storage", createStorageService());
   // @fragment gates/theme-styles.ts
-  // Theme stylesheets in every Steam window, the way CSSLoader delivers them.
-  //
-  // CSSLoader (b1bc683, css_browserhook.py) opens a CDP session to each of Steam's page targets and
-  // appends one <style> per block to that document's head, choosing the documents a block is for by
-  // the target's title, its URL or the classes on its root elements. Every one of those windows is
-  // rendered from SharedJSContext, so their documents are reachable from here without a connection
-  // per window: one gate, one publication, every window.
-  //
-  // Where the windows are, measured on a Windows client on 2026-09-28: g_PopupManager holds the Big
-  // Picture window and its context menus, and NOT the Quick Access, main-menu and toast windows.
-  // Those exist to SharedJSContext only as the containers of React portals, which is how Steam draws
-  // into them. So the documents are gathered from both: every popup the manager lists, and every
-  // document a portal in SharedJSContext's mounted trees renders into.
-  //
-  // What identifies a window, measured the same day: the window's own name, "SP BPM_uid0",
-  // "QuickAccess_uid17", "MainMenu_uid17", "notificationtoasts_uid17", "contextmenu_13_uid0". The
-  // document title is that name for the popups but the LOCALIZED product name for the Big Picture
-  // window ("Big-Picture-Modus" on a German client), and its URL carries none of the markers
-  // CSSLoader's table names. A title target is therefore tested against the name as well as the
-  // title, and the host's alias table names the Big Picture window by its name.
-  //
-  // The host publishes the blocks and the targets each is for; the gate installs them once per
-  // window and touches a window again only when the publication changes or Steam opens a window,
-  // which it announces through the popup manager's created callback. CSSLoader looks at every target
-  // every three seconds from outside Steam; doing the same from in here meant walking Steam's whole
-  // React tree on its own thread every two seconds, and with a large library that slowed every image
-  // Big Picture loads (2026-09-29, a handheld with 33 themes on). Nothing here reads the CSS: a theme is
-  // the host's to load, translate and order, and this gate installs what it is given.
+  /**
+   * Reconciles host CSS into owned style elements across eligible Steam documents.
+   * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced. The windows accessor reports currently reachable documents and owned nodes.
+   */
   function createThemeStyles() {
     const patchId = "steam-ui.theme-styles";
     // Every node this gate appends carries the class, and only nodes with it are ever removed.
@@ -9857,6 +9913,10 @@
   }
   registerGate("themeStyles", createThemeStyles());
   // @fragment components.ts
+  /**
+   * Owns host Quick Access controls and their shared Steam render claims.
+   * @returns Per-kind install/remove/status operations and a dispose operation that releases subscriptions and claims.
+   */
   function createNativeComponentHost() {
     let unsubscribePlugins = null;
     const registrations = new Map();
@@ -12438,16 +12498,8 @@
   }
   registerGate("nativeComponents", createNativeComponentHost());
   // @fragment consumer/animations.ts
-  // The Animations page in Steam: SteamDeckRepo's boot movies browsed, downloaded, and chosen for
-  // Big Picture's start.
-  //
-  // Laid out the way Animation Changer lays out its browser: a toolbar over a grid of cards, one
-  // movie's preview and details, and the library with the choice. Drawn with Steam's own components
-  // where one fits and the toolkit's UI kit for the rest, the tabbed frame and the detail included.
-  // WSGM owns the list, the library, the choice, the sorts and the override file; the toolkit owns
-  // the page gate, the kit, the modal frame and the fail-closed component discovery used here. Only
-  // the boot movie is offered: nothing on Windows drives Steam's suspend flow, so its suspend movies
-  // never play.
+  // Boot-animation frontend; host services own downloads, selection and override files.
+  // Windows does not drive Steam suspend movies, so this page offers boot movies only.
   const AnimationsPatchId = "wsgm.animations";
   let animationsUi = null;
   const animationsAct = wsgmPageAct(AnimationsPatchId);
@@ -12769,8 +12821,11 @@
       ),
     );
   }
-  // Declared once for the life of the asset, and drawn by the toolkit's page frame only once the gate
-  // holds: the frame says why when it does not.
+  /**
+   * Renders animation browsing, the installed library and settings from host state.
+   * @param context Registered page accessors for Steam components, latest state and publication refusal.
+   * @returns The page React tree, including loading or refusal state when data is unavailable.
+   */
   function AnimationsPage({ context }) {
     const react = context.react();
     const h = react.createElement;
@@ -12810,11 +12865,7 @@
     Page: AnimationsPage,
   });
   // @fragment consumer/artwork-browser.ts
-  // SteamGridDB-compatible artwork browser owned by WSGM.
-  //
-  // The page deliberately renders with Steam's own component exports. WSGM owns artwork data and
-  // behavior; steam-ui-toolkit owns the page gate, the modal frame, the file picker and the fail-closed
-  // component discovery used here.
+  // Artwork frontend; host services own searches and file writes, and the toolkit owns native UI primitives.
   const ArtworkBrowserPatchId = "wsgm.artwork-browser";
   // The resolved components and the latest state, for the modals: a modal is drawn outside the page's
   // tree, so it reads them here and hears about new state through the listeners the page notifies.
@@ -12849,11 +12900,19 @@
   });
   const readableFilter = (value) =>
     value.replace("image/", "").replaceAll("_", " ").replace("x", "×");
+  /**
+   * Sends one artwork action to the shared host service.
+   * @param command Allowlisted artwork command.
+   * @param payload JSON action arguments.
+   * @returns The backend result promise; callers own refusal handling.
+   */
   const sendArtworkCommand = (command, payload = {}) =>
     request(ArtworkBrowserPatchId, command, payload);
-  // Browse Local: Steam's own file picker, drawn from Steam's components and driven by the controller,
-  // rather than a Windows dialog that opens behind Big Picture. The host reads the file where it lies;
-  // a page request is held to a few kilobytes and an image would never fit in one.
+  /**
+   * Opens the controller-accessible file picker and sends the chosen path to the host.
+   * @param tab Artwork slot; icon additionally permits ICO files.
+   * @param failed Receives an applyLocal refusal; cancellation sends no command.
+   */
   const chooseLocalArtwork = (tab, failed) => {
     void showSteamFilePicker(artworkUi, {
       title: "Choose an image",
@@ -12869,7 +12928,12 @@
       );
     });
   };
-  // Every modal on this page, in Steam's modal frame with the page's own class for its layout.
+  /**
+   * Opens a page-styled modal through Steam's native modal host.
+   * @param className Page-specific layout classes.
+   * @param render Body renderer receiving the close callback.
+   * @returns True if a modal was opened, or false when required native components are unavailable.
+   */
   const showArtworkModal = (className, render) =>
     showSteamModal(artworkUi, {
       title: "SteamGridDB",
@@ -13176,8 +13240,11 @@
       ),
     );
   }
-  // Declared once for the life of the asset, and drawn by the toolkit's page frame only once the gate
-  // holds: the frame says why when it does not.
+  /**
+   * Renders artwork selection and coordinates the modals subscribed to its host snapshot.
+   * @param context Registered page accessors for Steam components, latest state and publication refusal.
+   * @returns The page React tree, including loading or refusal state when data is unavailable.
+   */
   function ArtworkBrowserPage({ context }) {
     const react = context.react();
     const h = react.createElement;
@@ -13474,20 +13541,10 @@
     Page: ArtworkBrowserPage,
   });
   // @fragment consumer/chord-reset.ts
-  // The guide button chord layout's "reset to defaults", reported to the host.
-  //
-  // WSGM keeps Steam's last-resort chord template (`controller_base/chord_neptune.vdf`) equal to the
-  // user's autosaved layout, because Steam's editor reloads that template after every autosave for a
-  // Steam Deck type controller and threw the edits away (see SteamGuideChordMirror). With the template
-  // mirrored, the editor's reset loads the mirror instead of Valve's defaults. The editor resets by
-  // calling SteamClient.Input.SetSelectedConfigForApp(443510, controllerIndex, "default://…") from
-  // Steam's configurator store in this context, three seconds before it reloads, so the call is the
-  // place to tell the host to put Valve's file back in time.
-  //
-  // The wrapper forwards every call unchanged and only sends the command for the chord pseudo-app's
-  // default selection while the host says the mirror is active. It is a member claim, so a bridge
-  // replaced without its dispose (a JS context reload) reclaims the wrapper it left instead of wrapping
-  // it again, and removal hands back exactly the function it displaced.
+  /**
+   * Observes chord-layout default resets while the host reports an active template mirror.
+   * @returns Install/remove controls and diagnostics; a failed release retains ownership for a later removal attempt.
+   */
   function createWsgmChordReset() {
     const patchId = "wsgm.chord-reset";
     const ChordAppId = 443510;
@@ -13565,22 +13622,10 @@
   }
   registerGate("wsgmChordReset", createWsgmChordReset());
   // @fragment consumer/controller-caps.ts
-  // The virtual controller's capabilities, as Steam's UI sees them.
-  //
-  // Steam's controller pages decide what to draw from each controller's capability bits, which the
-  // client reports per controller type: a Steam Deck controller always carries ATTRIBCAP_TRACKPAD and
-  // ATTRIBCAP_CAPJOYSTICK, so WSGM's Steam Deck target puts trackpad and stick-touch settings in front
-  // of a handheld that has neither. The glyph stylesheet hides the rows it can anchor on a glyph, but
-  // the configurator's quick settings ("right trackpad behavior", its sensitivity and inversion) are
-  // plain labelled fields with nothing to anchor, and every such list grows with each client build.
-  //
-  // Every store reads the list through one generated RPC namespace, SteamInputManager.GetControllerList,
-  // and converts each entry's `capabilities` with BigInt. This wraps that one function and clears the
-  // bits the host names on the controller the host names (its vendor and product id), so the pages
-  // draw the handheld the device plugin describes. The native side and the layouts are untouched: the
-  // mask only changes what this UI process believes. After hooking, unhooking or a mask change, the
-  // list's query cache is invalidated and the two stores that hold the list are asked to query it
-  // again, the same call they make on Steam's own list-changed notification.
+  /**
+   * Masks host-selected capability bits only for the matching VID/PID in Steam UI controller-list responses.
+   * @returns Install/remove controls and diagnostics; a failed release retains ownership for a later removal attempt.
+   */
   function createWsgmControllerCaps() {
     const patchId = "wsgm.controller-caps";
     const ServiceTokens = ["SteamInputManager.GetControllerList#1", "GetControllerListHandler"];
@@ -13589,11 +13634,7 @@
       typeof value === "object" &&
       typeof value.GetControllerList === "function" &&
       typeof value.RegisterForNotifyControllerListChanged === "function";
-    // The stores that hold a copy of the list and draw the controller pages from it: the controller
-    // store and the configurator store. Each is found by what it is; a store that has moved is
-    // skipped, not guessed. Both read through react-query under this key with an infinite stale time,
-    // so the cache is invalidated first or their query answers from it without reaching the RPC
-    // (live-verified 2026-09-26: two refreshes, nothing masked, until the key was invalidated).
+    // These stores cache controller lists indefinitely; invalidate the query before refreshing them.
     const ListQueryKey = ["ControllerList"];
     const StoreFingerprints = [
       [
@@ -13766,17 +13807,10 @@
   }
   registerGate("wsgmControllerCaps", createWsgmControllerCaps());
   // @fragment consumer/download-sort.ts
-  // Name / Size / Type sort buttons in the header of Big Picture's download queue ("Up Next"),
-  // reordering the queue through Steam's own SteamClient.Downloads.SetQueueIndex.
-  //
-  // Every shape decision here is a device-verified finding: the Focusable requirement, the JSX-runtime
-  // injection point, the tight component predicates, the whole-pending-list scope and the unknown-size
-  // ranking are in docs/steam-cef.md §12. Re-probe with tools/WsgmLibTest/run-prod-sort.mjs before
-  // shipping a change here.
-  //
-  // The header is intercepted through the toolkit's shared JSX-runtime claim rather than by wrapping
-  // jsx and jsxs here: the library stat on a game's page claims the same runtime, and two wrappers
-  // would each hand back the other on removal.
+  /**
+   * Adds host-defined download ordering through reversible Steam render and method claims.
+   * @returns Install/remove controls and diagnostics; a failed release retains ownership for a later removal attempt.
+   */
   function createWsgmDownloadSort() {
     const patchId = "wsgm.download-sort";
     const transformName = "wsgm.download-sort";
@@ -14169,14 +14203,7 @@
   }
   registerGate("wsgmDownloadSort", createWsgmDownloadSort());
   // @fragment consumer/library-import.ts
-  // The Game Library's page in Steam: bring games from other launchers into Steam, with their artwork.
-  //
-  // Laid out the way Steam ROM Manager lays out its preview, and drawn entirely with Steam's own
-  // components so it behaves like the rest of Big Picture under a controller: a sidebar of sources
-  // ticked with Steam's checkbox, Steam's tabs over a toolbar and a grid of Steam library capsules
-  // grouped by source, an all-artwork view with one row per title, and one title's artwork. WSGM owns
-  // the data, every label and every decision; the toolkit owns the page gate, the capsule, the modal
-  // frame, the folder picker and the fail-closed component discovery used here.
+  // Library-import frontend; shared host services own discovery, review decisions and writes.
   const LibraryImportPatchId = "wsgm.library-import";
   // Resolved once the gate holds; the modals are drawn outside the page's tree and read them here.
   let importUi = null;
@@ -14189,8 +14216,12 @@
   const importReport = (message) => {
     for (const reporter of [...importReporters]) reporter(message);
   };
-  // A command whose refusal the page shows: the host explains every refusal, and a control that did
-  // nothing without saying why is the defect this avoids.
+  /**
+   * Sends an import command and presents request rejection through the page reporters.
+   * @param command Allowlisted import command.
+   * @param payload JSON action arguments.
+   * @returns The backend result, or undefined after reporting a rejection; clears the previous message first.
+   */
   const importAct = (command, payload = {}) => {
     importReport(null);
     return request(LibraryImportPatchId, command, payload).catch((error) => {
@@ -15006,8 +15037,11 @@
       ),
     );
   }
-  // The page. Declared once for the life of the asset, so React keeps its selection, its view and the
-  // controller's focus across router renders; the toolkit's frame draws it only once the gate holds.
+  /**
+   * Renders shared import review state and dispatches host commands for every persistent action.
+   * @param context Registered page accessors for Steam components, latest state and publication refusal.
+   * @returns The page React tree, including loading or refusal state when data is unavailable.
+   */
   function LibraryImportPage({ context }) {
     const react = context.react();
     const h = react.createElement;
@@ -15546,17 +15580,20 @@
   })();
   registerGate("wsgmLibraryTabs", libraryTabsClaim);
   // @fragment consumer/page-kit.ts
-  // What WSGM's tabbed store pages (Themes, Animations) share and differ in only by their patch id.
-  //
-  // Function declarations, so a page fragment that sorts ahead of this one can call them at its top
-  // level: the fragments are one scope, and these are hoisted to its start.
-  // A page's command sender. A refusal is explained by the host in its next state and the page draws
-  // that, so nothing is swallowed here.
+  /**
+   * Creates a command sender for pages whose error banner comes from host state.
+   * @param patchId Registered WSGM page command identity.
+   * @returns A sender resolving to the backend result, or undefined on rejection; the page relies on host publication for error display.
+   */
   function wsgmPageAct(patchId) {
     return (command, payload = {}) => request(patchId, command, payload).catch(() => undefined);
   }
-  // The tabbed frame's active tab, tab switch and banner, sent back as the host's setTab and dismiss
-  // commands.
+  /**
+   * Projects published page navigation and notices into the shared tabbed frame.
+   * @param act Page sender accepting setTab and dismiss commands.
+   * @param state Published activeTab, error and notice fields.
+   * @returns Frame props; errors take precedence over notices and no message yields a null banner.
+   */
   function wsgmPageFrame(act, state) {
     const banner = state.error || state.notice;
     return {
@@ -15568,14 +15605,7 @@
     };
   }
   // @fragment consumer/themes.ts
-  // The Themes page in Steam: CSSLoader-compatible themes browsed from DeckThemes, installed and managed.
-  //
-  // Laid out the way CSS Loader lays out its store and its settings, and drawn with Steam's own
-  // components where one fits and the toolkit's UI kit for the rest, so it behaves like the rest of
-  // Big Picture under a controller: Steam's tabs over a toolbar and a grid of cards, one theme's
-  // details with its screenshots, and the installed themes as the same settings rows a host's settings
-  // page uses. WSGM owns the data, every label and every decision; the toolkit owns the page gate, the
-  // settings rows, the kit, the modal frame and the fail-closed component discovery used here.
+  // Theme frontend; shared host services own catalogue, profiles, settings and CSS deployment.
   const ThemesPatchId = "wsgm.themes";
   let themesUi = null;
   const themesAct = wsgmPageAct(ThemesPatchId);
@@ -15585,8 +15615,12 @@
     { id: "profiles", title: "Profiles" },
     { id: "settings", title: "Settings" },
   ];
-  // One row's change, sent as the command its key names. The rows are the settings renderer's, so a
-  // theme's switch, a patch and a component all draw and navigate like Steam's own settings.
+  /**
+   * Dispatches a committed settings row to the host command encoded by its key.
+   * @param row Published row whose NUL-separated key identifies the command and target.
+   * @param value Edited value, converted according to the row kind.
+   * @param commit False for draft updates, which are not sent to the host.
+   */
   const themesRowChange = (row, value, commit = true) => {
     if (!commit) return;
     const [kind, theme, patch, component] = String(row.key).split("\u0000");
@@ -15621,8 +15655,11 @@
     }
   };
   const themesKey = (...parts) => parts.join("\u0000");
-  // The rows one installed theme is drawn with: its switch, and while it is on, its patches and the
-  // components of each patch's chosen option, indented under it.
+  /**
+   * Builds settings descriptors from one installed theme snapshot.
+   * @param theme Host-published theme and its patch/component choices.
+   * @returns Rows headed by the enable switch; disabled themes omit patch controls.
+   */
   const themesRowsOf = (theme) => {
     const rows = [];
     const description =
@@ -16143,8 +16180,11 @@
       ),
     );
   }
-  // Declared once for the life of the asset, and drawn by the toolkit's page frame only once the gate
-  // holds: the frame says why when it does not.
+  /**
+   * Renders theme browsing, installation, profiles and settings from host state.
+   * @param context Registered page accessors for Steam components, latest state and publication refusal.
+   * @returns The page React tree, including loading or refusal state when data is unavailable.
+   */
   function ThemesPage({ context }) {
     const react = context.react();
     const h = react.createElement;
@@ -16193,16 +16233,14 @@
     Page: ThemesPage,
   });
   // @fragment consumer/wsgm-settings.ts
-  // WSGM's settings page in Steam, opened from WSGM's row in Steam's main menu.
-  //
-  // Thin on purpose. The toolkit's settings renderer draws every row with Steam's own Settings
-  // components - the routed sidebar, sections, fields and confirm modal - so the page looks and
-  // navigates exactly like Steam's Settings, and the toolkit's page gate owns its lifecycle. WSGM owns
-  // the rows and every decision about them.
+  // WSGM settings frontend; host descriptors and commands are shared with the overlay.
   const WsgmSettingsPatchId = "wsgm.settings";
   const WsgmSettingsRoute = "/wsgm/settings";
-  // Declared once for the life of the asset, so the page keeps its drafts and the controller's focus
-  // across router renders.
+  /**
+   * Renders host settings sections with the shared native settings renderer.
+   * @param context Registered page accessors for Steam components, latest state and publication refusal.
+   * @returns The page React tree, including loading or refusal state when data is unavailable.
+   */
   function WsgmSettingsPage({ context }) {
     const state = context.state() ?? {};
     return renderSteamSettings(context.ui(), {

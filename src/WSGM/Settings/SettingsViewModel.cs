@@ -10,7 +10,12 @@ using WSGM.Shell;
 
 namespace WSGM.Settings;
 
-/// <summary>Binds persisted shell, startup, input, and display settings to the Settings window.</summary>
+/// <summary>UI-thread editing model for WSGM configuration with explicit machine-service dependencies.</summary>
+/// <remarks>
+///     Bound state stays on the Avalonia dispatcher. Saves capture a detached request, merge owned edits
+///     onto fresh configuration on a worker, then acknowledge only that request's baseline. The model
+///     does not own session services; closing the window must end its imports and update work.
+/// </remarks>
 public sealed partial class SettingsViewModel : ObservableObject
 {
     private readonly AppConfig _config;
@@ -181,6 +186,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         BuildStartupSuggestions();
     }
 
+    /// <summary>Borrowed persistence owner; throws when the model was composed without one.</summary>
     internal ConfigStore Store =>
         _store ?? throw new InvalidOperationException("Configuration persistence was not supplied.");
 
@@ -208,6 +214,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     ///     The actions the running plugins declare: the resident session's own source, or an empty list for a
     ///     standalone Settings process, which then shows saved steps read-only.
     /// </param>
+    /// <returns>A UI-thread model with explicit production services and any configuration-read problem retained for display.</returns>
     internal static SettingsViewModel FromLoadedConfig(ConfigReadResult read, ConfigStore store,
         SteamInputShim steamInputShim, Func<IReadOnlyList<PluginActionOption>> readPluginActions)
     {
@@ -235,6 +242,33 @@ public sealed partial class SettingsViewModel : ObservableObject
         };
     }
 
+    /// <summary>Required machine boundaries; synchronous native/file delegates must run on the caller's designated worker.</summary>
+    /// <param name="CaptureDisplays">Reads the current Windows display arrangement.</param>
+    /// <param name="ReadDisplayFacts">Reads supported facts for a stable target identity.</param>
+    /// <param name="ReadPluginActions">Reads currently declared plugin actions.</param>
+    /// <param name="DetectStartupApps">Enumerates launch suggestions without changing startup policy.</param>
+    /// <param name="BeginImportSession">Acquires staged splash import lifetime.</param>
+    /// <param name="EndImportSession">Releases one staged import lifetime.</param>
+    /// <param name="Persist">Merges a detached save request on a worker and returns the committed result.</param>
+    /// <param name="ReconcileSteamInputShim">Applies saved shim intent after the configuration transaction.</param>
+    /// <param name="DescribeSteamInputShim">Describes current shim installation state.</param>
+    /// <param name="Report">Reports operation failures without replacing product policy.</param>
+    /// <param name="ReadStandby">Reads Modern Standby support.</param>
+    /// <param name="ScanSteamAutostart">Lists startup owners without changing them.</param>
+    /// <param name="ApplySteamAutostart">Applies explicitly accepted startup takeover to the supplied entries.</param>
+    /// <param name="CheckUpdates">Checks for a release with cooperative cancellation.</param>
+    /// <param name="DownloadUpdate">Downloads an explicitly selected release with progress and cancellation.</param>
+    /// <param name="RunSetup">Starts an explicitly confirmed setup/update action.</param>
+    /// <param name="ReadUpdateFailure">Reads the last recorded update failure.</param>
+    /// <param name="ReadPackages">Reads and validates installed and bundled package metadata.</param>
+    /// <param name="ActOnPackage">Performs the selected package install/remove action.</param>
+    /// <param name="RepairAvailable">Reports whether setup repair is available.</param>
+    /// <param name="StartRepair">Starts explicit setup repair.</param>
+    /// <param name="ReadAudio">Reads endpoint capabilities, optionally for one selected playback endpoint.</param>
+    /// <param name="ReadUpdates">Reads the latest saved update-check state.</param>
+    /// <param name="DetectOtherManagers">Detects conflicting manager installations/startup owners.</param>
+    /// <param name="ApplyOtherManagers">Applies the user's explicit takeover choice.</param>
+    /// <param name="LoadPersisted">Strictly reloads persisted configuration for merge/check workflows.</param>
     internal sealed record SettingsServices(
         Func<DisplayArrangement> CaptureDisplays,
         Func<DisplayTargetIdentity, DisplayCatalogFacts?> ReadDisplayFacts,
@@ -263,6 +297,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         Func<IReadOnlyList<DetectedManager>, OtherManagersResult> ApplyOtherManagers,
         Func<AppConfig> LoadPersisted)
     {
+        /// <summary>Composes production delegates around the caller's persistence and shim owners.</summary>
+        /// <param name="store">Borrowed configuration store.</param>
+        /// <param name="steamInputShim">Borrowed process shim reconciler.</param>
+        /// <param name="readPluginActions">Resident action catalog or an empty standalone catalog.</param>
+        /// <returns>Explicit service dependencies; none are invoked to run setup or install packages during composition.</returns>
         internal static SettingsServices Windows(ConfigStore store, SteamInputShim steamInputShim,
             Func<IReadOnlyList<PluginActionOption>> readPluginActions)
         {

@@ -32,6 +32,9 @@ internal sealed class AllyRecoveryJournal()
     ///     Then the command writes without reading again: the first original stays the restore point. An
     ///     entry from another BIOS is replaced by the next capture, as <c>BeginAsync</c> does.
     /// </remarks>
+    /// <param name="serviceId">Service whose original state would otherwise be recaptured.</param>
+    /// <param name="firmwareIdentity">Current BIOS or MCU binding, compared ordinally.</param>
+    /// <returns>True only for a pending original under the same firmware binding.</returns>
     public bool HoldsOriginal(string serviceId, string firmwareIdentity)
     {
         return EntryFor(serviceId) is { Status: DeviceRecoveryStatus.Pending } entry
@@ -47,6 +50,7 @@ internal sealed class AllyRecoveryJournal()
     ///     A restore either dispatched or failed to dispatch; nothing is read back (D9). There is no
     ///     unresolved entry to keep: a failed restore stays pending and this start writes it once.
     /// </remarks>
+    /// <returns>Wait when the transport binding is unavailable, Restore when it matches, or Discard when it changed.</returns>
     internal static AllyReconciliationAction Decide(
         DeviceRecoveryEntry<AllyRecoveryState> entry,
         string? currentFirmwareIdentity)
@@ -65,6 +69,8 @@ internal sealed class AllyRecoveryJournal()
     }
 
     /// <summary>Whether a captured limit is one the recovery record can hold.</summary>
+    /// <param name="value">Captured wattage, or null for an unavailable reading.</param>
+    /// <returns>True for 1-80 W; zero, null and values outside that recovery envelope are invalid.</returns>
     internal static bool IsValidWatts(int? value)
     {
         return value is >= 1 and <= 80;

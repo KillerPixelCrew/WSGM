@@ -70,6 +70,7 @@ internal static class SteamInstallation
     ///         strips it.
     ///     </para>
     /// </remarks>
+    /// <returns>Sorted NAME=value entries for Steam-prefixed variables and Valve's Vulkan overlay flag.</returns>
     internal static IReadOnlyList<string> SessionVariables()
     {
         List<string> carried = [];
@@ -93,6 +94,7 @@ internal static class SteamInstallation
 
     /// <summary>Whether every component this route needs is present.</summary>
     /// <param name="missing">The first component that is absent, when one is.</param>
+    /// <returns>True when all required files exist; does not validate their compatibility or loadability.</returns>
     internal static bool ComponentsPresent(out string? missing)
     {
         missing = null;

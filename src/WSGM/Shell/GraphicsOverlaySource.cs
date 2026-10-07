@@ -57,7 +57,8 @@ internal sealed record GraphicsOverlaySnapshot(
 /// <summary>The closed source the Graphics destination and the Graphics page in Steam read and write.</summary>
 internal interface IGraphicsOverlaySource : IDisposable
 {
-    /// <summary>Raised on the UI dispatcher when anything the pages show may have changed.</summary>
+    /// <summary>Raised when page state may have changed; coordinator notifications use the UI dispatcher.</summary>
+    /// <remarks>A stale-row refusal raises this on the write caller's thread. UI subscribers must dispatch when needed.</remarks>
     event Action? Changed;
 
     /// <summary>The pages as they should be drawn now.</summary>
@@ -85,6 +86,8 @@ internal interface IGraphicsOverlaySource : IDisposable
 internal static class GraphicsCapabilityText
 {
     /// <summary>The vendor dropdown title in Quick Access.</summary>
+    /// <param name="name">Publisher display name.</param>
+    /// <returns>The name with a trailing Graphics replaced by GPU, an existing GPU suffix retained, or GPU appended.</returns>
     internal static string PublisherTitle(string name)
     {
         const string graphicsSuffix = " Graphics";
@@ -136,6 +139,7 @@ internal sealed class GraphicsOverlayBridge : IGraphicsOverlaySource
     private readonly GpuCoordinator _gpu;
     private bool _disposed;
 
+    /// <summary>Subscribes to a borrowed graphics coordinator for shared page projections.</summary>
     /// <param name="gpu">The graphics coordinator, borrowed.</param>
     internal GraphicsOverlayBridge(GpuCoordinator gpu)
     {
@@ -143,8 +147,10 @@ internal sealed class GraphicsOverlayBridge : IGraphicsOverlaySource
         _gpu.Changed += OnGpuChanged;
     }
 
+    /// <inheritdoc />
     public event Action? Changed;
 
+    /// <inheritdoc />
     public GraphicsOverlaySnapshot Snapshot()
     {
         return Project(
@@ -155,6 +161,7 @@ internal sealed class GraphicsOverlayBridge : IGraphicsOverlaySource
         ]);
     }
 
+    /// <inheritdoc />
     public async Task<CapabilityCommandResult?> WriteAsync(
         DeviceOverlayCapability capability,
         CapabilityValue? value,
@@ -182,11 +189,13 @@ internal sealed class GraphicsOverlayBridge : IGraphicsOverlaySource
             cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
+    /// <inheritdoc />
     public Task<bool> UseGlobalAsync(string overrideId, CancellationToken cancellationToken = default)
     {
         return _gpu.UseGlobalAsync(overrideId, cancellationToken);
     }
 
+    /// <summary>Unsubscribes from the coordinator and releases subscribers; does not dispose the borrowed coordinator.</summary>
     public void Dispose()
     {
         if (_disposed)

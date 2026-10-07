@@ -220,6 +220,7 @@ public static class Steam
     /// </summary>
     /// <param name="path">The config path, or null when Steam is not installed.</param>
     /// <param name="text">The file text, or null when it could not be resolved.</param>
+    /// <returns>True when text was read; false for absent Steam or missing file. Filesystem read failures propagate.</returns>
     public static bool TryReadLibraryFolders(out string? path, out string? text)
     {
         path = LibraryFoldersConfigPath;
@@ -276,6 +277,7 @@ public static class Steam
     /// <param name="context">The owner's task and diagnostic directory.</param>
     /// <param name="shim">The process's Steam Input shim, reconciled before a cold start.</param>
     /// <param name="steamInputManagement">Whether Steam Input Management is on in the current configuration.</param>
+    /// <returns>Activation outcome, with caller-owned process wrapper when available; readiness must be observed separately.</returns>
     internal static AppLauncher.LaunchResult LaunchBigPicture(UserDataContext context, SteamInputShim shim,
         bool steamInputManagement, bool unelevated = false, bool cefEnabled = true)
     {
@@ -324,6 +326,14 @@ public static class Steam
     }
 
     /// <summary>Orders cold-start preparation before either process-launch path.</summary>
+    /// <param name="steamInputManagement">Desired Steam Input shim ownership for this cold start.</param>
+    /// <param name="installDirectory">Resolved Steam directory, or null when unavailable.</param>
+    /// <param name="cefEnabled">Whether the next Steam process should expose its remote-debugging port.</param>
+    /// <param name="reconcile">Reconciles the shim before any launch can map it.</param>
+    /// <param name="enableRemoteDebugging">Prepares the cold-start flag; this must not attach a debugger.</param>
+    /// <param name="launch">Launches Steam using the reconciled shim status.</param>
+    /// <returns>The launch delegate's activation result; preparation failures propagate.</returns>
+    /// <remarks>The caller must establish Steam is not running. Port preparation does not establish UI readiness.</remarks>
     internal static AppLauncher.LaunchResult ColdStart(
         bool steamInputManagement,
         string? installDirectory,

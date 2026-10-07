@@ -2,6 +2,7 @@ using System;
 
 namespace WSGM.Core;
 
+/// <summary>Supplies bundled application credentials and the optional developer debug override.</summary>
 internal static class ScreenscraperCredentials
 {
 #if DEBUG
@@ -11,9 +12,13 @@ internal static class ScreenscraperCredentials
     private static readonly byte[] FoldedDevId = [0, 19, 80, 25, 56, 97, 2, 55, 75, 6, 99, 4, 93, 114];
     private static readonly byte[] FoldedDevPassword = [31, 48, 84, 55, 25, 4, 44, 25, 95, 31, 43];
 
+    /// <summary>Application name and version sent to the provider.</summary>
     internal static string SoftName { get; } = BuildSoftName();
+    /// <summary>Bundled developer identity; not the user's optional account name.</summary>
     internal static string DevId { get; } = Unfold(FoldedDevId);
+    /// <summary>Bundled application credential; never include it in diagnostics.</summary>
     internal static string DevPassword { get; } = Unfold(FoldedDevPassword);
+    /// <summary>Debug-build environment override, or null in release builds; never log it.</summary>
     internal static string? DebugPassword =>
 #if DEBUG
         (Environment.GetEnvironmentVariable(DebugPasswordVariable) ?? "").Trim() is { Length: > 0 } value

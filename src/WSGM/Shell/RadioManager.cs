@@ -15,17 +15,13 @@ using RadioPower = WindowsDeviceControl.WindowsRadio.Power;
 namespace WSGM.Shell;
 
 /// <summary>
-///     Wi-Fi and Bluetooth state and control for the game-mode UI.
-///     Windows' own radio flyouts are unreachable in game mode — there is no
-///     Explorer shell to host them, and `ms-settings:` cannot activate without one —
-///     so this is the only way a user on a handheld can join a network or pair a
-///     controller without leaving game mode.
-///     Windows calls block (WinRT round trips, WLAN handles), so they run off the
-///     UI thread: a background refresh publishes results back through the
-///     dispatcher. Only the Bluetooth watcher starts on the UI thread, because
-///     starting it returns at once. Rows are reconciled in place, because rebuilding the
-///     collections would drop the control under the gamepad cursor.
+///     Owns UI-bound Wi-Fi and Bluetooth state, discovery and user actions for the session.
 /// </summary>
+/// <remarks>
+///     Invoke lifecycle and row-mutating actions on the Avalonia UI thread. Blocking native work runs
+///     on workers and watch callbacks post updates to the dispatcher. Collections retain surviving row
+///     instances to preserve focus. Dispose stops this manager's timer and watches and ends its pairing attempt.
+/// </remarks>
 public sealed class RadioManager : ObservableObject, IDisposable
 {
     /// <summary>
@@ -101,6 +97,9 @@ public sealed class RadioManager : ObservableObject, IDisposable
     {
     }
 
+    /// <summary>Creates an inert manager with replaceable pairing and audio-connection backends.</summary>
+    /// <param name="pairBluetooth">Starts one bounded pairing operation and invokes ceremony callbacks from a Windows thread.</param>
+    /// <param name="connectBluetoothAudio">Synchronous audio connect/disconnect request, invoked on a worker.</param>
     internal RadioManager(
         Func<string, Action<WindowsRadio.PairingRequest>, CancellationToken, Task<WindowsRadio.PairingResult>>
             pairBluetooth,
@@ -338,6 +337,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
     /// </summary>
     /// <param name="power">The radio's power state.</param>
     /// <param name="label">The radio's display name.</param>
+    /// <returns>An unavailable-state message, or empty for an on/unclassified enum value.</returns>
     internal static string DescribeUnavailable(RadioPower power, string label)
     {
         return power switch
@@ -354,6 +354,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
     ///     Performs a first refresh and starts the update timer.
     ///     UI-thread callers only. Idempotent.
     /// </summary>
+    /// <exception cref="ObjectDisposedException">The manager has been disposed.</exception>
     public void Start()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -363,7 +364,6 @@ public sealed class RadioManager : ObservableObject, IDisposable
         }
 
         QueueRefresh();
-        // Parameterless ctor + explicit Start: the 3-arg ctor auto-starts.
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         _timer.Tick += OnTick;
         _timer.Start();
@@ -373,13 +373,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
     ///     Stops the update timer without disposing the manager, so a later <see cref="Start" /> can
     ///     resume it. UI-thread callers only. Idempotent.
     /// </summary>
-    /// <remarks>
-    ///     The refresh enumerates Bluetooth devices through WinRT, about 75 ms of a native pool
-    ///     thread per tick on the Claw. A session-scoped manager started by the overlay's status
-    ///     cluster kept ticking for the rest of the session after the sheet closed, which was two
-    ///     percent of a core for pills nobody could see (docs/perf). Steam's own Bluetooth row reads
-    ///     the snapshot on demand and does not need the timer.
-    /// </remarks>
+    /// <remarks>Does not stop discovery feeds or an already-running refresh.</remarks>
     public void Stop()
     {
         if (_timer is null)
@@ -397,6 +391,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
     ///     the radio panel opens: an idle sheet must not pay for scans nobody is
     ///     looking at, which on a handheld is battery.
     /// </summary>
+    /// <exception cref="ObjectDisposedException">The manager has been disposed.</exception>
     public void StartScanning()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -404,6 +399,8 @@ public sealed class RadioManager : ObservableObject, IDisposable
         UpdateScanning();
     }
 
+    /// <summary>Updates Steam's discovery demand on the UI thread; panel or pairing demand may keep feeds running.</summary>
+    /// <param name="enabled">Whether Steam currently needs live discovery; ignored after disposal.</param>
     internal void SetSteamDiscovery(bool enabled)
     {
         if (_disposed)
@@ -621,6 +618,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
     ///     Reads the Wi-Fi status off the UI thread and publishes it, for a consumer that needs it
     ///     current while the refresh timer is stopped.
     /// </summary>
+    /// <returns>Completes after the worker read and UI publication; disposal suppresses publication and read failures publish unknown state.</returns>
     internal async Task RefreshWifiStatusAsync()
     {
         var status = await Task.Run(ReadWifiStatus).ConfigureAwait(false);
@@ -1014,6 +1012,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
     ///     ERROR_ACCESS_DENIED (5) while location access is off.
     /// </param>
     /// <param name="message">The failure's message, shown as it is for every other status.</param>
+    /// <returns>Location-consent guidance for status 5, otherwise a scan failure containing the supplied message.</returns>
     internal static string DescribeScanFailure(int status, string message)
     {
         return status == 5
@@ -1089,6 +1088,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
     /// <summary>Turns a radio on or off.</summary>
     /// <param name="bluetooth">True for the Bluetooth radio, false for Wi-Fi.</param>
     /// <param name="on">The state to switch to.</param>
+    /// <returns>Completion of the serialized power request. Failures update StatusText; the queued refresh is not awaited.</returns>
     public async Task SetRadioAsync(bool bluetooth, bool on)
     {
         var kind = bluetooth ? WindowsRadio.RadioKind.Bluetooth : WindowsRadio.RadioKind.WiFi;
@@ -1175,11 +1175,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
     public async Task<bool> ConnectAsync(WindowsRadio.WifiNetworkKey network, string? password)
     {
         var ssid = network.DisplayText;
-        // One attempt at a time. The backend waits out the real verdict, so
-        // a second Connect would run a concurrent attempt whose scoped watcher
-        // sees the same process-wide WLAN events: the two would consume each
-        // other's outcomes, report the wrong result, and roll back a profile
-        // over a cancellation the user never asked for.
+        // Serialize profile mutation and completion watchers for this manager.
         if (Interlocked.CompareExchange(ref _connecting, 1, 0) != 0)
         {
             Log.Info($"Wi-Fi connect: {ssid} ignored, an attempt is already running.");
@@ -1232,9 +1228,10 @@ public sealed class RadioManager : ObservableObject, IDisposable
     }
 
     /// <summary>
-    ///     The message for a join that did not end joined, worded as the panel has always worded it.
-    ///     A definite failure goes through <see cref="DescribeConnectFailure" />.
+    ///     Formats a refused, pending or failed join; definite failures use WLAN reason classification.
     /// </summary>
+    /// <param name="result">WindowsDeviceControl join result.</param>
+    /// <returns>A user-facing failure/pending message, or empty for Joined and unclassified outcomes.</returns>
     internal static string DescribeConnectResult(WindowsRadio.WifiConnectResult result)
     {
         return result.Outcome switch
@@ -1257,11 +1254,12 @@ public sealed class RadioManager : ObservableObject, IDisposable
     }
 
     /// <summary>
-    ///     The message for a failed join.
-    ///     Only a rejected key re-prompts for a password. Blaming the user's typing
-    ///     for an association timeout is worse than saying the network could not be
-    ///     reached, because they will retype a password that was already correct.
+    ///     Formats a classified join failure without treating connection timeouts as rejected credentials.
     /// </summary>
+    /// <param name="verdict">Classified WLAN reason.</param>
+    /// <param name="reasonCode">Raw WLAN reason code, or zero when none was supplied.</param>
+    /// <param name="fallback">Diagnostic text used for an unknown failure without a reason code.</param>
+    /// <returns>A failure message, using Windows reason text when the classification requires it.</returns>
     internal static string DescribeConnectFailure(
         WindowsRadio.WifiFailureKind verdict,
         uint reasonCode,
@@ -1285,6 +1283,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
     }
 
     /// <summary>Leaves the current network.</summary>
+    /// <returns>Completion of the disconnect request. Failures update StatusText; it does not wait for a disconnected-state observation.</returns>
     public async Task DisconnectAsync()
     {
         try
@@ -1303,6 +1302,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
 
     /// <summary>Deletes every saved profile of a network, so it stops joining automatically.</summary>
     /// <param name="network">The network to forget, as its row's <see cref="WifiNetworkEntry.Key" />.</param>
+    /// <returns>Completion of the deletion attempts. Partial failures update StatusText; a refresh is queued afterward.</returns>
     public async Task ForgetAsync(WindowsRadio.WifiNetworkKey network)
     {
         var ssid = network.DisplayText;
@@ -1443,6 +1443,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
     /// </summary>
     /// <param name="entry">The device to pair.</param>
     /// <returns>Whether pairing was started or the device was already paired.</returns>
+    /// <exception cref="ObjectDisposedException">The manager has been disposed.</exception>
     public bool BeginPairing(BluetoothDeviceEntry entry)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -1469,11 +1470,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
         _pairingEndpointId = entry.PairingEndpointId;
         _pairingCancelled = false;
         StatusText = $"Pairing with {entry.Name}...";
-        // Discovery keeps running through the whole ceremony ON PURPOSE, the
-        // way the Windows applet does it: PairAsync needs the association
-        // endpoint pair-ready, which for an advertising device is exactly what
-        // the live scan maintains. Stopping the watcher before PairAsync made
-        // every attempt fail instantly (device-observed 2026-08-09).
+        // Discovery must stay active to keep an advertising association endpoint pair-ready.
         Log.Info($"Bluetooth pairing: started for {entry.Name}.");
 
         var cancellation = new CancellationTokenSource();
@@ -1520,6 +1517,10 @@ public sealed class RadioManager : ObservableObject, IDisposable
         OnPairingDone(result, failure);
     }
 
+    /// <summary>Marks this row's running pairing as cancelled and declines its current or next prompt.</summary>
+    /// <param name="entry">The logical Bluetooth row whose attempt should end.</param>
+    /// <returns>False when another row or no row is pairing; true after recording cancellation intent.</returns>
+    /// <remarks>UI thread only. Does not cancel the backend token or wait for pairing completion.</remarks>
     internal bool CancelPairing(BluetoothDeviceEntry entry)
     {
         if (!_pairingInProgress || _pairingEntry?.Id != entry.Id)
@@ -1541,6 +1542,7 @@ public sealed class RadioManager : ObservableObject, IDisposable
     /// <param name="token">The token from the prompt.</param>
     /// <param name="accept">Whether the user accepted.</param>
     /// <param name="pin">The PIN typed by the user, for the provide-pin ceremony.</param>
+    /// <remarks>Queues the answer on the MTA thread pool and returns immediately; native failures are logged.</remarks>
     public static void RespondToPairing(uint token, bool accept, string? pin)
     {
         Log.Info($"Bluetooth pairing: answering token {token} with "

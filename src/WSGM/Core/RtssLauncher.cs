@@ -8,8 +8,7 @@ namespace WSGM.Core;
 
 /// <summary>
 ///     Starts and watches the verified RTSS installation, without owning the process lifetime.
-///     Concurrent starts share one in-flight guard. The rationale is in
-///     <c>docs\rtss.md</c> ("WSGM starts RTSS").
+///     Concurrent starts share one in-flight guard.
 /// </summary>
 internal sealed class RtssLauncher : IDisposable
 {
@@ -42,6 +41,7 @@ internal sealed class RtssLauncher : IDisposable
     /// </remarks>
     private static TimeSpan SettleTimeout { get; } = TimeSpan.FromSeconds(10);
 
+    /// <summary>Stops watching process exits and closes start admission without terminating RTSS.</summary>
     public void Dispose()
     {
         lock (_watchGate)
@@ -59,10 +59,8 @@ internal sealed class RtssLauncher : IDisposable
     /// <param name="enabled">Whether the user has performance control switched on.</param>
     /// <returns>Whether to start it.</returns>
     /// <remarks>
-    ///     Deliberately only <see cref="RtssAvailability.NotRunning" />. That state means discovery
-    ///     already accepted the installation and found no process — the one case starting it fixes.
-    ///     Not installed, incompatible and degraded are all states a launch cannot improve, and starting
-    ///     a program because WSGM could not identify it would be exactly the wrong response.
+    ///     Only <see cref="RtssAvailability.NotRunning" /> establishes a verified installation
+    ///     with no matching process. Other availability states do not permit a launch.
     /// </remarks>
     internal static bool ShouldStart(RtssProbe probe, bool enabled)
     {
@@ -75,8 +73,8 @@ internal sealed class RtssLauncher : IDisposable
     /// <summary>Starts RTSS if it is needed, not running, and no start is settling.</summary>
     /// <param name="probe">The most recent probe.</param>
     /// <param name="enabled">Whether the user has performance control switched on.</param>
-    /// <param name="cancellationToken">Cancels the attempt.</param>
-    /// <returns>Whether a start was attempted and appeared to succeed.</returns>
+    /// <param name="cancellationToken">Prevents admission or ends the settle delay; cannot undo a process start.</param>
+    /// <returns>Whether process creation succeeded; readiness is established by a later probe.</returns>
     internal async Task<bool> TryStartAsync(
         RtssProbe probe,
         bool enabled,
@@ -128,8 +126,6 @@ internal sealed class RtssLauncher : IDisposable
         }
         catch (Exception ex)
         {
-            // Never fatal. RTSS is a feature WSGM uses, not one it is: a shell that failed to boot
-            // because a frame limiter would not start would be a much worse outcome.
             Log.Warn($"Starting RTSS failed: {ex.Message}");
             return false;
         }
@@ -139,6 +135,9 @@ internal sealed class RtssLauncher : IDisposable
         }
     }
 
+    /// <summary>Watches a ready probe's process once and replaces any previous subscription.</summary>
+    /// <param name="probe">Latest verified process identity; non-ready probes are ignored.</param>
+    /// <param name="exited">Called on the process-event thread when the current watched process exits.</param>
     internal void Watch(RtssProbe probe, Action exited)
     {
         if (probe.Availability != RtssAvailability.Ready || probe.ProcessId is not { } processId)
@@ -235,8 +234,8 @@ internal sealed class RtssLauncher : IDisposable
     /// <returns>Whether the process was created.</returns>
     /// <remarks>
     ///     Started with its own install directory as the working directory, which is what RTSS's own
-    ///     shortcut does; it loads plugins and profiles relative to it. <c>UseShellExecute</c> is false
-    ///     so no window is created and WSGM does not hand it a shell verb.
+    ///     shortcut does; it loads plugins and profiles relative to it. The direct process start
+    ///     avoids a shell verb; RTSS still controls its own GUI windows.
     /// </remarks>
     private static Task<bool> StartDetachedAsync(string executable)
     {

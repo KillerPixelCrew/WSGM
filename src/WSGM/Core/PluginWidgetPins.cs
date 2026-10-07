@@ -14,6 +14,9 @@ public sealed record PluginWidgetPin(string PluginId, string InstanceId, string 
 /// <summary>Pin ordering that retains unavailable plugin identities.</summary>
 internal static class PluginWidgetPins
 {
+    /// <summary>Copies valid persistent widget identities, dropping nulls and exact duplicates.</summary>
+    /// <param name="pins">Saved pins, or null for an empty list.</param>
+    /// <returns>A new mutable list retaining the first valid occurrence in order.</returns>
     internal static List<PluginWidgetPin> Normalize(IEnumerable<PluginWidgetPin?>? pins)
     {
         return
@@ -24,6 +27,11 @@ internal static class PluginWidgetPins
         ];
     }
 
+    /// <summary>Adds a valid pin once or removes every occurrence of it.</summary>
+    /// <param name="pins">Exclusive caller-owned list to mutate.</param>
+    /// <param name="pin">Complete valid package, instance, and widget identity.</param>
+    /// <param name="pinned">True appends when absent; false removes matching entries.</param>
+    /// <exception cref="ArgumentException">The pin identity fails plain-text validation.</exception>
     internal static void Set(List<PluginWidgetPin> pins, PluginWidgetPin pin, bool pinned)
     {
         if (Normalize([pin]).Count == 0)
@@ -45,6 +53,10 @@ internal static class PluginWidgetPins
         pins.Add(pin);
     }
 
+    /// <summary>Moves one pin by swapping it with its adjacent neighbor.</summary>
+    /// <param name="pins">Caller-owned list to mutate.</param>
+    /// <param name="pin">Identity to move; an absent pin is ignored.</param>
+    /// <param name="offset">-1 for earlier or 1 for later; other values are ignored and endpoints clamp.</param>
     internal static void Move(List<PluginWidgetPin> pins, PluginWidgetPin pin, int offset)
     {
         var index = pins.IndexOf(pin);
@@ -57,6 +69,8 @@ internal static class PluginWidgetPins
         (pins[index], pins[destination]) = (pins[destination], pins[index]);
     }
 
+    /// <summary>Sorts pins ordinally by package, instance, then widget identity.</summary>
+    /// <param name="pins">Caller-owned list to reorder in place.</param>
     internal static void ResetOrder(List<PluginWidgetPin> pins)
     {
         pins.Sort((left, right) =>

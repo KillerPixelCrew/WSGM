@@ -53,6 +53,8 @@ internal sealed record CpuBoostStatus(bool Supported, CpuBoostMode? OnAc, CpuBoo
 ///     <c>PerformanceManager.RequestPerfBoostMode</c> and <c>PowerScheme.WritePowerCfg</c> are the
 ///     reference for the mechanism.
 /// </remarks>
+/// <param name="schemes">Session owner supplying the active scheme and shared mutation lock.</param>
+/// <param name="api">Platform adapter retained for this policy owner; native failures propagate.</param>
 internal sealed class CpuBoost(PowerSchemes schemes, ICpuBoostApi api)
 {
     /// <summary>HC's five choices, in HC's order, with HC's labels.</summary>
@@ -114,6 +116,8 @@ internal sealed class CpuBoost(PowerSchemes schemes, ICpuBoostApi api)
     ///     Null rather than a nearest guess for modes 5 and 6: something else set them, and showing
     ///     them as one of WSGM's choices would claim WSGM put it there.
     /// </remarks>
+    /// <param name="value">Raw Windows PERFBOOSTMODE value.</param>
+    /// <returns>The offered mode for values 0–4, or null for unsupported/unknown native values.</returns>
     internal static CpuBoostMode? ModeFor(uint value)
     {
         return value <= (uint)CpuBoostMode.EfficientAggressive ? (CpuBoostMode)value : null;

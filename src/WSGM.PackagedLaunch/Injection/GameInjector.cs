@@ -25,6 +25,7 @@ namespace WSGM.PackagedLaunch;
 ///         first whose outcome is unknown compounds the damage instead of repairing it.
 ///     </para>
 /// </remarks>
+/// <param name="privileges">Shared journal for recording the first denied privileged operation.</param>
 internal sealed class GameInjector(PrivilegeJournal privileges)
 {
     /// <summary>How long a remote <c>LoadLibraryW</c> may take before its result is unknown.</summary>
@@ -42,6 +43,7 @@ internal sealed class GameInjector(PrivilegeJournal privileges)
 
     /// <summary>Whether remote work on this process has been latched off by an uncertain result.</summary>
     /// <param name="processId">The process to ask about.</param>
+    /// <returns>True after an uncertain operation disabled further remote work for this process ID.</returns>
     internal bool Latched(int processId)
     {
         return _latched.Contains(processId);
@@ -439,6 +441,7 @@ internal sealed class GameInjector(PrivilegeJournal privileges)
     /// <summary>Whether a module is loaded in a process, by file name.</summary>
     /// <param name="processId">The process to look in.</param>
     /// <param name="fileName">The module's file name.</param>
+    /// <returns>True when a matching module is observed; false also covers failed or inaccessible enumeration.</returns>
     internal static bool HasModule(int processId, string fileName)
     {
         return RemoteModuleBase(processId, fileName) != IntPtr.Zero;

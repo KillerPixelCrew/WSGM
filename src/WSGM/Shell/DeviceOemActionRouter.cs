@@ -337,6 +337,8 @@ internal sealed class DeviceOemActionRouter : IDisposable
     }
 
     /// <summary>What an unassigned control does.</summary>
+    /// <param name="control">Published OEM control declaration, including placement and companion-application role.</param>
+    /// <returns>Toggle WSGM for a front companion-application button; disabled for every other unassigned control.</returns>
     internal static OemAction DefaultAction(OemControlDescriptor control)
     {
         return control is { CompanionApplication: true, Placement: OemControlPlacement.Front }

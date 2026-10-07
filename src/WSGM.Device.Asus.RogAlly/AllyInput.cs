@@ -86,6 +86,8 @@ internal sealed class AllyOemButtonState
     }
 
     /// <summary>Forgets one source's outstanding presses of the given controls, when it stops reporting them.</summary>
+    /// <param name="source">Input source whose per-control down/admission state is cleared.</param>
+    /// <param name="controlIds">Controls to forget; unknown IDs are ignored and other sources retain their state.</param>
     public void Forget(AllyOemSource source, params ReadOnlySpan<string> controlIds)
     {
         lock (_gate)
@@ -107,6 +109,9 @@ internal sealed class AllyOemButtonState
     }
 
     /// <summary>Holds or releases buttons for one source; a button is down while either source holds it.</summary>
+    /// <param name="source">Vendor or keyboard source contributing the hold.</param>
+    /// <param name="button">Canonical button bitmask to update for this source.</param>
+    /// <param name="down">True adds the hold; false removes only this source's hold.</param>
     public void Hold(AllyOemSource source, CanonicalButtons button, bool down)
     {
         lock (_gate)
@@ -123,6 +128,7 @@ internal sealed class AllyOemButtonState
     }
 
     /// <summary>Releases buttons whichever source holds them.</summary>
+    /// <param name="button">Canonical button bitmask to clear from both vendor and keyboard holds.</param>
     public void Release(CanonicalButtons button)
     {
         lock (_gate)
@@ -183,6 +189,9 @@ internal sealed class AllyOemButtonState
 ///     HC reads every Ally, the Xbox models included, through XInput (
 ///     <c>XboxAdaptiveController : XInputController</c>).
 /// </remarks>
+/// <param name="XInputSlot">Discovered ASUS XInput slot used for sampling and rumble.</param>
+/// <param name="PhysicalDevices">Present controller device nodes to hide while the virtual pad is driven.</param>
+/// <param name="Observed">Diagnostic description of the slot and device-node identities.</param>
 internal sealed record AllyControllerTopology(
     int XInputSlot,
     IReadOnlyList<PhysicalDeviceIdentity> PhysicalDevices,
@@ -272,6 +281,8 @@ internal static class AllyControllerCodec
 }
 
 /// <summary>Reads the Ally pad through XInput, as HC does.</summary>
+/// <param name="model">Exact model supplying permitted controller product IDs.</param>
+/// <param name="oem">Shared OEM-button holds and latches to merge into XInput samples.</param>
 internal sealed class WindowsAllyControllerSource(AllyModel model, AllyOemButtonState oem) : IAllyControllerSource
 {
     /// <summary>About 125 Hz, the Claw's pad cadence, which the motion resampler is tuned against.</summary>
@@ -289,6 +300,9 @@ internal sealed class WindowsAllyControllerSource(AllyModel model, AllyOemButton
     ///     hide. After a wake the slot and the nodes return a few seconds apart; until both are there the
     ///     service keeps waiting, as HC waits for the pad's arrival.
     /// </remarks>
+    /// <summary>Discovers a usable ASUS XInput slot together with its physical controller nodes.</summary>
+    /// <param name="cancellationToken">Cancels admission before synchronous XInput and device-node discovery.</param>
+    /// <returns>The usable slot and hideable nodes, or null until both are present; discovery does not write configuration.</returns>
     public ValueTask<AllyControllerTopology?> DiscoverAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -559,15 +573,23 @@ internal static class XInputNative
 }
 
 /// <summary>Raw keyboard events the hook claimed.</summary>
+/// <param name="VirtualKey">Claimed Windows virtual-key code.</param>
+/// <param name="Down">True for key down, false for release.</param>
+/// <param name="Timestamp">UTC observation time recorded by the hook.</param>
 internal readonly record struct AllyKeyEvent(uint VirtualKey, bool Down, DateTimeOffset Timestamp);
 
 internal interface IAllyKeyboardSource : IAsyncDisposable
 {
     /// <summary>Installs the hook. Only keys in the watched set are consumed and reported.</summary>
+    /// <param name="callback">Sequential event-pump callback outside the native hook; processes claimed key events.</param>
+    /// <param name="fault">Hook/pump failure callback, including event-queue overflow.</param>
+    /// <param name="cancellationToken">Cancels hook installation, not an already-running stream.</param>
+    /// <returns>Whether the hook started; the caller must stop it when the service releases ownership.</returns>
     ValueTask<bool> StartAsync(Func<AllyKeyEvent, ValueTask> callback, Action<Exception> fault,
         CancellationToken cancellationToken);
 
     /// <summary>Replaces the set of consumed keys. Keys outside it pass through untouched.</summary>
+    /// <param name="virtualKeys">Complete replacement set of virtual-key codes; the Windows implementation ignores values outside 0-255.</param>
     void Watch(IReadOnlyCollection<uint> virtualKeys);
 
     ValueTask StopAsync(CancellationToken cancellationToken);

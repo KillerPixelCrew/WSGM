@@ -48,6 +48,12 @@ public partial class OverlayWindow
         ? frame.Container
         : null;
 
+    /// <summary>Opens a local keyboard surface while retaining the window's capture and navigation owner.</summary>
+    /// <param name="prompt">Accessible field label.</param>
+    /// <param name="initial">Text copied into the editor.</param>
+    /// <param name="maxLength">Character limit, or zero for no explicit limit.</param>
+    /// <param name="onAccept">UI-thread callback invoked once with accepted text; cancellation does not invoke it.</param>
+    /// <returns>True when a keyboard was created; false after the window closed.</returns>
     internal bool RequestText(string prompt, string initial, int maxLength, Action<string> onAccept)
     {
         if (_closed)
@@ -73,6 +79,7 @@ public partial class OverlayWindow
     }
 
     /// <summary>Shares the existing session brightness owner with the utility surface.</summary>
+    /// <param name="service">Borrowed session brightness owner also used by Steam and the main Display page.</param>
     internal void AttachBrightnessSurface(NativeQamBrightnessService service)
     {
         _surfaceBrightness = service;
@@ -88,6 +95,7 @@ public partial class OverlayWindow
     }
 
     /// <summary>Shows live radio controls in the overlay.</summary>
+    /// <param name="panel">Utility panel mounted in this window; its credential requests use the same surface stack.</param>
     internal void ShowRadioSurface(RadioPanel panel)
     {
         panel.CloseRequested += () => CloseSurface(panel);
@@ -101,18 +109,24 @@ public partial class OverlayWindow
     }
 
     /// <summary>Shows live audio controls in the overlay.</summary>
+    /// <param name="panel">Audio utility panel to mount inside the current overlay capture.</param>
     internal void ShowAudioSurface(AudioPanel panel)
     {
         ShowSurface(panel, SurfaceKind.Utility, "Audio", panel.DefaultFocusTarget);
     }
 
     /// <summary>Shows removable-drive controls in the overlay.</summary>
+    /// <param name="panel">Removable-drive utility panel to mount inside the current overlay capture.</param>
     internal void ShowEjectSurface(EjectPanel panel)
     {
         panel.CloseRequested += () => CloseSurface(panel);
         ShowSurface(panel, SurfaceKind.Utility, "Safely remove", null);
     }
 
+    /// <summary>Pushes the controller-accessible local picker and resolves its first completion.</summary>
+    /// <param name="folder">True for directory selection, false for file selection.</param>
+    /// <param name="extensions">Allowed file extensions; empty permits all file types.</param>
+    /// <returns>Accepted path, or null for cancellation/detach; close is deferred through the surface owner.</returns>
     internal Task<string?> PickLocalPathAsync(bool folder, params string[] extensions)
     {
         var completion = new TaskCompletionSource<string?>();
@@ -135,6 +149,7 @@ public partial class OverlayWindow
     }
 
     /// <summary>Shows the internal text-entry keyboard across the bottom of this window.</summary>
+    /// <param name="panel">Local text editor to mount at the bottom of the surface stack; it sends no global keyboard input.</param>
     internal void ShowKeyboardSurface(KeyboardPanel panel)
     {
         panel.CloseRequested += () => CloseSurface(panel);
@@ -375,6 +390,7 @@ public partial class OverlayWindow
     }
 
     /// <summary>Closes the top surface, preserving the overlay's capture and navigation owner.</summary>
+    /// <returns>True when an active surface is present and its close is handled; false when the stack is empty.</returns>
     internal bool CloseActiveSurface()
     {
         if (!HasActiveSurface)
@@ -458,6 +474,8 @@ public partial class OverlayWindow
     }
 
     /// <summary>Routes shoulder buttons into radio tabs while a surface is open.</summary>
+    /// <param name="next">True for the next utility tab, false for the previous tab.</param>
+    /// <returns>True while a surface consumes tab navigation, including a surface with no tab switch.</returns>
     internal bool NavigateSurfaceTab(bool next)
     {
         if (!HasActiveSurface)

@@ -73,8 +73,10 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         _store = store;
     }
 
+    /// <inheritdoc />
     public event Action? Changed;
 
+    /// <inheritdoc />
     public void CancelBrowsing()
     {
         var changed = false;
@@ -95,6 +97,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         }
     }
 
+    /// <inheritdoc />
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposeStarted, 1) != 0)
@@ -130,6 +133,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         }
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> SelectTabAsync(string tab, CancellationToken cancellationToken)
     {
         if (!ConfiguredTabs(_readConfiguration()).Any(candidate => candidate.Id == tab))
@@ -190,6 +194,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> ApplyAsync(string id, CancellationToken cancellationToken)
     {
         ArtworkCandidate candidate;
@@ -214,6 +219,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> ApplyOfficialAsync(string id, CancellationToken cancellationToken)
     {
         SgdbOfficialAsset candidate;
@@ -248,6 +254,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> ClearAsync(string tab, CancellationToken cancellationToken)
     {
         if (!TryAsset(tab, out var asset))
@@ -272,6 +279,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> LoadMoreAsync(CancellationToken cancellationToken)
     {
         uint appId;
@@ -303,6 +311,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> ApplyLocalAsync(string tab, string path, CancellationToken cancellationToken)
     {
         if (!TryAsset(tab, out var asset))
@@ -336,6 +345,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> ApplyInvisibleAsync(string tab, CancellationToken cancellationToken)
     {
         if (!TryAsset(tab, out var asset) || asset is ArtworkAsset.Icon)
@@ -360,6 +370,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> SetFilterAsync(
         SteamArtworkBrowserFilter filter, CancellationToken cancellationToken)
     {
@@ -403,6 +414,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> SearchGamesAsync(
         string term, CancellationToken cancellationToken)
     {
@@ -411,6 +423,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> SelectGameAsync(string? id, CancellationToken cancellationToken)
     {
         uint appId;
@@ -464,6 +477,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> SaveLogoPositionAsync(
         string anchor, int width, int height, CancellationToken cancellationToken)
     {
@@ -483,6 +497,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> ResetLogoPositionAsync(CancellationToken cancellationToken)
     {
         uint appId;
@@ -501,6 +516,7 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
+    /// <inheritdoc />
     public SteamArtworkBrowserState? ReadState()
     {
         lock (_gate)
@@ -509,11 +525,13 @@ internal sealed class SteamArtworkBrowserSource : IArtworkBrowseSession
         }
     }
 
+    /// <inheritdoc />
     public Task<OverlayLibraryResult> ReadGamesAsync()
     {
         return OverlayLibraryLookup.ReadAsync(_steam, _shutdown.Token);
     }
 
+    /// <inheritdoc />
     public async Task<SteamLogoPosition?> ReadLogoPositionAsync()
     {
         var appId = ReadState()?.AppId ?? 0;

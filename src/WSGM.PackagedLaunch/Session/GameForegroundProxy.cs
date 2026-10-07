@@ -64,6 +64,8 @@ internal sealed class GameForegroundProxy : IDisposable
 
     internal bool Available => window != IntPtr.Zero;
 
+    /// <summary>Closes creation admission, requests window closure and waits up to two seconds for the pump.</summary>
+    /// <remarks>A pump that misses the join retains its readiness signal for safe late cleanup.</remarks>
     public void Dispose()
     {
         var published = lifetime.RequestStop();
@@ -75,7 +77,8 @@ internal sealed class GameForegroundProxy : IDisposable
         lifetime.CompleteJoin(thread.Join(TimeSpan.FromSeconds(2)));
     }
 
-    /// Points the proxy at the process whose window should receive the foreground.
+    /// <summary>Points the proxy at the process whose window should receive the foreground.</summary>
+    /// <param name="pid">The game process id currently selected by the supervisor.</param>
     internal void SetTarget(int pid)
     {
         Interlocked.Exchange(ref targetPid, pid);
@@ -83,8 +86,8 @@ internal sealed class GameForegroundProxy : IDisposable
         ReconcileForeground();
     }
 
-    /// Uses the supervisor's existing sample when a UWP foreground event is missed or
-    /// arrives before the CoreWindow has been attached to its frame.
+    /// <summary>Coalesces a foreground recheck onto the owning window thread.</summary>
+    /// <remarks>Also covers a missed UWP event or one arriving before CoreWindow attaches to its frame.</remarks>
     internal void ReconcileForeground()
     {
         var proxyWindow = window;
@@ -303,7 +306,7 @@ internal sealed class GameForegroundProxy : IDisposable
                                + $"window 0x{target.ToInt64():X}; SetForegroundWindow={raised}");
     }
 
-    /// The game's most plausible main window: visible, titled, and not the proxy itself.
+    /// <summary>Selects a visible game window, preferring its CoreWindow over a hosting frame.</summary>
     private IntPtr MainWindowOf(int pid)
     {
         var best = IntPtr.Zero;

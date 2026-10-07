@@ -67,6 +67,7 @@ public partial class OverlayWindow
     ///     The GDI source name of the display the sheet is on, such as <c>\\.\DISPLAY2</c>, or null when
     ///     the window has no screen or Windows does not describe it.
     /// </summary>
+    /// <returns>The Win32 display-source name for the window monitor, or null when the handle or monitor cannot be resolved.</returns>
     internal unsafe string? DisplaySourceName()
     {
         if (Screens.ScreenFromWindow(this)?.TryGetPlatformHandle()?.Handle is not { } monitor || monitor == 0)

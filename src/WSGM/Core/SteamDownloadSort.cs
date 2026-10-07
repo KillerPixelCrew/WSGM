@@ -57,6 +57,9 @@ internal static class SteamDownloadSort
     }
 
     /// <summary>Reads a finished run's refusal count, the run's length and Steam's first error.</summary>
+    /// <param name="payload">Bridge report containing exactly total, refused, and first.</param>
+    /// <param name="report">Validated positive counts and first error; default when rejected.</param>
+    /// <returns>True only when refused is between one and total and the error string is present.</returns>
     internal static bool TryReadRefused(JsonElement payload, out (int Refused, int Total, string First) report)
     {
         report = default;

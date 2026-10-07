@@ -7,10 +7,10 @@ namespace WSGM.Device.Sdk.Windows;
 
 /// <summary>Streams an open <see cref="LegacyMotionSensors" /> set: driver events, or a poll where events fail.</summary>
 /// <remarks>
-///     Readings go straight to the callback on the Sensor API's or the poller's thread, with no queue in
-///     between; the callback only stores the latest reading. The poll runs on one thread with a precision
-///     ticker, because a plain 2 ms wait sleeps a whole 15.6 ms timer tick. Disposing stops delivery and
-///     releases the sensors.
+///     Owns the supplied sensor set. Readings are delivered directly on a Sensor API callback or polling
+///     thread, without a queue. Callbacks must return quickly. Polling uses a precision ticker and drops
+///     duplicate reports. Disposal suppresses further delivery and retains native owners until the
+///     reader and unsubscription finish, even when the bounded disposal wait times out.
 /// </remarks>
 public sealed class LegacyMotionStream : IDisposable
 {
@@ -71,7 +71,13 @@ public sealed class LegacyMotionStream : IDisposable
         _poller.Start();
     }
 
-    /// <inheritdoc />
+    /// <summary>Suppresses new delivery and waits up to two seconds for owned sensor cleanup.</summary>
+    /// <remarks>
+    ///     A callback already entered may still finish. Repeated calls wait for the same cleanup task.
+    ///     Do not call synchronously from a reading callback that cleanup must join.
+    /// </remarks>
+    /// <exception cref="TimeoutException">Cleanup continues in the background with its native owners retained.</exception>
+    /// <exception cref="AggregateException">The background cleanup task failed.</exception>
     public void Dispose()
     {
         Task cleanup;
@@ -110,7 +116,10 @@ public sealed class LegacyMotionStream : IDisposable
 
     /// <summary>Starts delivering readings, taking ownership of the sensors.</summary>
     /// <param name="sensors">An open sensor set; the stream disposes it.</param>
-    /// <param name="onReading">Takes each fresh reading. It must return quickly and not block.</param>
+    /// <param name="onReading">
+    ///     Receives each fresh reading on the producer thread. Must not block or dispose the stream;
+    ///     ordinary callback exceptions are traced once and do not stop later delivery.
+    /// </param>
     /// <returns>The running stream.</returns>
     public static LegacyMotionStream Start(LegacyMotionSensors sensors, Action<MotionSensorReading> onReading)
     {

@@ -13,24 +13,11 @@ using WSGM.Core;
 
 namespace WSGM.Shell;
 
-/// <summary>
-///     The Steam themes: CSSLoader-compatible themes browsed from DeckThemes, installed into the
-///     themes folder and published into Big Picture through the toolkit's theme-styles surface.
-/// </summary>
+/// <summary>Owns CSSLoader-compatible theme browsing, installation and active styles for Steam and the overlay.</summary>
 /// <remarks>
-///     <para>
-///         One owner for the loader, the store, the class translations and the update check. The
-///         Themes page in Steam, the Quick Access section and the overlay all read
-///         <see cref="ReadState" /> and call the same <see cref="ISteamThemesBackend" /> methods, so a
-///         change made in one is what the others show next. The toolkit's gate reads
-///         <see cref="ReadStyles" />, which is the cascade the loader answers under its own revision.
-///     </para>
-///     <para>
-///         A command that touches only the folder answers when it is done; one that asks the store
-///         answers at once and finishes in the background, raising <see cref="Changed" /> as it goes,
-///         the way the Game Library's page does. Nothing is retried on its own: a failed install says
-///         so and waits for the user.
-///     </para>
+///     Folder-only commands await completion. Store requests run in the background and publish progress
+///     through <see cref="Changed" />; failures await an explicit retry. The toolkit consumes the revisioned
+///     cascade from <see cref="ReadStyles" />.
 /// </remarks>
 internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSource, IExtensionsTabSection
 {
@@ -969,6 +956,7 @@ internal sealed class ThemeService : ISteamThemesBackend, IDisposable, IChangeSo
     }
 
     /// <summary>What the page, the section and the overlay draw.</summary>
+    /// <returns>A snapshot combining current configuration, installed themes and this service’s browse/progress state.</returns>
     internal SteamThemesState ReadState()
     {
         lock (_sync)

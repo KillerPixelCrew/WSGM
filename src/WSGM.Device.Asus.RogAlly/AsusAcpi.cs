@@ -85,6 +85,10 @@ internal static class AsusAcpiProtocol
     }
 
     /// <summary>HC's <c>CallMethod</c> layout: method, argument length, arguments.</summary>
+    /// <param name="method">Native ACPI method code, normally DSTS or DEVS.</param>
+    /// <param name="id">Device ID written before the method arguments.</param>
+    /// <param name="arguments">Payload bytes appended after the device ID; copied into the request.</param>
+    /// <returns>A new little-endian request buffer; this encoder does not enforce the transport allowlist or call firmware.</returns>
     public static byte[] Encode(uint method, AsusAcpiId id, ReadOnlySpan<byte> arguments)
     {
         var request = new byte[12 + arguments.Length];
@@ -114,6 +118,9 @@ internal static class AsusAcpiProtocol
     ///     Bit 16 is the presence flag HC subtracts (<c>AsusACPI.DeviceGet</c> returns raw - 0x10000);
     ///     the value is the low word. Anything with high bits outside 0x70000 is not a scalar.
     /// </remarks>
+    /// <param name="raw">Raw DSTS return value.</param>
+    /// <param name="value">Low 16-bit scalar on success, zero when absent or structurally unsupported.</param>
+    /// <returns>True only when the presence flag is set and high bits match the admitted scalar form.</returns>
     public static bool TryDecodeScalar(uint raw, out int value)
     {
         value = 0;
@@ -127,6 +134,8 @@ internal static class AsusAcpiProtocol
     }
 
     /// <summary>HC's fan-curve selector: performance mode 1 reads profile 2 and 2 reads profile 1.</summary>
+    /// <param name="performanceMode">Native mode: 1 turbo, 2 silent, otherwise default/performance.</param>
+    /// <returns>Curve selector 2 for turbo, 1 for silent, or 0 for every other value.</returns>
     public static uint CurveSelector(int performanceMode)
     {
         return performanceMode switch
@@ -142,6 +151,8 @@ internal static class AsusAcpiProtocol
     ///     Eight nondecreasing temperatures from 20 to 110 °C and eight duties no higher than 100, at
     ///     least one of them non-zero: the envelope the Ally X Lab reviewed before any curve write.
     /// </remarks>
+    /// <param name="curve">Eight temperature bytes followed by eight duty bytes.</param>
+    /// <returns>True for the 16-byte admitted temperature/duty envelope with at least one nonzero duty; this does not query hardware.</returns>
     public static bool IsValidCurve(ReadOnlySpan<byte> curve)
     {
         if (curve.Length != CurveLength)
@@ -165,19 +176,34 @@ internal static class AsusAcpiProtocol
 /// <summary>The serialized ATKACPI transport.</summary>
 internal interface IAsusAcpi : IDisposable
 {
-    /// <summary>Opens the driver if it is not open yet. False when <c>\\.\ATKACPI</c> is absent.</summary>
+    /// <summary>Opens the reviewed ATKACPI handle, retaining it until disposal.</summary>
+    /// <returns>True when a handle is already open or was acquired; false when Windows refuses the open.</returns>
     bool TryOpen();
 
-    /// <summary>One DSTS exchange; returns the raw 32-bit status word.</summary>
+    /// <summary>Queries one reviewed scalar device ID through DSTS.</summary>
+    /// <param name="id">Defined device ID; arbitrary numeric IDs are refused.</param>
+    /// <param name="selector">Firmware selector, normally zero.</param>
+    /// <returns>Raw status word; a failed query returns zero, which is not a supported scalar value.</returns>
     uint ReadStatus(AsusAcpiId id, uint selector = 0);
 
-    /// <summary>One DSTS exchange returning the whole sixteen-byte response.</summary>
+    /// <summary>Queries one reviewed fan-curve buffer through DSTS.</summary>
+    /// <param name="id">CPU, GPU or mid fan-curve ID.</param>
+    /// <param name="selector">Profile selector produced by <see cref="AsusAcpiProtocol.CurveSelector" />.</param>
+    /// <returns>Sixteen response bytes owned by the caller; failed queries return zeros and must remain unknown.</returns>
     byte[] ReadBuffer(AsusAcpiId id, uint selector);
 
-    /// <summary>One DEVS exchange with a scalar; returns the firmware's status word.</summary>
+    /// <summary>Writes one reviewed scalar through DEVS without confirming readback.</summary>
+    /// <param name="id">Writable scalar ID; telemetry and curve IDs are refused.</param>
+    /// <param name="value">Firmware-encoded scalar already checked against model limits.</param>
+    /// <returns>The firmware response word, not proof of independently observed state.</returns>
+    /// <remarks>A transport failure after dispatch is uncertain and must not cause an automatic retry.</remarks>
     uint Write(AsusAcpiId id, uint value);
 
-    /// <summary>One DEVS exchange with a buffer; returns the firmware's status word.</summary>
+    /// <summary>Writes one reviewed sixteen-byte fan curve through DEVS.</summary>
+    /// <param name="id">CPU, GPU or mid fan-curve ID.</param>
+    /// <param name="data">Eight nondecreasing temperatures from 20 through 110 Celsius, then eight duties from 0 through 100 with at least one nonzero.</param>
+    /// <returns>The firmware response word, not confirming readback.</returns>
+    /// <remarks>The transport rejects invalid curve shapes before dispatch; model-specific limits remain the caller's responsibility.</remarks>
     uint WriteBuffer(AsusAcpiId id, ReadOnlySpan<byte> data);
 }
 
@@ -196,6 +222,7 @@ internal sealed partial class WindowsAsusAcpi : IAsusAcpi
     private bool _disposed;
     private SafeFileHandle? _handle;
 
+    /// <inheritdoc />
     public bool TryOpen()
     {
         lock (_gate)
@@ -220,6 +247,7 @@ internal sealed partial class WindowsAsusAcpi : IAsusAcpi
         }
     }
 
+    /// <inheritdoc />
     public uint ReadStatus(AsusAcpiId id, uint selector = 0)
     {
         if (!AsusAcpiProtocol.IsReadable(id))
@@ -230,6 +258,7 @@ internal sealed partial class WindowsAsusAcpi : IAsusAcpi
         return BinaryPrimitives.ReadUInt32LittleEndian(Read(AsusAcpiProtocol.EncodeStatus(id, selector), 4));
     }
 
+    /// <inheritdoc />
     public byte[] ReadBuffer(AsusAcpiId id, uint selector)
     {
         if (!AsusAcpiProtocol.IsCurve(id))
@@ -240,6 +269,7 @@ internal sealed partial class WindowsAsusAcpi : IAsusAcpi
         return Read(AsusAcpiProtocol.EncodeStatus(id, selector), AsusAcpiProtocol.CurveLength);
     }
 
+    /// <inheritdoc />
     public uint Write(AsusAcpiId id, uint value)
     {
         if (!AsusAcpiProtocol.IsWritable(id) || AsusAcpiProtocol.IsCurve(id))
@@ -250,6 +280,7 @@ internal sealed partial class WindowsAsusAcpi : IAsusAcpi
         return BinaryPrimitives.ReadUInt32LittleEndian(Exchange(AsusAcpiProtocol.EncodeSet(id, value), 4));
     }
 
+    /// <inheritdoc />
     public uint WriteBuffer(AsusAcpiId id, ReadOnlySpan<byte> data)
     {
         if (!AsusAcpiProtocol.IsCurve(id) || !AsusAcpiProtocol.IsValidCurve(data))
@@ -261,6 +292,7 @@ internal sealed partial class WindowsAsusAcpi : IAsusAcpi
             Exchange(AsusAcpiProtocol.Encode(AsusAcpiProtocol.DeviceSet, id, data), 4));
     }
 
+    /// <inheritdoc />
     public void Dispose()
     {
         lock (_gate)

@@ -21,14 +21,18 @@ internal sealed class AnimationBrowseSession : IAnimationBrowseSession
         owner.Changed += Publish;
     }
 
+    /// <inheritdoc />
     public string Tab { get; set; } = "library";
+    /// <inheritdoc />
     public event Action? Changed;
 
+    /// <inheritdoc />
     public void Dispose()
     {
         _owner.Changed -= Publish;
     }
 
+    /// <inheritdoc />
     public SteamAnimationsState ReadState()
     {
         var shared = _owner.ReadState();
@@ -61,6 +65,7 @@ internal sealed class AnimationBrowseSession : IAnimationBrowseSession
         };
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> BrowseAsync(string sort, string search, CancellationToken token)
     {
         _sort = sort;
@@ -70,6 +75,7 @@ internal sealed class AnimationBrowseSession : IAnimationBrowseSession
         return _owner.Catalog.Count == 0 ? _owner.RefreshAsync(token) : Task.FromResult(SteamUiCommandResult.Applied);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> BrowseMoreAsync(CancellationToken token)
     {
         _shown += AnimationService.BrowsePage;
@@ -77,6 +83,7 @@ internal sealed class AnimationBrowseSession : IAnimationBrowseSession
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> SetTabAsync(string tab, CancellationToken cancellationToken)
     {
         Tab = tab;
@@ -84,11 +91,13 @@ internal sealed class AnimationBrowseSession : IAnimationBrowseSession
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> RefreshAsync(CancellationToken cancellationToken)
     {
         return _owner.RefreshAsync(cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> OpenAsync(string id, CancellationToken cancellationToken)
     {
         _detailId = id;
@@ -96,6 +105,7 @@ internal sealed class AnimationBrowseSession : IAnimationBrowseSession
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> CloseDetailAsync(CancellationToken cancellationToken)
     {
         _detailId = null;
@@ -103,46 +113,55 @@ internal sealed class AnimationBrowseSession : IAnimationBrowseSession
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> DownloadAsync(string id, CancellationToken cancellationToken)
     {
         return _owner.DownloadAsync(id, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> DeleteAsync(string id, CancellationToken cancellationToken)
     {
         return _owner.DeleteAsync(id, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> SelectAsync(string id, CancellationToken cancellationToken)
     {
         return _owner.SelectAsync(id, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> ShuffleAsync(CancellationToken cancellationToken)
     {
         return _owner.ShuffleAsync(cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> SetShuffleOnStartAsync(bool shuffle, CancellationToken cancellationToken)
     {
         return _owner.SetShuffleOnStartAsync(shuffle, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> SetBootVolumeAsync(int volume, CancellationToken cancellationToken)
     {
         return _owner.SetBootVolumeAsync(volume, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> AddFileAsync(string path, CancellationToken cancellationToken)
     {
         return _owner.AddFileAsync(path, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> DismissAsync(CancellationToken cancellationToken)
     {
         return _owner.DismissAsync(cancellationToken);
     }
 
+    /// <inheritdoc />
     public string? PreviewPath(string id)
     {
         return _owner.PreviewPath(id);

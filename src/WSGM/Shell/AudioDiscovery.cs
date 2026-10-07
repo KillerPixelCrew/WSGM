@@ -82,6 +82,8 @@ internal static class SpatialAudioNames
 }
 
 /// <summary>One named saved-endpoint choice.</summary>
+/// <param name="Id">Windows endpoint identifier retained in the audio preference.</param>
+/// <param name="Name">Display label; identity comparisons must use Id.</param>
 public sealed record AudioEndpointOption(string Id, string Name)
 {
     /// <inheritdoc />
@@ -92,6 +94,8 @@ public sealed record AudioEndpointOption(string Id, string Name)
 }
 
 /// <summary>One named spatial-audio-format choice.</summary>
+/// <param name="Format">Spatial format identifier, including the Off sentinel.</param>
+/// <param name="Name">Display label for the format.</param>
 public sealed record SpatialAudioOption(Guid Format, string Name)
 {
     /// <inheritdoc />

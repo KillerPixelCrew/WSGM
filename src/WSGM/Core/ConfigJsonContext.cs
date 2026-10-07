@@ -32,6 +32,7 @@ namespace WSGM.Core;
 [JsonSourceGenerationOptions(WriteIndented = true, UseStringEnumConverter = true)]
 internal partial class ConfigJsonContext : JsonSerializerContext
 {
+    /// <summary>Shared JSON metadata using enum repair sentinels; callers must not mutate its serializer options.</summary>
     internal static ConfigJsonContext Tolerant { get; } = CreateTolerant();
 
     private static ConfigJsonContext CreateTolerant()

@@ -40,6 +40,7 @@ public sealed record DetectedManager(
     public bool StartsAtSignIn { get; init; }
 
     /// <summary>One line for setup, such as <c>MSI Center M: 1 service, 2 scheduled tasks</c>.</summary>
+    /// <returns>The product label followed by active service/task counts and running-state text.</returns>
     public string Describe()
     {
         List<string> parts = [];
@@ -91,15 +92,26 @@ public sealed class OtherManagerRecord
 public interface IServiceSystem
 {
     /// <summary>Reads a service's start type (2 automatic, 3 manual, 4 disabled), or null when it does not exist.</summary>
+    /// <param name="service">Service registry name, not its display name.</param>
+    /// <param name="delayed">Receives the delayed-auto-start flag, false when absent.</param>
+    /// <returns>The raw start value, or null when it cannot be found; access failures may propagate.</returns>
     int? ReadStart(string service, out bool delayed);
 
     /// <summary>Sets a service's start type.</summary>
+    /// <param name="service">Service registry name.</param>
+    /// <param name="start">2 for automatic, 3 for manual, or 4 for disabled.</param>
+    /// <param name="delayed">Whether an automatic start should be delayed; ignored for other start types.</param>
+    /// <returns>Whether the service manager accepted the configuration command.</returns>
     bool SetStart(string service, int start, bool delayed);
 
     /// <summary>Asks a service to stop.</summary>
+    /// <param name="service">Service registry name.</param>
+    /// <returns>Whether the stop command succeeded; this does not wait for the service to become stopped.</returns>
     bool Stop(string service);
 
     /// <summary>Asks a service to start.</summary>
+    /// <param name="service">Service registry name.</param>
+    /// <returns>Whether the start command succeeded; this does not prove the service is ready.</returns>
     bool Start(string service);
 }
 
@@ -379,6 +391,8 @@ public static class OtherManagers
     ///     turned off again: Handheld Companion's uninstaller re-enables the maker's services, and a driver
     ///     update can re-register them. Never prompts; an unelevated WSGM only logs what it found.
     /// </summary>
+    /// <param name="store">Strict persistence used to read accepted takeover and record pre-change state.</param>
+    /// <param name="cancellationToken">Stops further takeover items; cancellation is absorbed during startup.</param>
     public static void ReapplyAtStart(ConfigStore store, CancellationToken cancellationToken = default)
     {
         try
@@ -415,6 +429,7 @@ public static class OtherManagers
 
     /// <summary>The elevated one-shot: detects and turns off what only an elevated process can.</summary>
     /// <returns>Zero when every service and task could be changed.</returns>
+    /// <param name="store">Strict persistence receiving recovery records before each change.</param>
     public static int RunElevatedDisable(ConfigStore store)
     {
         try
@@ -468,6 +483,7 @@ public static class OtherManagers
     ///     started), tasks are enabled. A restored record is removed, so running this twice is safe.
     /// </summary>
     /// <returns>Zero when every record was restored.</returns>
+    /// <param name="store">Persistence holding takeover records; only restored records are removed.</param>
     public static int RestoreAll(ConfigStore store)
     {
         try
@@ -496,6 +512,8 @@ public static class OtherManagers
     }
 
     /// <summary>Records one change in the configuration, keeping the first previous state for an entry.</summary>
+    /// <param name="store">Strict configuration persistence; failures propagate before the caller mutates Windows.</param>
+    /// <param name="entry">Pre-change state; the first record for the same kind/name is retained.</param>
     public static void Record(ConfigStore store, OtherManagerRecord entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
@@ -511,6 +529,10 @@ public static class OtherManagers
     }
 
     /// <summary>Restores the given records and returns those that were put back.</summary>
+    /// <param name="records">Saved pre-change states to attempt once.</param>
+    /// <param name="autostart">Task backend used to restore enabled state.</param>
+    /// <param name="services">Service backend used to restore start type and best-effort automatic start.</param>
+    /// <returns>Records whose setting was restored or whose original target no longer exists; backend exceptions propagate.</returns>
     internal static IReadOnlyList<OtherManagerRecord> Restore(IReadOnlyList<OtherManagerRecord> records,
         IAutostartSystem autostart, IServiceSystem services)
     {
@@ -556,6 +578,9 @@ public static class OtherManagers
         return true;
     }
 
+    /// <summary>Extracts a task command's executable base name for known-manager matching.</summary>
+    /// <param name="command">Command with an optionally quoted executable followed by arguments.</param>
+    /// <returns>The executable name without path or extension; this is not a general command-line parser.</returns>
     internal static string ExecutableName(string command)
     {
         var text = command.Trim();

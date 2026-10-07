@@ -9,11 +9,23 @@ using WSGM.Plugin.Sdk;
 
 namespace WSGM.Shell;
 
+/// <summary>Host-admitted declarative controls for one common-plugin instance.</summary>
+/// <param name="Actions">Named operations with validated argument declarations.</param>
+/// <param name="Contributions">Host-rendered rows referencing admitted actions and effective state.</param>
+/// <param name="Widgets">Compact groups of existing contribution IDs eligible for pinning.</param>
 internal sealed record PluginOverlayControls(
     IReadOnlyList<PluginAction> Actions,
     IReadOnlyList<PluginUiContribution> Contributions,
     IReadOnlyList<PluginWidget> Widgets);
 
+/// <summary>Presentation snapshot of one plugin instance; does not transfer lifecycle ownership to the view.</summary>
+/// <param name="Identity">Package and host instance identity.</param>
+/// <param name="Name">Package display name.</param>
+/// <param name="Generation">Current admitted generation, or zero before registration.</param>
+/// <param name="Controls">Admitted control declarations, or null before they are available.</param>
+/// <param name="Status">Plain lifecycle and health text.</param>
+/// <param name="CanInvoke">Whether host admission currently permits actions; dispatch still revalidates.</param>
+/// <param name="Error">Retained load or runtime error, or null when none is recorded.</param>
 internal sealed record PluginOverlayInstance(
     PluginInstanceIdentity Identity,
     string Name,
@@ -23,9 +35,16 @@ internal sealed record PluginOverlayInstance(
     bool CanInvoke,
     string? Error)
 {
+    /// <summary>Manifest category used for grouping; empty when no category was projected.</summary>
     internal string Category { get; init; } = string.Empty;
 }
 
+/// <summary>Host-owned persistence operations for widget pins and order.</summary>
+/// <param name="Read">Returns the current pins; callers must not mutate the returned array.</param>
+/// <param name="Set">Pins or unpins one widget when the boolean is true or false.</param>
+/// <param name="Move">Moves one pin by a signed relative offset.</param>
+/// <param name="Remove">Removes one saved pin.</param>
+/// <param name="Reset">Resets saved ordering without invoking plugin actions.</param>
 internal sealed record PluginWidgetPreferences(
     Func<Task<PluginWidgetPin[]>> Read,
     Func<PluginWidgetPin, bool, Task> Set,
@@ -36,9 +55,21 @@ internal sealed record PluginWidgetPreferences(
 /// <summary>Read-only widget observations and explicit action routing, independent of package lifecycle.</summary>
 internal interface ICommonPluginOverlaySource
 {
+    /// <summary>Reads current instance presentation without starting packages or touching hardware.</summary>
+    /// <returns>A new instance array; referenced declarations remain host-owned immutable snapshots.</returns>
     PluginOverlayInstance[] Snapshot();
+    /// <summary>Reads accepted effective state for one instance's current generation.</summary>
+    /// <param name="identity">Exact package and instance key.</param>
+    /// <returns>A new observation array; empty when the instance is absent or has published no state.</returns>
     PluginStatePublication[] State(PluginInstanceIdentity identity);
 
+    /// <summary>Routes an explicit user action to the current owner.</summary>
+    /// <param name="identity">Exact package and instance key.</param>
+    /// <param name="generation">Generation shown by the snapshot; stale generations are refused.</param>
+    /// <param name="action">Admitted named action ID.</param>
+    /// <param name="arguments">User-entered primitive arguments; host validation supplies declared defaults.</param>
+    /// <param name="cancellationToken">Cancels waiting without authorizing a retry of uncertain external work.</param>
+    /// <returns>The operation-correlated result; dispatch does not imply external-state verification.</returns>
     Task<PluginActionResult> InvokeAsync(PluginInstanceIdentity identity, long generation,
         string action, IReadOnlyDictionary<string, PluginValue> arguments, CancellationToken cancellationToken);
 }
@@ -52,6 +83,12 @@ internal sealed class CommonPluginOverlaySource : ICommonPluginOverlaySource
     private readonly ConfigStore _store;
     private PluginWidgetPin[] _pins;
 
+    /// <summary>Connects widget presentation and explicit user intent to existing plugin/device owners.</summary>
+    /// <param name="store">Borrowed persistence owner for widget pins and ordering.</param>
+    /// <param name="manager">Resident package manager, or null when common packages are unavailable.</param>
+    /// <param name="host">Resident action/state owner for common instances.</param>
+    /// <param name="pins">Saved pin list copied into this source.</param>
+    /// <param name="device">Optional adapter presenting the device through the same widget vocabulary.</param>
     internal CommonPluginOverlaySource(ConfigStore store, CommonPluginManager? manager, PluginHost host,
         IReadOnlyList<PluginWidgetPin> pins, ICommonPluginOverlaySource? device = null)
     {
@@ -64,10 +101,13 @@ internal sealed class CommonPluginOverlaySource : ICommonPluginOverlaySource
             pin => SetPinnedAsync(pin, false), ResetPinOrderAsync);
     }
 
+    /// <summary>Borrowed device widget source, or null when no device projection was supplied.</summary>
     internal ICommonPluginOverlaySource? Device { get; }
 
+    /// <summary>Persistence callbacks for pins and order, independent of plugin hardware/action state.</summary>
     internal PluginWidgetPreferences WidgetPreferences { get; }
 
+    /// <inheritdoc />
     public PluginOverlayInstance[] Snapshot()
     {
         return
@@ -91,6 +131,7 @@ internal sealed class CommonPluginOverlaySource : ICommonPluginOverlaySource
         ];
     }
 
+    /// <inheritdoc />
     public PluginStatePublication[] State(PluginInstanceIdentity identity)
     {
         return Device?.Snapshot().Any(instance => instance.Identity == identity) == true
@@ -98,6 +139,7 @@ internal sealed class CommonPluginOverlaySource : ICommonPluginOverlaySource
             : _host.StateSnapshot(identity);
     }
 
+    /// <inheritdoc />
     public Task<PluginActionResult> InvokeAsync(PluginInstanceIdentity identity, long generation,
         string action, IReadOnlyDictionary<string, PluginValue> arguments, CancellationToken cancellationToken)
     {
@@ -107,6 +149,8 @@ internal sealed class CommonPluginOverlaySource : ICommonPluginOverlaySource
                 Deadline.After(TimeSpan.FromSeconds(10)), cancellationToken);
     }
 
+    /// <summary>Replaces the local pin snapshot after configuration reload or a saved edit.</summary>
+    /// <param name="pins">Complete saved list copied before publication to readers.</param>
     internal void ApplyPins(IReadOnlyList<PluginWidgetPin> pins)
     {
         lock (_pinsGate)

@@ -68,6 +68,7 @@ internal sealed class LabRumbleLog
     }
 
     /// <summary>A copy of every write so far.</summary>
+    /// <returns>A detached list in write order; subsequent log additions do not change it.</returns>
     public IReadOnlyList<LabRumbleWrite> Snapshot()
     {
         lock (_writes)
@@ -78,6 +79,7 @@ internal sealed class LabRumbleLog
 }
 
 /// <summary>A motor write Windows refused, or whose effect is unknown. It is never retried.</summary>
+/// <param name="message">Failure or uncertainty detail retained for the caller and evidence log.</param>
 internal sealed class LabRumbleWriteException(string message) : InvalidOperationException(message);
 
 /// <summary>An opened route. Every write is bounded, logged and serialized.</summary>
@@ -124,6 +126,7 @@ internal static class LabRumbleRoutes
 
     /// <summary>Lists every route this machine offers now.</summary>
     /// <param name="record">The confirmed knowledge record, if any.</param>
+    /// <returns>Currently discoverable routes, HID evidence and refusal notes; no route is opened or driven.</returns>
     public static LabRumbleDiscovery Discover(DeviceKnowledgeRecord? record)
     {
         var hid = DiscoverHid(record, LabHid.HidEndpoints);

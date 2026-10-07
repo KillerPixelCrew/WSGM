@@ -56,6 +56,7 @@ internal enum CapabilityCommandOrigin
 /// <summary>Authoritative process-long owner of the machine-wide hardware cycle.</summary>
 internal sealed class DeviceCoordinator : IAsyncDisposable
 {
+    /// <summary>Machine-wide named marker preventing simultaneous production device owners.</summary>
     internal const string ProductionOwnerName = SessionProtocolNames.DeviceOwner;
 
     /// <summary>The delay before each automatic restart of a faulted plugin; its length is the restart budget.</summary>
@@ -153,6 +154,25 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     private volatile DeviceCycleState _state = DeviceCycleState.Disabled;
     private int _userCapabilityCommands;
 
+    /// <summary>Composes device ownership, controller routing, profiles, and one serialized power lane.</summary>
+    /// <param name="config">Initial normalized saved configuration.</param>
+    /// <param name="store">Borrowed process configuration store.</param>
+    /// <param name="sessionId">Windows session served by this coordinator and its diagnostics endpoint.</param>
+    /// <param name="ownerMutex">Handle-owned admission marker transferred for disposal during shutdown; it is never mutex-owned.</param>
+    /// <param name="postToUi">Queues router projection notifications on the UI thread.</param>
+    /// <param name="profiles">Shared profile owner used for all global and per-game edits.</param>
+    /// <param name="autoTdpTargetFrametimeMs">Reads the current frame-time target in milliseconds; zero disables control.</param>
+    /// <param name="autoTdpMetrics">Reads the sensor snapshot used by AutoTDP.</param>
+    /// <param name="manualVariableRefresh">Persists an explicitly chosen variable-refresh value to the active profile.</param>
+    /// <param name="powerModes">Shared Windows power-mode owner borrowed by preset application.</param>
+    /// <param name="createControllers">Creates the owned controller manager using this coordinator's physical haptic sink.</param>
+    /// <param name="collectIdentity">Collects machine identity for device detection and profile addressing.</param>
+    /// <param name="discoverPackage">Discovers and validates the installed device package without starting it.</param>
+    /// <param name="loadRuntime">Loads an owned runtime for the selected package, cycle, and instance state directory.</param>
+    /// <param name="registerPowerModeNotification">Registers a wake signal; any returned subscription is disposed during shutdown.</param>
+    /// <param name="readOnAcPower">Reads AC/battery status; null means unknown.</param>
+    /// <param name="restartDelay">Cancelable delay used by the bounded automatic restart policy.</param>
+    /// <param name="createDiagnostics">Starts an optional owned read-only diagnostics endpoint after composition succeeds.</param>
     internal DeviceCoordinator(
         AppConfig config,
         ConfigStore store,
@@ -265,10 +285,13 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     /// </remarks>
     internal DeviceCapabilityRouter Capabilities { get; }
 
+    /// <summary>One-shot preset owner shared by device surfaces and the serialized power lane.</summary>
     internal DevicePowerPresets PowerPresets { get; }
 
+    /// <summary>Owner of saved AC/battery preset assignments and their change-triggered reconciliation.</summary>
     internal DevicePowerAssignments PowerAssignments { get; }
 
+    /// <summary>Whether the declared power pair permits manual control and whether the active profile couples its limits.</summary>
     internal (bool Available, bool Unified) ManualTdpMode =>
         (IntegrationEnabled && Capabilities.HasDescriptor(static descriptor =>
                 descriptor is { Role: CapabilityRole.PowerSustainedLimit, PairedPowerLimitId: not null }),
@@ -305,8 +328,10 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     internal bool ControllerManagementEnabled =>
         _config.DeviceIntegration is { ControllerManagementEnabled: true, Enabled: true };
 
+    /// <summary>Current saved rumble calibration; callers edit it through the coordinator rather than mutating this reference.</summary>
     internal RumbleCalibrationConfig RumbleCalibration => _config.RumbleCalibration;
 
+    /// <summary>Whether integration and the current controller state permit a rumble preview.</summary>
     internal bool CanPreviewRumble => IntegrationEnabled && Controllers.CanPreviewRumble;
 
     /// <summary>The catalog holding the installed package's glyph profiles.</summary>
@@ -317,6 +342,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     /// </remarks>
     internal PhysicalGlyphCatalog PhysicalGlyphCatalog { get; } = new();
 
+    /// <summary>The shared shutdown task, or an already completed task when shutdown has not started.</summary>
     internal Task Completion
     {
         get
@@ -336,6 +362,10 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             NormalShutdownDeadline());
     }
 
+    /// <summary>Starts a calibrated physical rumble preview while holding device transition admission.</summary>
+    /// <param name="testFloor">Whether to preview the configured minimum strength instead of full calibrated strength.</param>
+    /// <param name="token">Cancels transition waiting or the bounded preview.</param>
+    /// <returns>False when disposed or preview is unavailable; otherwise the controller preview's acceptance.</returns>
     internal async Task<bool> PreviewRumbleAsync(bool testFloor, CancellationToken token)
     {
         await _transitionGate.WaitAsync(token).ConfigureAwait(false);
@@ -350,11 +380,19 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         }
     }
 
+    /// <summary>Requests an explicit stop for any physical rumble preview.</summary>
+    /// <returns>Completion of the controller manager's stop attempt.</returns>
     internal Task StopRumblePreviewAsync()
     {
         return Controllers.StopRumblePreviewAsync();
     }
 
+    /// <summary>Validates and persists one calibration value, then updates the controller manager.</summary>
+    /// <param name="key"><c>strength</c>, <c>floor</c>, or <c>duration</c>.</param>
+    /// <param name="value">Strength/floor percent from 0 to 100, or minimum pulse duration from 0 to 500 milliseconds.</param>
+    /// <param name="token">Cancels transition admission or configuration persistence.</param>
+    /// <returns>Completion after saving and applying calibration to the manager.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The key or its value is unsupported.</exception>
     internal async Task SetRumbleCalibrationAsync(string key, int value, CancellationToken token)
     {
         await _transitionGate.WaitAsync(token).ConfigureAwait(false);
@@ -383,6 +421,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     }
 
     /// <summary>Returns the manual power mode of the running application to the Global value.</summary>
+    /// <returns>Completion of clearing the game's manual-mode override through the profile owner.</returns>
     internal Task UseGlobalManualTdpAsync()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -407,6 +446,10 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     /// </remarks>
     internal event Action? ConfigurationChanged;
 
+    /// <summary>Saves the active profile's manual sustained/boost coupling mode.</summary>
+    /// <param name="unified">True to couple the limits; false to retain independent sustained and boost values.</param>
+    /// <returns>Completion of the saved profile edit; shutdown cancels admission.</returns>
+    /// <exception cref="InvalidOperationException">The current device does not expose an available power pair.</exception>
     internal async Task SetManualTdpModeAsync(bool unified)
     {
         await _transitionGate.WaitAsync(_lifetime.Token).ConfigureAwait(false);
@@ -428,6 +471,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     }
 
     /// <summary>The power source, or null when Windows cannot say.</summary>
+    /// <returns>True on AC, false on battery, or null when the Windows query fails or reports unknown status.</returns>
     internal static bool? ReadOnAcPower()
     {
         return WindowsPower.TryGetStatus(out var power) && power.ACLineStatus is 0 or 1
@@ -676,6 +720,8 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     }
 
     /// <summary>Starts the configured cycle, or recovers an interrupted controller while integration is off.</summary>
+    /// <param name="cancellationToken">Cancels cycle admission or interrupted-controller recovery.</param>
+    /// <returns>Completion of that attempt; disposed coordinators return without starting work.</returns>
     internal Task InitializeAsync(CancellationToken cancellationToken = default)
     {
         if (_disposed)
@@ -697,6 +743,9 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     ///     Creates one handle-owned machine marker. It is deliberately never mutex-owned, so
     ///     coordinator disposal may close it from any continuation thread.
     /// </summary>
+    /// <param name="name">Nonblank machine-marker name.</param>
+    /// <param name="create">Optional factory returning an unowned mutex handle and whether it created the marker.</param>
+    /// <returns>The newly created handle to dispose without calling ReleaseMutex, or null when reserved or inaccessible.</returns>
     internal static Mutex? TryCreateOwnerMutex(
         string name,
         Func<string, (Mutex Owner, bool CreatedNew)>? create = null)
@@ -730,6 +779,9 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     }
 
     /// <summary>Applies a saved ownership configuration to this authoritative process.</summary>
+    /// <param name="config">Normalized configuration already saved by the configuration owner; retained as current state.</param>
+    /// <param name="cancellationToken">Cancels transition admission and dependent lifecycle work.</param>
+    /// <returns>Completion of the requested ownership/profile reconciliation; it does not itself save the supplied configuration.</returns>
     internal async Task ApplyConfigAsync(AppConfig config, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
@@ -837,6 +889,8 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     }
 
     /// <summary>Quiesces the active plugin for suspend or session lock.</summary>
+    /// <param name="cancellationToken">Cancels transition waiting and the bounded plugin suspension.</param>
+    /// <returns>Suspension completion; the virtual target and physical hiding are retained while forwarding is blocked.</returns>
     internal async Task SuspendAsync(CancellationToken cancellationToken = default)
     {
         if (_disposed)
@@ -889,6 +943,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     ///     unverified teardown is reported for an unlock as for any other restart.
     /// </param>
     /// <param name="cancellationToken">Cancels the resume.</param>
+    /// <returns>Completion of the selected resume/restart attempt, or immediate completion when there is no eligible cycle.</returns>
     internal async Task ResumeAsync(bool afterSystemSleep, CancellationToken cancellationToken = default)
     {
         if (_disposed)
@@ -1022,6 +1077,8 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     }
 
     /// <summary>Starts one user-requested attempt after automatic recovery was exhausted.</summary>
+    /// <param name="cancellationToken">Cancels transition admission and the explicit startup attempt.</param>
+    /// <returns>True when a fresh attempt ran, not proof that the device became active; false unless faulted and fully retired.</returns>
     internal async Task<bool> RetryAfterFaultAsync(CancellationToken cancellationToken = default)
     {
         if (_disposed)
@@ -1090,6 +1147,9 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     }
 
     /// <summary>Stops the device cycle under the process exit path's single outer deadline.</summary>
+    /// <param name="reason">Stop reason used by the first shutdown request.</param>
+    /// <param name="deadline">Outer cleanup/wait budget; repeated calls share the first shutdown operation.</param>
+    /// <returns>Completion after shutdown finishes or this wait's deadline expires; unfinished owners remain retained.</returns>
     internal ValueTask ShutdownAsync(PluginStopReason reason, Deadline deadline)
     {
         try
@@ -1889,10 +1949,9 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     }
 
     /// <summary>Logs a teardown whose steps were not all verified and rethrows the caller's cancellation.</summary>
-    /// <remarks>
-    ///     HC's <c>Close</c> writes the device back and ignores the result. Treating an unverified release
-    ///     as a failure blocked restarts on devices that cannot read their state back.
-    /// </remarks>
+    /// <remarks>Unverified release is diagnostic evidence; it does not by itself forbid a later restart.</remarks>
+    /// <param name="teardown">Retained failures from all attempted cleanup stages; ordinary failures are logged.</param>
+    /// <param name="cancellationToken">Caller cancellation rethrown after reporting, without repeating cleanup.</param>
     internal static void ReportDeviceTeardown(
         DeviceClientTeardownResult teardown,
         CancellationToken cancellationToken)
@@ -2236,11 +2295,8 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     }
 
     /// <summary>The target chosen for the running application, whether or not one is live.</summary>
-    /// <remarks>
-    ///     Selectors show this rather than the live target. With no live target, after a fault or before
-    ///     the cycle is up, showing the live one left the selector blank, and a choice made there
-    ///     snapped back to blank because nothing came up to report it (Xbox Ally X, 2026-09-28).
-    /// </remarks>
+    /// <remarks>Selectors use saved intent so a fault or a not-yet-attached target does not erase the user's choice.</remarks>
+    /// <returns>The resolved saved target, including when no virtual target is currently attached.</returns>
     internal ManagedControllerTarget ChosenControllerTarget()
     {
         return ControllerTargetSelection.Resolve(
@@ -2250,6 +2306,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     }
 
     /// <summary>Resolves the current persisted mode against only the active package's safe profiles.</summary>
+    /// <returns>The safe selection or fallback explaining why an active physical glyph profile is unavailable.</returns>
     internal PhysicalGlyphSelectionResult PhysicalGlyphSelectionSnapshot()
     {
         return PhysicalGlyphCatalog.SelectProfile(
@@ -2258,6 +2315,8 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             _config.DeviceIntegration.ManualGlyphProfileId);
     }
 
+    /// <summary>Resolves the active device's physical-control layout using automatic profile selection.</summary>
+    /// <returns>The device-matched control profile or its fallback, independent of manual glyph presentation.</returns>
     internal PhysicalGlyphSelectionResult PhysicalControlSelectionSnapshot()
     {
         return PhysicalGlyphCatalog.SelectProfile(_config.DeviceIntegration.Enabled, DeviceGlyphSelection.Automatic,
@@ -2265,6 +2324,9 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     }
 
     /// <summary>Sets the physical presentation policy without changing device ownership.</summary>
+    /// <param name="selection">Defined glyph presentation policy; invalid enum values throw.</param>
+    /// <param name="cancellationToken">Cancels transition admission or persistence.</param>
+    /// <returns>Completion after saving the presentation preference and notifying configuration consumers.</returns>
     internal async Task SetPhysicalGlyphSelectionAsync(DeviceGlyphSelection selection,
         CancellationToken cancellationToken = default)
     {
@@ -2341,6 +2403,9 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     }
 
     /// <summary>Claims managed controller input for one visible WSGM surface.</summary>
+    /// <param name="surfaceId">Nonblank identifier retained until this surface releases its claim.</param>
+    /// <param name="cancellationToken">Cancels admission or target neutralization; coordinator shutdown also cancels it.</param>
+    /// <returns>Completion after any required neutralization of the virtual target.</returns>
     internal async Task ClaimUiAsync(string surfaceId, CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -2349,12 +2414,17 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     }
 
     /// <summary>Releases one visible WSGM surface's managed controller claim.</summary>
+    /// <param name="surfaceId">Identifier used by the matching UI claim.</param>
+    /// <remarks>Forwarding resumes only after every captured control is released in a subsequent sample.</remarks>
     internal void ReleaseUi(string surfaceId)
     {
         Controllers.ReleaseUi(surfaceId);
     }
 
     /// <summary>Sends a bounded rear-button pulse through the managed virtual target.</summary>
+    /// <param name="button">One-based rear-button number, 1 or 2.</param>
+    /// <param name="cancellationToken">Cancels the bounded press interval; shutdown also cancels it.</param>
+    /// <returns>Whether an active target and source sample accepted the pulse; false when disposed or unsupported.</returns>
     internal async Task<bool> PulseRearButtonAsync(
         int button,
         CancellationToken cancellationToken = default)
@@ -2898,6 +2968,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     }
 
     /// <summary>Attaches WSGM-owned UI and system actions after the shell surfaces exist.</summary>
+    /// <param name="actions">Borrowed callbacks owned by the shell; these supply UI/system policy rather than device firmware.</param>
     internal void ConfigureOemActions(DeviceOemActionServices actions)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -2951,6 +3022,9 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     }
 
     /// <summary>Persists and applies an explicit authored profile selection for the current application scope.</summary>
+    /// <param name="next">Current device profile identifier, or null to clear the layer's selection.</param>
+    /// <param name="cancellationToken">Cancels persistence or application; shutdown also cancels admission.</param>
+    /// <returns>Completion after persistence and the application attempt; missing/unknown profiles are ignored.</returns>
     internal async Task SelectAuthoredProfileAsync(string? next, CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -3415,12 +3489,17 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
 }
 
 /// <summary>Complete retained outcome of controller handoff, plugin stop, detach, and disposal.</summary>
+/// <param name="Failures">All retained cleanup failures; an empty list means no stage reported an unverified outcome.</param>
 internal sealed record DeviceClientTeardownResult(IReadOnlyList<Exception> Failures)
 {
+    /// <summary>Shared result for cleanup with no reported failures.</summary>
     internal static DeviceClientTeardownResult Clean { get; } = new([]);
 
+    /// <summary>Whether no cleanup stage reported failure; this does not add independent hardware evidence.</summary>
     internal bool Verified => Failures.Count == 0;
 
+    /// <summary>Combines retained cleanup failures for reporting without rerunning their operations.</summary>
+    /// <returns>The sole failure, or a combined exception describing multiple failures.</returns>
     internal Exception ToException()
     {
         return Failures.Combine("Multiple device teardown steps were unverified.");

@@ -39,6 +39,7 @@ internal sealed class LoadedPluginPackage<TEntry> where TEntry : class, IAsyncDi
     private readonly PluginLoader.PluginLoadContext? _context;
     private int _unloaded;
 
+    /// <summary>Captures the plugin and any package/load-context resources whose release follows plugin disposal.</summary>
     /// <param name="plugin">The plugin instance.</param>
     /// <param name="package">The open package its code came from, or null for a plugin built into the process.</param>
     /// <param name="context">The load context holding its code, or null for a plugin built into the process.</param>
@@ -237,15 +238,10 @@ internal static class PluginLoader
         string EntryType,
         string? WsgmVersion);
 
+    /// <summary>Collectible managed load context sharing host SDK/WinRT type identity and resolving package assemblies in memory.</summary>
     internal sealed class PluginLoadContext : AssemblyLoadContext
     {
-        // Assemblies that may exist only once per process, whatever version the package carries.
-        // CsWinRT's runtime registers a process-global ComWrappers instance when it first runs; a
-        // second copy loaded into this context makes whichever side initializes second throw
-        // "Attempt to update previously set global instance" for the rest of the process. The
-        // Claw package ships both (any `-windows10.0.x` plugin build copies them), and the plugin
-        // touched WinRT first, so WSGM's own Wi-Fi and Bluetooth queries were the side that died
-        // (device-reproduced 2026-09-01).
+        // SDK identity and CsWinRT's process-global ComWrappers registration require a single host copy.
         private static readonly Dictionary<string, Assembly> HostOwned = new(StringComparer.Ordinal)
         {
             [typeof(IDevicePlugin).Assembly.GetName().Name!] = typeof(IDevicePlugin).Assembly,
@@ -259,6 +255,8 @@ internal static class PluginLoader
         private readonly Lock _gate = new();
         private readonly PluginPackageFile _package;
 
+        /// <summary>Creates an unloaded collectible context borrowing the package until its owner unloads it.</summary>
+        /// <param name="package">Opened validated package retained for managed assembly resolution.</param>
         internal PluginLoadContext(PluginPackageFile package)
             : base($"WSGM.Plugin:{package.Id}", true)
         {
@@ -266,12 +264,18 @@ internal static class PluginLoader
         }
 
         /// <summary>Loads the package's entry assembly from memory.</summary>
+        /// <param name="entryAssembly">Validated managed assembly path inside the package.</param>
+        /// <returns>The assembly loaded in this collectible context.</returns>
+        /// <exception cref="FileNotFoundException">The package does not contain the named entry assembly.</exception>
         internal Assembly LoadEntry(string entryAssembly)
         {
             return TryLoadFromPackage(entryAssembly)
                    ?? throw new FileNotFoundException("The plugin entry point is missing.", entryAssembly);
         }
 
+        /// <summary>Shares host contracts and resolves managed dependencies from the host first, then the package.</summary>
+        /// <param name="assemblyName">Dependency requested by the runtime.</param>
+        /// <returns>The shared/package assembly, or null to allow normal runtime fallback when absent.</returns>
         protected override Assembly? Load(AssemblyName assemblyName)
         {
             // The host's SDK is the type-identity boundary, whatever assembly version the plugin

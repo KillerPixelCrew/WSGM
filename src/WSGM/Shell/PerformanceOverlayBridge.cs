@@ -50,6 +50,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     private readonly PerformanceService _service;
     private bool _disposed;
 
+    /// <summary>Subscribes to borrowed performance and profile services for the overlay projection.</summary>
     /// <param name="service">The session-owned RTSS service this projects.</param>
     /// <param name="profiles">The profile owner the per-game switch, reset and profile editor write to.</param>
     /// <param name="panelFrameLimitRange">
@@ -435,6 +436,9 @@ internal sealed class PerformanceOverlayBridge : IDisposable
     }
 
     /// <summary>Cycles the overlay level through the same policy the UI row owns.</summary>
+    /// <param name="origin">Caller label attached to the performance command for diagnostics.</param>
+    /// <param name="cancellationToken">Cancels command admission and cooperative persistence or application stages.</param>
+    /// <returns>True when applied or deferred until the executable resolves; false when unavailable or the command fails.</returns>
     internal async Task<bool> CycleOverlayLevelAsync(
         string origin,
         CancellationToken cancellationToken = default)

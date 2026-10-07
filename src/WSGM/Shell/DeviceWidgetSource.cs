@@ -11,6 +11,8 @@ using WSGM.Plugin.Sdk;
 namespace WSGM.Shell;
 
 /// <summary>Projects Device capabilities into the common widget vocabulary without owning hardware.</summary>
+/// <param name="coordinator">Borrowed device owner used for admitted capability observations and explicit actions.</param>
+/// <param name="overlay">Borrowed device presentation source; widgets reuse its visible controls and routing.</param>
 internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceOverlaySource overlay)
     : ICommonPluginOverlaySource
 {
@@ -20,6 +22,7 @@ internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceO
     private string _scope = "";
     private long _sequence;
 
+    /// <inheritdoc />
     public PluginOverlayInstance[] Snapshot()
     {
         var snapshot = overlay.Snapshot();
@@ -111,6 +114,7 @@ internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceO
         ];
     }
 
+    /// <inheritdoc />
     public PluginStatePublication[] State(PluginInstanceIdentity identity)
     {
         if (_identity != identity)
@@ -144,6 +148,7 @@ internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceO
         return [.. states];
     }
 
+    /// <inheritdoc />
     public async Task<PluginActionResult> InvokeAsync(PluginInstanceIdentity identity, long generation,
         string action, IReadOnlyDictionary<string, PluginValue> arguments, CancellationToken cancellationToken)
     {

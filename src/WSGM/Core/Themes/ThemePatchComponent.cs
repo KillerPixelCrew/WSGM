@@ -186,6 +186,7 @@ public sealed class ThemePatchComponent
     }
 
     /// <summary>The snapshot the UI reads.</summary>
+    /// <returns>A presentation snapshot of this component and its current value.</returns>
     public ThemeComponentSnapshot Snapshot()
     {
         return new ThemeComponentSnapshot(Name, Type, On, _value);

@@ -54,6 +54,7 @@ public static class WakeLockStatus
     /// <summary>Words why a power-request read gave no trustworthy list; null when the list was read.</summary>
     /// <param name="status">The outcome of <see cref="PowerRequestList.Query" />.</param>
     /// <param name="nativeStatus">The NTSTATUS that accompanies a failed query.</param>
+    /// <returns>A diagnostic for unavailable data, or null for a readable snapshot.</returns>
     public static string? DescribeQueryStatus(PowerRequestListStatus status, int nativeStatus)
     {
         return status switch
@@ -74,6 +75,7 @@ public static class WakeLockStatus
     /// </summary>
     /// <param name="entries">The decoded request list; null = unknown.</param>
     /// <param name="selfPid">WSGM's own process id, excluded from the summary.</param>
+    /// <returns>The display-prioritized state and a summary naming up to three external holders; unknown/free may have no summary.</returns>
     public static (WakeLockState State, string Summary) Compute(
         IReadOnlyList<PowerRequestEntry>? entries, uint selfPid)
     {
@@ -115,6 +117,8 @@ public static class WakeLockStatus
     ///     Shortens an NT-device-form image path to its file name; kernel
     ///     requesters without a name become "(kernel)".
     /// </summary>
+    /// <param name="entry">Decoded requester whose native image name is used.</param>
+    /// <returns>The final path component, or (kernel) when no name was provided.</returns>
     internal static string HolderName(PowerRequestEntry entry)
     {
         var name = entry.Name;
@@ -161,6 +165,7 @@ public static class WakeLockHolders
     ///     distinguish that from "nothing holds a lock" using the null entries.
     /// </summary>
     /// <param name="entries">The decoded request list; null = unknown.</param>
+    /// <returns>Nonempty lock-kind groups in display/system/away order; empty also represents unknown input.</returns>
     public static IReadOnlyList<WakeLockHolderGroup> Build(IReadOnlyList<PowerRequestEntry>? entries)
     {
         if (entries is null)
@@ -213,6 +218,7 @@ public static class WakeLockHolders
     ///     name as the kernel reported it.
     /// </summary>
     /// <param name="entry">The request to describe.</param>
+    /// <returns>A caller-kind, optional PID, and full-name description suitable for a secondary UI line.</returns>
     internal static string Describe(PowerRequestEntry entry)
     {
         // REQUESTER_TYPE: 0 kernel, 1 process, 2 service.

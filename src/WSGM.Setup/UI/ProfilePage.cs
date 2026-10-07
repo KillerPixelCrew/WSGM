@@ -241,6 +241,7 @@ internal sealed class ProfilePage : Page
     }
 
     /// <summary>Writes the page's choices into the answers document.</summary>
+    /// <param name="answers">Mutable answers object; replaces the startup, takeover and features entries with current page choices.</param>
     public void WriteTo(JsonObject answers)
     {
         answers["startAtSignIn"] = SignIn;
@@ -281,6 +282,7 @@ internal sealed class ProfilePage : Page
     ///     without it. It follows that choice until the user picks a level or changes a switch; an update or
     ///     repair always keeps the current settings.
     /// </summary>
+    /// <param name="withDevicePlugin">True selects Full and false Minimal, only while the fresh-install defaults remain unedited.</param>
     public void UseDefaultLevel(bool withDevicePlugin)
     {
         if (!FromCurrent && !_edited)
@@ -334,6 +336,7 @@ internal sealed class ProfilePage : Page
 ///     Every integration switch on its own page, grouped, each with what it does and a NEW badge where WSGM 1.0
 ///     did not have it. It edits the profile page's state, so the level chip there follows.
 /// </summary>
+/// <param name="profile">Shared profile page state; switches edit this instance and are not copied.</param>
 internal sealed class CustomizePage(ProfilePage profile) : Page
 {
     public ProfilePage Profile { get; } = profile;
@@ -345,4 +348,6 @@ internal sealed class CustomizePage(ProfilePage profile) : Page
 }
 
 /// <summary>One group of the Customize page.</summary>
+/// <param name="Name">Display heading for the group.</param>
+/// <param name="Items">Ordered feature options shared with the profile page.</param>
 internal sealed record FeatureGroup(string Name, IReadOnlyList<FeatureOption> Items);

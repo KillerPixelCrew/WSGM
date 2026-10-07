@@ -22,6 +22,7 @@ public static class KnownStartupApps
     ];
 
     /// <summary>(label, full path, elevated) for each suggestion found on disk.</summary>
+    /// <returns>New suggestion list in catalog/root priority order, deduplicated by executable basename.</returns>
     public static List<(string Label, string Path, bool Elevated)> Detected()
     {
         var roots = new[]

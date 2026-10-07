@@ -70,6 +70,10 @@ public static class SteamAutostartService
         return ReconcileElevatedResult(result, remaining);
     }
 
+    /// <summary>Reconciles machine-scope takeover requests against a fresh scan after the elevated helper returns.</summary>
+    /// <param name="result">Initial result identifying sources that needed elevation.</param>
+    /// <param name="remaining">Enabled sources still present in the fresh scan.</param>
+    /// <returns>A copy moving missing elevation-required sources into Disabled and retaining unresolved ones.</returns>
     internal static SteamAutostartTakeoverResult ReconcileElevatedResult(
         SteamAutostartTakeoverResult result, IReadOnlyList<SteamAutostartSource> remaining)
     {
@@ -93,6 +97,7 @@ public static class SteamAutostartService
     ///     reappears is turned off again. Never prompts: a UAC dialog over a booting desktop is not an
     ///     acceptable way to ask.
     /// </summary>
+    /// <param name="store">Strict persistence of accepted takeover and pre-change recovery records.</param>
     public static void ReapplyAtStart(ConfigStore store)
     {
         try
@@ -119,6 +124,7 @@ public static class SteamAutostartService
 
     /// <summary>The elevated one-shot: rescans and disables what only an elevated process can.</summary>
     /// <returns>Zero when nothing that needs elevation is still enabled.</returns>
+    /// <param name="store">Strict persistence receiving recovery records before machine-scope writes.</param>
     public static int RunElevatedDisable(ConfigStore store)
     {
         try
@@ -148,6 +154,7 @@ public static class SteamAutostartService
     ///     run twice: a restored record is removed from the configuration.
     /// </summary>
     /// <returns>Zero when every record was handled.</returns>
+    /// <param name="store">Persistence holding takeover records; only completed restoration records are removed.</param>
     public static int RestoreAll(ConfigStore store)
     {
         try
@@ -183,8 +190,8 @@ public static class SteamAutostartService
     }
 
     /// <summary>
-    ///     Records one change through a fresh read-modify-write, replacing any earlier record
-    ///     for the same entry so the first captured previous state is the one that survives.
+    ///     Records one change through a fresh read-modify-write while preserving the first captured
+    ///     previous state for that startup entry.
     /// </summary>
     private static void RecordDisabled(SteamAutostartRecord entry, ConfigStore store)
     {
@@ -198,6 +205,9 @@ public static class SteamAutostartService
         });
     }
 
+    /// <summary>Preserves the first pre-takeover snapshot while updating the latest attempted-write acknowledgement.</summary>
+    /// <param name="entry">Recovery record before or after one disable attempt.</param>
+    /// <param name="mutate">Synchronous strict read-modify-write owner; persistence failures must propagate.</param>
     internal static void RecordDisabled(SteamAutostartRecord entry, Action<Action<AppConfig>> mutate)
     {
         mutate(config =>

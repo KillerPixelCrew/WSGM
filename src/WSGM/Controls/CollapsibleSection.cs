@@ -11,6 +11,7 @@ using Avalonia.VisualTree;
 namespace WSGM.Controls;
 
 /// <summary>A focusable section heading whose mounted body can be folded away.</summary>
+/// <remarks>UI-thread presentation only. The caller owns persistence of expansion and any independent heading action.</remarks>
 public sealed class CollapsibleSection : Grid
 {
     /// <summary>Whether the section body is displayed and available to navigation.</summary>
@@ -85,7 +86,8 @@ public sealed class CollapsibleSection : Grid
         set => SetValue(IsExpandedProperty, value);
     }
 
-    /// <summary>The section's focus and activation target.</summary>
+    /// <summary>The current heading focus target; replaced by the native toggle when its template is applied.</summary>
+    /// <remarks>A semantic <c>Tag</c> assigned before templating is transferred; do not retain the placeholder button.</remarks>
     public Button Heading { get; private set; }
 
     /// <summary>The mounted body, retained for row reconciliation.</summary>

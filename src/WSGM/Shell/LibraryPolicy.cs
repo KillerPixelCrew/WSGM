@@ -35,20 +35,11 @@ internal enum LibraryTransition
 ///     The one owner of whether a removable library is registered with Steam.
 /// </summary>
 /// <remarks>
-///     Adopt, eject and format are the only transitions, which is Steam's own storage model rather
-///     than a second one beside it. Everything that can change a removable library's registration goes
-///     through here: the overlay's eject panel, Steam's revived storage pages, the format flow, and
-///     volume arrival and departure. Detection stays with <see cref="CardVolumeMonitor" />, which
-///     reports what it saw and no longer decides anything.
-///     <para>
-///         The reason for one owner is a fault, not tidiness. The monitor treated "a library is on a
-///         mounted volume and Steam does not list it" as sufficient reason to register it. A media-level
-///         eject leaves the card physically in the reader, Windows remounts it within seconds, and the
-///         monitor put back the registration the user had just ejected — from either surface, since both
-///         end at the same physical eject. An eject is now an intent that outlives the remount, and only a
-///         card actually leaving, or an explicit adopt, clears it.
-///     </para>
+///     Shared by overlay, Steam storage, formatting and volume notifications. Detection remains in
+///     <see cref="CardVolumeMonitor" />. Eject intent survives Windows remounting the same card;
+///     physical removal or explicit adoption clears it so reconciliation cannot undo a user eject.
 /// </remarks>
+/// <param name="steam">Borrowed Steam client for live registration changes, or null for sessions without Steam access.</param>
 internal sealed class LibraryPolicy(SteamClient? steam = null)
 {
     /// <summary>Volume roots ejected on purpose, with the library identity that was on them.</summary>

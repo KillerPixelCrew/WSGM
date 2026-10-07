@@ -8,7 +8,7 @@ using WSGM.Device.Sdk.Identity;
 
 namespace WSGM.Device.Asus.RogAlly;
 
-/// <summary>What the plugin revalidates before every acquisition and hardware command.</summary>
+/// <summary>SMBIOS model and BIOS binding captured for an acquisition, with an AC-line observation.</summary>
 internal sealed record AllyIdentityState
 {
     public required DeviceIdentitySnapshot Snapshot { get; init; }
@@ -28,8 +28,12 @@ internal sealed record AllyIdentityState
     public string FirmwareIdentity => $"bios:{Snapshot.BiosVersion?.Trim() ?? "unknown"}";
 }
 
+/// <summary>Supplies read-only identity for model admission and recovery binding.</summary>
 internal interface IAllyIdentityReader
 {
+    /// <summary>Reads the Windows SMBIOS registry projection and current AC-line status.</summary>
+    /// <param name="cancellationToken">Cancels before synchronous registry and power-status reads.</param>
+    /// <returns>Normalized snapshot and matched model; a missing match remains null, and unknown AC status means AC.</returns>
     ValueTask<AllyIdentityState> ReadAsync(CancellationToken cancellationToken);
 }
 
@@ -43,6 +47,7 @@ internal sealed partial class WindowsAllyIdentityReader : IAllyIdentityReader
 {
     private const string BiosKey = @"HARDWARE\DESCRIPTION\System\BIOS";
 
+    /// <inheritdoc />
     public ValueTask<AllyIdentityState> ReadAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();

@@ -98,6 +98,8 @@ internal sealed unsafe class IgclSource<T>
     }
 
     /// <summary>Reads and writes the same native settings; only get/set operation selectors change.</summary>
+    /// <param name="admission">Caller cancellation, deadline and live-session admission, checked immediately before any setter.</param>
+    /// <returns>The structure read/write outcome; the optional probe preparation changes only required operation selectors.</returns>
     public ControlWrite ProbeSupport(WriteAdmission admission)
     {
         var result = Read(out var current);

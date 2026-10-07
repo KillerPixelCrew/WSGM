@@ -139,6 +139,7 @@ internal static class LabRumbleSummary
     /// <param name="routeCount">Routes found.</param>
     /// <param name="working">Names of the routes the tester felt, in order, one per route.</param>
     /// <param name="calibrations">Calibrated routes.</param>
+    /// <returns>A display summary of discovered routes, tester responses and available calibration measurements.</returns>
     public static string Describe(int routeCount, IReadOnlyList<string> working,
         IReadOnlyList<LabRumbleRouteCalibration> calibrations)
     {

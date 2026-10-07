@@ -58,7 +58,11 @@ public sealed record PluginCategoryPolicy(int MinimumActive, int? MaximumActive,
 /// <param name="MaximumVersionExclusive">Exclusive version bound, or null.</param>
 public sealed record PluginDependency(string Id, string MinimumVersion, string? MaximumVersionExclusive = null);
 
-/// <summary>Common package metadata. Device-specific identity and capabilities belong to its specialization.</summary>
+/// <summary>Common package metadata; device packages use the Device SDK's dedicated manifest and lifecycle.</summary>
+/// <remarks>
+///     Init-only properties do not freeze supplied collections. Retain immutable lists after admission.
+///     <see cref="PluginManifestReader" /> validates metadata; constructors alone do not establish validity or trust.
+/// </remarks>
 public sealed record PluginManifest
 {
     /// <summary>Stable lowercase package identity.</summary>
@@ -73,10 +77,10 @@ public sealed record PluginManifest
     /// <summary>Open category identity; category multiplicity is decided by the host.</summary>
     public required string Category { get; init; }
 
-    /// <summary>Minimum accepted common SDK revision.</summary>
+    /// <summary>Inclusive minimum accepted common SDK revision; defaults to <see cref="PluginApi.Version" />.</summary>
     public int MinimumApiVersion { get; init; } = PluginApi.Version;
 
-    /// <summary>Maximum accepted common SDK revision.</summary>
+    /// <summary>Inclusive maximum accepted common SDK revision; defaults to <see cref="PluginApi.Version" />.</summary>
     public int MaximumApiVersion { get; init; } = PluginApi.Version;
 
     /// <summary>Assembly filename at the package root, never an absolute or parent-relative path.</summary>

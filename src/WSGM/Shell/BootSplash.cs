@@ -205,6 +205,7 @@ public sealed class BootSplash
     ///     Idempotent; cancels a pending overlap fade so the splash can never fade in
     ///     over the overlay later.
     /// </summary>
+    /// <param name="reason">Diagnostic reason written to the log; not displayed.</param>
     public void Dismiss(string reason)
     {
         // _closeScheduled (not _dismissing) is the idempotence gate: a pending

@@ -48,6 +48,7 @@ public enum LaunchWrapperMode
 /// </remarks>
 internal static class LaunchWrapperCommand
 {
+    /// <summary>Fixed desktop-game wrapper image deployed beside WSGM.</summary>
     internal const string HelperFileName = "WSGM.Launch.exe";
 
     /// <summary>
@@ -66,6 +67,7 @@ internal static class LaunchWrapperCommand
     private const string InputLeaseFlag = "--input-lease";
     private const string InputLeaseInjectFlag = "--input-lease-inject";
 
+    /// <summary>Case-insensitive helper image names recognized as WSGM-owned launch wrappers.</summary>
     internal static IReadOnlySet<string> HelperExecutableNames { get; } =
         new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {

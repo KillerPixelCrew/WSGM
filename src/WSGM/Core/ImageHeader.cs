@@ -49,6 +49,7 @@ internal static class ImageHeader
     /// </summary>
     /// <param name="width">Declared width in pixels.</param>
     /// <param name="height">Declared height in pixels.</param>
+    /// <returns>True for positive dimensions within both edge and total-pixel limits; does not validate encoded image bytes.</returns>
     public static bool IsWithinLimits(int width, int height)
     {
         return width > 0

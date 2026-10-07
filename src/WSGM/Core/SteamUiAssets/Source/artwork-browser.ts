@@ -1,8 +1,4 @@
-// SteamGridDB-compatible artwork browser owned by WSGM.
-//
-// The page deliberately renders with Steam's own component exports. WSGM owns artwork data and
-// behavior; steam-ui-toolkit owns the page gate, the modal frame, the file picker and the fail-closed
-// component discovery used here.
+// Artwork frontend; host services own searches and file writes, and the toolkit owns native UI primitives.
 const ArtworkBrowserPatchId = "wsgm.artwork-browser";
 
 // The resolved components and the latest state, for the modals: a modal is drawn outside the page's
@@ -40,13 +36,21 @@ const artworkFilterOptions = (tab: string) => ({
 
 const readableFilter = (value: string) =>
   value.replace("image/", "").replaceAll("_", " ").replace("x", "×");
+/**
+ * Sends one artwork action to the shared host service.
+ * @param command Allowlisted artwork command.
+ * @param payload JSON action arguments.
+ * @returns The backend result promise; callers own refusal handling.
+ */
 
 const sendArtworkCommand = (command: string, payload: any = {}) =>
   request(ArtworkBrowserPatchId, command, payload);
 
-// Browse Local: Steam's own file picker, drawn from Steam's components and driven by the controller,
-// rather than a Windows dialog that opens behind Big Picture. The host reads the file where it lies;
-// a page request is held to a few kilobytes and an image would never fit in one.
+/**
+ * Opens the controller-accessible file picker and sends the chosen path to the host.
+ * @param tab Artwork slot; icon additionally permits ICO files.
+ * @param failed Receives an applyLocal refusal; cancellation sends no command.
+ */
 const chooseLocalArtwork = (tab: string, failed: (message: string) => void) => {
   void showSteamFilePicker(artworkUi, {
     title: "Choose an image",
@@ -58,7 +62,12 @@ const chooseLocalArtwork = (tab: string, failed: (message: string) => void) => {
   });
 };
 
-// Every modal on this page, in Steam's modal frame with the page's own class for its layout.
+/**
+ * Opens a page-styled modal through Steam's native modal host.
+ * @param className Page-specific layout classes.
+ * @param render Body renderer receiving the close callback.
+ * @returns True if a modal was opened, or false when required native components are unavailable.
+ */
 const showArtworkModal = (className: string, render: (close: () => void) => any) =>
   showSteamModal(artworkUi, { title: "SteamGridDB", className: `sgdb-modal ${className}`, render });
 
@@ -365,8 +374,11 @@ function ArtworkLogoModal({ closeModal }) {
   );
 }
 
-// Declared once for the life of the asset, and drawn by the toolkit's page frame only once the gate
-// holds: the frame says why when it does not.
+/**
+ * Renders artwork selection and coordinates the modals subscribed to its host snapshot.
+ * @param context Registered page accessors for Steam components, latest state and publication refusal.
+ * @returns The page React tree, including loading or refusal state when data is unavailable.
+ */
 function ArtworkBrowserPage({ context }: any) {
   const react = context.react();
   const h = react.createElement;

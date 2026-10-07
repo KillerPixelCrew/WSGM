@@ -26,7 +26,8 @@ public sealed class HexBrushConverter : IValueConverter
             : Brushes.Transparent;
     }
 
-    /// <summary>Swatch previews are one-way; converting back does nothing.</summary>
+    /// <inheritdoc />
+    /// <remarks>Swatch previews are one-way; always returns <see cref="BindingOperations.DoNothing" />.</remarks>
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
     {
         return BindingOperations.DoNothing;

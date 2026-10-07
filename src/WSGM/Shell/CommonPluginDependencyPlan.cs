@@ -7,10 +7,16 @@ using WSGM.Plugin.Sdk;
 namespace WSGM.Shell;
 
 /// <summary>Dependency-first activation order with failures isolated from independent packages.</summary>
+/// <param name="Ordered">Admissible manifests in deterministic dependency-first activation order.</param>
+/// <param name="Rejected">Package IDs mapped to duplicate, missing, incompatible or cyclic dependency reasons.</param>
 internal sealed record CommonPluginDependencyPlan(
     IReadOnlyList<PluginManifest> Ordered,
     IReadOnlyDictionary<string, string> Rejected)
 {
+    /// <summary>Orders already validated manifests and isolates packages with unusable dependencies.</summary>
+    /// <param name="manifests">Selected installed manifests; each package ID must identify exactly one candidate.</param>
+    /// <returns>The activation order and rejected IDs, including dependents of rejected or cyclic packages.</returns>
+    /// <exception cref="ArgumentException">At least one manifest fails SDK metadata validation.</exception>
     internal static CommonPluginDependencyPlan Create(IReadOnlyList<PluginManifest> manifests)
     {
         if (manifests.Any(manifest => PluginManifestReader.Validate(manifest).Count != 0))

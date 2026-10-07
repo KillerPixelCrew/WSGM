@@ -68,12 +68,15 @@ public static class UpdateChecker
     public static Version CurrentVersion { get; } = Normalize(typeof(UpdateChecker).Assembly.GetName().Version);
 
     /// <summary>The per-user record of the last check.</summary>
+    /// <param name="context">Interactive user-data root for this process owner.</param>
+    /// <returns>The update.json path; no directory or file is created.</returns>
     internal static string StatePath(UserDataContext context)
     {
         return Path.Combine(context.Root, "update.json");
     }
 
     /// <summary>A client with a WSGM user agent, which GitHub's API requires, and a timeout long enough for the setup.</summary>
+    /// <returns>A new caller-owned client with a ten-minute request timeout; dispose it when the updater owner ends.</returns>
     public static HttpClient CreateHttpClient()
     {
         HttpClient http = new() { Timeout = TimeSpan.FromMinutes(10) };
@@ -83,6 +86,7 @@ public static class UpdateChecker
 
     /// <summary>Reads the last check, or an empty state when there is none.</summary>
     /// <param name="path">The explicit update-state file to read.</param>
+    /// <returns>The saved state, or a new empty state for missing, unreadable, or malformed JSON.</returns>
     public static UpdateState ReadState(string path)
     {
         try
@@ -154,14 +158,33 @@ public static class UpdateChecker
 
     /// <summary>
     ///     Downloads the release's setup, verifies it against the release's SHA-256 and returns its path.
-    ///     A setup that does not match is deleted, never run.
+    ///     A setup that does not match is never promoted or run; partial-file cleanup is best effort.
     /// </summary>
+    /// <param name="http">Borrowed HTTP client; left open after the download.</param>
+    /// <param name="release">Release asset URLs, expected setup filename, and hash-file location.</param>
+    /// <param name="progress">Optional fraction from 0 to 1 when the server supplies Content-Length.</param>
+    /// <param name="cancellationToken">Cancels network, file writes, and hash verification.</param>
+    /// <returns>The verified setup path in the machine update directory; the setup is not launched.</returns>
+    /// <exception cref="InvalidDataException">The hash file is malformed or the downloaded setup fails its hash check.</exception>
+    /// <exception cref="OperationCanceledException">The caller canceled the transfer.</exception>
+    /// <remarks>HTTP and file failures propagate; the partial file is removed on a best-effort basis.</remarks>
     public static Task<string> DownloadAsync(HttpClient http, UpdateRelease release, IProgress<double>? progress,
         CancellationToken cancellationToken)
     {
         return DownloadAsync(http, release, progress, cancellationToken, DownloadDirectory);
     }
 
+    /// <summary>Downloads and verifies setup into an explicit directory before promoting the partial file.</summary>
+    /// <param name="http">Borrowed HTTP client; never disposed here.</param>
+    /// <param name="release">Asset URLs and setup filename; only its basename is used under the destination.</param>
+    /// <param name="progress">Optional transfer fraction, reported only when Content-Length is positive.</param>
+    /// <param name="cancellationToken">Cancels network, file writes, and SHA-256 calculation.</param>
+    /// <param name="downloadDirectory">Destination directory to create when needed; callers must serialize same-filename downloads.</param>
+    /// <param name="stallTimeout">Maximum silence for each response-body read, or null for the shared default.</param>
+    /// <returns>The final verified path, replacing an earlier same-named setup only after verification.</returns>
+    /// <exception cref="InvalidDataException">Hash metadata is invalid or setup bytes do not match it.</exception>
+    /// <exception cref="OperationCanceledException">The caller canceled the operation.</exception>
+    /// <remarks>Partial-file cleanup is best effort; HTTP and filesystem failures propagate.</remarks>
     internal static async Task<string> DownloadAsync(HttpClient http, UpdateRelease release,
         IProgress<double>? progress,
         CancellationToken cancellationToken, string downloadDirectory, TimeSpan? stallTimeout = null)
@@ -218,6 +241,8 @@ public static class UpdateChecker
     }
 
     /// <summary>Starts the downloaded setup's quiet update; Windows asks for elevation when WSGM is not elevated.</summary>
+    /// <param name="setupPath">Previously verified setup path; this method does not rehash it.</param>
+    /// <remarks>Dispatches /quiet /update without waiting for completion; shell activation failures propagate.</remarks>
     public static void RunSetup(string setupPath)
     {
         Log.Info("Update: starting " + setupPath + " /quiet /update");
@@ -225,6 +250,10 @@ public static class UpdateChecker
     }
 
     /// <summary>Reads GitHub's latest-release answer. Drafts, prereleases and releases without a setup are ignored.</summary>
+    /// <param name="utf8Json">UTF-8 GitHub release-response bytes.</param>
+    /// <returns>Stable release metadata with HTTPS setup and hash assets, or null when required assets are absent.</returns>
+    /// <exception cref="JsonException">The response is not valid JSON.</exception>
+    /// <exception cref="InvalidOperationException">A release field has an incompatible JSON kind.</exception>
     internal static UpdateRelease? ParseLatestRelease(ReadOnlySpan<byte> utf8Json)
     {
         using var document = JsonDocument.Parse(utf8Json.ToArray());
@@ -260,6 +289,9 @@ public static class UpdateChecker
     }
 
     /// <summary>Whether a release version is newer than the running one. An unreadable version never is.</summary>
+    /// <param name="candidate">Release version text; suffixes after - or + are ignored.</param>
+    /// <param name="current">Installed version; build revision is ignored for comparison.</param>
+    /// <returns>True when the parseable normalized release version is greater; false for invalid text.</returns>
     internal static bool IsNewer(string candidate, Version current)
     {
         var core = candidate.Split('-', '+')[0];
@@ -271,6 +303,10 @@ public static class UpdateChecker
     ///     The installed community plugins the next release does not carry. Their files stay, but the new
     ///     WSGM refuses them for their <c>wsgmVersion</c>, so the user is told who to ask before updating.
     /// </summary>
+    /// <param name="installed">Current release bundle, or null when provenance is unavailable.</param>
+    /// <param name="installedIds">Plugin identities currently installed.</param>
+    /// <param name="next">Candidate release bundle and omitted-plugin diagnostics.</param>
+    /// <returns>Warnings for installed community IDs missing from the candidate bundle; empty without current provenance.</returns>
     internal static IReadOnlyList<UpdateWarning> Warnings(BundleManifest? installed,
         IReadOnlyCollection<string> installedIds,
         BundleManifest next)
@@ -296,6 +332,8 @@ public static class UpdateChecker
     }
 
     /// <summary>Reads the first token of a <c>.sha256</c> file.</summary>
+    /// <param name="text">Hash-file text, optionally followed by a filename.</param>
+    /// <returns>The first 64-hex-character token in lowercase, or null when malformed.</returns>
     internal static string? ParseHash(string text)
     {
         var token = text.Trim().Split((char[]?)null, 2, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();

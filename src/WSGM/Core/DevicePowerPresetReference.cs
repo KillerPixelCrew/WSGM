@@ -31,6 +31,8 @@ public sealed record DevicePowerCustomValues
     public string? Scenario { get; init; }
 
     // The SDK reserves "custom" for host presentation, so the validation target uses a separate ID.
+    /// <summary>Builds an SDK validation value for this saved custom power assignment.</summary>
+    /// <returns>A new preset with the saved wattage/mode and the same optional scenario for both power sources.</returns>
     internal DevicePowerPreset ToPreset()
     {
         return new DevicePowerPreset("custom-values", "Custom", SustainedWatts, SlowWatts, WindowsMode)

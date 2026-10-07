@@ -68,6 +68,7 @@ internal static class DeviceLabOwnerInspector
     private const string ProductionOwnerName = SessionProtocolNames.DeviceOwner;
 
     /// <summary>Returns the exact machine-wide production owner object name.</summary>
+    /// <returns>The shared global device-owner mutex name; no object is opened or acquired.</returns>
     public static string OwnerObjectName()
     {
         return ProductionOwnerName;

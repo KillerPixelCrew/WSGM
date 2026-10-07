@@ -43,6 +43,8 @@ internal sealed record LabPawnIoOutcome(string? Problem, PawnIoStatus After, boo
 ///     so a copied project never offers removal on another machine, and an install that finished after
 ///     the window closed is picked up by <see cref="Reconcile" />.
 /// </remarks>
+/// <param name="state">Durable machine ledger recording install ownership and replacement history.</param>
+/// <param name="host">Borrowed detection and installer operations; construction performs no machine changes.</param>
 internal sealed class LabPawnIo(LabMachineState state, IPawnIoHost host)
 {
     /// <summary>The coordinator against the real PawnIO installer.</summary>

@@ -27,6 +27,7 @@ public sealed class WakeLock : IDisposable
     }
 
     /// <summary>Acquires once, logging a refusal without interrupting the owning feature.</summary>
+    /// <returns>True when the request is held, including an existing hold; false on native refusal or a disposed owner.</returns>
     public bool Acquire()
     {
         try

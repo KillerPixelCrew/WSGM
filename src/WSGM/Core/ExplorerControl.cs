@@ -16,6 +16,8 @@ public static class ExplorerControl
         Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe");
 
     /// <summary>Restores the desktop through the same observed launch path as a session return.</summary>
+    /// <param name="context">Interactive user-data context for de-elevated recovery.</param>
+    /// <remarks>Blocks for up to the 30-second recovery budget; failures are logged and not returned as success.</remarks>
     public static void StartExplorerAndVerify(UserDataContext context)
     {
         RestoreTerminalAsync(context).GetAwaiter().GetResult();
@@ -64,6 +66,7 @@ public static class ExplorerControl
     ///     have run in their own explorer.exe since Windows 10 1903, so a process count says nothing
     ///     about the desktop; every mode decision asks this instead.
     /// </remarks>
+    /// <returns>True when a current-session taskbar is owned by the canonical Explorer image; responsiveness is not tested.</returns>
     public static bool IsDesktopShellRunning()
     {
         nint taskbar = 0;
@@ -85,6 +88,9 @@ public static class ExplorerControl
         return false;
     }
 
+    /// <summary>Checks whether a native window belongs to this interactive session.</summary>
+    /// <param name="window">Borrowed window handle; zero is treated as absent.</param>
+    /// <returns>True only when its owner PID resolves to the current session.</returns>
     internal static bool IsCurrentSessionWindow(nint window)
     {
         if (window == 0)

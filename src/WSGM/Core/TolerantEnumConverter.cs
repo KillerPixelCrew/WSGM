@@ -4,13 +4,16 @@ using System.Text.Json.Serialization;
 
 namespace WSGM.Core;
 
+/// <summary>Reads unknown enum names as repair defaults or recovery sentinels while retaining the string-enum wire format.</summary>
 internal sealed class TolerantEnumConverterFactory : JsonConverterFactory
 {
+    /// <inheritdoc />
     public override bool CanConvert(Type typeToConvert)
     {
         return typeToConvert.IsEnum;
     }
 
+    /// <inheritdoc />
     public override JsonConverter CreateConverter(Type typeToConvert, JsonSerializerOptions options)
     {
         return (JsonConverter)Activator.CreateInstance(

@@ -16,10 +16,10 @@ public enum PluginSettingKind
     /// <summary>A finite numeric preference.</summary>
     Number,
 
-    /// <summary>A bounded plain-text preference.</summary>
+    /// <summary>A text preference, optionally restricted to declared choices.</summary>
     Text,
 
-    /// <summary>A bounded text preference whose host editor must obscure the entered value.</summary>
+    /// <summary>A text preference whose host editor must obscure its display; storage encryption is not implied.</summary>
     Secret,
 
     /// <summary>A comma-separated permutation of the declaration's finite choices.</summary>
@@ -33,7 +33,11 @@ public enum PluginSettingKind
 /// <param name="Default">Initial fallback, never implicitly saved as user intent.</param>
 /// <param name="Minimum">Inclusive numeric lower bound, or null.</param>
 /// <param name="Maximum">Inclusive numeric upper bound, or null.</param>
-/// <param name="Choices">Optional text choices; null permits arbitrary bounded text.</param>
+/// <param name="Choices">
+///     Ordinal, case-sensitive text choices; null permits arbitrary text for Text and Secret.
+///     OrderedChoices requires a nonempty distinct list with no commas in its entries.
+/// </param>
+/// <remarks>Lists are retained, not copied. Keep declarations unchanged after host admission.</remarks>
 public sealed record PluginSetting(
     string Key,
     string Label,
@@ -56,7 +60,8 @@ public enum PluginConfigurationOrigin
 /// <summary>Host-owned desired revision delivered as a complete immutable snapshot.</summary>
 /// <param name="Revision">Persisted user-intent revision; zero when no preference has been saved.</param>
 /// <param name="Origin">Explicit user change or host restoration.</param>
-/// <param name="Values">Validated settings, including fallback values for undeclared user preferences.</param>
+/// <param name="Values">Every declared setting, with saved preferences or declaration defaults when unsaved.</param>
+/// <remarks>The supplied dictionary is retained; producers must freeze it before delivery.</remarks>
 public sealed record PluginConfiguration(
     long Revision,
     PluginConfigurationOrigin Origin,
@@ -87,7 +92,7 @@ public sealed record PluginConfigurationResult(
 /// <summary>Optional declaration and delivery contract for plugin behavior preferences.</summary>
 public interface IConfigurablePlugin
 {
-    /// <summary>Bounded static settings declaration, captured before startup.</summary>
+    /// <summary>Static settings declaration captured before startup; an empty list declares no preferences.</summary>
     IReadOnlyList<PluginSetting> Settings { get; }
 
     /// <summary>Adopts a complete configuration after startup, without treating readback as desired state.</summary>
@@ -103,8 +108,8 @@ public interface IConfigurablePlugin
 public static class PluginConfigurationRules
 {
     /// <summary>Checks declarations, unique identities, defaults, choices and numeric ranges.</summary>
-    /// <param name="settings">Declared plugin preferences.</param>
-    /// <returns>Whether the complete declaration is valid.</returns>
+    /// <param name="settings">Declared preferences, or null for an invalid absent declaration.</param>
+    /// <returns>True for a valid declaration, including an empty list; false for null or an invalid member.</returns>
     public static bool IsValid(IReadOnlyList<PluginSetting>? settings)
     {
         if (settings is null)
@@ -143,7 +148,11 @@ public static class PluginConfigurationRules
     /// <summary>Checks one value against an already validated declaration.</summary>
     /// <param name="setting">Validated declaration.</param>
     /// <param name="value">Candidate preference.</param>
-    /// <returns>Whether the value matches kind, bounds and choices.</returns>
+    /// <returns>True when exactly one primitive matches the declared kind, numeric bounds and ordinal choices.</returns>
+    /// <remarks>
+    ///     Text length and content are not checked here. Ordered choices must be an exact comma-separated
+    ///     permutation with no trimming. Callers must render values as text and apply domain-specific limits.
+    /// </remarks>
     public static bool Accepts(PluginSetting setting, PluginValue value)
     {
         return value.IsValid && setting.Kind switch

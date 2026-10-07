@@ -15,6 +15,8 @@ internal static class VolumeAppCommands
     ///     Gets the supported volume command carried by a shell-hook lParam,
     ///     or <see langword="null" /> when the command belongs to another subsystem.
     /// </summary>
+    /// <param name="lParam">Packed WM_APPCOMMAND value, or an OEM relay containing the already-extracted command.</param>
+    /// <returns>ToggleMute, StepDown or StepUp when recognized; null for every other command.</returns>
     internal static CoreAudio.VolumeCommand? FromShellHookLParam(nint lParam)
     {
         // GET_APPCOMMAND_LPARAM(lParam): HIWORD(lParam) without the device bits.

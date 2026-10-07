@@ -8,7 +8,8 @@ using Avalonia.Media;
 
 namespace WSGM.Controls;
 
-/// <summary>A labelled command with an optional explanation and activation hint. Values use editors instead.</summary>
+/// <summary>A labelled command with optional explanation, stroke icon and activation hint.</summary>
+/// <remarks>Use on the Avalonia UI thread. The owner supplies command behavior; this control owns its content layout.</remarks>
 public class ActionButton : Button
 {
     /// <summary>Identifies the command label.</summary>
@@ -31,6 +32,7 @@ public class ActionButton : Button
     public static readonly StyledProperty<bool> IsPinnedProperty =
         AvaloniaProperty.Register<ActionButton, bool>(nameof(IsPinned));
 
+    /// <summary>Identifies the physical-controller glyph that takes precedence over the trailing text.</summary>
     internal static readonly StyledProperty<PhysicalGlyphRenderPlan?> TrailingGlyphProperty =
         AvaloniaProperty.Register<ActionButton, PhysicalGlyphRenderPlan?>(nameof(TrailingGlyph));
 
@@ -78,41 +80,42 @@ public class ActionButton : Button
     /// <inheritdoc />
     protected override Type StyleKeyOverride => typeof(Button);
 
-    /// <summary>Gets or sets the command label.</summary>
+    /// <summary>Visible command label, also used as the automation name; null produces an empty name.</summary>
     public string? Title
     {
         get => GetValue(TitleProperty);
         set => SetValue(TitleProperty, value);
     }
 
-    /// <summary>Gets or sets its explanation.</summary>
+    /// <summary>Supporting text; null or empty hides the description without reserving space.</summary>
     public string? Description
     {
         get => GetValue(DescriptionProperty);
         set => SetValue(DescriptionProperty, value);
     }
 
-    /// <summary>Gets or sets the icon.</summary>
+    /// <summary>Stroke geometry tinted with the foreground; null hides the icon.</summary>
     public Geometry? IconGeometry
     {
         get => GetValue(IconGeometryProperty);
         set => SetValue(IconGeometryProperty, value);
     }
 
-    /// <summary>Gets or sets its activation hint.</summary>
+    /// <summary>Trailing text shown when no physical glyph is supplied; null or empty hides it.</summary>
     public string? TrailingText
     {
         get => GetValue(TrailingTextProperty);
         set => SetValue(TrailingTextProperty, value);
     }
 
-    /// <summary>Gets or sets whether the command is pinned.</summary>
+    /// <summary>Whether to display the pin marker; changing it does not persist a pin or invoke a command.</summary>
     public bool IsPinned
     {
         get => GetValue(IsPinnedProperty);
         set => SetValue(IsPinnedProperty, value);
     }
 
+    /// <summary>Optional physical-controller render plan; null restores the textual activation hint.</summary>
     internal PhysicalGlyphRenderPlan? TrailingGlyph
     {
         get => GetValue(TrailingGlyphProperty);

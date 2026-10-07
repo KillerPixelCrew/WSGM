@@ -47,6 +47,7 @@ internal static class Program
     }
 
     /// <summary>Avalonia configuration, also used by the designer.</summary>
+    /// <returns>Configured Avalonia builder; application lifetime has not started.</returns>
     public static AppBuilder BuildAvaloniaApp()
     {
         return AppBuilder.Configure<SetupApp>()

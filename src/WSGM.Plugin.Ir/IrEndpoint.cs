@@ -9,6 +9,20 @@ namespace WSGM.Plugin.Ir;
 ///     Identity reply. Fields an endpoint leaves out read as unconfigured. The built-in remote count
 ///     is 0 when the firmware serves no remotes.
 /// </summary>
+/// <param name="Identity">Stable endpoint identity required by protocol validation.</param>
+/// <param name="Model">Firmware-reported hardware/model label.</param>
+/// <param name="Firmware">Firmware version string.</param>
+/// <param name="Protocol">Wire protocol version; identification rejects incompatible versions.</param>
+/// <param name="MaxTimings">Maximum raw timing count the firmware accepts; identification currently requires 1024.</param>
+/// <param name="Hostname">Configured network host name, or null when unconfigured.</param>
+/// <param name="Port">Endpoint TCP command port, or zero when not reported.</param>
+/// <param name="WifiConfigured">Whether Wi-Fi credentials are stored on the endpoint.</param>
+/// <param name="WifiConnected">Whether the endpoint currently reports a Wi-Fi connection.</param>
+/// <param name="Ip">Current reported network address, or null.</param>
+/// <param name="WebPort">Web interface port, or zero when not reported.</param>
+/// <param name="WebConfigured">Whether the firmware reports configured web access.</param>
+/// <param name="Remotes">Number of built-in remotes reported by firmware; zero when none are served.</param>
+/// <param name="SequenceRunning">Whether the firmware is currently running a built-in sequence.</param>
 internal sealed record IrEndpointIdentity(
     string Identity,
     string Model,
@@ -25,11 +39,20 @@ internal sealed record IrEndpointIdentity(
     int Remotes = 0,
     bool SequenceRunning = false);
 
-/// <summary>One button of a built-in remote.</summary>
 // ReSharper disable once NotAccessedPositionalProperty.Global
+/// <summary>One button of a built-in remote.</summary>
+/// <param name="Id">Firmware command identity used to address the button or sequence.</param>
+/// <param name="Label">Human-readable name supplied by the firmware.</param>
 internal sealed record IrRemoteButton(string Id, string Label);
 
 /// <summary>What a built-in remote's air conditioner accepts, as the firmware declares it.</summary>
+/// <param name="Protocol">Firmware IR protocol name for the remote.</param>
+/// <param name="Modes">Allowed climate mode identifiers.</param>
+/// <param name="Fans">Allowed fan setting identifiers.</param>
+/// <param name="MinDegrees">Inclusive minimum temperature in the declared units.</param>
+/// <param name="MaxDegrees">Inclusive maximum temperature in the declared units.</param>
+/// <param name="Celsius">True for Celsius temperatures; false for Fahrenheit.</param>
+/// <param name="Swing">Declared swing behavior; none means no swing command is offered.</param>
 internal sealed record IrRemoteClimate(
     // ReSharper disable once NotAccessedPositionalProperty.Global
     string Protocol,
@@ -42,6 +65,11 @@ internal sealed record IrRemoteClimate(
     string Swing = "none");
 
 /// <summary>One remote built into the endpoint firmware.</summary>
+/// <param name="Id">Firmware remote identity used by endpoint operations.</param>
+/// <param name="Name">Displayed remote name.</param>
+/// <param name="Buttons">Declared direct button commands.</param>
+/// <param name="Sequences">Declared built-in sequences that the firmware executes.</param>
+/// <param name="Climate">Climate capabilities, or null for a remote without an air-conditioner interface.</param>
 internal sealed record IrRemote(
     string Id,
     string Name,
@@ -50,49 +78,100 @@ internal sealed record IrRemote(
     IrRemoteClimate? Climate = null);
 
 /// <summary>Every remote the endpoint carries.</summary>
+/// <param name="Remotes">Firmware-provided remote definitions; an empty array means none are available.</param>
 internal sealed record IrRemoteCatalog(IrRemote[] Remotes);
 
 /// <summary>One air-conditioner state addressed to a built-in remote's declared capabilities.</summary>
+/// <param name="Power">Requested appliance power state.</param>
+/// <param name="Mode">Mode from the remote's declared catalog.</param>
+/// <param name="Degrees">Temperature in the units declared by the remote, within its inclusive range.</param>
+/// <param name="Fan">Fan level from the remote's declared catalog.</param>
+/// <param name="ToggleSwing">Requests one swing toggle; an uncertain toggle must not be repeated automatically.</param>
 internal sealed record IrClimateRequest(bool Power, string Mode, double Degrees, string Fan, bool ToggleSwing = false);
 
 /// <summary>Where the plugin reaches an endpoint: a USB serial port, or a paired host on the local network.</summary>
+/// <param name="Network">True for TCP; false for a USB serial port.</param>
+/// <param name="Address">COM port name for USB, or host with optional TCP port for network.</param>
+/// <param name="Token">Shared network pairing secret; unused for USB and never suitable for logging.</param>
 internal sealed record IrEndpointTarget(bool Network, string Address, string? Token);
 
+/// <summary>Owns one lazy endpoint connection and serializes protocol exchanges without retrying uncertain sends.</summary>
+/// <remarks>
+///     Mutating operations require a successful identity exchange. Cancellation ends local waiting, not
+///     necessarily firmware emission. Dispose closes the owned link after outstanding exchanges leave the lane.
+/// </remarks>
 internal interface IIrEndpoint : IAsyncDisposable
 {
     /// <summary>The verified identity, or null until <see cref="IdentifyAsync" /> succeeds or after any failed exchange.</summary>
     IrEndpointIdentity? Identity { get; }
 
+    /// <summary>Opens the link if needed and validates protocol compatibility and endpoint limits.</summary>
+    /// <param name="token">Cancels connection or reply waiting.</param>
+    /// <returns>Validated identity cached until a failed exchange or disposal invalidates it.</returns>
     Task<IrEndpointIdentity> IdentifyAsync(CancellationToken token);
+    /// <summary>Requests one bounded raw capture without emitting IR.</summary>
+    /// <param name="timeout">Firmware capture window from one through thirty seconds.</param>
+    /// <param name="token">Cancels reply waiting; absence of a reply is not successful capture.</param>
+    /// <returns>A validated envelope; the firmware's default carrier is marked assumed, not measured.</returns>
     Task<IrPayload> LearnAsync(TimeSpan timeout, CancellationToken token);
+    /// <summary>Validates and sends one raw envelope with bounded repeats.</summary>
+    /// <param name="payload">Envelope and carrier to emit; remains unchanged during the exchange.</param>
+    /// <param name="repeats">Additional emissions, from 0 through 4.</param>
+    /// <param name="gapMs">Inter-emission gap in milliseconds, from 0 through 200.</param>
+    /// <param name="token">Cancels waiting; emission already dispatched may still finish.</param>
+    /// <returns>Completion after the endpoint acknowledges transmission, not appliance-state verification.</returns>
     Task TransmitAsync(IrPayload payload, int repeats, int gapMs, CancellationToken token);
 
     /// <summary>Stores network credentials and the pairing token on the endpoint, or clears them when the SSID is empty.</summary>
+    /// <param name="ssid">Network name of at most 32 characters; empty clears pairing.</param>
+    /// <param name="password">Network password of at most 63 characters; empty supports an open network.</param>
+    /// <param name="networkToken">New pairing token of 16 through 64 characters when configuring a network.</param>
+    /// <param name="token">Cancels waiting; a partially written flash update is not retried.</param>
+    /// <returns>Endpoint identity reported after acknowledged storage; firmware restricts this operation to USB.</returns>
     Task<IrEndpointIdentity> ConfigureNetworkAsync(string ssid, string password, string networkToken,
         CancellationToken token);
 
     /// <summary>Reads the remotes built into the firmware, one catalog chunk per exchange.</summary>
+    /// <param name="token">Cancels the ordered chunk reads.</param>
+    /// <returns>The complete catalog after index/count consistency and JSON validation.</returns>
     Task<IrRemoteCatalog> ListRemotesAsync(CancellationToken token);
 
     /// <summary>Presses one button of a built-in remote.</summary>
+    /// <param name="remote">Firmware catalog remote ID.</param>
+    /// <param name="button">Button ID in that remote's catalog.</param>
+    /// <param name="token">Cancels waiting without retracting an emitted frame.</param>
+    /// <returns>Completion after transmission acknowledgment; no appliance readback is available.</returns>
     Task PressAsync(string remote, string button, CancellationToken token);
 
     /// <summary>Sends one complete air-conditioner state to a built-in remote.</summary>
+    /// <param name="remote">Firmware catalog remote ID with climate support.</param>
+    /// <param name="request">Complete requested state within the remote's declared modes, fan levels and temperature range.</param>
+    /// <param name="token">Cancels waiting without proving the appliance remained unchanged.</param>
+    /// <returns>Completion after transmission acknowledgment.</returns>
     Task ClimateAsync(string remote, IrClimateRequest request, CancellationToken token);
 
     /// <summary>Starts a built-in remote's sequence. The endpoint runs it in the background.</summary>
+    /// <param name="remote">Firmware catalog remote ID.</param>
+    /// <param name="sequence">Sequence ID owned by that remote.</param>
+    /// <param name="token">Cancels start-acknowledgment waiting.</param>
+    /// <returns>Completion after the sequence starts, not after all steps finish; poll identity for running state.</returns>
     Task RunSequenceAsync(string remote, string sequence, CancellationToken token);
 
     /// <summary>Stops a running learn or sequence. A distinct operation, never a retry.</summary>
+    /// <param name="token">Cancels the cancellation-request exchange.</param>
+    /// <returns>Completion after firmware acknowledges cancellation; already emitted frames are not undone.</returns>
     Task CancelAsync(CancellationToken token);
 }
 
 /// <summary>One open line-oriented connection to an endpoint.</summary>
 internal interface IIrLink : IDisposable
 {
+    /// <summary>Writes one UTF-8 request followed by the protocol line terminator.</summary>
+    /// <param name="frame">Complete compact JSON frame without its trailing newline.</param>
     void WriteLine(string frame);
 
     /// <summary>Returns the next received character, or -1 while idle.</summary>
+    /// <returns>The next UTF-16 character, or -1 when the bounded read is idle; disconnection may throw.</returns>
     int ReadChar();
 }
 
@@ -126,11 +205,13 @@ internal sealed class SerialIrLink : IIrLink
         }
     }
 
+    /// <inheritdoc />
     public void WriteLine(string frame)
     {
         _port.WriteLine(frame);
     }
 
+    /// <inheritdoc />
     public int ReadChar()
     {
         try
@@ -143,6 +224,7 @@ internal sealed class SerialIrLink : IIrLink
         }
     }
 
+    /// <inheritdoc />
     public void Dispose()
     {
         _port.Dispose();
@@ -191,12 +273,14 @@ internal sealed class TcpIrLink : IIrLink
         _stream = _client.GetStream();
     }
 
+    /// <inheritdoc />
     public void WriteLine(string frame)
     {
         _stream.Write(Encoding.UTF8.GetBytes(frame + "\n"));
         _stream.Flush();
     }
 
+    /// <inheritdoc />
     public int ReadChar()
     {
         if (_index < _pending)
@@ -225,6 +309,7 @@ internal sealed class TcpIrLink : IIrLink
         return _index < _pending ? _chars[_index++] : -1;
     }
 
+    /// <inheritdoc />
     public void Dispose()
     {
         _stream.Dispose();
@@ -233,6 +318,8 @@ internal sealed class TcpIrLink : IIrLink
 }
 
 /// <summary>One serialized endpoint connection over any link. Uncertain operations are never retried.</summary>
+/// <param name="open">Lazily opens a link under the serialized exchange lane; the connection owns and disposes the returned link.</param>
+/// <param name="pairingToken">Shared token sent on network requests, or null for USB; never log or expose it in diagnostics.</param>
 internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open, string? pairingToken = null)
     : IIrEndpoint
 {
@@ -252,8 +339,10 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
     private bool _disposed;
     private IIrLink? _link;
 
+    /// <inheritdoc />
     public IrEndpointIdentity? Identity { get; private set; }
 
+    /// <inheritdoc />
     public async Task<IrEndpointIdentity> IdentifyAsync(CancellationToken token)
     {
         using var response =
@@ -270,6 +359,7 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
         }
     }
 
+    /// <inheritdoc />
     public async Task<IrPayload> LearnAsync(TimeSpan timeout, CancellationToken token)
     {
         if (timeout.TotalMilliseconds is < 1000 or > 30000)
@@ -285,6 +375,7 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
         return payload;
     }
 
+    /// <inheritdoc />
     public async Task TransmitAsync(IrPayload payload, int repeats, int gapMs, CancellationToken token)
     {
         try
@@ -301,6 +392,7 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
                 .ConfigureAwait(false);
     }
 
+    /// <inheritdoc />
     public async Task<IrRemoteCatalog> ListRemotesAsync(CancellationToken token)
     {
         // A catalog can outgrow one frame, so the endpoint serves its JSON text in chunks cut on UTF-8
@@ -340,12 +432,14 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
         }
     }
 
+    /// <inheritdoc />
     public async Task PressAsync(string remote, string button, CancellationToken token)
     {
         using var response = await ExchangeAsync("press", new { remote, button },
             TimeSpan.FromSeconds(7), token).ConfigureAwait(false);
     }
 
+    /// <inheritdoc />
     public async Task ClimateAsync(string remote, IrClimateRequest request, CancellationToken token)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -354,18 +448,21 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
             TimeSpan.FromSeconds(7), token).ConfigureAwait(false);
     }
 
+    /// <inheritdoc />
     public async Task RunSequenceAsync(string remote, string sequence, CancellationToken token)
     {
         using var response = await ExchangeAsync("run", new { remote, sequence },
             TimeSpan.FromSeconds(7), token).ConfigureAwait(false);
     }
 
+    /// <inheritdoc />
     public async Task CancelAsync(CancellationToken token)
     {
         using var response = await ExchangeAsync("cancel", new { }, TimeSpan.FromSeconds(5), token)
             .ConfigureAwait(false);
     }
 
+    /// <inheritdoc />
     public async Task<IrEndpointIdentity> ConfigureNetworkAsync(string ssid, string password, string networkToken,
         CancellationToken token)
     {
@@ -379,6 +476,7 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
         return ParseIdentity(response);
     }
 
+    /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
         await _lane.WaitAsync().ConfigureAwait(false);
@@ -395,7 +493,9 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
         }
     }
 
-    /// <summary>Opens the endpoint the target names; a USB target needs no token, a network target sends its pairing token.</summary>
+    /// <summary>Creates a lazy connection for a USB or paired network target; no I/O occurs until an exchange.</summary>
+    /// <param name="target">USB port or paired network destination and its private pairing token.</param>
+    /// <returns>An unopened connection owned by the caller; the first exchange opens its link.</returns>
     public static IrEndpointConnection Create(IrEndpointTarget target)
     {
         return target.Network
@@ -636,6 +736,9 @@ internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open
     }
 
     /// <summary>Turns a protocol refusal into the message shown in Tools. Unknown statuses stay literal.</summary>
+    /// <param name="operation">Requested protocol operation, used to disambiguate busy and unsupported responses.</param>
+    /// <param name="status">Status token returned by the endpoint.</param>
+    /// <returns>A user-facing refusal explanation, retaining an unrecognized operation/status literally for diagnosis.</returns>
     internal static string Describe(string operation, string status)
     {
         return status switch

@@ -97,6 +97,7 @@ public sealed class ThemeLoader
 
     /// <summary>The theme with a name, or null.</summary>
     /// <param name="name">The theme's name.</param>
+    /// <returns>The live loaded theme with this exact name, or null.</returns>
     public InstalledTheme? Find(string name)
     {
         return _themes.FirstOrDefault(theme => theme.Name == name);

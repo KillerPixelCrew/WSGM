@@ -217,6 +217,8 @@ internal static class ClawModels
     ///     is recorded, never matched, because HC does not read it and it is unknown for every model but
     ///     the reference unit.
     /// </summary>
+    /// <param name="identity">Non-null side-effect-free SMBIOS/baseboard snapshot.</param>
+    /// <returns>The catalog model matching trimmed manufacturer/product case-insensitively, or null for another machine.</returns>
     public static ClawModel? Find(DeviceIdentitySnapshot identity)
     {
         ArgumentNullException.ThrowIfNull(identity);
@@ -240,6 +242,8 @@ internal static class ClawModels
     ///     The MCU layout for a revision (USB bcdDevice as hex, "0230"). A revision that cannot be read
     ///     takes the reference unit's measured layout; HC would take its nearest-to-zero row instead.
     /// </summary>
+    /// <param name="mcuRevision">USB bcdDevice hexadecimal text, or null when unavailable.</param>
+    /// <returns>The nearest numeric revision row; invalid or absent text uses the last measured layout.</returns>
     public static ClawMcuLayout McuLayout(string? mcuRevision)
     {
         if (!int.TryParse(mcuRevision, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var revision))
@@ -251,6 +255,8 @@ internal static class ClawModels
     }
 
     /// <summary>The RGB profile address for an MCU revision; see <see cref="McuLayout" />.</summary>
+    /// <param name="mcuRevision">USB bcdDevice hexadecimal text, or null for the measured fallback.</param>
+    /// <returns>The lighting address from the selected nearest-revision MCU layout.</returns>
     public static ushort LightingProfileAddress(string? mcuRevision)
     {
         return McuLayout(mcuRevision).Lighting;

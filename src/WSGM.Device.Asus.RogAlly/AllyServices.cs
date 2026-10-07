@@ -29,6 +29,9 @@ internal static class AllyServiceIds
 }
 
 /// <summary>Power limits and performance mode.</summary>
+/// <param name="acpi">Shared ATKACPI transport for power policy.</param>
+/// <param name="delay">Cancellable spacing for mode/limit writes.</param>
+/// <param name="journal">Durable original-state store bound to the current firmware.</param>
 internal sealed class PowerService(
     IAsusAcpi acpi,
     Func<TimeSpan, CancellationToken, Task> delay,
@@ -78,6 +81,9 @@ internal sealed class PowerService(
     ///     A firmware that cannot report its limits and mode is written anyway, as HC does
     ///     (<c>ROGAlly.cs:694-702</c>). Nothing is journalled then, so stop has nothing to restore.
     /// </remarks>
+    /// <param name="identity">Current verified machine and firmware binding for the original state.</param>
+    /// <param name="cancellationToken">Cancels journal persistence; no hardware mutation is performed here.</param>
+    /// <returns>Completion after preserving the first readable original, or without a new entry when already held or unreadable.</returns>
     public async ValueTask PrepareWriteAsync(AllyIdentityState identity, CancellationToken cancellationToken)
     {
         if (journal.HoldsOriginal(ServiceId, identity.FirmwareIdentity))
@@ -137,6 +143,7 @@ internal sealed class PowerService(
     }
 
     /// <summary>A release refused for lack of time: nothing was written and the entry stays pending.</summary>
+    /// <returns>A Quiescing reason indicating that restore was not dispatched and its original remains pending.</returns>
     internal static CapabilityReason NoTimeToRestore()
     {
         return new CapabilityReason(CapabilityReasonCode.Quiescing,
@@ -145,6 +152,9 @@ internal sealed class PowerService(
 }
 
 /// <summary>Fan curves and fan readings.</summary>
+/// <param name="acpi">Shared ATKACPI transport for fan probes and curve writes.</param>
+/// <param name="delay">Cancellable spacing between channel writes.</param>
+/// <param name="journal">Durable original fan curves bound to the current firmware.</param>
 internal sealed class FanService(
     IAsusAcpi acpi,
     Func<TimeSpan, CancellationToken, Task> delay,
@@ -204,6 +214,9 @@ internal sealed class FanService(
     ///     A firmware that refuses the curve query is written anyway, as HC does; stop then returns the
     ///     fans to HC's factory tables rather than to a captured original (<c>ROGAlly.cs:466-478</c>).
     /// </remarks>
+    /// <param name="identity">Current verified machine and firmware binding for the original state.</param>
+    /// <param name="cancellationToken">Cancels journal persistence; no hardware mutation is performed here.</param>
+    /// <returns>Completion after preserving the first readable original, or without a new entry when already held or unreadable.</returns>
     public async ValueTask PrepareWriteAsync(AllyIdentityState identity, CancellationToken cancellationToken)
     {
         if (journal.HoldsOriginal(ServiceId, identity.FirmwareIdentity))
@@ -296,6 +309,7 @@ internal sealed class FanService(
 }
 
 /// <summary>Battery charge ceiling: a persistent user choice, never reverted on stop.</summary>
+/// <param name="acpi">Shared ATKACPI transport for the persistent user-selected charge ceiling.</param>
 internal sealed class ChargeLimitService(IAsusAcpi acpi) : DeviceService<AllyIdentityState>(AllyServiceIds.ChargeLimit)
 {
     public AllyChargeLimitCapability? Capability { get; private set; }
@@ -339,6 +353,11 @@ internal sealed class ChargeLimitService(IAsusAcpi acpi) : DeviceService<AllyIde
 }
 
 /// <summary>What the plugin last sent to Aura. Aura cannot be read back, so this is intent, not observation.</summary>
+/// <param name="Brightness">Requested brightness percentage, validated to 0-100 before writing.</param>
+/// <param name="Effect">Aura animation or solid-color effect.</param>
+/// <param name="Speed">Requested speed percentage, mapped to firmware bands.</param>
+/// <param name="LeftColor">Left/primary packed 0xRRGGBB color.</param>
+/// <param name="RightColor">Right/secondary packed 0xRRGGBB color.</param>
 internal sealed record AllyLightingState(int Brightness, AuraEffect Effect, int Speed, int LeftColor, int RightColor)
 {
     public static AllyLightingState Initial { get; } = new(100, AuraEffect.Solid, 50, 0xFF0000, 0xFF0000);
@@ -351,6 +370,7 @@ internal sealed record AllyLightingState(int Brightness, AuraEffect Effect, int 
 ///     (<c>ApplyColorFast</c>); everything else is one all-zone message, with the right ring's colour as
 ///     the breathing effect's second colour.
 /// </remarks>
+/// <param name="aura">Shared Aura/lamp-array transport; accepted lighting choices persist beyond service release.</param>
 internal sealed class LightingService(IAllyAuraHid aura) : DeviceService<AllyIdentityState>(AllyServiceIds.Lighting)
 {
     private bool _dynamicLightingHandled;
@@ -437,6 +457,8 @@ internal sealed class LightingService(IAllyAuraHid aura) : DeviceService<AllyIde
     ///     and set (<c>ROGAlly.cs:555-572</c>). Two different solid colours are HC's <c>ApplyColorFast</c>:
     ///     four per-zone messages at the slow speed with no apply or set (<c>ROGAlly.cs:574-593</c>).
     /// </remarks>
+    /// <param name="state">Previously validated desired lighting values.</param>
+    /// <returns>Ordered newly allocated reports with Feature distinguishing brightness from output reports; no hardware is touched.</returns>
     internal static IReadOnlyList<(byte[] Bytes, bool Feature)> Encode(AllyLightingState state)
     {
         List<(byte[], bool)> reports = [(AllyProtocol.Brightness(state.Brightness), true)];

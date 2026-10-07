@@ -239,6 +239,8 @@ internal static partial class LabSensorInterop
     }
 
     /// <summary>PROPERTYKEY.</summary>
+    /// <param name="formatId">Property-set GUID in the Windows PROPERTYKEY layout.</param>
+    /// <param name="propertyId">Property identifier within that set.</param>
     [StructLayout(LayoutKind.Sequential)]
     internal struct PropertyKey(Guid formatId, uint propertyId)
     {

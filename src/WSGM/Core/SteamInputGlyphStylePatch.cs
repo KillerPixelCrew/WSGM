@@ -19,6 +19,7 @@ namespace WSGM.Core;
 ///         CSSLoader does with its own. Neither tool touches the other's nodes, so a user can run both.
 ///     </para>
 /// </remarks>
+/// <param name="state">Borrowed current glyph projection; patch plans read its latest immutable presentation.</param>
 internal sealed class SteamInputGlyphStylePatch(SteamInputGlyphDeliveryState state) : ISteamUiPatch
 {
     /// <summary>Stable id of the one glyph delivery patch.</summary>

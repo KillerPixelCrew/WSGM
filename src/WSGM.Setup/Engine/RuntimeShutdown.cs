@@ -51,45 +51,54 @@ internal interface IRuntimeShutdown
     bool RunInnoUninstaller(string command, Func<bool> stillInstalled);
 
     /// <summary>The registration version captured by a file transaction.</summary>
+    /// <returns>The registered version text, or null when absent.</returns>
     string? InstalledVersion();
 
     /// <summary>Restores the registration captured before file replacement.</summary>
+    /// <param name="version">Previous version text, or null to remove the newly created registration.</param>
     void RestoreVersion(string? version);
 }
 
 /// <summary>The real machine, which also logs how WSGM answered the exit request.</summary>
 internal sealed class WindowsRuntimeShutdown : IRuntimeShutdown
 {
+    /// <inheritdoc />
     public string? InstalledVersion()
     {
         return Registration.InstalledVersion()?.ToString();
     }
 
+    /// <inheritdoc />
     public void RestoreVersion(string? version)
     {
         Registration.RestoreVersion(version);
     }
 
+    /// <inheritdoc />
     public ServiceState? InspectService()
     {
         return WindowsSetup.InspectService();
     }
 
+    /// <inheritdoc />
     public bool StopService()
     {
         return WindowsSetup.StopService();
     }
 
+    /// <inheritdoc />
     public bool ShellRunning()
     {
         return WindowsSetup.ShellRunning();
     }
 
+    /// <inheritdoc />
     public string? RunningWsgmPath()
     {
         return WindowsSetup.RunningWsgmPath();
     }
 
+    /// <inheritdoc />
     public ShutdownHandoff RequestExit(string eventName, int graceIterations)
     {
         var handoff = WindowsSetup.RequestExit(eventName, graceIterations);
@@ -97,41 +106,49 @@ internal sealed class WindowsRuntimeShutdown : IRuntimeShutdown
         return handoff;
     }
 
+    /// <inheritdoc />
     public void ForceStopCurrentSession(string image)
     {
         WindowsSetup.ForceStopCurrentSession(image);
     }
 
+    /// <inheritdoc />
     public bool ShellAnchorRecoverySettled()
     {
         return WindowsSetup.ShellAnchorRecoverySettled();
     }
 
+    /// <inheritdoc />
     public bool CloseSteam(TimeSpan budget)
     {
         return WindowsSetup.CloseSteam(budget);
     }
 
+    /// <inheritdoc />
     public IReadOnlyList<string> Blockers(bool includeSteam)
     {
         return WindowsSetup.Blockers(includeSteam);
     }
 
+    /// <inheritdoc />
     public int Run(string file, string arguments)
     {
         return WindowsSetup.Run(file, arguments);
     }
 
+    /// <inheritdoc />
     public void Start(string file, string arguments)
     {
         WindowsSetup.Start(file, arguments);
     }
 
+    /// <inheritdoc />
     public Mutex? ReserveDeviceOwner(TimeSpan wait)
     {
         return WindowsSetup.ReserveDeviceOwner(wait);
     }
 
+    /// <inheritdoc />
     public bool RunInnoUninstaller(string command, Func<bool> stillInstalled)
     {
         return Registration.RunInnoUninstaller(command, stillInstalled);

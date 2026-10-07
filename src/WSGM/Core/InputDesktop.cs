@@ -20,6 +20,7 @@ public static class InputDesktop
     ///     dismissed). A normal user cannot open Winlogon's protected desktops, so a
     ///     failed open reads as "not ready yet".
     /// </summary>
+    /// <returns>True only when the current input desktop name is Default; failed access/query returns false.</returns>
     public static bool IsDefaultInputDesktop()
     {
         var desktop = NativeMethods.OpenInputDesktop(0, false, DesktopReadObjects);

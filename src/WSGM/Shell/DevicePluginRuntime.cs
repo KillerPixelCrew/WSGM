@@ -51,31 +51,42 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
         _adapter = new DirectPluginHostAdapter(this, cycleGeneration);
     }
 
+    /// <summary>Loaded plugin identity; must match the admitted package manifest.</summary>
     internal string PackageId => Plugin.PackageId;
 
+    /// <summary>Private package-owned durable state directory under the host's plugin-state root.</summary>
     internal string StateDirectory => Path.Combine(_pluginStateRoot, PackageId);
 
+    /// <summary>Terminal lifecycle notification; completion does not imply that late native cleanup has finished.</summary>
     internal Task<DeviceRuntimeExit> Completion => _completion.Task;
+    /// <summary>Retained cleanup work that outlived the disposal budget; initially an already-completed task.</summary>
     internal Task LateCleanup { get; private set; } = Task.CompletedTask;
+    /// <summary>Latest aggregate lifecycle state, independent of individual capability availability.</summary>
     internal DeviceCycleState LifecycleState => _cycleState;
 
     private IDevicePlugin Plugin => _package.Plugin;
+    /// <summary>Last valid complete settings declaration, or null before the plugin publishes one.</summary>
     internal PluginSettingsManifest? SettingsManifest => Volatile.Read(ref _settingsManifest);
 
+    /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
         await DisposeAsync(Deadline.After(EmergencyCleanupBudget)).ConfigureAwait(false);
     }
 
+    /// <inheritdoc />
     public long CycleGeneration { get; private set; }
 
     /// <summary>The capability roles the package manifest declares; the router refuses any other.</summary>
     public IReadOnlyList<CapabilityRole> DeclaredCapabilities =>
         _package.Package?.DeviceManifest?.Capabilities ?? [];
 
+    /// <inheritdoc />
     public event Action<CapabilityDescriptorSet>? DescriptorSetReceived;
+    /// <inheritdoc />
     public event Action<CapabilityStateDelta>? CapabilityStateReceived;
 
+    /// <inheritdoc />
     public async Task<DeviceCommandDispatch> ExecuteCommandAsync(
         CapabilityCommand command,
         CancellationToken cancellationToken)
@@ -144,6 +155,10 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
         }
     }
 
+    /// <summary>Attempts terminal cleanup once, retaining native ownership when the deadline expires.</summary>
+    /// <param name="deadline">Active-time cleanup budget; Never permits waiting for retained operations.</param>
+    /// <returns>Completion after this cleanup attempt; consult LateCleanup when an operation outlived the budget.</returns>
+    /// <exception cref="AggregateException">Cleanup, restoration or unload could not be confirmed.</exception>
     internal async ValueTask DisposeAsync(Deadline deadline)
     {
         if (Interlocked.Exchange(ref _disposeStarted, 1) != 0)
@@ -271,16 +286,28 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
         }
     }
 
+    /// <summary>Runtime lifecycle changes raised on the calling lifecycle thread.</summary>
     internal event Action<DevicePluginState>? LifecycleStateReceived;
 
+    /// <summary>Complete physical-device ownership and haptic-capability replacements; an empty device list retracts ownership.</summary>
     internal event Action<(IReadOnlyList<PhysicalDeviceIdentity> Devices, HapticCapabilities? Output)>?
         PhysicalIdentitiesReceived;
 
+    /// <summary>Complete replacement OEM-control declarations for the current cycle.</summary>
     internal event Action<IReadOnlyList<OemControlDescriptor>>? OemControlsReceived;
+    /// <summary>Published OEM events; subscribers validate freshness and apply host action policy.</summary>
     internal event Action<OemControlEvent>? OemEventReceived;
+    /// <summary>Published canonical samples; downstream validation and virtual-target acceptance remain separate.</summary>
     internal event Action<CanonicalControllerSample>? ControllerSampleReceived;
+    /// <summary>Accepted complete settings declarations used by the host's separate desired-setting owner.</summary>
     internal event Action<PluginSettingsManifest>? SettingsManifestReceived;
 
+    /// <summary>Loads the selected trusted package into an isolated assembly context without starting its device cycle.</summary>
+    /// <param name="package">Selected installed device package and validated metadata.</param>
+    /// <param name="cycleGeneration">Initial host generation reserved for this runtime.</param>
+    /// <param name="cancellationToken">Cancels admission or queued loading; executing plugin constructors are not abortable.</param>
+    /// <param name="pluginStateRoot">Absolute or resolvable root for package-owned durable state.</param>
+    /// <returns>A runtime owned by the caller, which must start and eventually dispose it.</returns>
     internal static Task<DevicePluginRuntime> StartAsync(
         InstalledDevicePackage package,
         long cycleGeneration,
@@ -307,6 +334,12 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
         }
     }
 
+    /// <summary>Detects the exact model and starts one cycle within the host startup budget.</summary>
+    /// <param name="identity">Read-only machine snapshot for plugin detection.</param>
+    /// <param name="cycleGeneration">Generation for all acquired resources and publications.</param>
+    /// <param name="controllerManagementEnabled">Whether controller acquisition is requested; other services can still start.</param>
+    /// <param name="cancellationToken">Cancels startup waiting and cooperative acquisition.</param>
+    /// <returns>Passive for no match, otherwise the plugin's aggregate active/degraded state.</returns>
     internal Task<DevicePluginState> StartAsync(DeviceIdentitySnapshot identity, long cycleGeneration,
         bool controllerManagementEnabled, CancellationToken cancellationToken)
     {
@@ -314,11 +347,20 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
             cancellationToken), Deadline.After(TimeSpan.FromSeconds(15)), cancellationToken);
     }
 
+    /// <summary>Serializes plugin quiescence and publishes Suspended after it completes.</summary>
+    /// <param name="deadline">Active-time quiescence budget.</param>
+    /// <param name="cancellationToken">Cancels waiting; the lifecycle lane remains owned by outstanding work.</param>
+    /// <returns>The resulting lifecycle snapshot, or a canceled/faulted task if completion is unconfirmed.</returns>
     internal Task<DevicePluginState> SuspendAsync(Deadline deadline, CancellationToken cancellationToken)
     {
         return RunLifecycleAsync(() => SuspendCoreAsync(deadline, cancellationToken), deadline, cancellationToken);
     }
 
+    /// <summary>Resumes a suspended plugin with a strictly newer generation before accepting its publications.</summary>
+    /// <param name="cycleGeneration">Fresh host generation, greater than the current cycle.</param>
+    /// <param name="deadline">Active-time resume budget.</param>
+    /// <param name="cancellationToken">Cancels waiting and cooperative reacquisition.</param>
+    /// <returns>The plugin's aggregate state after identity/resource revalidation.</returns>
     internal Task<DevicePluginState> ResumeAsync(long cycleGeneration, Deadline deadline,
         CancellationToken cancellationToken)
     {
@@ -326,6 +368,11 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
             cancellationToken);
     }
 
+    /// <summary>Closes command admission and attempts terminal plugin restoration at most once.</summary>
+    /// <param name="reason">Host reason passed to package-owned cleanup.</param>
+    /// <param name="deadline">Active-time budget for command quiescence and restoration.</param>
+    /// <param name="cancellationToken">Cancels waiting without proving native work or restoration has completed.</param>
+    /// <returns>A Disabled snapshot whose reason preserves unverified cleanup; a never-started plugin is not stopped.</returns>
     internal Task<DevicePluginState> StopAsync(PluginStopReason reason, Deadline deadline,
         CancellationToken cancellationToken)
     {
@@ -573,6 +620,10 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
         }
     }
 
+    /// <summary>Forwards physical haptics only while the device cycle is active or degraded.</summary>
+    /// <param name="output">Complete normalized motor frame, including explicit zero values for a stop.</param>
+    /// <param name="cancellationToken">Cooperative cancellation supplied directly to the physical owner.</param>
+    /// <returns>Plugin output completion, or an already completed task when the cycle cannot accept haptics.</returns>
     internal Task ApplyHapticOutputAsync(
         HapticOutputFrame output,
         CancellationToken cancellationToken)
@@ -582,6 +633,11 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
             : Plugin.ApplyHapticOutputAsync(output, cancellationToken).AsTask();
     }
 
+    /// <summary>Serializes one physical-controller handoff and retains the lifecycle lane if native work outlives its wait.</summary>
+    /// <param name="scope">Extent of handoff; full deactivation also closes capability admission and quiesces commands.</param>
+    /// <param name="deadline">Absolute admission and handoff budget.</param>
+    /// <param name="cancellationToken">Cancels waiting and requests release cancellation; it does not prove hardware restoration.</param>
+    /// <returns>Plugin handoff completion; an expired wait can leave retained late lifecycle cleanup running.</returns>
     internal async Task ReleaseControllerAsync(
         HandoffScope scope,
         Deadline deadline,
@@ -689,6 +745,11 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
         }
     }
 
+    /// <summary>Changes physical-controller management on the lifecycle lane without disabling other device services.</summary>
+    /// <param name="enabled">Whether the plugin should own controller input and its associated resources.</param>
+    /// <param name="deadline">Budget passed to the plugin and used for cooperative cancellation.</param>
+    /// <param name="cancellationToken">Cancels lane admission and requests cancellation during the plugin call.</param>
+    /// <returns>Plugin completion; a plugin that ignores cancellation keeps this method and lane occupied.</returns>
     internal async Task SetControllerManagementAsync(
         bool enabled,
         Deadline deadline,
@@ -1245,22 +1306,36 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
     }
 }
 
+/// <summary>Distinguishes requested runtime teardown from an unexpected background termination.</summary>
 internal enum DeviceRuntimeExitReason
 {
+    /// <summary>The host requested runtime disposal.</summary>
     Intentional,
+    /// <summary>Unexpected plugin background failure ended the runtime.</summary>
     BackgroundFault
 }
 
+/// <summary>Terminal runtime notification independent of delayed native resource cleanup.</summary>
+/// <param name="Reason">Requested teardown or an unexpected background fault.</param>
+/// <param name="Detail">Plain diagnostic explanation.</param>
 internal sealed record DeviceRuntimeExit(DeviceRuntimeExitReason Reason, string Detail);
 
+/// <summary>Runtime-owned lifecycle snapshot used to update the authoritative coordinator.</summary>
 internal sealed record DevicePluginState
 {
+    /// <summary>Aggregate cycle state; individual capabilities may still be unavailable.</summary>
     internal required DeviceCycleState State { get; init; }
+    /// <summary>Host generation that produced this state.</summary>
     internal required long CycleGeneration { get; init; }
+    /// <summary>Exact matched device definition, or null when no match is active.</summary>
     internal string? DeviceDefinitionId { get; init; }
+    /// <summary>Optional diagnostic reason for the lifecycle transition.</summary>
     internal CapabilityReason? Reason { get; init; }
 }
 
+/// <summary>Separates the caller's bounded command result from any hardware work completing later.</summary>
+/// <param name="Immediate">Correlated result available within the caller's wait budget.</param>
+/// <param name="LateCompletion">Final command task when work outlived that budget, or null when already terminal.</param>
 internal sealed record DeviceCommandDispatch(
     CapabilityCommandResult Immediate,
     Task<CapabilityCommandResult>? LateCompletion = null);

@@ -146,6 +146,7 @@ public static class SteamLibraryTabs
     /// </param>
     /// <param name="hiddenNativeIds">Native Steam tab ids to omit from the strip.</param>
     /// <param name="cancellationToken">Cancels the exchange.</param>
+    /// <returns>The acknowledgement and captured native tabs; an unanswered or invalid response returns unsuccessful state.</returns>
     public static async Task<TabSyncResult> SyncTabsAsync(
         SteamClient steam,
         IReadOnlyList<InjectedTab> tabs,
@@ -207,6 +208,7 @@ public static class SteamLibraryTabs
     /// <param name="order">Full strip order as tab keys.</param>
     /// <param name="hiddenNativeIds">Native Steam tab ids to omit from the strip.</param>
     /// <param name="cancellationToken">Cancels the exchange.</param>
+    /// <returns>True when the resident script acknowledged the update; false for missing script, failure, or unanswered exchange.</returns>
     public static async Task<bool> PushOrderAsync(
         SteamClient steam,
         IReadOnlyList<string> order,

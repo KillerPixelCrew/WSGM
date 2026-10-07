@@ -29,6 +29,7 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
     private ManagementObject? _instance;
     private ManagementClass? _packageClass;
 
+    /// <inheritdoc />
     public ValueTask<bool> IsProviderAvailableAsync(CancellationToken cancellationToken)
     {
         return RunSerializedAsync(
@@ -46,6 +47,7 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
             cancellationToken);
     }
 
+    /// <inheritdoc />
     public ValueTask<byte[]> InvokeGetterAsync(
         string methodName,
         byte selector,
@@ -62,6 +64,7 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
             cancellationToken);
     }
 
+    /// <inheritdoc />
     public ValueTask InvokeSetterAsync(
         string methodName,
         byte[] package,
@@ -93,6 +96,7 @@ internal sealed class MsiWmiPlatform : IMsiWmiTransport
         }
     }
 
+    /// <inheritdoc />
     public ValueTask DisposeAsync()
     {
         _disposed = true;
@@ -330,6 +334,7 @@ internal sealed partial class WindowsClawIdentityReader : IClawIdentityReader
         _readMcuRelease = readMcuRelease ?? throw new ArgumentNullException(nameof(readMcuRelease));
     }
 
+    /// <inheritdoc />
     public async ValueTask<ClawIdentityState> ReadAsync(CancellationToken cancellationToken)
     {
         var snapshot = await Task.Run(_readBaseIdentity, CancellationToken.None)
@@ -450,6 +455,7 @@ internal sealed partial class WindowsClawIdentityReader : IClawIdentityReader
         };
     }
 
+    /// <inheritdoc />
     public bool ReadOnAcPower()
     {
         try
@@ -479,6 +485,8 @@ internal sealed partial class WindowsClawIdentityReader : IClawIdentityReader
     }
 
     /// <summary>The EC version without the build stamp the firmware appends (MMddyyyyHH:mm:ss).</summary>
+    /// <param name="field">Raw EC version field, or null when the diagnostic read was unavailable.</param>
+    /// <returns>The prefix before a recognized trailing build stamp, the original text without one, or null.</returns>
     internal static string? EcFirmwareVersion(string? field)
     {
         if (field is null)
@@ -643,6 +651,7 @@ internal sealed class MsiOemEventSource : IMsiOemEventSource
     private Func<byte, DateTimeOffset, ValueTask>? _callback;
     private ManagementEventWatcher? _watcher;
 
+    /// <inheritdoc />
     public async ValueTask EnsureEventClassAsync(CancellationToken cancellationToken)
     {
         try
@@ -656,6 +665,7 @@ internal sealed class MsiOemEventSource : IMsiOemEventSource
         }
     }
 
+    /// <inheritdoc />
     public ValueTask<bool> StartAsync(
         Func<byte, DateTimeOffset, ValueTask> callback,
         CancellationToken cancellationToken)
@@ -665,6 +675,7 @@ internal sealed class MsiOemEventSource : IMsiOemEventSource
         return ValueTask.FromResult(Subscribe(callback));
     }
 
+    /// <inheritdoc />
     public ValueTask StopAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -694,6 +705,7 @@ internal sealed class MsiOemEventSource : IMsiOemEventSource
         return ValueTask.CompletedTask;
     }
 
+    /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
         await StopAsync(CancellationToken.None).ConfigureAwait(false);

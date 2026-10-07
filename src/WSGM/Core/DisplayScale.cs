@@ -20,13 +20,12 @@ namespace WSGM.Core;
 internal static class DisplayScale
 {
     /// <summary>
-    ///     Game mode: capture ALL current per-display scalings into the stored config
-    ///     (unless a crashed session already left captured values there), persist them,
-    ///     and only then drop every display to 100% — capture-then-set ordering so a
-    ///     crash between the two can never lose the originals. When the save fails,
-    ///     scaling is left untouched. The snapshot lives in the store only; the session's
-    ///     configuration picks it up through its reload.
+    ///     Captures identified active displays whose scale differs from 100%, persists their originals,
+    ///     then lowers those displays. A surviving recovery snapshot permits lowering only its named
+    ///     displays, so newly connected displays are not changed without restoration ownership.
+    ///     A failed capture save leaves scaling untouched; the session receives the snapshot on reload.
     /// </summary>
+    /// <param name="store">Strict persistence that must durably own original scaling before any lowering write.</param>
     public static void ApplyGameMode(ConfigStore store)
     {
         var sources = GetActiveSources();
@@ -109,6 +108,9 @@ internal static class DisplayScale
     ///     pending scaling snapshot; the layout a Game Mode session owes the desktop is separate and
     ///     belongs to <see cref="GameModeLaunchRecovery" />.
     /// </summary>
+    /// <param name="store">Strict persistence holding the latest per-display recovery entries.</param>
+    /// <param name="config">Session snapshot whose recovery list is updated after the restoration attempt.</param>
+    /// <remarks>Disconnected or failed targets retain recovery entries. A failed strict read propagates without a write.</remarks>
     public static void RestoreSaved(ConfigStore store, AppConfig config)
     {
         var persisted = store.Read().RequireConfig();
@@ -117,6 +119,9 @@ internal static class DisplayScale
     }
 
     /// <summary>Handles an intentional transition into desktop mode.</summary>
+    /// <param name="store">Strict persistence holding the latest per-display recovery entries.</param>
+    /// <param name="config">Session snapshot whose recovery list is updated after the restoration attempt.</param>
+    /// <remarks>Disconnected or failed targets retain recovery entries. A failed strict read propagates without a write.</remarks>
     public static void ApplyDesktopMode(ConfigStore store, AppConfig config)
     {
         RestoreSaved(store, config);
@@ -208,6 +213,7 @@ internal static class DisplayScale
     ///     nothing better is known.
     /// </summary>
     /// <param name="config">The configuration holding the pre-game-mode scale snapshot.</param>
+    /// <returns>UI scale percent, at least 100; valid saved values are bounded to 100–500.</returns>
     public static uint GetUiScalePercent(AppConfig config)
     {
         try
@@ -247,6 +253,7 @@ internal static class DisplayScale
     /// <param name="savedPercent">The pre-game-mode snapshot value, or null.</param>
     /// <param name="currentPercent">The display's current scale percent.</param>
     /// <param name="recommendedPercent">The display's Windows-recommended percent.</param>
+    /// <returns>A saved 100–500 percent value, otherwise the larger current/recommended value with a 100 percent floor.</returns>
     public static uint PickUiScalePercent(int? savedPercent, uint currentPercent, uint recommendedPercent)
     {
         return savedPercent is >= 100 and <= 500
@@ -262,6 +269,7 @@ internal static class DisplayScale
     /// <param name="freshCapture">Whether no earlier recovery snapshot exists.</param>
     /// <param name="savedEntries">The durable, device-keyed recovery snapshot.</param>
     /// <param name="deviceName">The active source's GDI device name.</param>
+    /// <returns>True for a fresh capture or a case-insensitive source-name match in saved recovery state.</returns>
     internal static bool ShouldLowerDisplay(
         bool freshCapture,
         IReadOnlyList<DisplayScaleEntry> savedEntries,

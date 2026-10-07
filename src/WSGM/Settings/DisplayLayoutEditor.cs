@@ -243,6 +243,7 @@ public sealed class DisplayLayoutEditorRow : ObservableObject
     internal event Action<DisplayLayoutEditorRow>? PrimaryRequested;
 
     /// <summary>Fills the row from a saved output.</summary>
+    /// <param name="output">Saved display output; loading publishes row properties without applying Windows state.</param>
     internal void Load(DisplayLayoutOutput output)
     {
         _active = true;
@@ -263,6 +264,7 @@ public sealed class DisplayLayoutEditorRow : ObservableObject
     ///     nothing usable to say. The editor has no rotation control, so it saves rotation 0: keep the
     ///     display's current rotation.
     /// </summary>
+    /// <returns>A stored output for an active row with a usable identity and mode; otherwise null.</returns>
     internal DisplayLayoutOutput? ToOutput()
     {
         return Active && Target is { } target && Mode is { Width: > 0, Height: > 0 } mode
@@ -461,6 +463,7 @@ public sealed class DisplayLayoutEditor : ObservableObject
     }
 
     /// <summary>Builds the layout the rows describe, or null when none is active.</summary>
+    /// <returns>A normalized draft of usable active outputs, or null when none are active; callers must validate before saving.</returns>
     internal DisplayLayout? Build()
     {
         List<DisplayLayoutOutput> outputs = [.. Rows.Select(row => row.ToOutput()).OfType<DisplayLayoutOutput>()];
@@ -557,6 +560,8 @@ public sealed class DisplayLayoutEditor : ObservableObject
     }
 
     /// <summary>Refreshes discovery facts without replacing rows or losing draft edits.</summary>
+    /// <param name="catalog">Remembered display identities and modes.</param>
+    /// <param name="present">Currently connected target identities; disconnected saved targets remain editable.</param>
     internal void RefreshCatalog(IReadOnlyList<KnownDisplay> catalog, IReadOnlyList<DisplayTargetIdentity> present)
     {
         _loading = true;
@@ -638,6 +643,7 @@ public sealed class DisplayLayoutEditor : ObservableObject
     }
 
     /// <summary>Copies observed values into the draft as one undoable edit.</summary>
+    /// <param name="layout">Observed layout copied into the draft as one undoable edit; this does not apply it to Windows.</param>
     internal void CopyFrom(DisplayLayout layout)
     {
         _loading = true;
@@ -666,6 +672,9 @@ public sealed class DisplayLayoutEditor : ObservableObject
     }
 
     /// <summary>Moves a display, preserving the primary origin and recording a single undo step.</summary>
+    /// <param name="row">Row owned by this editor; a foreign row is ignored.</param>
+    /// <param name="x">Requested virtual-desktop X coordinate, clamped to -32768 through 32768.</param>
+    /// <param name="y">Requested virtual-desktop Y coordinate, clamped to -32768 through 32768.</param>
     public void Move(DisplayLayoutEditorRow row, int x, int y)
     {
         if (!Rows.Contains(row) || (row.X == x && row.Y == y))
@@ -688,6 +697,7 @@ public sealed class DisplayLayoutEditor : ObservableObject
     }
 
     /// <summary>Places a display beside the primary without requiring pixel arithmetic.</summary>
+    /// <param name="position">Placement relative to the primary: 1 right, 2 left, 3 above, 4 below; other values leave the position unchanged.</param>
     public void PlaceSelected(int position)
     {
         if (Selected is not { IsPrimary: false, Mode: { } mode } row

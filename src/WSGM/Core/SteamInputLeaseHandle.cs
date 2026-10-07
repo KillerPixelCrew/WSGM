@@ -57,9 +57,9 @@ internal sealed class SteamInputPipeLease : ISteamInputLeaseHandle
     /// <summary>Creates the acquire function a process's <see cref="SteamInputBlocker" /> uses.</summary>
     /// <returns>Acquires a lease through one client created on first use.</returns>
     /// <remarks>
-    ///     AllowInjection stays false: this is what makes "WSGM never writes into the Steam process" a
-    ///     property of the code rather than a promise. The blocker calls the function under its own
-    ///     lock, so the client is created once.
+    ///     The ordinary WSGM UI lease keeps AllowInjection false and connects only to a resident gate.
+    ///     The separate launch wrapper has its own explicit injection option. The blocker serializes
+    ///     this delegate so its client is created once.
     /// </remarks>
     internal static Func<ISteamInputLeaseHandle> Connector()
     {

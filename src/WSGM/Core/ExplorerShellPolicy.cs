@@ -13,6 +13,11 @@ internal static class ExplorerShellPolicy
     ///     Explorer owns both surfaces exists even while its UI thread is blocked behind some other
     ///     application's hung window, and that state must not be reported as no desktop at all.
     /// </remarks>
+    /// <param name="taskbarPresent">Whether a shell taskbar was observed.</param>
+    /// <param name="shellWindowPresent">Whether the desktop shell window was observed.</param>
+    /// <param name="taskbarOwnerProcessId">Observed taskbar owner, or zero when unknown.</param>
+    /// <param name="shellOwnerProcessId">Observed desktop owner, or zero when unknown.</param>
+    /// <returns>True only when both surfaces share the same nonzero owner.</returns>
     internal static bool OwnsShellSurfaces(
         bool taskbarPresent,
         bool shellWindowPresent,
@@ -33,6 +38,12 @@ internal static class ExplorerShellPolicy
     ///     A High-integrity Explorer is preserved during Game Mode entry: the anchor requires
     ///     the normal medium-integrity shell token and parent for restoration.
     /// </remarks>
+    /// <param name="process">Native process identity, token, and job observations.</param>
+    /// <param name="expectedImagePath">Canonical image path the process must match after full-path normalization.</param>
+    /// <param name="expectedSessionId">Interactive session the process must belong to.</param>
+    /// <param name="ownsReadyTaskbar">Whether shell ownership/readiness was established separately.</param>
+    /// <param name="requireReadyTaskbar">Whether readiness is required in addition to identity checks.</param>
+    /// <returns>Acceptance or the first concrete failed requirement; invalid path normalization may throw.</returns>
     internal static ExplorerShellAcceptance Evaluate(
         NativeShellProcessInfo process,
         string expectedImagePath,
@@ -100,6 +111,11 @@ internal static class ExplorerShellPolicy
     ///     logon, a job-bound anchor is no worse than the desktop the user had, so only its job
     ///     membership is excused; image, session and integrity checks still apply.
     /// </summary>
+    /// <param name="anchor">Identity, token, and job observations of the new anchor.</param>
+    /// <param name="expectedImagePath">Fixed anchor executable path.</param>
+    /// <param name="expectedSessionId">Interactive session inherited from the source shell.</param>
+    /// <param name="sourceShellJobBound">Whether the captured Explorer already belonged to a job.</param>
+    /// <returns>Normal acceptance or acceptance marked as degraded when only source-equivalent job membership is excused.</returns>
     internal static ExplorerShellAcceptance EvaluateLaunchAnchor(
         NativeShellProcessInfo anchor,
         string expectedImagePath,
@@ -116,6 +132,9 @@ internal static class ExplorerShellPolicy
     ///     Classifies an observed taskbar owner. Only a canonical current-session medium
     ///     Explorer can be usable in degraded mode, and a scheduler route is always recovery-only.
     /// </summary>
+    /// <param name="acceptance">Result of evaluating the observed shell owner.</param>
+    /// <param name="route">How the shell was obtained; scheduler recovery is always degraded.</param>
+    /// <returns>Normal, usable but degraded, or failed desktop quality.</returns>
     internal static ExplorerDesktopOutcome ClassifyDesktop(
         ExplorerShellAcceptance acceptance,
         ExplorerDesktopRoute route)
@@ -138,6 +157,10 @@ internal static class ExplorerShellPolicy
     ///     Decides whether an orphaned anchor may restore Explorer. An explicit stop or an
     ///     ending/inactive session always wins, and any existing shell surface is preserved.
     /// </summary>
+    /// <param name="explicitStop">Whether shutdown explicitly retired the anchor.</param>
+    /// <param name="sessionActive">Whether the interactive session can still host a desktop.</param>
+    /// <param name="shellSurfacePresent">Whether any shell surface already exists and must be preserved.</param>
+    /// <returns>Restore only for an active session without explicit stop or existing shell surfaces.</returns>
     internal static ExplorerAnchorOwnerLossAction DecideOwnerLoss(
         bool explicitStop,
         bool sessionActive,
@@ -156,6 +179,10 @@ internal static class ExplorerShellPolicy
     ///     observation. A faulted wait is never owner loss by itself; the explicit stop signal wins a
     ///     simultaneous verified exit so planned stale-anchor cleanup never restores Explorer.
     /// </summary>
+    /// <param name="processWaitCompletedSuccessfully">Whether the exact owner process wait proved exit.</param>
+    /// <param name="ownerExitVerifiedSeparately">Whether a separate observation proved owner exit despite a failed wait.</param>
+    /// <param name="explicitStop">Whether the authenticated owner explicitly retired recovery.</param>
+    /// <returns>Exit on explicit stop, recover on proven owner loss, or continue observing uncertainty.</returns>
     internal static ExplorerAnchorDisconnectAction DecideAnchorOwnerWait(
         bool processWaitCompletedSuccessfully,
         bool ownerExitVerifiedSeparately,
@@ -175,6 +202,9 @@ internal static class ExplorerShellPolicy
     ///     Gets whether the scheduler can be dispatched without racing an anchor request or
     ///     a shell surface that appeared after the last observation.
     /// </summary>
+    /// <param name="anchorDisposition">Certainty of any earlier anchor launch request.</param>
+    /// <param name="shellSurfacePresent">Whether a shell surface currently exists.</param>
+    /// <returns>True only when anchor dispatch is known not to have occurred and no shell surface exists.</returns>
     internal static bool CanDispatchScheduler(
         ExplorerAnchorLaunchDisposition anchorDisposition,
         bool shellSurfacePresent)
@@ -186,6 +216,8 @@ internal static class ExplorerShellPolicy
     ///     Gets whether a scheduler request may still produce Explorer. Unknown is deliberately
     ///     treated as dispatched so game-mode surfaces cannot race a late Task Scheduler launch.
     /// </summary>
+    /// <param name="disposition">Scheduler dispatch result.</param>
+    /// <returns>True for accepted or uncertain dispatch; false only for known nondispatch.</returns>
     internal static bool SchedulerMayHaveDispatched(
         ScheduledTaskLaunchDisposition disposition)
     {

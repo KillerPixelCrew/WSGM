@@ -38,6 +38,11 @@ internal static class ArtworkDownload
         return GetAsync(url, Http, cancellationToken);
     }
 
+    /// <summary>Downloads HTTPS artwork with a caller-supplied HTTP transport and the shared size/stall limits.</summary>
+    /// <param name="url">Image address to fetch.</param>
+    /// <param name="client">Borrowed client; this method disposes the response, not the client.</param>
+    /// <param name="cancellationToken">Cancels the request and body read.</param>
+    /// <returns>Downloaded bytes; image format and dimensions are checked separately before applying them.</returns>
     internal static async Task<byte[]> GetAsync(string url, HttpClient client, CancellationToken cancellationToken)
     {
         if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)

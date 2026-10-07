@@ -14,6 +14,13 @@ internal static partial class NativeShellProcess
     ///     selecting that shell as its process parent. The caller must verify the resulting process
     ///     before using it as a recovery owner.
     /// </summary>
+    /// <param name="parent">Borrowed verified shell process/token owner; must stay alive through the call.</param>
+    /// <param name="applicationPath">Exact recovery executable path.</param>
+    /// <param name="commandLine">Complete command line copied to mutable native storage.</param>
+    /// <param name="workingDirectory">Child working directory.</param>
+    /// <param name="process">Owned child-process wrapper on success; null on failure.</param>
+    /// <param name="error">Win32 failure, or zero on success.</param>
+    /// <returns>True when creation succeeds; the caller must still verify the child before assigning recovery ownership.</returns>
     internal static unsafe bool TryStartWithShellToken(
         NativeShellLaunchParent parent,
         string applicationPath,

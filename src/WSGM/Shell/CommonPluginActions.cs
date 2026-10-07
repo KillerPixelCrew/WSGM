@@ -16,6 +16,9 @@ internal sealed class CommonPluginActions
     private readonly IPluginActions? _provider;
     private readonly IPluginSteamUi? _steamUi;
 
+    /// <summary>Validates and captures the plugin's action, widget, and Steam UI declarations.</summary>
+    /// <param name="plugin">Borrowed provider retained for explicit actions and UI invalidation subscriptions.</param>
+    /// <exception cref="ArgumentException">A declaration, argument schema, or linked action/state identifier is invalid.</exception>
     internal CommonPluginActions(IPlugin plugin)
     {
         _provider = plugin as IPluginActions;
@@ -73,13 +76,21 @@ internal sealed class CommonPluginActions
             : []);
     }
 
+    /// <summary>Read-only action declarations with copied argument schemas and choice lists.</summary>
     internal IReadOnlyList<PluginAction> Actions { get; }
+    /// <summary>Captured controls whose action and argument links passed admission validation.</summary>
     internal IReadOnlyList<PluginUiContribution> Contributions { get; }
+    /// <summary>Captured widgets with copied contribution identifier lists.</summary>
     internal IReadOnlyList<PluginWidget> Widgets { get; }
+    /// <summary>Steam entry points linked to admitted actions; app-context links require a numeric argument.</summary>
     internal IReadOnlyList<PluginSteamUiContribution> SteamUiContributions { get; }
+    /// <summary>Captured module references; the host still owns route and surface admission.</summary>
     internal IReadOnlyList<ISteamUiModule> SteamUiModules { get; }
+    /// <summary>Captured page declarations; their route availability is checked by the frontend host.</summary>
     internal IReadOnlyList<SteamPage> SteamPages { get; }
 
+    /// <summary>Subscribes to the provider's UI invalidation event when it implements Steam UI.</summary>
+    /// <param name="handler">Callback retained by the provider until explicitly unsubscribed.</param>
     internal void SubscribeSteamUiChanged(Action handler)
     {
         if (_steamUi is not null)
@@ -88,6 +99,8 @@ internal sealed class CommonPluginActions
         }
     }
 
+    /// <summary>Removes a previously registered UI invalidation callback.</summary>
+    /// <param name="handler">The same delegate supplied when subscribing.</param>
     internal void UnsubscribeSteamUiChanged(Action handler)
     {
         if (_steamUi is not null)
@@ -158,6 +171,11 @@ internal sealed class CommonPluginActions
         return captured.AsReadOnly();
     }
 
+    /// <summary>Validates widget identifiers and links and copies each contribution identifier list.</summary>
+    /// <param name="widgets">Complete widget declaration; null, duplicates, and empty control groups are invalid.</param>
+    /// <param name="contributions">Admitted controls to which widgets may link.</param>
+    /// <returns>A read-only captured widget list.</returns>
+    /// <exception cref="ArgumentException">A widget or its control/category links are invalid.</exception>
     internal static IReadOnlyList<PluginWidget> CaptureWidgets(IReadOnlyList<PluginWidget> widgets,
         IReadOnlyList<PluginUiContribution> contributions)
     {
@@ -191,6 +209,16 @@ internal sealed class CommonPluginActions
         return captured.AsReadOnly();
     }
 
+    /// <summary>Validates arguments, supplies declared defaults, and dispatches one explicit action.</summary>
+    /// <param name="actionId">Exact identifier in the captured action declaration.</param>
+    /// <param name="origin">Defined request source used by the provider for policy and diagnostics.</param>
+    /// <param name="arguments">Explicit declared arguments; undeclared keys and invalid values are rejected.</param>
+    /// <param name="context">Current instance identity, generation, and deadline.</param>
+    /// <param name="cancellationToken">Cancels before dispatch or cooperatively during execution.</param>
+    /// <returns>
+    /// The provider's correlated result; invalid input is rejected. Exceptions, including cancellation after
+    /// dispatch, and invalid confirmations become unconfirmed results and are never retried here.
+    /// </returns>
     internal async Task<PluginActionResult> ExecuteAsync(string actionId, PluginActionOrigin origin,
         IReadOnlyDictionary<string, PluginValue> arguments, PluginContext context, CancellationToken cancellationToken)
     {

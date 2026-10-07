@@ -149,7 +149,7 @@ public sealed class SteamAutostartRecord
     /// </summary>
     public string? WrittenApproval { get; set; }
 
-    /// <summary>Whether the change was recorded but never confirmed by a readback.</summary>
+    /// <summary>Whether disable intent was recorded but an accepted write was not durably acknowledged.</summary>
     public bool Pending { get; set; }
 }
 

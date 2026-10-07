@@ -17,6 +17,9 @@ using WSGM.DeviceLab.Preflight;
 namespace WSGM.DeviceLab.Packaging;
 
 /// <summary>One package-validation failure with a stable code and path.</summary>
+/// <param name="Code">Stable machine-readable validation rule identifier.</param>
+/// <param name="Path">Package-relative entry or validation location associated with the failure.</param>
+/// <param name="Message">Readable explanation of the failed check.</param>
 internal sealed record PluginPackageValidationIssue(string Code, string Path, string Message);
 
 /// <summary>Offline package validation result.</summary>
@@ -381,6 +384,8 @@ internal static class PluginPackageWorkflow
     }
 
     /// <summary>Applies the package byte bounds WSGM applies when it opens a package.</summary>
+    /// <param name="acceptedBytes">Bytes already admitted to the package budget; negative or excessive totals are rejected.</param>
+    /// <param name="nextFileBytes">Next file length, checked against both the per-file and remaining aggregate limits.</param>
     /// <returns>The stable violation code, or null when the next file fits.</returns>
     internal static string? PackageBudgetViolation(
         long acceptedBytes,
@@ -595,6 +600,8 @@ internal static class PluginPackageWorkflow
 }
 
 /// <summary>Serves glyph validation from the same pinned file handles used by package validation.</summary>
+/// <param name="snapshot">Borrowed pinned package snapshot; its owner must keep the retained handles open during glyph validation.</param>
+/// <param name="cancellationToken">Checked before enumeration and reads; does not interrupt a synchronous file read already running.</param>
 internal sealed class SnapshotGlyphPackageSource(
     DeviceLabPackageSnapshot snapshot,
     CancellationToken cancellationToken = default) : IGlyphPackageSource

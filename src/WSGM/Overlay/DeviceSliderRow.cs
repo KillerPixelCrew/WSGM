@@ -160,6 +160,11 @@ internal sealed class DeviceSliderRow : Border
     internal bool HasPendingUserChange => _commit.IsEnabled;
 
     /// <summary>Updates the existing control without treating readback as user intent.</summary>
+    /// <param name="minimum">Inclusive published lower bound.</param>
+    /// <param name="maximum">Inclusive published upper bound.</param>
+    /// <param name="step">Published controller step.</param>
+    /// <param name="value">Current readback; active pointer or pending user edits retain their draft.</param>
+    /// <param name="enabled">Whether the current capability accepts writes; false cancels the pending draft.</param>
     internal void RefreshReadback(int minimum, int maximum, int step, int value, bool enabled)
     {
         _slider.IsEnabled = enabled;

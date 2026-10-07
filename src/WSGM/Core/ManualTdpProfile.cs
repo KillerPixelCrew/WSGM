@@ -13,6 +13,12 @@ public sealed record ManualTdpProfile(bool Unified, int? UnifiedWatts, int? Sust
 /// <summary>Resolves the selected manual profile without deriving preferences from readback.</summary>
 internal static class ManualTdpPolicy
 {
+    /// <summary>Checks a wattage against complete declared integer bounds and step alignment.</summary>
+    /// <param name="minimum">Inclusive lower bound in watts, or null when unknown.</param>
+    /// <param name="maximum">Inclusive upper bound in watts, or null when unknown.</param>
+    /// <param name="step">Positive increment in watts from the lower bound, or null when unknown.</param>
+    /// <param name="watts">Requested integer power limit.</param>
+    /// <returns>True only with all bounds present, a positive step, and an in-range aligned value.</returns>
     internal static bool Accepts(int? minimum, int? maximum, int? step, int watts)
     {
         return minimum is { } min && maximum is { } max && step is > 0

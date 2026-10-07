@@ -22,12 +22,15 @@ public sealed class LiveBackdrop : IDisposable
 
     private static readonly ConditionalWeakTable<Window, LiveBackdrop> Attachments = new();
 
-    // The native session calls, replaceable by the lifecycle tests. The headless test platform has no
-    // HWND, so the handle read is one of them.
+    // Replaceable native boundary for headless lifecycle checks.
+    /// <summary>Replaceable native factory; the returned handle transfers to the attachment.</summary>
     internal static CreateSession Create = NativeMethods.BackdropCreate;
+    /// <summary>Replaceable synchronous blur update on the creating UI thread.</summary>
     internal static Func<nint, float, int> SetBlur = NativeMethods.BackdropSetBlur;
+    /// <summary>Replaceable native destructor; consumes the handle on its creating UI thread.</summary>
     internal static Action<nint> Destroy = NativeMethods.BackdropDestroy;
 
+    /// <summary>Resolves a borrowed HWND, or zero when the Avalonia platform has none.</summary>
     internal static Func<Window, nint> ReadWindowHandle = static window =>
         window.TryGetPlatformHandle() is { HandleDescriptor: "HWND" } handle ? handle.Handle : 0;
 
@@ -40,7 +43,6 @@ public sealed class LiveBackdrop : IDisposable
     private bool _enabled = true;
     private int _generation;
 
-    // The state subscribers last saw, so StateChanged is raised only when it differs.
     private (bool Active, string? Failure, bool Enabled) _published = (false, null, true);
     private nint _session;
 
@@ -55,13 +57,17 @@ public sealed class LiveBackdrop : IDisposable
         window.PropertyChanged += OnWindowPropertyChanged;
     }
 
-    /// <summary>Gets whether the native backdrop is currently active.</summary>
+    /// <summary>Whether a native session is attached; false while hidden, minimized, disabled or failed.</summary>
     public bool IsActive => _session != 0;
 
     /// <summary>Gets the last failure, or null when there is no failure. Failed sessions require <see cref="Retry" />.</summary>
     public string? FailureReason { get; private set; }
 
-    /// <summary>Gets or sets Gaussian standard deviation in physical pixels, from 0 to 60. The default is 8.</summary>
+    /// <summary>Gaussian standard deviation in physical pixels, including zero for an unblurred backdrop.</summary>
+    /// <value>A finite value from zero through <see cref="MaximumBlurRadius" />; initially 8 unless specified.</value>
+    /// <remarks>Updates an active session immediately; otherwise retains the value for the next attachment.</remarks>
+    /// <exception cref="ArgumentOutOfRangeException">The value is nonfinite or outside the supported range.</exception>
+    /// <exception cref="ObjectDisposedException">The attachment has been disposed.</exception>
     public double BlurRadius
     {
         get => _blurRadius;
@@ -83,7 +89,12 @@ public sealed class LiveBackdrop : IDisposable
         }
     }
 
-    /// <summary>Gets or sets whether the backdrop is enabled. Disabled windows use the fallback fill.</summary>
+    /// <summary>Whether a visible, non-minimized window may have an active backdrop.</summary>
+    /// <remarks>
+    ///     Disabling releases the native session and applies the fallback. Re-enabling does not clear a
+    ///     recorded failure; call <see cref="Retry" /> for that. Assigning the current value is a no-op.
+    /// </remarks>
+    /// <exception cref="ObjectDisposedException">The attachment has been disposed.</exception>
     public bool IsEnabled
     {
         get => _enabled;
@@ -102,7 +113,8 @@ public sealed class LiveBackdrop : IDisposable
         }
     }
 
-    /// <summary>Releases hooks, native windows and GPU resources, restoring the window's original background and style bits.</summary>
+    /// <summary>Releases native resources and subscriptions and restores the window's original background and owned style bits.</summary>
+    /// <remarks>Call on the UI thread. Repeated disposal is harmless; the window can then receive a new attachment.</remarks>
     public void Dispose()
     {
         Dispatcher.UIThread.VerifyAccess();
@@ -128,6 +140,13 @@ public sealed class LiveBackdrop : IDisposable
     /// <param name="blurRadius">Gaussian standard deviation in physical pixels.</param>
     /// <param name="fallback">Opaque fill used when disabled or unavailable; defaults to dark gray.</param>
     /// <returns>An attachment disposed automatically on close, or explicitly by its owner.</returns>
+    /// <remarks>
+    ///     Call on the UI thread. Native creation waits for visibility and negotiated transparent composition.
+    ///     Missing platform/native capabilities produce fallback state rather than an attachment exception.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="window" /> is null.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="blurRadius" /> is nonfinite or outside 0–60.</exception>
+    /// <exception cref="InvalidOperationException">The caller is off the UI thread or the window already has an attachment.</exception>
     public static LiveBackdrop Attach(Window window, double blurRadius = 8, IBrush? fallback = null)
     {
         Dispatcher.UIThread.VerifyAccess();
@@ -145,7 +164,9 @@ public sealed class LiveBackdrop : IDisposable
         return attachment;
     }
 
-    /// <summary>Explicitly retries after a missing capability, device failure or display change.</summary>
+    /// <summary>Clears the recorded failure and recreates the session when visibility, enablement and transparency allow.</summary>
+    /// <remarks>Call on the UI thread. Also restarts a healthy session; hidden or disabled windows remain inactive.</remarks>
+    /// <exception cref="ObjectDisposedException">The attachment has been disposed.</exception>
     public void Retry()
     {
         VerifyAccess();
@@ -230,9 +251,7 @@ public sealed class LiveBackdrop : IDisposable
         }
 
         var generation = ++_generation;
-        // Keep the reverse P/Invoke delegate alive until native hooks have been removed. A failure the
-        // native side queued before a stop, hide, retry or dispose arrives here late and belongs to a
-        // session that no longer exists: Stop advanced the generation, so it is ignored.
+        // Root the callback until native hooks are removed; the generation rejects queued failures after Stop.
         _callback = result => Dispatcher.UIThread.Post(() =>
         {
             if (!_disposed && generation == _generation)
@@ -292,7 +311,12 @@ public sealed class LiveBackdrop : IDisposable
         _callback = null;
     }
 
-    /// <summary>The native create call, with the session returned through an out parameter.</summary>
+    /// <summary>Replaceable native session factory with the same ownership contract as <see cref="NativeMethods.BackdropCreate" />.</summary>
+    /// <param name="owner">Borrowed HWND on the calling UI thread.</param>
+    /// <param name="sigma">Finite Gaussian deviation in physical pixels, from zero through 60.</param>
+    /// <param name="callback">Rooted until destruction; queues failure handling without destroying the session inline.</param>
+    /// <param name="session">Owned handle on success; zero on failure.</param>
+    /// <returns>An HRESULT; a negative value indicates failure.</returns>
     internal delegate int CreateSession(nint owner, float sigma, NativeMethods.FailureCallback callback,
         out nint session);
 }

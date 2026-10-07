@@ -304,8 +304,12 @@ public sealed class ConfigStore
         }
     }
 
+    /// <summary>Owns an already-acquired configuration mutex and its native handle.</summary>
+    /// <param name="mutex">Mutex whose ownership transfers to this same-thread lease.</param>
     internal sealed class MutexLease(Mutex mutex) : IDisposable
     {
+        /// <summary>Releases the acquired mutex and closes it; release failures are logged.</summary>
+        /// <remarks>Call once on the acquiring thread.</remarks>
         public void Dispose()
         {
             try
@@ -336,6 +340,11 @@ public sealed class ConfigStore
         private bool _disposed;
         private (byte[] Bytes, int Version)? _older;
 
+        /// <summary>Transfers an acquired writer lease and strict read into one thread-bound transaction.</summary>
+        /// <param name="store">Persistence owner used for explicit publication.</param>
+        /// <param name="held">Acquired mutex lease transferred to the transaction.</param>
+        /// <param name="read">Validated loaded or absent configuration result.</param>
+        /// <param name="older">Original older-schema bytes and version to preserve on first save, or null.</param>
         internal ConfigTransaction(ConfigStore store, MutexLease held, ConfigReadResult read,
             (byte[] Bytes, int Version)? older)
         {

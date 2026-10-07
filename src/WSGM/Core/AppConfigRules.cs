@@ -6,16 +6,21 @@ using static WSGM.Core.AppConfigDefaults;
 
 namespace WSGM.Core;
 
+/// <summary>Returns a normalized value with the repairs that should be reported to the user or log.</summary>
+/// <typeparam name="T">Configuration value type.</typeparam>
+/// <param name="Value">Normalized value; may be the same mutable instance supplied to the rule.</param>
+/// <param name="Diagnostics">Human-readable repair descriptions; empty when no reported repair was needed.</param>
 internal sealed record ConfigRuleResult<T>(T Value, IReadOnlyList<string> Diagnostics);
 
+/// <summary>Repairs the loaded configuration graph before runtime consumers use it.</summary>
 internal static class AppConfigRules
 {
     /// <summary>
-    ///     An explicit JSON null ("StartupApps": null) deserializes over the
-    ///     property initializer; replace nulls with fresh defaults so a hand-edited
-    ///     config can never NRE the shell later (which would kill it before the panic
-    ///     handler runs). New nested object/list members belong in this list too.
+    ///     Repairs null members, invalid enum values, ranges, and nested configuration in place.
+    ///     Add new nested members here so explicit JSON nulls cannot bypass property defaults.
     /// </summary>
+    /// <param name="config">Non-null configuration graph to mutate; callers must own it exclusively.</param>
+    /// <returns>The same configuration instance and diagnostics from its nested repair rules.</returns>
     internal static ConfigRuleResult<AppConfig> Normalize(AppConfig config)
     {
         List<string> diagnostics = [];
@@ -75,12 +80,7 @@ internal static class AppConfigRules
         config.PluginConfigurations ??= [];
         config.PluginConfigurations.RemoveAll(static entry => entry is null);
         config.LaunchWrappers ??= [];
-        // A null ELEMENT ("StartupApps": [null]) survives the list-level ??= above and
-        // would NRE in SelfElevation before the crash-loop breaker has recorded the
-        // start — the shell would then die at every sign-in with nothing disarming it.
-        // RemoveAll repairs in place: Normalize must hand back the caller's own list
-        // instances (ConfigurationTests pins that), and rebuilding them would
-        // allocate on every config load just to drop elements that are almost never there.
+        // Null elements survive list-level repair. Preserve this list's identity for existing callers.
         config.StartupApps.RemoveAll(static app => app is null);
         foreach (var app in config.StartupApps)
         {

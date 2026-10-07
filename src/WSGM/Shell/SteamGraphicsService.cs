@@ -49,6 +49,8 @@ internal sealed class SteamGraphicsService : ISteamSettingsQuickAccessBackend, I
     /// <summary>Whether the page has anything to show: at least one graphics package runs.</summary>
     internal bool Visible => _source.Snapshot().Visible;
 
+    /// <inheritdoc />
+    /// <remarks>Detaches change notifications and disposes the graphics source this service owns.</remarks>
     public void Dispose()
     {
         _source.Changed -= Refresh;
@@ -103,6 +105,8 @@ internal sealed class SteamGraphicsService : ISteamSettingsQuickAccessBackend, I
         return new SteamSettingsQuickAccessState(Pages(_source.Snapshot()), revision);
     }
 
+    /// <summary>Projects the current graphics snapshot into vendor groups for Quick Access.</summary>
+    /// <returns>A state snapshot with the current revision and one grouped page per publisher.</returns>
     internal SteamSettingsQuickAccessState ReadQuickAccessState()
     {
         long revision;
@@ -176,6 +180,8 @@ internal sealed class SteamGraphicsService : ISteamSettingsQuickAccessBackend, I
     }
 
     /// <summary>One vendor dropdown in Quick Access, retaining the adapter and display category headings.</summary>
+    /// <param name="snapshot">Current graphics publishers, sections and capability rows.</param>
+    /// <returns>One page per publisher, preserving adapter/display category headings and source order.</returns>
     internal static IReadOnlyList<SteamSettingsPage> QuickAccessPages(GraphicsOverlaySnapshot snapshot)
     {
         return snapshot.Publishers.Select(publisher =>

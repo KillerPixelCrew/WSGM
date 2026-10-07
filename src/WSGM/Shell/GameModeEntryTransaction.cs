@@ -14,7 +14,7 @@ internal enum GameModeEntryOutcome
     /// <summary>Game Mode is running.</summary>
     Entered,
 
-    /// <summary>The user cancelled. The desktop is as it was.</summary>
+    /// <summary>The user cancelled and desktop recovery was attempted; recovery may remain pending.</summary>
     Cancelled,
 
     /// <summary>Entry failed. The desktop either never changed or went through the desktop return.</summary>
@@ -73,9 +73,14 @@ internal interface IGameModeEntryBackend
     Task<DisplayLayoutResult> ApplyLayoutAsync(DisplayLayout layout, CancellationToken cancellationToken);
 
     /// <summary>Captures the current desktop audio state for a later return.</summary>
+    /// <param name="cancellationToken">Cancels waiting or query admission.</param>
+    /// <returns>The readable desktop audio preferences, or null when defaults cannot be read.</returns>
     Task<AudioProfilePreference?> CaptureAudioAsync(CancellationToken cancellationToken);
 
     /// <summary>Applies optional audio preferences after display layout work.</summary>
+    /// <param name="preference">Requested audio settings, or null to preserve all settings.</param>
+    /// <param name="cancellationToken">Cancels waiting; in-flight native writes may still complete.</param>
+    /// <returns>Per-setting acceptance results, including partial failures; writes are not rolled back.</returns>
     Task<AudioProfileApplyResult> ApplyAudioAsync(
         AudioProfilePreference? preference,
         CancellationToken cancellationToken);
@@ -87,6 +92,7 @@ internal interface IGameModeEntryBackend
     Task PersistPendingReturnAsync(DisplayLayout? layout, AudioProfilePreference? audio);
 
     /// <summary>Applies the scaling posture Default entry uses.</summary>
+    /// <returns>Completion of the configured default display posture operation.</returns>
     Task ApplyDefaultPostureAsync();
 
     /// <summary>Runs the entry actions, stopping at the first failure.</summary>
@@ -120,9 +126,13 @@ internal interface IGameModeEntryBackend
     Task<bool> ExitExplorerAndWaitAsync();
 
     /// <summary>Returns through the shared desktop recovery sequence.</summary>
+    /// <param name="layout">Captured layout to restore, or null to use the configured recovery policy.</param>
+    /// <param name="runLeaveActions">Whether completed entry actions require the configured leave sequence.</param>
+    /// <returns>Whether Explorer was restored; display or audio recovery may remain pending even when true.</returns>
     Task<bool> ReturnToDesktopAsync(DisplayLayout? layout, bool runLeaveActions);
 
     /// <summary>Arms the splash before requesting Steam, after all open-ended waits.</summary>
+    /// <returns>Completion after the splash is ready to observe Steam; this does not establish CEF readiness.</returns>
     Task ArmSteamDetectionAsync();
 
     /// <summary>Asks Steam for Big Picture once.</summary>
@@ -130,6 +140,7 @@ internal interface IGameModeEntryBackend
     Task<string?> RequestBigPictureAsync();
 
     /// <summary>Brings up the game-mode surfaces and marks the session committed.</summary>
+    /// <returns>Completion after game-mode surfaces are activated and session state is committed.</returns>
     Task CommitGameModeAsync();
 }
 
@@ -138,6 +149,8 @@ internal interface IGameModeEntryBackend
 ///     operations, including after Explorer exit; a write already in flight settles before recovery.
 ///     Big Picture starts after the display layout, and the UI commit is awaited.
 /// </summary>
+/// <param name="backend">Borrowed effect owner; the transaction neither disposes it nor owns its services.</param>
+/// <param name="launch">Launch configuration used throughout this attempt.</param>
 internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, GameModeLaunchConfiguration launch)
 {
     /// <summary>Runs the entry.</summary>
@@ -150,8 +163,7 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
         AudioProfilePreference? returnAudio = null;
         bool? recovered = null;
 
-        // Whether the desktop came back. The return shows its own pending-desktop warning when it
-        // did not, so a caller then reports its outcome without a second warning.
+        // Recovery reports its own failure; cache it to avoid duplicate attempts and warnings.
         async Task<bool> RecoverAsync()
         {
             recovered ??= await backend.ReturnToDesktopAsync(returnLayout,
@@ -252,9 +264,7 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
                 backend.SetStatus("Applying the display layout");
                 var applied = await backend.ApplyLayoutAsync(game, CancellationToken.None)
                     .ConfigureAwait(false);
-                // Past the boundary a refused layout is not worth abandoning Game Mode over: the
-                // session is usable on whatever the desktop is showing, and saying so is better
-                // than tearing everything down again.
+                // A refused layout leaves Game Mode usable on the existing display; report the refusal.
                 if (!applied.Applied)
                 {
                     layoutWarning = "Game Mode display layout: " + DisplayText.Layout(applied);

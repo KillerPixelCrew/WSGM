@@ -416,9 +416,22 @@ internal sealed class RtssOsdWriter : IDisposable
 }
 
 /// <summary>
-///     One sample of everything the OSD can currently source. Null omits the element, which
-///     is HandheldCompanion's own degrade rule — an entry with no elements never renders.
+///     One sensor sample for the OSD and AutoTDP. Null means unavailable and omits that OSD element.
 /// </summary>
+/// <param name="CpuLoadPercent">CPU utilization percentage.</param>
+/// <param name="CpuPowerWatts">CPU power draw in watts.</param>
+/// <param name="CpuTemperatureC">CPU temperature in Celsius.</param>
+/// <param name="GpuLoadPercent">GPU utilization percentage.</param>
+/// <param name="GpuPowerWatts">GPU power draw in watts.</param>
+/// <param name="GpuTemperatureC">GPU temperature in Celsius.</param>
+/// <param name="GpuMemoryUsedGb">Used graphics memory in the provider's GB units.</param>
+/// <param name="GpuMemoryTotalGb">Total graphics memory in the provider's GB units.</param>
+/// <param name="MemoryUsedGb">Used system memory in GB, from the provider or Windows fallback.</param>
+/// <param name="MemoryTotalGb">Total system memory in GB, from the provider or Windows fallback.</param>
+/// <param name="BatteryPercent">Remaining battery percentage.</param>
+/// <param name="BatteryWatts">Windows battery charge rate in watts; negative values indicate discharge.</param>
+/// <param name="BatteryMinutesRemaining">Estimated battery runtime in minutes.</param>
+/// <param name="OnAcPower">Whether the source reports AC power; false in the empty sample.</param>
 internal sealed record RtssOsdMetrics(
     double? CpuLoadPercent,
     double? CpuPowerWatts,
@@ -435,6 +448,7 @@ internal sealed record RtssOsdMetrics(
     int? BatteryMinutesRemaining,
     bool OnAcPower)
 {
+    /// <summary>No available sensor values, with AC state unset to false.</summary>
     internal static readonly RtssOsdMetrics Empty = new(
         null, null, null, null, null, null, null, null, null, null, null, null, null, false);
 }
@@ -452,6 +466,7 @@ internal sealed record RtssOsdPowerStatus(
     int? AutoTdpWatts,
     string AutoTdpActivity)
 {
+    /// <summary>No known limit and no active AutoTDP state.</summary>
     internal static readonly RtssOsdPowerStatus Empty = new(null, false, false, null, string.Empty);
 }
 
@@ -1424,6 +1439,8 @@ internal sealed class RtssOsdRenderer : IAsyncDisposable
     private Task? _loop;
     private volatile RtssOsdPowerStatus _powerStatus = RtssOsdPowerStatus.Empty;
 
+    /// <summary>Creates an OSD renderer with its own sensor source and mapping writer.</summary>
+    /// <param name="rtssExecutablePath">Supplies the last verified RTSS executable for optional sensor-provider startup.</param>
     internal RtssOsdRenderer(Func<string?>? rtssExecutablePath = null)
     {
         _metrics = new RtssOsdMetricsSource(rtssExecutablePath);
@@ -1472,6 +1489,7 @@ internal sealed class RtssOsdRenderer : IAsyncDisposable
         ReleaseResources();
     }
 
+    /// <summary>Starts the single rendering loop; repeated calls reuse the existing task.</summary>
     internal void Start()
     {
         _loop ??= Task.Run(RenderLoopAsync);

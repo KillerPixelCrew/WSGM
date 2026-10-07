@@ -17,6 +17,12 @@ internal sealed class DescriptorControlView : ContentControl
     private readonly InvokeButtonRow? _run;
     private DescriptorRow _descriptor;
 
+    /// <summary>Creates one UI-thread presentation from a descriptor; it does not own the backend.</summary>
+    /// <param name="descriptor">Initial immutable row state.</param>
+    /// <param name="key">Placement-specific semantic focus key.</param>
+    /// <param name="invoke">Current-row command callback; service validation remains authoritative.</param>
+    /// <param name="setValue">Optional committed integer editor callback; null uses command/read-only presentation.</param>
+    /// <param name="useGlobal">Optional profile-override reset callback.</param>
     internal DescriptorControlView(DescriptorRow descriptor, string key, Func<DescriptorRow, Task> invoke,
         Action<int>? setValue = null, Func<string, Task>? useGlobal = null)
     {
@@ -57,6 +63,9 @@ internal sealed class DescriptorControlView : ContentControl
         Refresh(descriptor);
     }
 
+    /// <summary>Checks whether an existing editor can represent a newly published descriptor.</summary>
+    /// <param name="descriptor">Candidate published row.</param>
+    /// <returns>True when range, options and editor/action shape remain compatible; no identity validation is performed here.</returns>
     internal bool Matches(DescriptorRow descriptor)
     {
         return _descriptor.Range == descriptor.Range
@@ -64,6 +73,8 @@ internal sealed class DescriptorControlView : ContentControl
                && (_descriptor.CanInvoke == descriptor.CanInvoke || _body is DeviceSettingRow or DeviceSliderRow);
     }
 
+    /// <summary>Refreshes compatible presentation and callbacks without replacing focused controls.</summary>
+    /// <param name="descriptor">Current descriptor whose layout has already passed Matches.</param>
     internal void Refresh(DescriptorRow descriptor)
     {
         _descriptor = descriptor;

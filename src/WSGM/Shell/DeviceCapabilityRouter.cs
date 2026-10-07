@@ -10,8 +10,12 @@ using WSGM.Device.Sdk.Lifecycle;
 namespace WSGM.Shell;
 
 /// <summary>Stable dictionary key for one semantic capability instance.</summary>
+/// <param name="CapabilityId">Semantic capability identifier, unique together with the instance identifier.</param>
+/// <param name="InstanceId">Optional subdevice/zone identifier; null denotes the uninstanced capability.</param>
 internal readonly record struct DeviceCapabilityKey(string CapabilityId, string? InstanceId)
 {
+    /// <summary>Formats the key for diagnostics, separating a nonempty instance with a hash.</summary>
+    /// <returns>The capability identifier alone, or capability and instance identifiers joined by <c>#</c>.</returns>
     public override string ToString()
     {
         return InstanceId is { Length: > 0 }
@@ -118,6 +122,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     /// <summary>Overlay sections of the accepted descriptor set, replaced with each set.</summary>
     private IReadOnlyList<CapabilitySection> _sections = [];
 
+    /// <summary>Creates the projection owner for one device or graphics capability publisher.</summary>
     /// <param name="postToUi">Posts the projection build to the UI dispatcher.</param>
     /// <param name="publisher">A graphics publisher's profile key, or null for the device package.</param>
     /// <param name="utcNow">Observation clock, or the current UTC time.</param>
@@ -159,6 +164,9 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         }
     }
 
+    /// <summary>Detaches the publisher and cancels and joins late-result observers.</summary>
+    /// <returns>Observer cleanup completion; it does not wait for or dispose underlying plugin calls.</returns>
+    /// <remarks>In-flight commands retain their own gates until they return; disposal cannot abort their native effects.</remarks>
     public async ValueTask DisposeAsync()
     {
         Task[] observers;
@@ -193,6 +201,10 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     /// </summary>
     internal event Action<long, long>? DescriptorsAccepted;
 
+    /// <summary>Replaces the borrowed publisher and clears all descriptors, observations, and command projections.</summary>
+    /// <param name="client">Publisher whose events are subscribed until detach or disposal; ownership is not transferred.</param>
+    /// <param name="cycleGeneration">Current lifecycle generation required on subsequent publications.</param>
+    /// <exception cref="ObjectDisposedException">The router has been disposed.</exception>
     internal void Attach(ICapabilityPublisher client, long cycleGeneration)
     {
         ArgumentNullException.ThrowIfNull(client);
@@ -275,6 +287,19 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         Publish();
     }
 
+    /// <summary>Serializes one capability request, validates its current descriptor/state, and dispatches once.</summary>
+    /// <param name="capabilityId">Semantic identifier in the accepted descriptor set.</param>
+    /// <param name="instanceId">Exact instance identifier, or null for an uninstanced capability.</param>
+    /// <param name="value">Requested value, or null for an action-only capability.</param>
+    /// <param name="timeout">Budget assigned after per-capability admission; nonpositive values use five seconds.</param>
+    /// <param name="expectedCycle">Optional generation observed by the caller; a mismatch refuses dispatch.</param>
+    /// <param name="expectedDescriptors">Optional descriptor generation observed by the caller.</param>
+    /// <param name="applyPowerPair">Whether to carry the host-computed paired power value with this request.</param>
+    /// <param name="cancellationToken">Cancels lane waiting or dispatch; cancellation after dispatch can mean uncertain effects.</param>
+    /// <returns>
+    /// Immediate rejection, completion, or uncertainty. Late completion updates the projection separately;
+    /// neither this method nor late observation automatically retries a write.
+    /// </returns>
     internal async Task<CapabilityCommandResult> ExecuteAsync(
         string capabilityId,
         string? instanceId,
@@ -344,6 +369,8 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         }
     }
 
+    /// <summary>Builds a complete projection using the current descriptors, desired layers, and observation age.</summary>
+    /// <returns>A captured capability list; taking a snapshot does not dispatch or persist values.</returns>
     internal IReadOnlyList<DeviceCapabilityView> Snapshot()
     {
         lock (_gate)
@@ -352,6 +379,8 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         }
     }
 
+    /// <summary>Invalidates prior-generation observations and command results while retaining descriptor presentation.</summary>
+    /// <param name="cycleGeneration">New lifecycle generation; an unchanged value leaves current state intact.</param>
     internal void MarkCycleGenerationChanged(long cycleGeneration)
     {
         lock (_gate)
@@ -379,6 +408,8 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         _availability.Clear();
     }
 
+    /// <summary>Marks this publisher disconnected so queued/new requests cannot dispatch.</summary>
+    /// <remarks>Existing native work is not canceled or rolled back by this projection change.</remarks>
     internal void CloseCommandAdmission()
     {
         lock (_gate)
@@ -389,6 +420,8 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         Publish();
     }
 
+    /// <summary>Unsubscribes the publisher and clears pending commands and section presentation.</summary>
+    /// <remarks>The publisher is borrowed and is not stopped or disposed here.</remarks>
     internal void Detach()
     {
         lock (_gate)
@@ -1138,6 +1171,8 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     ///     capability that was never read (<see cref="HardwareStateQuality.Unknown" />) is still
     ///     writable while the plugin reports it available. An expired or faulted observation is not.
     /// </remarks>
+    /// <param name="state">Published availability and evidence quality after freshness projection.</param>
+    /// <returns>True when available and neither stale nor faulted; unknown readback alone does not disable writes.</returns>
     internal static bool CanCommand(CapabilityState state)
     {
         return state is
@@ -1174,6 +1209,12 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 /// <summary>Structural and semantic validation applied before plugin data enters WSGM state.</summary>
 internal static class DeviceCapabilityValidation
 {
+    /// <summary>Validates generation, unique identities, layout, power presets, and power-pair structure.</summary>
+    /// <param name="set">Complete replacement descriptor set supplied by the current publisher.</param>
+    /// <param name="cycleGeneration">Current lifecycle generation the set must match.</param>
+    /// <param name="previousGeneration">Last accepted descriptor generation; the new one must be greater.</param>
+    /// <param name="error">Null on success, otherwise the first structural or semantic rejection reason.</param>
+    /// <returns>Whether the set may enter host state; this does not test hardware support or native transport.</returns>
     internal static bool TryValidateDescriptorSet(
         CapabilityDescriptorSet set,
         long cycleGeneration,
@@ -1232,6 +1273,13 @@ internal static class DeviceCapabilityValidation
                && DevicePowerPair.TryValidate(set.Descriptors, out error);
     }
 
+    /// <summary>Checks generation and observed-value compatibility before accepting a capability state.</summary>
+    /// <param name="state">Candidate observation; verified quality requires a nonnull readback value.</param>
+    /// <param name="descriptor">Accepted descriptor defining the value shape and range.</param>
+    /// <param name="descriptorGeneration">Descriptor generation the state must match.</param>
+    /// <param name="cycleGeneration">Lifecycle generation the state must match.</param>
+    /// <param name="error">Null on success, otherwise the rejection reason.</param>
+    /// <returns>Whether these structural checks pass; the publisher still owns the evidence behind its quality.</returns>
     internal static bool TryValidateState(
         CapabilityState state,
         CapabilityDescriptor descriptor,

@@ -18,7 +18,8 @@ internal sealed class ObservationGate : IDisposable
     /// <summary>How many leases are held now.</summary>
     internal int Count => Volatile.Read(ref _count);
 
-    /// <inheritdoc />
+    /// <summary>Releases the wake semaphore after the owner has canceled and joined its poll loop.</summary>
+    /// <remarks>Outstanding observation leases must no longer be used to start work.</remarks>
     public void Dispose()
     {
         _signal.Dispose();
@@ -54,7 +55,8 @@ internal sealed class ObservationGate : IDisposable
 
     /// <summary>Waits for the next wake.</summary>
     /// <param name="cancellationToken">Stops the wait.</param>
-    /// <returns>A task that completes on the next wake.</returns>
+    /// <returns>A task that consumes one pending or future wake; a wake does not guarantee a lease is still held.</returns>
+    /// <exception cref="OperationCanceledException">The wait was canceled.</exception>
     internal Task WaitAsync(CancellationToken cancellationToken)
     {
         return _signal.WaitAsync(cancellationToken);

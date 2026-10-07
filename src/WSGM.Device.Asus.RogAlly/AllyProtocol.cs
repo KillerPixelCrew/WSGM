@@ -113,6 +113,9 @@ internal static class AllyProtocol
 
     /// <summary>Reads one vendor input report and returns its event code.</summary>
     /// <remarks>HHD reads <c>rep[1]</c> after checking <c>rep[0] == 0x5A</c> (<c>base.py:176-179</c>).</remarks>
+    /// <param name="report">Input report bytes; at least report ID and event byte are required.</param>
+    /// <param name="code">Nonzero event byte on success; zero on failure.</param>
+    /// <returns>True only for a 0x5A report with a nonzero event code; known-action classification is separate.</returns>
     public static bool TryReadVendorEvent(ReadOnlySpan<byte> report, out byte code)
     {
         code = 0;
@@ -127,6 +130,8 @@ internal static class AllyProtocol
 
     /// <summary>HC's brightness feature report: <c>5D BA C5 C4 level</c>, level 0-3.</summary>
     /// <remarks>HC scales 0-100 by 33.33 (<c>ROGAlly.cs:507-522</c>); HHD sends the same bytes on 0x5A.</remarks>
+    /// <param name="percent">Requested percentage, converted to the nearest firmware level and clamped to 0-3.</param>
+    /// <returns>A newly allocated five-byte Aura brightness feature report; no hardware call is made.</returns>
     public static byte[] Brightness(int percent)
     {
         var level = (byte)Math.Clamp((int)Math.Round(percent / 33.33), 0, 3);
@@ -134,6 +139,12 @@ internal static class AllyProtocol
     }
 
     /// <summary>HC's <c>AuraMessage</c> (<c>ROGAlly.cs:595-617</c>), seventeen bytes.</summary>
+    /// <param name="effect">Aura effect code, encoded without enum validation.</param>
+    /// <param name="zone">Target Aura zone, encoded without enum validation.</param>
+    /// <param name="primary">Primary packed 0xRRGGBB color.</param>
+    /// <param name="secondary">Secondary packed 0xRRGGBB color used by applicable effects.</param>
+    /// <param name="speed">Firmware speed byte, normally produced by Speed.</param>
+    /// <returns>A newly allocated 17-byte Aura color message; this helper does not send it.</returns>
     public static byte[] Color(AuraEffect effect, AuraZone zone, int primary, int secondary, byte speed)
     {
         return
@@ -159,18 +170,22 @@ internal static class AllyProtocol
     }
 
     /// <summary>HC <c>MESSAGE_APPLY</c>.</summary>
+    /// <returns>A new 0x5D/0xB4 apply message for the caller to send as an Aura output report.</returns>
     public static byte[] Apply()
     {
         return [AuraReportId, 0xB4];
     }
 
     /// <summary>HC <c>MESSAGE_SET</c>.</summary>
+    /// <returns>A new 0x5D/0xB5 set message for the caller to send as an Aura output report.</returns>
     public static byte[] Set()
     {
         return [AuraReportId, 0xB5, 0, 0, 0];
     }
 
     /// <summary>HC's speed bands: at most 33 slow, at most 66 medium, else fast (<c>ROGAlly.cs:552</c>).</summary>
+    /// <param name="percent">Requested speed percentage; values outside 0-100 still map by the same thresholds.</param>
+    /// <returns>The firmware slow, medium or fast byte for the requested band.</returns>
     public static byte Speed(int percent)
     {
         return percent <= 33 ? SpeedSlow : percent <= 66 ? SpeedMedium : SpeedFast;

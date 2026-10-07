@@ -26,6 +26,9 @@ public static class SelfElevation
     /// </summary>
     /// <param name="args">The process arguments to forward to an elevated copy.</param>
     /// <param name="config">The configuration loaded for this process startup.</param>
+    /// <returns>The elevated child's exit code after it exits, or null when this process should continue.</returns>
+    /// <exception cref="ArgumentNullException">The configuration is null.</exception>
+    /// <remarks>Blocks for the elevated child's lifetime so the logon watchdog retains its original process tree.</remarks>
     public static int? EnsureElevatedIfConfigured(string[] args, AppConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
@@ -36,8 +39,7 @@ public static class SelfElevation
             return null;
         }
 
-        // Startup has already enforced package-root cardinality; a device package is not opened
-        // until after elevation.
+        // Resolve elevation before opening any device package runtime.
         var reason = ElevationPolicy.ElevationReason(config, Steam.RequiresElevatedShell);
         if (reason is null ||
             ElevationCheck.IsCurrentProcessElevated() != false)
@@ -97,6 +99,11 @@ public static class SelfElevation
     ///     declined, the elevated instance outlived the wait, or the write failed.
     ///     <paramref name="description" /> prefixes the log lines (e.g. "UAC change").
     /// </summary>
+    /// <param name="argument">Complete, already-quoted command line for the elevated WSGM helper.</param>
+    /// <param name="description">Action name used in failure diagnostics.</param>
+    /// <param name="timeoutMs">Wait limit in milliseconds, or <see cref="System.Threading.Timeout.Infinite" />.</param>
+    /// <returns>True only for an observed zero exit code. False also covers cancellation of UAC and unknown timeout outcomes.</returns>
+    /// <remarks>Blocks the caller. On timeout the child is left running; do not infer that its mutation did not happen.</remarks>
     public static bool RunElevatedAction(string argument, string description, int timeoutMs = 60_000)
     {
         var exe = Environment.ProcessPath;
@@ -140,6 +147,8 @@ public static class SelfElevation
     ///     one) are doubled, and empty args become "" — a bare Contains-space wrap would
     ///     corrupt args like a quoted path ending in a backslash.
     /// </summary>
+    /// <param name="arg">One non-null argument, including an empty string.</param>
+    /// <returns>A command-line token preserving the argument when parsed by Windows.</returns>
     internal static string Quote(string arg)
     {
         return WindowsCommandLine.Quote(arg);

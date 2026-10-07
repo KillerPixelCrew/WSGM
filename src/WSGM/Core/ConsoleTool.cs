@@ -26,6 +26,9 @@ internal enum ConsoleToolRunOutcome
 }
 
 /// <summary>One console invocation, including uncertain outcomes after process start.</summary>
+/// <param name="Outcome">Whether start was avoided, a known exit occurred, or effects remain uncertain.</param>
+/// <param name="ExitCode">Observed exit status, or null when no exit status could be established.</param>
+/// <param name="Output">Combined stdout and stderr, or empty when capture could not finish within the budget.</param>
 internal sealed record ConsoleToolResult(ConsoleToolRunOutcome Outcome, int? ExitCode, string Output);
 
 /// <summary>
@@ -38,9 +41,13 @@ internal interface IConsoleToolProcess : IDisposable
     int ExitCode { get; }
 
     /// <summary>Captures stdout and stderr concurrently.</summary>
+    /// <returns>A task containing captured stdout followed by stderr; concurrent stream order is not preserved.</returns>
     Task<string> ReadOutputAsync();
 
     /// <summary>Waits for the exact process to exit.</summary>
+    /// <param name="cancellationToken">Cancels this wait; the owner separately decides whether to kill the process.</param>
+    /// <returns>A task completing when the owned process exits.</returns>
+    /// <exception cref="OperationCanceledException">The wait was canceled.</exception>
     Task WaitForExitAsync(CancellationToken cancellationToken);
 
     /// <summary>Requests termination of the exact process and its descendants.</summary>
@@ -60,6 +67,13 @@ internal static class ConsoleTool
     // captured output is given up on.
     private const int DrainTimeoutMs = 2000;
 
+    /// <summary>Runs an owned console process with a relative wait budget and bounded output capture.</summary>
+    /// <param name="exe">Executable path; use <see cref="System32" /> for Windows utilities.</param>
+    /// <param name="arguments">Already-quoted command line passed to the executable.</param>
+    /// <param name="timeoutMs">Budget in milliseconds; a nonpositive budget prevents process start.</param>
+    /// <param name="cancellationToken">Cancels the operation and requests termination of a started process tree.</param>
+    /// <returns>The observed outcome; timeout after process start is unknown, not proof of no effects.</returns>
+    /// <exception cref="OperationCanceledException">The caller canceled the operation.</exception>
     internal static Task<ConsoleToolResult> RunAsync(string exe, string arguments, int timeoutMs = 15_000,
         CancellationToken cancellationToken = default)
     {
@@ -67,14 +81,14 @@ internal static class ConsoleTool
     }
 
     /// <summary>
-    ///     Runs a hidden console tool within a caller-owned absolute deadline. The process
-    ///     tree is stopped when that budget expires or the caller cancels, so sequential recovery
-    ///     commands cannot each acquire a fresh timeout.
+    ///     Runs a hidden console tool within a caller-owned absolute deadline. Expiry or cancellation
+    ///     requests process-tree termination; termination itself may remain unverified. Sequential
+    ///     recovery commands share the same budget.
     /// </summary>
     /// <param name="exe">The executable to run.</param>
     /// <param name="arguments">Its command line.</param>
     /// <param name="deadline">The shared absolute deadline for the surrounding workflow.</param>
-    /// <param name="cancellationToken">Cancels the command and stops its process tree.</param>
+    /// <param name="cancellationToken">Cancels the command and requests termination of its process tree.</param>
     /// <returns>
     ///     Whether the tool did not start, completed successfully, completed with a known
     ///     failure, or crossed process start without a verifiable result.
@@ -101,6 +115,14 @@ internal static class ConsoleTool
     ///     Runs through an injected process owner so process-start, wait-fault, and cleanup
     ///     boundaries can be verified without invoking a live console tool.
     /// </summary>
+    /// <param name="exe">Executable path passed to the process factory.</param>
+    /// <param name="arguments">Already-quoted command line.</param>
+    /// <param name="deadline">Absolute UTC deadline shared by launch, wait, and output capture.</param>
+    /// <param name="startProcess">Factory transferring ownership of a started process, or returning null when none started.</param>
+    /// <param name="cancellationToken">Cancels the operation; a started process tree receives a termination request.</param>
+    /// <returns>The dispatch-aware outcome; process start or wait failures are logged and classified.</returns>
+    /// <exception cref="ArgumentNullException">The process factory is null.</exception>
+    /// <exception cref="OperationCanceledException">The caller canceled the operation.</exception>
     internal static async Task<ConsoleToolResult> RunAsync(
         string exe,
         string arguments,
@@ -230,11 +252,16 @@ internal static class ConsoleTool
     ///     name is resolved from the application directory first, which for a per-user
     ///     install is user-writable — an elevated caller must never search it.
     /// </summary>
+    /// <param name="exeName">Trusted utility file name without directory components.</param>
+    /// <returns>The utility path under the Windows system directory; existence is not checked.</returns>
     public static string System32(string exeName)
     {
         return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), exeName);
     }
 
+    /// <summary>Extracts the short command identifier used in diagnostics.</summary>
+    /// <param name="arguments">Non-null command line.</param>
+    /// <returns>Text before the first space, or the whole string; this is not a command-line parser.</returns>
     internal static string FirstToken(string arguments)
     {
         var space = arguments.IndexOf(' ');

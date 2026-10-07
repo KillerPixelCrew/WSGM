@@ -19,6 +19,10 @@ internal sealed record HardwareTestCliArguments
     internal required AttendedPluginActionRequest Action { get; init; }
 
     /// <summary>Parses the package positional argument and the complete allowed option set.</summary>
+    /// <param name="args">Arguments after test hardware; --yes is always refused.</param>
+    /// <param name="parsed">The selected semantic action and paths on success, otherwise null.</param>
+    /// <param name="error">Actionable refusal text, or an empty string on success.</param>
+    /// <returns>Whether syntax and action values are accepted; this does not authorize hardware access.</returns>
     internal static bool TryParse(
         ReadOnlySpan<string> args,
         out HardwareTestCliArguments? parsed,

@@ -19,22 +19,9 @@ internal sealed record WsgmControllerCapsState(string Mask, int VendorId, int Pr
 ///     read the controller list, so they stop offering controls the handheld does not have.
 /// </summary>
 /// <remarks>
-///     <para>
-///         Steam reports capabilities per controller type, and its Steam Deck controller always
-///         carries trackpads and touch-sensing sticks. The glyph stylesheet hides what it can anchor
-///         on a glyph; the configurator's quick settings ("right trackpad behavior", its sensitivity
-///         and inversion) are labelled fields with nothing to anchor, read off the reference Claw on
-///         2026-09-26, and each client build adds more such lists. Every store takes the list from
-///         one generated RPC namespace and converts each entry's <c>capabilities</c>, so the hook
-///         wraps that one function and clears the bits the active glyph profile says are absent.
-///     </para>
-///     <para>
-///         Only bits that name a pair the profile marks wholly absent are cleared: Steam cannot express
-///         one trackpad or one touch stick, and a device with one still needs the pages. The back
-///         button bits are left alone, because which of Steam's two grip bits names L5/R5 has not been
-///         confirmed on a device. The mask changes what this UI process believes about the controller
-///         and nothing about the native side or the layouts it writes.
-///     </para>
+///     Only wholly absent control pairs are masked because Steam exposes paired capability bits.
+///     Grip-button bits remain unchanged without a verified mapping. The mask affects UI RPC replies,
+///     not native controller state or saved layouts.
 /// </remarks>
 internal static class SteamControllerCapsSurface
 {
@@ -71,10 +58,10 @@ internal static class SteamControllerCapsSurface
         "Controller capability hook");
 
     /// <summary>Declares the hook and its state.</summary>
-    /// <param name="enabled">Whether the hook may be installed and published.</param>
+    /// <param name="enabled">Whether hook state may be published; patch installation is coordinated separately.</param>
     /// <param name="presentation">The active glyph presentation, whose absent controls decide the mask.</param>
     /// <param name="id">Module identity for diagnostics.</param>
-    /// <returns>The module.</returns>
+    /// <returns>A module borrowing its backend and readers; construction does not install its patch.</returns>
     public static ISteamUiModule Module(
         Func<bool> enabled,
         Func<SteamInputGlyphPresentation?> presentation,
@@ -93,7 +80,7 @@ internal static class SteamControllerCapsSurface
             ]);
     }
 
-    /// <summary>The state for one presentation: an empty mask when nothing is absent or no profile is active.</summary>
+    /// <summary>The state for one presentation: a zero mask when nothing is absent or no profile is active.</summary>
     /// <param name="presentation">The active glyph presentation, or null.</param>
     /// <returns>The state.</returns>
     internal static WsgmControllerCapsState State(SteamInputGlyphPresentation? presentation)

@@ -108,8 +108,9 @@ public sealed record CapabilityDescriptor
     ///     sustained limit at or below the boost limit, and a unified target moves both to the same wattage
     ///     within the boost descriptor's range. The plugin writes the two values as given and never derives
     ///     one from the other. The host snapshots both observed limits before taking ownership and restores
-    ///     the sustained pair followed by the original boost value. Both descriptors must be readable,
-    ///     writable watt limits with valid bounds and step.
+    ///     the sustained pair followed by the original boost value where those originals are known.
+    ///     Both descriptors must be writable integer watt limits with valid bounds and step;
+    ///     missing readback does not disable writing.
     /// </remarks>
     public string? PairedPowerLimitId { get; init; }
 

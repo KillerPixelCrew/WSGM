@@ -14,13 +14,8 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
 
     private const string OverlayEnabledProperty = "EnableOSD";
 
-    // Steam's selector runs OFF plus 1..4, all rendered by WSGM's own OSD slot: 1..3 are the
-    // fixed presets (HandheldCompanion's structure, fed from RTSS's LibreHardwareMonitor
-    // provider) and 4 is the user-configured Custom layout from WSGM's Settings — HC's Custom
-    // level. EnableOSD is only the RTSS presentation gate: a nonzero WSGM level sets it to one in
-    // the global and current profiles, while zero only clears WSGM's slot. Writing EnableOSD=0
-    // here would disable external feeders too — the field regression that killed every overlay on
-    // the reference device on 2026-09-01.
+    // Levels 1..3 are presets and 4 is Custom. Level 0 clears only WSGM's slot:
+    // setting RTSS EnableOSD=0 would also disable other applications' OSD feeders.
     private const int MaximumOverlayLevel = 4;
     private readonly RtssDiscovery _discovery;
     private readonly RtssOsdRenderer _osd;
@@ -29,6 +24,8 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
     private long _generation;
     private RtssProbe? _lastProbe;
 
+    /// <summary>Creates the adapter and starts its owned OSD worker.</summary>
+    /// <param name="discovery">Read-only discovery owner, or null for Windows discovery.</param>
     internal RtssNativeAdapter(RtssDiscovery? discovery = null)
     {
         _discovery = discovery ?? new RtssDiscovery();
@@ -78,12 +75,8 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
 
     /// <inheritdoc />
     /// <remarks>
-    ///     Every entry point of this adapter runs on the thread pool. All of the work below is
-    ///     synchronous — registry reads, filesystem and signature checks, PE-export inspection, process
-    ///     enumeration, and the profile API's own blocking calls — and the callers reach it from a
-    ///     completed semaphore wait on an overlay or QAM click handler, which is the Avalonia UI
-    ///     thread. Without the hop, interacting with a performance control froze the UI for as long as
-    ///     discovery took.
+    ///     Discovery runs on a worker because registry, signature, file, and process inspection
+    ///     can block even when the caller acquired its serialization gate synchronously.
     /// </remarks>
     public Task<RtssProbe> ProbeAsync(CancellationToken cancellationToken)
     {
@@ -92,6 +85,7 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
         return Task.Run(() => ProbeCore(cancellationToken), cancellationToken);
     }
 
+    /// <inheritdoc />
     public async Task<RtssReadback> ReadAsync(
         string rtssProfileName,
         long generation,
@@ -103,6 +97,7 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
             cancellationToken).ConfigureAwait(false);
     }
 
+    /// <inheritdoc />
     public async Task<RtssApplyResult> ApplyAsync(
         RtssApplyRequest request,
         CancellationToken cancellationToken)
@@ -121,6 +116,7 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
         return await Task.Run(() => ApplyCore(request), cancellationToken).ConfigureAwait(false);
     }
 
+    /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
         if (_disposed)
@@ -297,9 +293,12 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
     }
 
     /// <summary>Profiles whose RTSS presentation gate a nonzero WSGM overlay must open.</summary>
+    /// <param name="overlayLevel">WSGM overlay selector; zero or below requires no presentation change.</param>
+    /// <param name="requestedProfile">Active executable profile name, or empty for global only.</param>
+    /// <returns>No profiles when off; otherwise the requested profile, if any, followed by global.</returns>
     /// <remarks>
     ///     Global covers applications without an explicit profile; the current executable is added
-    ///     because an explicit per-app `EnableOSD=0` overrides global state. The service re-applies on
+    ///     because an explicit per-app <c>EnableOSD=0</c> overrides global state. The service re-applies on
     ///     every application transition, so each profile is repaired when it becomes the active target.
     /// </remarks>
     internal static IReadOnlyList<string> OverlayActivationProfiles(
@@ -399,6 +398,7 @@ internal sealed class SimulatedRtssAdapter : IRtssAdapter
         return rtssProfileName.Length == 0 || _profiles.ContainsKey(rtssProfileName);
     }
 
+    /// <inheritdoc />
     public Task<RtssProbe> ProbeAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -412,6 +412,7 @@ internal sealed class SimulatedRtssAdapter : IRtssAdapter
             "Simulated RTSS state; no external process or profile is accessed."));
     }
 
+    /// <inheritdoc />
     public Task<RtssReadback> ReadAsync(
         string rtssProfileName,
         long generation,
@@ -430,6 +431,7 @@ internal sealed class SimulatedRtssAdapter : IRtssAdapter
         return Task.FromResult(new RtssReadback(values, DateTimeOffset.UtcNow));
     }
 
+    /// <inheritdoc />
     public Task<RtssApplyResult> ApplyAsync(
         RtssApplyRequest request,
         CancellationToken cancellationToken)
@@ -450,6 +452,7 @@ internal sealed class SimulatedRtssAdapter : IRtssAdapter
         return Task.FromResult(new RtssApplyResult(true, null));
     }
 
+    /// <inheritdoc />
     public ValueTask DisposeAsync()
     {
         _disposed = true;

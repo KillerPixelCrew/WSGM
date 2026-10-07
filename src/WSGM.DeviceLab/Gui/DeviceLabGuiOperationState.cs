@@ -16,6 +16,7 @@ internal sealed record DeviceLabGuiOperationState
     public static DeviceLabGuiOperationState Initial { get; } = new() { StatusText = "Ready." };
 
     /// <summary>Starts work without replacing the last successful result.</summary>
+    /// <returns>A running projection retaining the last successful output.</returns>
     public DeviceLabGuiOperationState Started()
     {
         return this with
@@ -26,6 +27,8 @@ internal sealed record DeviceLabGuiOperationState
     }
 
     /// <summary>Publishes a successful immutable result.</summary>
+    /// <param name="result">Serialized result to retain for display or export.</param>
+    /// <returns>A completed projection containing the new result.</returns>
     public static DeviceLabGuiOperationState Succeeded(string result)
     {
         return new DeviceLabGuiOperationState
@@ -37,6 +40,7 @@ internal sealed record DeviceLabGuiOperationState
     }
 
     /// <summary>Reports cancellation without replacing the last successful result.</summary>
+    /// <returns>An idle projection retaining the last successful output.</returns>
     public DeviceLabGuiOperationState Cancelled()
     {
         return this with
@@ -47,6 +51,8 @@ internal sealed record DeviceLabGuiOperationState
     }
 
     /// <summary>Reports failure without replacing the last successful result.</summary>
+    /// <param name="message">Failure detail to show in the status text.</param>
+    /// <returns>An idle failed projection retaining the last successful output.</returns>
     public DeviceLabGuiOperationState Failed(string message)
     {
         return this with

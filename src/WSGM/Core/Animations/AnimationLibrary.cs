@@ -120,6 +120,7 @@ public sealed class AnimationLibrary
 
     /// <summary>One animation by id, or null.</summary>
     /// <param name="id">The id.</param>
+    /// <returns>The currently loaded entry with this id, or null.</returns>
     public AnimationEntry? Find(string id)
     {
         return Entries.FirstOrDefault(entry => entry.Id == id);

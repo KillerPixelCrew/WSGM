@@ -11,6 +11,12 @@ using WSGM.Interop;
 namespace WSGM.Core;
 
 /// <summary>One RTSS uninstall-registration snapshot.</summary>
+/// <param name="DisplayName">Uninstall registration display name, if present.</param>
+/// <param name="DisplayVersion">Registered version text, if present.</param>
+/// <param name="Publisher">Registered publisher, if present.</param>
+/// <param name="InstallLocation">Registered installation root, if present.</param>
+/// <param name="DisplayIcon">Icon command used as a fallback path hint.</param>
+/// <param name="UninstallString">Uninstall command used as a fallback path hint.</param>
 internal sealed record RtssInstallRecord(
     string? DisplayName,
     string? DisplayVersion,
@@ -20,6 +26,13 @@ internal sealed record RtssInstallRecord(
     string? UninstallString);
 
 /// <summary>File identity used during discovery without loading external code.</summary>
+/// <param name="Exists">Whether the file exists.</param>
+/// <param name="Length">File length in bytes.</param>
+/// <param name="ProductName">Version-resource product identity.</param>
+/// <param name="FileVersion">Version-resource version text.</param>
+/// <param name="Is64Bit">Whether the PE optional header is PE32+.</param>
+/// <param name="Exports">Named PE exports, read without loading the image.</param>
+/// <param name="SignatureValid">Whether the environment accepted the file's Authenticode signature.</param>
 internal sealed record RtssFileIdentity(
     bool Exists,
     long Length,
@@ -30,6 +43,9 @@ internal sealed record RtssFileIdentity(
     bool SignatureValid = true);
 
 /// <summary>Runtime process identity observed without opening an IPC/control path.</summary>
+/// <param name="ProcessId">Windows process identifier.</param>
+/// <param name="ExecutablePath">Image path observed for this process.</param>
+/// <param name="StartedAt">Process creation time, distinguishing PID reuse.</param>
 internal sealed record RtssProcessIdentity(
     int ProcessId,
     string ExecutablePath,
@@ -38,11 +54,19 @@ internal sealed record RtssProcessIdentity(
 /// <summary>Injectable read-only environment for deterministic RTSS discovery.</summary>
 internal interface IRtssDiscoveryEnvironment
 {
+    /// <summary>Install roots under which a candidate registration is accepted.</summary>
     IReadOnlyList<string> ProtectedInstallRoots { get; }
+    /// <summary>Reads candidate RTSS uninstall registrations.</summary>
+    /// <returns>Registration snapshots; an empty list means none were found.</returns>
     IReadOnlyList<RtssInstallRecord> ReadInstallRecords();
 
+    /// <summary>Inspects file metadata, exports, and signature without loading its code.</summary>
+    /// <param name="path">Candidate executable or profile API path.</param>
+    /// <returns>The observed file identity.</returns>
     RtssFileIdentity ReadFileIdentity(string path);
 
+    /// <summary>Reads process identities considered by RTSS discovery.</summary>
+    /// <returns>Process snapshots available to the environment.</returns>
     IReadOnlyList<RtssProcessIdentity> ReadProcesses();
 }
 
@@ -62,11 +86,15 @@ internal sealed class RtssDiscovery
 
     private readonly IRtssDiscoveryEnvironment _environment;
 
+    /// <summary>Creates read-only installation discovery.</summary>
+    /// <param name="environment">Observation seam, or null for the Windows environment.</param>
     internal RtssDiscovery(IRtssDiscoveryEnvironment? environment = null)
     {
         _environment = environment ?? new WindowsRtssDiscoveryEnvironment();
     }
 
+    /// <summary>Checks registration, files, and running-process identity without loading the profile API.</summary>
+    /// <returns>An availability result; accepted running identity is AdapterUnavailable until an adapter loads the API.</returns>
     internal RtssProbe Probe()
     {
         IReadOnlyList<RtssInstallRecord> records;
@@ -336,12 +364,14 @@ internal sealed class WindowsRtssDiscoveryEnvironment : IRtssDiscoveryEnvironmen
 
     private readonly Lock _identityGate = new();
 
+    /// <inheritdoc />
     public IReadOnlyList<string> ProtectedInstallRoots { get; } =
     [
         Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
         Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86)
     ];
 
+    /// <inheritdoc />
     public IReadOnlyList<RtssInstallRecord> ReadInstallRecords()
     {
         List<RtssInstallRecord> records = [];
@@ -376,6 +406,7 @@ internal sealed class WindowsRtssDiscoveryEnvironment : IRtssDiscoveryEnvironmen
         return [.. records.Distinct()];
     }
 
+    /// <inheritdoc />
     public RtssFileIdentity ReadFileIdentity(string path)
     {
         try
@@ -430,6 +461,7 @@ internal sealed class WindowsRtssDiscoveryEnvironment : IRtssDiscoveryEnvironmen
         }
     }
 
+    /// <inheritdoc />
     public IReadOnlyList<RtssProcessIdentity> ReadProcesses()
     {
         List<RtssProcessIdentity> result = [];
@@ -467,6 +499,10 @@ internal sealed class WindowsRtssDiscoveryEnvironment : IRtssDiscoveryEnvironmen
 /// <summary>Bounded PE export-table reader; it never maps or executes the inspected DLL.</summary>
 internal static class PeExportReader
 {
+    /// <summary>Reads named exports from a bounded PE export table without executing the image.</summary>
+    /// <param name="path">File to inspect; file access and truncated-read failures can propagate.</param>
+    /// <param name="is64Bit">Receives whether a recognized PE32+ optional header was found.</param>
+    /// <returns>The named exports, or an empty set for unsupported or rejected layouts.</returns>
     internal static IReadOnlySet<string> Read(string path, out bool is64Bit)
     {
         is64Bit = false;

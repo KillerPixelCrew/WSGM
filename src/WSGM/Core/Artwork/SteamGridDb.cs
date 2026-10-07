@@ -18,7 +18,7 @@ namespace WSGM.Core;
 /// <param name="Thumb">Thumbnail URL (for the picker grid).</param>
 /// <param name="Width">Pixel width.</param>
 /// <param name="Height">Pixel height.</param>
-/// <param name="Extension">Verified static image format, <c>png</c> or <c>jpg</c>.</param>
+/// <param name="Extension">Provider-reported format hint; downloaded bytes are validated separately before application.</param>
 /// <param name="Author">Artwork author.</param>
 /// <param name="Style">SteamGridDB style identifier.</param>
 /// <param name="Notes">SteamGridDB notes.</param>
@@ -52,6 +52,11 @@ internal sealed class SteamGridDbException(string message) : ArtworkProviderExce
 internal sealed record SgdbGame(int Id, string Name);
 
 /// <summary>One official Steam store asset described by SteamGridDB platform metadata.</summary>
+/// <param name="Label">Display label for the official Steam slot.</param>
+/// <param name="Url">Official asset URL.</param>
+/// <param name="Width">Advertised pixel width.</param>
+/// <param name="Height">Advertised pixel height.</param>
+/// <param name="Extension">Expected filename extension; downloaded bytes still require validation.</param>
 internal sealed record SgdbOfficialAsset(string Label, string Url, int Width, int Height, string Extension);
 
 /// <summary>
@@ -78,15 +83,14 @@ internal sealed partial class SteamGridDbProvider
     private static readonly TimeSpan MaximumRetryWait = TimeSpan.FromSeconds(10);
 
     /// <summary>Four requests in flight, and the last 256 answers remembered for the session.</summary>
-    /// <remarks>
-    ///     Four, not one. Serializing every request made a Game Library scan of twenty titles take
-    ///     minutes, six round trips per title one after another. A 429 still backs off by its
-    ///     <c>Retry-After</c>, so a burst that does reach the limit slows down rather than fails.
-    /// </remarks>
+    /// <remarks>HTTP 429 responses use bounded Retry-After backoff without serializing all title scans.</remarks>
     private readonly ArtworkRequestGate Gate;
 
     private readonly HttpClient Http;
 
+    /// <summary>Creates a provider with optional transport and request-gate seams.</summary>
+    /// <param name="handler">Borrowed HTTP handler, or null for the default transport.</param>
+    /// <param name="gate">Shared pacing/cache gate, or null for this provider's default limits.</param>
     internal SteamGridDbProvider(HttpMessageHandler? handler = null, ArtworkRequestGate? gate = null)
     {
         Http = handler is null ? new HttpClient() : new HttpClient(handler, false);
@@ -110,6 +114,7 @@ internal sealed partial class SteamGridDbProvider
     ///     free key in Settings (see <see cref="KeyPageUrl" />).
     /// </summary>
     /// <param name="config">The loaded configuration.</param>
+    /// <returns>The trimmed configured bearer key, or an empty string; never log it.</returns>
     public static string ResolveKey(ArtworkConfig config)
     {
         return config.SteamGridDbApiKey.Trim();
@@ -119,6 +124,7 @@ internal sealed partial class SteamGridDbProvider
     /// <param name="term">The search term.</param>
     /// <param name="key">The bearer API key (see <see cref="ResolveKey" />).</param>
     /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>Provider-ranked game matches; blank terms and empty responses return an empty list.</returns>
     public async Task<IReadOnlyList<SgdbGame>> SearchGamesAsync(
         string term, string key, CancellationToken cancellationToken = default)
     {
@@ -151,6 +157,12 @@ internal sealed partial class SteamGridDbProvider
 
 
     /// <summary>Lists a filtered, zero-based page for a Steam app.</summary>
+    /// <param name="asset">Requested artwork slot.</param>
+    /// <param name="steamAppId">Steam app id.</param>
+    /// <param name="key">User's bearer key; never log it.</param>
+    /// <param name="query">Zero-based page and content filters.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The filtered page and raw paging status.</returns>
     public Task<ArtworkPage> GetAssetsForSteamAppAsync(
         ArtworkAsset asset, long steamAppId, string key, ArtworkQuery query,
         CancellationToken cancellationToken = default)
@@ -161,6 +173,11 @@ internal sealed partial class SteamGridDbProvider
 
 
     /// <summary>Resolves official Steam assets for a SteamGridDB game.</summary>
+    /// <param name="asset">Requested artwork slot.</param>
+    /// <param name="sgdbGameId">SteamGridDB game id.</param>
+    /// <param name="key">User's bearer key; never log it.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>Official Steam assets described by the returned platform metadata.</returns>
     public async Task<IReadOnlyList<SgdbOfficialAsset>> GetOfficialAssetsForGameAsync(
         ArtworkAsset asset, int sgdbGameId, string key, CancellationToken cancellationToken = default)
     {
@@ -173,6 +190,11 @@ internal sealed partial class SteamGridDbProvider
     }
 
     /// <summary>Resolves official Steam assets for a Steam application id.</summary>
+    /// <param name="asset">Requested artwork slot.</param>
+    /// <param name="steamAppId">Steam app id.</param>
+    /// <param name="key">User's bearer key; never log it.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>Official Steam assets, or an empty list when no game/platform metadata resolves.</returns>
     public async Task<IReadOnlyList<SgdbOfficialAsset>> GetOfficialAssetsForSteamAppAsync(
         ArtworkAsset asset, uint steamAppId, string key, CancellationToken cancellationToken = default)
     {
@@ -202,6 +224,12 @@ internal sealed partial class SteamGridDbProvider
     }
 
     /// <summary>Lists a filtered, zero-based page for a SteamGridDB game.</summary>
+    /// <param name="asset">Requested artwork slot.</param>
+    /// <param name="sgdbGameId">SteamGridDB game id.</param>
+    /// <param name="key">User's bearer key; never log it.</param>
+    /// <param name="query">Zero-based page and content filters.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The filtered page and raw paging status.</returns>
     public Task<ArtworkPage> GetAssetsForGameAsync(
         ArtworkAsset asset, int sgdbGameId, string key, ArtworkQuery query,
         CancellationToken cancellationToken = default)

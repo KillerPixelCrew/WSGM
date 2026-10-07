@@ -12,10 +12,7 @@ namespace WSGM.Shell;
 ///     loss of observation.
 /// </summary>
 /// <remarks>
-///     One monitor and one projection for both consumers on purpose. A second observer would poll the
-///     live Steam client again over CEF and could resolve a different application than the one the RTSS
-///     profile was chosen for, so the controller target and the performance profile could disagree about
-///     what is running.
+///     Both consumers receive the same snapshot from one observation lease; do not add independent CEF polling.
 /// </remarks>
 internal sealed class RunningApplicationCoordinator : IAsyncDisposable
 {
@@ -35,6 +32,10 @@ internal sealed class RunningApplicationCoordinator : IAsyncDisposable
     private Task _worker = Task.CompletedTask;
     private bool _workerRunning;
 
+    /// <summary>Subscribes to identity changes and starts applying the current snapshot.</summary>
+    /// <param name="monitor">Borrowed shared source; this coordinator owns only its observation lease.</param>
+    /// <param name="setTargetAsync">Applies the performance identity; null clears it. Must cooperate with cancellation.</param>
+    /// <param name="setControllerTargetAsync">Optional controller policy consumer of the same snapshot.</param>
     internal RunningApplicationCoordinator(
         IRunningApplicationTargetSource monitor,
         Func<PerformanceApplicationTarget?, CancellationToken, Task> setTargetAsync,
@@ -58,6 +59,8 @@ internal sealed class RunningApplicationCoordinator : IAsyncDisposable
         }
     }
 
+    /// <summary>Unsubscribes, cancels and joins pending work, then clears the performance target.</summary>
+    /// <returns>Completion after cleanup is attempted; the borrowed monitor and controller services remain owned by the session.</returns>
     public async ValueTask DisposeAsync()
     {
         Task worker;
@@ -126,6 +129,9 @@ internal sealed class RunningApplicationCoordinator : IAsyncDisposable
         }
     }
 
+    /// <summary>Projects only an unambiguous application identity for performance policy.</summary>
+    /// <param name="snapshot">Current identity evidence.</param>
+    /// <returns>An active or identity-only target; null for global, ambiguous or unavailable state.</returns>
     internal static PerformanceApplicationTarget? Project(
         RunningApplicationTargetSnapshot snapshot)
     {
@@ -140,11 +146,15 @@ internal sealed class RunningApplicationCoordinator : IAsyncDisposable
     }
 
     /// <summary>Whether a delivered snapshot predates the newest one already accepted.</summary>
+    /// <param name="latestGeneration">Newest local revision already accepted.</param>
+    /// <param name="snapshot">Incoming snapshot to compare.</param>
+    /// <returns>True only for a strictly older revision; equal revisions may be reapplied.</returns>
     internal static bool IsOlder(long latestGeneration, RunningApplicationTargetSnapshot snapshot)
     {
         return snapshot.Generation < latestGeneration;
     }
 
+    /// <summary>Queues the current snapshot again, coalescing with pending identity updates.</summary>
     internal void RefreshCurrent()
     {
         Queue(_monitor.Current);

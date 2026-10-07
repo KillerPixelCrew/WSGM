@@ -52,6 +52,7 @@ internal sealed class PowerTimeouts(PowerSchemes schemes)
     ///     fails (reported once by the caller's UI, never thrown).
     /// </summary>
     /// <param name="kind">Which timeout to read.</param>
+    /// <returns>The timeout in seconds, zero for Never, or null for unavailable/out-of-range native values.</returns>
     public int? Read(PowerTimeoutKind kind)
     {
         if (!TryGetActiveScheme(out var scheme))
@@ -65,6 +66,7 @@ internal sealed class PowerTimeouts(PowerSchemes schemes)
     /// <summary>
     ///     Reads all four timeout values after resolving the active power scheme once.
     /// </summary>
+    /// <returns>Four independently nullable values in seconds; all are null when the active scheme cannot be read.</returns>
     internal (int? DisplayDc, int? DisplayAc, int? SleepDc, int? SleepAc) ReadAll()
     {
         if (!TryGetActiveScheme(out var scheme))
@@ -99,8 +101,8 @@ internal sealed class PowerTimeouts(PowerSchemes schemes)
     ///     re-activates the scheme so it takes effect immediately.
     /// </summary>
     /// <param name="kind">Which timeout to write.</param>
-    /// <param name="seconds">The new value.</param>
-    /// <returns>Whether Windows accepted the write.</returns>
+    /// <param name="seconds">Nonnegative timeout in seconds; zero means Never, negative values are rejected.</param>
+    /// <returns>True when write and activation succeeded; false may follow an accepted write whose activation failed.</returns>
     public bool Write(PowerTimeoutKind kind, int seconds)
     {
         using (schemes.EnterMutation())
@@ -134,6 +136,7 @@ internal sealed class PowerTimeouts(PowerSchemes schemes)
     ///     click never shortens an unusual custom timeout. Pure for unit tests.
     /// </summary>
     /// <param name="currentSeconds">The current timeout (0 = Never).</param>
+    /// <returns>The next cycle value in seconds, with zero representing Never.</returns>
     internal static int NextPreset(int currentSeconds)
     {
         for (var i = 0; i < PresetsSeconds.Length; i++)
@@ -153,6 +156,7 @@ internal sealed class PowerTimeouts(PowerSchemes schemes)
 
     /// <summary>Human label for a timeout value ("5 min", "1 h", "Never").</summary>
     /// <param name="seconds">The timeout (0 = Never).</param>
+    /// <returns>An invariant compact label; sub-minute values are shown as less than one minute.</returns>
     public static string Describe(int seconds)
     {
         return seconds switch

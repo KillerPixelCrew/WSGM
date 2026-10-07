@@ -14,14 +14,18 @@ namespace WSGM.LogonService;
 internal sealed class WindowsSessionHost : ISessionHost
 {
     private const uint WaitObject0 = 0;
+    /// <inheritdoc />
     public bool HasPendingSetup => InstallLayout.HasPendingSetup;
+    /// <inheritdoc />
     public int LastError => Marshal.GetLastWin32Error();
 
+    /// <inheritdoc />
     public bool TryGetUserToken(uint sessionId, out nint token)
     {
         return NativeMethods.WTSQueryUserToken(sessionId, out token);
     }
 
+    /// <inheritdoc />
     public BootManifest? ReadManifest(nint userToken)
     {
         var profile = GetUserProfileDirectory(userToken);
@@ -31,12 +35,14 @@ internal sealed class WindowsSessionHost : ISessionHost
                 BootManifestStore.FileName));
     }
 
+    /// <inheritdoc />
     public bool TryGetElevationType(nint token, out int elevationType)
     {
         return NativeMethods.GetTokenInformationDword(token, NativeMethods.TokenElevationTypeClass,
             out elevationType, sizeof(int), out _);
     }
 
+    /// <inheritdoc />
     public nint GetLinkedPrimaryToken(nint userToken, uint sessionId)
     {
         if (!NativeMethods.GetTokenInformationHandle(userToken, NativeMethods.TokenLinkedTokenClass,
@@ -75,36 +81,43 @@ internal sealed class WindowsSessionHost : ISessionHost
         }
     }
 
+    /// <inheritdoc />
     public uint WaitForSingleObject(nint process, uint milliseconds)
     {
         return Win32Common.WaitForSingleObject(process, milliseconds);
     }
 
+    /// <inheritdoc />
     public bool TryGetExitCode(nint process, out uint exitCode)
     {
         return NativeMethods.GetExitCodeProcess(process, out exitCode);
     }
 
+    /// <inheritdoc />
     public void CloseHandle(nint handle)
     {
         Win32Common.CloseHandle(handle);
     }
 
+    /// <inheritdoc />
     public void Info(string message)
     {
         ServiceLog.Info(message);
     }
 
+    /// <inheritdoc />
     public void Warn(string message)
     {
         ServiceLog.Warn(message);
     }
 
+    /// <inheritdoc />
     public void Error(string message)
     {
         ServiceLog.Error(message);
     }
 
+    /// <inheritdoc />
     public bool TryLaunch(nint token, string exePath, string arguments,
         out nint hProcess, out uint pid, out int error)
     {
@@ -153,6 +166,7 @@ internal sealed class WindowsSessionHost : ISessionHost
         }
     }
 
+    /// <inheritdoc />
     public bool IsSessionActive(uint sessionId)
     {
         if (!NativeMethods.WTSEnumerateSessionsW(0, 0, 1, out var pSessions, out var count))
@@ -180,6 +194,7 @@ internal sealed class WindowsSessionHost : ISessionHost
         }
     }
 
+    /// <inheritdoc />
     public bool IsDesktopShellInSession(nint userToken, string executable)
     {
         // A service cannot inspect another session's desktop windows. Ask the fixed-purpose,
@@ -209,6 +224,7 @@ internal sealed class WindowsSessionHost : ISessionHost
         }
     }
 
+    /// <inheritdoc />
     public string GetSessionUser(uint sessionId)
     {
         var domain = QuerySessionString(sessionId, NativeMethods.WtsInfoClassDomainName);
@@ -216,6 +232,7 @@ internal sealed class WindowsSessionHost : ISessionHost
         return string.IsNullOrEmpty(user) ? "unknown user" : $"{domain}\\{user}";
     }
 
+    /// <inheritdoc />
     public IEnumerable<(uint SessionId, TimeSpan LogonAge)> ActiveSessions()
     {
         if (!NativeMethods.WTSEnumerateSessionsW(0, 0, 1, out var pSessions, out var count))
@@ -250,11 +267,13 @@ internal sealed class WindowsSessionHost : ISessionHost
         }
     }
 
+    /// <inheritdoc />
     public void StartWatchdog(Action watch, string name)
     {
         new Thread(() => watch()) { IsBackground = true, Name = name }.Start();
     }
 
+    /// <inheritdoc />
     public void WaitForAnchor(TimeSpan grace)
     {
         Thread.Sleep(grace);
@@ -301,6 +320,12 @@ internal sealed class WindowsSessionHost : ISessionHost
         return DecodeLogonAge(buffer, bytes, Win32Common.WTSFreeMemory, DateTime.UtcNow);
     }
 
+    /// <summary>Decodes a WTSINFO buffer and releases it on every path.</summary>
+    /// <param name="buffer">Owned native buffer returned by WTSQuerySessionInformationW.</param>
+    /// <param name="bytes">Available buffer length.</param>
+    /// <param name="freeBuffer">The matching release operation.</param>
+    /// <param name="utcNow">Clock used to compute age; future timestamps clamp to zero.</param>
+    /// <returns>A nonnegative age, or null for missing or invalid data.</returns>
     internal static TimeSpan? DecodeLogonAge(nint buffer, uint bytes, Action<nint> freeBuffer, DateTime utcNow)
     {
         try

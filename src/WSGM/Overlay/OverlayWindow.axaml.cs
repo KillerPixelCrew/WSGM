@@ -231,6 +231,7 @@ public partial class OverlayWindow : Window
     internal bool WarmingUp { get; init; }
 
     /// <summary>Updates the attached backdrop without recreating the Overlay window.</summary>
+    /// <param name="radius">Saved backdrop blur in physical pixels, normalized to the supported range before application.</param>
     internal void SetBlurRadius(double radius)
     {
         _blurRadius = double.IsFinite(radius) ? Math.Clamp(radius, 0, LiveBackdrop.MaximumBlurRadius) : 8;

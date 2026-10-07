@@ -71,6 +71,7 @@ internal sealed class LabRumblePad
     }
 
     /// <summary>Whether exactly one XInput controller is connected, so A and B can answer.</summary>
+    /// <returns>True when exactly one of the four slots reads successfully; false when none or several do.</returns>
     public static bool Available()
     {
         return Read().Connected == 1;

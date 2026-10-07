@@ -69,6 +69,7 @@ internal sealed class RefreshRatePairingService
         _readTargetRate = readTargetRate ?? throw new ArgumentNullException(nameof(readTargetRate));
     }
 
+    /// <summary>Refreshes display identity/mode observation and returns its revision for stale-discovery rejection.</summary>
     internal long OperatingPointRevision
     {
         get
@@ -85,6 +86,7 @@ internal sealed class RefreshRatePairingService
     ///     Adopts a strategy, restoring the display first when the new one no longer owns it.
     /// </summary>
     /// <param name="strategy">The user's chosen strategy.</param>
+    /// <returns>True when the strategy changed, independent of whether any requested restoration succeeded.</returns>
     internal bool SetStrategy(FrameLimitStrategy strategy)
     {
         bool restore;

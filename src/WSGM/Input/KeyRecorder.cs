@@ -27,14 +27,15 @@ internal sealed class KeyRecorder : IDisposable
     private static KeyRecorder? _active;
     private nint _hook;
 
-    /// <summary>Stops capture and releases the keyboard hook.</summary>
+    /// <summary>Removes this recorder's hook on the installing UI thread without raising Recorded.</summary>
     public void Dispose()
     {
         Stop();
     }
 
     /// <summary>
-    ///     Fires with the captured shortcut, or null when capture is cancelled or cannot start.
+    ///     UI-thread completion with a captured shortcut, or null for Escape or hook-install failure.
+    ///     Disposal and replacement by another recorder do not raise completion.
     /// </summary>
     public event Action<HotkeyConfig?>? Recorded;
 
@@ -43,6 +44,7 @@ internal sealed class KeyRecorder : IDisposable
     ///     Every field is set explicitly because <see cref="HotkeyConfig" />'s
     ///     defaults describe the shipped Ctrl+Alt+Home shortcut, not an empty one.
     /// </remarks>
+    /// <returns>A new disabled configuration, independent of the default Ctrl+Alt+Home binding.</returns>
     public static HotkeyConfig Cleared()
     {
         return new HotkeyConfig
@@ -56,15 +58,13 @@ internal sealed class KeyRecorder : IDisposable
         };
     }
 
-    /// <summary>Installs the low-level keyboard hook and begins capturing one shortcut.</summary>
+    /// <summary>Installs a bounded keyboard hook on the UI thread, replacing any active recorder.</summary>
+    /// <remarks>Repeated Start restarts capture. Modifier-only input waits; Escape cancels. One accepted key is consumed.</remarks>
     public void Start()
     {
         if (_active is { } previous && !ReferenceEquals(previous, this))
         {
-            // HookProc dispatches through _active only, so simply repointing it
-            // would strand the previous recorder's hook in the system keystroke
-            // path with no recording in progress. The hook may exist only for the
-            // lifetime of an active recording.
+            // Release the previous hook before replacing its only callback dispatch target.
             Log.Warn("Key recorder: a new recording replaced an active one; releasing the previous keyboard hook.");
             previous.Stop();
         }
@@ -131,8 +131,6 @@ internal sealed class KeyRecorder : IDisposable
             return NativeMethods.CallNextHookEx(0, nCode, wParam, lParam);
         }
 
-        // Captured directly as the stored configuration shape, so the recorded
-        // shortcut is never round-tripped through RegisterHotKey's flag encoding.
         var cancelled = vk == VkEscape;
         var hotkey = cancelled
             ? null
@@ -146,9 +144,7 @@ internal sealed class KeyRecorder : IDisposable
                 VirtualKey = vk
             };
 
-        // Unhook synchronously (LL hooks run on the installing thread, so this is
-        // safe here): with the unhook deferred to the posted callback, a second
-        // keydown arriving first would fire Recorded again.
+        // Unhook on the installing thread before posting completion, preventing a second accepted key.
         recorder.Stop();
         Dispatcher.UIThread.Post(() => recorder.Recorded?.Invoke(hotkey));
 
@@ -169,6 +165,8 @@ internal sealed class KeyRecorder : IDisposable
     }
 
     /// <summary>Human-readable shortcut text, e.g. "Ctrl + Alt + Home".</summary>
+    /// <param name="hotkey">Stored virtual-key shortcut.</param>
+    /// <returns>Modifier/key labels, or None for a disabled or empty shortcut.</returns>
     public static string Describe(HotkeyConfig hotkey)
     {
         if (!hotkey.Enabled || hotkey.VirtualKey == 0)

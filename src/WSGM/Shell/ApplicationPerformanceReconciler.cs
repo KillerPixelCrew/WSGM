@@ -71,6 +71,7 @@ internal sealed class ApplicationPerformanceReconciler(
     ///     and tested (<see cref="PerApplicationPowerPolicy" />, <see cref="PerApplicationVrrPolicy" />);
     ///     this only reads the layers and carries them out.
     /// </remarks>
+    /// <returns>Completion after due policy writes are attempted; individual outcomes are published by their owning services.</returns>
     internal async Task ReconcileApplicationProfileAsync(
         ProfileSnapshot snapshot,
         CancellationToken cancellationToken)

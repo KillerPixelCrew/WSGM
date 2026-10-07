@@ -1,14 +1,8 @@
-// Name / Size / Type sort buttons in the header of Big Picture's download queue ("Up Next"),
-// reordering the queue through Steam's own SteamClient.Downloads.SetQueueIndex.
-//
-// Every shape decision here is a device-verified finding: the Focusable requirement, the JSX-runtime
-// injection point, the tight component predicates, the whole-pending-list scope and the unknown-size
-// ranking are in docs/steam-cef.md §12. Re-probe with tools/WsgmLibTest/run-prod-sort.mjs before
-// shipping a change here.
-//
-// The header is intercepted through the toolkit's shared JSX-runtime claim rather than by wrapping
-// jsx and jsxs here: the library stat on a game's page claims the same runtime, and two wrappers
-// would each hand back the other on removal.
+/**
+ * Adds host-defined download ordering through reversible Steam render and method claims.
+ * @returns Install/remove controls and diagnostics; a failed release retains ownership for a later removal attempt.
+ */
+
 function createWsgmDownloadSort() {
   const patchId = "wsgm.download-sort";
   const transformName = "wsgm.download-sort";

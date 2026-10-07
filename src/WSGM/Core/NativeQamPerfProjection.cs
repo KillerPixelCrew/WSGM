@@ -165,6 +165,8 @@ internal static class NativeQamPerfProjection
     ///     applied to <c>fps_limit_options</c> above, so the value is always one the slider has a notch
     ///     for.
     /// </remarks>
+    /// <param name="options">Offered FPS values; nonpositive entries are ignored.</param>
+    /// <returns>The greatest positive FPS option, or zero when none exists.</returns>
     internal static int HighestOption(IReadOnlyList<int> options)
     {
         var highest = 0;
@@ -184,6 +186,8 @@ internal static class NativeQamPerfProjection
     ///     Mirrors the filter applied to <c>fps_limit_options</c> above. The frame-limit row's lower
     ///     bookend.
     /// </remarks>
+    /// <param name="options">Offered FPS values; nonpositive entries are ignored.</param>
+    /// <returns>The least positive FPS option, or zero when none exists.</returns>
     internal static int LowestOption(IReadOnlyList<int> options)
     {
         var lowest = 0;

@@ -6,6 +6,8 @@ using WSGM.Device.Sdk.Input;
 
 namespace WSGM.Input;
 
+/// <summary>Owns one logical virtual-target lifetime and serializes create, neutralize, replace and removal transitions.</summary>
+/// <remarks>The caller owns the backend and physical sink. Sample forwarding uses the current generation without the transition gate.</remarks>
 internal sealed class ManagedControllerRouter : IAsyncDisposable
 {
     private readonly IControllerTargetBackend _backend;
@@ -14,6 +16,10 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
     private bool _disposed;
     private bool _neutral = true;
 
+    /// <summary>Creates the output router and subscribes to target loss without creating a virtual device.</summary>
+    /// <param name="backend">Borrowed backend responsible for native device ownership.</param>
+    /// <param name="hapticSink">Borrowed physical output owner.</param>
+    /// <param name="timeProvider">Clock for neutral samples and output timing; null uses system time.</param>
     internal ManagedControllerRouter(
         IControllerTargetBackend backend,
         IPhysicalHapticSink hapticSink,
@@ -25,10 +31,14 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
         _backend.TargetLost += OnTargetLost;
     }
 
+    /// <summary>Current logical target, or null after removal, loss or failed creation.</summary>
     internal ControllerTargetHandle? Target { get; private set; }
 
+    /// <summary>Owned output route; disposed with this router and stopped before target removal.</summary>
     internal ControllerOutputRouter Output { get; }
 
+    /// <summary>Attempts neutralization/removal with a two-second cleanup token, then disposes the output worker.</summary>
+    /// <returns>Completion of cleanup; native removal failures are logged and do not dispose the borrowed backend.</returns>
     public async ValueTask DisposeAsync()
     {
         if (_disposed)
@@ -66,12 +76,15 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
 
     /// <summary>Raised when the backend lost the target and this router faulted.</summary>
     /// <remarks>
-    ///     The owner needs this to stop reporting controller management as active: the target is gone,
-    ///     output has been stopped and the handle detached, so every further sample would be written
-    ///     into nothing while WSGM's surfaces waited on a source that had stopped delivering.
+    ///     Raised on the backend callback thread after detaching the logical route and starting output stop.
+    ///     The session must mark management unavailable; the physical stop may still be completing.
     /// </remarks>
     internal event Action<string>? TargetFaulted;
 
+    /// <summary>Creates a target with a neutral first report and attaches its output route.</summary>
+    /// <param name="kind">Supported virtual controller protocol.</param>
+    /// <param name="cancellationToken">Cancels transition waits and backend work.</param>
+    /// <returns>The newly current target; failures attempt bounded cleanup and propagate.</returns>
     internal async Task<ControllerTargetHandle> CreateAsync(
         ManagedControllerTarget kind,
         CancellationToken cancellationToken)
@@ -111,6 +124,10 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
         }
     }
 
+    /// <summary>Forwards a valid sample to the current target; invalid input neutralizes any previously held state.</summary>
+    /// <param name="sample">Full canonical state; range validity is checked without imposing an age/sequence policy.</param>
+    /// <param name="cancellationToken">Cancels backend waiting and any required neutralization.</param>
+    /// <returns>True when accepted; false for absent targets, invalid samples or rejected submissions.</returns>
     internal async ValueTask<bool> RouteAsync(
         CanonicalControllerSample sample,
         CancellationToken cancellationToken)
@@ -146,16 +163,28 @@ internal sealed class ManagedControllerRouter : IAsyncDisposable
         return true;
     }
 
+    /// <summary>Stops physical output and publishes neutral input when a current target has held state.</summary>
+    /// <param name="reason">Diagnostic reason for dropping held state.</param>
+    /// <param name="cancellationToken">Cancels transition/backend waits; a cancelled or failed stop is not verified cleanup.</param>
+    /// <returns>Completion of the neutralization attempt; absent targets are a no-op.</returns>
     internal Task NeutralizeAsync(string reason, CancellationToken cancellationToken)
     {
         return UnderGateAsync(() => NeutralizeUnderGateAsync(reason, cancellationToken), cancellationToken);
     }
 
+    /// <summary>Neutralizes and removes the current target, clearing the logical route even if removal fails.</summary>
+    /// <param name="reason">Diagnostic reason for ending the target lifetime.</param>
+    /// <param name="cancellationToken">Cancels waits and backend work.</param>
+    /// <returns>Completion of removal; unconfirmed native removal throws.</returns>
     internal Task RemoveAsync(string reason, CancellationToken cancellationToken)
     {
         return UnderGateAsync(() => RemoveUnderGateAsync(reason, cancellationToken), cancellationToken);
     }
 
+    /// <summary>Removes the current target before creating its replacement under one transition gate.</summary>
+    /// <param name="kind">Replacement virtual protocol.</param>
+    /// <param name="cancellationToken">Cancels transition/backend waits.</param>
+    /// <returns>The replacement target; failure does not restore the old device.</returns>
     internal async Task<ControllerTargetHandle> ReplaceAsync(
         ManagedControllerTarget kind,
         CancellationToken cancellationToken)

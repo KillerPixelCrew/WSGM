@@ -33,6 +33,7 @@ public enum ArtworkAsset
 /// </remarks>
 internal static class ArtworkAssetNames
 {
+    /// <summary>Canonical slot order and labels shared by both artwork surfaces.</summary>
     internal static IReadOnlyList<(ArtworkAsset Asset, string Id, string Label)> Ordered { get; } =
     [
         (ArtworkAsset.Grid, "grid", "Capsule"),

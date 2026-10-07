@@ -14,6 +14,14 @@ using WSGM.Device.Sdk.Services;
 namespace WSGM.Device.Asus.RogAlly;
 
 /// <summary>The hardware transports one plugin instance uses; replaced by fakes in tests.</summary>
+/// <param name="Identity">Side-effect-free machine identity reader used for admission and firmware binding.</param>
+/// <param name="Acpi">Shared serialized ATKACPI transport owned by the plugin.</param>
+/// <param name="Vendor">Factory for the exact model's vendor HID transport.</param>
+/// <param name="Aura">Factory for the exact model's lighting transport.</param>
+/// <param name="Controller">Factory combining model identity and shared OEM buttons into the physical controller source.</param>
+/// <param name="Motion">Factory for a model-mapped motion source.</param>
+/// <param name="Keyboard">Shared OEM-key hook owned by the plugin.</param>
+/// <param name="Delay">Cancellable timing dependency used for hardware write spacing.</param>
 internal sealed record AllyHardwareServices(
     IAllyIdentityReader Identity,
     IAsusAcpi Acpi,
@@ -28,7 +36,9 @@ internal sealed record AllyHardwareServices(
 /// <remarks>
 ///     Built from Handheld Companion 1.3.1.6 and HHD without hardware. Each model's facts live in
 ///     <c>AllyModels</c>; PROVENANCE.md cites the source of every one and lists what a Device Lab report
-///     must confirm.
+///     must confirm. The plugin owns ACPI, HID, controller and motion resources; WSGM owns profiles,
+///     virtual targets and HidHide. Services degrade independently. Command and observation work is
+///     serialized, and accepted writes remain observed when readback is unavailable.
 /// </remarks>
 public sealed partial class RogAllyPlugin : IDevicePlugin
 {

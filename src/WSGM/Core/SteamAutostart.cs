@@ -50,6 +50,7 @@ public sealed record SteamAutostartSource(
     public bool NeedsElevation => Scope is SteamAutostartScope.Machine;
 
     /// <summary>A short description for setup's takeover list and the log.</summary>
+    /// <returns>A compact source-kind and scope description suitable for takeover diagnostics.</returns>
     public string Describe()
     {
         return Kind switch
@@ -124,7 +125,9 @@ public static class SteamAutostartScanner
     /// <summary>The StartupApproved list names Windows keeps per surface.</summary>
     internal const string RunList = "Run";
 
+    /// <summary>StartupApproved subkey for 32-bit Run entries.</summary>
     internal const string Run32List = "Run32";
+    /// <summary>StartupApproved subkey for startup-folder shortcuts.</summary>
     internal const string StartupFolderList = "StartupFolder";
 
     /// <summary>Finds every startup source that launches Steam.</summary>

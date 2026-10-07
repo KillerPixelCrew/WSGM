@@ -120,6 +120,8 @@ internal sealed record SetupOptions
     }
 
     /// <summary>Whether any argument asks for a window-less run.</summary>
+    /// <param name="args">Raw command-line arguments, before full validation.</param>
+    /// <returns>True for /quiet, /silent, or -quiet after trimming and case normalization.</returns>
     public static bool WantsQuiet(string[] args)
     {
         return args.Any(argument => argument.Trim().ToLowerInvariant() is "/quiet" or "/silent" or "-quiet");

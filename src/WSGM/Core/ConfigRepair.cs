@@ -42,7 +42,8 @@ internal static class ConfigRepair
     /// <summary>
     ///     Moves a normalized document to <see cref="AppConfig.CurrentSchemaVersion" /> in memory. Only stored
     ///     values whose meaning changed are rewritten; the next strict write persists them. A document from a
-    ///     newer WSGM is loaded best effort as it is.
+    ///     newer WSGM is read best effort; its schema marker is reset to this build's version and
+    ///     unknown fields are not retained on the next save.
     /// </summary>
     /// <param name="config">The normalized document, changed in place.</param>
     /// <returns>The schema version the file was written with.</returns>
@@ -86,6 +87,9 @@ internal static class ConfigRepair
         };
     }
 
+    /// <summary>Repairs invalid enum values in a mutable graph covered by generated configuration metadata.</summary>
+    /// <param name="value">Non-null root to mutate; cached SDK declarations are left intact for separate validation.</param>
+    /// <remarks>Cycles are visited once. Recovery enum values are preserved for bounded interpretation by their owners.</remarks>
     internal static void NormalizeEnums(object value)
     {
         NormalizeObject(value, value.GetType(), null, new HashSet<object>(ReferenceEqualityComparer.Instance));
@@ -319,6 +323,9 @@ internal static class ConfigRepair
         return (Bits(type, value) & ~allowed) == 0;
     }
 
+    /// <summary>Identifies persisted recovery enums whose unknown values must not become valid policy defaults.</summary>
+    /// <param name="type">Enum type to classify.</param>
+    /// <returns>True for autostart kind/scope and registry value-kind recovery fields.</returns>
     internal static bool IsRecovery(Type type)
     {
         return type == typeof(SteamAutostartKind) || type == typeof(SteamAutostartScope)

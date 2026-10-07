@@ -11,9 +11,9 @@ namespace WSGM.Core;
 
 /// <summary>Replaces a file only once its new content is completely written.</summary>
 /// <remarks>
-///     The content goes to a uniquely named sibling that is moved over the destination, so a failed
-///     or interrupted write leaves the previous file intact and the temporary file is removed on every
-///     path. A durable write also asks Windows to put the bytes on disk before the replace.
+///     Writes a unique sibling before replacing the destination. Failures before replacement leave
+///     the old file intact; temporary-file cleanup is best effort. Durable writes request write-through
+///     I/O, and synchronous writes also flush to disk before replacement.
 /// </remarks>
 internal static class AtomicFile
 {
@@ -87,7 +87,7 @@ internal static class AtomicFile
     /// <param name="path">The file to replace.</param>
     /// <param name="write">Writes the complete content.</param>
     /// <param name="durable">Opens the temporary file write-through.</param>
-    /// <param name="cancellationToken">Cancels the write before the replace.</param>
+    /// <param name="cancellationToken">Cancels the writer and flush; the final filesystem move is synchronous.</param>
     /// <returns>A task that completes once the file has been replaced.</returns>
     internal static async Task WriteAsync(
         string path,

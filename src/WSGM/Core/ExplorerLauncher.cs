@@ -6,8 +6,14 @@ using System.Threading.Tasks;
 
 namespace WSGM.Core;
 
+/// <summary>Dispatches terminal Explorer recovery while preserving uncertainty across launch mechanisms.</summary>
 internal static class ExplorerLauncher
 {
+    /// <summary>Prefers a medium-integrity scheduled task when recovering from an elevated process.</summary>
+    /// <param name="context">User-data context for the temporary scheduled-task definition.</param>
+    /// <param name="deadline">Absolute UTC deadline for scheduler dispatch.</param>
+    /// <param name="cancellationToken">Checked before dispatch and forwarded to the scheduler.</param>
+    /// <returns>Dispatch certainty, not desktop readiness; callers must observe the resulting shell.</returns>
     internal static Task<ScheduledTaskLaunchDisposition> StartAsync(UserDataContext context,
         DateTimeOffset deadline, CancellationToken cancellationToken)
     {
@@ -16,6 +22,13 @@ internal static class ExplorerLauncher
                 "", deadline, cancellationToken: token), StartDirect, cancellationToken);
     }
 
+    /// <summary>Falls back to direct launch only when scheduler dispatch is known not to have occurred.</summary>
+    /// <param name="elevated">Whether to attempt de-elevation through the scheduler first.</param>
+    /// <param name="schedule">Bounded scheduler dispatch delegate.</param>
+    /// <param name="startDirect">Last-resort direct launch delegate using current integrity.</param>
+    /// <param name="cancellationToken">Cancels before either dispatch; forwarded to the scheduler.</param>
+    /// <returns>The selected route's dispatch certainty; Unknown suppresses direct fallback.</returns>
+    /// <exception cref="OperationCanceledException">Cancellation was requested before dispatch.</exception>
     internal static async Task<ScheduledTaskLaunchDisposition> StartAsync(bool elevated,
         Func<CancellationToken, Task<ScheduledTaskLaunchDisposition>> schedule,
         Func<ScheduledTaskLaunchDisposition> startDirect, CancellationToken cancellationToken)

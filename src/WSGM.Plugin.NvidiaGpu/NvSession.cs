@@ -42,6 +42,7 @@ internal sealed class NvSession : IDriverSession
         _api.Load();
     }
 
+    /// <inheritdoc />
     public DriverModel Discover()
     {
         var outputs = _api.Displays(); // NVIDIA present does not imply that it drives the laptop panel.
@@ -132,12 +133,14 @@ internal sealed class NvSession : IDriverSession
         return new DriverModel(sections, controls);
     }
 
+    /// <inheritdoc />
     public ApplicationProfileSyncResult Sync(ApplicationProfileSync sync, WriteAdmission admission,
         CancellationToken token)
     {
         return _profiles.Sync(sync, _settings, admission, token);
     }
 
+    /// <inheritdoc />
     public void Dispose()
     {
         _api.Dispose();
@@ -243,6 +246,8 @@ internal sealed class NvSession : IDriverSession
 
 /// <summary>One DWORD setting of the global DRS profile, shared by the choice and G-SYNC controls.</summary>
 /// <remarks>Reads and writes use the state the pass loaded (<see cref="NvSession.BeginPass" />).</remarks>
+/// <param name="api">Borrowed DRS session/profile API, used only on the plugin's serialized native lane.</param>
+/// <param name="id">Driver DWORD setting identity within the global profile.</param>
 internal sealed class NvDrsSetting(INvProfiles api, uint id)
 {
     internal uint Read()
@@ -251,6 +256,8 @@ internal sealed class NvDrsSetting(INvProfiles api, uint id)
     }
 
     /// <summary>Writes and commits, then reloads so the readback sees the committed store.</summary>
+    /// <param name="value">DWORD value validated by the published control.</param>
+    /// <param name="admission">Checked by the native setter and SaveSettings before each mutation.</param>
     internal void Write(uint value, WriteAdmission admission)
     {
         api.Set(api.GlobalProfile(), id, value, admission);

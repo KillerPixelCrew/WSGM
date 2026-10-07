@@ -70,8 +70,10 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
     private int _ringColor = 0xFF9D3D;
     private int _tdp = 15;
 
+    /// <inheritdoc />
     public event Action? Changed;
 
+    /// <inheritdoc />
     public DeviceOverlaySnapshot Snapshot()
     {
         string[] fanModes = ["Automatic", "Sport"];
@@ -324,6 +326,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
         };
     }
 
+    /// <inheritdoc />
     public Task SetHostSelectionAsync(string rowId, string? value, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -339,11 +342,15 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
     }
 
     /// <summary>The preview has no running game profile, so there is no override to remove.</summary>
+    /// <param name="overrideId">Ignored because the preview has no saved profile overrides.</param>
+    /// <param name="cancellationToken">Accepted for interface compatibility; no asynchronous work is started.</param>
+    /// <returns>An already completed task.</returns>
     public Task UseGlobalAsync(string overrideId, CancellationToken cancellationToken = default)
     {
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public Task InvokeAsync(
         DeviceOverlayCapability capability,
         CancellationToken cancellationToken = default)
@@ -377,6 +384,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public Task ToggleAutoTdpAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -385,6 +393,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public Task SetPhysicalGlyphSelectionAsync(DeviceGlyphSelection selection,
         CancellationToken cancellationToken = default)
     {
@@ -399,6 +408,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public Task CycleControllerTargetAsync(CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -453,6 +463,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
         return Task.CompletedTask;
     }
 
+    /// <inheritdoc />
     public void Dispose()
     {
     }

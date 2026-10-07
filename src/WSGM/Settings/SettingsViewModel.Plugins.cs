@@ -156,6 +156,7 @@ public sealed partial class SettingsViewModel
     ///     Reads the Plugins folder and the installed release's bundle on a worker, then fills the Plugins
     ///     page, the integration instances and the plugin settings of the installed device plugin.
     /// </summary>
+    /// <returns>Completion after worker catalog reads and publication on the captured UI context.</returns>
     internal async Task LoadPluginPackagesAsync()
     {
         var page = await Task.Run(_services.ReadPackages);

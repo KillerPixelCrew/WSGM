@@ -7,8 +7,8 @@ namespace WSGM.Core;
 internal static class TaskFaults
 {
     /// <summary>
-    ///     Marks a fault on <paramref name="task" /> as observed, so an abandoned cancellation or
-    ///     timed-out worker never surfaces later as an unobserved task exception.
+    ///     Observes a detached task's eventual fault without waiting, logging, or canceling its work.
+    ///     Use after a caller abandons a worker; this does not make the worker safe to dispose.
     /// </summary>
     /// <param name="task">The detached task.</param>
     internal static void ObserveFaults(this Task task)

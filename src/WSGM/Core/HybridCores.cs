@@ -54,13 +54,15 @@ internal sealed record HybridCoreStatus(
     HybridCoreMode? OnBattery);
 
 /// <summary>
-///     Manual hybrid core placement over the reusable library. Reads always consult Windows; a write is
-///     confirmed by readback and applied to the active scheme.
+///     Manual hybrid core placement over the reusable library. Reads consult Windows; writes preserve
+///     unrelated policy values and activate the scheme without a confirming read.
 /// </summary>
 /// <remarks>
 ///     Independent of device integration: this is Windows power policy, not a device capability, so it
 ///     works with no plugin installed. Call from background work when projecting into a UI.
 /// </remarks>
+/// <param name="schemes">Session owner supplying the active scheme and shared mutation lock.</param>
+/// <param name="api">Platform adapter retained for this policy owner; native failures propagate.</param>
 internal sealed class HybridCores(PowerSchemes schemes, IHybridCoreApi api)
 {
     private static readonly HybridCoreOption[] Offered =
@@ -100,6 +102,9 @@ internal sealed class HybridCores(PowerSchemes schemes, IHybridCoreApi api)
     ///     Null rather than a nearest guess. Something else set that pair — an OEM tool, a policy, a
     ///     hand edit — and showing it as one of WSGM's modes would claim WSGM put it there.
     /// </remarks>
+    /// <param name="state">Non-null observed ordinary-thread and short-thread policy values.</param>
+    /// <returns>The matching offered mode, or null when the pair differs or is unrecognized.</returns>
+    /// <exception cref="ArgumentNullException">The state is null.</exception>
     internal static HybridCoreMode? ModeFor(HybridCoreState state)
     {
         ArgumentNullException.ThrowIfNull(state);

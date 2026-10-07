@@ -8,9 +8,14 @@ using static WSGM.Interop.Kernel32;
 namespace WSGM.Interop;
 
 /// <summary>Stable filesystem identity for one existing path.</summary>
+/// <param name="VolumeSerialNumber">Volume identifier returned for the open handle.</param>
+/// <param name="FileId">Combined high and low file-index words; compare together with the volume identifier.</param>
 internal readonly record struct NativePathIdentity(uint VolumeSerialNumber, ulong FileId);
 
 /// <summary>Stable identity and bounded metadata read from one already-open path handle.</summary>
+/// <param name="Identity">Volume and file-index identity observed through the handle.</param>
+/// <param name="Attributes">Windows file-attribute bits at the time of the read.</param>
+/// <param name="Length">File length in bytes, checked to fit in a signed 64-bit value.</param>
 internal readonly record struct NativePathInformation(
     NativePathIdentity Identity,
     uint Attributes,
@@ -20,6 +25,8 @@ internal readonly record struct NativePathInformation(
 internal static partial class NativePathIdentityReader
 {
     /// <summary>Returns the identity of an existing file or directory, or null when it is absent.</summary>
+    /// <param name="path">Existing file or directory to open for metadata; the temporary handle is closed before return.</param>
+    /// <returns>The observed identity, or null only for file/path-not-found errors; other inspection failures throw.</returns>
     internal static NativePathIdentity? Read(string path)
     {
         var rawHandle = CreateFileHandleW(
@@ -55,7 +62,11 @@ internal static partial class NativePathIdentityReader
         return information.Identity;
     }
 
-    /// <summary>Reads identity, attributes, and length from an owned open handle.</summary>
+    /// <summary>Reads identity, attributes, and length from a borrowed open handle.</summary>
+    /// <param name="handle">Caller-owned handle, kept open for this synchronous call; ownership is not transferred.</param>
+    /// <param name="result">Observed metadata on success; default on failure.</param>
+    /// <param name="error">Zero on success, otherwise the Win32 error or ERROR_FILE_TOO_LARGE for an unrepresentable length.</param>
+    /// <returns>True when metadata was read and its length fits; false with an error otherwise.</returns>
     internal static bool TryRead(
         SafeFileHandle handle,
         out NativePathInformation result,

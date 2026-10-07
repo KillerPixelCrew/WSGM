@@ -50,6 +50,7 @@ internal static class ServiceHost
     ///     Connects to the SCM dispatcher (blocks until the service stops).
     ///     Returns nonzero when started from a console instead of the SCM.
     /// </summary>
+    /// <returns>Zero after a normal dispatcher lifetime; one when connection to the SCM fails.</returns>
     internal static unsafe int RunDispatcher()
     {
         fixed (char* name = ServiceName)

@@ -6,12 +6,9 @@ namespace WSGM.Device.Sdk.Windows;
 
 /// <summary>Polls every half second for a device that dropped out and reopens it once it is back.</summary>
 /// <remarks>
-///     A pad or HID collection that disappears is a state, never a device fault: the read loop ends, the
-///     service keeps its place in the cycle, and the device is reopened when it reappears. Handheld pads
-///     drop off the bus around every sleep (the Xbox Ally X about a second before Windows reports the
-///     suspend) and return a few seconds after the wake. The reopen runs once per wait, as HC reopens
-///     once per <c>Device_Inserted</c>: an attempt that found the device, or threw, ends the wait, so a
-///     write it made is never repeated. What follows a failed reopen is a user action or the next cycle.
+///     Polling may repeat only while the device is absent and the callback has made no mutation.
+///     Finding the device or throwing ends that wait, so an uncertain reopen write is not retried.
+///     The owner must stop the wait before releasing resources captured by its callbacks.
 /// </remarks>
 public sealed class DeviceReconnect
 {
@@ -32,7 +29,10 @@ public sealed class DeviceReconnect
     ///     One reopen attempt. False only when the device is still absent and nothing was written; true once
     ///     the device was there, whatever came of the reopen.
     /// </param>
-    /// <param name="failed">Called with an attempt's exception, which ends the wait.</param>
+    /// <param name="failed">
+    ///     Receives a non-cancellation attempt failure on the worker thread. Must not throw;
+    ///     the failure ends polling whether or not the callback returns normally.
+    /// </param>
     /// <remarks>A wait already running is left as it is.</remarks>
     public void Start(Func<CancellationToken, ValueTask<bool>> attempt, Action<Exception> failed)
     {
@@ -53,7 +53,10 @@ public sealed class DeviceReconnect
     }
 
     /// <summary>Stops a running wait and waits for its current attempt to finish.</summary>
-    /// <returns>A task completing once no attempt runs.</returns>
+    /// <returns>
+    ///     Completion after the current attempt ends, except a call from that attempt returns immediately
+    ///     after requesting cancellation. Attempt failures are not rethrown by this wait.
+    /// </returns>
     /// <remarks>
     ///     Called from inside an attempt, for example by a release the attempt ran after a failed reopen,
     ///     it only stops the wait: waiting for the attempt from within it would never finish.

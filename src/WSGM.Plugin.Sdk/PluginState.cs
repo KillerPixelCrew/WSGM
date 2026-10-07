@@ -6,10 +6,11 @@ namespace WSGM.Plugin.Sdk;
 /// <summary>One primitive value for common settings and observable state.</summary>
 /// <param name="Boolean">Boolean value, exclusive with Number and Text.</param>
 /// <param name="Number">Finite numeric value, exclusive with Boolean and Text.</param>
-/// <param name="Text">Plain text value, exclusive with Boolean and Number.</param>
+/// <param name="Text">Text value, exclusive with Boolean and Number; an empty string is a present value.</param>
+/// <remarks>Construction does not validate the value; the default struct has no value and is invalid.</remarks>
 public readonly record struct PluginValue(bool? Boolean = null, double? Number = null, string? Text = null)
 {
-    /// <summary>Whether exactly one value is present.</summary>
+    /// <summary>Whether exactly one primitive is present and any number is finite; text content is not validated.</summary>
     [JsonIgnore]
     public bool IsValid => (Boolean.HasValue ? 1 : 0) + (Number.HasValue ? 1 : 0) + (Text is null ? 0 : 1) == 1
                            && (!Number.HasValue || double.IsFinite(Number.Value));

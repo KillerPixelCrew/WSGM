@@ -11,6 +11,7 @@ public static class ElevationCheck
     ///     undeterminable. Callers decide how to treat null: safety-critical paths
     ///     (self-elevation) assume elevated, repair paths assume not.
     /// </summary>
+    /// <returns>True or false when the token can be read; null for unavailable process/token information.</returns>
     public static bool? IsCurrentProcessElevated()
     {
         return IsProcessElevated((uint)Environment.ProcessId);

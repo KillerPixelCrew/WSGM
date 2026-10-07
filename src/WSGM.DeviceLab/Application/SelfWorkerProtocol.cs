@@ -9,6 +9,7 @@ using System.Threading.Tasks;
 namespace WSGM.DeviceLab.Application;
 
 /// <summary>A worker request that passed session, request and supervisor authorization checks.</summary>
+/// <typeparam name="TRequest">The worker's validated request contract.</typeparam>
 /// <param name="Request">The validated request.</param>
 /// <param name="ResultPath">The constrained create-new result file.</param>
 internal sealed record SelfWorkerSession<TRequest>(TRequest Request, string ResultPath);
@@ -56,6 +57,7 @@ internal static class SelfWorkerProtocol
     }
 
     /// <summary>Authorizes a worker session and reads its request.</summary>
+    /// <typeparam name="TRequest">The worker-specific request contract after bounded deserialization.</typeparam>
     /// <param name="worker">Label used in diagnostics.</param>
     /// <param name="options">Parsed options holding --request, --result and --authorization-handle.</param>
     /// <param name="requestFileName">Required request file name inside the session directory.</param>

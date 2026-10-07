@@ -1,11 +1,4 @@
-// The Themes page in Steam: CSSLoader-compatible themes browsed from DeckThemes, installed and managed.
-//
-// Laid out the way CSS Loader lays out its store and its settings, and drawn with Steam's own
-// components where one fits and the toolkit's UI kit for the rest, so it behaves like the rest of
-// Big Picture under a controller: Steam's tabs over a toolbar and a grid of cards, one theme's
-// details with its screenshots, and the installed themes as the same settings rows a host's settings
-// page uses. WSGM owns the data, every label and every decision; the toolkit owns the page gate, the
-// settings rows, the kit, the modal frame and the fail-closed component discovery used here.
+// Theme frontend; shared host services own catalogue, profiles, settings and CSS deployment.
 const ThemesPatchId = "wsgm.themes";
 
 let themesUi: any = null;
@@ -20,8 +13,12 @@ const themesTabs = [
 ];
 
 
-// One row's change, sent as the command its key names. The rows are the settings renderer's, so a
-// theme's switch, a patch and a component all draw and navigate like Steam's own settings.
+/**
+ * Dispatches a committed settings row to the host command encoded by its key.
+ * @param row Published row whose NUL-separated key identifies the command and target.
+ * @param value Edited value, converted according to the row kind.
+ * @param commit False for draft updates, which are not sent to the host.
+ */
 const themesRowChange = (row, value, commit = true) => {
   if (!commit) return;
   const [kind, theme, patch, component] = String(row.key).split("\u0000");
@@ -53,8 +50,11 @@ const themesRowChange = (row, value, commit = true) => {
 };
 const themesKey = (...parts: string[]) => parts.join("\u0000");
 
-// The rows one installed theme is drawn with: its switch, and while it is on, its patches and the
-// components of each patch's chosen option, indented under it.
+/**
+ * Builds settings descriptors from one installed theme snapshot.
+ * @param theme Host-published theme and its patch/component choices.
+ * @returns Rows headed by the enable switch; disabled themes omit patch controls.
+ */
 const themesRowsOf = (theme) => {
   const rows: any[] = [];
   const description =
@@ -525,8 +525,11 @@ function ThemesSettings({ state }: any) {
   );
 }
 
-// Declared once for the life of the asset, and drawn by the toolkit's page frame only once the gate
-// holds: the frame says why when it does not.
+/**
+ * Renders theme browsing, installation, profiles and settings from host state.
+ * @param context Registered page accessors for Steam components, latest state and publication refusal.
+ * @returns The page React tree, including loading or refusal state when data is unavailable.
+ */
 function ThemesPage({ context }: any) {
   const react = context.react();
   const h = react.createElement;

@@ -68,6 +68,7 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
         }
     }
 
+    /// <summary>A detached copy of the last observations, including accepted writes; null values mean unreadable.</summary>
     internal IReadOnlyDictionary<PowerTimeoutKind, int?> ObservedValues
     {
         get
@@ -145,9 +146,11 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
             : Refuse("Windows did not accept the display timeout.");
     }
 
-    /// <summary>Raised after any timeout was written or Steam's screensaver timeouts were reported.</summary>
+    /// <summary>Raised synchronously after a report or an attempted selection; subscribers must not assume a write succeeded.</summary>
     internal event Action? Changed;
 
+    /// <summary>Updates cached observations without writing Windows values or publishing a change event.</summary>
+    /// <param name="values">Timeout kinds and their observed seconds, or null for unavailable readings.</param>
     internal void Observe(IReadOnlyDictionary<PowerTimeoutKind, int?> values)
     {
         lock (_gate)
@@ -161,9 +164,8 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
 
     /// <summary>Drops Steam's reported screensaver timeouts, so nothing bounds the display until Steam reports again.</summary>
     /// <remarks>
-    ///     Called whenever the Screensaver settings surface does not hold: a client without the
-    ///     screensaver, a Steam restart, or the rows switched off. A bound kept from a client that is gone
-    ///     goes on refusing display timeouts that nothing needs.
+    ///     Clears stale bounds after a Steam restart, unavailable screensaver surface or disabled rows.
+    ///     Does not write Windows timeout values.
     /// </remarks>
     internal void ForgetSteam()
     {
@@ -198,7 +200,6 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
         bool written;
         using (_schemes.EnterMutation())
         {
-            // A failed read refuses to write blind.
             var current = _read(kind);
             if (current is null)
             {
@@ -216,6 +217,9 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
     }
 
     /// <summary>Applies an explicitly selected timeout while respecting Steam's screensaver boundary.</summary>
+    /// <param name="kind">Timeout setting to write through the shared active-scheme lock.</param>
+    /// <param name="seconds">Requested seconds; zero means never. Steam bounds can refuse the value.</param>
+    /// <returns>Whether Windows accepted the write; false for a bounds refusal or native write failure.</returns>
     internal bool Select(PowerTimeoutKind kind, int seconds)
     {
         bool written;

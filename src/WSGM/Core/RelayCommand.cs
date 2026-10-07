@@ -31,6 +31,7 @@ public sealed class RelayCommand : ICommand
 
     /// <summary>Always true. The <paramref name="parameter" /> is ignored.</summary>
     /// <param name="parameter">Unused; parameterless commands take no argument.</param>
+    /// <returns>Always true; delegate exceptions, if any, occur only on execution.</returns>
     public bool CanExecute(object? parameter)
     {
         return true;
@@ -54,6 +55,8 @@ public sealed class AsyncRelayCommand : ICommand
     private int _running;
 
     /// <summary>Creates a serialized asynchronous command.</summary>
+    /// <param name="execute">Non-null operation invoked on the calling synchronization context; failures are logged.</param>
+    /// <exception cref="ArgumentNullException">The operation is null.</exception>
     public AsyncRelayCommand(Func<Task> execute)
     {
         _execute = execute ?? throw new ArgumentNullException(nameof(execute));
@@ -134,6 +137,7 @@ public sealed class RelayCommand<T> : ICommand
     ///     to <typeparamref name="T" /> (wrong type, or null for a non-nullable value type).
     /// </summary>
     /// <param name="parameter">The command parameter to convert and test.</param>
+    /// <returns>True when the parameter is assignable to T, including null only when T can represent it.</returns>
     public bool CanExecute(object? parameter)
     {
         return TryConvert(parameter, out _);

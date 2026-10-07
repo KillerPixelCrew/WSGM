@@ -90,6 +90,7 @@ internal sealed class SteamGameContextMenuBackend : ISteamGameContextMenuBackend
     }
 
     /// <summary>The entries Steam should currently render in a game's gear menu.</summary>
+    /// <returns>Current artwork and plugin menu entries; plugins cannot claim the reserved WSGM prefix.</returns>
     internal SteamGameContextMenuState ReadState()
     {
         List<SteamGameContextMenuItem> items = [];

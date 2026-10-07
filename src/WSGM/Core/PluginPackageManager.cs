@@ -282,6 +282,10 @@ internal static class PluginPackageManager
         }
     }
 
+    /// <summary>Checks lexical full-path containment as a direct child of the package root.</summary>
+    /// <param name="path">Candidate package path.</param>
+    /// <param name="root">Expected package directory.</param>
+    /// <returns>True for one direct child, case-insensitively; does not check existence or resolve reparse points.</returns>
     internal static bool IsInside(string path, string root)
     {
         var full = Path.GetFullPath(path);

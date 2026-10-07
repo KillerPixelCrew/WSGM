@@ -151,6 +151,7 @@ public sealed partial class SettingsViewModel
     }
 
     /// <summary>Captures every UI-owned value into an isolated graph on the UI thread.</summary>
+    /// <returns>A detached request including edited-field baselines; safe for the persistence worker while the UI continues editing.</returns>
     internal SaveRequest CaptureSaveRequest()
     {
         var splash = BuildSplashConfig();
@@ -607,6 +608,13 @@ public sealed partial class SettingsViewModel
         }
     }
 
+    /// <summary>Detached UI snapshot captured once for a worker-side merge onto fresh configuration.</summary>
+    /// <param name="Values">Only Settings-owned values are merged; this is not a replacement for the fresh persisted graph.</param>
+    /// <param name="Splash">Captured splash settings and staged asset references.</param>
+    /// <param name="PluginEdits">Edited capability values keyed by stable setting identity.</param>
+    /// <param name="DeviceProfiles">Authored profile replacement when edited, otherwise null to preserve fresh profiles.</param>
+    /// <param name="PluginDevice">Device scope for plugin-setting merge.</param>
+    /// <param name="PluginId">Installed plugin scope for plugin-setting merge.</param>
     internal sealed record SaveRequest(
         AppConfig Values,
         SplashConfig Splash,
@@ -615,6 +623,7 @@ public sealed partial class SettingsViewModel
         string PluginDevice,
         string PluginId)
     {
+        /// <summary>Display identities explicitly removed by this captured edit, preserving unrelated fresh catalog entries.</summary>
         internal IReadOnlyList<DisplayTargetIdentity> ForgottenDisplays { get; init; } = [];
 
         /// <summary>The shared fields the user changed in this window; the rest keep the saved value.</summary>
@@ -624,9 +633,15 @@ public sealed partial class SettingsViewModel
         internal IReadOnlyDictionary<string, object> SharedValues { get; init; } =
             new Dictionary<string, object>(StringComparer.Ordinal);
 
+        /// <summary>Only common-plugin instances edited against the window's acknowledged baseline.</summary>
         internal IReadOnlyList<CommonPluginInstanceConfig> CommonPluginEdits { get; init; } = [];
     }
 
+    /// <summary>Persistence result used to acknowledge captured edits and run only required post-save reconciliation.</summary>
+    /// <param name="Config">Fresh merged configuration used by the save.</param>
+    /// <param name="FailedSlots">Splash asset slots that could not be promoted.</param>
+    /// <param name="Failure">Transaction or sidecar failure, or null on success.</param>
+    /// <param name="Changes">Captured semantic changes that authorize post-save work.</param>
     internal sealed record SaveResult(
         AppConfig Config,
         IReadOnlyList<string> FailedSlots,

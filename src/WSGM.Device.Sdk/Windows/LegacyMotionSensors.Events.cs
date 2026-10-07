@@ -5,10 +5,7 @@ using WSGM.Device.Sdk.Plugin;
 
 namespace WSGM.Device.Sdk.Windows;
 
-// Event delivery. The Sensor API hands each report to a sink as the driver publishes it, so the
-// gyrometer's 100 Hz cadence costs one callback per report instead of five polls, four of which
-// returned the report before (docs/perf: the poll was 12 % of WSGM's idle CPU and all of the sensor
-// driver host's). Polling stays as the fallback when a sink cannot be registered.
+// Driver events avoid polling duplicate reports. LegacyMotionStream owns the polling fallback.
 public sealed partial class LegacyMotionSensors
 {
     /// <summary><c>SENSOR_EVENT_DATA_UPDATED</c> from sensors.h.</summary>
@@ -26,7 +23,10 @@ public sealed partial class LegacyMotionSensors
     ///     event dispatch.
     /// </param>
     /// <param name="error">Why the subscription failed, when it did.</param>
-    /// <returns>Whether both sinks are registered. On false nothing is registered.</returns>
+    /// <returns>
+    ///     True when the gyrometer and any present accelerometer are subscribed. A failed new registration
+    ///     is unwound; a call while already subscribed returns false without removing the existing subscription.
+    /// </returns>
     /// <remarks>
     ///     With an accelerometer, the first gyrometer reports before its first report are dropped: the
     ///     offset calibrator needs the acceleration to recognise rest, and a reading with a fabricated

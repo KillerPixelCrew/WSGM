@@ -16,6 +16,9 @@ internal sealed unsafe partial class RtssProfileApi : IDisposable
     private readonly delegate* unmanaged[Cdecl]<void> _updateProfiles;
     private nint _module;
 
+    /// <summary>Loads a caller-verified RTSS profile DLL and resolves its required Cdecl exports.</summary>
+    /// <param name="libraryPath">Exact trusted library path; this wrapper does not establish its signature or provenance.</param>
+    /// <remarks>The caller serializes profile transactions. Missing libraries/exports throw and release partial native ownership.</remarks>
     internal RtssProfileApi(string libraryPath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(libraryPath);
@@ -48,6 +51,8 @@ internal sealed unsafe partial class RtssProfileApi : IDisposable
         }
     }
 
+    /// <summary>Unloads the owned native module; repeated disposal is harmless.</summary>
+    /// <remarks>No other call may be in flight; property operations after disposal throw.</remarks>
     public void Dispose()
     {
         if (_module == 0)
@@ -59,16 +64,24 @@ internal sealed unsafe partial class RtssProfileApi : IDisposable
         _module = 0;
     }
 
+    /// <summary>Selects the native working profile for subsequent property operations.</summary>
+    /// <param name="profile">RTSS profile name encoded as ANSI; caller owns the surrounding serialized transaction.</param>
     internal void LoadProfile(string profile)
     {
         InvokeString(_loadProfile, profile);
     }
 
+    /// <summary>Saves the native working profile under the requested name.</summary>
+    /// <param name="profile">RTSS profile name encoded as ANSI; invoke only after the caller's validated edits.</param>
     internal void SaveProfile(string profile)
     {
         InvokeString(_saveProfile, profile);
     }
 
+    /// <summary>Reads one uint property from the currently loaded native profile.</summary>
+    /// <param name="property">RTSS property name encoded as ANSI.</param>
+    /// <param name="value">Native value on success; zero when the API did not write it.</param>
+    /// <returns>Whether the native getter reported success; disposal errors propagate.</returns>
     internal bool TryGetUInt32(string property, out uint value)
     {
         ObjectDisposedException.ThrowIf(_module == 0, this);
@@ -89,6 +102,10 @@ internal sealed unsafe partial class RtssProfileApi : IDisposable
         }
     }
 
+    /// <summary>Updates one uint property of the currently loaded native profile.</summary>
+    /// <param name="property">RTSS property name encoded as ANSI.</param>
+    /// <param name="value">Validated value to set; persistence remains the caller's SaveProfile operation.</param>
+    /// <returns>Whether the native setter accepted the value; disposal errors propagate.</returns>
     internal bool TrySetUInt32(string property, uint value)
     {
         ObjectDisposedException.ThrowIf(_module == 0, this);
@@ -103,6 +120,7 @@ internal sealed unsafe partial class RtssProfileApi : IDisposable
         }
     }
 
+    /// <summary>Notifies RTSS to reload profile state after the caller has saved its changes.</summary>
     internal void UpdateProfiles()
     {
         ObjectDisposedException.ThrowIf(_module == 0, this);

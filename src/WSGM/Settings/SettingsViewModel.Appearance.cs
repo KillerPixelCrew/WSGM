@@ -131,6 +131,7 @@ public sealed partial class SettingsViewModel
     ///     theme export: an isolated copy of the edited section, so the save path's
     ///     asset staging can rewrite its image paths without touching the editor.
     /// </summary>
+    /// <returns>A detached splash preference built from the current UI draft.</returns>
     internal SplashConfig BuildSplashConfig()
     {
         var splash = ConfigJson.Clone(Splash, ConfigJsonContext.Tolerant.SplashConfig);
@@ -151,6 +152,7 @@ public sealed partial class SettingsViewModel
     ///     so later edits cannot mutate the caller's instance and an imported value can
     ///     never carry an out-of-range enum into the editor.
     /// </summary>
+    /// <param name="splash">Saved or imported splash settings to copy into the UI draft.</param>
     internal void LoadSplash(SplashConfig splash)
     {
         Splash = SplashRules.Normalize(

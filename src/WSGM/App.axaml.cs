@@ -39,6 +39,7 @@ public class App : Application
         _steamInput = steamInput ?? throw new ArgumentNullException(nameof(steamInput));
     }
 
+    /// <summary>The single exit coordinator, initialized when the desktop application lifetime is composed.</summary>
     internal ApplicationRuntime Runtime { get; private set; } = null!;
 
     /// <inheritdoc />
@@ -50,8 +51,7 @@ public class App : Application
     /// <inheritdoc />
     public override void OnFrameworkInitializationCompleted()
     {
-        // Accent first, before any window exists — every mode (shell, overlay
-        // test, settings, welcome) shows the configured accent from first paint.
+        // Apply the accent before creating any window to avoid a differently styled first frame.
         var config = _startupRead.Config ?? new AppConfig();
         AccentPalette.Apply(this, AccentPalette.Parse(config.AccentColor));
 
@@ -76,10 +76,7 @@ public class App : Application
 
                 case RunMode.Settings:
                 default:
-                    // Setup is the only installer, so there is no portable run to offer
-                    // an install for, and it asks every first-run question itself.
-                    // A standalone Settings process has no plugin host: its action lists offer nothing
-                    // and show saved steps read-only.
+                    // Standalone Settings has no plugin host; saved plugin actions remain read-only.
                     var settings = SettingsViewModel.FromLoadedConfig(_startupRead, _store, _steamInput.Shim, () => []);
                     desktop.MainWindow = new SettingsWindow(settings,
                         SettingsWindowServices.Create(settings, _steamInput, null,

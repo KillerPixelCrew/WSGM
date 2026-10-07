@@ -119,6 +119,8 @@ public static class WindowFinder
     }
 
     /// <summary>Reads exact executable liveness; an inaccessible matching process is unknown.</summary>
+    /// <param name="paths">Configured executable paths to expand and normalize; duplicate keys are case-insensitive.</param>
+    /// <returns>Original path keys mapped to current-session liveness: true for an exact match, false for absent, null for inaccessible candidates.</returns>
     internal static IReadOnlyDictionary<string, bool?> ReadRunningPaths(IEnumerable<string> paths)
     {
         var targets = paths.Distinct(StringComparer.OrdinalIgnoreCase).ToDictionary(path => path,
@@ -288,6 +290,7 @@ public static class WindowFinder
     ///     are not tool windows, not DWM-cloaked (suspended UWP ghosts), not the shell's
     ///     desktop window ("Program Manager"), and not ours. Z-order top first.
     /// </summary>
+    /// <returns>A new Z-order snapshot of borrowed window identities; callers must tolerate later window destruction.</returns>
     public static unsafe List<AppWindow> ListSwitchableWindows()
     {
         HashSet<nint> included;
@@ -391,6 +394,7 @@ public static class WindowFinder
     ///     Best-effort focus. Against an elevated window SetForegroundWindow may
     ///     fail silently under UIPI — callers should prefer protocol re-activation.
     /// </summary>
+    /// <param name="hWnd">Borrowed target window handle; zero is ignored. Minimized windows are restored first.</param>
     public static void BringToForeground(nint hWnd)
     {
         if (hWnd == 0)

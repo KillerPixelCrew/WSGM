@@ -3,6 +3,7 @@ using WSGM.UiTests.Visual;
 
 namespace WSGM.OverlayPreview;
 
+/// <summary>Exports deterministic overlay previews through the UI-test application and explicit fixtures.</summary>
 internal static class Program
 {
     [STAThread]

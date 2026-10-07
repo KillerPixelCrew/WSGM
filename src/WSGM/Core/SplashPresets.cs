@@ -44,6 +44,9 @@ internal static class SplashPresets
     ];
 
     /// <summary>Human-readable name for the preset combo box.</summary>
+    /// <param name="preset">Defined built-in preset.</param>
+    /// <returns>The picker label.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The preset is not defined.</exception>
     internal static string DisplayName(SplashPreset preset)
     {
         return preset switch
@@ -62,6 +65,9 @@ internal static class SplashPresets
     ///     Creates a fresh <see cref="SplashConfig" /> filled with the preset's
     ///     default values.
     /// </summary>
+    /// <param name="preset">Defined built-in preset to materialize.</param>
+    /// <returns>A new mutable configuration with no shared editable objects.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The preset is not defined.</exception>
     internal static SplashConfig Create(SplashPreset preset)
     {
         return preset switch
@@ -95,6 +101,7 @@ internal static class SplashPresets
     ///     No image assets: a preset never fabricates one, and a default that depended on a file could
     ///     not survive that file being missing.
     /// </remarks>
+    /// <returns>A fresh mutable copy of the shipped wordmark/sweep presentation without external image dependencies.</returns>
     internal static SplashConfig Wsgm20()
     {
         return new SplashConfig

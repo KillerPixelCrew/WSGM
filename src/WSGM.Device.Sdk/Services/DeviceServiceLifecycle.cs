@@ -11,9 +11,10 @@ namespace WSGM.Device.Sdk.Services;
 
 /// <summary>Runs a plugin's service operations and turns the services' states into lifecycle results.</summary>
 /// <remarks>
-///     An exception from a service faults that service and nothing else; only cancellation of the caller's
-///     own token propagates. The plugin decides which services an operation covers; the walks acquire them
-///     in start order and suspend and release them in reverse.
+///     Ordinary service exceptions become that service's fault result; out-of-memory failures propagate.
+///     Caller cancellation propagates from acquisition and suspend, but release records an unverified
+///     result and continues the release walk. The plugin chooses services and serializes lifecycle calls.
+///     Acquisition follows declaration order; suspend and release use reverse order.
 /// </remarks>
 public static class DeviceServiceLifecycle
 {
@@ -92,7 +93,10 @@ public static class DeviceServiceLifecycle
     /// <summary>Acquires services one after another in the order given.</summary>
     /// <param name="services">The services to acquire, in start order.</param>
     /// <param name="context">The cycle they are acquired for.</param>
-    /// <param name="cancellationToken">Cancels the walk; a start that is cancelled is rolled back as a whole.</param>
+    /// <param name="cancellationToken">
+    ///     Cancels the acquisition walk. The caller must invoke <see cref="RollBackStartAsync{TIdentity}" />
+    ///     to unwind a partially acquired cycle; this method does not roll it back.
+    /// </param>
     /// <typeparam name="TIdentity">The plugin's identity snapshot type.</typeparam>
     /// <returns>A task completing once every service's state is applied.</returns>
     public static async ValueTask AcquireAllAsync<TIdentity>(
@@ -131,7 +135,9 @@ public static class DeviceServiceLifecycle
     /// <summary>Releases every service in reverse start order.</summary>
     /// <param name="services">Every service of the cycle, in start order.</param>
     /// <param name="context">The cycle being released.</param>
-    /// <param name="cancellationToken">Cancels the walk; each cancelled release is reported unverified.</param>
+    /// <param name="cancellationToken">
+    ///     Passed to each release. Cancellation is recorded as unverified and does not skip later services.
+    /// </param>
     /// <typeparam name="TIdentity">The plugin's identity snapshot type.</typeparam>
     /// <returns>A task completing once every service's state is applied.</returns>
     public static async ValueTask ReleaseAllAsync<TIdentity>(
@@ -152,7 +158,7 @@ public static class DeviceServiceLifecycle
     /// <param name="host">The host the start published to, or null when it never got that far.</param>
     /// <param name="published">The descriptor set the start published, or null when it published none.</param>
     /// <typeparam name="TIdentity">The plugin's identity snapshot type.</typeparam>
-    /// <returns>A task completing once every service is released and every publication retracted.</returns>
+    /// <returns>Completion after all releases and applicable retractions were attempted, including failed cleanup.</returns>
     /// <remarks>
     ///     The physical devices and OEM controls are replaced with empty sets and the descriptors with an
     ///     empty set of the next generation. A retraction the host refuses is traced and the rest still run.

@@ -108,6 +108,7 @@ internal sealed class PerformanceServiceNativeQamAdapter :
         _profiles = profiles ?? throw new ArgumentNullException(nameof(profiles));
     }
 
+    /// <summary>Projects the latest RTSS state and display-supported limits without performing a new read.</summary>
     internal SteamFrameLimitState FrameLimit => ProjectFrameLimit(
         _service.Current,
         _service.Enabled,
@@ -521,6 +522,7 @@ internal sealed class PerformanceServiceNativeQamAdapter :
                 $"The device refused to turn {what} {(enabled ? "on" : "off")}.");
     }
 
+    /// <summary>Builds frame-cap and display-refresh controls from current RTSS and panel capabilities.</summary>
     /// <param name="state">The performance service's current state.</param>
     /// <param name="enabled">Whether RTSS control is switched on at all.</param>
     /// <param name="support">
@@ -676,6 +678,8 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
 
     private readonly DeviceCoordinator? _coordinator;
 
+    /// <summary>Creates the power-limit projection without acquiring device ownership.</summary>
+    /// <param name="coordinator">Borrowed device coordinator, or null to publish unavailable state and refuse writes.</param>
     internal DeviceCoordinatorNativeQamTdpService(DeviceCoordinator? coordinator)
     {
         _coordinator = coordinator;
@@ -710,11 +714,8 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
         }
     }
 
-    /// <remarks>
-    ///     The profile write raises the profile owner's change, which republishes the sliders. A mode
-    ///     that became unavailable in the meantime is refused with its reason rather than failing the
-    ///     command.
-    /// </remarks>
+    /// <inheritdoc />
+    /// <remarks>Profile changes republish the sliders. Cancellation is checked before the coordinator save; later cancellation does not revoke it. An unavailable mode returns its refusal reason.</remarks>
     public async Task<SteamUiCommandResult> SetUnifiedModeAsync(bool unified, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -735,16 +736,21 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
         return new SteamUiCommandResult(true, null);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> SetPrimaryLimitAsync(int watts, CancellationToken cancellationToken)
     {
         return SetLimitAsync(CapabilityRole.PowerSustainedLimit, watts, cancellationToken);
     }
 
+    /// <inheritdoc />
     public Task<SteamUiCommandResult> SetBoostLimitAsync(int watts, CancellationToken cancellationToken)
     {
         return SetLimitAsync(CapabilityRole.PowerSlowLimit, watts, cancellationToken);
     }
 
+    /// <summary>Projects sustained and slow/boost capabilities into Steam slider ranges.</summary>
+    /// <param name="views">Current descriptor and observation snapshot; no device reads or writes occur here.</param>
+    /// <returns>Both range states, using observed watts, then desired watts, then the ceiling for the slider position.</returns>
     internal static SteamPowerLimitState ProjectPowerLimits(IReadOnlyList<DeviceCapabilityView> views)
     {
         return new SteamPowerLimitState(
@@ -822,11 +828,14 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : ISteamDe
 {
     private readonly DeviceCoordinator? _coordinator;
 
+    /// <summary>Creates a capability projection over the existing device owner.</summary>
+    /// <param name="coordinator">Borrowed coordinator, or null when device integration is inactive.</param>
     internal DeviceCoordinatorNativeQamDeviceControlsService(DeviceCoordinator? coordinator)
     {
         _coordinator = coordinator;
     }
 
+    /// <summary>Projects the current capability snapshot without reading hardware; absent roles remain unavailable.</summary>
     public SteamDeviceControlsState Current => Project(
         _coordinator?.Capabilities.Snapshot() ?? []);
 
@@ -931,6 +940,9 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : ISteamDe
         return NativeQamUi.CommandResult(result, $"The device command ended as {result.Outcome}.");
     }
 
+    /// <summary>Projects semantic charge, brightness and lighting-zone capabilities for Quick Settings.</summary>
+    /// <param name="views">Current device capability views; ambiguous role/instance matches are not writable.</param>
+    /// <returns>Range and per-zone state with desired/observed values and profile overrides; absent range roles are null.</returns>
     internal static SteamDeviceControlsState Project(
         IReadOnlyList<DeviceCapabilityView> views)
     {
@@ -1151,6 +1163,10 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : ISteamAutoTdpBa
     public event Action? StateChanged;
 
     /// <summary>Stores the AutoTDP setting through its one owner.</summary>
+    /// <param name="enabled">Requested AutoTDP state; disabling remains allowed when a coordinator exists even if control is unavailable.</param>
+    /// <param name="cancellationToken">Cancels the coordinator's serialized setting transition.</param>
+    /// <returns>Whether the setting was accepted, or the authoritative availability refusal.</returns>
+    /// <exception cref="ObjectDisposedException">This adapter has been disposed.</exception>
     public async Task<SteamUiCommandResult> SetEnabledAsync(
         bool enabled,
         CancellationToken cancellationToken)

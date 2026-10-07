@@ -48,6 +48,9 @@ internal sealed partial class JobObject : IDisposable
         _handle = 0;
     }
 
+    /// <summary>Creates a caller-owned containment job without kill-on-close.</summary>
+    /// <returns>The new job; disposal releases its handle, not its surviving processes.</returns>
+    /// <exception cref="Win32Exception">Windows refused job creation.</exception>
     internal static JobObject Create()
     {
         var handle = CreateJobObjectW(0, null);
@@ -56,6 +59,9 @@ internal sealed partial class JobObject : IDisposable
             : throw new Win32Exception(Marshal.GetLastPInvokeError(), "Could not create the target containment job.");
     }
 
+    /// <summary>Assigns the suspended target before any child can escape containment.</summary>
+    /// <param name="process">Borrowed handle to the target; ownership remains with the caller.</param>
+    /// <exception cref="Win32Exception">Windows refused job assignment.</exception>
     internal void Assign(nint process)
     {
         if (!AssignProcessToJobObject(_handle, process))
@@ -66,6 +72,7 @@ internal sealed partial class JobObject : IDisposable
 
     /// <summary>Completes once no process in the job is left running.</summary>
     /// <param name="cancellationToken">Stops waiting (the caller is shutting down).</param>
+    /// <returns>A task for observation only; cancellation does not terminate the process tree.</returns>
     internal async Task WaitUntilEmptyAsync(CancellationToken cancellationToken)
     {
         // Polled, like the native wrapper: a job object has no "became empty"
@@ -78,6 +85,7 @@ internal sealed partial class JobObject : IDisposable
     }
 
     /// <summary>Ends every process still in the job.</summary>
+    /// <returns>Whether Windows accepted termination; false for an unavailable job or logged API failure.</returns>
     internal bool TerminateTree()
     {
         if (_handle == 0)

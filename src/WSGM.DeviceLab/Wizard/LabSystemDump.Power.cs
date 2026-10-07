@@ -24,6 +24,7 @@ internal static partial class LabSystemDump
     };
 
     /// <summary>Whether Windows reports S0 low-power idle support.</summary>
+    /// <returns>True when the power-capability query succeeds and reports S0 idle; false also covers query failure.</returns>
     internal static bool SupportsModernStandby()
     {
         var buffer = new byte[PowerCapabilitiesBytes];

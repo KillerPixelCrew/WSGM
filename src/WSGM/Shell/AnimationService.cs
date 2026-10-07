@@ -12,30 +12,11 @@ using WSGM.Device.Sdk.Lifecycle;
 
 namespace WSGM.Shell;
 
-/// <summary>
-///     The boot movies' one owner: the repository's list, WSGM's library, which movie Big Picture
-///     starts with, and the override file that makes it so. The Animations page in Steam, the Quick
-///     Access section and the overlay's Animations view all read its state and call its methods.
-/// </summary>
+/// <summary>Owns boot-movie browsing, installed content and selection for Steam and the overlay.</summary>
 /// <remarks>
-///     <para>
-///         Content and choice stay apart, as Animation Changer keeps them: the library holds the
-///         movies, the configuration names one, and applying copies it to the file the client asks
-///         for (<see cref="AnimationOverrides" />). A shuffle picks anew from the library and an empty
-///         choice is Steam's own movie.
-///     </para>
-///     <para>
-///         Steam lets its own Startup Movie choice (Settings &gt; Customization) replace the override,
-///         so while one of WSGM's movies is chosen that choice is set aside once Big Picture is ready,
-///         at WSGM's start, at each Steam start and with each choice, and kept in the configuration. A
-///         return to Steam's own gives it back unless the user chose anew in Steam since.
-///     </para>
-///     <para>
-///         The client caches its override lookup for the life of the document, so an override written
-///         while Steam runs shows at the next Steam start; the state says so until then. Only the boot
-///         movie is offered: nothing on Windows drives Steam's suspend flow, so its suspend movies
-///         never play (#116, #21).
-///     </para>
+///     Selection is stored separately from content; an empty choice restores Steam's movie. While a WSGM
+///     movie is selected, Steam's own startup-movie choice is saved and temporarily cleared after readiness.
+///     Override changes take effect on the next Steam start because Steam caches the lookup per document.
 /// </remarks>
 internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, IChangeSource, IExtensionsTabSection
 {

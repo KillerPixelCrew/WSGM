@@ -1,11 +1,4 @@
-// The Game Library's page in Steam: bring games from other launchers into Steam, with their artwork.
-//
-// Laid out the way Steam ROM Manager lays out its preview, and drawn entirely with Steam's own
-// components so it behaves like the rest of Big Picture under a controller: a sidebar of sources
-// ticked with Steam's checkbox, Steam's tabs over a toolbar and a grid of Steam library capsules
-// grouped by source, an all-artwork view with one row per title, and one title's artwork. WSGM owns
-// the data, every label and every decision; the toolkit owns the page gate, the capsule, the modal
-// frame, the folder picker and the fail-closed component discovery used here.
+// Library-import frontend; shared host services own discovery, review decisions and writes.
 const LibraryImportPatchId = "wsgm.library-import";
 
 // Resolved once the gate holds; the modals are drawn outside the page's tree and read them here.
@@ -22,8 +15,12 @@ const importReport = (message: { text: string; error: boolean } | null) => {
   for (const reporter of [...importReporters]) reporter(message);
 };
 
-// A command whose refusal the page shows: the host explains every refusal, and a control that did
-// nothing without saying why is the defect this avoids.
+/**
+ * Sends an import command and presents request rejection through the page reporters.
+ * @param command Allowlisted import command.
+ * @param payload JSON action arguments.
+ * @returns The backend result, or undefined after reporting a rejection; clears the previous message first.
+ */
 const importAct = (command: string, payload: any = {}) => {
   importReport(null);
   return request(LibraryImportPatchId, command, payload).catch((error: any) => {
@@ -758,8 +755,11 @@ function ImportTitleArtwork({ entry, asset, onAsset, onBack, status }: any) {
   );
 }
 
-// The page. Declared once for the life of the asset, so React keeps its selection, its view and the
-// controller's focus across router renders; the toolkit's frame draws it only once the gate holds.
+/**
+ * Renders shared import review state and dispatches host commands for every persistent action.
+ * @param context Registered page accessors for Steam components, latest state and publication refusal.
+ * @returns The page React tree, including loading or refusal state when data is unavailable.
+ */
 function LibraryImportPage({ context }: any) {
   const react = context.react();
   const h = react.createElement;

@@ -32,6 +32,7 @@ internal sealed class SetupPayload : IDisposable
     /// <summary>Where the payload came from, for the log.</summary>
     public string Source => _directory ?? "embedded";
 
+    /// <summary>Closes the owned embedded archive; development-directory files remain caller-owned.</summary>
     public void Dispose()
     {
         _archive?.Dispose();
@@ -61,6 +62,9 @@ internal sealed class SetupPayload : IDisposable
     }
 
     /// <summary>Takes ownership of a payload stream, including when opening or parsing fails.</summary>
+    /// <param name="stream">Readable ZIP stream whose lifetime transfers to the payload.</param>
+    /// <returns>The archive owner with its parsed bundle manifest.</returns>
+    /// <exception cref="InvalidDataException">The archive or its bundle manifest cannot be accepted.</exception>
     internal static SetupPayload OpenArchive(Stream stream)
     {
         ZipArchive? archive = null;

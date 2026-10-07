@@ -12,18 +12,17 @@ namespace WSGM.Device.Sdk.Lifecycle;
 ///     hibernation add at most <see cref="MaximumStep" /> to it however long they last.
 /// </summary>
 /// <remarks>
-///     Windows documents that the unbiased interrupt time stops for sleep and hibernation, but not
-///     whether it stops while a process is frozen in S0 low-power idle, which is how these handhelds
-///     sleep. This clock does not depend on that: a dedicated thread observes it every
-///     <see cref="Tick" />, so a step much longer than that can only mean nothing in the process ran,
-///     and such a step counts as <see cref="MaximumStep" />.
+///     A background thread samples <see cref="Stopwatch" /> at <see cref="Tick" /> intervals and clamps
+///     each observed gap to <see cref="MaximumStep" />. This approximates runnable time without relying
+///     on standby-specific Windows clocks; severe scheduling stalls are clamped too. Values are process
+///     local and must not be persisted or compared across processes.
 /// </remarks>
 public static class ActiveClock
 {
     /// <summary>How often the clock is observed.</summary>
     public static readonly TimeSpan Tick = TimeSpan.FromMilliseconds(250);
 
-    /// <summary>The most one observation may add; a longer gap was a freeze.</summary>
+    /// <summary>The most one observation adds; longer gaps are treated as suspension or scheduling stalls.</summary>
     public static readonly TimeSpan MaximumStep = TimeSpan.FromSeconds(1);
 
     private static readonly Lock Gate = new();
@@ -128,7 +127,7 @@ public static class ActiveClock
 
     /// <summary>How much of one observed step the clock counts.</summary>
     /// <param name="observed">The monotonic time between two observations.</param>
-    /// <returns>The step itself, or <see cref="MaximumStep" /> for a longer one, which was a freeze.</returns>
+    /// <returns>Zero for nonpositive input; otherwise the smaller of the observed step and <see cref="MaximumStep" />.</returns>
     public static TimeSpan CountedStep(TimeSpan observed)
     {
         return observed <= TimeSpan.Zero ? TimeSpan.Zero

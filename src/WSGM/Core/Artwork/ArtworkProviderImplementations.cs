@@ -172,6 +172,9 @@ internal sealed class ScreenscraperProvider : IArtworkProvider
 
     private readonly HttpClient Http;
 
+    /// <summary>Creates a provider with optional transport and shared pacing/cache seams.</summary>
+    /// <param name="handler">Borrowed HTTP handler, or null for the default transport.</param>
+    /// <param name="gate">Request gate, or null for one concurrent request and 64 cached answers.</param>
     internal ScreenscraperProvider(HttpMessageHandler? handler = null, ArtworkRequestGate? gate = null)
     {
         Http = handler is null ? new HttpClient() : new HttpClient(handler, false);

@@ -13,13 +13,15 @@ using WSGM.Shared;
 namespace WSGM.Core;
 
 /// <summary>
-///     A fixed-purpose, medium-integrity, jobless launch owner created through the canonical
-///     Explorer immediately before WSGM asks that Explorer to exit.
+///     A fixed-purpose, medium-integrity launch owner created through the canonical Explorer before
+///     orderly shell exit. The desktop host verifies joblessness or an explicitly degraded source-matched job.
 /// </summary>
 internal sealed class ExplorerShellAnchor : IAsyncDisposable
 {
     private const string AnchorArgument = "--shell-anchor";
+    /// <summary>Fixed recovery image name kept distinct from the installer's primary WSGM process target.</summary>
     internal const string ExecutableFileName = "WSGM.ShellAnchor.exe";
+    /// <summary>Cross-version session event signaled after anchor recovery has settled.</summary>
     internal const string RecoverySettledEventName = SessionProtocolNames.AnchorRecoverySettled;
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan CommandTimeout = TimeSpan.FromSeconds(3);
@@ -69,7 +71,9 @@ internal sealed class ExplorerShellAnchor : IAsyncDisposable
         }
     }
 
-    /// <inheritdoc />
+    /// <summary>Retires the owned anchor through authenticated stop, then bounded process cleanup.</summary>
+    /// <returns>A task completing after handle/IPC cleanup; repeated calls do not join an earlier disposal.</returns>
+    /// <remarks>The termination fallback targets only this WSGM-owned anchor, never Explorer.</remarks>
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposeState, 1) != 0)
@@ -127,6 +131,8 @@ internal sealed class ExplorerShellAnchor : IAsyncDisposable
 
 
     /// <summary>Gets whether this session currently has a WSGM-owned anchor recovery process.</summary>
+    /// <param name="sessionId">Interactive session whose stop event is probed.</param>
+    /// <returns>Whether its anchor event can be opened; false also covers denied or failed access.</returns>
     internal static bool HasRecoveryOwner(int sessionId)
     {
         try
@@ -146,6 +152,12 @@ internal sealed class ExplorerShellAnchor : IAsyncDisposable
     }
 
     /// <summary>Creates and authenticates an anchor under the retained shell parent.</summary>
+    /// <param name="parent">Borrowed retained Explorer token/parent handles, required until startup completes.</param>
+    /// <param name="ownerProcessId">WSGM process whose authenticated lifetime the anchor will watch.</param>
+    /// <param name="sessionId">Interactive session for the anchor and recovery events.</param>
+    /// <param name="cancellationToken">Cancels stale-owner retirement, connection, and authentication waits.</param>
+    /// <returns>A caller-owned anchor to dispose, or a diagnostic result after bounded launch/connection failure.</returns>
+    /// <exception cref="OperationCanceledException">The caller canceled startup.</exception>
     internal static async Task<ExplorerShellAnchorStartResult> StartAsync(
         NativeShellLaunchParent parent,
         int ownerProcessId,
@@ -239,6 +251,9 @@ internal sealed class ExplorerShellAnchor : IAsyncDisposable
     }
 
     /// <summary>Asks the anchor to launch the fixed Windows Explorer path.</summary>
+    /// <param name="timeout">Caller's remaining budget; capped by the three-second anchor command budget.</param>
+    /// <param name="cancellationToken">Cancels waiting; a sent request can still launch Explorer.</param>
+    /// <returns>Dispatch certainty and optional created PID. Unknown forbids a competing launch attempt.</returns>
     internal async Task<ExplorerAnchorLaunchResult> StartExplorerAsync(
         TimeSpan timeout,
         CancellationToken cancellationToken = default)
@@ -326,6 +341,10 @@ internal sealed class ExplorerShellAnchor : IAsyncDisposable
     ///     Parses and runs the hidden fixed-purpose anchor mode before WSGM initializes any
     ///     normal application service.
     /// </summary>
+    /// <param name="args">Process arguments, with --shell-anchor first for this hidden mode.</param>
+    /// <param name="exitCode">Receives the anchor process status, 64 for invalid anchor arguments, or zero when not selected.</param>
+    /// <returns>True when anchor mode was selected and ran or rejected its arguments; false continues normal startup.</returns>
+    /// <remarks>Blocks for the anchor lifetime and must run before ordinary application initialization.</remarks>
     internal static bool TryRunProcessMode(string[] args, out int exitCode)
     {
         exitCode = 0;
@@ -534,6 +553,10 @@ internal sealed class ExplorerShellAnchor : IAsyncDisposable
     ///     Completes one pipe read without treating an I/O fault as recovery settlement. EOF
     ///     and read faults both enter the same owner-loss/explicit-stop observation path.
     /// </summary>
+    /// <param name="read">Already-started command read; borrowed task whose I/O failure means disconnection.</param>
+    /// <param name="waitAfterDisconnect">Waits for verified owner loss or explicit stop after EOF/I/O failure.</param>
+    /// <returns>A command, or the settled disconnect action; non-I/O read failures propagate.</returns>
+    /// <exception cref="ArgumentNullException">A required task or callback is null.</exception>
     internal static async Task<ExplorerAnchorCommandReadResult> CompleteCommandReadAsync(
         Task<string?> read,
         Func<Task<ExplorerAnchorDisconnectAction>> waitAfterDisconnect)
@@ -803,6 +826,8 @@ internal sealed class ExplorerShellAnchor : IAsyncDisposable
 }
 
 /// <summary>Result of starting and authenticating a shell anchor.</summary>
+/// <param name="Anchor">New caller-owned authenticated anchor, or null when startup failed.</param>
+/// <param name="Error">Failure detail; empty on successful startup.</param>
 internal readonly record struct ExplorerShellAnchorStartResult(
     ExplorerShellAnchor? Anchor,
     string Error);
@@ -824,12 +849,17 @@ internal enum ExplorerAnchorLaunchDisposition
 }
 
 /// <summary>Bounded result of an authenticated anchor launch request.</summary>
+/// <param name="Disposition">Whether the request crossed, may have crossed, or did not cross dispatch.</param>
+/// <param name="ProcessId">Created process PID when returned, or zero; this is not proof of shell ownership.</param>
+/// <param name="Detail">Protocol or failure diagnostic.</param>
 internal readonly record struct ExplorerAnchorLaunchResult(
     ExplorerAnchorLaunchDisposition Disposition,
     uint ProcessId,
     string Detail);
 
 /// <summary>One completed anchor command read or the verified action reached after disconnect.</summary>
+/// <param name="Command">Received line, or null after disconnection.</param>
+/// <param name="DisconnectAction">Verified post-disconnect action, or null when a command was received.</param>
 internal readonly record struct ExplorerAnchorCommandReadResult(
     string? Command,
     ExplorerAnchorDisconnectAction? DisconnectAction);

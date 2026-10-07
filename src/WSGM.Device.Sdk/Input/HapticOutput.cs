@@ -102,11 +102,10 @@ public sealed record HapticCapabilities
 
     /// <summary>Drops channels the device cannot reproduce, leaving the rest untouched.</summary>
     /// <param name="frame">The frame as produced by the virtual target.</param>
-    /// <returns>A frame carrying only channels the device supports.</returns>
+    /// <returns>A frame with unsupported channels zeroed and the original timestamp preserved.</returns>
     /// <remarks>
-    ///     Channels are dropped, never redistributed. Folding an unsupported trigger haptic into the
-    ///     rumble motors would invent an effect the game never asked for, which is the output-side
-    ///     equivalent of converting gyro into stick movement.
+    ///     Supported intensities are neither range-clamped nor checked for finite values.
+    ///     Channels are dropped without redistributing their intensity to other motors.
     /// </remarks>
     public HapticOutputFrame Clamp(HapticOutputFrame frame)
     {

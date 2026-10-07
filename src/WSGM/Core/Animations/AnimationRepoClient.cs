@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 namespace WSGM.Core;
 
 /// <summary>The repository could not be read, or refused.</summary>
+/// <param name="message">Repository failure text suitable for the UI.</param>
 public sealed class AnimationRepoException(string message) : Exception(message);
 
 /// <summary>SteamDeckRepo, the animation repository Animation Changer browses.</summary>
@@ -145,11 +146,12 @@ public sealed class AnimationRepoClient
         return listings;
     }
 
-    /// <summary>Downloads one movie to a file, which is removed again when the download fails.</summary>
+    /// <summary>Downloads one movie to a staging file and attempts to remove it if the transfer fails.</summary>
     /// <param name="listing">The movie.</param>
     /// <param name="path">Where it is written.</param>
     /// <param name="cancellationToken">Cancels the download.</param>
     /// <exception cref="AnimationRepoException">The download failed or is too large.</exception>
+    /// <returns>A task completing after the bounded movie transfer; partial-file cleanup is best effort on failure.</returns>
     public async Task DownloadAsync(AnimationListing listing, string path, CancellationToken cancellationToken)
     {
         try
@@ -191,6 +193,7 @@ public sealed class AnimationRepoClient
 
     /// <summary>Whether an id is one the library can name a file by.</summary>
     /// <param name="id">The candidate.</param>
+    /// <returns>Whether the id contains 1–64 ASCII letters, digits, hyphens or underscores.</returns>
     internal static bool ValidId(string id)
     {
         if (id.Length is 0 or > 64)

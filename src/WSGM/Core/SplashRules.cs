@@ -3,6 +3,7 @@ using static WSGM.Core.AppConfigDefaults;
 
 namespace WSGM.Core;
 
+/// <summary>Repairs splash configuration to the same ranges used by the Appearance editor.</summary>
 internal static class SplashRules
 {
     /// <summary>
@@ -12,6 +13,8 @@ internal static class SplashRules
     ///     splash-theme import, which deserializes the same external contract from
     ///     archives.
     /// </summary>
+    /// <param name="splash">Non-null, exclusive caller-owned splash section to mutate.</param>
+    /// <returns>The same repaired instance and an empty diagnostic list.</returns>
     internal static ConfigRuleResult<SplashConfig> Normalize(SplashConfig splash)
     {
         ConfigRepair.NormalizeEnums(splash);
@@ -22,6 +25,8 @@ internal static class SplashRules
     ///     <see cref="Normalize" /> without the enum walk, for a section whose enums
     ///     <see cref="AppConfigRules" /> has already repaired with the rest of the document.
     /// </summary>
+    /// <param name="splash">Non-null, exclusive caller-owned splash section to mutate.</param>
+    /// <returns>The same repaired instance and an empty diagnostic list.</returns>
     internal static ConfigRuleResult<SplashConfig> Repair(SplashConfig splash)
     {
         splash.Text ??= SplashFieldDefaults.Text;

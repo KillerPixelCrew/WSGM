@@ -10,6 +10,7 @@ namespace WSGM.Overlay;
 internal static class StatusPanel
 {
     /// <summary>Keeps a utility panel's focused control in its scrolling viewport.</summary>
+    /// <param name="scroller">UI-thread panel to wire once for its lifetime; descendant focus brings the focused control into view.</param>
     internal static void WirePanelBehaviour(Control scroller)
     {
         scroller.AddHandler(InputElement.GotFocusEvent, OnRowGotFocus, RoutingStrategies.Bubble);
@@ -27,6 +28,8 @@ internal static class StatusPanel
     ///     Gets the HWND's current effective scale, falling back to Avalonia only when the
     ///     native handle is unavailable. All in-window surfaces inherit the sheet's scale.
     /// </summary>
+    /// <param name="window">Window whose native DPI is preferred over Avalonia desktop scaling.</param>
+    /// <returns>A finite positive scale factor; one when both sources are invalid.</returns>
     internal static double CurrentWindowScale(Window window)
     {
         ArgumentNullException.ThrowIfNull(window);

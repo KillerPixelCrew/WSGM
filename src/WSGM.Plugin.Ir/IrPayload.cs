@@ -4,6 +4,16 @@ using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Plugin.Ir;
 
+/// <summary>A raw IR envelope plus diagnostic decode metadata; transmission uses the raw timings.</summary>
+/// <param name="CarrierHz">Carrier frequency in hertz, from 20,000 through 60,000.</param>
+/// <param name="TimingsUs">2 through 1,024 alternating mark/space durations in microseconds, beginning with a mark.</param>
+/// <param name="CarrierSource">assumed, measured, protocol or manual; raw learning does not measure carrier frequency.</param>
+/// <param name="Protocol">Optional decoder protocol name; does not replace the raw envelope.</param>
+/// <param name="Address">Decoded address when available.</param>
+/// <param name="Command">Decoded command when available.</param>
+/// <param name="Bits">Decoder-reported bit count.</param>
+/// <param name="Repeat">Whether the capture was classified as a protocol repeat frame.</param>
+/// <remarks>The timing array is retained; clone it before editing a shared or persisted payload.</remarks>
 internal sealed record IrPayload(
     int CarrierHz,
     int[] TimingsUs,
@@ -14,6 +24,13 @@ internal sealed record IrPayload(
     int Bits = 0,
     bool Repeat = false)
 {
+    /// <summary>Checks transport bounds and the complete emission duration before dispatch.</summary>
+    /// <param name="repeats">Additional transmissions after the first, from 0 through 4.</param>
+    /// <param name="gapMs">Gap between repeated envelopes in milliseconds, from 0 through 200.</param>
+    /// <exception cref="InvalidDataException">
+    ///     A field is invalid, a timing falls outside 1 through 65,535 microseconds, the envelope exceeds
+    ///     two seconds, or all emissions and gaps exceed five seconds.
+    /// </exception>
     internal void Validate(int repeats = 0, int gapMs = 40)
     {
         if (CarrierHz is < 20000 or > 60000 || TimingsUs is not { Length: >= 2 and <= 1024 }
@@ -32,6 +49,14 @@ internal sealed record IrPayload(
     }
 }
 
+/// <summary>A named learned command with independently editable retransmission policy.</summary>
+/// <param name="Id">Stable library identity.</param>
+/// <param name="Device">Plain device group name.</param>
+/// <param name="Name">Plain command name within the library.</param>
+/// <param name="Payload">Original learned envelope and carrier evidence.</param>
+/// <param name="Repeats">Additional sends after the first, from 0 through 4.</param>
+/// <param name="GapMs">Gap between repeats in milliseconds, from 0 through 200.</param>
+/// <param name="CarrierOverrideHz">Optional 20,000 through 60,000 hertz override; null preserves captured metadata.</param>
 internal sealed record IrCommand(
     string Id,
     string Device,
@@ -46,10 +71,22 @@ internal sealed record IrCommand(
         : Payload;
 }
 
+/// <summary>One host-run scene step, resolved against the current command library.</summary>
+/// <param name="CommandId">Existing command identity.</param>
+/// <param name="DelayAfterMs">Delay after this step in milliseconds, from 0 through 5,000.</param>
 internal sealed record IrSceneStep(string CommandId, int DelayAfterMs = 0);
 
+/// <summary>A named ordered command sequence; uncertain emission stops later steps.</summary>
+/// <param name="Id">Stable scene identity.</param>
+/// <param name="Name">Plain display name.</param>
+/// <param name="Steps">Nonempty ordered steps; the array is retained and must remain unchanged after publication.</param>
 internal sealed record IrScene(string Id, string Name, IrSceneStep[] Steps);
 
+/// <summary>The private versioned library persisted independently from network credentials.</summary>
+/// <param name="Version">File schema version; currently exactly 1.</param>
+/// <param name="Commands">Unique commands with validated original and effective transmission payloads.</param>
+/// <param name="Scenes">Unique scenes referencing existing command IDs.</param>
+/// <param name="SelectedCommandId">Existing selected command ID, or null for no explicit selection.</param>
 internal sealed record IrLibrary(int Version, IrCommand[] Commands, IrScene[] Scenes, string? SelectedCommandId = null)
 {
     internal static IrLibrary Empty => new(1, [], []);
@@ -108,6 +145,9 @@ internal sealed record IrLibrary(int Version, IrCommand[] Commands, IrScene[] Sc
     }
 
     /// <summary>Loads the library, or an empty one when the file does not exist. An unreadable file throws.</summary>
+    /// <param name="path">Command-library JSON path; pairing secrets are stored separately.</param>
+    /// <param name="token">Cancels asynchronous file deserialization.</param>
+    /// <returns>The validated library, or the shared empty library only when its file or parent folder is absent. Unreadable or invalid content throws.</returns>
     internal static async Task<IrLibrary> LoadAsync(string path, CancellationToken token)
     {
         return await JsonFile.ReadAsync<IrLibrary>(path, library => library.Validate(), token).ConfigureAwait(false)
@@ -125,6 +165,9 @@ internal sealed record IrLibrary(int Version, IrCommand[] Commands, IrScene[] Sc
 ///     Network pairing the plugin minted over USB: the endpoint's mDNS host name, its last known address
 ///     and the shared token. Kept apart from the command library so backups never carry the secret.
 /// </summary>
+/// <param name="Token">Shared endpoint token, 16 through 64 characters without control characters; never log it.</param>
+/// <param name="Hostname">Endpoint host name, at most 253 characters without whitespace.</param>
+/// <param name="Ip">Last observed address, at most 64 characters.</param>
 internal sealed record IrPairing(string Token, string Hostname, string Ip)
 {
     internal void Validate()
@@ -137,6 +180,9 @@ internal sealed record IrPairing(string Token, string Hostname, string Ip)
     }
 
     /// <summary>Loads the pairing, or null when the file does not exist. An unreadable file throws.</summary>
+    /// <param name="path">Private pairing-state JSON path; its contents must not be logged or included in command-library backups.</param>
+    /// <param name="token">Cancels asynchronous file deserialization.</param>
+    /// <returns>Validated pairing information, or null only for a missing file/folder; unreadable or invalid content throws.</returns>
     internal static Task<IrPairing?> LoadAsync(string path, CancellationToken token)
     {
         return JsonFile.ReadAsync<IrPairing>(path, pairing => pairing.Validate(), token);
@@ -153,8 +199,15 @@ internal static class JsonFile
 {
     /// <summary>
     ///     Reads a state file. Only a missing file or folder reads as absent. A file that cannot be read, or that
-    ///     does not parse or validate, throws and stays as it is, so no later save replaces it.
+    ///     does not parse or validate, throws without modifying the original.
     /// </summary>
+    /// <typeparam name="T">Reference type deserialized with the IR state-file JSON options.</typeparam>
+    /// <param name="path">JSON state path, opened read-only without modifying or replacing it.</param>
+    /// <param name="validate">Validation callback run before returning a deserialized value; failures propagate.</param>
+    /// <param name="token">Cancels deserialization; file handles are released on every exit.</param>
+    /// <returns>The validated object, or null only when the file or parent directory does not exist.</returns>
+    /// <exception cref="InvalidDataException">The JSON is null, malformed or rejected by validation.</exception>
+    /// <exception cref="IOException">The file cannot be read; the original remains untouched.</exception>
     internal static async Task<T?> ReadAsync<T>(string path, Action<T> validate, CancellationToken token)
         where T : class
     {
@@ -196,6 +249,11 @@ internal static class JsonFile
     }
 
     /// <summary>Writes through a temporary sibling and moves it into place, so a failure leaves the previous file intact.</summary>
+    /// <typeparam name="T">Serializable state type written with the IR JSON options.</typeparam>
+    /// <param name="path">Destination JSON path; a missing parent directory is created.</param>
+    /// <param name="value">Value to serialize; callers validate it before writing.</param>
+    /// <param name="token">Cancels serialization/flushing and is rechecked before replacement; cannot undo a completed move.</param>
+    /// <returns>A task completing after the temporary sibling replaces the destination; exceptions propagate and temporary cleanup is attempted.</returns>
     internal static async Task WriteAsync<T>(string path, T value, CancellationToken token)
     {
         var fullPath = Path.GetFullPath(path);

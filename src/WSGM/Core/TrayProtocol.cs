@@ -99,6 +99,7 @@ public static class TrayProtocol
     ///     shell32 retry behavior.
     /// </summary>
     /// <param name="callbackMessage">The registered uCallbackMessage value.</param>
+    /// <returns>True for the application-defined WM_USER through 0xFFFF range.</returns>
     public static bool IsRelayableCallback(uint callbackMessage)
     {
         return callbackMessage is >= WmUser and <= MaxWindowMessage;
@@ -111,6 +112,8 @@ public static class TrayProtocol
     /// </summary>
     /// <param name="payload">The raw COPYDATASTRUCT.lpData bytes.</param>
     /// <param name="notification">The parsed request on success.</param>
+    /// <returns>True for a recognized complete wire payload; false leaves notification null.</returns>
+    /// <remarks>Native handles in the result are borrowed from the sender and must not be retained as owned resources.</remarks>
     public static bool TryParse(ReadOnlySpan<byte> payload, out TrayNotification? notification)
     {
         notification = null;
@@ -236,6 +239,7 @@ public sealed class TrayIconTable
     /// </summary>
     /// <param name="n">The parsed request.</param>
     /// <param name="affected">The icon the request created, changed, or removed.</param>
+    /// <returns>The registration change or rejection; ignored requests may leave affected null.</returns>
     public TrayChange Apply(TrayProtocol.TrayNotification n, out TrayIcon? affected)
     {
         affected = null;
@@ -344,6 +348,10 @@ public sealed class TrayIconTable
     /// <summary>One registered tray icon.</summary>
     public sealed class TrayIcon
     {
+        /// <summary>Creates table-owned registration state without retaining the sender's native icon handle.</summary>
+        /// <param name="hwnd">Borrowed callback window identity.</param>
+        /// <param name="uid">Application-assigned icon ID.</param>
+        /// <param name="guid">Optional GUID identity, or Guid.Empty.</param>
         internal TrayIcon(nint hwnd, uint uid, Guid guid)
         {
             Hwnd = hwnd;

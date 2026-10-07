@@ -68,6 +68,8 @@ internal static class SplashTheme
     ///     only once fully written, so a failed export leaves any existing file intact.
     /// </summary>
     /// <returns>True when the file was written; false (logged) on any failure.</returns>
+    /// <param name="splash">Splash configuration whose referenced images are included when valid.</param>
+    /// <param name="path">Destination archive path, replaced only after a complete temporary archive is written.</param>
     internal static bool Export(SplashConfig splash, string path)
     {
         try
@@ -131,6 +133,7 @@ internal static class SplashTheme
     ///     The imported configuration, or null (logged) when the file is not an
     ///     acceptable splash theme.
     /// </returns>
+    /// <param name="path">Archive to read; caller must hold an import session while using returned staged image paths.</param>
     internal static SplashConfig? Import(string path)
     {
         return Import(path, Path.Combine(StagingRoot, ProcessDirectoryName, Guid.NewGuid().ToString("N")));
@@ -199,13 +202,15 @@ internal static class SplashTheme
     ///     <paramref name="targetImageDirectory" /> and rewriting the returned config's
     ///     image paths to the extracted copies. Every entry must be one of the
     ///     whitelisted names within its size cap; extraction is bounded so a lying
-    ///     central directory cannot decompress past the caps. A failed import removes
-    ///     anything it staged.
+    ///     central directory cannot decompress past the caps. Failed imports attempt to remove
+    ///     their staged files; filesystem cleanup failures are tolerated.
     /// </summary>
     /// <returns>
     ///     The imported configuration, or null (logged) when the file is not an
     ///     acceptable splash theme.
     /// </returns>
+    /// <param name="path">Splash archive file to read under the import limits.</param>
+    /// <param name="targetImageDirectory">Caller-owned staging directory for bundled images; keep it alive while the returned config refers to it.</param>
     internal static SplashConfig? Import(string path, string targetImageDirectory)
     {
         var targetExistedBefore = Directory.Exists(targetImageDirectory);
@@ -555,6 +560,7 @@ internal static class SplashTheme
     ///     is the safe side, and the directory goes once that id is free again.
     /// </summary>
     /// <param name="name">The staging directory's name.</param>
+    /// <returns>True for a matching live process or an unreadable live start time; false for invalid/stale identities.</returns>
     internal static bool IsRunningProcessDirectory(string name)
     {
         var separator = name.IndexOf('-', StringComparison.Ordinal);

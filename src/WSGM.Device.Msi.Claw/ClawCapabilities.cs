@@ -53,6 +53,11 @@ internal static class ClawApplied
     }
 
     /// <summary>Byte 1 of a getter response: HC's <c>WMI.Get</c> strips the status byte, then reads index 0.</summary>
+    /// <param name="response">Non-null getter response including its status byte.</param>
+    /// <param name="index">Nonnegative response offset; ordinary scalar getters use one.</param>
+    /// <param name="operation">Capability name used in truncated-response diagnostics.</param>
+    /// <returns>The requested response byte.</returns>
+    /// <exception cref="InvalidOperationException">The response does not contain the requested offset.</exception>
     public static byte Byte(byte[] response, int index, string operation)
     {
         return response.Length > index
@@ -102,6 +107,8 @@ internal sealed class ClawPowerCapability(
     ///     The pair as WSGM should show it: what was last written this cycle where the EC reads
     ///     something else, as HC shows its requested limits.
     /// </summary>
+    /// <param name="read">Latest non-null hardware snapshot.</param>
+    /// <returns>The snapshot with this cycle's accepted power/scenario writes projected over it; FastWatts remains read-derived.</returns>
     public PowerPair Observe(PowerPair read)
     {
         ArgumentNullException.ThrowIfNull(read);
@@ -116,6 +123,10 @@ internal sealed class ClawPowerCapability(
     ///     again. Only the periodic observation pass calls it, so its interval spaces the writes. Firmware
     ///     resets the limits on a scenario or power-source change, and HC puts them back the same way.
     /// </summary>
+    /// <param name="read">Latest EC pair to compare with the last accepted target.</param>
+    /// <param name="cancellationToken">Cancels writes or spacing delays; an in-flight write may already have effects.</param>
+    /// <returns>Completion of one watchdog attempt, or no work when target and read agree.</returns>
+    /// <remarks>A write failure clears the target and propagates, preventing automatic retry of uncertainty.</remarks>
     public async ValueTask ReassertAsync(PowerPair read, CancellationToken cancellationToken)
     {
         if (_target is not { } target
@@ -178,6 +189,11 @@ internal sealed class ClawPowerCapability(
     ///     Every write to PL1 or PL2 names both limits (<c>DevicePowerPair.TryResolve</c>), the way HC's
     ///     performance page hands its manager both values; the plugin derives neither from the other.
     /// </remarks>
+    /// <param name="command">Validated host command carrying identity and result correlation.</param>
+    /// <param name="sustainedWatts">Requested PL1 in the model's inclusive wattage range.</param>
+    /// <param name="boostWatts">Requested PL2 in the model's inclusive wattage range; the caller validates PL1 does not exceed PL2.</param>
+    /// <param name="cancellationToken">Cancels transport/delay work without proving that an accepted write was undone.</param>
+    /// <returns>Range rejection, indeterminate failed write, or accepted pair; matching readback only upgrades verification.</returns>
     public async ValueTask<CapabilityCommandResult> ApplyLimitsAsync(
         CapabilityCommand command,
         int sustainedWatts,
@@ -251,6 +267,9 @@ internal sealed class ClawPowerCapability(
 
     /// <summary>Writes the captured scenario, then the captured pair, as HC applies a profile.</summary>
     /// <remarks>Complete once every write went through; the values are not read back.</remarks>
+    /// <param name="snapshot">Original scenario and wattage pair, with optional independent fast limit.</param>
+    /// <param name="cancellationToken">Cancels writes or inter-write delays; partial restoration may already have occurred.</param>
+    /// <returns>Completion after all restore writes are accepted; transport failures propagate without readback or retry.</returns>
     public async ValueTask RestoreAsync(PowerPair snapshot, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
@@ -369,6 +388,8 @@ internal sealed class ClawChargeLimitCapability(IMsiWmiTransport transport)
     }
 
     /// <summary>The value to publish: the written one where the register reads otherwise.</summary>
+    /// <param name="read">Latest charge-limit register observation.</param>
+    /// <returns>The last accepted write if its raw byte differs, otherwise the supplied observation.</returns>
     public ChargeLimitState Observe(ChargeLimitState read)
     {
         return _written is { } written && written.RawValue != read.RawValue ? written : read;
@@ -414,6 +435,9 @@ internal sealed class ClawChargeLimitCapability(IMsiWmiTransport transport)
     }
 
     /// <summary>The register value for an enforced limit: Battery Master and the percentage.</summary>
+    /// <param name="percent">Already-validated charge percentage; supported commands use 60, 80, or 100.</param>
+    /// <returns>The byte value with Battery Master enabled; this helper does not validate the supported percentage choices.</returns>
+    /// <exception cref="OverflowException">The input cannot be represented by a byte.</exception>
     internal static byte Encode(int percent)
     {
         return (byte)(BatteryMaster | checked((byte)percent));
@@ -460,6 +484,8 @@ internal sealed class ClawFanCapability(IMsiWmiTransport transport)
     }
 
     /// <summary>The snapshot to publish: written mode and curve where the tables read otherwise.</summary>
+    /// <param name="read">Latest mode flags and raw tables from both channels.</param>
+    /// <returns>A projection preserving unknown flag bits and right-channel readback while applying accepted mode and left-curve presentation.</returns>
     public FanSnapshot Observe(FanSnapshot read)
     {
         var observed = read;
@@ -552,6 +578,10 @@ internal sealed class ClawFanCapability(IMsiWmiTransport transport)
     ///     the one the reference unit reports through <c>Get_Fan</c>/<c>Get_Temperature</c>, and differs
     ///     from HC's eight-byte <c>SetFanTable</c>; see PROVENANCE.md.
     /// </remarks>
+    /// <param name="command">Validated host command used for result identity.</param>
+    /// <param name="curve">Exactly six nondecreasing temperature/duty points, each within 0–100 °C/percent.</param>
+    /// <param name="cancellationToken">Cancels reads/writes; cancellation after dispatch can leave partial effects.</param>
+    /// <returns>Validation/preparation rejection, indeterminate failed write, or accepted curve with optional readback verification.</returns>
     public async ValueTask<CapabilityCommandResult> ApplyCurveAsync(
         CapabilityCommand command,
         IReadOnlyList<CurvePoint> curve,
@@ -595,6 +625,9 @@ internal sealed class ClawFanCapability(IMsiWmiTransport transport)
 
     /// <summary>Writes the captured tables and flags back.</summary>
     /// <remarks>Complete once every write went through; the values are not read back.</remarks>
+    /// <param name="snapshot">Original left/right raw tables and mode flags, including unknown bytes to preserve.</param>
+    /// <param name="cancellationToken">Cancels subsequent writes; earlier restore writes are not rolled back.</param>
+    /// <returns>Completion after both tables and flags are accepted; transport failures propagate.</returns>
     public async ValueTask RestoreAsync(FanSnapshot snapshot, CancellationToken cancellationToken)
     {
         await WriteTableAsync(1, snapshot.Left.TemperatureBuffer, snapshot.Left.DutyBuffer, cancellationToken)
@@ -742,6 +775,8 @@ internal sealed class ClawLightingCapability(IClawMcuTransport transport, ushort
     ///     Reads the committed profile when the MCU answers with the known shape. HC never reads it, so
     ///     an answer in another shape, or none, leaves the last known state and changes nothing else.
     /// </summary>
+    /// <param name="cancellationToken">Cancels the MCU read; caller cancellation propagates.</param>
+    /// <returns>The newly decoded state, or the prior state (possibly null) when the read fails or its shape is unknown.</returns>
     public async ValueTask<LightingState?> ReadAsync(CancellationToken cancellationToken)
     {
         byte[] profile;

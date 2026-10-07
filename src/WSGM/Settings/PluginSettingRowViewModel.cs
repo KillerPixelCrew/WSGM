@@ -262,6 +262,8 @@ public sealed class PluginSettingRowViewModel : ObservableObject
 }
 
 /// <summary>One choice option with separate persisted identity and user-facing label.</summary>
+/// <param name="Value">Persisted semantic choice identifier.</param>
+/// <param name="Label">Visible choice label; it is not used as the stored value.</param>
 public sealed record PluginSettingChoiceViewModel(string Value, string Label);
 
 /// <summary>One titled group of plugin setting rows, which is also a focus group.</summary>

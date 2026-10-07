@@ -707,6 +707,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     }
 
     /// <summary>Returns the immutable patch-registry view used by diagnostics and isolated tests.</summary>
+    /// <returns>The patch manager's independent snapshot list with current generations and diagnostics.</returns>
     internal IReadOnlyList<SteamUiPatchSnapshot> GetPatchSnapshots()
     {
         return _patches.GetSnapshots();
@@ -717,6 +718,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     ///     Still runs after <see cref="CloseAdmission" />, so a master-switch or Big Picture retraction
     ///     already queued at shutdown start removes what it was meant to; only a retired host skips it.
     /// </remarks>
+    /// <returns>A task completing after the retraction pass, or immediately for a retired host; session shutdown cancellation can interrupt the pass.</returns>
     internal async Task DisableAsync()
     {
         if (_retired)

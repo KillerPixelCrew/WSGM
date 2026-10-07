@@ -8,10 +8,7 @@ namespace WSGM.Core;
 
 /// <summary>Why a provider cannot be searched right now.</summary>
 /// <remarks>
-///     Separate from "no results" on purpose. A provider that needs credentials nobody has entered
-///     returns nothing, and so does a provider that searched and found nothing; showing both as an
-///     empty grid tells the user their game has no artwork when the truth is that a source was never
-///     asked. That distinction is the whole reason this is a first-class state.
+///     A disabled or unconfigured source is distinct from a successful search with no results.
 /// </remarks>
 internal enum ArtworkProviderReadiness
 {
@@ -65,7 +62,7 @@ internal sealed record ArtworkQuery(
 /// <param name="Thumb">Thumbnail URL for the picker grid.</param>
 /// <param name="Width">Pixel width, or zero when the provider does not report one.</param>
 /// <param name="Height">Pixel height, or zero when the provider does not report one.</param>
-/// <param name="Extension">Verified static image format, <c>png</c> or <c>jpg</c>.</param>
+/// <param name="Extension">Provider-reported format hint; downloaded bytes are validated separately before application.</param>
 /// <param name="ProviderId">Stable source identifier populated by the merger.</param>
 /// <param name="ProviderName">Visible source attribution populated by the merger.</param>
 /// <param name="Author">Artwork author, when reported.</param>
@@ -100,10 +97,8 @@ internal sealed record ArtworkGameMatch(string ProviderId, string Id, string Nam
 
 /// <summary>One artwork source.</summary>
 /// <remarks>
-///     Everything source-specific lives behind this: endpoints, authentication, media vocabularies,
-///     rate limits and their error shapes. What comes back out is the same for every provider, which is
-///     what keeps the picker free of provider knowledge. Applying a chosen image is deliberately not
-///     here — that is one Steam client call and is the same whichever source supplied the bytes.
+///     Owns endpoints, authentication, paging, pacing and error translation. Applying selected bytes
+///     belongs to SteamArtwork; providers return neutral search data to both presentation surfaces.
 /// </remarks>
 internal interface IArtworkProvider
 {
@@ -127,11 +122,23 @@ internal interface IArtworkProvider
         string term, ArtworkConfig config, CancellationToken cancellationToken);
 
     /// <summary>Lists a filtered page for a provider-issued game id.</summary>
+    /// <param name="asset">Requested artwork slot.</param>
+    /// <param name="gameId">Provider-issued game identity.</param>
+    /// <param name="config">Current provider credentials and enablement.</param>
+    /// <param name="query">Zero-based page and content filters.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The filtered candidates and paging status; provider failures must not masquerade as an empty successful page.</returns>
     Task<ArtworkPage> GetAssetsForGameAsync(
         ArtworkAsset asset, string gameId, ArtworkConfig config, ArtworkQuery query,
         CancellationToken cancellationToken);
 
     /// <summary>Lists a filtered page for a Steam app id.</summary>
+    /// <param name="asset">Requested artwork slot.</param>
+    /// <param name="steamAppId">Steam app identity to resolve.</param>
+    /// <param name="config">Current provider credentials and enablement.</param>
+    /// <param name="query">Zero-based page and content filters.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The filtered candidates and paging status; provider failures must not masquerade as an empty successful page.</returns>
     Task<ArtworkPage> GetAssetsForSteamAppAsync(
         ArtworkAsset asset, long steamAppId, ArtworkConfig config, ArtworkQuery query,
         CancellationToken cancellationToken);
@@ -170,6 +177,8 @@ internal sealed record ArtworkProviderOutcome(
     string? Failure);
 
 /// <summary>One provider page, including whether its raw answer has another page.</summary>
+/// <param name="Candidates">Filtered candidates from this page.</param>
+/// <param name="HasMore">Whether the provider's raw answer indicates another page, even if local filters removed every candidate.</param>
 internal sealed record ArtworkPage(IReadOnlyList<ArtworkCandidate> Candidates, bool HasMore);
 
 /// <summary>The merged result of asking every provider.</summary>
@@ -202,21 +211,9 @@ internal sealed record ArtworkSearchResult(
 
 /// <summary>Asks the configured artwork providers and merges what comes back.</summary>
 /// <remarks>
-///     <para>
-///         Two rules, for two different questions. When a person is looking - the artwork page, or
-///         the Game Library's "Fix match" - every ready provider is searched in parallel and the
-///         results are merged, exact matches first: one provider's failure must not hide another's
-///         result, and the person picks. When nobody is looking - the Game Library matching a whole
-///         scan by itself - the providers are asked in preference order and the first that knows the
-///         game decides (<see cref="FindMatchAsync" />): SteamGridDB knows Steam libraries, and
-///         Screenscraper, a ROM database paced at one request at a time, is a fallback rather than a
-///         second opinion.
-///     </para>
-///     <para>
-///         A provider that failed is a failure in both, never an empty answer: the page says the
-///         provider could not be asked, and the automatic match stops rather than falling through to
-///         a provider that might pin the wrong game.
-///     </para>
+///     Interactive searches merge ready providers in parallel, ranking exact matches first.
+///     Automatic matching uses preference order and stops at the first match or provider failure,
+///     so an unavailable preferred source cannot silently select a different provider's guess.
 /// </remarks>
 internal static class ArtworkSearch
 {
@@ -243,6 +240,11 @@ internal static class ArtworkSearch
         return SearchGamesAsync(term, config, cancellationToken, Providers);
     }
 
+    /// <inheritdoc cref="SearchGamesAsync(string, ArtworkConfig, CancellationToken)" />
+    /// <param name="term">The search term.</param>
+    /// <param name="config">The loaded configuration.</param>
+    /// <param name="cancellationToken">Cancels the search.</param>
+    /// <param name="providers">Ordered provider set used for this request.</param>
     internal static async Task<IReadOnlyList<ArtworkGameMatch>> SearchGamesAsync(
         string term, ArtworkConfig config, CancellationToken cancellationToken,
         IReadOnlyList<IArtworkProvider> providers)
@@ -375,8 +377,13 @@ internal static class ArtworkSearch
         }
     }
 
-
     /// <summary>Searches every ready provider for one filtered result page.</summary>
+    /// <param name="asset">Requested artwork slot.</param>
+    /// <param name="steamAppId">Steam app identity to resolve.</param>
+    /// <param name="config">Current provider credentials and enablement.</param>
+    /// <param name="query">Zero-based page and content filters.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The filtered candidates and paging status; merged results retain provider failures separately.</returns>
     public static Task<ArtworkSearchResult> GetAssetsForSteamAppAsync(
         ArtworkAsset asset, long steamAppId, ArtworkConfig config, ArtworkQuery query,
         CancellationToken cancellationToken = default)
@@ -384,6 +391,13 @@ internal static class ArtworkSearch
         return GetAssetsForSteamAppAsync(asset, steamAppId, config, query, cancellationToken, Providers);
     }
 
+    /// <inheritdoc cref="GetAssetsForSteamAppAsync(ArtworkAsset, long, ArtworkConfig, ArtworkQuery, CancellationToken)" />
+    /// <param name="asset">Requested artwork slot.</param>
+    /// <param name="steamAppId">Steam app identity to resolve.</param>
+    /// <param name="config">Current provider credentials and enablement.</param>
+    /// <param name="query">Zero-based page and content filters.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <param name="providers">Ordered provider set used for this request.</param>
     internal static Task<ArtworkSearchResult> GetAssetsForSteamAppAsync(
         ArtworkAsset asset, long steamAppId, ArtworkConfig config, ArtworkQuery query,
         CancellationToken cancellationToken, IReadOnlyList<IArtworkProvider> providers)
@@ -394,8 +408,13 @@ internal static class ArtworkSearch
             selectedProviders: providers);
     }
 
-
     /// <summary>Searches the issuing provider for one filtered result page.</summary>
+    /// <param name="asset">Requested artwork slot.</param>
+    /// <param name="match">Chosen game and the provider that issued its identity.</param>
+    /// <param name="config">Current provider credentials and enablement.</param>
+    /// <param name="query">Zero-based page and content filters.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>The filtered candidates and paging status; merged results retain provider failures separately.</returns>
     public static Task<ArtworkSearchResult> GetAssetsForMatchAsync(
         ArtworkAsset asset, ArtworkGameMatch match, ArtworkConfig config, ArtworkQuery query,
         CancellationToken cancellationToken = default)
@@ -403,6 +422,13 @@ internal static class ArtworkSearch
         return GetAssetsForMatchAsync(asset, match, config, query, cancellationToken, Providers);
     }
 
+    /// <inheritdoc cref="GetAssetsForMatchAsync(ArtworkAsset, ArtworkGameMatch, ArtworkConfig, ArtworkQuery, CancellationToken)" />
+    /// <param name="asset">Requested artwork slot.</param>
+    /// <param name="match">Chosen game and the provider that issued its identity.</param>
+    /// <param name="config">Current provider credentials and enablement.</param>
+    /// <param name="query">Zero-based page and content filters.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <param name="providers">Ordered provider set used for this request.</param>
     internal static Task<ArtworkSearchResult> GetAssetsForMatchAsync(
         ArtworkAsset asset, ArtworkGameMatch match, ArtworkConfig config, ArtworkQuery query,
         CancellationToken cancellationToken, IReadOnlyList<IArtworkProvider> providers)

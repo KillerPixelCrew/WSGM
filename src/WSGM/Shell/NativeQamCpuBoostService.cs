@@ -16,9 +16,12 @@ namespace WSGM.Shell;
 ///     on the other reports it. Every publication reads Windows: a scheme switch can carry a different
 ///     mode with it.
 /// </remarks>
+/// <param name="reconciler">Borrowed owner of Windows boost reads, writes and profile reconciliation.</param>
+/// <param name="profiles">Borrowed profile owner used to annotate the effective selection and override source.</param>
 internal sealed class NativeQamCpuBoostService(ApplicationPerformanceReconciler reconciler, ProfileService profiles)
     : ISteamCpuBoostBackend
 {
+    /// <inheritdoc />
     public async Task<SteamUiCommandResult> SetCpuBoostAsync(string option, CancellationToken cancellationToken)
     {
         if (CpuBoost.ModeForId(option) is not { } mode)
@@ -31,6 +34,8 @@ internal sealed class NativeQamCpuBoostService(ApplicationPerformanceReconciler 
             : new SteamUiCommandResult(false, "Windows did not confirm the processor boost mode.");
     }
 
+    /// <summary>Refreshes Windows boost capabilities and projects the effective profile preference.</summary>
+    /// <returns>Offered modes and effective selection, or an unavailable state with the read failure or unsupported reason.</returns>
     internal async ValueTask<SteamCpuBoostState?> ReadAsync()
     {
         CpuBoostStatus? status;

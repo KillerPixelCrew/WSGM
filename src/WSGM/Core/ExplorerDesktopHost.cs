@@ -10,7 +10,8 @@ namespace WSGM.Core;
 
 /// <summary>
 ///     Session-owned normal Explorer launch path. It captures the canonical taskbar owner
-///     before each orderly exit and retains a medium, jobless fixed-purpose anchor across the exit.
+///     before each orderly exit and retains a medium fixed-purpose anchor across the exit.
+///     A job-bound source may supply a job-bound anchor as explicitly degraded recovery.
 /// </summary>
 internal sealed class ExplorerDesktopHost : IAsyncDisposable
 {
@@ -41,6 +42,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
     private Process? _retired;
 
     /// <summary>Creates a desktop-host owner for the current interactive session.</summary>
+    /// <param name="context">Interactive user-data context used for desktop integration and scheduler recovery.</param>
     internal ExplorerDesktopHost(UserDataContext context)
     {
         _context = context;
@@ -50,7 +52,9 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
 
     private static string ExplorerPath => ExplorerControl.ExplorerPath;
 
-    /// <inheritdoc />
+    /// <summary>Closes operation admission, retires the owned anchor, and releases captured process handles.</summary>
+    /// <returns>A task completing after the serialized teardown; repeated calls return without awaiting the first.</returns>
+    /// <remarks>This does not restore Explorer. The session must complete desktop recovery before disposing this owner.</remarks>
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.CompareExchange(ref _disposeState, 1, 0) != 0)
@@ -81,6 +85,10 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
     ///     Captures the current canonical taskbar owner and creates the replacement launch
     ///     anchor before the orderly Explorer exit becomes irreversible.
     /// </summary>
+    /// <param name="cancellationToken">Cancels lock admission and bounded anchor preparation.</param>
+    /// <returns>Whether a verified replacement anchor is retained; false leaves the current desktop intact.</returns>
+    /// <exception cref="ObjectDisposedException">Teardown has begun.</exception>
+    /// <exception cref="OperationCanceledException">The caller canceled preparation.</exception>
     internal async Task<ExplorerPreparationResult> PrepareForExplorerExitAsync(
         CancellationToken cancellationToken = default)
     {
@@ -243,11 +251,17 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
         return shell.Acceptance.Accepted || shell.Acceptance.Rejection is ExplorerShellRejection.JobBound;
     }
 
+    /// <summary>Checks whether takeover currently owns restoration of a listed desktop integration.</summary>
+    /// <param name="path">Configured executable or protocol target.</param>
+    /// <returns>True only for a cataloged integration while the suspension latch is held.</returns>
     internal bool IsApplicationLaunchSuppressed(string path)
     {
         return Volatile.Read(ref _desktopAppsSuspended) != 0 && DesktopAppLifecycle.MatchesPath(path);
     }
 
+    /// <summary>Reads the takeover generation used to reject stale integration launch decisions.</summary>
+    /// <param name="path">Configured executable or protocol target.</param>
+    /// <returns>The current generation for cataloged integrations, or zero for unrelated targets.</returns>
     internal int ApplicationLaunchGeneration(string path)
     {
         return DesktopAppLifecycle.MatchesPath(path) ? Volatile.Read(ref _desktopAppsGeneration) : 0;
@@ -255,8 +269,13 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
 
     /// <summary>
     ///     Stops captured desktop integrations before the irreversible Explorer exit.
-    ///     A refused or partial app exit keeps Explorer and restores the affected applications.
+    ///     A refused or partial app exit preserves Explorer; the caller must run the shared desktop
+    ///     return sequence to restore affected applications and clear launch suppression.
     /// </summary>
+    /// <param name="timeout">Budget for observing orderly shell exit after integration shutdown.</param>
+    /// <param name="cancellationToken">Cancels admission and waits; an already-dispatched exit is not undone.</param>
+    /// <returns>True only after the exit policy accepts sustained absence; false requires desktop-return recovery.</returns>
+    /// <exception cref="ObjectDisposedException">Teardown has begun.</exception>
     internal async Task<bool> ExitExplorerAndWaitAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposalRequested();
@@ -298,8 +317,14 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
 
     /// <summary>
     ///     Adopts an already-normal taskbar owner or restores Explorer through the captured
-    ///     jobless anchor, waiting for the resulting taskbar owner rather than trusting the created PID.
+    ///     anchor, waiting for the resulting taskbar owner rather than trusting the created PID.
     /// </summary>
+    /// <param name="timeout">Positive total restoration budget, including operation-gate admission.</param>
+    /// <param name="cancellationToken">Cancels admission and recovery waits, without undoing an accepted launch.</param>
+    /// <returns>Observed desktop quality, route, and dispatch certainty; uncertain dispatch forbids competing shell surfaces.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The budget is not positive.</exception>
+    /// <exception cref="ObjectDisposedException">Teardown has begun.</exception>
+    /// <exception cref="OperationCanceledException">The caller canceled restoration.</exception>
     internal async Task<ExplorerDesktopResult> RestoreDesktopAsync(
         TimeSpan timeout,
         CancellationToken cancellationToken = default)
@@ -486,6 +511,9 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
     ///     the same owner. Restored desktops also require responsive windows; launch-parent capture
     ///     only needs the process identity and token.
     /// </summary>
+    /// <param name="expectedSessionId">Session whose canonical Explorer must own the shell surfaces.</param>
+    /// <param name="requireResponsive">Whether to probe shell responsiveness in addition to identity/ownership.</param>
+    /// <returns>One sampled observation; windows and processes may change immediately afterward.</returns>
     internal static ExplorerDesktopObservation ObserveCurrentDesktop(
         int expectedSessionId, bool requireResponsive = true)
     {
@@ -981,11 +1009,20 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
 }
 
 /// <summary>Result of capturing a canonical Explorer and creating its replacement anchor.</summary>
+/// <param name="Prepared">Whether a verified anchor is retained before shell exit.</param>
+/// <param name="Detail">Diagnostic readiness or refusal reason.</param>
 internal readonly record struct ExplorerPreparationResult(
     bool Prepared,
     string Detail);
 
-/// <summary>One atomic observation of Explorer's shell and taskbar surfaces.</summary>
+/// <summary>One sampled observation of Explorer's shell and taskbar surfaces.</summary>
+/// <param name="Process">Inspected candidate shell owner, including native query failures.</param>
+/// <param name="TaskbarOwnerProcessId">Observed taskbar owner, or zero when absent.</param>
+/// <param name="ShellOwnerProcessId">Observed desktop window owner, or zero when absent.</param>
+/// <param name="HasShellSurface">Whether any shell surface was observed, even if it was not usable.</param>
+/// <param name="Initialized">Whether one owner has both shell surfaces and passed any requested responsiveness probe.</param>
+/// <param name="Acceptance">Identity/readiness acceptance result.</param>
+/// <param name="Outcome">Quality classification derived from the observations.</param>
 internal readonly record struct ExplorerDesktopObservation(
     NativeShellProcessInfo Process,
     uint TaskbarOwnerProcessId,
@@ -1014,7 +1051,7 @@ internal enum ExplorerDesktopRoute
     /// <summary>An already-running valid shell was adopted.</summary>
     ExistingShell,
 
-    /// <summary>The captured fixed-purpose jobless anchor started Explorer.</summary>
+    /// <summary>The captured fixed-purpose anchor started Explorer.</summary>
     ShellAnchor,
 
     /// <summary>The scheduled-task path restored a usable but recovery-only shell.</summary>
@@ -1028,6 +1065,14 @@ internal readonly record struct ExplorerDesktopResult
     ///     Creates a restoration result while enforcing that the scheduled-task route is
     ///     recovery-only even when its observed process happens to pass the normal shell checks.
     /// </summary>
+    /// <param name="outcome">Observed desktop quality; scheduler Normal is downgraded to Degraded.</param>
+    /// <param name="route">Launch or adoption mechanism used.</param>
+    /// <param name="processId">Observed shell owner PID, or zero when unavailable.</param>
+    /// <param name="createdProcessId">PID returned by creation, or zero; it may differ from the shell owner.</param>
+    /// <param name="detail">Diagnostic reason for the result.</param>
+    /// <param name="launchDispatched">Whether launch occurred or may still complete after an uncertain result.</param>
+    /// <param name="shellSurfacePresent">Whether any shell surface remains to be preserved.</param>
+    /// <param name="elapsed">Elapsed restoration duration, including serialized admission.</param>
     internal ExplorerDesktopResult(
         ExplorerDesktopOutcome outcome,
         ExplorerDesktopRoute route,

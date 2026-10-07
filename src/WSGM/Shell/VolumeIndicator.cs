@@ -20,6 +20,7 @@ internal sealed class VolumeIndicator : IDisposable
     private double _windowScale;
 
     /// <summary>Creates an indicator using the caller's current game-mode UI scale.</summary>
+    /// <param name="uiScale">Callback read on the UI thread for each Show call; a changed scale recreates the owned window.</param>
     internal VolumeIndicator(Func<double> uiScale)
     {
         _uiScale = uiScale;
@@ -41,6 +42,8 @@ internal sealed class VolumeIndicator : IDisposable
     }
 
     /// <summary>Shows the current master volume without taking focus.</summary>
+    /// <param name="percentage">Master volume percentage, clamped to 0-100 by the window.</param>
+    /// <param name="muted">Whether to display muted state. Invoke on the UI thread; calls after disposal are ignored.</param>
     internal void Show(int percentage, bool muted)
     {
         if (_disposed)

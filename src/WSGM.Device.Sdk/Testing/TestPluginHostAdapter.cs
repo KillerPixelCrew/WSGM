@@ -10,7 +10,12 @@ using WSGM.Device.Sdk.Settings;
 namespace WSGM.Device.Sdk.Testing;
 
 /// <summary>In-memory host adapter for focused plugin tests.</summary>
-/// <remarks>The adapter records only the semantic publications available to production plugins.</remarks>
+/// <remarks>
+    ///     Records publications without dispatching commands or enforcing production descriptor, generation,
+    ///     freshness or settings validation. Collection getters return snapshots; records and nested collections
+    ///     are retained by reference except physical-device and OEM-control lists, which are copied on receipt.
+    ///     Recording is synchronized but this adapter does not model host lifecycle or hardware ownership.
+    /// </remarks>
 public sealed class TestPluginHostAdapter : IPluginHostAdapter
 {
     private readonly List<CapabilityState> _capabilityStates = [];
@@ -58,11 +63,7 @@ public sealed class TestPluginHostAdapter : IPluginHostAdapter
     public IReadOnlyList<PluginSettingsManifest> SettingsManifests => Snapshot(_settingsManifests);
 
     /// <summary>Trace lines in emission order.</summary>
-    /// <remarks>
-    ///     Recorded rather than discarded so a plugin's diagnostics are testable like anything else it
-    ///     publishes. A test that asserts a decision was traced is what keeps instrumentation from
-    ///     being quietly deleted later.
-    /// </remarks>
+    /// <remarks>Empty messages are omitted; retained messages are not sanitized or length-limited.</remarks>
     public IReadOnlyList<(DeviceTraceLevel Level, string Scope, string Message)> Traces =>
         Snapshot(_traces);
 

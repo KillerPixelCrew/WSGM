@@ -9,6 +9,16 @@ using System.Text.Json;
 
 namespace WSGM.Core;
 
+/// <summary>Installed Audio Loader metadata and resource mappings, or a visible manifest-read failure.</summary>
+/// <param name="Id">Local installation-folder identity.</param>
+/// <param name="Name">Display name.</param>
+/// <param name="Author">Manifest author text.</param>
+/// <param name="Version">Manifest version text.</param>
+/// <param name="Description">Manifest description.</param>
+/// <param name="StoreId">Store listing identity, or null for a local archive.</param>
+/// <param name="Error">Manifest-read failure, or null when accepted.</param>
+/// <param name="Mappings">Steam resource names mapped to ordered relative sound paths.</param>
+/// <param name="Ignore">Resources intentionally left using Steam defaults.</param>
 internal sealed record SoundPack(
     string Id,
     string Name,
@@ -20,12 +30,22 @@ internal sealed record SoundPack(
     IReadOnlyDictionary<string, string[]> Mappings,
     IReadOnlySet<string> Ignore)
 {
+    /// <summary>Distinct supported preview and sound paths, relative to the pack directory.</summary>
     internal string[] Assets { get; init; } = [];
+    /// <summary>Author-supplied manifest identity, when present.</summary>
     internal string ManifestId { get; init; } = "";
+    /// <summary>Repository/source text from the manifest or installation sidecar.</summary>
     internal string Source { get; init; } = "";
+    /// <summary>Most recent comparison against Steam resources, when the caller supplied one.</summary>
     internal SoundPackCompatibility? Compatibility { get; init; }
 }
 
+/// <summary>Pack coverage against one observed Steam resource vocabulary.</summary>
+/// <param name="SupportedResources">Resources with at least one usable file.</param>
+/// <param name="MissingResources">Resources with no usable file.</param>
+/// <param name="IgnoredResources">Resources explicitly excluded by the pack.</param>
+/// <param name="UnknownMappings">Manifest mappings absent from the current Steam vocabulary.</param>
+/// <param name="AssetProblems">Missing, empty, unsupported or unreadable asset details.</param>
 internal sealed record SoundPackCompatibility(
     string[] SupportedResources,
     string[] MissingResources,
@@ -33,20 +53,28 @@ internal sealed record SoundPackCompatibility(
     string[] UnknownMappings,
     string[] AssetProblems)
 {
+    /// <summary>Counts and fallback behavior suitable for the pack-details surface.</summary>
     internal string Summary =>
         $"{SupportedResources.Length} mapped resources; {MissingResources.Length} missing resources; {IgnoredResources.Length} ignored resources; {AssetProblems.Length} missing or unsupported assets; {UnknownMappings.Length} unknown mappings. Unmatched events use Steam defaults.";
 }
 
 /// <summary>Reads Audio Loader manifests and installs their assets in WSGM's per-user content folder.</summary>
+/// <param name="root">Local sound-pack directory; paths are constrained beneath this root.</param>
 internal sealed class SoundPackLibrary(string root)
 {
+    /// <summary>Absolute library root.</summary>
     internal string Root { get; } = Path.GetFullPath(root);
 
+    /// <summary>Resolves the sound-pack directory for one WSGM user context.</summary>
+    /// <param name="context">The current user's data root.</param>
+    /// <returns>The sounds child directory without creating it.</returns>
     internal static string DefaultRoot(UserDataContext context)
     {
         return Path.Combine(context.Root, "sounds");
     }
 
+    /// <summary>Lists installed packs, retaining per-pack read failures as visible error entries.</summary>
+    /// <returns>Packs sorted by display name; library-root access failures still propagate.</returns>
     internal SoundPack[] Read()
     {
         Directory.CreateDirectory(Root);
@@ -68,6 +96,10 @@ internal sealed class SoundPackLibrary(string root)
             }).OrderBy(pack => pack.Name, StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
+    /// <summary>Reads and validates one UI sound manifest and its constrained asset paths.</summary>
+    /// <param name="id">Local installation-folder identity.</param>
+    /// <returns>Parsed metadata and supported asset paths; missing mapped files are assessed separately.</returns>
+    /// <exception cref="InvalidDataException">The manifest, version or path shape is unsupported.</exception>
     internal SoundPack ReadPack(string id)
     {
         var directory = PackPath(id);
@@ -174,6 +206,9 @@ internal sealed class SoundPackLibrary(string root)
         };
     }
 
+    /// <summary>Resolves a pack identity under the library and rejects invalid or redirected paths.</summary>
+    /// <param name="id">Single folder-name identity.</param>
+    /// <returns>The constrained path; existence is not required.</returns>
     internal string PackPath(string id)
     {
         if (id.Length == 0 || id is "." or ".." || id.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
@@ -186,6 +221,10 @@ internal sealed class SoundPackLibrary(string root)
         return path;
     }
 
+    /// <summary>Resolves an asset without allowing escape from its pack or traversal through reparse points.</summary>
+    /// <param name="id">Installed pack identity.</param>
+    /// <param name="file">Manifest asset path.</param>
+    /// <returns>The constrained absolute path; existence is not required.</returns>
     internal string AssetPath(string id, string file)
     {
         var directory = PackPath(id);
@@ -194,6 +233,11 @@ internal sealed class SoundPackLibrary(string root)
         return path;
     }
 
+    /// <summary>Builds data-URL overrides for usable assets while leaving unmatched events at Steam defaults.</summary>
+    /// <param name="pack">Accepted installed pack.</param>
+    /// <param name="resources">Current Steam resource names.</param>
+    /// <param name="compatibility">Coverage and asset-failure counts for this read.</param>
+    /// <returns>Only resources with at least one readable, nonempty supported sound.</returns>
     internal Dictionary<string, string[]> BuildOverrides(SoundPack pack, IReadOnlyCollection<string> resources,
         out string compatibility)
     {
@@ -241,6 +285,10 @@ internal sealed class SoundPackLibrary(string root)
         return result;
     }
 
+    /// <summary>Checks resource coverage, asset existence, extension and nonzero length without decoding audio.</summary>
+    /// <param name="pack">Accepted installed pack.</param>
+    /// <param name="resources">Current Steam resource names.</param>
+    /// <returns>Coverage and path problems; files may change before overrides are read.</returns>
     internal SoundPackCompatibility InspectCompatibility(SoundPack pack, IReadOnlyCollection<string> resources)
     {
         var supported = new List<string>();
@@ -307,6 +355,12 @@ internal sealed class SoundPackLibrary(string root)
         };
     }
 
+    /// <summary>Stages and validates a bounded ZIP, then replaces the matching installed pack with rollback on move failure.</summary>
+    /// <param name="archive">Readable archive borrowed for this call; left open.</param>
+    /// <param name="storeId">Store identity, or null for a local archive.</param>
+    /// <param name="source">Optional store-source attribution.</param>
+    /// <returns>The stable local installation id.</returns>
+    /// <remarks>Rejects expanded content over 64 MiB, links and ambiguous manifests. Cleanup failures propagate.</remarks>
     internal string Install(Stream archive, string? storeId = null, string? source = null)
     {
         Directory.CreateDirectory(Root);
@@ -403,6 +457,8 @@ internal sealed class SoundPackLibrary(string root)
         }
     }
 
+    /// <summary>Validates and recursively removes one installed pack directory.</summary>
+    /// <param name="id">Local pack identity; callers must reconcile any active sound selection separately.</param>
     internal void Delete(string id)
     {
         var path = PackPath(id);

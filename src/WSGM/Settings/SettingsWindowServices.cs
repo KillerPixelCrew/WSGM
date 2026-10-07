@@ -5,8 +5,17 @@ using WSGM.Input;
 
 namespace WSGM.Settings;
 
-// Window lifetime operations are separate from its controls and navigation. ShowTestSheet shows the
-// Quick access page's preview sheet over an unsaved snapshot; disposing its result closes it again.
+/// <summary>Explicit UI-thread dependencies for one Settings window; the composer retains session-service ownership.</summary>
+/// <param name="Gamepad">Window polling service used by navigation and chord recording.</param>
+/// <param name="StartInput">Starts this window's polling claim; repeated activation must remain harmless.</param>
+/// <param name="StopInput">Stops polling when the window releases its input lifetime.</param>
+/// <param name="BeginImportSession">Acquires a counted lease protecting staged splash imports.</param>
+/// <param name="EndImportSession">Releases one matching staged-import lease.</param>
+/// <param name="RefreshDeviceOwner">Bounded resident-owner status query; does not start device integration.</param>
+/// <param name="ReadSavedAccent">Latest committed accent used when abandoning an unsaved preview.</param>
+/// <param name="HoldSteamInput">Adds the named input claim without waiting for native acquisition.</param>
+/// <param name="DropSteamInput">Ends the named claim with a diagnostic reason; native release is asynchronous.</param>
+/// <param name="ShowTestSheet">Opens an unsaved configuration preview; dispose its returned owner to close it.</param>
 internal sealed record SettingsWindowServices(
     GamepadService Gamepad,
     Action StartInput,

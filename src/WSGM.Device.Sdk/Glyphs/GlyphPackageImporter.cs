@@ -23,8 +23,11 @@ public interface IGlyphPackageSource
 
     /// <summary>Reads one loader-approved relative package path under a byte budget.</summary>
     /// <param name="relativePath">A fixed or validated relative package path.</param>
-    /// <param name="maximumBytes">Maximum accepted byte count.</param>
-    /// <param name="bytes">Stable bytes the caller owns when the read succeeds; the importer keeps this array.</param>
+    /// <param name="maximumBytes">Positive inclusive maximum accepted byte count.</param>
+    /// <param name="bytes">
+    ///     Stable nonempty bytes owned by the caller on success; empty on failure. The importer retains
+    ///     this array, so implementations must not reuse or mutate it after returning.
+    /// </param>
     /// <returns>True only when the file exists and was read within the budget.</returns>
     bool TryRead(string relativePath, int maximumBytes, out byte[] bytes);
 }
@@ -94,7 +97,12 @@ public static class GlyphPackageImporter
 
     /// <summary>Loads and validates every profile in one immutable package source.</summary>
     /// <param name="source">Immutable, confined package source.</param>
-    /// <returns>Valid safe profiles and deterministic rejection reasons.</returns>
+    /// <returns>Independently valid profiles plus ordered errors; a failed profile does not suppress valid siblings.</returns>
+    /// <remarks>
+    ///     Missing profiles produce an empty valid result. Authored asset bytes are preserved alongside
+    ///     any renderable projection. Source I/O errors covered by this contract become import diagnostics;
+    ///     arbitrary implementation exceptions are not a plugin sandbox.
+    /// </remarks>
     public static GlyphPackageImportResult Import(IGlyphPackageSource source)
     {
         ArgumentNullException.ThrowIfNull(source);

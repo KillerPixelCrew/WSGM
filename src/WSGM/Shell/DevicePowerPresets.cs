@@ -8,6 +8,12 @@ using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Shell;
 
+/// <summary>Current device preset choices and their projection from device/Windows power state.</summary>
+/// <param name="Presets">Presets declared by the current capability set.</param>
+/// <param name="Available">Whether the current power pair and any required source/scenario admit preset commands.</param>
+/// <param name="Current">Matching preset identifier, <c>custom</c>, or empty when no current choice can be projected.</param>
+/// <param name="Status">Last operation or availability detail; empty means no detail.</param>
+/// <param name="Values">Current watt limits and Windows mode when projectable, otherwise null.</param>
 internal sealed record DevicePowerPresetState(
     IReadOnlyList<DevicePowerPreset> Presets,
     bool Available,
@@ -44,6 +50,9 @@ internal sealed class DevicePowerPresets(
     /// <summary>Whether AutoTDP currently owns the runtime power limits, so no preset is in force.</summary>
     internal bool AutomaticPowerOwned => automaticPowerOwner?.Invoke() == true;
 
+    /// <summary>Reads Windows power mode and published device values while holding the shared power lane.</summary>
+    /// <param name="cancellationToken">Cancels lane admission or the Windows read wait.</param>
+    /// <returns>Current preset projection; a Windows read failure becomes an unavailable result with diagnostic status.</returns>
     internal async Task<DevicePowerPresetState> ReadAsync(CancellationToken cancellationToken = default)
     {
         await _lane.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -77,6 +86,14 @@ internal sealed class DevicePowerPresets(
         }
     }
 
+    /// <summary>Applies one admitted preset as ordered scenario, paired-power, and Windows-mode steps.</summary>
+    /// <param name="id">Declared preset identifier, or <c>custom</c> with explicit custom values.</param>
+    /// <param name="cancellationToken">Cancels admission or remaining steps; completed native effects are not rolled back.</param>
+    /// <param name="persistValues">Whether accepted watt-control writes enter the host's manual preference path.</param>
+    /// <param name="expectedOnAc">Optional AC/battery state the caller observed; a changed source refuses remaining work.</param>
+    /// <param name="customValues">Values for a custom assignment; ignored for a declared preset.</param>
+    /// <returns>Success when every step reports application, including accepted writes without readback; otherwise the failure detail.</returns>
+    /// <remarks>A partial or uncertain operation is neither automatically retried nor rolled back across device and Windows owners.</remarks>
     internal async Task<PowerPresetApplyResult> ApplyAsync(string id, CancellationToken cancellationToken,
         bool persistValues = true, bool? expectedOnAc = null,
         DevicePowerCustomValues? customValues = null)
@@ -202,6 +219,13 @@ internal sealed class DevicePowerPresets(
         }
     }
 
+    /// <summary>Projects preset selection from a captured capability set without reading or changing hardware.</summary>
+    /// <param name="views">Published capability projections for one device.</param>
+    /// <param name="mode">Observed Windows power-mode identifier.</param>
+    /// <param name="status">Existing operation detail to retain when the controls are available.</param>
+    /// <param name="onAc">Current power source, required when presets declare source-dependent scenarios.</param>
+    /// <param name="automaticPowerOwner">Whether AutoTDP owns the runtime limits and selection must show custom.</param>
+    /// <returns>Available choices, matching/custom selection, and any reason that commands are unavailable.</returns>
     internal static DevicePowerPresetState Project(IReadOnlyList<DeviceCapabilityView> views, Guid mode,
         string status = "", bool? onAc = null,
         bool automaticPowerOwner = false)

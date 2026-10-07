@@ -97,8 +97,16 @@ internal static class Program
     internal static bool IsExactDevicesNamespace(string ns) => ns == DevicesNamespace;
 }
 
+/// <summary>Explicit source, resource and output roots for regenerating extracted HC knowledge records.</summary>
+/// <param name="Source">Decompiled C# source root.</param>
+/// <param name="Resources">HC device-resource directory.</param>
+/// <param name="Output">Existing destination directory; regeneration replaces its hc.*.json files.</param>
+/// <param name="HcVersion">Version recorded as evidence provenance.</param>
 internal sealed record Options(string Source, string Resources, string Output, string HcVersion)
 {
+    /// <summary>Reads required named values and expands their filesystem paths.</summary>
+    /// <param name="args">Command-line arguments.</param>
+    /// <returns>Options, or null when a required value is absent; this does not validate directory contents.</returns>
     public static Options? Parse(string[] args)
     {
         string? Value(string name)
@@ -118,6 +126,11 @@ internal sealed record Options(string Source, string Resources, string Output, s
 }
 
 /// <summary>One class in HC's device namespaces.</summary>
+/// <param name="Name">Unqualified class name used by the identity switch.</param>
+/// <param name="Namespace">Declaring namespace.</param>
+/// <param name="BaseName">Device base-class name, or null.</param>
+/// <param name="Declaration">Parsed source declaration; no HC code is executed.</param>
+/// <param name="RelativePath">Source-root-relative path used in provenance.</param>
 internal sealed record DeviceClass(
     string Name,
     string Namespace,
@@ -125,6 +138,9 @@ internal sealed record DeviceClass(
     ClassDeclarationSyntax Declaration,
     string RelativePath)
 {
+    /// <summary>Indexes top-level class declarations in HC's device namespaces from sorted source files.</summary>
+    /// <param name="sourceRoot">Directory recursively searched for C# source.</param>
+    /// <returns>Classes keyed by simple name; the first declaration wins when names collide.</returns>
     public static Dictionary<string, DeviceClass> Load(string sourceRoot)
     {
         Dictionary<string, DeviceClass> classes = new(StringComparer.Ordinal);
@@ -160,6 +176,8 @@ internal sealed record DeviceClass(
     }
 
     /// <summary>The class and its ancestors inside the device namespaces, root first.</summary>
+    /// <param name="classes">Device-class index containing resolvable base names.</param>
+    /// <returns>The known inheritance chain; unresolved ancestors end traversal.</returns>
     public IReadOnlyList<DeviceClass> Chain(IReadOnlyDictionary<string, DeviceClass> classes)
     {
         List<DeviceClass> chain = [this];
@@ -179,6 +197,9 @@ internal sealed record DeviceClass(
 }
 
 /// <summary>An identity rule in HC's terms.</summary>
+/// <param name="Fields">Identity-field comparisons recognized from the source switch.</param>
+/// <param name="Fallback">Whether the rule is a fallback rather than an exact branch.</param>
+/// <param name="Location">Source evidence location.</param>
 internal sealed record IdentityRule(IReadOnlyDictionary<string, string> Fields, bool Fallback, string Location);
 
 /// <summary>Reads the device switch in <c>IDevice.GetCurrent</c>.</summary>
@@ -382,6 +403,10 @@ internal static class ImuConfiguration
     ///     <c>Type.GetType("HandheldCompanion.Devices." + name)</c>, so the walk stops at any class
     ///     outside that exact namespace.
     /// </summary>
+    /// <param name="deviceClass">Device class from which configuration lookup begins.</param>
+    /// <param name="classes">Classes indexed by simple name, used to resolve the parent chain.</param>
+    /// <param name="files">Parsed configuration objects indexed by file stem.</param>
+    /// <returns>Matching file stem and borrowed JSON object, or two null values when the allowed chain has no configuration.</returns>
     public static (string? File, JsonObject? Json) Applied(
         DeviceClass deviceClass,
         IReadOnlyDictionary<string, DeviceClass> classes,

@@ -10,6 +10,8 @@ namespace WSGM.Overlay;
 ///     One overlay's hybrid core-placement workflow. Entry points and notifications belong to
 ///     the UI thread; native calls run on a worker. Closing prevents late publication.
 /// </summary>
+/// <param name="cores">Borrowed shared power-policy owner.</param>
+/// <param name="readOnly">True to render current policy without permitting writes.</param>
 internal sealed class HybridCoreSelection(HybridCores cores, bool readOnly = false) : IDisposable
 {
     private readonly CancellationTokenSource _lifetime = new();
@@ -25,6 +27,7 @@ internal sealed class HybridCoreSelection(HybridCores cores, bool readOnly = fal
 
     internal IReadOnlyList<HybridCoreOption> Options => Status.Options;
 
+    /// <summary>Cancels this UI projection's lifetime and prevents later publication; borrowed session owners remain alive.</summary>
     public void Dispose()
     {
         if (_disposed)
@@ -37,13 +40,19 @@ internal sealed class HybridCoreSelection(HybridCores cores, bool readOnly = fal
         _lifetime.Dispose();
     }
 
+    /// <summary>Raised on the captured UI context when projected state or busy status changes.</summary>
     internal event Action? Changed;
 
+    /// <summary>Reads shared state without overlapping this projection's active operation.</summary>
+    /// <returns>Completion of the refresh; disposed/busy projections are a no-op and late results are not published.</returns>
     internal Task RefreshAsync()
     {
         return RunAsync(null);
     }
 
+    /// <summary>Applies one explicit hybrid-core preference through the shared power-policy owner.</summary>
+    /// <param name="mode">Requested AC and battery preference; unavailable/read-only state is ignored.</param>
+    /// <returns>Completion of worker dispatch and UI status publication; operational failures become detail text.</returns>
     internal Task ApplyAsync(HybridCoreMode mode)
     {
         return CanSelect ? RunAsync(mode) : Task.CompletedTask;
@@ -112,6 +121,8 @@ internal sealed class HybridCoreSelection(HybridCores cores, bool readOnly = fal
     }
 
     /// <summary>Says what is in effect, naming each power source only when the two disagree.</summary>
+    /// <param name="status">Published support and AC/battery choices.</param>
+    /// <returns>A user-facing support, error or policy summary.</returns>
     internal static string Describe(HybridCoreStatus status)
     {
         ArgumentNullException.ThrowIfNull(status);

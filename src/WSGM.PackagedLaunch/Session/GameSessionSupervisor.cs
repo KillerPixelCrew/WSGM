@@ -72,6 +72,11 @@ internal sealed class PackagedGameProcesses(string packageFamilyName) : IGamePro
 ///         never be contained.
 ///     </para>
 /// </remarks>
+/// <param name="game">Process matching policy for the launched game.</param>
+/// <param name="job">Borrowed kill-on-close job; the launcher retains disposal ownership.</param>
+/// <param name="onGameProcess">Optional callback for each newly observed game process.</param>
+/// <param name="timings">Startup and exit grace budgets, or null for packaged-game defaults.</param>
+/// <param name="startFailed">Optional signal that the launch attempt failed before a game appeared.</param>
 internal sealed class GameSessionSupervisor(
     IGameProcesses game,
     GameSessionJob job,

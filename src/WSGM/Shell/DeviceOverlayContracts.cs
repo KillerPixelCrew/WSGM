@@ -32,12 +32,7 @@ internal enum DeviceOverlaySection
     /// <summary>
     ///     The physical controller and everything that describes it, glyph artwork included.
     /// </summary>
-    /// <remarks>
-    ///     Glyphs were a page of their own next to this one, which meant a user looking for controller
-    ///     settings had two cards to guess between and neither held all of it. The preview and input
-    ///     test still render here; they are a picture of this controller's buttons, not a separate
-    ///     subject.
-    /// </remarks>
+    /// <remarks>Includes glyph artwork and the live physical-input preview.</remarks>
     ControllerAndMotion,
 
     /// <summary>Device-specific OEM buttons and their assignments.</summary>
@@ -51,6 +46,16 @@ internal enum DeviceOverlaySection
 }
 
 /// <summary>One presentation-only semantic capability row for the final Device destination.</summary>
+/// <param name="CapabilityId">Published capability ID used for command routing.</param>
+/// <param name="InstanceId">Published instance discriminator, or null for a single-instance capability.</param>
+/// <param name="Section">Host fallback page selected from semantic role.</param>
+/// <param name="Status">Projected availability or command status for presentation.</param>
+/// <param name="Title">Resolved plain row label.</param>
+/// <param name="Description">Resolved explanatory text, empty when absent.</param>
+/// <param name="TrailingText">Formatted value or status shown beside the label.</param>
+/// <param name="CanInvoke">Whether current host admission permits interaction; dispatch still revalidates.</param>
+/// <param name="CurrentValue">Current effective value, or null when unknown or action-only.</param>
+/// <param name="NextValue">Suggested value for a toggle/cycle action, or null when a separate editor supplies it.</param>
 internal sealed record DeviceOverlayCapability(
     string CapabilityId,
     string? InstanceId,
@@ -135,6 +140,8 @@ internal sealed record DeviceOverlayCapability(
 }
 
 /// <summary>One category heading of a plugin-declared overlay section.</summary>
+/// <param name="Id">Stable category ID within its section.</param>
+/// <param name="Title">Resolved display heading.</param>
 internal sealed record DeviceOverlayCategory(string Id, string Title);
 
 /// <summary>One plugin-declared overlay section, projected for presentation.</summary>
@@ -142,6 +149,11 @@ internal sealed record DeviceOverlayCategory(string Id, string Title);
 ///     Presentation-only: titles are already resolved from the WSGM-owned key vocabulary or bounded
 ///     plugin text, so no consumer of this record touches SDK display metadata again.
 /// </remarks>
+/// <param name="SectionId">Stable plugin section identity.</param>
+/// <param name="Title">Resolved plain section title.</param>
+/// <param name="Description">Resolved supporting text, empty when absent.</param>
+/// <param name="Icon">Host-supported section icon.</param>
+/// <param name="Categories">Category headings in declaration order; an empty list leaves a single lead group.</param>
 internal sealed record DeviceOverlayPluginSection(
     string SectionId,
     string Title,
@@ -190,6 +202,16 @@ internal sealed record DeviceOverlayGlyphPreview(
 ///     stored configuration, and recovery is an action on the cycle itself. Each carries its stable
 ///     focus key as the <see cref="DescriptorRow.Id" />, and a null row is simply not shown.
 /// </remarks>
+/// <param name="Visible">Whether the surface currently exposes device content.</param>
+/// <param name="Status">Aggregate display status.</param>
+/// <param name="Detail">Plain explanation of lifecycle or availability state.</param>
+/// <param name="GlyphSelection">Host-owned glyph selection row, or null when absent.</param>
+/// <param name="Capabilities">Current semantic rows, including generation stamps for revalidation.</param>
+/// <param name="AutoTdp">Host-owned AutoTDP row, or null when unavailable.</param>
+/// <param name="Controller">Controller target row, or null when absent.</param>
+/// <param name="Recovery">Explicit cycle recovery action, or null when no recovery is offered.</param>
+/// <param name="GlyphPreview">Artwork and physical-input preview, or null when absent.</param>
+/// <param name="AuthoredProfile">Authored fan-profile selector, or null when absent.</param>
 internal sealed record DeviceOverlaySnapshot(
     bool Visible,
     string Status,
@@ -225,11 +247,14 @@ internal static class DeviceHostRowIds
 }
 
 /// <summary>Named choices and current selection for one host-owned setting.</summary>
+/// <param name="Value">Selected machine value, or null for no selection.</param>
+/// <param name="Choices">Ordered legal choices; UI sends the selected value without replaying intermediate options.</param>
 internal sealed record DeviceHostSelection(string? Value, IReadOnlyList<CapabilityChoice> Choices);
 
 /// <summary>Closed semantic source consumed by the Device overlay destination.</summary>
 internal interface IDeviceOverlaySource : IDisposable
 {
+    /// <summary>Signals that consumers should read a new snapshot; input-rate samples use their separate event.</summary>
     event Action? Changed;
 
     /// <summary>Raised for each physical sample while the glyph input test is observing.</summary>
@@ -258,12 +283,22 @@ internal interface IDeviceOverlaySource : IDisposable
     /// </remarks>
     IDisposable ObservePhysicalSamples();
 
+    /// <summary>Projects coordinator-owned state for the Device surface without hardware I/O.</summary>
+    /// <returns>The current presentation snapshot; null optional rows are omitted by the view.</returns>
     DeviceOverlaySnapshot Snapshot();
 
+    /// <summary>Dispatches the row's action or suggested next value through its owning capability router.</summary>
+    /// <param name="capability">Snapshot row carrying identity, generations and requested value.</param>
+    /// <param name="cancellationToken">Cancels waiting; a dispatched hardware write may still complete.</param>
+    /// <returns>Completion after the command attempt and host projection update; does not itself prove hardware readback.</returns>
     Task InvokeAsync(
         DeviceOverlayCapability capability,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Persists the host's physical-button artwork policy and republishes presentation.</summary>
+    /// <param name="selection">Declared physical glyph policy.</param>
+    /// <param name="cancellationToken">Cancels configuration persistence or reconciliation.</param>
+    /// <returns>Completion after the requested host setting is applied; no device firmware is written.</returns>
     Task SetPhysicalGlyphSelectionAsync(DeviceGlyphSelection selection, CancellationToken cancellationToken = default);
 
     /// <summary>Turns AutoTDP on or off and persists the choice.</summary>
@@ -272,6 +307,10 @@ internal interface IDeviceOverlaySource : IDisposable
     Task ToggleAutoTdpAsync(CancellationToken cancellationToken = default);
 
     /// <summary>Applies one explicit host setting selection without cycling through intermediate writes.</summary>
+    /// <param name="rowId">Stable host-owned row ID, such as controller target or authored profile.</param>
+    /// <param name="value">Selected machine value; null clears a selection where the row supports it.</param>
+    /// <param name="cancellationToken">Cancels persistence or reconciliation waiting.</param>
+    /// <returns>Completion after the selection attempt; downstream ownership changes retain their own outcome semantics.</returns>
     Task SetHostSelectionAsync(string rowId, string? value, CancellationToken cancellationToken = default);
 
     /// <summary>Moves the controller target to the next one in the layer in force and persists it.</summary>
@@ -285,7 +324,7 @@ internal interface IDeviceOverlaySource : IDisposable
     /// <returns>A task completing once the override is gone.</returns>
     Task UseGlobalAsync(string overrideId, CancellationToken cancellationToken = default);
 
-    /// <summary>Retries a faulted device cycle now instead of waiting for the automatic retry.</summary>
+    /// <summary>Requests explicit recovery of a faulted device cycle.</summary>
     /// <param name="cancellationToken">Cancels the attempt.</param>
     /// <returns>A task completing once the attempt has been made.</returns>
     Task RetryDeviceCycleAsync(CancellationToken cancellationToken = default);

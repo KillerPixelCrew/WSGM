@@ -94,6 +94,8 @@ internal sealed class AutoTdpTraceRecorder : IAsyncDisposable
     }
 
     /// <summary>The default trace folder beside <c>wsgm.log</c>.</summary>
+    /// <param name="context">Borrowed user-data context whose root contains the session log.</param>
+    /// <returns>The autotdp-traces child path; this method does not create the directory.</returns>
     internal static string DefaultDirectory(UserDataContext context)
     {
         return Path.Combine(context.Root, "autotdp-traces");

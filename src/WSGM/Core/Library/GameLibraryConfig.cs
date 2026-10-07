@@ -34,6 +34,8 @@ public sealed class ShortcutFolderConfig
     /// </summary>
     public List<string> Extensions { get; set; } = [.. AllowedExtensions];
 
+    /// <summary>Copies the folder configuration and its mutable extension list.</summary>
+    /// <returns>A detached draft suitable for editing without mutating the current configuration.</returns>
     internal ShortcutFolderConfig Copy()
     {
         var copy = (ShortcutFolderConfig)MemberwiseClone();
@@ -82,6 +84,8 @@ public sealed class GameLibraryConfig
     /// </summary>
     public bool CreateCollections { get; set; }
 
+    /// <summary>Copies the library settings, source list and folder drafts.</summary>
+    /// <returns>A detached configuration draft with independent mutable lists.</returns>
     internal GameLibraryConfig Copy()
     {
         var copy = (GameLibraryConfig)MemberwiseClone();

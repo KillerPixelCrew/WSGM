@@ -273,6 +273,8 @@ internal static partial class NativeMethods
     ///     Returns whether Windows considers the window's thread to have stopped pumping
     ///     messages. Unlike a probe of our own, this is the state the window manager itself acts on.
     /// </summary>
+    /// <param name="hWnd">Borrowed window handle to inspect.</param>
+    /// <returns>Whether Windows classifies the window as unresponsive; this is a heuristic, not a termination permission.</returns>
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool IsHungAppWindow(nint hWnd);
@@ -282,10 +284,15 @@ internal static partial class NativeMethods
     ///     <paramref name="hWnd" />. Unlike a cached screen descriptor, this reflects
     ///     a window that has just crossed onto another monitor.
     /// </summary>
+    /// <param name="hWnd">Borrowed window handle whose DPI awareness determines the result.</param>
+    /// <returns>Effective DPI, or zero for an invalid window.</returns>
     [LibraryImport("user32.dll")]
     internal static partial uint GetDpiForWindow(nint hWnd);
 
     /// <summary>Reads a monitor's rectangles and GDI device name (<see cref="MonitorInfoExW" />).</summary>
+    /// <param name="hMonitor">Borrowed monitor handle.</param>
+    /// <param name="lpmi">Blittable output record; initialize its size field before calling.</param>
+    /// <returns>True when the record was populated; false when the query failed.</returns>
     [LibraryImport("user32.dll", EntryPoint = "GetMonitorInfoW")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool GetMonitorInfoW(nint hMonitor, ref MonitorInfoExW lpmi);
@@ -459,6 +466,12 @@ internal static partial class NativeMethods
     ///     alongside. Written as a hook callback so <c>Win32Properties.AddWndProcHookCallback</c> can
     ///     take it directly.
     /// </remarks>
+    /// <param name="hWnd">Window receiving the hooked message; not retained.</param>
+    /// <param name="msg">Win32 message ID.</param>
+    /// <param name="wParam">Unmodified message parameter; not used by this filter.</param>
+    /// <param name="lParam">Unmodified message parameter; not used by this filter.</param>
+    /// <param name="handled">Set true for touch-synthesized move/left-button messages; otherwise preserved.</param>
+    /// <returns>Zero; the handled flag decides whether Avalonia continues processing.</returns>
     internal static nint SwallowTouchSynthesizedMouse(
         nint hWnd,
         uint msg,
@@ -544,6 +557,12 @@ internal static partial class NativeMethods
         out uint tokenInformation, uint tokenInformationLength, out uint returnLength);
 
     /// <summary>Buffer-based overload for variable-length token classes (integrity SID).</summary>
+    /// <param name="tokenHandle">Borrowed token handle with query access.</param>
+    /// <param name="tokenInformationClass">TOKEN_INFORMATION_CLASS value.</param>
+    /// <param name="tokenInformation">Caller-owned writable buffer, or zero for a size query.</param>
+    /// <param name="tokenInformationLength">Buffer capacity in bytes.</param>
+    /// <param name="returnLength">Required or written byte count.</param>
+    /// <returns>True on success; false with GetLastPInvokeError detail, including insufficient buffer for a size query.</returns>
     [LibraryImport("advapi32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool GetTokenInformation(nint tokenHandle, int tokenInformationClass, nint tokenInformation,

@@ -3,6 +3,10 @@ using System.Collections.Generic;
 namespace WSGM.Overlay;
 
 /// <summary>A bounded shared-performance snapshot for one overlay projection.</summary>
+/// <param name="Visible">Whether the performance section is available for presentation.</param>
+/// <param name="Status">Service availability or operation detail.</param>
+/// <param name="Rows">Value controls shown with Device power and available to pinning.</param>
+/// <param name="ProfileRows">Profile-management controls shown in the Profiles workflow.</param>
 internal sealed record PerformanceOverlaySnapshot(
     bool Visible,
     string Status,
@@ -23,6 +27,12 @@ internal enum DescriptorStatus
 }
 
 /// <summary>Immutable, presentation-only content for a descriptor-driven overlay row.</summary>
+/// <param name="Id">Stable semantic identity shared by placements and command routing.</param>
+/// <param name="Title">Visible control label.</param>
+/// <param name="Description">Supporting explanation or availability reason.</param>
+/// <param name="TrailingText">Compact value or activation hint for a command row.</param>
+/// <param name="CanInvoke">Whether the current projection permits a command or edit.</param>
+/// <param name="Status">Presentation status independent of the stored value.</param>
 internal sealed record DescriptorRow(
     string Id,
     string Title,
@@ -32,11 +42,7 @@ internal sealed record DescriptorRow(
     DescriptorStatus Status = DescriptorStatus.None)
 {
     /// <summary>The range this row is set over, or null when pressing it is the interaction.</summary>
-    /// <remarks>
-    ///     A row that carries a range or options is a control, not a button. Cycling was fine while a
-    ///     row had four sensible values; a frame limit has hundreds, and stepping to 280 one preset at
-    ///     a time is not an interaction anyone completes.
-    /// </remarks>
+    /// <remarks>Range and choice rows use editors; the renderer does not cycle values through a command button.</remarks>
     public DescriptorRange? Range { get; init; }
 
     /// <summary>The named values this row chooses between, empty when it is not a choice.</summary>
@@ -57,11 +63,8 @@ internal sealed record DescriptorRow(
 /// <param name="Maximum">Inclusive upper bound.</param>
 /// <param name="Step">Movement per pad nudge; at least 1.</param>
 /// <param name="OffBelow">
-///     The lowest value the row means anything at, or zero when every position is a real value. The
-///     frame limit has one: the slider must still reach zero, because zero is how the row is switched
-///     off and there is no separate switch, but the caps under the panel's floor are not values any
-///     other surface will accept. Everything below this reads and commits as zero rather than as a cap
-///     the Quick Access row would then refuse to draw.
+///     Lowest nonzero accepted value, or zero when every position is valid. Lower slider positions
+///     read and commit as zero (off), preserving the same value domain as the Steam projection.
 /// </param>
 internal readonly record struct DescriptorRange(int Minimum, int Maximum, int Step, int OffBelow = 0);
 

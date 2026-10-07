@@ -24,6 +24,14 @@ internal enum RunningApplicationTargetState
 /// <summary>
 ///     Canonical running-application identity shared by controller and performance policy clients.
 /// </summary>
+/// <param name="Generation">Local content revision; increments when identity, source generation, availability or diagnostic evidence changes.</param>
+/// <param name="SourceGeneration">Generation supplied by the latest Steam observation.</param>
+/// <param name="State">Availability and confidence of the projected identity.</param>
+/// <param name="ApplicationId">Canonical profile identity, or null when no unambiguous application is known.</param>
+/// <param name="SteamAppId">Steam identity when available; null for foreground-only applications.</param>
+/// <param name="ExecutablePath">Validated executable path, or null when unresolved.</param>
+/// <param name="RtssProfileName">Executable file name used for the RTSS profile, or null when unresolved.</param>
+/// <param name="Diagnostic">Reason for partial or unavailable resolution, or null.</param>
 internal sealed record RunningApplicationTargetSnapshot(
     long Generation,
     long SourceGeneration,
@@ -34,6 +42,8 @@ internal sealed record RunningApplicationTargetSnapshot(
     string? RtssProfileName,
     string? Diagnostic)
 {
+    /// <summary>Creates the unavailable snapshot used before observation starts.</summary>
+    /// <returns>A snapshot with zero generations and no application identity.</returns>
     internal static RunningApplicationTargetSnapshot Initial()
     {
         return new RunningApplicationTargetSnapshot(
@@ -96,17 +106,9 @@ internal sealed record ForegroundApplicationObservation(
 
 /// <summary>Pure projection that never carries a previous application's identity forward.</summary>
 /// <remarks>
-///     Two identity sources, one answer. Steam wins whenever it names exactly one running application,
-///     because that identity is the one its own launch went through and the one the shortcut's
-///     executable was resolved from; the foreground window can only ever agree with it or be wrong
-///     about it. The foreground fills every case where Steam names nothing — the desktop, another
-///     launcher, a title started outside Steam — which is the whole reason it exists.
-///     <para>
-///         Deliberately not a tie-break: when Steam reports more than one running application it stays
-///         ambiguous rather than letting the foreground pick a winner. The foreground says which window has
-///         focus, not which of two running games the user means to configure, and quietly choosing one
-///         would write a power limit against the other.
-///     </para>
+///     One Steam identity takes precedence. Foreground evidence can supply its validated executable,
+///     or supply an independent identity when Steam names no application. Multiple Steam identities
+///     remain ambiguous so policy cannot target the wrong game.
 /// </remarks>
 internal static class RunningApplicationTargetProjection
 {
@@ -130,6 +132,8 @@ internal static class RunningApplicationTargetProjection
     ///     The applications RTSS has hooked and is currently drawing frames for. The second, independent
     ///     proof that a foreground process is the game — see <see cref="ValidatedGameExecutable" />.
     /// </param>
+    /// <summary>Combines Steam and validated foreground evidence, preserving the revision when projected content is unchanged.</summary>
+    /// <returns>The existing snapshot when equivalent, otherwise a snapshot with its local generation incremented.</returns>
     internal static RunningApplicationTargetSnapshot Apply(
         RunningApplicationTargetSnapshot current,
         SteamRunningAppsObservation observation,
@@ -438,6 +442,7 @@ internal static class SteamRunningAppPairing
     /// <param name="probe">The toolkit's running-app probe, which owns the transport.</param>
     /// <param name="steamAppId">The AppID Steam named.</param>
     /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>Normalized pairing evidence, possibly partial with a diagnostic when Steam cannot resolve the application.</returns>
     internal static async Task<SteamRunningAppProfile> ResolveAsync(
         SteamRunningAppsProbe probe,
         uint steamAppId,
@@ -456,6 +461,7 @@ internal static class SteamRunningAppPairing
 
     /// <summary>Turns a store title's reported install folder into pairing evidence.</summary>
     /// <param name="folder">The <c>strInstallFolder</c> value Steam reported.</param>
+    /// <returns>An existing absolute install folder as pairing evidence, or a diagnostic with no folder. No executable identity is inferred here.</returns>
     internal static SteamRunningAppProfile NormalizeInstallFolder(string folder)
     {
         folder = folder.Trim();
@@ -564,12 +570,17 @@ internal static class SteamRunningAppPairing
 /// </summary>
 internal interface IRunningApplicationTargetSource
 {
+    /// <summary>The latest published immutable identity snapshot; reading it does not query Steam.</summary>
     RunningApplicationTargetSnapshot Current { get; }
+    /// <summary>Raised on the publishing thread when projected snapshot content changes; subscribers must not block.</summary>
     event Action<RunningApplicationTargetSnapshot>? Changed;
 
+    /// <summary>Keeps Steam observation active while at least one lease is held and Steam observation is enabled.</summary>
+    /// <returns>An independent lease owned by the caller; dispose it when the consumer stops observing.</returns>
     IDisposable AcquireObservation();
 }
 
+/// <summary>Owns the shared Steam observation loop and projects foreground evidence for profile consumers.</summary>
 internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSource, IAsyncDisposable
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
@@ -600,6 +611,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
     /// <param name="foregroundExited">
     ///     Whether the foreground process, by identifier and image path, has exited; null asks Windows.
     /// </param>
+    /// <summary>Creates an unstarted monitor over borrowed Steam and foreground observers.</summary>
     internal RunningApplicationMonitor(
         SteamRunningAppsProbe probe,
         bool steamEnabled,
@@ -613,6 +625,8 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
         _current = RunningApplicationTargetSnapshot.Initial();
     }
 
+    /// <summary>Cancels and joins the observation loop, then releases its owned synchronization state.</summary>
+    /// <returns>Completion after the loop and its Steam subscription have stopped.</returns>
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
@@ -643,8 +657,10 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
         _shutdown.Dispose();
     }
 
+    /// <inheritdoc />
     public event Action<RunningApplicationTargetSnapshot>? Changed;
 
+    /// <inheritdoc />
     public RunningApplicationTargetSnapshot Current
     {
         get
@@ -656,12 +672,15 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
         }
     }
 
+    /// <inheritdoc />
     public IDisposable AcquireObservation()
     {
         ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
         return _observers.Acquire();
     }
 
+    /// <summary>Starts the loop once; it remains idle without observation leases or while Steam is disabled.</summary>
+    /// <exception cref="ObjectDisposedException">The monitor has been disposed.</exception>
     internal void Start()
     {
         lock (_stateGate)
@@ -676,11 +695,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
     /// <param name="executablePath">Full image path of the same process, when readable.</param>
     /// <param name="processId">Its process identifier, or zero when it could not be read.</param>
     /// <remarks>
-    ///     Still one monitor and one projection: the foreground is an input to the same projection, not
-    ///     a second observer publishing its own answer. It republishes against the last Steam
-    ///     observation rather than re-reading Steam, because re-reading here would be exactly the
-    ///     second CEF poll this class exists to avoid — and it would run on whatever thread the window
-    ///     hook fired on.
+    ///     Reprojects cached Steam evidence without issuing a CEF query on the window-hook thread.
     /// </remarks>
     internal void ReportForeground(
         string? executableName,
@@ -864,6 +879,12 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
     }
 
     /// <summary>Decides when an AppID needs a fresh executable or install-folder lookup.</summary>
+    /// <param name="observedAppId">Single Steam AppID currently observed, or null.</param>
+    /// <param name="resolvedAppId">AppID for which the cached profile was resolved.</param>
+    /// <param name="profile">Cached resolution, which may be incomplete.</param>
+    /// <param name="now">Current time in the retry clock.</param>
+    /// <param name="retryAt">Next permitted retry time for incomplete resolution.</param>
+    /// <returns>True for an identity change or an incomplete current profile whose retry time has arrived.</returns>
     internal static bool ShouldResolveProfile(
         uint? observedAppId,
         uint? resolvedAppId,
@@ -928,9 +949,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
             seen = _foreground;
         }
 
-        // Steam's own windows never replace the last application in the foreground, so after a game
-        // exits to Big Picture its dead process would still be "in front" and keep its profile on
-        // (Ally, 2026-09-29). A process that has exited is no longer anything's identity.
+        // Steam windows preserve the last foreground candidate; discard it once its process exits.
         var exited = seen.ExecutableName is not null && _foregroundExited(seen.ProcessId, seen.ExecutablePath);
         lock (_stateGate)
         {
@@ -996,12 +1015,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
                     + $"RTSS profile {target.RtssProfileName}.");
                 break;
             case RunningApplicationTargetState.IdentityOnly:
-                // The reason is the whole content of this line. Without it "executable profile
-                // unavailable" is indistinguishable between Steam naming no install folder, naming
-                // one that is gone, and naming one the foreground process simply is not inside —
-                // three different faults with three different answers. Diagnosing which one kept
-                // Skyrim's per-application profile from ever being written took a live AppDetails
-                // read that this line already had the answer to (Claw, 2026-09-04).
+                // Preserve the resolution reason so missing folders and rejected executable pairing differ.
                 Log.Info(
                     $"Running application started: Steam AppID {target.SteamAppId}; "
                     + "executable profile unavailable, global RTSS policy remains active: "

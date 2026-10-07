@@ -12,6 +12,12 @@ using WSGM.Device.Sdk.Services;
 namespace WSGM.Device.Msi.Claw;
 
 /// <summary>The device plugin for the MSI Claw family; <see cref="ClawModels" /> lists every supported board.</summary>
+/// <remarks>
+///     Owns independently degradable hardware services and a serialized command/observation lane.
+///     Detection uses only the supplied identity; start and resume acquire services and replace published sets.
+///     Controller management changes controller ownership without stopping power, lighting or motion.
+///     Successful writes remain observed when readback cannot confirm them; uncertain writes are not retried.
+/// </remarks>
 public sealed partial class ClawPlugin : IDevicePlugin
 {
     private readonly Dictionary<string, CapabilityReason> _observationFailures = new(StringComparer.Ordinal);

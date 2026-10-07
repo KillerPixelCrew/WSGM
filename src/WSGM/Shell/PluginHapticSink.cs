@@ -21,6 +21,8 @@ internal sealed class PluginHapticSink : IPhysicalHapticSink
     private readonly Func<HapticOutputFrame, CancellationToken, Task> _applyAsync;
     private volatile HapticCapabilities? _capabilities;
 
+    /// <summary>Creates a haptic route that remains inactive until the plugin publishes motor ownership.</summary>
+    /// <param name="applyAsync">Borrowed physical-output callback; frames reach it only while capabilities are owned.</param>
     internal PluginHapticSink(Func<HapticOutputFrame, CancellationToken, Task> applyAsync)
     {
         ArgumentNullException.ThrowIfNull(applyAsync);

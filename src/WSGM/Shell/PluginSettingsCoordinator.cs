@@ -34,6 +34,7 @@ internal readonly record struct PluginSettingsView(
 ///     the device keeps the value; a setting configures the plugin and WSGM keeps it. Sharing one
 ///     projection would blur exactly the boundary that decides which surface a control belongs on.
 /// </remarks>
+/// <param name="store">Borrowed application configuration store holding desired plugin settings by package/device identity.</param>
 internal sealed class PluginSettingsCoordinator(ConfigStore store) : IDisposable
 {
     /// <summary>Section id used for a setting that names one the manifest never declared.</summary>

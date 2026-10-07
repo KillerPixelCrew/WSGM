@@ -12,6 +12,8 @@ namespace WSGM.Overlay;
 ///     One overlay's projection of the session's manual scheme workflow. Entry points and notifications
 ///     belong to the UI thread. Closing prevents late publication.
 /// </summary>
+/// <param name="profiles">Borrowed session workflow that serializes Windows power-profile reads and choices.</param>
+/// <param name="readOnly">True to list profiles without allowing an external-state write.</param>
 internal sealed class PowerSchemeSelection(NativeQamPowerProfileService profiles, bool readOnly = false)
     : IDisposable
 {
@@ -33,6 +35,7 @@ internal sealed class PowerSchemeSelection(NativeQamPowerProfileService profiles
     /// </summary>
     internal bool Offered => PowerSchemes.OffersChoice(Schemes.Count);
 
+    /// <summary>Cancels this UI projection's lifetime and prevents later publication; borrowed session owners remain alive.</summary>
     public void Dispose()
     {
         if (_disposed)
@@ -46,13 +49,19 @@ internal sealed class PowerSchemeSelection(NativeQamPowerProfileService profiles
         Changed = null;
     }
 
+    /// <summary>Raised on the captured UI context when projected state or busy status changes.</summary>
     internal event Action? Changed;
 
+    /// <summary>Reads shared state without overlapping this projection's active operation.</summary>
+    /// <returns>Completion of the refresh; disposed/busy projections are a no-op and late results are not published.</returns>
     internal Task RefreshAsync()
     {
         return RunAsync(null);
     }
 
+    /// <summary>Applies an explicitly chosen profile through the shared service.</summary>
+    /// <param name="id">ID in the current scheme list; unknown IDs and unavailable/read-only state are ignored.</param>
+    /// <returns>Completion of apply and UI status publication; operational failures become status text.</returns>
     internal Task ApplyAsync(Guid id)
     {
         return CanSelect && Schemes.Any(scheme => scheme.Id == id) ? RunAsync(id) : Task.CompletedTask;

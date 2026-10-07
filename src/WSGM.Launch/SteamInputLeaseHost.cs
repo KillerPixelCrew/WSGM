@@ -52,6 +52,9 @@ internal sealed class SteamInputLeaseHost : IDisposable
         _client.Dispose();
     }
 
+    /// <summary>Creates an unconnected client using the explicit shim or injection route.</summary>
+    /// <param name="options">Lease mode and optional target/payload overrides.</param>
+    /// <returns>A client owned by the caller; creating it does not acquire a lease.</returns>
     internal static SteamInputClient CreateClient(LaunchOptions options)
     {
         var defaults = new SteamInputClientOptions();
@@ -67,6 +70,8 @@ internal sealed class SteamInputLeaseHost : IDisposable
     }
 
     /// <summary>Acquires a lease, or returns <see langword="null" /> if it cannot.</summary>
+    /// <param name="options">Lease route and optional target/payload overrides.</param>
+    /// <returns>An owner to retain for the complete target lifetime, or null for a logged acquisition failure.</returns>
     /// <remarks>
     ///     Deliberately fails open: a controller that Steam keeps hold of is a
     ///     degraded experience, but a game that refuses to start is a broken one. The

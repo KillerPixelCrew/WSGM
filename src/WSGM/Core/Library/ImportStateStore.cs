@@ -102,6 +102,7 @@ public sealed class ImportStateStore
 
     /// <summary>Every entry WSGM remembers creating.</summary>
     /// <exception cref="ImportStateException">The records could not be read.</exception>
+    /// <returns>Detached copies of the current persisted import records.</returns>
     public IReadOnlyList<ImportedEntry> Entries()
     {
         lock (_gate)
@@ -112,6 +113,7 @@ public sealed class ImportStateStore
 
     /// <summary>Every choice the user has made.</summary>
     /// <exception cref="ImportStateException">The records could not be read.</exception>
+    /// <returns>Choices read from disk for this call; modifying them does not persist changes.</returns>
     public IReadOnlyList<ImportChoice> Choices()
     {
         lock (_gate)
@@ -122,6 +124,7 @@ public sealed class ImportStateStore
 
     /// <summary>Every collection WSGM made for its imports.</summary>
     /// <exception cref="ImportStateException">The records could not be read.</exception>
+    /// <returns>Collections read from disk for this call; modifying them does not persist changes.</returns>
     public IReadOnlyList<ImportedCollection> Collections()
     {
         lock (_gate)

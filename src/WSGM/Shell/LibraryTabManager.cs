@@ -102,6 +102,7 @@ internal static class LibraryTabManager
     /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
     /// <param name="steam">The session's Steam client.</param>
     /// <param name="cancellationToken">Cancels the run.</param>
+    /// <returns>A user-facing synchronization outcome. Cancellation after admission is reported as a summary; cancellation while waiting for the gate can propagate.</returns>
     public static async Task<string> SyncAllAsync(
         ConfigStore store, SteamClient steam, CancellationToken cancellationToken = default)
     {
@@ -112,6 +113,7 @@ internal static class LibraryTabManager
     /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
     /// <param name="steam">The session's Steam client.</param>
     /// <param name="cancellationToken">Cancels the run.</param>
+    /// <returns>The tab publication outcome and retry state; local discovery may already be saved when Steam publication fails.</returns>
     public static async Task<LibraryTabSyncResult> SyncAllDetailedAsync(
         ConfigStore store, SteamClient steam, CancellationToken cancellationToken = default)
     {
@@ -245,6 +247,7 @@ internal static class LibraryTabManager
     /// <param name="steam">The session's Steam client.</param>
     /// <param name="readiness">The session's Steam UI readiness the sync waits on.</param>
     /// <param name="cancellationToken">Cancels the wait.</param>
+    /// <returns>Completion after a successful ready-state sync or the readiness policy stops the attempt.</returns>
     internal static async Task SyncOnBootAsync(
         ConfigStore store,
         SteamClient steam,
@@ -350,6 +353,7 @@ internal static class LibraryTabManager
     /// </summary>
     /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
     /// <param name="cancellationToken">Cancels the scan.</param>
+    /// <returns>Tracked cards with current presence and app IDs, after discovered metadata is merged into configuration.</returns>
     public static async Task<IReadOnlyList<CardView>> ListCardsAsync(ConfigStore store,
         CancellationToken cancellationToken = default)
     {
@@ -375,25 +379,9 @@ internal static class LibraryTabManager
     ///     volume resolved from it — never a drive letter.
     /// </summary>
     /// <remarks>
-    ///     <para>
-    ///         The marker write is the one that matters: it is the only copy that travels with
-    ///         the medium, so it is what the next scan reads the name back from. It happens
-    ///         FIRST and everything else is conditional on it, because a name that did not
-    ///         reach the drive is reverted by the next scan, and a rename that stopped at the
-    ///         tracked cache would appear to work and then silently undo itself.
-    ///     </para>
-    ///     <para>
-    ///         A library that is not mounted therefore cannot be renamed. Nothing can reach its
-    ///         marker, so the rename could only live in the tracked cache until the drive came
-    ///         back and the marker overwrote it.
-    ///     </para>
-    ///     <para>
-    ///         See <see cref="FindMountedVolume" /> for why the letter is resolved to a volume
-    ///         once and never used again: the Steam label is selected by content id and is safe
-    ///         either way, but the marker and the Windows volume label are file-system writes,
-    ///         and a letter can name different media by the time the Steam round trip between
-    ///         them returns.
-    ///     </para>
+    ///     Requires mounted media. The on-card marker is written first because later scans treat it
+    ///     as authoritative; other writes proceed only after that succeeds. File-system writes use
+    ///     the resolved volume GUID path so a reassigned drive letter cannot redirect the rename.
     /// </remarks>
     /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
     /// <param name="steam">The session's Steam client, or null on a surface without one.</param>
@@ -523,14 +511,8 @@ internal static class LibraryTabManager
     ///     marker, and returns it as a volume GUID path.
     /// </summary>
     /// <remarks>
-    ///     Two separate reasons this cannot answer with a drive letter. The letter is
-    ///     shared by every card a reader has ever held, so it is not identity; and it is
-    ///     a mount point that the system can re-point at other media on its own — a
-    ///     reconnecting iSCSI target or USB device bringing several volumes back at once
-    ///     has the mount manager assigning letters in whatever order it processes them,
-    ///     with no user action and no human timescale. Everything the rename writes
-    ///     afterwards therefore addresses the volume that was validated here, so a letter
-    ///     that moves in between cannot redirect a write onto a different library.
+    ///     Validate and retain the volume GUID path, not its reassignable drive letter, so later
+    ///     writes still address the media whose marker was checked.
     /// </remarks>
     /// <param name="contentId">The library identity to look for.</param>
     private static MountedVolume? FindMountedVolume(string contentId)
@@ -706,6 +688,7 @@ internal static class LibraryTabManager
     /// <param name="contentId">The card's content id.</param>
     /// <param name="enabled">Whether to maintain a tab.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>Completion after the preference is saved; the queued Steam-tab synchronization is not awaited.</returns>
     public static async Task SetCardEnabledAsync(ConfigStore store, SteamClient? steam, string contentId,
         bool enabled, CancellationToken cancellationToken = default)
     {
@@ -719,6 +702,7 @@ internal static class LibraryTabManager
     /// <param name="contentId">The card's content id.</param>
     /// <param name="hidden">Whether to hide it.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>Completion after the preference is saved; the queued Steam-tab synchronization is not awaited.</returns>
     public static async Task SetCardHiddenAsync(ConfigStore store, SteamClient? steam, string contentId,
         bool hidden, CancellationToken cancellationToken = default)
     {
@@ -734,6 +718,7 @@ internal static class LibraryTabManager
     /// <param name="steam">The session's Steam client, or null on a surface without one.</param>
     /// <param name="contentId">The card's content id.</param>
     /// <param name="cancellationToken">Cancels the operation.</param>
+    /// <returns>Completion after stored card metadata is removed; the queued Steam-tab synchronization is not awaited.</returns>
     public static async Task ForgetCardAsync(ConfigStore store, SteamClient? steam, string contentId,
         CancellationToken cancellationToken = default)
     {
@@ -873,6 +858,7 @@ internal static class LibraryTabManager
     ///     Ids of the tabs the builder loaded. One missing from <paramref name="tabs" /> was deleted
     ///     there; a tab added elsewhere since is kept.
     /// </param>
+    /// <returns>Completion after the editor’s changes are merged and saved; the queued Steam-tab synchronization is not awaited.</returns>
     internal static async Task SaveCustomTabsAsync(ConfigStore store, SteamClient? steam,
         IReadOnlyList<CustomTabConfig> tabs, IReadOnlySet<string> baseline)
     {
@@ -966,6 +952,7 @@ internal static class LibraryTabManager
     /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
     /// <param name="mutate">Applies changes and returns a snapshot value.</param>
     /// <param name="cancellationToken">Cancels the off-thread work.</param>
+    /// <returns>The mutation’s result after the configuration update finishes. The callback must return a detached snapshot if it exposes mutable data.</returns>
     internal static Task<T> MutateConfigAsync<T>(ConfigStore store, Func<AppConfig, T> mutate,
         CancellationToken cancellationToken = default)
     {
@@ -986,6 +973,7 @@ internal static class LibraryTabManager
     ///     What the library badge needs beside the card model, for a reading before the first sync:
     ///     a sync also refreshes the reading, but the badge must not wait for one.
     /// </remarks>
+    /// <returns>A new set of content IDs found on currently readable removable libraries.</returns>
     internal static IReadOnlySet<string> PresentCardContentIds()
     {
         return ScanLibraries().Select(static card => card.ContentId).ToHashSet(StringComparer.Ordinal);
@@ -998,6 +986,7 @@ internal static class LibraryTabManager
     ///     stay in the list — marked hidden — so they can be moved and unhidden.
     /// </summary>
     /// <param name="config">The loaded configuration.</param>
+    /// <returns>A new ordered list including hidden native tabs; the input configuration is not changed.</returns>
     public static List<TabOrderEntry> BuildTabOrder(AppConfig config)
     {
         var hidden = new HashSet<string>(config.HiddenNativeTabs, StringComparer.Ordinal);

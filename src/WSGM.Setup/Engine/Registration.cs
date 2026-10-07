@@ -25,6 +25,7 @@ internal static class Registration
     internal const string UsbipUninstallKey = "{199505b0-b93d-4521-a8c7-897818e0205a}_is1";
 
     /// <summary>The version this setup registered, or null when WSGM 2 is not installed.</summary>
+    /// <returns>Parsed registered version, or null when absent or malformed; registry access failures propagate.</returns>
     public static Version? InstalledVersion()
     {
         using var machine = Machine();
@@ -47,6 +48,7 @@ internal static class Registration
     }
 
     /// <summary>Writes the uninstall entry. Uninstall and repair both run the installed setup copy.</summary>
+    /// <param name="version">Display version to record for the installed payload.</param>
     public static void Register(string version)
     {
         using var machine = Machine();
@@ -109,6 +111,7 @@ internal static class Registration
     }
 
     /// <summary>The WSGM 1.0 uninstall command and version, or null when 1.0 is not installed.</summary>
+    /// <returns>First matching legacy uninstall command and version, or null when absent.</returns>
     public static (string Command, string Version)? LegacyInstall()
     {
         using var machine = Machine();
@@ -148,6 +151,7 @@ internal static class Registration
     ///     The uninstall entry of usbip-win2. Its Inno AppId fixes the key (AppGUID in usbip-win2's
     ///     userspace/innosetup/setup.iss); a display name match would also find Microsoft's usbipd-win.
     /// </summary>
+    /// <returns>Registered uninstall command for the fixed USB/IP AppId, or null.</returns>
     public static string? FindUsbipUninstallCommand()
     {
         foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
@@ -164,6 +168,8 @@ internal static class Registration
     }
 
     /// <summary>The uninstall entry of an installed program whose display name contains the text.</summary>
+    /// <param name="displayNameContains">Case-insensitive substring of the registered display name.</param>
+    /// <returns>First matching uninstall command across machine registry views, or null.</returns>
     public static string? FindUninstallCommand(string displayNameContains)
     {
         foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
@@ -257,12 +263,10 @@ internal sealed record InstalledComponents
 
     /// <summary>Whether a USB/IP driver is installed, by whoever and of whatever vintage.</summary>
     /// <remarks>
-    ///     Presence only: it does not read the installed version and so cannot say whether the build
-    ///     is the pinned one. The install step deliberately no longer consults it, because answering
-    ///     "present" for a build the pin had moved past is what left the reference handheld on a
-    ///     driver with known pool corruption for a month. What remains is the progress page's
-    ///     heads-up, which under-reports an upgrade; the step itself still warns before it runs.
+    ///     Presence only, for the progress page. Installation separately checks the pinned version;
+    ///     a present driver may still require an upgrade.
     /// </remarks>
+    /// <returns>True for a registered USB/IP uninstaller or the conventional usbip.exe path; does not verify version.</returns>
     public static bool UsbipPresent()
     {
         return Registration.FindUsbipUninstallCommand() is not null
@@ -271,6 +275,7 @@ internal sealed record InstalledComponents
     }
 
     /// <summary>Whether HidHide is installed, by whoever.</summary>
+    /// <returns>True when an installed-program display name containing HidHide has an uninstall command.</returns>
     public static bool HidHidePresent()
     {
         return Registration.FindUninstallCommand("HidHide") is not null;
@@ -288,7 +293,9 @@ internal sealed record UsbipOutcome(string Outcome, bool RebootRequired, string 
     /// <summary>Whether the pinned driver is not installed yet and a run would replace it.</summary>
     public bool UpdateRequired => Outcome is "update-required";
 
-    /// <summary>Parses the schema-1 INI the script writes, as the Inno installer did.</summary>
+    /// <summary>Parses the schema-1 INI status written by the driver script.</summary>
+    /// <param name="ini">Driver script status-file contents.</param>
+    /// <returns>Parsed outcome, or a failed outcome for unsupported or incomplete status data.</returns>
     public static UsbipOutcome Parse(string ini)
     {
         var values = ini.Split('\n').Select(line => line.Trim())

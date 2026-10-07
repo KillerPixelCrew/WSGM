@@ -33,6 +33,7 @@ public static class SteamLibraryVdf
     ///     id observed in the wild.
     /// </summary>
     /// <param name="taken">Ids already present in the config; collisions retry.</param>
+    /// <returns>A new invariant decimal positive 63-bit identifier absent from the supplied set.</returns>
     public static string GenerateContentId(IReadOnlySet<string> taken)
     {
         Span<byte> bytes = stackalloc byte[8];
@@ -77,6 +78,7 @@ public static class SteamLibraryVdf
     /// <param name="contentId">The generated library id.</param>
     /// <param name="steamExePath">The plain steam.exe path (escaped here).</param>
     /// <param name="label">The user-chosen library label, or empty for none.</param>
+    /// <returns>LF-delimited marker text; callers validate the content ID and own file publication.</returns>
     public static string BuildMarker(string contentId, string steamExePath, string label = "")
     {
         return "\"libraryfolder\"\n"
@@ -122,6 +124,7 @@ public static class SteamLibraryVdf
     /// </summary>
     /// <param name="vdf">The file text.</param>
     /// <param name="key">The bare key name, e.g. "path".</param>
+    /// <returns>A new list of successfully parsed values in file order; malformed matching lines are skipped.</returns>
     public static List<string> ValuesOf(string vdf, string key)
     {
         var results = new List<string>();
@@ -152,6 +155,7 @@ public static class SteamLibraryVdf
     /// </summary>
     /// <param name="vdf">The config file text.</param>
     /// <param name="contentId">The library content id.</param>
+    /// <returns>True for an ordinal exact match among parsed contentid values.</returns>
     public static bool IsContentIdRegistered(string vdf, string contentId)
     {
         return ValuesOf(vdf, "contentid")
@@ -444,6 +448,7 @@ public static class SteamLibraryVdf
     ///     key.
     /// </summary>
     /// <param name="vdf">The current libraryfolders configuration text.</param>
+    /// <returns>A new list in file order, preserving missing path/contentid values as null.</returns>
     public static List<ConfigEntry> ReadEntries(string vdf)
     {
         var entries = new List<ConfigEntry>();
@@ -747,6 +752,7 @@ public static class SteamLibraryVdf
     ///     block + 1. Line-based scan for <c>\t"N"</c> at nesting depth one.
     /// </summary>
     /// <param name="vdf">The config file text.</param>
+    /// <returns>One greater than the largest parsed index, or zero when no numbered entry is found.</returns>
     internal static int NextIndex(string vdf)
     {
         var highest = -1;
@@ -785,6 +791,7 @@ public static class SteamLibraryVdf
     /// <param name="totalSize">The volume size in bytes.</param>
     /// <param name="updated">The new file text on success.</param>
     /// <param name="label">The user-chosen library label, or empty for none.</param>
+    /// <returns>True with updated text when insertion succeeds; false leaves updated null for invalid shape or duplicate ID.</returns>
     public static bool TrySplice(
         string vdf, string libraryPath, string contentId, long totalSize,
         out string? updated, string label = "")

@@ -203,6 +203,8 @@ internal abstract class IntelControl
     public abstract ControlRead Read();
 
     /// <summary>Checks setter support by returning the exact native state before publishing this control.</summary>
+    /// <param name="admission">Caller cancellation, deadline and live-session admission, checked immediately before any setter.</param>
+    /// <returns>The exact-state probe outcome; the base implementation refuses without calling a setter.</returns>
     public virtual ControlWrite ProbeSupport(WriteAdmission admission)
     {
         return ControlWrite.Refuse("No exact-state support probe is implemented for this control.");

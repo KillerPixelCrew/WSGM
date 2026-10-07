@@ -30,19 +30,32 @@ internal enum SetupKind
 /// <summary>How one step ended.</summary>
 internal enum StepState
 {
+    /// <summary>Not yet run.</summary>
     Waiting,
+    /// <summary>The step callback is executing.</summary>
     Running,
+    /// <summary>The callback succeeded without selecting Skipped.</summary>
     Done,
+    /// <summary>The callback refused or threw; Fatal determines whether subsequent steps run.</summary>
     Failed,
+    /// <summary>No action was needed, as selected by the callback.</summary>
     Skipped
 }
 
 /// <summary>One line of the progress page.</summary>
+/// <param name="label">Label while pending or running.</param>
+/// <param name="doneLabel">Label after success or a skip.</param>
+/// <param name="fatal">Whether failure stops the plan and enters rollback.</param>
+/// <param name="run">Synchronous step callback; updates this step's detail and returns success.</param>
 internal sealed class SetupStep(string label, string doneLabel, bool fatal, Func<SetupStep, bool> run)
 {
+    /// <summary>Pending/running presentation label.</summary>
     public string Label { get; } = label;
+    /// <summary>Success/skip presentation label, which a step may refine.</summary>
     public string DoneLabel { get; set; } = doneLabel;
+    /// <summary>Whether a failed step stops subsequent work.</summary>
     public bool Fatal { get; } = fatal;
+    /// <summary>Current execution status, published by SetupEngine.Run.</summary>
     public StepState State { get; set; } = StepState.Waiting;
 
     /// <summary>What went wrong or what the user should know, or empty.</summary>
@@ -67,12 +80,12 @@ internal sealed record InstallChoices(
     JsonObject Answers);
 
 /// <summary>What the user chose for uninstall.</summary>
+/// <param name="KeepData">Whether per-user data should remain; unresolved recovery data is retained regardless.</param>
+/// <param name="RemoveUsbip">Whether to remove a USB/IP installation recorded as WSGM-owned.</param>
+/// <param name="RemoveHidHide">Whether to remove a HidHide installation recorded as WSGM-owned.</param>
 internal sealed record UninstallChoices(bool KeepData, bool RemoveUsbip, bool RemoveHidHide);
 
-/// <summary>
-///     The install engine. Every step of the Inno installer's <c>[Code]</c>, <c>[Run]</c> and
-///     <c>[UninstallRun]</c> maps to a step here, in the same order, with the same refusals.
-/// </summary>
+/// <summary>Owns setup plans, runtime shutdown, file rollback and component/recovery obligations.</summary>
 internal sealed class SetupEngine : IDisposable
 {
     private readonly Func<string, bool> _delete;
@@ -126,15 +139,16 @@ internal sealed class SetupEngine : IDisposable
     private string ComponentsFile => Path.Combine(_machineData, "components.json");
     private string PendingPluginRemovals => Path.Combine(_machineData, "plugin-removals.json");
 
+    /// <summary>Owned payload, or null for a build containing no installation files.</summary>
     public SetupPayload? Payload { get; }
 
+    /// <summary>Install/update/maintenance decision from the detected version.</summary>
     public SetupKind Kind { get; private set; }
 
+    /// <summary>Registered installed version, or null when absent.</summary>
     public Version? InstalledVersion { get; private set; }
 
-    // All four parts: the fourth is the build's revision (eng/wsgm-revision.targets), so a newer build of
-    // the same release is an update rather than a repair. An entry a three-part build registered has no
-    // revision and so is older than any revisioned build of the same release.
+    /// <summary>Four-part payload version, including the build revision used to distinguish updates.</summary>
     public Version ThisVersion { get; } =
         typeof(SetupEngine).Assembly.GetName().Version is { } version
             ? new Version(version.Major, version.Minor, Math.Max(version.Build, 0), Math.Max(version.Revision, 0))
@@ -143,8 +157,10 @@ internal sealed class SetupEngine : IDisposable
     /// <summary>The WSGM 1.0 install to remove first, or null.</summary>
     public (string Command, string Version)? Legacy { get; private set; }
 
+    /// <summary>Whether detection found the Steam prerequisite.</summary>
     public bool SteamInstalled { get; private set; }
 
+    /// <summary>Hardware-matched bundled offers, or null without a payload.</summary>
     public PluginOffers? Offers { get; private set; }
 
     /// <summary>Ids of bundled plugins that have a package file installed now.</summary>
@@ -153,6 +169,7 @@ internal sealed class SetupEngine : IDisposable
     /// <summary>The answers WSGM exported, or null until <see cref="PrepareAnswers" /> ran.</summary>
     public JsonObject? ExportedAnswers { get; private set; }
 
+    /// <summary>Persisted ownership of components installed by WSGM, distinct from current presence.</summary>
     public InstalledComponents Components { get; set; } = new();
 
     /// <summary>Whether the last install asked for a restart.</summary>
@@ -183,6 +200,7 @@ internal sealed class SetupEngine : IDisposable
 
     private string LogonServiceExe => Path.Combine(App, "WSGM.LogonService.exe");
 
+    /// <summary>Releases the device reservation and payload; callers must finish or roll back the plan first.</summary>
     public void Dispose()
     {
         _owner?.Dispose();
@@ -200,6 +218,10 @@ internal sealed class SetupEngine : IDisposable
     }
 
     /// <summary>Reads the machine: what is installed, the payload, and the offers for this hardware.</summary>
+    /// <param name="payloadDirectory">Development payload override, or null for the embedded release payload.</param>
+    /// <returns>An owned engine after recovering any unfinished file transaction.</returns>
+    /// <exception cref="WrongSetupAccountException">The elevated account differs from the interactive account.</exception>
+    /// <remarks>Detection can stop the runtime and recover an interrupted install; it is not a read-only inventory.</remarks>
     public static SetupEngine Detect(string? payloadDirectory)
     {
         SetupUserIdentity.RequireCurrentSessionUser();
@@ -272,6 +294,7 @@ internal sealed class SetupEngine : IDisposable
     ///     Unpacks the new application beside the installed one and asks it for the current answers, so
     ///     the profile page starts from the user's values, or from the defaults on a fresh install.
     /// </summary>
+    /// <returns>The exported mutable answers object, also retained as ExportedAnswers.</returns>
     public JsonObject PrepareAnswers()
     {
         var payload = Payload ?? throw new InvalidOperationException("This setup carries no payload.");
@@ -301,6 +324,7 @@ internal sealed class SetupEngine : IDisposable
     ///     The common and graphics plugins an update or repair keeps: every bundled one installed now,
     ///     including a graphics package whose adapter is currently absent, such as an unplugged external GPU.
     /// </summary>
+    /// <returns>Installed common/graphics ids still represented by this payload.</returns>
     public IReadOnlyList<string> InstalledCommonPluginIds()
     {
         return Payload?.Bundle.Plugins
@@ -310,15 +334,18 @@ internal sealed class SetupEngine : IDisposable
     }
 
     /// <summary>
-    ///     Graphics plugins for a present adapter that are not installed yet. An update or repair adds them
-    ///     too, since controls can move from a device package into one (the Claw's Intel controls did).
+    ///     Graphics plugins for a present adapter that are not installed yet, including update and repair offers.
     /// </summary>
+    /// <returns>Hardware-matched graphics offers absent from the installed package set.</returns>
     public IReadOnlyList<PluginOffer> NewGpuOffers()
     {
         return Offers?.Gpu.Where(offer => !offer.Installed).ToArray() ?? [];
     }
 
     /// <summary>Preserves update choices and adds the selected new graphics packages once.</summary>
+    /// <param name="answers">Mutable answers; device integration is disabled here if no installed device matches.</param>
+    /// <param name="addedGpuIds">New graphics packages accepted by the caller.</param>
+    /// <returns>Choices retaining installed bundled common packages and the surviving matching device.</returns>
     internal InstallChoices KeptChoices(JsonObject answers, IEnumerable<string> addedGpuIds)
     {
         var device = Offers?.DeviceCandidates.FirstOrDefault(offer => offer.Installed)?.Plugin.Id;
@@ -332,6 +359,8 @@ internal sealed class SetupEngine : IDisposable
     }
 
     /// <summary>The system components the chosen plugins need.</summary>
+    /// <param name="choices">Selected bundled device and common plugin ids.</param>
+    /// <returns>Distinct required components, or an empty list without a payload.</returns>
     public IReadOnlyList<SetupComponent> RequiredComponents(InstallChoices choices)
     {
         return Payload?.Bundle.Plugins
@@ -342,6 +371,8 @@ internal sealed class SetupEngine : IDisposable
     }
 
     /// <summary>Whether the controller stack must be installed because it is missing.</summary>
+    /// <param name="choices">Chosen plugins whose roles determine the stack requirement.</param>
+    /// <returns>Whether the stack is required and USB/IP or HidHide is absent; installed versions are not checked here.</returns>
     public bool NeedsDrivers(InstallChoices choices)
     {
         return RequiredComponents(choices).Contains(SetupComponent.ControllerStack)
@@ -349,6 +380,8 @@ internal sealed class SetupEngine : IDisposable
     }
 
     /// <summary>The steps of an install, update or repair.</summary>
+    /// <param name="choices">Accepted package selection and setup answers.</param>
+    /// <returns>An ordered plan to execute once through Run.</returns>
     public IReadOnlyList<SetupStep> PlanInstall(InstallChoices choices)
     {
         var payload = Payload ?? throw new InvalidOperationException("This setup carries no payload.");
@@ -400,6 +433,8 @@ internal sealed class SetupEngine : IDisposable
     }
 
     /// <summary>The steps of an uninstall.</summary>
+    /// <param name="choices">Which user data and optional components to retain or remove.</param>
+    /// <returns>Ordered deferred steps; creating the plan does not execute them.</returns>
     public IReadOnlyList<SetupStep> PlanUninstall(UninstallChoices choices)
     {
         List<SetupStep> steps =
@@ -501,6 +536,7 @@ internal sealed class SetupEngine : IDisposable
     ///     The steps of the run after that restart: the USB/IP driver, then WSGM's autostart back on.
     ///     Nothing else is touched; the install itself was finished before the restart.
     /// </summary>
+    /// <returns>Driver installation and autostart-restoration steps; throws if this setup has no payload.</returns>
     public IReadOnlyList<SetupStep> PlanFinishDrivers()
     {
         _ = Payload ?? throw new InvalidOperationException("This setup carries no payload.");

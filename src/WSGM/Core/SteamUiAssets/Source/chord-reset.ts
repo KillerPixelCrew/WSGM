@@ -1,17 +1,8 @@
-// The guide button chord layout's "reset to defaults", reported to the host.
-//
-// WSGM keeps Steam's last-resort chord template (`controller_base/chord_neptune.vdf`) equal to the
-// user's autosaved layout, because Steam's editor reloads that template after every autosave for a
-// Steam Deck type controller and threw the edits away (see SteamGuideChordMirror). With the template
-// mirrored, the editor's reset loads the mirror instead of Valve's defaults. The editor resets by
-// calling SteamClient.Input.SetSelectedConfigForApp(443510, controllerIndex, "default://…") from
-// Steam's configurator store in this context, three seconds before it reloads, so the call is the
-// place to tell the host to put Valve's file back in time.
-//
-// The wrapper forwards every call unchanged and only sends the command for the chord pseudo-app's
-// default selection while the host says the mirror is active. It is a member claim, so a bridge
-// replaced without its dispose (a JS context reload) reclaims the wrapper it left instead of wrapping
-// it again, and removal hands back exactly the function it displaced.
+/**
+ * Observes chord-layout default resets while the host reports an active template mirror.
+ * @returns Install/remove controls and diagnostics; a failed release retains ownership for a later removal attempt.
+ */
+
 function createWsgmChordReset() {
   const patchId = "wsgm.chord-reset";
   const ChordAppId = 443510;

@@ -35,6 +35,8 @@ internal static class DualShock4Report
     private const ushort TouchMaxY = 942;
 
     /// <summary>Writes one canonical sample into a DualShock 4 input state.</summary>
+    /// <param name="sample">Validated canonical sample in application coordinates.</param>
+    /// <param name="destination">Writable buffer of exactly Length bytes; the encoder initializes the complete report.</param>
     internal static void Write(CanonicalControllerSample sample, Span<byte> destination)
     {
         if (destination.Length != Length)

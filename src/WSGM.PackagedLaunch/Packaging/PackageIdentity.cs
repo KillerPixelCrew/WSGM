@@ -65,6 +65,7 @@ internal static class PackageIdentity
 
     /// <summary>The package full name a running process carries, or null when it carries none.</summary>
     /// <param name="processId">The process to read.</param>
+    /// <returns>Package full name, or null when absent, inaccessible, or unavailable during inspection.</returns>
     internal static string? FullNameOf(int processId)
     {
         var process = NativeMethods.OpenProcess(
@@ -95,6 +96,7 @@ internal static class PackageIdentity
 
     /// <summary>Where an installed package's files live, or null when that cannot be read.</summary>
     /// <param name="packageFullName">The package full name.</param>
+    /// <returns>Installed package path, or null when Windows cannot resolve it.</returns>
     internal static string? InstallPathOf(string packageFullName)
     {
         uint length = 0;

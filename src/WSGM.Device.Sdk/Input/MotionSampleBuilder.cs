@@ -51,7 +51,7 @@ public sealed class MotionSampleBuilder
         _accelerationToApplication = accelerationToApplication;
     }
 
-    /// <summary>The zero-rate offset measured so far, in the application basis.</summary>
+    /// <summary>The measured zero-rate offset in application-basis degrees per second, or null before calibration.</summary>
     public Vector3? Bias => _calibrator.Bias;
 
     /// <summary>Zeroes an axis at or beyond the sensor's full scale, as HC does.</summary>
@@ -68,8 +68,11 @@ public sealed class MotionSampleBuilder
     }
 
     /// <summary>Builds one sample. Safe to call from several sensor threads.</summary>
-    /// <param name="reading">A fresh reading.</param>
-    /// <returns>The canonical sample.</returns>
+    /// <param name="reading">Fresh sensor-space gyro in degrees per second and optional acceleration in g.</param>
+    /// <returns>
+    ///     An application-basis sample preserving the sensor timestamp. Without acceleration, existing bias
+    ///     is subtracted but no new calibration is learned; absent acceleration is flagged and zero-filled.
+    /// </returns>
     public MotionSample Build(MotionSensorReading reading)
     {
         MotionSample sample;
