@@ -8,6 +8,11 @@ using System.Threading;
 namespace WSGM.Core;
 
 /// <summary>Owns serialized reads and explicit writer transactions over one user's configuration.</summary>
+/// <remarks>
+///     Reads classify absence separately from corrupt or inaccessible state. A writer always requires
+///     a fresh Loaded or Absent result under the cross-process mutex; startup fallback defaults do not
+///     authorize overwriting an existing unreadable file. Publication atomically replaces one file.
+/// </remarks>
 public sealed class ConfigStore
 {
     private const int MutexTimeoutMs = 2000;
@@ -64,6 +69,11 @@ public sealed class ConfigStore
     }
 
     /// <summary>Starts the single writer scope; its read must be Loaded or Absent.</summary>
+    /// <remarks>
+    ///     Keep the scope on its acquiring thread, including Save and Dispose; do not carry it across
+    ///     an await. Use the transaction's Read instead of reading through this store inside the scope.
+    ///     Disposing the scope releases the mutex without implicitly saving.
+    /// </remarks>
     /// <returns>A scope that owns the fresh configuration and mutex.</returns>
     /// <exception cref="ConfigUnavailableException">The lock or existing document is unavailable.</exception>
     public ConfigTransaction Transaction()
@@ -89,6 +99,10 @@ public sealed class ConfigStore
     }
 
     /// <summary>Applies fields to the fresh document and saves only when the caller reports a change.</summary>
+    /// <remarks>
+    ///     The edit runs synchronously under the writer mutex. Even when it reports a change, an
+    ///     identical serialized result does not write the file. Limit the edit to the caller's fields.
+    /// </remarks>
     /// <param name="edit">Mutates only the caller's fields and returns whether to save.</param>
     /// <returns>The fresh configuration after the edit.</returns>
     public AppConfig Update(Func<AppConfig, bool> edit)
@@ -310,6 +324,10 @@ public sealed class ConfigStore
     }
 
     /// <summary>One thread-owned writer; file promotion and boot projection may share its scope.</summary>
+    /// <remarks>
+    ///     This scope serializes related operations but does not roll back files already published.
+    ///     Save is explicit, and both Save and Dispose must run on the thread that acquired the scope.
+    /// </remarks>
     public sealed class ConfigTransaction : IDisposable
     {
         private readonly MutexLease _held;
@@ -348,7 +366,13 @@ public sealed class ConfigStore
         }
 
         /// <summary>Publishes configuration durably while retaining the writer scope.</summary>
+        /// <remarks>
+        ///     Preserves the first older-schema document before replacing it. A successful save updates
+        ///     only the configuration file; callers own asset promotion and boot-manifest publication.
+        /// </remarks>
         /// <param name="replacement">A merged replacement, or null to save the owned document.</param>
+        /// <exception cref="ConfigUnavailableException">The owner thread, schema backup or publication is unavailable.</exception>
+        /// <exception cref="ObjectDisposedException">The writer scope has already been disposed.</exception>
         public void Save(AppConfig? replacement = null)
         {
             EnsureOwner();

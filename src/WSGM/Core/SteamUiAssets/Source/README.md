@@ -6,9 +6,9 @@ This is WSGM's half of the injected asset: the renderers for WSGM's own pages in
 resolver, the row and section glyphs (`icons.ts`), every revived Valve surface (`gates/`) and the
 Quick Access row host (`components.ts`) from the `steam-ui-toolkit` submodule, in the order its
 `eng/steam-ui-fragments.mjs` defines, adds the fragments from here, type-checks the combined
-program, strips the TypeScript annotations and formats one reviewable injected asset. Each fragment
-opens with a `// @fragment <label>` line (`consumer/<file>` for these), which the toolkit's checks
-use to take a whole fragment out of the asset by name.
+program, strips the TypeScript annotations and formats one reviewable injected asset. The compiler
+gives each fragment a `// @fragment <label>` line (`consumer/<file>` for these), which the toolkit's
+checks use to take a whole fragment out of the asset by name.
 
 It is compiled as a single unit because it is evaluated in a single CDP call, and the fragments
 deliberately share one lexical scope: a gate closes over the bridge's private functions and must not
@@ -20,8 +20,8 @@ Reusable Valve surfaces belong in the toolkit, so another host can feed its own 
 surface. WSGM-only features keep their own fingerprints but resolve them through the toolkit's
 `SteamUiModuleResolver` rather than scanning the registry themselves.
 
-A fragment lives here only when it is WSGM's own feature and no other host could possibly want it.
-Nine qualify. Five are pages registered with the toolkit's `registerSteamPage`:
+These fragments hold WSGM's product data, commands and feature hooks. Reusable rendering and Steam
+ownership stay in the toolkit. Five pages register with its `registerSteamPage`:
 
 - `artwork-browser.ts`, the Change Artwork page.
 - `library-import.ts`, the Game Library's import page.
@@ -33,8 +33,8 @@ Nine qualify. Five are pages registered with the toolkit's `registerSteamPage`:
 - `animations.ts`, the Animations page: SteamDeckRepo's boot movies browsed, downloaded and chosen
   for Big Picture's start.
 
-Those two share `page-kit.ts`, which is no feature of its own: the command sender and the tabbed
-frame's tab switch and banner, which differ between them only by patch id.
+Themes and Animations share `page-kit.ts`, which is no feature of its own: the command sender and
+the tabbed frame's tab switch and banner, which differ between them only by patch id.
 
 Four are gates of their own, registered with `registerGate`:
 
@@ -50,7 +50,7 @@ Four are gates of their own, registered with `registerGate`:
 - `download-sort.ts`, the Name / Size / Type buttons in the download queue's header. Its header
   transform sits on the toolkit's shared JSX-runtime claim, and a sort renumbers the queue through
   `SteamClient.Downloads.SetQueueIndex`, reporting the positions Steam refused to WSGM
-  (`SteamDownloadSort.cs`). See docs/steam-cef.md §12.
+  (`SteamDownloadSort.cs`). See docs/steam-cef.md, "Download-queue sorting".
 - `library-tabs.ts`, the library tabs' transform on the toolkit's shared `useMemo` claim. The tabs
   themselves are the resident script in `SteamLibraryTabs.cs`, which installs through this gate.
 
@@ -61,9 +61,32 @@ goes into the toolkit, resolved from Steam's own components, and the fragment us
 ## Adding one is a new file here and nothing else
 
 The builder finds fragments by directory rather than holding a list, and orders them so the emitted
-asset is byte-stable. A fragment opens with runtime code, not a `type` alias: TypeScript erases the
-comments that lead an erased declaration, and the builder refuses an asset that lost a fragment
-marker. The `--check` mode rebuilds the same combined program and rejects a stale generated file, an
-asset that is not exactly one UTF-8 file without a byte-order mark, or a second `.js` appearing
-beside it. `SteamUiAssetCatalog` hashes the embedded bytes when it loads them; that hash is the
-identity the bridge uses to replace a script a previous build left running.
+asset is byte-stable. The compiler inserts the fragment marker before its source. A fragment opens
+with runtime code, not a `type` alias: TypeScript erases the comments that lead an erased
+declaration, and the builder refuses an asset that lost a fragment marker. The `--check` mode
+rebuilds the same combined program and rejects a stale generated file, an asset that is not exactly
+one UTF-8 file without a byte-order mark, or a second `.js` appearing beside it.
+`SteamUiAssetCatalog` hashes the embedded bytes when it loads them; that hash is the identity the
+bridge uses to replace a script a previous build left running.
+
+## From renderer to backend
+
+`Shell/SteamUiSessionHost` composes the single toolkit bridge with WSGM surface factories:
+`SteamArtworkBrowserSurface`, `SteamLibraryImportSurface`, `SteamWsgmSettingsSurface`,
+`SteamThemesSurface` and `SteamAnimationsSurface`. Their service readings become publications; these
+renderers subscribe through `registerSteamPage`, send their exact semantic commands back through the
+bridge, and let the service validate/save the result. One `SteamPageSurface` merges routes, so a
+page renderer does not claim the router independently. `page-kit.ts` shares the Themes and
+Animations command/tab/banner plumbing; it has no standalone route or backend.
+
+Host pages follow CEF master enablement and remain available with custom Quick Access rows off.
+Sound packs have no renderer fragment here: the overlay owns their browser and preview, while the
+reusable toolkit sound gate owns Steam playback. Common-plugin bundles likewise use the toolkit's
+`pluginFrontends` runtime and are not compiled into this directory.
+
+Read the
+[toolkit frontend guide](../../../../../external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiAssets/Source/README.md)
+for all shared fragments, and [Steam CEF system](../../../../../docs/steam-cef-system.md) for host
+switches, generation replacement, publication and shutdown order. Never attach a debugging client to
+check a renderer during Steam startup: current Steam logs must first confirm that Steam and Big
+Picture are fully started.

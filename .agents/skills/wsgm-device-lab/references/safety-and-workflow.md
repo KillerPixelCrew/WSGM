@@ -7,15 +7,15 @@ Nothing installs it globally. From the WSGM root:
 
 ```powershell
 dotnet build src/WSGM.DeviceLab/WSGM.DeviceLab.csproj --configuration Release
-src\WSGM.DeviceLab\bin\Release\net10.0-windows\win-x64\wsgm-device.exe --help
+src\WSGM.DeviceLab\bin\Release\net10.0-windows10.0.19041.0\win-x64\wsgm-device.exe --help
 ```
 
 `dotnet run --project src/WSGM.DeviceLab --configuration Release -- <command>` also works. No
-arguments, or `gui`, opens the Avalonia GUI instead of printing usage. The GUI and CLI share
-`Application/DeviceLabApplication.cs`. The GUI's attended action offers `capability`, `haptic` and
-`controller` (not `haptic-sweep`) and asks for the same typed `RUN HARDWARE`.
-`eng/publish-device-lab.ps1` writes the portable tree to `publish/DeviceLab`. Run it only when a
-publish is requested.
+arguments, or `wizard`, starts the tester wizard and requests elevation once; `gui` opens the
+as-invoker developer tabs. The GUI and CLI share `Application/DeviceLabApplication.cs`. The GUI's
+attended action offers `capability`, `haptic` and `controller` (not `haptic-sweep`) and asks for the
+same typed `RUN HARDWARE`. `eng/publish-device-lab.ps1` writes the portable tree to
+`publish/DeviceLab`. Run it only when a publish is requested.
 
 ## Command classes
 
@@ -66,9 +66,11 @@ so switching integration off is not enough.
 Each probe compiles exact family, endpoint, getter, request, response shape, range, repetition,
 rate, deadline and an independent cross-check. It runs in an authenticated one-use hidden worker and
 never falls back from a getter to a setter. For new hardware, add a reviewed source profile rather
-than making those fields user-configurable. Candidate matching (`Inventory/KnownMsiClaw.cs`) and the
-compiled probes (`Probes/ReadProbeProfiles.cs`) cover only the MSI Claw today. On any other
-handheld, including the Ally X, expect a mismatch and no runnable probes.
+than making those fields user-configurable. Candidate matching uses the curated/extracted records
+under `Knowledge/Devices` and covers many handhelds. Compiled getter profiles in
+`Probes/ReadProbeProfiles.cs` currently provide only the MSI Claw family, gated by
+`DeviceKnowledgeAssessor` and its curated record. A matching Ally candidate does not create a
+runnable compiled probe.
 
 ### Code-loading boundary
 
@@ -97,7 +99,7 @@ as unavailable until a reviewed observer is compiled and registered. That covers
 PnP, HID input, Raw Input, hooks, WMI, controller APIs, sensors, serial, processes, plugin events
 and telemetry. A recipe is closed metadata; it cannot grant arbitrary HID, WMI or script execution.
 
-### Sole mutation door
+### Attended plugin mutation door
 
 ```powershell
 wsgm-device test hardware <plugin-dir> --from <inventory.json> --state-dir <new-dir> `
@@ -173,7 +175,7 @@ All paths are under `src/WSGM.DeviceLab/`.
 | Staging and artifacts    | `Application/DeviceLabPaths.cs`, `Application/DurableFile.cs`                                                                  |
 | Self-worker protocol     | `Application/SelfWorkerProtocol.cs`, `SelfWorkerAuthorization.cs`, `WorkerJobObject.cs`                                        |
 | Hardware arguments       | `Cli/HardwareTestCliArguments.cs`                                                                                              |
-| Identity/inventory       | `Inventory/`, especially `KnownMsiClaw.cs`, `WindowsInventoryCollector.cs`, and `ExtendedWindowsInventoryCollector.cs`         |
+| Identity/inventory       | `Inventory/`, `WindowsInventoryCollector.cs`, `ExtendedWindowsInventoryCollector.cs`; identity rules in `Knowledge/`           |
 | Read probes              | `Probes/ReadProbeProfiles.cs`, `ReadProbePolicy.cs`, worker and supervisor                                                     |
 | Capture model/runtime    | `Capture/CaptureModels.cs`, `ObserveOnlyCaptureWorkflow.cs`, `PassiveCapture.cs`, `CaptureBundleReader.cs`                     |
 | Redaction and preview    | `Capture/Redaction.cs`, `InventoryRedaction.cs`, `CapturePrivacyPreview.cs`                                                    |
@@ -203,3 +205,26 @@ points in mind:
 - HC is the primary Windows-native Ally reference, including buttons; HHD cross-checks behavior HC
   does not cover. Use the pinned tables in `src/WSGM.Device.Asus.RogAlly/PROVENANCE.md`. `_ref` may
   be missing from a checkout; when it is present, search it with `rg --hidden --no-ignore`.
+
+## Wizard worker and evidence ownership
+
+The tester wizard is separate from the CLI observe-only recipe workflow. Its current live input
+capture is `Capture/Live/LabInputCapture*`: Raw Input, keyboard/mouse hooks, XInput,
+Windows.Gaming.Input, DirectInput and WMI observations are collected broadly and attributed later. A
+knowledge record can rank likely endpoints but must not filter the capture to one device.
+`Capture/Live/LabMotionRecorder*` and `LabRumble*` provide the dedicated motion and rumble stages.
+
+`Wizard/LabMachineState.cs` records machine changes before mutation and retains incomplete cleanup
+for next-start recovery. `Wizard/LabProject.cs` stores separate attempts rather than overwriting an
+earlier capture. `Reports/LabReport.cs` builds the returned evidence. A requested report review is
+offline work; it does not authorize a fresh wizard run or probe on the current machine.
+
+Writes with readable originals run through `Worker/LabWorkerHost.cs` and the interfaces registered
+by `Worker/LabWorkerServices.cs`. The worker captures a snapshot, the wizard durably records it
+through `Wizard/LabPowerRecovery.cs`, and acknowledgment opens the write checkpoint. A missed worker
+deadline is uncertain; do not retry. Cancellation ends waiting, not an already-dispatched hardware
+operation. Rumble streams keep their watchdog zero armed until a zero write succeeds.
+
+Keep the wizard's stricter restore/readback accounting separate from normal plugin command
+semantics: a production `AppliedUnverified` result can be successful while the lab cannot claim
+verified hardware acceptance. Never fabricate a verified pass to make the test harness green.

@@ -5,11 +5,18 @@
 # loopback CDP endpoint WSGM itself drives, opened by Steam's `.cef-enable-remote-debugging` flag —
 # see docs\steam-cef.md for the accepted security posture, and never remove that flag.
 #
-# Steam's targets are addressed by title: SharedJSContext owns the webpack module registry, the
-# stores and the WSGM bridge, while Big-Picture-Modus owns the DOM and has no webpack global at all.
-# `list_pages` then `select_page` before evaluating, or the answer comes from the wrong context.
+# Before starting or invoking this server, read the current Steam run's logs and confirm Steam
+# AND Big Picture have fully started. Even list_pages/target discovery must wait. Attaching early
+# can hang the entire Steam UI and leave Steam requiring force-close; that is not permission to
+# terminate it. Missing or ambiguous evidence means stay disconnected and continue offline.
+# See .agents/skills/wsgm-steam-cef-debugging/references/live-tools.md for the ordered preflight.
 #
-# `close_page` will close a real Steam window. Do not point it at Big-Picture-Modus.
+# After startup-log confirmation, prove Steam owns the loopback listener and validate target URLs.
+# SharedJSContext owns the stores, webpack runtime and bridge. Visible DOM belongs to MainWindow,
+# selected by about:blank? URL shape with createflags/minwidth and without openerid/browserviewpopup,
+# never by a localized title. Only then list_pages/select_page for the confirmed target.
+#
+# close_page closes a real Steam window and must never be used as generic cleanup.
 
 [mcp_servers.steam-cef]
 command = "cmd"

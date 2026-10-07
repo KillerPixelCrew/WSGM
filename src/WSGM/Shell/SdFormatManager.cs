@@ -25,8 +25,8 @@ namespace WSGM.Shell;
 ///     first. A refused format may require another diskpart process.
 ///     128K allocation units mirror the user's proven reference card; quick format
 ///     only (a full format writes every sector of a wear-limited card for nothing).
-///     Enumeration is disk-level too (the eject list only sees mounted volumes) and
-///     runs off-thread on demand — no background polling. Rows reconcile in place
+///     Enumeration projects the shared physical-disk inventory, including letterless media, and
+///     runs off-thread on demand. Eject-list changes can supply the same inventory. Rows reconcile in place
 ///     (gamepad-cursor discipline).
 /// </summary>
 public sealed class SdFormatManager(

@@ -11,6 +11,32 @@ Related:
 - [steam-cef-system.md](steam-cef-system.md): the Steam cold-start hang and the transport gate that
   fixed it.
 
+## Host code map
+
+| Layer                     | Source                                                                                                                                  | Contract                                                                                                                                                                             |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Process owner             | [`Program.cs`](../src/WSGM/Program.cs)                                                                                                  | Creates one `SteamInputBlocker` for the UI process and releases it on exit/panic. Early recovery processes never acquire it.                                                         |
+| Claims and reconciliation | [`SteamInputBlocker.cs`](../src/WSGM/Core/SteamInputBlocker.cs)                                                                         | Maintains owner names separately from the acquired lease. `Hold` and `Drop` queue serialized work; a missing shim or failed acquisition leaves the surface usable and is logged.     |
+| Managed client adapter    | [`SteamInputLeaseHandle.cs`](../src/WSGM/Core/SteamInputLeaseHandle.cs)                                                                 | Adapts the pinned `SteamInterop` client to `ISteamInputLeaseHandle`. `SteamInputPipeLease.Connector` explicitly sets `AllowInjection = false`.                                       |
+| Proxy deployment          | [`SteamInputShim.cs`](../src/WSGM/Core/SteamInputShim.cs), [`SteamInputManagement.cs`](../src/WSGM/Core/SteamInputManagement.cs)        | Proves file ownership from bytes, stages/parks the proxy, and reconciles persisted management policy. `UpdatePending` remains connectable; the pipe handshake decides compatibility. |
+| Overlay claim             | [`OverlayController.Lease.cs`](../src/WSGM/Overlay/OverlayController.Lease.cs)                                                          | Pairs one controller instance's claim with its surfaces; remembers the release task for application-focus handoff.                                                                   |
+| Settings claim            | [`SettingsWindow.axaml.cs`](../src/WSGM/Settings/SettingsWindow.axaml.cs), [`SettingsSurface.cs`](../src/WSGM/Shell/SettingsSurface.cs) | Follows active/minimized/child-surface state and shares the process owner in a resident session.                                                                                     |
+| Per-game wrapper          | [`WSGM.Launch/SteamInputLeaseHost.cs`](../src/WSGM.Launch/SteamInputLeaseHost.cs), [elevation](elevation.md)                            | Holds the wrapper's independent lease for the controlled game lifetime.                                                                                                              |
+| Native protocol and hooks | [`external/steam-input-lease`](../external/steam-input-lease/README.md)                                                                 | Owns the pipe protocol, native lease count, controller hooks, forwarding and recovery. WSGM does not duplicate them.                                                                 |
+
+A surface claim is a request, not proof that Steam is already blocked: pipe acquisition runs on the
+worker. `IsApplied` reports an acquired process lease, not which surface owns it. Always drop the
+same name even when acquisition failed. On the last drop the blocker detaches its current handle
+before scheduling native release, so a new surface can acquire another counted lease while recovery
+for the old one completes. The release result distinguishes scheduled recovery, completed host
+recovery, recovery not required and unavailable recovery.
+
+`SteamInputLeaseEnabled` is checked when an overlay surface opens. Turning it off while a claimed
+sheet is already open does not pull the controller away mid-edit; the current claim ends normally,
+and the next opening observes the preference. UI capture of the managed virtual target is a separate
+mechanism, documented in
+[managed-controller capture](overlay-and-input.md#managed-controller-capture-and-source-switching).
+
 ## Why the lease exists
 
 ### Steam Input's desktop profile swallows the controller
@@ -21,10 +47,11 @@ while the sheet is open, and that is only acceptable because of the lease: the g
 controller access inside `steam.exe`, so SDL in WSGM reads the pad directly while Steam's active
 layout is left untouched.
 
-The lease is scoped to a focused top-level window: acquired before the overlay or Settings opens,
-released after the last owner lets go. Status panels and the internal text keyboard share the
-overlay window's claim. It is an open named-pipe connection, so Windows drops it after a WSGM crash.
-A normal release asks Steam to rediscover its controllers.
+The lease is scoped to a focused top-level window: the surface records its claim when it needs
+controller input, acquisition runs on a worker, and release follows the last owner letting go.
+Status panels and the internal text keyboard share the overlay window's claim. It is an open
+named-pipe connection, so Windows drops it after a WSGM crash. A normal release asks Steam to
+rediscover its controllers.
 
 Per-game wrappers must also remove Steam's inherited `SDL_GAMECONTROLLER_IGNORE_DEVICES` from the
 controlled child's environment. On 2026-09-08, Eden launched through the wrapper inherited an
@@ -39,11 +66,11 @@ the existing wrapper detected the controller again.
 
 ## How it is delivered
 
-The gate is a proxy DLL that Steam loads itself; WSGM never injects. The library's `allow_injection`
-defaults to false and `SteamInputBlocker` sets it explicitly, so this is a property of the code.
-`Core\SteamInputShim.cs` copies `steam_input_gate.dll` into Steam's install directory as
-`XInput1_4.dll` (ValvePlug proves that vector loads), or as `dinput8.dll` when that name is taken.
-Steam maps it on its next cold start.
+For the ordinary WSGM.exe UI lease, the gate is a proxy DLL that Steam loads itself; the host never
+injects. The managed client's `AllowInjection` defaults to false and `SteamInputPipeLease.Connector`
+sets it explicitly, so this is a property of the code. `Core\SteamInputShim.cs` copies
+`steam_input_gate.dll` into Steam's install directory as `XInput1_4.dll` (ValvePlug proves that
+vector loads), or as `dinput8.dll` when that name is taken. Steam maps it on its next cold start.
 
 Three facts about the live client make that safe. Nothing in `steam.exe` hardens the search order
 (no `SetDefaultDllDirectories` or `AddDllDirectory`; the lone `SetDllDirectoryA` in `SteamUI.dll`
@@ -117,9 +144,11 @@ Steam is later started by hand for comparison.
 | `Steam Input lease acquired via ...` / `Steam Input lease released (...)` | the WSGM-side events in `wsgm.log`; keep them for device reports                   |
 
 The gate finds that directory through the `.wsgm-shim` stamp `SteamInputShim` writes beside the
-proxy. Without the stamp it traces beside its own DLL, as the library's standalone download does, so
-a gate injected through `--input-lease-inject` writes `steam-input-gate-<steam-pid>.log` beside
-`WSGM.exe`.
+proxy. Without the stamp it traces beside its own DLL, as the library's standalone download does.
+`WSGM.exe` has no injection mode. The separate `WSGM.Launch.exe` wrapper supports
+`--input-lease-inject` explicitly and may load the gate into Steam when no resident proxy is used;
+its trace then follows the payload DLL location unless a shim stamp applies. See
+[elevation](elevation.md) for that per-game route and the submodule for native diagnostics.
 
 The gate's control pipe carries the DACL
 `D:(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;<token owner>)(A;;FA;;;<token user>)`, leaving out the user

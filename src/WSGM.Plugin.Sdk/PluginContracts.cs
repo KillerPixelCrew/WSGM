@@ -95,7 +95,7 @@ public interface IPluginHost
     }
 }
 
-/// <summary>Common lifecycle shared by Device adapters and independent plugins.</summary>
+/// <summary>Resident lifecycle for independent common plugins; device packages use their dedicated runtime.</summary>
 /// <remarks>Accepted plugins currently run in-process. Cancellation requires cooperative unwind, not automatic retry.</remarks>
 public interface IPlugin : IAsyncDisposable
 {

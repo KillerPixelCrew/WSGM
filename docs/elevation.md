@@ -89,9 +89,16 @@ At least one flag is required, and the target command always follows `--`.
 | `--input-lease`        | hold a Steam Input lease through the resident shim; never injects     |
 | `--input-lease-inject` | hold the lease by injecting; the only injecting route in this wrapper |
 
+Diagnostic modes do not need a target: `--help` prints usage, `--status` reports gate lease/handle
+counts, and `--rescan` requests controller rediscovery. `--rescan` changes live Steam state and is
+an attended diagnostic, not a harmless build check. `--target-name <process.exe>` and
+`--payload <path>` override the lease client's normal process and native payload. Unknown options or
+an invalid non-diagnostic launch return 64; wrapper failures return 1. A successfully supervised
+launch returns the target's exit code, including when the lease could not be acquired.
+
 ### The two lease flags differ only in delivery and are mutually exclusive
 
-The Tools-tab button picks between them from the Steam Input Management setting at apply time
+The launch-fix command picks between them from the Steam Input Management setting at apply time
 (`LaunchWrapperCommand.ForCurrentInputMode`), so a game's launch option always names the route it
 will take. `ModeFor` matches on token boundaries, because
 `"--input-lease-inject".Contains("--input-lease")` is true and a plain `Contains` reports both
@@ -132,9 +139,11 @@ had stopped. The job is also what lets stop-on-parent-exit reach orphaned descen
 
 ### Lease failures and impossible de-elevation fail open
 
-A lease failure logs, tells the user and launches anyway. So does an impossible de-elevation: with
-UAC off there is no limited token to hand out, so the child tags that failure and the parent
-launches the game as-is.
+A lease failure logs, tells the user and launches anyway. An impossible de-elevation has a narrower
+fallback: the child must return the exact no-medium-token marker, and the parent's own token must
+not prove that a linked limited token exists. Disabled UAC is one such case; the built-in
+Administrator, standard-user and unqueryable-token cases are covered by the same decision below. A
+task creation, connection or launch failure by itself does not authorize an elevated retry.
 
 ### The de-elevation fail-open is gated on the parent's own token
 
@@ -227,3 +236,35 @@ so a shortcut start and a sign-in start of the same configuration land at the sa
 Setting `SteamLaunchUnelevated` removes that reason.
 
 `WSGM.Launch` is unaffected and keeps de-elevating individual games independently.
+
+## Source and handoff map
+
+| Source                                                                                                                                                                                       | Responsibility                                                                                                            |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| [`Core/ElevationPolicy.cs`](../src/WSGM/Core/ElevationPolicy.cs), [`SelfElevation.cs`](../src/WSGM/Core/SelfElevation.cs), [`BootManifestWriter.cs`](../src/WSGM/Core/BootManifestWriter.cs) | Shared reason for resident elevation, interactive relaunch and precomputed service-token preference                       |
+| [`Core/UnelevatedLauncher.cs`](../src/WSGM/Core/UnelevatedLauncher.cs)                                                                                                                       | Bounded scheduled-task dispatch for Steam, external links and recovery; distinguish failed dispatch from unknown dispatch |
+| [`WSGM.Launch/CommandLine.cs`](../src/WSGM.Launch/CommandLine.cs)                                                                                                                            | Behavior flags, diagnostics and argument-boundary validation                                                              |
+| [`WSGM.Launch/Program.cs`](../src/WSGM.Launch/Program.cs)                                                                                                                                    | Native lease-only route, elevated-parent/medium-child protocol, token-gated fallback and target result                    |
+| [`LaunchPayload.cs`](../src/WSGM.Launch/LaunchPayload.cs)                                                                                                                                    | Versioned, length-bounded pipe payload carrying working directory, individual arguments and sanitized environment         |
+| [`ScheduledTaskLauncher.cs`](../src/WSGM.Launch/ScheduledTaskLauncher.cs)                                                                                                                    | Temporary task/XML lifetime and absolute System32 `schtasks.exe` invocation                                               |
+| [`SuspendedProcess.cs`](../src/WSGM.Launch/SuspendedProcess.cs) and [`JobObject.cs`](../src/WSGM.Launch/JobObject.cs)                                                                        | Create suspended, capture identity, assign before resume, supervise descendants and kill-on-close ownership               |
+| [`SteamInputLeaseHost.cs`](../src/WSGM.Launch/SteamInputLeaseHost.cs) and [`Elevation.cs`](../src/WSGM.Launch/Elevation.cs)                                                                  | Lease acquisition/release and local-token observations                                                                    |
+| [`Shared/Process/ScheduledTaskXml.cs`](../src/Shared/Process/ScheduledTaskXml.cs) and [`WindowsCommandLine.cs`](../src/Shared/Process/WindowsCommandLine.cs)                                 | One task principal/XML vocabulary and Windows argument quoting shared with the resident application                       |
+| [`Shared/Process/SteamControllerExclusion.cs`](../src/Shared/Process/SteamControllerExclusion.cs)                                                                                            | Case-insensitive exclusion-name match shared with the packaged launcher                                                   |
+
+For de-elevation, the parent creates the user-SID-accessible pipe and schedules the same executable
+with the internal `--medium-child <pipe>` command. After the child connects, the parent sends
+`LaunchPayload`; the child restores that environment, adds `RunAsInvoker`, creates and contains the
+target before it runs, and reports launch/result messages while the parent retains the outer lease.
+The initial connection budget is 20 seconds and the launch-report budget is two minutes. Once the
+target runs, the session follows the job rather than applying a fixed game-duration timeout.
+
+The wrapper's `ScheduledTaskLauncher` has a 15-second wait per `schtasks` invocation, with a bounded
+termination wait for a stuck utility. This is separate from `Core/UnelevatedLauncher`'s shared
+absolute deadline described above; the shared XML file does not make the two orchestration paths
+identical. Task deletion, pipe disconnection, job disposal and lease release belong to the owning
+launch path and must survive exceptions.
+
+The canonical Steam Input bindings are linked from the `external/steam-input-lease` submodule into
+both consumers; no copied local binding defines a competing ABI. [`development`](development.md)
+describes native staging and build boundaries; [`logging`](logging.md) describes `launch.log`.

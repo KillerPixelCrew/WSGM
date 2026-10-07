@@ -6,8 +6,8 @@ using WSGM.Core;
 namespace WSGM.Input;
 
 /// <summary>
-///     Polls all connected controllers through SDL3 on the UI thread while
-///     enabled. Emits edge-triggered button events with D-pad/stick auto-repeat.
+///     Polls the active managed controller, or connected SDL3 controllers, on the UI thread while
+///     enabled. Keeps SDL hotplug pumping and emits button edges with D-pad/stick auto-repeat.
 /// </summary>
 internal sealed class GamepadService : IUiButtonSource, IDisposable
 {

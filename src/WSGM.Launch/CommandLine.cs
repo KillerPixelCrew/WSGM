@@ -19,7 +19,7 @@ internal sealed class LaunchOptions
     /// <remarks>
     ///     Written into a game's launch options only while Steam Input Management is
     ///     off, because then Steam has loaded no shim to connect to. This is the single
-    ///     route in the shipped product that can inject.
+    ///     route in this wrapper that can inject the Steam Input gate.
     /// </remarks>
     internal bool InputLeaseInject { get; set; }
 

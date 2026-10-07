@@ -2,15 +2,20 @@
 
 ## Program modes and recovery
 
-Read the top of `src/WSGM/Program.cs` before changing argument handling. Modes are `Shell`,
-`Settings`, and `OverlayTest`. `--shell`/`--boot` win, then `--settings`, then `--overlay-test`; no
-arguments deliberately open Settings. Shell-only elevation, mutex, and crash-loop handling occur
-after mode and package-cardinality decisions. Mixed `--shell --overlay-test` is real shell startup.
+Read `src/WSGM/StartupOptions.cs` and the top of `Program.cs` before changing argument handling.
+Modes are `Shell`, `Settings`, and `OverlayTest`. `--shell`/`--boot` win, then `--settings`, then
+`--overlay-test`; no arguments deliberately open Settings. After maintenance modes and Settings
+activation handoff, shell startup refuses a pending setup file transaction, applies elevation
+policy, then takes the shell mutex and records crash-loop admission. Package discovery/cardinality
+belongs to the later `DeviceCoordinator` cycle, not `Program.Main`. Mixed `--shell --overlay-test`
+is real shell startup.
 
 Early operation order is also a safety property:
 
-- the fixed-purpose Explorer anchor and early restore/unregister paths run before logging,
-  configuration, Avalonia, GPU initialization, package discovery, or normal services;
+- the fixed-purpose Explorer anchor, `--desktop-shell-probe`, and early restore/unregister paths run
+  before logging, the normal configuration load, Avalonia, GPU initialization, package discovery or
+  normal services; restore may attempt defensive configuration reads, but a failed read must not
+  block desktop recovery;
 - maintenance and other one-shots retain their current deliberate position and authority;
 - only the normal selected mode reaches application composition;
 - exact overlay-test mode skips package/plugin, display, and autonomous Steam startup, but opening
@@ -27,8 +32,10 @@ Explorer exit uses its orderly `0x05B4` command and is never terminated: Winlogo
 shell. A retired process that outlives its shell surfaces is asked to close its windows (`WM_CLOSE`)
 and left to finish; desktop return waits for it, bounded, before starting Explorer. Never sweep
 unrelated folder processes. A failed exit always runs the shared desktop-return sequence; a
-surviving PID is not recovery. Both matching shell owners and responsive windows are required before
-reporting a usable desktop.
+surviving PID is not recovery. Matching, verified shell owners and responsive windows establish
+success. At the restore deadline, an otherwise verified canonical medium Explorer with matching
+surfaces but only a failed responsiveness probe is `Degraded` (`timeout-unresponsive-shell`), not a
+failed desktop. Unknown identity, mismatched owners or unsafe integrity remains failure.
 
 Launch-parent capture checks matching shell owners, process identity and token semantics without a
 UI-responsiveness gate or extra stability delay. A brief message timeout during display changes is
@@ -43,8 +50,10 @@ deadlock/race.
 
 `Core/ConfigStore.cs` owns `%LOCALAPPDATA%\WSGM\config.json` and its cross-process lock.
 
-- Normal load can defend with defaults; a mutation uses the strict load path. If existing config is
-  unreadable, abort rather than writing defaults over recovery snapshots.
+- `Read` reports an explicit outcome; startup can use read-only defaults after a failed read. There
+  is no automatic rename to `config.bad.json`. A mutation/transaction requires a usable current
+  configuration, and aborts instead of writing defaults over unreadable recovery snapshots. An
+  absent file is a distinct first-run case.
 - Writes are serialized and atomically replace state. A read/modify/write mutation starts from fresh
   state under the lock.
 - Settings transactions that couple config and promoted assets hold the established lock across the
@@ -60,8 +69,10 @@ result. The dispatcher callback rejects `_disposed` or stale `_configReloadGener
 before replacing `_config`, closing the older-result race. It then calls existing owners such as
 `StartupAppWatcher.Apply`, `OverlayController.ApplyConfig`, and `SessionModes.ApplyConfig`; reload
 does not construct another session or manager. Do not re-enter startup/composition from an apply
-path. `WatchStartupAppsAndConfig` is not independently idempotent today, so a duplicate call can
-overwrite live watcher references without disposing the old owners.
+path. `WatchStartupAppsAndConfig` uses `??=` for its startup-app watcher, and `WatchConfig` refuses
+an existing watcher. Both reject a disposed session. Shutdown increments the reload generation and
+detaches the watcher/timer under the debounce gate before disposal, so late callbacks cannot create
+unowned replacement work. Preserve these repeated-start/disposal guards.
 
 Test unreadable current state, recovery snapshots, concurrent mutations, reload replacement, and
 save failure. Never point tests at the user's real profile.
@@ -89,22 +100,25 @@ replace the field with `null` or a second object while an earlier static/native 
 Close command/input admission before tearing down dependencies and accumulate failures so one
 exception does not skip later cleanup. Preserve this established dependency order:
 
-1. cancel work and restore AutoTDP before shutting down `DeviceCoordinator`;
-2. await session-transition, boot, and Steam transport-gate work;
-3. retire WSGM's tray before Explorer recovery, and retain the shell anchor if desktop verification
-   fails;
-4. dispose the Steam UI host before detaching/disposing its transport;
-5. dispose audio/radio owners after their consumers;
-6. destroy `MessageWindow` last among services registered against that window; it is not necessarily
+1. close command admission and cancel work, then join startup and device-power work;
+2. let `DeviceCoordinator.ShutdownAsync` restore AutoTDP through its still-open capability path,
+   release the controller/show the physical pad, and stop the device package;
+3. stop common plugins and then the graphics router; join session-transition, boot and Steam
+   transport-gate work;
+4. retire WSGM's tray before Explorer recovery, and retain the shell anchor if desktop verification
+   fails or the deadline expires;
+5. dispose the Steam UI host before detaching/disposing its transport;
+6. dispose audio/radio owners after their consumers;
+7. destroy `MessageWindow` last among services registered against that window; it is not necessarily
    the final unrelated cleanup in the process.
 
-Verify phase-level exception isolation rather than assuming a failure list proves continuation. The
-current `ShellSession.ShutdownAsync` has a broad final `try` around transition waits, tray
-retirement, Explorer recovery, and later service cleanup; an unexpected early exception can skip
-later phases. Safety-critical restoration needs independent guards or a guaranteed recovery
-`finally`, with failures accumulated only after every required phase ran. `EnterGameModeSurfaces`
-retains an existing tray owner on duplicate entry and rejects a failed creation; commit is awaited
-so the transition can recover from that failure.
+`ShellSession.RunShutdownAsync` isolates phases with `Step`, `StepAsync`, `UiStepAsync` and
+`JoinAsync`, accumulates failures and reports them after later cleanup has been attempted. Preserve
+the independent guards rather than replacing them with one broad `try`. `ApplicationRuntime` owns
+one exit attempt and its outer deadline: normal 15 seconds, update 10, uninstall 20, session-end 5.
+An arriving session-end request tightens that deadline and makes suppression of Explorer restoration
+sticky. `EnterGameModeSurfaces` retains an existing tray owner on duplicate entry and rejects a
+failed creation; commit is awaited so the transition can recover from that failure.
 
 ## Threads and hot paths
 
@@ -127,10 +141,14 @@ so the transition can recover from that failure.
 
 ## External state and uncertainty
 
-Before a persistent or destructive operation, re-open/re-read exact target identity and validate
-bounds at the last responsible moment. A successful API return without readback is not verified.
-Timeout or cancellation after dispatch can mean the operation happened; surface uncertainty,
-reconcile current state, or require a new explicit user action instead of automatically retrying.
+Before a persistent or destructive operation, validate target identity and bounds at the boundary
+that owns the operation. Do not impose a generic mandatory readback on device or Windows setting
+writes: follow the existing API's accepted-write contract and publish the written value as observed.
+Do not gate the control on readback availability. Explorer restoration, package/transaction
+ownership and HidHide cleanup retain their explicit verification contracts.
+
+Timeout or cancellation after dispatch can mean the operation happened. Surface uncertainty and use
+an independent observation or a new explicit user action instead of automatically retrying.
 
 Preserve every external owner's state:
 
@@ -163,6 +181,13 @@ The following require explicit maintainer direction and a recovery path even whe
 - live Steam helpers under `tools/WsgmLibTest`;
 - real SD-card format/eject, radio, display, controller, sensor, fan, power, lighting, or firmware
   checks.
+
+Before even connecting a live Steam CEF tool, inspect Steam's file logs and confirm both Steam and
+Big Picture have fully started. Endpoint/port reachability, a process, a window or target discovery
+does not satisfy this requirement. Early attachment can hang the complete Steam UI and require
+force-closing Steam. Use `wsgm-steam-cef-debugging` or `wsgm-steam-cef-toolkit` for the readiness
+procedure; never attach as a readiness probe. Runtime transport gating and human-operated diagnostic
+tools are distinct paths and both must preserve their startup ordering.
 
 Shutdown behavior is reason-specific: `SessionEnd` must not launch Explorer, and update shutdown
 must not send the normal Big Picture exit operation. If WSGM's tray retirement is unverified, do not

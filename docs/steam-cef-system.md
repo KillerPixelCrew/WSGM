@@ -5,7 +5,10 @@ transport may be open, what the session host injects and patches, how the native
 is rebuilt on Windows, how the library features and WSGM's own pages in Steam are wired, and how it
 is configured, logged and tested. It is a mechanism reference. The device findings and the reasoning
 behind each rule are in [driving Steam through its CEF front-end](steam-cef.md), and the toolkit's
-own contract is in `external\steam-ui-toolkit\docs\reference.md`.
+own contract is in the [toolkit reference](../external/steam-ui-toolkit/docs/reference.md). The
+[toolkit source map](../external/steam-ui-toolkit/docs/code-map.md) follows every C# subsystem and
+frontend fragment. This page describes the implementation inspected on 2026-10-07; it does not claim
+a new live Steam or hardware pass.
 
 Related:
 
@@ -38,7 +41,7 @@ on the existing shared transport. Pack compatibility, licensing and restoration 
    └─ PersistentSteamUiTransport (toolkit)   one CDP connection per role, with one SteamClient over it
       └─ Shell\SteamUiSessionHost.cs         the one patch/bridge/module owner
            ├─ SteamUiBridgeHost + NativeQamBootstrap.js (Core\SteamUiAssets, composed from the toolkit)
-           ├─ SteamUiPatchManager: bridge, 6 gate patches, 11 row patches (toolkit), download sort, glyph style
+           ├─ SteamUiPatchManager: bridge, toolkit surfaces/rows, WSGM pages, download sort, glyph style
            ├─ SteamUiModuleRuntime: publications down, commands up
            └─ NativeQam*Service (Shell\)     the backends: TDP, AutoTDP, frame limit, VRR, controller
                                              target, device controls, audio, network, Bluetooth,
@@ -60,14 +63,17 @@ on the existing shared transport. Pack compatibility, licensing and restoration 
 
 Ownership follows decision D16. The toolkit owns how to find, own and remove a thing safely, and
 every revived Valve surface: the gates, the Quick Access rows, the library badge and the Home
-carousel, the module ids and localization tokens they name, and the wire shape of each state and
-command. WSGM owns the data behind them, its managers, RTSS, the device plugin and the card model,
-adapted onto the toolkit's `ISteam*Backend` interfaces, and the policy about which patches are on
-when. Its own features, library tabs, download sorting and glyph delivery, stay WSGM's. Reading and
-driving the client itself is the toolkit's `Client` layer: app details and launch writes, artwork,
-install folders, the download overview, library data, the current game page and the running-app
-observer. WSGM keeps the policy on top, which slot, which wrapper, which card's library. A plugin
-owns nothing here; device state reaches the QAM only through WSGM's backend services.
+carousel, the authored source fingerprints and localization tokens they name, and the wire shape of
+each state and command. WSGM owns the data behind them, its managers, RTSS, the device plugin and
+the card model, adapted onto the toolkit's `ISteam*Backend` interfaces, and the policy about which
+patches are on when. Its own features, library tabs, download sorting and glyph delivery, stay
+WSGM's. Reading and driving the client itself is the toolkit's `Client` layer: app details and
+launch writes, artwork, install folders, the download overview, library data, the current game page
+and the running-app observer. WSGM keeps the policy on top, which slot, which wrapper, which card's
+library. Device state reaches the QAM through WSGM's backend services. Common plugins can
+additionally contribute host-rendered sections/actions or opt into unrestricted frontend modules;
+the session composes those modules beside its own through `CommonPluginSteamUiSource`. See the
+plugin frontend boundary below.
 
 ## 2. Finding and driving Steam
 
@@ -123,7 +129,8 @@ nothing WSGM does can reach a cold-starting Steam's port before its window exist
 ```text
 TransportShouldBeOpen(cefMaster, inGameMode, bigPictureRequestPending, bigPictureReady,
                       bigPictureClosePending)
-  = cefMaster && !bigPictureClosePending && ((!inGameMode && !pending) || bigPictureReady)
+  = cefMaster && !bigPictureClosePending &&
+    ((!inGameMode && !bigPictureRequestPending) || bigPictureReady)
 ```
 
 The hold is symmetric. Leaving Big Picture rebuilds Steam's front-end exactly as entering it does,
@@ -257,59 +264,85 @@ retries a command whose execution is uncertain.
 
 ### Modules and their commands
 
-Every module but `shell` is a toolkit surface's `Module(enabled, read, backend)`; the patch id and
-command vocabulary are the surface's constants, and WSGM contributes the state reading and the
-backend (toolkit reference §15).
+`SteamUiSessionHost.CreateModules` is the host-module inventory. Toolkit factories own reusable
+patches and command vocabulary; WSGM factories own product pages, download sorting, glyph delivery
+and guide-chord/controller-capability hooks. The runtime's module set derives the bridge allowlist
+from the actual registrations. Common-plugin modules are composed separately and may be replaced
+while the session runs.
 
-| Module                                                                         | Toolkit surface                                     | WSGM backend                                        |
-| ------------------------------------------------------------------------------ | --------------------------------------------------- | --------------------------------------------------- |
-| shell                                                                          | none (`wsgm.native-qam.shell`, `toggleQuickAccess`) | the overlay toggle                                  |
-| tdp                                                                            | `SteamPowerLimitSurface`                            | `DeviceCoordinatorNativeQamTdpService`              |
-| auto-tdp                                                                       | `SteamAutoTdpRow`                                   | `DeviceCoordinatorNativeQamAutoTdpService`          |
-| frame-limit                                                                    | `SteamFrameLimitRow`                                | `PerformanceServiceNativeQamAdapter`                |
-| controller-target                                                              | `SteamControllerTargetRow`                          | `DeviceCoordinatorNativeQamControllerTargetService` |
-| vrr                                                                            | `SteamVariableRefreshRow`                           | `PerformanceServiceNativeQamAdapter`                |
-| perf (with Valve's header, toggle, reset, overlay-level and refresh-rate rows) | `SteamPerformanceSurface`                           | `PerformanceServiceNativeQamAdapter`                |
-| brightness                                                                     | `SteamBrightnessSurface`                            | `NativeQamBrightnessService`                        |
-| device-controls                                                                | `SteamDeviceControlsRow`                            | `DeviceCoordinatorNativeQamDeviceControlsService`   |
-| resolution (only with a display service)                                       | `SteamResolutionRow`                                | `NativeQamResolutionService`                        |
-| audio (only with an audio manager)                                             | `SteamAudioSurface`                                 | `AudioManagerNativeQamAudioService`                 |
-| network (only with a radio manager)                                            | `SteamNetworkSurface`                               | `NativeQamNetworkService`                           |
-| bluetooth (only with a radio manager)                                          | `SteamBluetoothSurface`                             | `NativeQamBluetoothService`                         |
-| screensaver (only with a session timeout owner)                                | `SteamScreensaverSurface`                           | `DisplayTimeouts`                                   |
-| panel-folds                                                                    | `SteamPanelFoldsSurface`                            | `SteamPanelFoldsBackend`                            |
-| animations                                                                     | `SteamAnimationsSurface` (WSGM)                     | `AnimationService`                                  |
+| Surface group                      | Registration and backend                                                                                                                                                                                                                                                 |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Shell command                      | `shell` handles `wsgm.native-qam.shell/toggleQuickAccess` through the overlay toggle.                                                                                                                                                                                    |
+| Power limits and device controls   | `SteamPowerLimitSurface`, `SteamAutoTdpRow`, `SteamControllerTargetRow`, `SteamDeviceControlsRow` use the corresponding `DeviceCoordinatorNativeQam*Service`.                                                                                                            |
+| Performance                        | `SteamPerformanceSurface`, `SteamFrameLimitRow`, `SteamVariableRefreshRow` use `PerformanceServiceNativeQamAdapter`; state determines availability.                                                                                                                      |
+| Windows power policy               | `SteamPowerProfileRow`, `SteamPowerPresetRow`, `SteamHybridCoreRow` use their `NativeQam*Service`; `SteamCpuBoostRow` is declared when its backend exists.                                                                                                               |
+| Display and audio                  | `SteamBrightnessSurface` uses `NativeQamBrightnessService`; optional resolution, audio and audio-format backends add their matching rows/surface.                                                                                                                        |
+| Radio and storage                  | An available radio owner adds network/Bluetooth; `SteamStorageSurface` uses `SteamStorageBridge` when the storage managers exist.                                                                                                                                        |
+| Layout and folds                   | `SteamQuickAccessLayoutSurface` publishes `NativeQamLayout.Layout`; `SteamPanelFoldsSurface` uses `SteamPanelFoldsBackend`.                                                                                                                                              |
+| Native Settings and graphics       | `SteamNativeSettingsSurface` uses `SteamNativeSettingsService`; the optional graphics owner also publishes `SteamSettingsQuickAccessRow` through `SteamGraphicsService`.                                                                                                 |
+| Library presentation               | `SteamLibraryBadgeSurface` publishes `LibraryBadges.Current`, with the game-page details patch in the same module; `SteamHomeCarouselSurface` projects the same reading through `HomeCarousel`.                                                                          |
+| Product pages                      | One `SteamPageSurface` merges all routes. Available artwork, library-import, settings, themes and animations services contribute their own WSGM renderer modules; the file picker is added with artwork or library import.                                               |
+| Navigation and actions             | WSGM settings adds `SteamNavigationPanelSurface`; `SteamExtensionsTabSurface` and `SteamGameContextMenuSurface` always have WSGM's own content; optional `SteamPowerMenuSurface` hands Switch to Desktop to its host backend.                                            |
+| Presentation assets                | Theme styles follow `ThemeService.Enabled`; sound overrides read `SoundPackService` and report decoder status; glyph-style is a separate MainWindow patch.                                                                                                               |
+| Other resident hooks               | Download sort has its own switch. Controller capabilities are registered for the session; guide-chord reset is registered when its mirror exists. Their publication policy follows host surfaces, while their patch ids take the default QAM switch in `SetPatchStates`. |
+| Screensaver and native observation | Optional `SteamScreensaverSurface` shares `DisplayTimeouts` with the overlay. `SteamOverlayActivationPatch` is registered separately for native surface observation.                                                                                                     |
 
-Publications are enabled while native Quick Access is on; the network publication is also enabled
-while the header indicator is on.
+### Patch and publication policy
 
-### Patch inventory
+`SteamUiSurfaceSwitches.From` derives policy from the current configuration, and
+`SteamUiSessionHost.SetPatchStates` applies it to the actual patch registry. Do not maintain a fixed
+patch count: optional services, multiple patches per module and dynamic frontend modules change the
+set.
 
-| Patch id                        | Class                                | Target          | Enabled by                 |
-| ------------------------------- | ------------------------------------ | --------------- | -------------------------- |
-| `steam-ui.bridge`               | `SteamUiBridgePatch` (toolkit)       | SharedJSContext | QAM or network indicator   |
-| `steam-ui.performance`          | gate `perf`                          | SharedJSContext | QAM                        |
-| `steam-ui.audio`                | gate `audio`                         | SharedJSContext | QAM, audio manager present |
-| `steam-ui.power-limit`          | row `powerLimit`                     | SharedJSContext | QAM                        |
-| `steam-ui.brightness`           | gate `brightness`                    | SharedJSContext | QAM                        |
-| `steam-ui.bluetooth`            | gate `bluetooth`                     | SharedJSContext | QAM, radio manager present |
-| `steam-ui.network`              | gate `network`                       | SharedJSContext | QAM or network indicator   |
-| twelve `steam-ui.*` row patches | `SteamQuickAccessRowPatch` (toolkit) | SharedJSContext | QAM                        |
-| `wsgm.download-sort`            | gate `wsgmDownloadSort`              | SharedJSContext | download sort only         |
-| `steam-ui.library-details`      | gate `libraryDetails`                | SharedJSContext | card manager               |
-| `wsgm.steam-input.glyph-style`  | `SteamInputGlyphStylePatch`          | MainWindow      | glyph delivery only        |
-| `steam-ui.screensaver`          | gate `screensaver`                   | SharedJSContext | CEF master switch          |
-| `steam-ui.theme-styles`         | gate `themeStyles` (toolkit)         | SharedJSContext | CEF and `Themes.Enabled`   |
+| Switch or condition                 | What remains active                                                                                                                                                                      |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `HostSurfaces` (CEF master enabled) | WSGM routes/renderers, navigation, native Settings, Extensions tab, game/power menus, sound overrides and admitted common-plugin frontend patches. These do not require custom QAM rows. |
+| `NativeQuickAccess`                 | Performance, audio, brightness, Bluetooth, storage and the device/Windows rows, layout and folds. Optional services still have to exist.                                                 |
+| `NativeQuickAccess                  |                                                                                                                                                                                          | NetworkIndicator` | Network surface and publication. |
+| `DownloadSort`                      | `wsgm.download-sort`.                                                                                                                                                                    |
+| `LibraryBadge`                      | Tile badge and game-page library details. Their patches also remain installed for admitted plugin addition slots when host surfaces are on; badge state keeps its own switch.            |
+| `HomeCarousel`                      | Connected-library Home replacement; `CarouselShowUninstalled` changes its state.                                                                                                         |
+| `ScreensaverRows`                   | Display-off rows, following CEF master when their backend exists.                                                                                                                        |
+| `HostSurfaces && Themes.Enabled`    | Theme stylesheet gate and publication.                                                                                                                                                   |
+| `SurfaceObservation`                | The independent overlay-activation observer.                                                                                                                                             |
+| Active glyph presentation           | The MainWindow stylesheet, gated by CEF, device integration and the resolved profile.                                                                                                    |
+
+The settings-sections patch is also kept for plugin Quick Access rows when host surfaces are on;
+WSGM's own graphics publication still follows `NativeQuickAccess`. Publication enablement and patch
+enablement are distinct. `BootstrapWanted` keeps the bridge while any dependent host/QAM surface
+needs it. A typed reader returning null publishes nothing and preserves the last delivered state;
+clear a surface with its explicit empty state or remove its patch.
+
+### Common-plugin frontends
+
+`CommonPluginSteamUiSource` projects admitted package frontend modules into
+`SteamPluginFrontendSurface`. The source owns package instance identities and backend admission; the
+toolkit owns bundle loading, native surface registrations and in-page teardown. These modules can
+supply arbitrary JavaScript/CSS, routes, menu actions, QAM tabs/rows, library/game-page additions
+and patches. They run with Steam page privileges. Their optional JSON backend uses the existing
+bridge; it does not require another debugger connection.
+
+A frontend failure retracts every sibling from its package owner. Runtime callback failures also
+quarantine the failing module and fault its patches. WSGM closes package admission and drains calls
+before unloading code; recovery requires explicit package reload. This is separate from the bounded
+host-rendered Extensions tab and from the toolkit's manifest-only `SteamUiExtensionHost`, which WSGM
+does not use as its package loader. See
+[plugin frontends](../external/steam-ui-toolkit/docs/plugin-frontends.md) and
+[common plugins](plugin-system.md).
 
 ### Switching and synchronization
 
 Disabling is one pass: the toolkit's patch manager removes the gates and rows before the bridge they
-live in, every time. The host polls nothing and runs no loop of its own. It asks the manager for a
-synchronization, which coalesces requests into one queued pass, and handles the manager's
-`Synchronized` event after each one: it updates the sound-pack status, reconciles the screensaver
-report and the WSGM settings menu, then publishes state when the bootstrap is wanted, or lets the
-global switch follow `glyphs || surface observation` so an independent patch keeps the manager
-alive. Patches share no resource locks: every pass runs under the manager's one scheduler gate.
+live in, every time. The host owns no separate patch polling loop. Service events and transport
+generation changes ask the manager for a synchronization, which coalesces requests into one queued
+pass, and handles the manager's `Synchronized` event after each one: it updates the sound-pack
+status, reconciles the screensaver report and the WSGM settings menu, then publishes state when the
+bootstrap is wanted, or lets the global switch follow `glyphs || surface observation` so an
+independent patch keeps the manager alive. Patches share no resource locks: every pass runs under
+the manager's one scheduler gate. The host also queues a state publication every two seconds while
+host surfaces are enabled, because audio formats and Windows power policy can change without a
+manager event. This refreshes the shared projections; it is not another transport or patch
+scheduler.
 
 A `SharedJSContext` generation change cancels every in-flight semantic request and releases the RTSS
 observation. The RTSS observation is held only while native Quick Access is on, the bridge is ready,
@@ -393,14 +426,14 @@ bridge.
 
 ### The component host
 
-`components.ts` mounts nothing into the DOM and injects no CSS. It resolves Valve's own primitives
-by localization token and source shape (React, the slider, dropdown and toggle fields, panel section
-and row, the localizer), then wraps `React.useMemo` so that when the Quick Access tab array passes
-through a memo, two panels are replaced by wrappers. The Performance panel is found by export
-identity through `#QuickAccess_Tab_Perf_Common_Settings`,
-`#QuickAccess_Tab_Perf_BatteryTimeRemaining` and `TS.ON_FRAME`; the Quick Settings panel by source
-containing `#QuickAccess_Tab_Settings_Section_Other_Title` and
-`#QuickAccess_ReorderControllers_Button`.
+`components.ts` renders into Steam's React tree and includes the shared UI kit stylesheet in the
+roots that use it. It resolves Valve's own primitives by localization token and source shape (React,
+the slider, dropdown and toggle fields, panel section and row, the localizer), then registers a
+transform on the shared `React.useMemo` claim so that when the Quick Access tab array passes through
+a memo, two panels are replaced by wrappers. The Performance panel is found by export identity
+through `#QuickAccess_Tab_Perf_Common_Settings`, `#QuickAccess_Tab_Perf_BatteryTimeRemaining` and
+`TS.ON_FRAME`; the Quick Settings panel by source containing
+`#QuickAccess_Tab_Settings_Section_Other_Title` and `#QuickAccess_ReorderControllers_Button`.
 
 The wrappers draw WSGM's rows in the toolkit UI kit's groups after Valve's Performance tree: blocks
 with a fill and border under a heading that carries the section's glyph. WSGM supplies the sections,
@@ -466,17 +499,17 @@ The toolkit's `SteamGatePatch` is data-driven: id, gate name, fingerprint, a pro
 compatibility predicate over the probe JSON, and `verifyOk` / `removeOk` predicates over the gate's
 `status()`; each surface class declares its instance as `Patch`. The probe captures the webpack
 runtime by pushing an empty chunk and counts factories whose source contains every token in a
-conjunction, naming each module literally. Every probe accepts "absent or already ours" through the
-markers above.
+conjunction. Authored source tokens identify the candidate; no literal module id is retained. Every
+probe accepts "absent or already ours" through the markers above.
 
 `SteamUiModuleResolver` owns the module boundary for probes, the injected bridge, library tabs and
 download sorting. Its single JavaScript source is embedded for standalone expressions and composed
-into the asset. Fingerprints are source-only scans; export resolution requires one match. Literal
-lookups reject missing factories before entering webpack, whose failed loads can leave empty exports
-cached. Features supply fingerprints and interpret exports, but do not scan and execute the
-registry. The network gate reads `window.SystemNetworkStore`, which Steam publishes itself, instead
-of loading its module or constructing the singleton. Factory presence alone does not prove
-dependency readiness, so these checks supplement the attachment gate.
+into the asset. Fingerprints are source-only scans; export resolution requires one match. The
+resolver rejects a missing matched factory before entering webpack, whose failed loads can leave
+empty exports cached. Features supply fingerprints and interpret exports, but do not scan and
+execute the registry. The network gate reads `window.SystemNetworkStore`, which Steam publishes
+itself, instead of loading its module or constructing the singleton. Factory presence alone does not
+prove dependency readiness, so these checks supplement the attachment gate.
 
 Nothing names a module id or a minified export name. A gate resolves a module by a source
 fingerprint that matches it alone and takes the export by its shape with
@@ -536,21 +569,26 @@ sliders. Completed user edits send one explicit command for the selected limit. 
 uncertain command is shown without an automatic retry. The old SteamOS Manager overlay, saved TDP
 setting watcher and single toggle/slider pair are removed.
 
-Every semantic service raises `StateChanged`; the host coalesces one publication round, and the
-bridge replays the latest state to new subscribers. A publication or response larger than 256 KiB is
-delivered in parts the page reassembles before it renders, up to 32 MiB. What the document sends the
-host stays capped at 16 KiB, and a request past that is refused in the page at once rather than
-timing out. Until 2026-09-27 both directions shared the 16 KiB cap, and the Game Library's review, a
-page's worth of titles and artwork, was refused without a word to the page, which kept showing
-"Scanning…" against the last state it had been given. A delivery still refused, past 32 MiB, is
-logged once under `steam.ui.publication.<patch>` and reaches the page as a refusal the page shows. A
-publication stamped with a revision is not read or serialized again while the revision is unchanged
-and the page already has it.
+Service change events and the host's two-second native-state refresh coalesce publication rounds.
+The bridge replays its latest state to new subscribers. Host-to-page state, responses and refusal
+text have no aggregate bridge size cap. Envelopes over 262,144 UTF-16 characters stream in
+acknowledged parts under one delivery id; the page reassembles the complete envelope before
+notifying subscribers. Parts never split a surrogate pair and an incomplete delivery never renders
+partial state. A failed publication is logged under `steam.ui.publication.<patch>` and a page can
+subscribe to its refusal. The former 16 KiB request and 32 MiB delivery caps are not the current
+contract.
 
-Polling exists only where Windows offers no event: brightness every 2 s, network first after 2 s
-then every 10 s with a 400 ms scan debounce. A perf delta field equal to the desired value is
-dropped as an echo (`Log.Change("native-qam-echo-<Kind>")`), which ended a 4/0 overlay-level
-ping-pong.
+Page-to-host requests use the CDP notification path, whose complete parameter JSON has a 1 MiB cap.
+Requests are not streamed in that direction. The page permits 32 pending requests with a five-second
+timeout, and the host has 64 queue slots to leave room for cancellations. Schema 1, allowlisted
+patch/command pairs, positive request/action generations and current execution-context/ document
+identity govern authorization. A publication stamped with a revision is not read or serialized again
+while the current document already holds that revision.
+
+Windows refresh includes brightness every 2 s, network first after 2 s then every 10 s with a 400 ms
+scan debounce, and the host's native-state refresh for audio formats and Windows power policy. A
+perf delta field equal to the desired value is dropped as an echo
+(`Log.Change("native-qam-echo-<Kind>")`), which ended a 4/0 overlay-level ping-pong.
 
 ### Quarantined modules
 
@@ -1090,31 +1128,55 @@ and each raise or refused raise of a display timeout on its own line.
 runs no WSGM code and touches no configuration. The scripts share target lookup and evaluation
 through `cdp.mjs`.
 
-| Script                                                                      | Purpose                                                                                                            | Safety                                                                                                                                                   |
-| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `run-file.mjs <file.js> [--target <title>]`                                 | evaluate a file in SharedJSContext or the named target, 20 s                                                       | as safe as the file                                                                                                                                      |
-| `run-file-target.mjs <title> <file.js>`                                     | the same as `run-file.mjs --target <title>`                                                                        | as safe as the file                                                                                                                                      |
-| `qam-harness.mjs status\|install\|publish <json>\|remove\|screenshot [png]` | plays host for the shipped asset: injects, installs eight gates and eleven kinds, publishes fixture state, removes | attended only; every non-screenshot command adds a runtime binding, `install` and `publish` mutate the client, and `remove` does not remove that binding |
-| `cdp-eval.mjs raw\|add\|remove\|list`                                       | install-folder operations                                                                                          | `add` and `remove` mutate                                                                                                                                |
-| `run-prod-sort.mjs [enable\|disable\|status]`                               | drives the download-sort gate through the bridge WSGM installed                                                    | `enable` and `disable` mutate                                                                                                                            |
-| `art-test.mjs`                                                              | SteamGridDB apply                                                                                                  | mutating, needs `SGDB_KEY`                                                                                                                               |
-| `capture-steam-window.ps1 -OutputPath <png>`                                | saves a PNG of the Big Picture window; reads nothing from CEF                                                      | attended; restores and focuses the Big Picture window                                                                                                    |
+| Script                                                                      | Purpose                                                                                                                          | Safety                                                                                                                                                   |
+| --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `run-file.mjs <file.js> [--target <title>]`                                 | evaluate a file in SharedJSContext or the named target, 20 s                                                                     | as safe as the file                                                                                                                                      |
+| `run-file-target.mjs <title> <file.js>`                                     | the same as `run-file.mjs --target <title>`                                                                                      | as safe as the file                                                                                                                                      |
+| `qam-harness.mjs status\|install\|publish <json>\|remove\|screenshot [png]` | plays host for the shipped asset: injects, installs the fixture's declared gates and row kinds, publishes fixture state, removes | attended only; every non-screenshot command adds a runtime binding, `install` and `publish` mutate the client, and `remove` does not remove that binding |
+| `cdp-eval.mjs raw\|add\|remove\|list`                                       | install-folder operations                                                                                                        | `add` and `remove` mutate                                                                                                                                |
+| `run-prod-sort.mjs [enable\|disable\|status]`                               | drives the download-sort gate through the bridge WSGM installed                                                                  | `enable` and `disable` mutate                                                                                                                            |
+| `art-test.mjs`                                                              | SteamGridDB apply                                                                                                                | mutating, needs `SGDB_KEY`                                                                                                                               |
+| `capture-steam-window.ps1 -OutputPath <png>`                                | saves a PNG of the Big Picture window; reads nothing from CEF                                                                    | attended; restores and focuses the Big Picture window                                                                                                    |
 
 The `.mcp.json` server `steam-cef` is `chrome-devtools-mcp` attached to the existing endpoint.
 Listing targets and bounded read-only evaluation are observation, and `close_page` closes Steam's
 real window. The raw helpers do not all prove that port 8080 belongs to Steam, and `run-file*.mjs`
 does not turn JavaScript `exceptionDetails` into a failing exit code. Verify the listener owner and
-loopback websocket target before attaching, inspect output rather than trusting exit zero, and do
-not treat `qam-harness.mjs status` as pure observation. Neither the harness nor the MCP relaxes the
-fingerprint rule.
+loopback websocket target only after the log-confirmed startup preflight below; inspect output
+rather than trusting exit zero, and do not treat `qam-harness.mjs status` as pure observation.
+Neither the harness nor the MCP relaxes the fingerprint rule.
 
 `node eng\check-steam-fingerprints.mjs [<Steam directory>]` answers whether a Steam update moved a
 fingerprint without attaching to Steam. It reads every token conjunction out of the toolkit's
 surfaces and gates and WSGM's Core and Shell, parses the installed `steamui` bundle into its module
 factories without executing them, prints each conjunction's match count and where it is used, and
-exits non-zero when one matches no module or several. A unique match on disk is unique in the live
-registry, which holds a subset. It is not part of `eng\verify.ps1`, because its answer depends on
-the client installed rather than on the change being verified.
+exits non-zero when one matches no module or several. A unique match on disk proves uniqueness in
+that installed bundle, not that its factory is already registered or initialized in the current live
+context. It is not part of `eng\verify.ps1`, because its answer depends on the client installed
+rather than on the change being verified.
+
+### Required startup evidence before attended debugging
+
+Before connecting any CEF debugger, MCP client or helper, confirm from the current Steam run's logs
+that Steam and Big Picture have fully started. This includes read-only target listing and
+`/json/list`; neither is a readiness probe to use during startup. An early debugger connection can
+hang the entire Steam UI and leave Steam requiring force-close. That is a failure consequence, not
+authorization to terminate or restart it.
+
+Read Steam's installed `logs/cef_log.txt` and `logs/webhelper_js.txt` first, correlate current-run
+initialization evidence with the actual ready Big Picture window, and record the paths/timestamps.
+The repository has no stable Steam-log success-marker parser, so do not invent a universal string or
+treat silence, a process, a listening port, a login popup or a SharedJSContext as completion. WSGM's
+`Big Picture window detected` and `Steam UI transport open: Big Picture window is up.` corroborate
+window/gate readiness; they do not replace the requested Steam-log confirmation. If the logs are
+missing or inconclusive, continue offline and leave CEF disconnected.
+
+Only after that evidence, prove Steam owns loopback port 8080, read the target list and select the
+validated target. Recheck startup evidence after a restart, renderer replacement or mode transition.
+This attended debugging rule is stricter than the production desktop-mode policy described in §3;
+the runtime currently uses process/window readiness and validated MainWindow discovery, not
+Steam-log parsing. The [debugging skill](../.agents/skills/wsgm-steam-cef-debugging/SKILL.md)
+contains the ordered preflight.
 
 ## 12. Verification boundary
 

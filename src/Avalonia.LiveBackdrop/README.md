@@ -108,3 +108,34 @@ Relevant platform contracts:
 [window positioning](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowpos),
 and
 [Chromium's tool-window occlusion filter](https://chromium.googlesource.com/chromium/src/+/133.0.6943.53/ui/aura/native_window_occlusion_tracker_win.cc).
+
+## API and source map
+
+| API                                                                           | Contract                                                                                                                                                                              |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `LiveBackdrop.Attach(Window, double blurRadius = 8, IBrush? fallback = null)` | UI-thread attachment, valid before or after opening. Requires a non-null window and one attachment per window.                                                                        |
+| `BlurRadius`, `MaximumBlurRadius`                                             | Gaussian standard deviation in physical pixels; finite values from 0 through 60. Invalid values throw rather than clamp. Updating an active session calls the native effect directly. |
+| `IsEnabled`                                                                   | Releases/reconciles the native session and updates fallback state; enabling does not clear a recorded failure.                                                                        |
+| `IsActive`, `FailureReason`, `StateChanged`                                   | Observe initialized native ownership and its failure state. State events do not report each radius change or prove visible compositor output.                                         |
+| `Retry()`                                                                     | Stops the previous session, clears the failure and reconciles again. A hidden/minimized window still waits until it can show.                                                         |
+| `Dispose()`                                                                   | Idempotent on the UI thread; unsubscribes, releases the session and restores the original background. Mutating a disposed attachment is refused.                                      |
+
+[`LiveBackdrop.cs`](LiveBackdrop.cs) is the complete managed lifecycle. Reconciliation waits for a
+visible, non-minimized window and a transparent native surface before calling
+[`NativeMethods.cs`](NativeMethods.cs). The C ABI is `BackdropCreate` (HRESULT plus opaque session),
+`BackdropSetBlur` (HRESULT) and `BackdropDestroy`; its failure callback is marshaled back to the
+Avalonia dispatcher with the session generation. A callback from a retired session cannot fail its
+replacement.
+
+[`Native/Backdrop.cpp`](Native/Backdrop.cpp) contains the session object, helper-window procedure,
+owner subclass, window-event hooks, desktop-thumbnail refresh, compositor construction and cleanup.
+The creating thread owns every native session resource. `Native/build.ps1` locates the Windows C++
+toolchain and builds the native DLL; `Avalonia.LiveBackdrop.csproj` calls it before build and copies
+the payload and both license files transitively. Generated output lives in
+`obj/native/<configuration>`.
+
+[`AttachmentTests.cs`](../../tests/Avalonia.LiveBackdrop.Tests/AttachmentTests.cs) substitutes the
+native create/update/destroy and HWND seams to exercise attachment ownership, hide/show, failure,
+retry and stale callbacks. These are managed lifecycle checks. Use the
+[standalone sample](../../tools/LiveBackdropSample/README.md) for attended compositor verification,
+and follow the repository's manual-first test timing.

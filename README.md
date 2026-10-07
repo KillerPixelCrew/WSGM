@@ -174,16 +174,17 @@ The same wrapper de-elevates titles that refuse to run elevated, and it can do b
 **Device plugins.** One MIT-licensed Device SDK, one installed package at a time, picked by setup
 from your hardware. The MSI Claw package is the reference, hardware-tested on the Claw 8 AI+ A2VM
 and covering every Claw: power and charge limits, fan behaviour, RGB lighting, the controller and
-its motion sensors, OEM buttons that open Steam's menus, variable refresh, Intel graphics settings,
-and a virtual controller. A package for the four ROG Ally models is built and waiting for its
-hardware pass. You can write one for another handheld with
-[Device Lab](src/WSGM.DeviceLab/README.md) and the
+its motion sensors, OEM buttons that open Steam's menus, and a virtual controller. Driver controls
+such as variable refresh and Intel graphics settings come from the separate graphics plugins. A
+package for the four ROG Ally models is built and waiting for its hardware pass. You can write one
+for another handheld with [Device Lab](src/WSGM.DeviceLab/README.md) and the
 [authoring guide](docs/device-plugin-authoring.md).
 
-**Common plugins** are packages beyond the device slot, each one explicitly enabled. The first is an
-IR plugin for the XIAO IR Mate that learns and sends remote codes over USB or Wi-Fi and can drive an
-HDMI switch or TV as part of entering Game Mode. It is still under development, see its
-[README](src/WSGM.Plugin.Ir/README.md).
+**Common plugins** are packages beyond the device slot. Intel, NVIDIA and AMD graphics packages
+start by default on matching hardware unless explicitly disabled, independently of device
+integration. Other common plugins are explicitly enabled. The IR plugin for the XIAO IR Mate learns
+and sends remote codes over USB or Wi-Fi and can drive an HDMI switch or TV as part of entering Game
+Mode. It is still under development, see its [README](src/WSGM.Plugin.Ir/README.md).
 
 ## Game Mode and Desktop Mode
 
@@ -270,7 +271,14 @@ The full technical write-up lives in the wiki:
 **[How it Works](https://github.com/KillerPixelCrew/WSGM/wiki/How-it-Works)**. It covers the logon
 service, the Explorer takeover, Desktop Mode, the Steam Input Lease, the Steam CEF bridge behind the
 library features, device plugins, elevation and recovery. The in-repo [docs](docs/README.md) carry
-the exact log lines, budgets and dates it summarizes.
+the implementation contracts, exact log lines, budgets and dates it summarizes.
+
+For the code, start with [architecture from startup to shutdown](docs/architecture.md), the
+[source map](docs/source-map.md), [configuration and live reload](docs/configuration.md), and the
+[development guide](docs/development.md). Reusable mechanisms have their own documentation:
+[Steam CEF toolkit](external/steam-ui-toolkit/README.md) and
+[Windows device control](external/windows-device-control/README.md). C# member contracts are
+documented beside their declarations and emitted as XML documentation by the projects.
 
 ## Install
 

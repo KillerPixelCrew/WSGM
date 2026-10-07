@@ -9,7 +9,7 @@ namespace WSGM.Core;
 
 /// <summary>
 ///     The process's owner of WSGM's Steam Input block lease.
-///     The injected gate runs only in Steam and prevents Steam Input from opening
+///     The Steam-loaded gate runs only in Steam and prevents Steam Input from opening
 ///     controllers while a focus-taking WSGM surface needs SDL to read them. The
 ///     pipe-backed lease is released automatically if WSGM crashes.
 /// </summary>

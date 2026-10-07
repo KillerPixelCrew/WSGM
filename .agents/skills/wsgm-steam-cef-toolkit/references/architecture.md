@@ -1,5 +1,14 @@
 # Steam CEF architecture and ownership
 
+## Attended debugging startup prerequisite
+
+Before any interactive debugger/CDP/MCP connection, including target discovery, require current
+Steam-log evidence that Steam and Big Picture have fully started. Attaching early can hang the whole
+Steam UI and leave Steam requiring force-close; do not perform that recovery without explicit
+direction. See [live-tools.md](../../wsgm-steam-cef-debugging/references/live-tools.md). The
+production mechanism below is not a substitute for that log check and currently does not parse Steam
+logs.
+
 ## End-to-end path
 
 ```text
@@ -7,7 +16,6 @@ Steam / SteamMonitor
   -> SteamUiReadiness
   -> ShellSession transport gate
   -> PersistentSteamUiTransport
-  -> SteamUiTransportSession
   -> SteamUiSessionHost
   -> SteamUiPatchManager + SteamUiBridgeHost + SteamUiModuleRuntime
   -> SteamUiToolkit surfaces and rows
@@ -15,9 +23,9 @@ Steam / SteamMonitor
 ```
 
 `SteamUiReadiness` is the lifecycle authority. `PersistentSteamUiTransport` owns CDP discovery,
-target generations, and the single session. `SteamUiSessionHost` composes the patch manager, bridge,
-and registered modules for that generation. Feature services publish state or route commands through
-the host; they do not attach their own CDP clients.
+target generations and one connection per target role. `SteamUiSessionHost` composes the patch
+manager, bridge, and registered modules for that generation. Feature services publish state or route
+commands through the host; they do not attach their own CDP clients.
 
 ## Layer ownership
 
@@ -51,7 +59,7 @@ are localized and therefore not an identity.
 The gate is:
 
 ```text
-master && ((!inGameMode && !transitionPending) || bigPictureReady)
+master && !exitPending && ((!inGameMode && !transitionPending) || bigPictureReady)
 ```
 
 In game mode, keep the transport closed until the real `SDL_app` Big Picture window exists. Before a
@@ -81,10 +89,11 @@ headless startup hangs.
 
 ## Patch and ownership model
 
-Each patch declares its resource, dependencies, fingerprint, kill switch, and bounded
-`probe/apply/verify/remove` phases. The manager serializes patches that share a resource and cancels
-stale work when the generation changes. An apply without verification is rolled back. A verified
-patch with the same fingerprint is re-verified instead of blindly reapplied.
+Each patch declares its stable id, target role, bounded phase budget and `probe/apply/verify/remove`
+methods. Probe returns a semantic fingerprint. The manager has no dependency graph or per-resource
+locks: every pass runs under one scheduler gate, applies the bridge first and removes it last, and
+cancels stale work when the generation changes. An apply without verification is rolled back. A
+verified patch with the same fingerprint is re-verified instead of blindly reapplied.
 
 Use one of three narrow ownership mechanisms:
 
@@ -98,8 +107,10 @@ evaluation cannot recover. Removal must be idempotent and must not disturb Valve
 ## Bridge and module contract
 
 The bridge exposes only the request and publication kinds declared by registered modules. It is not
-a generic evaluation, shell, or device endpoint. Preserve the strict camelCase envelope, size cap,
-positive sequence and action-generation values, generation checks, and replay protection.
+a generic evaluation, shell, or device endpoint. Preserve strict camelCase envelopes, positive
+sequence and action-generation values, generation checks and replay protection. Host state and
+responses stream in 262,144 UTF-16-character parts without an aggregate bridge cap. Page requests
+are not streamed: the CDP notification parameters have a 1 MiB cap.
 
 First decide whether "Valve-backed" means exposing an existing Valve-owned surface or building a
 WSGM row from known Valve controls. Those require different discovery, ownership, state-polarity,
@@ -128,8 +139,13 @@ the toolkit's `eng/steam-ui-fragments.mjs` defines, strips the supported TypeScr
 the result and writes `NativeQamBootstrap.js`; the catalog hashes the embedded bytes at load. The
 generated file is evidence of the current composition, not an editing surface.
 
-The browser-extension host under the toolkit is a separate host and test surface. Its presence does
-not mean WSGM mounts that extension or shares its lifecycle.
+The toolkit's `SteamUiExtensionHost` validates `extension.steam-ui.json` packages but runs no code;
+WSGM does not use it as its package loader. WSGM's `CommonPluginSteamUiSource` instead composes
+admitted `SteamPluginFrontendSurface` modules with the host modules. Those bundles deliberately run
+unrestricted JavaScript/CSS and contribute native pages/menus/QAM/library slots. They have
+owner-wide failure teardown, not a security sandbox. They are separate from host-rendered bounded
+Extensions-tab descriptors. Host surfaces follow CEF master and remain enabled with custom QAM rows
+off. Patch enablement, publication enablement and data availability are separate decisions.
 
 ## The client layer
 
@@ -144,3 +160,16 @@ refuses an ambiguous one, `Core\SteamLaunchConfig.cs` owns the launch wrapper,
 `Core\SteamArtwork.cs` owns slot rules and local art lookup, `Shell\KeepAwakeService.cs` owns what a
 download sample means for the wake lock, and `Shell\RunningApplicationTarget.cs` owns RTSS pairing
 and the projection.
+
+## UI ownership and required Overlay parity
+
+Every new or changed Big Picture capability or workflow also belongs in Overlay. Both presentations
+must use the same service/projection and validated semantic command, with consistent capability
+gates, pending/refusal state, cancellation and disposal. The view only chooses its native controls
+and navigation. Do not move policy into a renderer or build an independent backend for the second
+UI. A missing counterpart is incomplete work unless the maintainer explicitly scoped an exception.
+
+Use [reusable-elements.md](reusable-elements.md) to select the toolkit surface, native field, UI kit
+primitive or typed client call. Use [ui-and-overlay-parity.md](ui-and-overlay-parity.md) for the
+Avalonia counterpart. Reusable Steam discovery/ownership/rendering goes in SteamUiToolkit; reusable
+Windows operations go in WindowsDeviceControl; WSGM owns feature policy and two thin presentations.

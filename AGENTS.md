@@ -5,6 +5,9 @@ guide, plan and skill. The maintainer works alone on this repository and reviews
 
 ## Where things are
 
+- Start cross-project implementation work with `.agents/skills/wsgm/SKILL.md`; it maps architecture,
+  ownership, reusable elements and the specialist skills. The `.claude/skills` entries are aliases
+  of those canonical skills.
 - Tracked files and WSGM.slnx are the topology; retired projects survive only under untracked
   output. Documentation starts at docs/README.md, product decisions are in docs/decisions.md, and
   `_plan/implementation-todo.md` is the progress tracker. `_plan/2.0-decisions.md` is outdated.
@@ -35,6 +38,9 @@ guide, plan and skill. The maintainer works alone on this repository and reviews
 - WSGM Settings configures WSGM itself. Controls for Windows or other external state go on the
   overlay's relevant page or Steam's Quick Access; the two recorded exceptions are in
   docs/decisions.md.
+- Every feature added to Steam Big Picture must also be available in the WSGM overlay, with the
+  same capabilities, actions and state. Share the owning backend and policy; use each surface's
+  existing controls and styles. Keep changes focused, reusable and straightforward to maintain.
 - An uncertain device write is never retried automatically: re-read state or require a user action.
   Never gate a write or a control on readback; write as HC does and publish the written value as
   observed.
@@ -73,6 +79,11 @@ guide, plan and skill. The maintainer works alone on this repository and reviews
 - The Steam CEF tools connect to the live Steam session. Inspect known modules by literal id when
   asked; never sweep the module registry, instantiate unknown exports or evaluate arbitrary
   JavaScript. tools/WsgmLibTest scripts and close_page mutate live Steam and are attended tools.
+- Before any attended CEF debugging connection or live tool call, confirm from the current run's
+  Steam logs that Steam and Big Picture have fully started. A reachable endpoint or visible window
+  alone is not sufficient. Connecting earlier can hang the entire Steam UI and require Steam to be
+  force-closed. If the log evidence is incomplete, do not connect; this does not authorize force-closing
+  Steam. Follow .agents/skills/wsgm-steam-cef-debugging/SKILL.md for the preflight.
 
 ## Validation
 

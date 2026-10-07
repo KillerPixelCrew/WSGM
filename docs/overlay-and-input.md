@@ -6,6 +6,41 @@ Styling and headless rendering are in [UI mechanisms](ui.md). The
 [Steam Input lease](steam-input.md) and the [device plugin system](device-plugin-system.md) document
 their own integration boundaries.
 
+## Code ownership and an open/close cycle
+
+All paths below are under [`src/WSGM`](../src/WSGM). The [repository source map](source-map.md)
+covers the other executables and libraries.
+
+| Owner                            | Entry files                                                                                                                                 | Responsibility                                                                                                                                                                                                |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Resident composition             | `Shell/ShellSession.cs`, `Overlay/OverlaySources.cs`                                                                                        | Supply the session's services; the window borrows them. `SimulatedDeviceOverlaySource` and `SimulatedGraphicsOverlaySource` provide preview publications.                                                     |
+| Overlay lifetime                 | `Overlay/OverlayController.cs` and `.Lease`, `.Apps`, `.Gestures`, `.Keyboard`, `.Power` partials                                           | Activation, capture claims, Steam Input claims, close deferral, focus return and pending-operation cancellation.                                                                                              |
+| Window and routes                | `Overlay/OverlayWindow.axaml`, `.axaml.cs`, `.Navigation`, `.Workspace`, `.Rail`, `.Placement`, `.Surfaces`                                 | Build the visual tree, select the display, fit scaling, remember sections and confine in-window surfaces. `OverlayNavigation.cs` holds route identities; the `SubViews` table declares parent/leave behavior. |
+| Capability presentation          | `Overlay/OverlayWindow.Device*`, `.Graphics`, `.Performance`, `.Pins`, `CapabilityRowRenderer.cs`, `DescriptorControlView.cs`               | Reconcile descriptor rows and pinned sections; report user intent through the supplied device, graphics or performance bridge.                                                                                |
+| Utility and content presentation | `Overlay/StatusPanel.cs`, `RadioPanel`, `AudioPanel`, `EjectPanel`, `KeyboardPanel`, `ServiceSubView.cs`, `OverlaySubView.cs`               | Own transient presentation, nested navigation and subscriptions. `ThemesView`, `AnimationsView`, `SoundsView`, `ArtworkView` and `GameLibraryView` borrow durable services.                                   |
+| UI input                         | `Input/SdlGamepads.cs`, `GamepadService.cs`, `GamepadNavigation.cs`, `FocusSearch.cs`, `Overlay/OverlayInput.cs`                            | One SDL owner, UI sampling, edge/repeat decisions, focused-control dispatch and navigation.                                                                                                                   |
+| Managed input                    | `Shell/ControllerManager.cs`, `Shell/UiCaptureState.cs`, `Input/ManagedControllerRouter.cs`, `ManagedUiPad.cs`, `ControllerOutputRouter.cs` | Publish managed pad state to UI and suspend/resume game forwarding around capture. Device transport and firmware interpretation belong to the device package.                                                 |
+| Touch activation                 | `Overlay/RawTouchInput.cs`, `TouchSwipeMonitor.cs`, `EdgeSwipeRecognizer.cs`                                                                | Observe digitizer reports, recognize one gesture, and request an action without intercepting the desktop input stream.                                                                                        |
+| Rendering support                | `Controls/`, `Themes/`, `Avalonia.LiveBackdrop`                                                                                             | Shared editors, focus and color tokens; one native backdrop per overlay window. See [UI](ui.md) and the [backdrop API](../src/Avalonia.LiveBackdrop/README.md).                                               |
+
+An activation reaches `OverlayController.ShowOverlay`, which cancels any obsolete close/return,
+records the foreground target, requests the applicable Steam Input claim, and opens the window over
+its supplied services. The capture claim pauses managed-controller forwarding separately from the
+Steam Input claim. `OverlayInput` attaches one navigation owner; utility panels and text entry reuse
+that owner and the same native window. A changed service publication reaches the dispatcher and
+updates retained controls, with pointer gestures and modal input protected from replacement.
+
+Back first gives the active surface or nested editor a chance to consume it, then follows the
+section/rail/home route. Final dismissal defers native closure for 150 ms. The close path detaches
+navigation and view subscriptions, releases capture and the named Steam Input claim, and disposes
+the backdrop. Explicit app switching waits for closure and the lease handoff before returning to the
+chosen HWND/PID. Reopening or another action cancels an obsolete return. Closing a borrowed view
+never disposes the session's radio, storage, library, theme or graphics owner.
+
+The corresponding seams are exercised under `tests/WSGM.Tests/{Input,Overlay,Shell}` and
+`tests/WSGM.UiTests`. Those tests use synthetic state and do not establish live controller routing,
+Windows focus, touch timing, Steam behavior or compositor output.
+
 ## The quick access sheet
 
 `OverlayWindow` covers the summoning application's display. It requests a transparent Avalonia
@@ -28,11 +63,13 @@ floor and a shared maximum width, and desktop scaling is capped to keep that min
 the header and the bottom app/tray rail stay outside the scrolling workspace.
 
 Steam offers Library and Per-game launch fixes; Tools offers System, Performance, Storage, Display,
-Plugins, Keyboard and About; Power offers Wake, Idle timeouts, Power and Session. Those sections
-open directly beside their rail rather than behind a category menu. Device has an Overview plus
-sections derived from the current descriptors. Windows power schemes and Performance stay available
-without device integration. Device > Power adds AC/battery assignments and presets when available;
-Controller keeps glyph selection and explains unavailable output.
+Plugins, CSS Loader, Video Switcher, Sounds, Steam Artwork Changer, Library Importer, Keyboard and
+About, with feature-dependent entries hidden when unavailable; Power offers Wake, Idle timeouts,
+Power and Session. Those sections open directly beside their rail rather than behind a category
+menu. Device has an Overview plus sections derived from the current descriptors. Windows power
+schemes and Performance stay available without device integration. Device > Power adds AC/battery
+assignments and presets when available; Controller keeps glyph selection and explains unavailable
+output.
 
 Two Windows machine policies sit on the overlay, not in WSGM Settings, because they change Windows
 rather than WSGM: "Never show UAC prompts on this PC" on Tools > System and "No lock screen after
@@ -182,10 +219,11 @@ backend and no duplicate common-action renderer.
 
 Text entry in the panel is a press-to-edit row, never a bare `TextBox`. Every editable name is a row
 whose current value stays visible and whose click opens the in-window keyboard through
-`KeyboardService.Request`. A `TextBox` in a panel looks editable but is unusable on a controller:
+`OverlayWindow.RequestText`. A `TextBox` in a panel looks editable but is unusable on a controller:
 `GamepadNavigation` skips TextBoxes so the Windows touch keyboard cannot pop, so focus never lands
-on one and nothing types. When `KeyboardService.Request` returns false there is no way to type at
-all; log it rather than leaving a row that silently does nothing when pressed.
+on one and nothing types. When `OverlayWindow.RequestText` returns false there is no way to type at
+all; report the unavailable keyboard and log it rather than leaving a row that silently does nothing
+when pressed. `OverlaySubView.EditText` supplies this behavior for service pages.
 
 ## The on-screen keyboard
 
@@ -212,7 +250,7 @@ native windows and acquire no navigation, input capture or lease of their own.
 
 ### Keyboard and credentials
 
-`KeyboardService.Request` opens `KeyboardPanel` for an internal text field. The keyboard stretches
+`OverlayWindow.RequestText` opens `KeyboardPanel` for an internal text field. The keyboard stretches
 across the bottom of the overlay. Accept returns the text once; cancel leaves the original value
 unchanged. Radio password and PIN entry use the same keyboard with masked input. The radio panel
 stays attached below the keyboard, so its pending pairing ceremony and subscriptions stay alive.
@@ -449,12 +487,13 @@ service. Steam QAM and the Overlay use the same serialized writes and confirmed 
 stays in place during updates, disables when readback is unavailable, and works with CEF disabled.
 
 The same page shows resolution and refresh for the display the overlay sheet is on. Pickers hold
-driver-validated modes, and changing resolution updates the offered refresh rates. Only Apply
-changes the display. Fresh observations every five seconds while open replace stale choices after a
-reconnect, resume or profile change. Windows Device Control rechecks target identity and driver
-validation before applying and writes once. A write Windows accepts is the result and is not read
-back; a refused one gets one write-back of the original mode, never a retry. Ambiguous clone sources
-are unavailable. None of this establishes physical visibility.
+driver-validated modes, and changing resolution updates the offered refresh rates. A committed
+dropdown selection applies the mode; browsing an open popup does not. Fresh observations every five
+seconds while open replace stale choices after a reconnect, resume or profile change. Windows Device
+Control rechecks target identity and driver validation before applying and writes once. A write
+Windows accepts is the result and is not read back; a refused one gets one write-back of the
+original mode, never a retry. Ambiguous clone sources are unavailable. None of this establishes
+physical visibility.
 
 Device provides a manual TDP mode selector when a paired capability is available. Selecting Unified
 saves the active global or per-game preference without writing hardware, and later sustained-slider

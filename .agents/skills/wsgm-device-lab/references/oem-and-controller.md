@@ -60,13 +60,17 @@ ledger. Unhiding before the plugin stops reading creates duplicate input.
 
 For a paddle or OEM control that exists only in the plugin-selected controller mode, publish
 `OemControlDescriptor.RequiresControllerAcquisition = true`. WSGM then refuses the action while
-controller management is off. This does not weaken the plugin's obligation to restore the full
-original mode and topology on release. Test both managed and unmanaged states plus restoration.
+controller management is off. Release follows the package's documented baseline: the Claw returns to
+XInput, while the Ally restores factory controller tables. Test both managed and unmanaged states
+and the truthful cleanup result; the SDK does not make a best-effort release a verified topology
+observation.
 
 ## MSI Claw 8 A2VM measured evidence
 
 These facts apply only to manufacturer `Micro-Star International Co., Ltd.`, baseboard `MS-1T52`,
-SKU `1T52.1`, supported firmware, and the observed endpoints. Revalidate a new revision.
+SKU `1T52.1` and the recorded firmware/endpoints. They are dated evidence, not extra runtime match
+gates. The plugin matches exact baseboard manufacturer/product; compare a new revision's
+observations before claiming these measurements apply.
 
 Identity and topology:
 
@@ -74,8 +78,9 @@ Identity and topology:
 - The controller `bcdDevice` is recorded but never used as a gate. It is `0229` on the reference
   unit and `0230` after MSI's 2026-08 controller update. The controller, OEM and motion services
   need only the exact SMBIOS identity (`MsiWmiPlatform.IsExactMachine`). WMI-backed services also
-  need MSI_ACPI 8.0 and an EC firmware prefix of `1T52EMS1.109`. Lighting rechecks the reviewed
-  profile shape at `0x024A` on every acquire.
+  need the MSI_ACPI provider, without an interface-version or EC-prefix gate. BIOS binds power/fan
+  recovery. Lighting is offered when its MCU collection exists; unreadable profile state stays
+  unknown until a write. Its address follows `ClawModels.cs`'s HC firmware table.
 - XInput MCU: `MI_01`, usage `FFA0/0001`, 64-byte input/output.
 - DirectInput gamepad: `MI_00&COL01`, usage `0001/0005`, 64-byte input, 32-byte output, 48-byte
   feature. The code matches on usage and report lengths; the interface strings come from the plan.

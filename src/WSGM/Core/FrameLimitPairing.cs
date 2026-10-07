@@ -64,9 +64,10 @@ public static class FrameLimitPairing
     /// <param name="nativeHz">Refresh rates the panel itself advertises.</param>
     /// <param name="acceptedHz">Every rate the driver accepted, including synthesized ones.</param>
     /// <returns>
-    ///     The rate to set, or <see langword="null" /> when the refresh rate must be left alone — which
-    ///     is always the answer under <see cref="FrameLimitStrategy.FrameLimitOnly" />, and the answer
-    ///     anywhere else when no available mode is an exact multiple of the cap.
+    ///     The preferred exact multiple, or the lowest candidate at least as high as the cap when no
+    ///     exact multiple exists. FrameDoubling prefers an exact multiple of at least twice the cap.
+    ///     Returns <see langword="null" /> for FrameLimitOnly, a cap below the supported minimum, or
+    ///     when the selected strategy has no candidate that can present the cap.
     /// </returns>
     public static int? SelectRefreshHz(
         FrameLimitStrategy strategy,
@@ -166,9 +167,9 @@ public static class FrameLimitPairing
     /// <param name="nativeHz">Refresh rates the panel itself advertises.</param>
     /// <param name="acceptedHz">Every rate the driver accepted, including synthesized ones.</param>
     /// <returns>
-    ///     The caps, ascending, with zero first for "off". Under a coupled strategy only caps that have
-    ///     an exact-cadence mode behind them appear, so every stop on the slider is one the backend can
-    ///     honour exactly.
+    ///     Zero first for "off", followed by every integer in the inclusive FrameLimitRange under
+    ///     every strategy. Returns only zero when no playable range is available; refresh pairing,
+    ///     rather than the cap list, chooses the closest supported cadence.
     /// </returns>
     public static IReadOnlyList<int> FrameLimitOptions(
         FrameLimitStrategy strategy,

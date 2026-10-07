@@ -3,14 +3,16 @@
 The MIT common plugin SDK, the resident host that admits its packages, and everything WSGM builds on
 them: configuration and state, named actions and declared UI, widgets, Steam placements, session
 automation and the Game Mode entry transaction. The Device runtime keeps its own contracts and is
-admitted through an adapter; its mechanism is in [device plugin system](device-plugin-system.md).
+owned directly by `DeviceCoordinator`; its mechanism is in
+[device plugin system](device-plugin-system.md).
 
 ## The contract and the host
 
-`src/WSGM.Plugin.Sdk` is the MIT, dependency-free common contract assembly. `WSGM.Device.Sdk`
-continues to define hardware detection, controllers, capabilities and Device Lab integration. The
-resident Shell session owns the common host. Its Device coordinator admits the existing Device
-runtime through an adapter, preserving the Device SDK hardware contracts.
+`src/WSGM.Plugin.Sdk` is the MIT common contract assembly, currently API 4. It references the Device
+SDK for deadlines, capabilities, text validation and tracing, and SteamUiToolkit for typed Steam
+modules. The host shares those assembly identities with every package. `WSGM.Device.Sdk` remains the
+dependency-free hardware contract. The resident Shell session owns the common host and a separate
+device coordinator; `PluginHost` refuses the `wsgm.device` category.
 
 Categories are stable strings. The host owns category policy: Device permits zero or one selected
 active instance, while independent categories, `wsgm.gpu` among them, can permit multiple instances.
@@ -27,8 +29,10 @@ It owns its endpoint protocol, command library and companion firmware, and reach
 USB serial or, after USB-only pairing with a per-endpoint token, over the local network. Its
 declarative Tools contributions use the existing common host. Command selection, naming, relearning,
 timing, scene management and Wi-Fi pairing are available through host-rendered action forms.
-Hardware acceptance passed on the reference XIAO with a real HDMI switch remote. See its README for
-the implemented boundary and remaining limitations.
+Historical hardware acceptance on the reference XIAO used protocol 1, including a real HDMI switch
+remote. Current source requires firmware 0.5.0 and protocol 2; those earlier observations do not
+validate its paging and storage changes. See its README for the implemented boundary and remaining
+limitations.
 
 ## Lifecycle
 
@@ -105,9 +109,9 @@ startup.
 
 `Shell\PluginLoader` loads a common package's public parameterless `IPlugin` entry type with a
 matching ID, after checking that the reopened `plugin.wsgm.json` still equals the admitted one. It
-rejects Device-category packages, which retain their selected installation slot and adapter. Package
-roots and entry/manifest files cannot be reparse points. Package constructors must not acquire
-external resources.
+rejects Device-category packages, which retain their dedicated installation slot and runtime.
+Package roots and entry/manifest files cannot be reparse points. Package constructors must not
+acquire external resources.
 
 The device package and common packages share that loader and its `PluginLoadContext`, including
 host-owned Device/common SDK type identity, shared WinRT process state, host-first dependencies and
@@ -507,3 +511,24 @@ Validation uses fake providers, source-generated config round trips, ordered tra
 admission checks and headless editor interactions. It does not represent a physical HDMI-switch,
 live logon, Modern Standby or Steam-window placement pass. Those remain hardware review scenarios,
 separate from #52's carrier measurement and real-remote acceptance.
+
+## Source routes
+
+| Boundary                                                    | Owning source                                                                                                                                                                                                                    |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Public types and interface semantics                        | [Common SDK reference](../src/WSGM.Plugin.Sdk/docs/reference.md)                                                                                                                                                                 |
+| Archive admission and version selection                     | [PluginPackageFile](../src/WSGM/Core/PluginPackageFile.cs), [PluginPackageCatalog](../src/WSGM/Core/PluginPackageCatalog.cs)                                                                                                     |
+| Instance activation and dependency order                    | [CommonPluginManager](../src/WSGM/Shell/CommonPluginManager.cs), [CommonPluginDependencyPlan](../src/WSGM/Shell/CommonPluginDependencyPlan.cs)                                                                                   |
+| Collectible loading and shared assembly identity            | [PluginLoader](../src/WSGM/Shell/PluginLoader.cs)                                                                                                                                                                                |
+| Lifecycle serialization, generations and retained ownership | [PluginHost / PluginRegistration](../src/WSGM/Shell/PluginHost.cs)                                                                                                                                                               |
+| Desired configuration and effective state                   | [CommonPluginSettings](../src/WSGM/Shell/CommonPluginSettings.cs) and the registration's publication handlers                                                                                                                    |
+| Named actions and session sequences                         | [CommonPluginActions](../src/WSGM/Shell/CommonPluginActions.cs), [PluginActionSequence](../src/WSGM/Shell/PluginActionSequence.cs)                                                                                               |
+| Overlay and Steam projections                               | [CommonPluginOverlaySource](../src/WSGM/Shell/CommonPluginOverlaySource.cs), [CommonPluginSteamUiSource](../src/WSGM/Shell/CommonPluginSteamUiSource.cs)                                                                         |
+| GPU capability admission and profile routing                | [PluginCapabilityChannel](../src/WSGM/Shell/PluginCapabilityChannel.cs), [GpuCoordinator](../src/WSGM/Shell/GpuCoordinator.cs)                                                                                                   |
+| Shared AMD/NVIDIA runtime                                   | [DriverRuntime](../src/Shared/Gpu/DriverRuntime.cs), [DriverDescriptors](../src/Shared/Gpu/DriverDescriptors.cs), [WriteAdmission](../src/Shared/Gpu/WriteAdmission.cs), [DriverStateFile](../src/Shared/Gpu/DriverStateFile.cs) |
+
+The common host serializes an instance's lifecycle/actions. Capability channels delegate hardware
+serialization to each GPU runtime; the AMD/NVIDIA shared runtime and Intel runtime keep their own
+native lane so polling cannot interleave with a setter or unload its library. Support probes run
+before descriptor publication and round-trip the native state once; that startup policy is distinct
+from ordinary user writes, whose success is not gated by readback.

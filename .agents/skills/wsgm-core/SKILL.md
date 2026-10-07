@@ -13,13 +13,17 @@ description:
 Change the resident Windows shell application through its existing owners and recovery boundaries.
 Do not turn `ShellSession`, `App.axaml.cs`, or this skill into a catch-all.
 
+For the general repository structure and where a new task belongs, start with the `wsgm` skill. Use
+this skill for the application state, ownership and lifetime work after that routing decision.
+
 ## Establish current truth
 
 1. Resolve the root with `git rev-parse --show-toplevel`, then read the root and nearest
    `AGENTS.md`. Inspect `git status --short --branch` and `git submodule status --recursive` before
    editing.
-2. Start at `docs/README.md`, then read `docs/decisions.md` and the mechanism document for the
-   subsystem. Current code/tests beat a dated plan or hardware note.
+2. Start at `docs/README.md`, then read `docs/architecture.md`, `docs/development.md`,
+   `docs/decisions.md` and the mechanism document for the subsystem. Use `docs/source-map.md` to
+   locate source owners. Current code/tests beat a dated plan or hardware note.
 3. Read [references/architecture-and-routing.md](references/architecture-and-routing.md) to select
    the owner and specialized skill.
 4. Read [references/state-lifetime-and-safety.md](references/state-lifetime-and-safety.md) before
@@ -52,6 +56,11 @@ release build.
 For Steam CEF work use `wsgm-steam-cef-toolkit` or `wsgm-steam-cef-debugging`. For the semantic
 device contract/host use `wsgm-device-sdk`; for hardware discovery use `wsgm-device-lab`.
 
+Before any live CEF tool connection, inspect Steam's file logs and establish that Steam and Big
+Picture have fully started. A listening port, process, window or target list is insufficient. Early
+attachment can hang the entire Steam UI and require force-closing Steam. Follow the specialized
+skills' readiness procedure; do not connect in order to discover whether startup is finished.
+
 ## Preserve the resident-process invariants
 
 - Keep restore-shell and other recovery-critical entry points usable before logging, configuration,
@@ -69,8 +78,11 @@ device contract/host use `wsgm-device-sdk`; for hardware discovery use `wsgm-dev
 - Treat Device Integration off as a real architecture mode: the session coordinator/owner marker
   still exist, but there is no Device plugin lifecycle, controller target, Device hardware write, or
   AutoTDP; independent WSGM, explicitly enabled common plugins and RTSS behavior remains usable.
-- Serialize capability or other persistent writes. Surface uncertainty and reconcile/read back;
-  never blindly retry an operation that might already have succeeded.
+- Serialize capability or other persistent writes. Preserve each adapter's accepted-write contract:
+  publish an accepted command as observed where the Windows/device API owns success, without a
+  mandatory readback or control gate. On uncertainty, use a separate observation or a new explicit
+  user action; never automatically retry a write that might already have succeeded. Explorer
+  recovery and ownership-ledger cleanup retain their specific verification rules.
 - Avoid allocation and logging at controller, sensor, frametime, or telemetry cadence. Log decisions
   and transitions with stable change keys.
 - Fail open to a usable Windows desktop. Preserve exact ownership of Explorer, tray, input, Steam,
@@ -83,9 +95,19 @@ an existing manager/coordinator and its state transition before adding a new ser
 user policy in `ConfigStore`, transient process state in its manager, UI-only state in the view
 model, and native handles in an owned disposable service.
 
-Cover success, refusal, cancellation, repeated invocation, partial startup, config replacement, and
-teardown in focused tests. For a cross-layer feature, test the policy independently from the
-Windows/Steam/hardware adapter.
+Keep classes and functions small enough to read as one responsibility. Reuse the existing bounded
+I/O, launch, shutdown, control and theme components listed in the architecture reference before
+adding a helper. Introduce an abstraction only for a concrete shared need; do not add a generic
+framework, a second policy engine or another copy of the same UI workflow.
+
+A new Steam/CEF feature must also provide the same feature and workflow in the WSGM Overlay. Both
+surfaces use the same state owner, commands and availability rules. Follow the specialized CEF skill
+for Steam-native components and layout; presentation may differ, but behavior must stay aligned.
+
+For behavior changes, cover success, refusal, cancellation, repeated invocation, partial startup,
+config replacement and teardown in focused tests. For a cross-layer feature, test the policy
+independently from the Windows/Steam/hardware adapter. Documentation-only corrections need source,
+link and formatting checks, not new tests that mirror prose.
 
 ## Finish with repository evidence
 

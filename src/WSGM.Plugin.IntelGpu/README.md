@@ -230,3 +230,20 @@ support.
 dotnet build src/WSGM.Plugin.IntelGpu/WSGM.Plugin.IntelGpu.csproj -c Release
 dotnet test tests/WSGM.Plugin.IntelGpu.Tests/WSGM.Plugin.IntelGpu.Tests.csproj
 ```
+
+## Source map
+
+| Layer                                                           | Owning source                                                                                                                                                                                                                           |
+| --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Common lifecycle, native lane, topology refresh and publication | [IntelGpuPlugin](IntelGpuPlugin.cs), [IntelModel](IntelModel.cs), [IntelLog](IntelLog.cs)                                                                                                                                               |
+| Native API, layouts, session and enumeration                    | [Igcl/IgclApi](Igcl/IgclApi.cs), [IgclNative](Igcl/IgclNative.cs), [IgclSession](Igcl/IgclSession.cs), [IgclSource](Igcl/IgclSource.cs)                                                                                                 |
+| Semantic fields, descriptors and value conversion               | [Controls/IntelControl](Controls/IntelControl.cs), [FieldControl](Controls/FieldControl.cs), [Descriptors](Controls/Descriptors.cs), [EnumMembers](Controls/EnumMembers.cs), [ValueMapping](Controls/ValueMapping.cs)                   |
+| Driver 3D features and shared-memory override                   | [Graphics/ThreeDFeature](Graphics/ThreeDFeature.cs), [ThreeDFeatureCatalog](Graphics/ThreeDFeatureCatalog.cs), [AdapterControls](Graphics/AdapterControls.cs), [IntelGraphicsMemoryTransport](Graphics/IntelGraphicsMemoryTransport.cs) |
+| Registry adapter matching and test seam                         | [Graphics/AdapterClassKey](Graphics/AdapterClassKey.cs), [RegistryNode](Graphics/RegistryNode.cs)                                                                                                                                       |
+| Display identity, Arc Sync, picture and power                   | [Display/DisplayIdentity](Display/DisplayIdentity.cs), [ArcSyncControls](Display/ArcSyncControls.cs), [PictureControls](Display/PictureControls.cs), [PowerControls](Display/PowerControls.cs)                                          |
+| Color conversion and whole-structure preservation               | [Display/ColorMath](Display/ColorMath.cs), [ColorPipeline](Display/ColorPipeline.cs)                                                                                                                                                    |
+| Native application-profile synchronization                      | [Profiles/ApplicationProfileSynchronizer](Profiles/ApplicationProfileSynchronizer.cs)                                                                                                                                                   |
+
+The common SDK supplies semantic contracts, while this package owns Intel's ABI and driver state. No
+UI component calls IGCL directly. Use [PROVENANCE.md](PROVENANCE.md) to distinguish measured
+laptop/Claw behavior from the unaccepted plugin paths listed above.

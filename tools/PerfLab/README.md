@@ -72,3 +72,20 @@ Those addresses already include the image's preferred base, which `dumpbin /head
 - Recording with stacks is not free: kernel stack walking shows up in the sampled processes as
   `RtlpLookupFunctionEntryForStackWalks` and friends. Compare runs against each other, not against
   an unrecorded machine.
+
+## Code map and analysis limits
+
+[`perf-capture.ps1`](perf-capture.ps1) owns the attended recording session, elevation, run-directory
+creation, Windows recorder lifetime and optional runtime counters. [`Program.cs`](Program.cs) is the
+independent offline analyzer: it opens an ETL with TraceProcessor, requests CPU sampling,
+context-switch, generic-event and symbol data, processes the trace, then optionally resolves symbols
+before writing Markdown to stdout or `--out`.
+
+The analyzer's `DefaultFocus` list selects the processes for detailed breakdowns. Supplying one or
+more `--focus` arguments replaces that default list; the all-process totals are still reported.
+`OwnImages` selects which frame counts as WSGM-owned attribution, including the toolkit, Windows
+control library, VIIPER, input lease and backdrop. `--top` defaults to 15; `--no-symbols` avoids
+symbol resolution, with less useful native frame names. Duration is derived from the sampling span,
+and lost ETW events are tolerated, so the output is evidence of the captured interval rather than an
+exact accounting of every scheduler event. The tool does not change running WSGM configuration or
+apply performance tuning.

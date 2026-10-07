@@ -6,8 +6,9 @@ using System.Text.Json.Nodes;
 namespace WSGM.Setup.UI;
 
 /// <summary>
-///     How WSGM runs: Full or Minimal, Steam or Desktop first, sign-in, and the Customize panel. It is built
-///     from the answers WSGM exported, so setup knows the feature list and the presets only as data.
+///     How WSGM runs: Full or Minimal, Steam or Desktop first, sign-in, and the state shared with the
+///     following Customize page. Built from WSGM's exported answers, so setup knows the feature list
+///     and the presets only as data.
 /// </summary>
 internal sealed class ProfilePage : Page
 {

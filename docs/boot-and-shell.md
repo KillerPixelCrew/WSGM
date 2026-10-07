@@ -33,8 +33,9 @@ ordinary coordinated shutdown: integrations and runtime resources retire, Explor
 the interactive process ends. The logon service stays installed for the next sign-in; Exit neither
 uninstalls it nor changes the configured next-logon preference.
 
-`Program.DecideMode` picks one mode from the command line. WSGM never registers as the Windows
-shell, so no arguments means Settings.
+`StartupOptions.Parse` picks one mode from the command line. `--shell` or `--boot` wins over
+`--settings`, which wins over `--overlay-test`; no mode flag means Settings. These flags are
+case-insensitive. WSGM never registers as the Windows shell.
 
 | Flag                           | Mode                                  |
 | ------------------------------ | ------------------------------------- |
@@ -68,9 +69,54 @@ Settings restores the chosen mode.
 host, hand recovery to the verified shell anchor when one exists, otherwise start Explorer if none
 is running. The logon service's watchdog is the robust outer layer.
 
-Shell mode also watches `config.json` (FileSystemWatcher, 500 ms debounce, then
-`OverlayController.ApplyConfig`). A reload replaces the config object wholesale, so runtime state
-lives on controllers, never in the config.
+Shell mode also watches `config.json` (`ShellSession.Config.cs`, FileSystemWatcher, 500 ms
+debounce). The read runs on a worker because it takes the cross-process configuration lock. A failed
+or unreadable reload retains the running configuration. A generation check rejects an older read
+both before reading and before applying on the UI thread. `ApplyReloadedConfig` replaces the
+session's configuration and fans it out to profiles, device integration, performance, Steam
+surfaces, media, session modes, the overlay, startup apps and keep-awake. Each apply step catches
+and logs its own failure so later owners still receive the update. Runtime state lives on those
+owners, never in the replaceable config object.
+
+## Startup and lifetime source map
+
+The process entry point owns ordering. Avalonia composes a session only after the recovery and
+maintenance commands, installation checks, elevation decision and shell-instance admission have
+finished.
+
+| Source                                                                                                                                                                                                              | Responsibility                                                                                                                        |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| [`Program.cs`](../src/WSGM/Program.cs) and [`StartupOptions.cs`](../src/WSGM/StartupOptions.cs)                                                                                                                     | STA entry point, early recovery commands, one-shot precedence, activation handoff, shell mutex, crash-loop breaker and panic recovery |
+| [`App.axaml.cs`](../src/WSGM/App.axaml.cs)                                                                                                                                                                          | Settings or resident-session composition, startup failure observation and Avalonia lifetime handoff                                   |
+| [`ApplicationShutdown.cs`](../src/WSGM/Core/ApplicationShutdown.cs)                                                                                                                                                 | One process-owned exit attempt, shutdown reasons, shared absolute deadline and final exit code                                        |
+| [`ShellSession.cs`](../src/WSGM/Shell/ShellSession.cs) and its partial files                                                                                                                                        | Session resources, startup, config propagation, Steam UI, library, power, performance, modes and ordered retirement                   |
+| [`BootManifestWriter.cs`](../src/WSGM/Core/BootManifestWriter.cs) and [`Shared/Boot`](../src/Shared/Boot)                                                                                                           | Projection of sign-in preferences and the shared manifest reader/writer                                                               |
+| [`WSGM.LogonService`](../src/WSGM.LogonService)                                                                                                                                                                     | SCM entry point and installation, session admission, user-token launch and one-shot desktop watchdog                                  |
+| [`ExplorerShellAnchor.cs`](../src/WSGM/Core/ExplorerShellAnchor.cs) and [`ExplorerControl.cs`](../src/WSGM/Core/ExplorerControl.cs)                                                                                 | Verified Explorer owner, anchor process/pipe, exit, restoration and recovery observation                                              |
+| [`SessionModes.cs`](../src/WSGM/Shell/SessionModes.cs), [`GameModeEntryTransaction.cs`](../src/WSGM/Shell/GameModeEntryTransaction.cs) and [`DesktopReturnSequence.cs`](../src/WSGM/Shell/DesktopReturnSequence.cs) | Serialized entry and return, compensation, Steam start and desktop readiness                                                          |
+| [`GameModeReturnRecovery.cs`](../src/WSGM/Shell/GameModeReturnRecovery.cs)                                                                                                                                          | Durable layout/audio return snapshot recovery and admission of a later entry                                                          |
+| [`BootSplash.cs`](../src/WSGM/Shell/BootSplash.cs), [`BootSplashWindow.axaml.cs`](../src/WSGM/Shell/BootSplashWindow.axaml.cs) and [`InputDesktop.cs`](../src/WSGM/Core/InputDesktop.cs)                            | Input-desktop barrier, startup cover, cancellation, detection arming and fade                                                         |
+| [`SteamMonitor.cs`](../src/WSGM/Shell/SteamMonitor.cs) and [`SteamExitPolicy.cs`](../src/WSGM/Shell/SteamExitPolicy.cs)                                                                                             | Steam presence observation and mode-dependent exit behavior                                                                           |
+| [`SessionProtocolNames.cs`](../src/Shared/Process/SessionProtocolNames.cs) and [`UpdateExitWatcher.cs`](../src/WSGM/Core/UpdateExitWatcher.cs)                                                                      | Stable cross-process names and setup/recovery exit handoffs                                                                           |
+
+The early branch order is anchor process mode, `--desktop-shell-probe`, `--restore-shell`, then
+`--unregister-shell`. None initializes logging or Avalonia. The probe returns 0 only for an actual
+desktop shell and 1 otherwise; it does not treat an Explorer folder window as a desktop. The restore
+path constructs a store but tolerates unavailable configuration and logs. After these branches,
+`Program` initializes logging and reads configuration, dispatches maintenance commands, and only
+then starts UI modes. An unreadable startup configuration supplies read-only defaults rather than
+overwriting recovery state.
+
+The outer cleanup budgets are 15 seconds for ordinary exit, 10 for update, 20 for uninstall and 5
+for Windows session end. Update's separate Steam/wrapper pre-stop runs before its cleanup budget. A
+repeated exit request joins the original attempt; a later Windows session-end request can shorten
+the deadline and permanently suppress desktop restoration. Clean cleanup returns 0; incomplete or
+failed cleanup returns 1, and startup failure retains 1 even if cleanup succeeds. These are process
+outcomes, not evidence that a particular hardware operation completed.
+
+For build prerequisites and the executable layout, see [development](development.md). This guide's
+dated hardware observations remain historical evidence; reading the current implementation does not
+renew those acceptance results.
 
 ## Logon service and boot flow
 

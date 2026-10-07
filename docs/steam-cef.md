@@ -1,5 +1,14 @@
 # Driving Steam through its CEF front-end
 
+This page preserves dated findings and earlier implementation evidence. For current ownership,
+registrations and lifecycle use [Steam CEF system](steam-cef-system.md) and the
+[toolkit reference](../external/steam-ui-toolkit/docs/reference.md). Historical module ids and
+minified exports below identify only the client inspected on that date; never reuse them as current
+fingerprints. Before any new debugger connection, including target listing, follow the system
+reference's
+[log-confirmed startup preflight](steam-cef-system.md#required-startup-evidence-before-attended-debugging).
+No new live Steam evidence was collected for the documentation audit of 2026-10-07.
+
 What WSGM has learned by driving the Steam client's Chromium front-end on a live Windows machine:
 the rules each feature rests on, the device findings behind them, and the approaches that were tried
 and disproven. It covers library registration, custom tabs, the card badge and artwork, launch

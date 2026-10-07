@@ -9,7 +9,7 @@ event / user intent / observation
   -> one policy decision
   -> one owning manager or store
   -> side effect through a narrow adapter
-  -> observed/read-back state
+  -> accepted/observed state, or explicit uncertainty
   -> Settings, Overlay, Steam/QAM, or log projection
   -> ordered cleanup/restoration
 ```
@@ -19,8 +19,13 @@ coordinator, command lane, projection, enum, or disposal point before adding a p
 control is rarely the state owner; a native adapter is never the policy owner.
 
 For bugs, locate the first boundary contradicted by evidence: input/observation, policy, ownership,
-dispatch, side effect, readback, projection, or teardown. Do not patch the last visible symptom when
-the owner stopped publishing or disposed early.
+dispatch, side effect, observation, projection, or teardown. Do not patch the last visible symptom
+when the owner stopped publishing or disposed early.
+
+An accepted Windows/device write is published according to that API's contract. Do not add a
+mandatory readback or disable a control because a separate getter cannot confirm the value.
+Uncertain writes are not retried automatically; Explorer and ownership-ledger recovery still require
+their explicit verification evidence.
 
 ## Implementation checklist
 
@@ -35,6 +40,10 @@ the owner stopped publishing or disposed early.
   and affected skill/guidance in the same commit.
 - Generated outputs are never hand-edited. Use the owning generator and check source, hash, and
   ownership tests.
+- Before live Steam CEF tool attachment, confirm Steam and Big Picture have fully started from
+  Steam's file logs. Do not use a listening endpoint, a window or a first connection as the startup
+  check. Route the operation through the specialized Steam CEF skill; early attachment can hang the
+  whole Steam UI and require force-closing Steam.
 
 ## Focused tests
 
@@ -52,7 +61,8 @@ Choose a filter matching the actual boundary, for example:
 | Device host                 | use `wsgm-device-sdk` and its host test map                               |
 | Steam CEF                   | use the Steam CEF skills and toolkit tests                                |
 
-Typical command from the WSGM root:
+After the maintainer's manual test report, unless tests were explicitly requested sooner, use a
+filter for the actual boundary from the WSGM root:
 
 ```powershell
 dotnet test tests/WSGM.Tests/WSGM.Tests.csproj --configuration Release --filter "FullyQualifiedName~Area"
@@ -62,18 +72,23 @@ For reload, overlay publication, tray/Explorer, and shutdown ownership, start wi
 files:
 
 - `tests/WSGM.Tests/Core/ConfigurationTests.cs`
+- `tests/WSGM.Tests/App/ModeSelectionTests.cs`
 - `tests/WSGM.Tests/Overlay/QuickAccessSheetTests.cs`
 - `tests/WSGM.Tests/Shell/SessionModesTests.cs`
 - `tests/WSGM.Tests/Core/ApplicationShutdownTests.cs`
+- `tests/WSGM.Tests/Shell/SessionShutdownTests.cs`
 - `tests/WSGM.Tests/Core/TrayProtocolTests.cs`
 - `tests/WSGM.Tests/Shell/ExplorerReadinessTests.cs`
 - `tests/WSGM.Tests/Core/ExplorerShellPolicyTests.cs`
 
-Current gaps need dedicated regression tests: repeated watcher initialization, stale reload after
-dispose, dispatcher-only publication to the current view model, duplicate game-mode entry retaining
-the live tray owner, every shutdown phase continuing after injected faults, tray-before-Explorer
-ordering, anchor retention on failed recovery, repeated shutdown, and `SessionEnd` never launching
-Explorer. Existing failure aggregation alone does not prove phase continuation.
+Use the existing tests to identify what a behavioral change actually leaves uncovered. Relevant
+cases include repeated watcher initialization, stale reload after dispose, dispatcher-only
+publication to the current view model, duplicate entry retaining the live tray owner, phase
+continuation after faults, tray-before-Explorer ordering, anchor retention on failed recovery,
+repeated shutdown and `SessionEnd` suppressing Explorer. `SessionShutdownTests` already covers the
+admission-step failure seam and deadline joins; `ApplicationShutdownTests` covers reason priority,
+single ownership and deadline tightening. Do not present a historical gap list as current coverage
+without reading the tests. Documentation-only edits need no new behavioral tests.
 
 Test policy and state machines with fakes/temp roots. A compile-only build with
 `SkipNativeArtifacts=true` does not prove the package or installer contains native payloads.
@@ -82,7 +97,8 @@ Test policy and state machines with fakes/temp roots. A compile-only build with
 
 Before changing reusable code, inspect the child repository's status and guidance. Commit/test/push
 the child first, then stage only its gitlink in WSGM. Device projects are ordinary WSGM source:
-change the shared SDK and all affected consumers in the same pull request. Never run an update
+change the shared SDK and all affected consumers together in WSGM. Use the repository's direct
+default-branch workflow unless the user specifically requested a pull request. Never run an update
 command that overwrites a moved or dirty child checkout.
 
 Steam injected source is generated into `src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js`; use the
@@ -102,13 +118,21 @@ use focused checks for follow-ups unless the changes justify another full run:
 ```
 
 The gate checks formatting, generated Steam assets/claims, guidance links, PowerShell syntax,
-live-data exclusions, pins, Steam Input, restore, warning-clean Release builds, tests, and coverage.
-It does not prove live shell, Steam, device, controller, or hardware behavior.
+live-data exclusions, pins, Steam Input, restore, Rider cleanup/style/analyzers, warning-clean
+Release builds, all solution tests, main-suite coverage and compilation of tracked tool projects
+outside the solution. It does not build/validate VIIPER; use its own `-Validate` gate after manual
+testing when that submodule changes. It does not prove live shell, Steam, device, controller, or
+hardware behavior.
 
 `./eng/verify.ps1 -Fix` writes formatting changes. Use it only when the resulting tree is within the
 task and every change will be reviewed. `./build.ps1` stages native components, all applications,
 the plugin bundle and controller payload, and the WSGM setup; run it only for an explicitly
 requested release or setup handoff.
+
+`build.ps1` itself runs Steam Input/VIIPER test-bearing validation, so it follows the same
+manual-first timing. It is not a compile-only substitute for `verify.ps1`. `docs/development.md`
+gives the separate managed/native compilation commands, generated-artifact ownership and required
+toolchains.
 
 Before commit/push:
 
@@ -117,7 +141,8 @@ Before commit/push:
 3. confirm each changed child commit is published before its parent pin;
 4. commit the intended scope directly to `master` (or `wsgm` in external/viiper), with no task
    branch or pull request unless the task asks for one;
-5. validate as the root AGENTS.md "Validation" section says: the full `./eng/verify.ps1` once for
+5. validate as the root AGENTS.md "Validation" section says, keeping test-bearing gates deferred
+   until manual testing is reported unless requested sooner: the full `./eng/verify.ps1` once for
    the initial implementation, then only the checks the follow-up diff affects. The full gate
    repeats only for a stated broad impact, and a documentation or guidance change takes
    `npm run format:check` and `eng/check-agent-guidance.ps1`. A requested pull request adds the root

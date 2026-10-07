@@ -27,7 +27,9 @@ same `src\Shared\Launch\PackagedLaunchCommand.cs`, so the two cannot drift.
 ```text
 WSGM.PackagedLaunch.exe --aumid <PackageFamilyName>!<AppId> --mode steam-overlay|controller-only
                         [--multiplayer] [--acknowledge-ban-risk] [--args <text>]
-                        [--diagnostics] [--report-privileges] [--recover] [--help]
+                        [--diagnostics] [--report-privileges]
+WSGM.PackagedLaunch.exe --recover
+WSGM.PackagedLaunch.exe --help
 ```
 
 A missing or malformed `--aumid`, an unrecognised `--mode` and any unknown option are refusals, not
@@ -40,16 +42,18 @@ the route is decided from the process activation produces, never from the comman
 
 ## Choosing a route
 
-Route selection is one pure function over five inputs: the mode, whether the seed process is an
-AppContainer, whether the package carries `MicrosoftGame.config`, multiplayer, and the
-acknowledgement. Its theory tests assert the two rules that matter: controller-only never yields an
-injecting strategy, and no route injects without evidence of which runtime it is dealing with.
+Admission, classification and selection are separate steps. The shared command parser refuses a
+multiplayer overlay request without acknowledgement. After activation, `PackageIdentity.Classify`
+turns the seed process's AppContainer status and GDK helper/package evidence into `PackagedRuntime`.
+The pure `LaunchRouteSelector.Select` then takes exactly two inputs: requested input mode and
+classified runtime. Its theory tests cover the two invariants: controller-only never yields an
+injecting strategy, and an unknown runtime never injects.
 
-| Seed process                                  | Route              | What it does                                                       |
-| --------------------------------------------- | ------------------ | ------------------------------------------------------------------ |
-| AppContainer token                            | Native UWP         | Object broker, input bridge, foreground correction                 |
-| Full trust, package carries a GDK game config | Packaged Win32/GDK | Steam set up in the launch helper, then Steam's own child handoff  |
-| Full trust, no GDK evidence                   | None               | Supervises without injecting, reports the session degraded and why |
+| Seed process                                                            | Route              | What it does                                                       |
+| ----------------------------------------------------------------------- | ------------------ | ------------------------------------------------------------------ |
+| AppContainer token                                                      | Native UWP         | Object broker, input bridge, foreground correction                 |
+| Full trust, `gamelaunchhelper.exe` or package carries a GDK game config | Packaged Win32/GDK | Steam set up in the launch helper, then Steam's own child handoff  |
+| Full trust, no GDK evidence                                             | None               | Supervises without injecting, reports the session degraded and why |
 
 An unclassified runtime has no validated route, so there is nothing an acknowledgement could
 authorise. It is never offered one.
@@ -153,8 +157,10 @@ there on its own.
 Discovery reads each process once. A process keeps its verdict while it stays in the snapshots under
 the same id, parent and name, so a poll opens no handle to a process already judged, and the memory
 is pruned to what is running. It polls every half second until the game appears and every two
-seconds after that. A process is known by its id and start time, so a new game process that reuses a
-finished one's id is still contained.
+seconds while establishing a followed session. Once its discovery window ends and the job has active
+processes, only the job count is checked. Machine discovery resumes at half-second intervals while
+the job is empty, including the exit grace. A process is known by its id and start time, so a new
+game process that reuses a finished one's id is still contained.
 
 For Minecraft, the shortcut starts the launcher with the instance rather than building a Java
 command itself. A direct command would carry a Microsoft account token that expires within a day,
@@ -198,6 +204,51 @@ instance's name, which its `--launch` matches together with the safe name (`App.
 `%LOCALAPPDATA%\WSGM\packaged-launch.log`, with `launch.log`'s size, rotation and line shape. Never
 logged: environment variable values or the environment block, SDDL, window titles, module lists, and
 token SIDs beyond a yes/no and an integrity word. See [logging](logging.md).
+
+## Session timing and exit contract
+
+`GameSessionSupervisor` supplies observations to the pure `GameSessionExitDecision`. A packaged
+title has 90 seconds to appear, a 30-second discovery window after the first match and a 5-second
+empty-session grace. A followed title has five minutes to appear, a three-minute discovery window
+and a 15-second exit grace. An empty containment job is not proof of exit: assignment can be refused
+by an existing Windows job, or the game can restart outside the previous tree, so the supervisor
+rechecks process identity before ending Steam's running state.
+
+The job is kill-on-close during ordinary ownership and abrupt wrapper termination. Cooperative
+cancellation deliberately calls `Abandon` before disposing it, leaving the game running and
+returning the cancelled outcome. A forced process termination cannot run that release path. This
+distinction applies to both packaged and followed sessions.
+
+| Exit code | Meaning                                                                                      |
+| --------- | -------------------------------------------------------------------------------------------- |
+| `0`       | Game completed, help printed, or recovery finished with an empty journal                     |
+| `1`       | No recognized game appeared, including a followed launcher that failed with no resident copy |
+| `2`       | Invalid/refused command line                                                                 |
+| `3`       | Package activation or followed-program start failed                                          |
+| `4`       | Reserved refusal constant; the current entry point does not return it                        |
+| `5`       | The game ran, but requested integration was degraded                                         |
+| `6`       | Cooperative stop requested; the job was released before exit                                 |
+| `7`       | `--recover` left package-exemption records, including records still owned by a live launcher |
+
+## Source ownership
+
+| Source                                                                                                                                                                                                                                                                        | Responsibility                                                                                              |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| [`Program.cs`](../src/WSGM.PackagedLaunch/Program.cs)                                                                                                                                                                                                                         | STA composition: parse, recover, activate, classify, choose route, supervise and unwind                     |
+| [`Shared/Launch/PackagedLaunchCommand.cs`](../src/Shared/Launch/PackagedLaunchCommand.cs) and [`RawCommandLine.cs`](../src/WSGM.PackagedLaunch/RawCommandLine.cs)                                                                                                             | Shared shortcut vocabulary, command length/admission, follow arguments and raw Windows command-line slicing |
+| [`Packaging`](../src/WSGM.PackagedLaunch/Packaging)                                                                                                                                                                                                                           | AAM activation, package identity, lifetime exemption and durable recovery-record ownership                  |
+| [`Strategies`](../src/WSGM.PackagedLaunch/Strategies)                                                                                                                                                                                                                         | Pure route selector, helper-only Win32 setup and complete AppContainer bridge route                         |
+| [`Injection/GameInjector.cs`](../src/WSGM.PackagedLaunch/Injection/GameInjector.cs)                                                                                                                                                                                           | Remote environment/DLL work, per-process timeout latch and refusal of uncertain retries                     |
+| [`Injection/OverlayObjectBroker.cs`](../src/WSGM.PackagedLaunch/Injection/OverlayObjectBroker.cs) and [`OverlayObjectAllowList.cs`](../src/WSGM.PackagedLaunch/Injection/OverlayObjectAllowList.cs)                                                                           | Desktop Steam IPC object access and bounded broker vocabulary                                               |
+| [`Bridge/Bridge.cpp`](../src/WSGM.PackagedLaunch/Bridge/Bridge.cpp) and [`InputActivation.cpp`](../src/WSGM.PackagedLaunch/Bridge/InputActivation.cpp)                                                                                                                        | Native MinHook object bridge and WinRT gamepad activation routing; built as `WsgmUwpBridge.dll`             |
+| [`Session/GameSessionSupervisor.cs`](../src/WSGM.PackagedLaunch/Session/GameSessionSupervisor.cs), [`GameSessionJob.cs`](../src/WSGM.PackagedLaunch/Session/GameSessionJob.cs), [`GameSessionExitDecision.cs`](../src/WSGM.PackagedLaunch/Session/GameSessionExitDecision.cs) | Discovery/active-count observation, containment, timing and final outcome                                   |
+| [`Session/FollowSession.cs`](../src/WSGM.PackagedLaunch/Session/FollowSession.cs), [`FollowedGame.cs`](../src/WSGM.PackagedLaunch/Session/FollowedGame.cs), [`DetachedStart.cs`](../src/WSGM.PackagedLaunch/Session/DetachedStart.cs)                                         | External-launcher start, path/Java-instance matching and injection-free supervision                         |
+| [`Session/GameForegroundProxy.cs`](../src/WSGM.PackagedLaunch/Session/GameForegroundProxy.cs) and [`ForegroundPumpLifetime.cs`](../src/WSGM.PackagedLaunch/Session/ForegroundPumpLifetime.cs)                                                                                 | Owned foreground window/event pump and AppContainer resume correction                                       |
+| [`Session/ProcessInspector.cs`](../src/WSGM.PackagedLaunch/Session/ProcessInspector.cs), [`Injection/CompleteModuleInspection.cs`](../src/WSGM.PackagedLaunch/Injection/CompleteModuleInspection.cs), [`Diagnostics`](../src/WSGM.PackagedLaunch/Diagnostics)                 | Native observations, complete module-inspection result and bounded diagnostic reporting                     |
+
+Build staging is described in [development](development.md). Compilation and route-policy tests
+cannot establish activation, overlay, controller, Alt-Tab or anti-cheat behavior; those remain
+attended title-specific checks.
 
 ## Evidence: the attended trials of September 2026
 

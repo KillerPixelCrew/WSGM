@@ -65,7 +65,8 @@ internal interface IGameModeEntryBackend
     Task<DisplayArrangement> WaitForDisplaysAsync(
         IReadOnlyList<DisplayTargetIdentity> targets, CancellationToken cancellationToken);
 
-    /// <summary>Applies a layout and confirms it by readback.</summary>
+    /// <summary>Applies a layout using the Windows Device Control result and its bounded rollback policy.</summary>
+    /// <remarks>Windows acceptance completes the write; no matching-readback gate or automatic retry is added.</remarks>
     /// <param name="layout">The layout to apply.</param>
     /// <param name="cancellationToken">Cancels before the write starts.</param>
     /// <returns>What happened.</returns>

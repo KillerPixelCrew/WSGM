@@ -23,13 +23,19 @@ public interface ICapabilityHost
     /// <summary>Publishes an immutable replacement descriptor set for the current cycle.</summary>
     /// <param name="descriptors">Complete descriptor set; roles must be declared in the manifest.</param>
     /// <param name="cancellationToken">Cancels publication.</param>
-    /// <returns>A task completing after WSGM accepted it.</returns>
+    /// <returns>A task completing after the publication channel dispatched it.</returns>
+    /// <remarks>
+    ///     The downstream router validates the record independently; completion is not proof of router acceptance.
+    /// </remarks>
     ValueTask PublishDescriptorsAsync(CapabilityDescriptorSet descriptors, CancellationToken cancellationToken);
 
     /// <summary>Publishes one capability observation.</summary>
     /// <param name="state">Live semantic state for a published descriptor.</param>
     /// <param name="cancellationToken">Cancels publication.</param>
-    /// <returns>A task completing after WSGM accepted it.</returns>
+    /// <returns>A task completing after the publication channel dispatched it.</returns>
+    /// <remarks>
+    ///     The downstream router validates the record independently; completion is not proof of router acceptance.
+    /// </remarks>
     ValueTask PublishCapabilityStateAsync(CapabilityState state, CancellationToken cancellationToken);
 }
 

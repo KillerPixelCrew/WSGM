@@ -316,7 +316,7 @@ public sealed class OverlayViewModel : ObservableObject
         ShowLibraryTabs || ShowCardManager || ShowSdCard;
 
     /// <summary>
-    ///     Whether the Steam tab's Game Library tile is offered: CEF is on and this session has a
+    ///     Whether Tools > Library Importer is offered: CEF is on and this session has a
     ///     library.
     /// </summary>
     public bool ShowGameLibrary

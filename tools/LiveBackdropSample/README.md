@@ -22,3 +22,18 @@ dotnet publish tools/LiveBackdropSample/LiveBackdropSample.csproj -c Release -o 
 ```
 
 The library README documents API ownership, fallback, support limits and attribution.
+
+## Code and lifetime
+
+[`Program.cs`](Program.cs) contains the standalone Avalonia entry point and `SampleApplication`.
+`CreateWindow` configures one transparent topmost window and one `LiveBackdrop` attachment. The
+slider updates `BlurRadius`, the checkbox updates `IsEnabled`, Recreate calls `Retry`, and a
+one-shot dispatcher timer implements hide/show. Closing the window disposes the attachment through
+the library's window-close subscription; the sample also stops its return timer.
+
+[`LiveBackdropSample.csproj`](LiveBackdropSample.csproj) references only the reusable backdrop
+project for this integration. The
+[library README](../../src/Avalonia.LiveBackdrop/README.md#api-and-source-map) traces the
+managed/native ABI, build artifacts and failure behavior. The confirmations above are historical
+device evidence; running a headless test or merely rebuilding this sample is not a new Steam/game
+compositor pass.

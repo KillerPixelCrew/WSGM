@@ -3,11 +3,10 @@
 ## Host topology
 
 ```text
-Program package-cardinality preflight
-  -> ShellSession
+ShellSession
   -> DeviceCoordinator (machine owner and cycle orchestration)
-  -> PluginPackageLoader (nested collectible PluginLoadContext)
-  -> PluginHost registration -> DevicePluginCompatibilityAdapter -> DevicePluginRuntime -> IDevicePlugin
+  -> PluginPackageCatalog -> PluginLoader (collectible PluginLoadContext)
+  -> DevicePluginRuntime -> IDevicePlugin
   -> host adapter publications
   -> capability/settings/OEM/controller/glyph consumers
 ```
@@ -17,14 +16,15 @@ Packages are `.wsgmpkg` files in `%ProgramFiles%\WSGM\Plugins`, device and commo
 WSGM stays usable. With more than one, device integration stays passive and WSGM starts normally.
 Loading happens only when Device Integration is enabled.
 
-The Shell owns the common `PluginHost`. DeviceCoordinator preserves controller-release ordering and
-uses its registration for lifecycle calls. An uncertain stop or disposal retains category capacity;
-a timed-out call retains its lifecycle lane until the actual task ends. `CommonPluginManager` takes
-the common packages from the same catalog. It starts only instances enabled in
-`AppConfig.PluginInstances` and owns their config refresh, power transitions and shutdown
-independently of Device Integration. The Settings Plugin tab edits activation. `eng/new-plugin.ps1`
-and `eng/package-plugin.ps1` scaffold and package common plugins. See `docs/plugin-system.md` for
-health generations, resident mode revisions and the remaining UI follow-ons.
+The Shell owns the common `PluginHost`, which refuses the Device category. DeviceCoordinator
+preserves controller-release ordering and calls its dedicated runtime directly. The common host
+retains category capacity after an uncertain stop/disposal and retains a timed-out lifecycle lane
+until the actual task ends. `CommonPluginManager` takes common packages from the same catalog. It
+starts configured enabled instances, plus an implicit default GPU instance when a matching adapter
+exists and no explicit instance choice overrides it, independently of Device Integration. The
+Settings Plugin tab edits activation. `eng/new-plugin.ps1` and `eng/package-plugin.ps1` scaffold and
+package common plugins. See `docs/plugin-system.md` for health generations, resident mode revisions
+and the remaining UI follow-ons.
 
 Important owners:
 
@@ -57,7 +57,7 @@ context rather than claiming a verified unload.
 
 ## Lifecycle and deadlines
 
-- Slot acquisition: 5 seconds.
+- Device-owner reservation is an immediate named-marker election, not a waited package-slot lock.
 - Start: 15 seconds.
 - Suspend/resume: 5 seconds.
 - Controller-management toggle: 6 seconds.
@@ -111,9 +111,10 @@ Work through the exact failing run:
 
 1. Record the WSGM and package versions, the machine, scenario and settings, and a narrow timestamp
    range.
-2. Find `Device plugin startup inventory:` and any gate or cardinality refusal.
+2. Read catalog errors and any `Device cycle passive:` refusal; multiple device IDs leave WSGM
+   running.
 3. Separate machine-owner denial from integration-disabled or passive state:
-   `Device cycle passive: <code>; packageRoots=<n>.` versus
+   `Device cycle passive: <code>; devicePackages=<n>.` versus
    `Device cycle active: package=…, state=…`.
 4. Follow `Device cycle: state=...`, cycle generation, and matched/cleared definition.
 5. Inspect loader/start errors for API, architecture, entry type, package ID, dependency, and WinRT
@@ -139,33 +140,27 @@ The Settings diagnostics pipe `WSGM.DeviceCoordinator.<sessionId>` is a read-onl
 package, generation, cycle, and capability counts. It does not expose the complete detection or
 lifecycle reason.
 
-The `DetectAsync` no-match reason is never logged. Detection runs before the plugin can install
-`PluginTrace`, and the host logs only the resulting state. A no-match therefore appears only as
-`Device cycle active: …, state=Passive`. To learn why, compare identity with Device Lab
-(`wsgm-device candidates` or `test plugin`).
+Detection runs before the plugin can install `PluginTrace`. The coordinator's no-match retirement
+line is `Device detection passive: package=…; runtime retired.`. To learn why, compare identity with
+Device Lab (`wsgm-device candidates` or `test plugin`).
 
-## Current code-inspection traps
+## Current lifecycle checks
 
-These have no focused regression test. Recheck them before blaming plugin code:
+Recheck source before diagnosing an old regression as current behavior:
 
-- `PluginSettingsCoordinator.Attach` runs in `DeviceCoordinator` after the plugin's own `StartAsync`
-  (through `_pluginRegistration.StartAsync`) has returned. The runtime does not replay a manifest
-  published during start, and `Attach` clears the cached manifest. A missing initial settings page
-  can therefore be host ordering rather than a missing publication.
-- After a Passive (no-match) cycle, teardown still requests controller release and plugin stop. The
-  runtime's `EnsureLifecycleActive` guard turns that into
-  `Controller release: the plugin did not let go cleanly: The device plugin is not active.` and
-  `StopAsync` also calls the never-started plugin's `StopAsync`. Treat this as host noise.
-
-These used to be traps and are now covered by tests:
-
-- On resume the router adopts the runtime's new cycle before validating its first descriptor
-  publication; controller-management re-enable keeps the cycle. The coordinator's post-call
-  synchronization keeps that accepted readback, and descriptor generation can restart at one
-  (`DevicePluginRuntimeTests.ResumePublishesFreshLightingIntoTheRouterBeforeTheLifecycleCallReturns`).
-- Desired-state admission and lighting restore are covered by `DeviceDesiredWriteAdmissionTests` and
-  `DeviceLightingRestoreTests`. The choice of `DesiredStateRestore` over `User` still has no test of
-  its own.
+- The runtime retains the latest settings manifest in `SettingsManifest`.
+  `PluginSettingsCoordinator.Attach` subscribes and immediately reads it with `OnManifest`, so a
+  manifest published during `StartAsync` is delivered after the matched definition is known.
+- A no-match detection is retired immediately. `DevicePluginRuntime.StopCoreAsync` skips the
+  plugin's stop when start was never attempted;
+  `PassiveDetectionRetiresTheRuntimeWithoutStartingOrStoppingThePlugin` covers this path. Do not
+  treat a passive package as a live device cycle.
+- On resume the router adopts the new capability cycle before validating descriptors. Controller
+  management re-enable keeps the cycle; descriptor generation can restart at one only in a new
+  cycle. See `DevicePluginRuntimeTests` for the publication/lifecycle ordering fixtures.
+- Desired-state admission and lighting attempt limits are covered by
+  `DeviceDesiredWriteAdmissionTests` and `DeviceLightingRestoreTests`. Inspect the command origin:
+  restoration uses `DesiredStateRestore` and never creates a saved user edit.
 
 Desired values are profile values (`docs\profiles.md`): the running game's enabled profile, then
 Global, then none. Restoration uses `DesiredStateRestore`, never `User`, and runs once per cycle
@@ -187,12 +182,12 @@ Paths are under `src/WSGM/` unless another project is named.
 | Host mechanism and rationale | `docs/device-plugin-system.md`, `docs/device-integration.md`, `docs/plugin-system.md`                                                                                                                |
 | SDK contract                 | `src/WSGM.Device.Sdk/docs/reference.md`, `src/WSGM.Device.Sdk/`                                                                                                                                      |
 | Package files and discovery  | `Core/PluginPackageFile.cs`, `PluginPackageCatalog.cs`, `src/Shared/Install/InstallLayout.cs`                                                                                                        |
-| Load and lifecycle           | `Shell/DeviceCoordinator.cs`, `DevicePluginRuntime.cs`, `DevicePluginCompatibilityAdapter.cs`, `PluginHost.cs`, `PluginPackageLoader.cs`                                                             |
-| Common plugins               | `Shell/CommonPluginManager.cs`, `CommonPluginPackage.cs`, `CommonPluginSettings.cs`; `src/WSGM.Plugin.Ir`                                                                                            |
+| Load and lifecycle           | `Shell/DeviceCoordinator.cs`, `DevicePluginRuntime.cs`, `PluginLoader.cs`; common lifecycle in `PluginHost.cs`                                                                                       |
+| Common plugins               | `Shell/CommonPluginManager.cs`, `CommonPluginDependencyPlan.cs`, `CommonPluginSettings.cs`; `src/WSGM.Plugin.Ir`                                                                                     |
 | Publications and commands    | `Shell/DeviceCapabilityRouter.cs`, `PluginSettingsCoordinator.cs`, `DeviceOemActionRouter.cs`                                                                                                        |
 | Desired state and restore    | `Shell/DeviceDesiredWriteAdmission.cs`, `DeviceLightingRestore.cs`, `DeviceProfileApplier.cs`                                                                                                        |
 | Power and AutoTDP            | `Core/AutoTdp.cs`, `Shell/AutoTdpService.cs`, `DevicePowerPresets.cs`, `DevicePowerAssignments.cs`, `NativeQamPowerPresetService.cs`                                                                 |
-| Windows power schemes        | `Core/PowerSchemes.cs`, `Interop/WindowsPowerSchemeApi.cs`, `Overlay/PowerSchemeView.cs` (work with Device Integration off)                                                                          |
+| Windows power schemes        | `Core/PowerSchemes.cs`, `Core/WindowsPowerPolicy.cs`, `Overlay/PowerSchemeView.cs` (work with Device Integration off)                                                                                |
 | Diagnostics and identity     | `Shell/DeviceCoordinatorDiagnostics.cs`; `src/WSGM.Install/DeviceMachineIdentity.cs`                                                                                                                 |
 | Controller safety            | `Shell/ControllerManager.cs` (`ReleaseAsync`), `HidHideOwnership.cs`, `PluginHapticSink.cs`, `Input/ManagedUiPad.cs`                                                                                 |
 | Target input/output          | `Input/ManagedControllerRouter.cs`, `ControllerOutputRouter.cs`, `IControllerTargetBackend.cs`, `ViiperControllerBackend.cs`, `Xbox360Report.cs`, `DualShock4Report.cs`, `SteamDeckNeptuneReport.cs` |
