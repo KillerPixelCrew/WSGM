@@ -1014,6 +1014,13 @@ remain deferred until the maintainer reports a manual pass.
 
 ## ROM import, emulator management and availability, 2026-10-06
 
+Emulator Manager mockup overhaul, 2026-10-08: Installed/Available tabs, installation and update
+groups, searchable core filters, console-family defaults, and the shared EmuDeck-layout BIOS folder
+are implemented in Steam and the Overlay. The backend checks local MD5 metadata, configures native
+BIOS paths, preserves previous files and installs supplied firmware. Render previews cover all six
+Overlay screens. Automated tests and live Steam/emulator acceptance remain deferred until the
+maintainer's manual pass; build/deployment evidence is recorded with the delivery commit.
+
 - [x] Implement ROM/manual sources, dynamic core systems, previews, per-source/title overrides,
       preserved identities and explicit cleanup alongside the launcher sources.
 - [x] Implement RetroArch with all published Windows cores, DuckStation, RPCS3, PCSX2, Eden and

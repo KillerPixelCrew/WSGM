@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -14,7 +15,16 @@ internal sealed record EmulatorPageState(
     IReadOnlyList<RomSystemProfile> RomSystems,
     IReadOnlyList<RomSystemEmulatorChoices> Choices,
     IReadOnlyList<EmulatorDependencyCount> Dependencies,
-    string Architecture);
+    string Architecture)
+{
+    public EmulatorBiosState Bios { get; init; } = new("", false, []);
+    public EmulatorListItem[] Installed { get; init; } = [];
+    public EmulatorCoreStatus[] CoreStatus { get; init; } = [];
+}
+
+internal sealed record EmulatorListItem(string Id, string Detail, string Badge, bool UpdateAvailable);
+
+internal sealed record EmulatorCoreStatus(string InstallationId, string CoreId, bool Missing);
 
 internal sealed record EmulatorProgressState(bool Busy, string Status);
 
@@ -26,6 +36,10 @@ internal interface IEmulatorBackend : IChangeSource
     EmulatorProgressState ReadProgressState();
     Task<SteamUiCommandResult> CancelAsync(CancellationToken cancellationToken);
     Task<SteamUiCommandResult> RefreshEmulatorsAsync(CancellationToken cancellationToken);
+    Task<SteamUiCommandResult> SetBiosFolderAsync(string path, CancellationToken cancellationToken);
+    Task<SteamUiCommandResult> AddBiosFilesAsync(string path, string systemId, CancellationToken cancellationToken);
+    Task<SteamUiCommandResult> VerifyBiosAsync(CancellationToken cancellationToken);
+    Task<SteamUiCommandResult> RelinkBiosAsync(string systemId, CancellationToken cancellationToken);
 
     Task<SteamUiCommandResult> InstallEmulatorAsync(string definitionId, string channel,
         CancellationToken cancellationToken);
@@ -57,8 +71,10 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
     private readonly Lock _gate = new();
     private readonly EmulatorManager _manager;
     private readonly Action<string> _openUrl;
+    private EmulatorBiosState? _bios;
     private long _catalogRevision;
     private long _choicesRevision;
+    private EmulatorCoreStatus[] _coreStatus = [];
     private EmulatorDependencyCount[] _dependencies = [];
     private EmulatorPageState? _pageState;
     private EmulatorProgressState _progress = new(false, "");
@@ -99,7 +115,14 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
         {
             var romState = ReadRomStateCore();
             return _pageState ??= new EmulatorPageState(_snapshot, _systems!, romState.Choices, _dependencies,
-                RuntimeInformation.OSArchitecture == Architecture.Arm64 ? "arm64" : "x64");
+                RuntimeInformation.OSArchitecture == Architecture.Arm64 ? "arm64" : "x64")
+            {
+                Bios = _manager.ReadBiosState(),
+                CoreStatus = _coreStatus,
+                Installed = _snapshot.Installations.Select(item => new EmulatorListItem(item.Id,
+                    EmulatorPresentation.Detail(item), EmulatorPresentation.Badge(_snapshot, item),
+                    EmulatorPresentation.HasUpdate(_snapshot, item))).ToArray()
+            };
         }
     }
 
@@ -121,6 +144,27 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
     public Task<SteamUiCommandResult> RefreshEmulatorsAsync(CancellationToken cancellationToken)
     {
         return Run(() => _manager.RefreshAsync(cancellationToken));
+    }
+
+    public Task<SteamUiCommandResult> SetBiosFolderAsync(string path, CancellationToken cancellationToken)
+    {
+        return Run(() => _manager.SetBiosFolderAsync(path, cancellationToken));
+    }
+
+    public Task<SteamUiCommandResult> AddBiosFilesAsync(string path, string systemId,
+        CancellationToken cancellationToken)
+    {
+        return Run(() => _manager.AddBiosFilesAsync(path, systemId, cancellationToken));
+    }
+
+    public Task<SteamUiCommandResult> VerifyBiosAsync(CancellationToken cancellationToken)
+    {
+        return Run(() => _manager.VerifyBiosAsync(cancellationToken));
+    }
+
+    public Task<SteamUiCommandResult> RelinkBiosAsync(string systemId, CancellationToken cancellationToken)
+    {
+        return Run(() => _manager.RelinkBiosAsync(systemId, cancellationToken));
     }
 
     public Task<SteamUiCommandResult> InstallEmulatorAsync(string definitionId, string channel,
@@ -247,13 +291,24 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
     private void OnChanged()
     {
         var snapshot = ReadState();
+        var bios = _manager.ReadBiosState();
         lock (_gate)
         {
+            if (!ReferenceEquals(_snapshot.Installations, snapshot.Installations) || !ReferenceEquals(_bios, bios))
+            {
+                _coreStatus = snapshot.Installations.SelectMany(item => item.Cores.Select(core =>
+                    new EmulatorCoreStatus(item.Id, core.Id,
+                        core.RequiredFiles.Any(path => !File.Exists(path) && !Directory.Exists(path))))).ToArray();
+            }
+
             if (!ReferenceEquals(_snapshot.Definitions, snapshot.Definitions)
                 || !ReferenceEquals(_snapshot.Installations, snapshot.Installations)
                 || !ReferenceEquals(_snapshot.Offers, snapshot.Offers)
-                || !ReferenceEquals(_snapshot.SystemPreferences, snapshot.SystemPreferences))
+                || !ReferenceEquals(_snapshot.SystemPreferences, snapshot.SystemPreferences)
+                || _snapshot.Initialized != snapshot.Initialized
+                || !ReferenceEquals(_bios, bios))
             {
+                _bios = bios;
                 _snapshot = snapshot with { Busy = false, Status = "" };
                 _pageState = null;
                 Interlocked.Increment(ref _catalogRevision);

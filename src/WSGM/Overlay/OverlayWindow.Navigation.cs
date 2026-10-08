@@ -69,7 +69,7 @@ public partial class OverlayWindow
         new SubView(OverlayPage.SteamGameLibrary, GameLibraryHost, PanelSystem, OverlayDestination.System,
             Title: "Library Importer", Icon: Icons.Grid4, Available: () => ViewModel.ShowGameLibrary),
         new SubView(OverlayPage.EmulatorManager, EmulatorManagerHost, PanelSystem, OverlayDestination.System,
-            Title: "Emulator Downloader / Updater", Icon: Icons.Grid4, Available: () => ViewModel.ShowEmulators),
+            Title: "Emulators", Icon: Icons.Grid4, Available: () => ViewModel.ShowEmulators),
         new SubView(OverlayPage.SystemController, PanelSystemController, PanelSystem,
             OverlayDestination.System, Title: "Keyboard", Icon: Icons.Keyboard),
         new SubView(OverlayPage.SystemAbout, PanelSystemAbout, PanelSystem, OverlayDestination.System, Title: "About",
@@ -152,6 +152,11 @@ public partial class OverlayWindow
             // always present, which the Session row it used to fall back to no longer is.
             return FocusSearch.FirstNavigable(Tabs) ?? CloseButton;
         }
+    }
+
+    internal bool CheckEmulatorUpdates()
+    {
+        return EmulatorManagerHost.CheckForUpdates();
     }
 
     private void EnterSubView(OverlayPage page)

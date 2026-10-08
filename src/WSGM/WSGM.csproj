@@ -38,6 +38,10 @@
                       LogicalName="WSGM.Core.SteamUiAssets.%(Filename)%(Extension)"/>
     <EmbeddedResource Include="Core\Emulators\emulators.json"
                       LogicalName="WSGM.Core.Emulators.emulators.json"/>
+    <EmbeddedResource Include="Core\Emulators\bios-catalog.json"
+                      LogicalName="WSGM.Core.Emulators.bios-catalog.json"/>
+    <EmbeddedResource Include="Core\Emulators\retrobios-LICENSE.txt"
+                      LogicalName="WSGM.Core.Emulators.retrobios-LICENSE.txt"/>
   </ItemGroup>
   <ItemGroup>
     <!-- The Steam Input Lease submodule's binding is the single managed ABI source. Both

@@ -732,7 +732,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     ///     Still runs after <see cref="CloseAdmission" />, so a master-switch or Big Picture retraction
     ///     already queued at shutdown start removes what it was meant to; only a retired host skips it.
     /// </remarks>
-    /// <returns>A task completing after the retraction pass, or immediately for a retired host; session shutdown cancellation can interrupt the pass.</returns>
+    /// <returns>
+    ///     A task completing after the retraction pass, or immediately for a retired host; session shutdown cancellation
+    ///     can interrupt the pass.
+    /// </returns>
     internal async Task DisableAsync()
     {
         if (_retired)
@@ -1291,7 +1294,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             pages.Add(new SteamPage(
                 "emulator-manager",
                 SteamEmulatorSurface.Route,
-                "Emulator Downloader / Updater",
+                "Emulator Manager",
                 Template: SteamEmulatorSurface.Template));
         }
 

@@ -47,7 +47,10 @@ internal static class OverlayInput
             {
                 if (!window.HasActiveSurface)
                 {
-                    window.CycleNextApp();
+                    if (!window.CheckEmulatorUpdates())
+                    {
+                        window.CycleNextApp();
+                    }
                 }
             },
             direction => !window.HasActiveSurface && window.NavigateWorkspace(direction),

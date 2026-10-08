@@ -386,10 +386,35 @@ shortcuts stay as written. The group is the source; a ROM source groups by syste
 
 ## ROMs, emulators and removable content
 
-**Emulator Downloader / Updater is a standalone tool:** open it directly from the QAM Plugins tab or
-Overlay Tools. The importer keeps contextual setup links for ROM sources; it is not the manager's
-home. Its CEF route is `/wsgm/emulators`. It owns its backend and publishes catalog changes
-separately from download progress; importer cancellation never stops emulator operations.
+**Emulator Manager is a standalone tool:** open it directly from the QAM Plugins tab or Overlay
+Tools. The importer keeps contextual setup links for ROM sources; it is not the manager's home. Its
+CEF route is `/wsgm/emulators`. It owns its backend and publishes catalog changes separately from
+download progress; importer cancellation never stops emulator operations.
+
+Installed and Available separate registered installations from the supported catalogue. Both
+surfaces show update/setup status, search by emulator or system, grouped installation details and
+core filters for search matches, missing files and absent metadata. System defaults lists native
+emulator/core editors by console family; changing them leaves existing ROM libraries and overrides
+alone. Y checks for updates in the Overlay and Steam page.
+
+BIOS & firmware uses one persisted EmuDeck-layout folder, defaulting to `WSGM/Emulation/bios` under
+the user's data root. Add files or a folder copies local dumps into the known system paths, checks
+MD5 against the pinned
+[retrobios catalogue](https://github.com/Abdess/retrobios/blob/913ba096009ee2d3dc6d8094307d65ce0a96d093/platforms/emudeck.yml)
+and Libretro's filename-specific metadata, and applies the folder to installed emulators. Regional
+BIOS alternatives are alternatives, not a requirement to supply every dump. Files without a
+published checksum show Present, not Verified. `node eng/update-bios-catalog.mjs` regenerates the
+bundled metadata and its attribution from the pinned revision; it downloads metadata only.
+
+Changing the folder preserves its old contents and requires Relink emulators to apply the new
+location. PCSX2 and DuckStation use their native INI settings; RetroArch, Eden keys and Dolphin GC
+use their native paths with directory links where necessary. Existing directories are retained
+beside their links. RPCS3 runs its firmware installer for a supplied PUP. Eden firmware ZIPs or
+folders are installed into its native NAND layout by content ID, with the old firmware retained and
+cancellation before activation leaving the active directory intact. This follows Eden's
+[native file installation flow](https://git.eden-emu.dev/eden-emu/eden/src/branch/master/src/qt_common/util/content.cpp);
+Eden still owns firmware decryption and key compatibility on startup. Locally supplied firmware is
+applied after linking when required, including when installing an emulator after supplying its BIOS.
 
 The local implementation added on 2026-10-06 covers issues #47, #200 and #203. Both the Overlay and
 Steam CEF expose emulator management, ROM/manual source setup, previews, artwork, per-title

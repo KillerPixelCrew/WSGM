@@ -40,6 +40,7 @@ internal sealed class OverlayColorPicker : ColorPicker, IOverlayRefreshable
 
     /// <summary>Current owner callback for a settled user color; null leaves the editor presentation-only.</summary>
     internal Action<Color>? Commit { get; set; }
+
     /// <inheritdoc />
     protected override Type StyleKeyOverride => typeof(ColorPicker);
 
@@ -93,6 +94,7 @@ internal sealed class OverlayActionButton : ActionButton, IOverlayRefreshable
         Title = next.Title;
         Description = next.Description;
         IconGeometry = next.IconGeometry;
+        TrailingText = next.TrailingText;
         IsEnabled = next.IsEnabled;
         Activate = next.Activate;
         Classes.Set("primary", next.Classes.Contains("primary"));

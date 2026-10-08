@@ -15,7 +15,7 @@ internal static class SteamEmulatorSurface
     internal const string GateName = "emulatorManager";
 
     internal static ISteamUiPatch Patch { get; } = SteamPagePatch.Create(
-        PatchId, GateName, "emulator-manager-v1:steam-page", "Emulator manager",
+        PatchId, GateName, "emulator-manager-v2:steam-page", "Emulator manager",
         [
             SteamPageProbe.React, SteamPageProbe.Focusable, SteamPageProbe.Fields, SteamPageProbe.Modal,
             SteamPageProbe.ShowModal
@@ -35,6 +35,14 @@ internal static class SteamEmulatorSurface
             [
                 SteamUiModuleBuilder.Command(PatchId, "cancel", backend.CancelAsync),
                 SteamUiModuleBuilder.Command(PatchId, "refreshEmulators", backend.RefreshEmulatorsAsync),
+                SteamUiModuleBuilder.Command(PatchId, "verifyBios", backend.VerifyBiosAsync),
+                SteamUiModuleBuilder.Command<string>(PatchId, "setBiosFolder", TryReadPath,
+                    backend.SetBiosFolderAsync, "Choose an existing BIOS folder."),
+                SteamUiModuleBuilder.Command<BiosRequest>(PatchId, "addBiosFiles", TryReadBios,
+                    (value, token) => backend.AddBiosFilesAsync(value.Path, value.SystemId, token),
+                    "The BIOS file selection is invalid."),
+                SteamUiModuleBuilder.Command<string>(PatchId, "relinkBios", TryReadSystem,
+                    backend.RelinkBiosAsync, "The BIOS system is invalid."),
                 SteamUiModuleBuilder.Command<ReleaseRequest>(PatchId, "installEmulator", TryReadRelease,
                     (value, token) => backend.InstallEmulatorAsync(value.DefinitionId, value.Channel, token),
                     "The emulator release is invalid."),
@@ -72,6 +80,34 @@ internal static class SteamEmulatorSurface
         id = "";
         return SteamUiPayload.HasExactly(payload, 1) &&
                SteamUiPayload.TryReadNonBlankString(payload, "installationId", out id);
+    }
+
+    private static bool TryReadPath(JsonElement payload, out string path)
+    {
+        path = "";
+        return SteamUiPayload.HasExactly(payload, 1)
+               && SteamUiPayload.TryReadNonBlankString(payload, "path", out path);
+    }
+
+    private static bool TryReadSystem(JsonElement payload, out string systemId)
+    {
+        systemId = "";
+        return SteamUiPayload.HasExactly(payload, 1)
+               && SteamUiPayload.TryReadString(payload, "systemId", out systemId);
+    }
+
+    private static bool TryReadBios(JsonElement payload, out BiosRequest value)
+    {
+        value = default;
+        if (!SteamUiPayload.HasExactly(payload, 2)
+            || !SteamUiPayload.TryReadNonBlankString(payload, "path", out var path)
+            || !SteamUiPayload.TryReadString(payload, "systemId", out var systemId))
+        {
+            return false;
+        }
+
+        value = new BiosRequest(path, systemId);
+        return true;
     }
 
     private static bool TryReadRelease(JsonElement payload, out ReleaseRequest value)
@@ -160,6 +196,8 @@ internal static class SteamEmulatorSurface
         value = new PreferredRequest(system, installation, core);
         return true;
     }
+
+    private readonly record struct BiosRequest(string Path, string SystemId);
 
     private readonly record struct ReleaseRequest(string DefinitionId, string Channel);
 

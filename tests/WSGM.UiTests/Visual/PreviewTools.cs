@@ -20,8 +20,10 @@ internal static class PreviewTools
         UiFixture.Named<AnimationsView>(window, "AnimationsHost").AttachSession(new FakeMoviesSource());
         UiFixture.Named<ArtworkView>(window, "ArtworkHost").AttachSession(new FakeArtworkSource());
         UiFixture.Named<GameLibraryView>(window, "GameLibraryHost").Attach(new FakeLibrarySource());
+        UiFixture.Named<EmulatorManagerView>(window, "EmulatorManagerHost").Attach(PreviewEmulators.Create());
         var model = (OverlayViewModel)window.DataContext!;
         model.ShowThemes = model.ShowAnimations = model.ShowArtwork = model.ShowGameLibrary = true;
+        model.ShowEmulators = true;
         Dispatcher.UIThread.RunJobs();
         window.SelectNextTab();
         window.SelectNextTab();
@@ -35,17 +37,46 @@ internal static class PreviewTools
                  {
                      "themes-installed", "themes-browse", "themes-profiles", "themes-settings", "movies-library",
                      "movies-browse", "movies-settings", "artwork", "artwork-manage", "artwork-logo", "importer",
-                     "importer-review", "importer-artwork", "importer-all-artwork"
+                     "importer-review", "importer-artwork", "importer-all-artwork", "emulators-installed",
+                     "emulators-detail", "emulators-install", "emulators-cores", "emulators-defaults", "emulators-bios"
                  })
         {
             using var fixture = new UiFixture();
             var window = Create(fixture, width, height);
             var page = scenario.StartsWith("themes", StringComparison.Ordinal) ? OverlayPage.SystemThemes
+                : scenario.StartsWith("emulators", StringComparison.Ordinal) ? OverlayPage.EmulatorManager
                 : scenario.StartsWith("movies", StringComparison.Ordinal) ? OverlayPage.SystemAnimations
                 : scenario.StartsWith("artwork", StringComparison.Ordinal) ? OverlayPage.SystemArtwork
                 : OverlayPage.SteamGameLibrary;
             UiFixture.Click(window, UiFixture.Rail(window, page.ToString()));
             Dispatcher.UIThread.RunJobs();
+            if (scenario == "emulators-detail")
+            {
+                Click("PCSX2");
+            }
+
+            if (scenario == "emulators-install")
+            {
+                Click("Available 2");
+                Click("Eden");
+            }
+
+            if (scenario == "emulators-cores")
+            {
+                Click("RetroArch (all cores)");
+                Click("Installed cores (3)");
+            }
+
+            if (scenario == "emulators-defaults")
+            {
+                Click("System defaults");
+            }
+
+            if (scenario == "emulators-bios")
+            {
+                Click("BIOS & firmware");
+            }
+
             if (scenario == "themes-browse" || scenario == "movies-browse")
             {
                 Click("Browse");

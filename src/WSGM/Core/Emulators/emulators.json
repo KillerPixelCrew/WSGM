@@ -295,7 +295,7 @@
             "pathSuffix": "system/Contents/registered",
             "iniFile": "config/qt-config.ini",
             "name": "Console firmware",
-            "description": "Complete Eden Tools > Install Firmware using your supplied ZIP or folder.",
+            "description": "Supply a local firmware ZIP or folder. WSGM checks NCA content IDs and installs it into Eden's NAND; Eden checks decryption on startup.",
             "nativeInstaller": true,
             "installerArguments": [],
             "requiredExtensions": [".nca"],

@@ -1,5 +1,9 @@
 # Steam UI bootstrap source
 
+`emulators.ts` owns Emulator Manager's tabbed catalogue, installation details, core filters, BIOS
+checklist and system defaults. `library-import.ts` retains page registration, the shared local
+picker/setup sheet and state subscriptions. Both consume the one EmulatorService backend.
+
 This is WSGM's half of the injected asset: the renderers for WSGM's own pages in Steam.
 
 `eng/build-steam-assets.mjs` takes the bridge, the ownership and RPC primitives, the module

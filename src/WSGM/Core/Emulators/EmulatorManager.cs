@@ -16,7 +16,7 @@ using Microsoft.Win32;
 namespace WSGM.Core;
 
 /// <summary>One per-user owner for emulator releases, portable transactions and local installation state.</summary>
-public sealed class EmulatorManager : IDisposable
+public sealed partial class EmulatorManager : IDisposable
 {
     private readonly UserDataContext _context;
     private readonly EmulatorNetwork _network;
@@ -81,6 +81,15 @@ public sealed class EmulatorManager : IDisposable
         }
 
         LoadLocal();
+        try
+        {
+            VerifyBios(CancellationToken.None);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            SetStatus("BIOS files could not be checked: " + ex.Message);
+        }
+
         lock (_stateLock)
         {
             _initializing = false;
@@ -135,6 +144,7 @@ public sealed class EmulatorManager : IDisposable
             return new EmulatorSnapshot
             {
                 Definitions = _definitionViews,
+                BiosFolder = _state.BiosFolder,
                 Installations = _state.Installations,
                 Offers = _state.Offers,
                 Initialized = _initialized,
@@ -203,6 +213,7 @@ public sealed class EmulatorManager : IDisposable
                 Installations = store.Installations.Select(EmulatorPrerequisites.RefreshState).ToArray()
             });
             await DiscoverExternalAsync(token).ConfigureAwait(false);
+            VerifyBios(token);
             SetStatus("Emulator versions checked.");
         }, cancellationToken);
     }
@@ -240,8 +251,16 @@ public sealed class EmulatorManager : IDisposable
     /// <summary>Records a validated external executable without taking ownership of files or updates.</summary>
     public Task UseExternalAsync(string definitionId, string executable, CancellationToken cancellationToken)
     {
-        return OperationAsync(token => RegisterExternalAsync(Definition(definitionId), executable, token),
-            cancellationToken);
+        return OperationAsync(async token =>
+        {
+            await RegisterExternalAsync(Definition(definitionId), executable, token).ConfigureAwait(false);
+            if (Directory.Exists(BiosFolder))
+            {
+                RelinkBios(token, installationId: ExternalId(definitionId, Path.GetFullPath(executable)));
+            }
+
+            VerifyBios(token);
+        }, cancellationToken);
     }
 
     /// <summary>Removes owned program files or forgets an external registration, preserving user data.</summary>
@@ -339,8 +358,9 @@ public sealed class EmulatorManager : IDisposable
                         .ToArray()
                 });
             }), token).ConfigureAwait(false);
+            VerifyBios(token);
             SetStatus(installed.DataPolicy.Prerequisites.Any(rule => rule.Kind == kind && rule.NativeInstaller)
-                ? "Emulator firmware setup opened. Complete its installer, close the emulator, then Recheck."
+                ? "Local firmware installed. The emulator checks decryption and key compatibility when started."
                 : "Local prerequisite supplied. Existing saves and settings are preserved.");
         }, cancellationToken);
     }
@@ -506,6 +526,10 @@ public sealed class EmulatorManager : IDisposable
                     });
                     published = true;
                     ConfigureData(candidate);
+                    if (Directory.Exists(BiosFolder))
+                    {
+                        RelinkBios(cancellationToken, installationId: id);
+                    }
                 }
                 catch
                 {

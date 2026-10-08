@@ -308,6 +308,9 @@ public sealed record EmulatorSnapshot : EmulatorStore
 /// <summary>EmulatorStore used by emulator management and fresh managed launch resolution.</summary>
 public record EmulatorStore
 {
+    /// <summary>Shared EmuDeck-layout folder containing locally supplied BIOS and firmware.</summary>
+    public string BiosFolder { get; init; } = "";
+
     /// <summary>External installation identities explicitly forgotten by the user.</summary>
     public string[] ForgottenExternalIds { get; init; } = [];
 
@@ -551,14 +554,7 @@ public static class EmulatorStorage
         var missing = new List<string>();
         foreach (var rule in installed.DataPolicy.Prerequisites.Where(rule => rule.Required))
         {
-            var path = PrerequisitePath(installed, rule);
-            var present = rule.RequiredNames.Length > 0
-                ? rule.RequiredNames.All(name => File.Exists(Path.Combine(path, name)))
-                : rule.RequiredExtensions.Length > 0
-                    ? Directory.Exists(path) && Directory.EnumerateFiles(path).Any(file =>
-                        rule.RequiredExtensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase))
-                    : Directory.Exists(path) || File.Exists(path);
-            if (!present)
+            if (!PrerequisitePresent(installed, rule))
             {
                 missing.Add("Configure " + rule.Name + ". " + rule.Description);
             }
@@ -573,6 +569,19 @@ public static class EmulatorStorage
         }
 
         return [.. missing];
+    }
+
+    internal static bool PrerequisitePresent(EmulatorInstallation installed, EmulatorPrerequisite rule)
+    {
+        var path = PrerequisitePath(installed, rule);
+        return rule.RequiredNames.Length > 0
+            ? rule.RequiredNames.All(name => File.Exists(Path.Combine(path, name)))
+            : rule.RequiredExtensions.Length > 0
+                ? Directory.Exists(path) && Directory.EnumerateFiles(path).Any(file =>
+                    rule.RequiredExtensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase))
+                : rule.NativeInstaller
+                    ? Directory.Exists(path) && Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).Any()
+                    : Directory.Exists(path) || File.Exists(path);
     }
 
     /// <summary>Acquires launch/activation admission; dispose on this same thread.</summary>

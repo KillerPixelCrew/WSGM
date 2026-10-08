@@ -58,7 +58,7 @@ public sealed class SteamExtensionsTabBackendTests : IDisposable
         var item = Assert.Single(backend.ReadState().Items);
         Assert.Equal(SteamExtensionsTabBackend.EmulatorsId, item.Id);
         Assert.NotNull(item.Actions);
-        Assert.Equal("Emulator Downloader / Updater", Assert.Single(item.Actions!).Label);
+        Assert.Equal("Emulator Manager", Assert.Single(item.Actions!).Label);
 
         var result = await backend.ActivateAsync(SteamExtensionsTabBackend.OpenEmulatorsId, CancellationToken.None);
         Assert.True(result.Succeeded);

@@ -148,7 +148,7 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
                 string.Empty,
                 "Ready",
                 "Install, update and configure the emulators used by your ROM libraries.",
-                [new SteamExtensionsTabAction(OpenEmulatorsId, "Emulator Downloader / Updater")]));
+                [new SteamExtensionsTabAction(OpenEmulatorsId, "Emulator Manager")]));
         }
 
         items.AddRange(_sections.Select(section => section.ReadExtensionsItem()));

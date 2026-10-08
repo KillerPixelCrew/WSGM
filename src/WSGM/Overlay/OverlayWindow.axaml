@@ -490,7 +490,7 @@
                             IsVisible="{Binding ShowEmulators}"
                             Margin="0,0,10,10"
                             IconGeometry="{x:Static c:Icons.Grid4}"
-                            Title="Emulator Downloader / Updater"
+                            Title="Emulators"
                             Description="Install, update and configure emulators" />
               <c:ActionButton Classes="tile" Click="OnEnterCategory"
                             CommandParameter="{x:Static ov:OverlayPage.SystemArtwork}" IsVisible="{Binding ShowArtwork}"
@@ -884,6 +884,11 @@
                 <ov:GlyphIcon Width="18" Height="18" Button="x" GlyphStyle="{Binding GlyphStyle}"
                               VerticalAlignment="Center" />
                 <TextBlock Text="Pin to Quick access" Classes="caption" VerticalAlignment="Center" />
+              </StackPanel>
+              <StackPanel Orientation="Horizontal" Spacing="5" IsVisible="{Binding #EmulatorManagerHost.IsVisible}">
+                <ov:GlyphIcon Width="18" Height="18" Button="y" GlyphStyle="{Binding GlyphStyle}"
+                              VerticalAlignment="Center" />
+                <TextBlock Text="Check for updates" Classes="caption" VerticalAlignment="Center" />
               </StackPanel>
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="14">

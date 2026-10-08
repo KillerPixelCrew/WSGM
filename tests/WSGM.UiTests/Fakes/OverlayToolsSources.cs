@@ -21,6 +21,21 @@ internal sealed class EmulatorOverlaySource : IEmulatorBackend
     };
 
     internal List<string> Commands { get; } = [];
+
+    internal TaskCompletionSource<string> CommandCompleted { get; } =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    internal EmulatorBiosState Bios { get; set; } = new(@"D:\Emulation\bios", true,
+    [
+        new EmulatorBiosSystem("psx", "PlayStation", "Verified", ["DuckStation", "RetroArch"],
+            [new EmulatorBiosFile("scph5501.bin", "Verified", "example checksum", false)],
+            ["DuckStation · BIOS → shared folder"]),
+        new EmulatorBiosSystem("ps2", "PlayStation 2", "Missing", ["PCSX2"],
+            [new EmulatorBiosFile("PS2 BIOS", "Missing", "", false)], []),
+        new EmulatorBiosSystem("saturn", "Sega Saturn", "Wrong file", ["RetroArch"],
+            [new EmulatorBiosFile("saturn_bios.bin", "Wrong file", "example checksum", false)], [])
+    ]);
+
     public event Action? Changed;
 
     public EmulatorSnapshot ReadState()
@@ -37,7 +52,13 @@ internal sealed class EmulatorOverlaySource : IEmulatorBackend
     {
         var systems = RomProfiles.ForInstallations(State.Installations);
         return new EmulatorPageState(State with { Busy = false, Status = "" }, systems,
-            RomEmulatorProjection.Create(State, systems).Choices, [], "x64");
+            RomEmulatorProjection.Create(State, systems).Choices, [], "x64")
+        {
+            Bios = Bios,
+            Installed = State.Installations.Select(item => new EmulatorListItem(item.Id,
+                EmulatorPresentation.Detail(item), EmulatorPresentation.Badge(State, item),
+                EmulatorPresentation.HasUpdate(State, item))).ToArray()
+        };
     }
 
     public Task<SteamUiCommandResult> CancelAsync(CancellationToken cancellationToken)
@@ -48,6 +69,27 @@ internal sealed class EmulatorOverlaySource : IEmulatorBackend
     public Task<SteamUiCommandResult> RefreshEmulatorsAsync(CancellationToken cancellationToken)
     {
         return Command("RefreshEmulatorsAsync", cancellationToken);
+    }
+
+    public Task<SteamUiCommandResult> SetBiosFolderAsync(string path, CancellationToken cancellationToken)
+    {
+        return Command("SetBiosFolderAsync", cancellationToken);
+    }
+
+    public Task<SteamUiCommandResult> AddBiosFilesAsync(string path, string systemId,
+        CancellationToken cancellationToken)
+    {
+        return Command("AddBiosFilesAsync", cancellationToken);
+    }
+
+    public Task<SteamUiCommandResult> VerifyBiosAsync(CancellationToken cancellationToken)
+    {
+        return Command("VerifyBiosAsync", cancellationToken);
+    }
+
+    public Task<SteamUiCommandResult> RelinkBiosAsync(string systemId, CancellationToken cancellationToken)
+    {
+        return Command("RelinkBiosAsync", cancellationToken);
     }
 
     public Task<SteamUiCommandResult> InstallEmulatorAsync(string definitionId, string channel,
@@ -106,6 +148,7 @@ internal sealed class EmulatorOverlaySource : IEmulatorBackend
     {
         cancellationToken.ThrowIfCancellationRequested();
         Commands.Add(name);
+        CommandCompleted.TrySetResult(name);
         Changed?.Invoke();
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
