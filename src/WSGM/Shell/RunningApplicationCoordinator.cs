@@ -60,7 +60,10 @@ internal sealed class RunningApplicationCoordinator : IAsyncDisposable
     }
 
     /// <summary>Unsubscribes, cancels and joins pending work, then clears the performance target.</summary>
-    /// <returns>Completion after cleanup is attempted; the borrowed monitor and controller services remain owned by the session.</returns>
+    /// <returns>
+    ///     Completion after cleanup is attempted; the borrowed monitor and controller services remain owned by the
+    ///     session.
+    /// </returns>
     public async ValueTask DisposeAsync()
     {
         Task worker;

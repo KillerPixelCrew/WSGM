@@ -7,7 +7,10 @@ using WSGM.Interop;
 namespace WSGM.Shell;
 
 /// <summary>Returns to a selected HWND after the switcher has released its surface and input.</summary>
-/// <param name="raiseSteamGame">Requests Steam activation for the selected process; true reports call completion, not overlay recovery.</param>
+/// <param name="raiseSteamGame">
+///     Requests Steam activation for the selected process; true reports call completion, not
+///     overlay recovery.
+/// </param>
 /// <param name="readProcessId">Reads the current owner of an HWND, or zero when unavailable.</param>
 /// <param name="isConsole">Identifies console windows, which bypass Steam activation.</param>
 /// <param name="focus">Attempts to focus the exact HWND and reports whether it became foreground.</param>
@@ -32,8 +35,14 @@ internal sealed class GameWindowReturn(
     /// <summary>Revalidates window ownership around Steam activation, then focuses the selected HWND.</summary>
     /// <param name="hwnd">Exact window chosen by the switcher.</param>
     /// <param name="processId">Process identity captured with the selection.</param>
-    /// <param name="cancellationToken">Cancels waiting or prevents the later focus attempt; an accepted activation may already have taken effect.</param>
-    /// <returns>Completion of the attempt, including a no-op for a stale selection. Outcomes are logged; Steam overlay recovery is not verified.</returns>
+    /// <param name="cancellationToken">
+    ///     Cancels waiting or prevents the later focus attempt; an accepted activation may already
+    ///     have taken effect.
+    /// </param>
+    /// <returns>
+    ///     Completion of the attempt, including a no-op for a stale selection. Outcomes are logged; Steam overlay
+    ///     recovery is not verified.
+    /// </returns>
     internal async Task ReturnAsync(nint hwnd, uint processId, CancellationToken cancellationToken)
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lifetime);

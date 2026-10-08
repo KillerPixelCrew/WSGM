@@ -17,45 +17,45 @@ public sealed class SteamStorageBridgeTests
     [Fact]
     public void AReadersRetainedCapacityDoesNotBringBackAnEjectedVolume()
     {
-        var target = new FormatTargetEntry("reader", diskNumber: 1) { SizeBytes = 256_000_000_000 };
+        var target = new FormatTargetEntry("reader", 1) { SizeBytes = 256_000_000_000 };
 
-        Assert.False(SteamStorageBridge.DriveAvailable(target, [], [], wasMounted: true));
+        Assert.False(SteamStorageBridge.DriveAvailable(target, [], [], true));
     }
 
     [Fact]
     public void AMountedCardReturnsWithoutRecreatingTheReader()
     {
-        var target = new FormatTargetEntry("reader", diskNumber: 1);
+        var target = new FormatTargetEntry("reader", 1);
         StorageVolumeFacts[] volumes = [new('D', 1, DriveType.Removable, true, 256_000_000_000, "SDCard1")];
 
-        Assert.True(SteamStorageBridge.DriveAvailable(target, volumes, [], wasMounted: true));
+        Assert.True(SteamStorageBridge.DriveAvailable(target, volumes, [], true));
     }
 
     [Fact]
     public void ABlankOrLinuxCardIsStillOfferedForFormatting()
     {
-        var target = new FormatTargetEntry("reader", diskNumber: 1);
+        var target = new FormatTargetEntry("reader", 1);
 
-        Assert.True(SteamStorageBridge.DriveAvailable(target, [], [], wasMounted: false));
+        Assert.True(SteamStorageBridge.DriveAvailable(target, [], [], false));
     }
 
     [Fact]
     public void ANotReadyWindowsVolumeDoesNotAppearAsAnEmptyLibrary()
     {
-        var target = new FormatTargetEntry("reader", diskNumber: 1);
+        var target = new FormatTargetEntry("reader", 1);
         StorageVolumeFacts[] volumes = [new('D', 1, DriveType.Removable, false, 0, "")];
 
-        Assert.False(SteamStorageBridge.DriveAvailable(target, volumes, [], wasMounted: false));
+        Assert.False(SteamStorageBridge.DriveAvailable(target, volumes, [], false));
     }
 
     [Fact]
     public void AnEjectOutcomeHidesBothTheVolumeAndItsParentBeforeTheNextScan()
     {
-        var target = new FormatTargetEntry("reader", diskNumber: 1) { PreferredLetter = 'D' };
+        var target = new FormatTargetEntry("reader", 1) { PreferredLetter = 'D' };
         var entry = new RemovableDriveEntry("media:D", EjectKind.Media) { VolumeLetters = ['D'], Ejected = true };
         StorageVolumeFacts[] volumes = [new('D', 1, DriveType.Removable, true, 256_000_000_000, "SDCard1")];
 
-        Assert.False(SteamStorageBridge.DriveAvailable(target, volumes, [entry], wasMounted: true));
+        Assert.False(SteamStorageBridge.DriveAvailable(target, volumes, [entry], true));
     }
 
     [Fact]

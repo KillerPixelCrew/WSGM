@@ -72,7 +72,7 @@ public sealed class RumbleCalibrationTests
         var router = new ControllerOutputRouter(new DeterministicFakeControllerBackend(), sink);
         router.Attach(new ControllerTargetHandle(ManagedControllerTarget.Xbox360, 1));
         router.ApplyCalibration(new RumbleCalibrationConfig { MinimumPulseMilliseconds = 500 });
-        Assert.True(await router.PreviewAsync(testFloor: false, CancellationToken.None));
+        Assert.True(await router.PreviewAsync(false, CancellationToken.None));
         await router.DisposeAsync();
         Assert.True(sink.Frames[^1].IsSilent);
     }

@@ -9,7 +9,8 @@ namespace WSGM;
 ///     Shared by the launch wrapper, the packaged-game launcher and the logon service through a linked
 ///     source file, so none references another. Several processes can append to one file: it is opened
 ///     for append with read, write and delete sharing, as wsgm.log is, so rotation can rename it under them.
-///     The lock serializes only this instance; separate processes do not share a write/rotation lock. A diagnostic write must never fail its caller, so every error
+///     The lock serializes only this instance; separate processes do not share a write/rotation lock. A diagnostic write
+///     must never fail its caller, so every error
 ///     is swallowed and the line is dropped. Rotation is cosmetic: when it fails, the line is still
 ///     appended.
 /// </remarks>

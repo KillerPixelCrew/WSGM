@@ -14,10 +14,13 @@ internal static class ScreenscraperCredentials
 
     /// <summary>Application name and version sent to the provider.</summary>
     internal static string SoftName { get; } = BuildSoftName();
+
     /// <summary>Bundled developer identity; not the user's optional account name.</summary>
     internal static string DevId { get; } = Unfold(FoldedDevId);
+
     /// <summary>Bundled application credential; never include it in diagnostics.</summary>
     internal static string DevPassword { get; } = Unfold(FoldedDevPassword);
+
     /// <summary>Debug-build environment override, or null in release builds; never log it.</summary>
     internal static string? DebugPassword =>
 #if DEBUG

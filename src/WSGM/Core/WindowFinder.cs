@@ -120,7 +120,10 @@ public static class WindowFinder
 
     /// <summary>Reads exact executable liveness; an inaccessible matching process is unknown.</summary>
     /// <param name="paths">Configured executable paths to expand and normalize; duplicate keys are case-insensitive.</param>
-    /// <returns>Original path keys mapped to current-session liveness: true for an exact match, false for absent, null for inaccessible candidates.</returns>
+    /// <returns>
+    ///     Original path keys mapped to current-session liveness: true for an exact match, false for absent, null for
+    ///     inaccessible candidates.
+    /// </returns>
     internal static IReadOnlyDictionary<string, bool?> ReadRunningPaths(IEnumerable<string> paths)
     {
         var targets = paths.Distinct(StringComparer.OrdinalIgnoreCase).ToDictionary(path => path,

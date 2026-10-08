@@ -100,7 +100,10 @@ internal sealed record SteamAnimationsState(
     long Revision);
 
 /// <summary>Answers animation commands shared by Steam pages and overlay browse sessions.</summary>
-/// <remarks>Long-running repository, download and import work is owned by the service; a successful command can mean acceptance, with completion published in state.</remarks>
+/// <remarks>
+///     Long-running repository, download and import work is owned by the service; a successful command can mean
+///     acceptance, with completion published in state.
+/// </remarks>
 internal interface ISteamAnimationsBackend
 {
     /// <summary>Shows one of the page's tabs.</summary>

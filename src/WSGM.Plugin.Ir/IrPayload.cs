@@ -147,7 +147,10 @@ internal sealed record IrLibrary(int Version, IrCommand[] Commands, IrScene[] Sc
     /// <summary>Loads the library, or an empty one when the file does not exist. An unreadable file throws.</summary>
     /// <param name="path">Command-library JSON path; pairing secrets are stored separately.</param>
     /// <param name="token">Cancels asynchronous file deserialization.</param>
-    /// <returns>The validated library, or the shared empty library only when its file or parent folder is absent. Unreadable or invalid content throws.</returns>
+    /// <returns>
+    ///     The validated library, or the shared empty library only when its file or parent folder is absent. Unreadable
+    ///     or invalid content throws.
+    /// </returns>
     internal static async Task<IrLibrary> LoadAsync(string path, CancellationToken token)
     {
         return await JsonFile.ReadAsync<IrLibrary>(path, library => library.Validate(), token).ConfigureAwait(false)
@@ -180,7 +183,10 @@ internal sealed record IrPairing(string Token, string Hostname, string Ip)
     }
 
     /// <summary>Loads the pairing, or null when the file does not exist. An unreadable file throws.</summary>
-    /// <param name="path">Private pairing-state JSON path; its contents must not be logged or included in command-library backups.</param>
+    /// <param name="path">
+    ///     Private pairing-state JSON path; its contents must not be logged or included in command-library
+    ///     backups.
+    /// </param>
     /// <param name="token">Cancels asynchronous file deserialization.</param>
     /// <returns>Validated pairing information, or null only for a missing file/folder; unreadable or invalid content throws.</returns>
     internal static Task<IrPairing?> LoadAsync(string path, CancellationToken token)
@@ -253,7 +259,10 @@ internal static class JsonFile
     /// <param name="path">Destination JSON path; a missing parent directory is created.</param>
     /// <param name="value">Value to serialize; callers validate it before writing.</param>
     /// <param name="token">Cancels serialization/flushing and is rechecked before replacement; cannot undo a completed move.</param>
-    /// <returns>A task completing after the temporary sibling replaces the destination; exceptions propagate and temporary cleanup is attempted.</returns>
+    /// <returns>
+    ///     A task completing after the temporary sibling replaces the destination; exceptions propagate and temporary
+    ///     cleanup is attempted.
+    /// </returns>
     internal static async Task WriteAsync<T>(string path, T value, CancellationToken token)
     {
         var fullPath = Path.GetFullPath(path);

@@ -241,7 +241,10 @@ internal sealed class ProfilePage : Page
     }
 
     /// <summary>Writes the page's choices into the answers document.</summary>
-    /// <param name="answers">Mutable answers object; replaces the startup, takeover and features entries with current page choices.</param>
+    /// <param name="answers">
+    ///     Mutable answers object; replaces the startup, takeover and features entries with current page
+    ///     choices.
+    /// </param>
     public void WriteTo(JsonObject answers)
     {
         answers["startAtSignIn"] = SignIn;
@@ -282,7 +285,10 @@ internal sealed class ProfilePage : Page
     ///     without it. It follows that choice until the user picks a level or changes a switch; an update or
     ///     repair always keeps the current settings.
     /// </summary>
-    /// <param name="withDevicePlugin">True selects Full and false Minimal, only while the fresh-install defaults remain unedited.</param>
+    /// <param name="withDevicePlugin">
+    ///     True selects Full and false Minimal, only while the fresh-install defaults remain
+    ///     unedited.
+    /// </param>
     public void UseDefaultLevel(bool withDevicePlugin)
     {
         if (!FromCurrent && !_edited)

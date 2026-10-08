@@ -372,7 +372,10 @@ public interface IGameLibraryBackend
     /// <summary>Opens the artwork page for an entry's shortcut, answering with the route to show.</summary>
     /// <param name="id">Stable review entry identifier from GameLibraryEntry.Id.</param>
     /// <param name="cancellationToken">Cancels preparation of the artwork page.</param>
-    /// <returns>The navigation route as the result value, or a refusal when no imported shortcut or artwork backend is available.</returns>
+    /// <returns>
+    ///     The navigation route as the result value, or a refusal when no imported shortcut or artwork backend is
+    ///     available.
+    /// </returns>
     Task<SteamUiCommandResult> OpenArtworkAsync(string id, CancellationToken cancellationToken);
 
     /// <summary>Applies the selected entries.</summary>
@@ -401,7 +404,10 @@ public interface IGameLibraryBackend
     /// <param name="includeSubfolders">Whether its subfolders are read too.</param>
     /// <param name="extensions">The file types it offers: some of .lnk, .url and .exe.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
-    /// <returns>Whether the folder preference was saved and a scan requested; rejects missing, duplicate or network folders and unsupported extensions.</returns>
+    /// <returns>
+    ///     Whether the folder preference was saved and a scan requested; rejects missing, duplicate or network folders
+    ///     and unsupported extensions.
+    /// </returns>
     Task<SteamUiCommandResult> AddFolderAsync(
         string path, bool includeSubfolders, IReadOnlyList<string> extensions, CancellationToken cancellationToken);
 
@@ -448,7 +454,10 @@ public interface IGameLibraryBackend
     /// <param name="onlyEmpty">Whether to leave slots that already show or keep an image alone.</param>
     /// <param name="asset">One artwork type, or empty for all of them.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
-    /// <returns>Whether loaded candidates were selected into the review picks. This does not change the saved provider preference or start new lookups.</returns>
+    /// <returns>
+    ///     Whether loaded candidates were selected into the review picks. This does not change the saved provider
+    ///     preference or start new lookups.
+    /// </returns>
     Task<SteamUiCommandResult> FillArtworkAsync(
         string preference, bool onlyEmpty, string asset, CancellationToken cancellationToken);
 
@@ -461,7 +470,10 @@ public interface IGameLibraryBackend
     /// <param name="id">Stable review entry identifier from GameLibraryEntry.Id.</param>
     /// <param name="asset">Artwork slot: grid, wide, hero, logo or icon.</param>
     /// <param name="cancellationToken">Cancels the request before reading or prioritizing candidates.</param>
-    /// <returns>The slot’s candidates and loading status as the result value, or a refusal. Pending lookups are prioritized, not awaited.</returns>
+    /// <returns>
+    ///     The slot’s candidates and loading status as the result value, or a refusal. Pending lookups are prioritized,
+    ///     not awaited.
+    /// </returns>
     Task<SteamUiCommandResult> ArtworkOptionsAsync(string id, string asset, CancellationToken cancellationToken);
 
     /// <summary>Searches every artwork provider for the right game, answering with the matches.</summary>

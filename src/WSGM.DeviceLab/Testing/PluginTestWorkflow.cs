@@ -164,9 +164,15 @@ internal static class PluginTestWorkflow
     }
 
     /// <summary>Worker-only detector implementation; community code must not call this in the UI process.</summary>
-    /// <param name="packageDirectory">Local package to validate statically before loading and executing its plugin in this worker.</param>
+    /// <param name="packageDirectory">
+    ///     Local package to validate statically before loading and executing its plugin in this
+    ///     worker.
+    /// </param>
     /// <param name="identity">Normalized machine identity passed to plugin detection.</param>
-    /// <param name="cancellationToken">Cancels static validation and cooperative plugin detection; cannot forcibly stop plugin code.</param>
+    /// <param name="cancellationToken">
+    ///     Cancels static validation and cooperative plugin detection; cannot forcibly stop plugin
+    ///     code.
+    /// </param>
     /// <returns>A validation failure report or the completed detector result; plugin failures and cancellation propagate.</returns>
     internal static async Task<PluginTestReport> TestDetectionInProcessAsync(
         string packageDirectory,

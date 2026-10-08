@@ -152,7 +152,10 @@ internal static class AsusAcpiProtocol
     ///     least one of them non-zero: the envelope the Ally X Lab reviewed before any curve write.
     /// </remarks>
     /// <param name="curve">Eight temperature bytes followed by eight duty bytes.</param>
-    /// <returns>True for the 16-byte admitted temperature/duty envelope with at least one nonzero duty; this does not query hardware.</returns>
+    /// <returns>
+    ///     True for the 16-byte admitted temperature/duty envelope with at least one nonzero duty; this does not query
+    ///     hardware.
+    /// </returns>
     public static bool IsValidCurve(ReadOnlySpan<byte> curve)
     {
         if (curve.Length != CurveLength)
@@ -201,9 +204,15 @@ internal interface IAsusAcpi : IDisposable
 
     /// <summary>Writes one reviewed sixteen-byte fan curve through DEVS.</summary>
     /// <param name="id">CPU, GPU or mid fan-curve ID.</param>
-    /// <param name="data">Eight nondecreasing temperatures from 20 through 110 Celsius, then eight duties from 0 through 100 with at least one nonzero.</param>
+    /// <param name="data">
+    ///     Eight nondecreasing temperatures from 20 through 110 Celsius, then eight duties from 0 through 100
+    ///     with at least one nonzero.
+    /// </param>
     /// <returns>The firmware response word, not confirming readback.</returns>
-    /// <remarks>The transport rejects invalid curve shapes before dispatch; model-specific limits remain the caller's responsibility.</remarks>
+    /// <remarks>
+    ///     The transport rejects invalid curve shapes before dispatch; model-specific limits remain the caller's
+    ///     responsibility.
+    /// </remarks>
     uint WriteBuffer(AsusAcpiId id, ReadOnlySpan<byte> data);
 }
 

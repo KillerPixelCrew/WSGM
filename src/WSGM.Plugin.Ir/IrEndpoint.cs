@@ -109,11 +109,13 @@ internal interface IIrEndpoint : IAsyncDisposable
     /// <param name="token">Cancels connection or reply waiting.</param>
     /// <returns>Validated identity cached until a failed exchange or disposal invalidates it.</returns>
     Task<IrEndpointIdentity> IdentifyAsync(CancellationToken token);
+
     /// <summary>Requests one bounded raw capture without emitting IR.</summary>
     /// <param name="timeout">Firmware capture window from one through thirty seconds.</param>
     /// <param name="token">Cancels reply waiting; absence of a reply is not successful capture.</param>
     /// <returns>A validated envelope; the firmware's default carrier is marked assumed, not measured.</returns>
     Task<IrPayload> LearnAsync(TimeSpan timeout, CancellationToken token);
+
     /// <summary>Validates and sends one raw envelope with bounded repeats.</summary>
     /// <param name="payload">Envelope and carrier to emit; remains unchanged during the exchange.</param>
     /// <param name="repeats">Additional emissions, from 0 through 4.</param>
@@ -318,8 +320,14 @@ internal sealed class TcpIrLink : IIrLink
 }
 
 /// <summary>One serialized endpoint connection over any link. Uncertain operations are never retried.</summary>
-/// <param name="open">Lazily opens a link under the serialized exchange lane; the connection owns and disposes the returned link.</param>
-/// <param name="pairingToken">Shared token sent on network requests, or null for USB; never log or expose it in diagnostics.</param>
+/// <param name="open">
+///     Lazily opens a link under the serialized exchange lane; the connection owns and disposes the
+///     returned link.
+/// </param>
+/// <param name="pairingToken">
+///     Shared token sent on network requests, or null for USB; never log or expose it in
+///     diagnostics.
+/// </param>
 internal sealed class IrEndpointConnection(Func<CancellationToken, IIrLink> open, string? pairingToken = null)
     : IIrEndpoint
 {

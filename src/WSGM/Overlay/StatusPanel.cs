@@ -10,7 +10,10 @@ namespace WSGM.Overlay;
 internal static class StatusPanel
 {
     /// <summary>Keeps a utility panel's focused control in its scrolling viewport.</summary>
-    /// <param name="scroller">UI-thread panel to wire once for its lifetime; descendant focus brings the focused control into view.</param>
+    /// <param name="scroller">
+    ///     UI-thread panel to wire once for its lifetime; descendant focus brings the focused control into
+    ///     view.
+    /// </param>
     internal static void WirePanelBehaviour(Control scroller)
     {
         scroller.AddHandler(InputElement.GotFocusEvent, OnRowGotFocus, RoutingStrategies.Bubble);

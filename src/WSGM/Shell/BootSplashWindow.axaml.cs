@@ -545,7 +545,10 @@ public partial class BootSplashWindow : Window
     ///     platform handle is unavailable or another fade is active. Call on the UI thread.
     /// </summary>
     /// <param name="duration">Positive fade duration.</param>
-    /// <param name="onDone">UI-thread callback invoked after fading, or synchronously when no handle exists or a fade is already active.</param>
+    /// <param name="onDone">
+    ///     UI-thread callback invoked after fading, or synchronously when no handle exists or a fade is
+    ///     already active.
+    /// </param>
     public void BeginFadeOut(TimeSpan duration, Action onDone)
     {
         if (_hwnd == 0 || _fadeTimer is not null)

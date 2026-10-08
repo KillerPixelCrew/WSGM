@@ -58,6 +58,7 @@ internal interface ICommonPluginOverlaySource
     /// <summary>Reads current instance presentation without starting packages or touching hardware.</summary>
     /// <returns>A new instance array; referenced declarations remain host-owned immutable snapshots.</returns>
     PluginOverlayInstance[] Snapshot();
+
     /// <summary>Reads accepted effective state for one instance's current generation.</summary>
     /// <param name="identity">Exact package and instance key.</param>
     /// <returns>A new observation array; empty when the instance is absent or has published no state.</returns>

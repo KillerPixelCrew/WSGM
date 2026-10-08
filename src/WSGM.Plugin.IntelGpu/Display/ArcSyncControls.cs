@@ -230,7 +230,10 @@ internal sealed class ArcSyncDisplay
     }
 
     /// <summary>Probes the profile setter with the exact current profile, including OFF and every custom parameter.</summary>
-    /// <param name="admission">Caller cancellation, deadline and live-session admission, checked immediately before any setter.</param>
+    /// <param name="admission">
+    ///     Caller cancellation, deadline and live-session admission, checked immediately before any
+    ///     setter.
+    /// </param>
     /// <returns>The shared profile probe outcome, preserving the raw enabled state and custom values.</returns>
     public ControlWrite ProbeSupport(WriteAdmission admission)
     {

@@ -210,7 +210,10 @@ internal static class SplashTheme
     ///     acceptable splash theme.
     /// </returns>
     /// <param name="path">Splash archive file to read under the import limits.</param>
-    /// <param name="targetImageDirectory">Caller-owned staging directory for bundled images; keep it alive while the returned config refers to it.</param>
+    /// <param name="targetImageDirectory">
+    ///     Caller-owned staging directory for bundled images; keep it alive while the returned
+    ///     config refers to it.
+    /// </param>
     internal static SplashConfig? Import(string path, string targetImageDirectory)
     {
         var targetExistedBefore = Directory.Exists(targetImageDirectory);

@@ -28,7 +28,8 @@ public sealed class LibraryTabManagerTests
     {
         await using var transport = new ReadinessTransport();
 
-        Assert.False(await LibraryTabManager.WaitForLibraryAsync(new SteamClient(transport), new CancellationToken(canceled: true)));
+        Assert.False(
+            await LibraryTabManager.WaitForLibraryAsync(new SteamClient(transport), new CancellationToken(true)));
         Assert.Equal(0, transport.Calls);
     }
 

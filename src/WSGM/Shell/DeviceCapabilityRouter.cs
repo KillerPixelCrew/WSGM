@@ -295,10 +295,13 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     /// <param name="expectedCycle">Optional generation observed by the caller; a mismatch refuses dispatch.</param>
     /// <param name="expectedDescriptors">Optional descriptor generation observed by the caller.</param>
     /// <param name="applyPowerPair">Whether to carry the host-computed paired power value with this request.</param>
-    /// <param name="cancellationToken">Cancels lane waiting or dispatch; cancellation after dispatch can mean uncertain effects.</param>
+    /// <param name="cancellationToken">
+    ///     Cancels lane waiting or dispatch; cancellation after dispatch can mean uncertain
+    ///     effects.
+    /// </param>
     /// <returns>
-    /// Immediate rejection, completion, or uncertainty. Late completion updates the projection separately;
-    /// neither this method nor late observation automatically retries a write.
+    ///     Immediate rejection, completion, or uncertainty. Late completion updates the projection separately;
+    ///     neither this method nor late observation automatically retries a write.
     /// </returns>
     internal async Task<CapabilityCommandResult> ExecuteAsync(
         string capabilityId,

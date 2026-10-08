@@ -75,7 +75,10 @@ public static class WakeLockStatus
     /// </summary>
     /// <param name="entries">The decoded request list; null = unknown.</param>
     /// <param name="selfPid">WSGM's own process id, excluded from the summary.</param>
-    /// <returns>The display-prioritized state and a summary naming up to three external holders; unknown/free may have no summary.</returns>
+    /// <returns>
+    ///     The display-prioritized state and a summary naming up to three external holders; unknown/free may have no
+    ///     summary.
+    /// </returns>
     public static (WakeLockState State, string Summary) Compute(
         IReadOnlyList<PowerRequestEntry>? entries, uint selfPid)
     {

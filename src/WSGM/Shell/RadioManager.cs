@@ -618,7 +618,10 @@ public sealed class RadioManager : ObservableObject, IDisposable
     ///     Reads the Wi-Fi status off the UI thread and publishes it, for a consumer that needs it
     ///     current while the refresh timer is stopped.
     /// </summary>
-    /// <returns>Completes after the worker read and UI publication; disposal suppresses publication and read failures publish unknown state.</returns>
+    /// <returns>
+    ///     Completes after the worker read and UI publication; disposal suppresses publication and read failures publish
+    ///     unknown state.
+    /// </returns>
     internal async Task RefreshWifiStatusAsync()
     {
         var status = await Task.Run(ReadWifiStatus).ConfigureAwait(false);
@@ -1283,7 +1286,10 @@ public sealed class RadioManager : ObservableObject, IDisposable
     }
 
     /// <summary>Leaves the current network.</summary>
-    /// <returns>Completion of the disconnect request. Failures update StatusText; it does not wait for a disconnected-state observation.</returns>
+    /// <returns>
+    ///     Completion of the disconnect request. Failures update StatusText; it does not wait for a disconnected-state
+    ///     observation.
+    /// </returns>
     public async Task DisconnectAsync()
     {
         try

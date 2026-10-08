@@ -8,14 +8,19 @@ internal interface IPowerSchemeApi
 {
     /// <inheritdoc cref="WindowsPower.EnumerateScheme" />
     Guid? Enumerate(uint index);
+
     /// <inheritdoc cref="WindowsPower.ReadSchemeName" />
     string ReadName(Guid id);
+
     /// <inheritdoc cref="WindowsPower.GetActiveScheme" />
     Guid ReadActive();
+
     /// <inheritdoc cref="WindowsPower.SetActiveScheme" />
     void SetActive(Guid id);
+
     /// <inheritdoc cref="WindowsPower.ReadSetting" />
     uint ReadSetting(Guid scheme, Guid subgroup, Guid setting, bool onBattery);
+
     /// <inheritdoc cref="WindowsPower.WriteSetting" />
     void WriteSetting(Guid scheme, Guid subgroup, Guid setting, bool onBattery, uint value);
 }

@@ -40,6 +40,7 @@ internal sealed class ThemeBrowseSession : IThemeBrowseSession
 
     /// <inheritdoc />
     public string Tab { get; set; } = "installed";
+
     /// <inheritdoc />
     public event Action? Changed;
 

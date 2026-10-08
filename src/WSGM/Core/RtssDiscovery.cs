@@ -56,6 +56,7 @@ internal interface IRtssDiscoveryEnvironment
 {
     /// <summary>Install roots under which a candidate registration is accepted.</summary>
     IReadOnlyList<string> ProtectedInstallRoots { get; }
+
     /// <summary>Reads candidate RTSS uninstall registrations.</summary>
     /// <returns>Registration snapshots; an empty list means none were found.</returns>
     IReadOnlyList<RtssInstallRecord> ReadInstallRecords();

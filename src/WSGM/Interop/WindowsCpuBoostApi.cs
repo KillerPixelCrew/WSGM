@@ -12,6 +12,7 @@ internal interface ICpuBoostApi
     /// <param name="onBattery">True for the DC value, false for AC.</param>
     /// <returns>The stored Windows boost-mode index; native failures propagate.</returns>
     uint Read(Guid scheme, bool onBattery);
+
     /// <summary>Writes the boost-mode index without activating the scheme.</summary>
     /// <param name="scheme">Windows power-scheme identity.</param>
     /// <param name="onBattery">True for the DC value, false for AC.</param>

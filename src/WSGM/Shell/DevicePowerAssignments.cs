@@ -54,7 +54,10 @@ internal sealed record DevicePowerAssignmentState(
 /// <param name="presets">Shared one-shot device/Windows preset owner.</param>
 /// <param name="context">Reads current profile, package, generation, and power-source context.</param>
 /// <param name="save">Persists an assignment in the captured edit layer; null removes that layer's assignment.</param>
-/// <param name="restoreFirst">Optional task indicating initial desired-value restoration; incomplete restoration defers reconciliation.</param>
+/// <param name="restoreFirst">
+///     Optional task indicating initial desired-value restoration; incomplete restoration defers
+///     reconciliation.
+/// </param>
 internal sealed class DevicePowerAssignments(
     DevicePowerPresets presets,
     Func<DevicePowerAssignmentContext> context,
@@ -102,7 +105,10 @@ internal sealed class DevicePowerAssignments(
     /// <param name="id">Current declared preset identifier, or null to remove the layer's assignment.</param>
     /// <param name="cancellationToken">Cancels admission and application; an already saved assignment remains saved.</param>
     /// <returns>Completion of save and the applicable one-shot reconciliation attempt.</returns>
-    /// <exception cref="InvalidOperationException">The profile/device/source context changed or the preset is no longer declared.</exception>
+    /// <exception cref="InvalidOperationException">
+    ///     The profile/device/source context changed or the preset is no longer
+    ///     declared.
+    /// </exception>
     internal async Task AssignAsync(bool ac, string? id, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -173,7 +179,10 @@ internal sealed class DevicePowerAssignments(
     /// <summary>Applies a changed assignment once or records successfully applied values drifting to custom.</summary>
     /// <param name="cancellationToken">Cancels lane admission and remaining preset work.</param>
     /// <returns>Completion of this pass; unknown/unavailable inputs or pending initial restoration defer work.</returns>
-    /// <remarks>An uncertain/failed attempt is not retried for the same context. Explicit assignment edits permit another attempt.</remarks>
+    /// <remarks>
+    ///     An uncertain/failed attempt is not retried for the same context. Explicit assignment edits permit another
+    ///     attempt.
+    /// </remarks>
     internal async Task ReconcileAsync(CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);

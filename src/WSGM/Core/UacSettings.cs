@@ -54,7 +54,10 @@ public static class UacSettings
     ///     the previous ones into config first so the change can be undone exactly.
     /// </summary>
     /// <param name="store">Strict configuration persistence used to save recovery before machine-policy writes.</param>
-    /// <param name="disablePrompts">True selects silent administrator elevation; false restores saved or Windows-default values.</param>
+    /// <param name="disablePrompts">
+    ///     True selects silent administrator elevation; false restores saved or Windows-default
+    ///     values.
+    /// </param>
     /// <returns>True on accepted writes and recovery update; false logs failure and may leave a partial policy change.</returns>
     public static bool ApplyDirect(ConfigStore store, bool disablePrompts)
     {

@@ -57,9 +57,9 @@ internal static class BoundedHttp
     /// <exception cref="OperationCanceledException">The caller canceled a read or write.</exception>
     /// <exception cref="IOException">The body sent nothing for the stall timeout, or a stream operation failed.</exception>
     /// <remarks>
-    /// The input content stream is disposed. Size failures throw <paramref name="tooLarge" />'s result;
-    /// output already written is retained on any failure. The timeout applies to each input read, not
-    /// the whole transfer or output writes. Callback exceptions propagate to the caller.
+    ///     The input content stream is disposed. Size failures throw <paramref name="tooLarge" />'s result;
+    ///     output already written is retained on any failure. The timeout applies to each input read, not
+    ///     the whole transfer or output writes. Callback exceptions propagate to the caller.
     /// </remarks>
     internal static async Task CopyAsync(
         HttpContent content, Stream output, long maximum, Func<Exception> tooLarge,

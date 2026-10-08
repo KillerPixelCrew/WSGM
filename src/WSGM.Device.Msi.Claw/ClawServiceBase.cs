@@ -22,8 +22,14 @@ internal abstract class ClawJournalledService(string serviceId) : DeviceService<
     /// <param name="context">Current identity and deadline; restoration requires the captured firmware binding.</param>
     /// <param name="journal">Borrowed durable recovery owner; status writes are attempted without caller cancellation.</param>
     /// <param name="readSnapshot">Extracts a valid typed original, or null when the entry cannot be restored.</param>
-    /// <param name="restoreAsync">Writes the original once; completion means accepted writes, without a required confirming read.</param>
-    /// <param name="cancellationToken">Cancels before dispatch or inside restore; an interrupted restore is recorded as failed.</param>
+    /// <param name="restoreAsync">
+    ///     Writes the original once; completion means accepted writes, without a required confirming
+    ///     read.
+    /// </param>
+    /// <param name="cancellationToken">
+    ///     Cancels before dispatch or inside restore; an interrupted restore is recorded as
+    ///     failed.
+    /// </param>
     /// <returns>The service state after restoration, skipping, or insufficient-budget release.</returns>
     /// <remarks>Transport, cancellation, and journal failures propagate; failed attempts are not automatically replayed.</remarks>
     protected async ValueTask<DeviceServiceResult> RestoreJournalledAsync<TSnapshot>(

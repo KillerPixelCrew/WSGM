@@ -117,7 +117,10 @@ public sealed unsafe class TrayHost : IDisposable
     ///     thread (its message pump services the WndProc) and only while explorer is
     ///     NOT running. Returns null when a host already exists or creation fails.
     /// </summary>
-    /// <returns>The caller-owned tray host, or null if a host already exists, Explorer owns the desktop shell, or creation fails.</returns>
+    /// <returns>
+    ///     The caller-owned tray host, or null if a host already exists, Explorer owns the desktop shell, or creation
+    ///     fails.
+    /// </returns>
     public static TrayHost? Create()
     {
         Dispatcher.UIThread.VerifyAccess();

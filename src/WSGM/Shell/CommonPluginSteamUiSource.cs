@@ -259,7 +259,10 @@ internal sealed class CommonPluginSteamUiSource : ISteamExtensionsTabBackend, ID
     ///     names no renderer, or claims Valve's default one. Overriding a Valve route is a host decision,
     ///     so a package asking for one is refused outright.
     /// </remarks>
-    /// <returns>Current ready, enabled package routes, deduplicated by case-insensitive path; no lifecycle ownership transfers.</returns>
+    /// <returns>
+    ///     Current ready, enabled package routes, deduplicated by case-insensitive path; no lifecycle ownership
+    ///     transfers.
+    /// </returns>
     internal IReadOnlyList<SteamPage> ReadPages()
     {
         lock (_gate)

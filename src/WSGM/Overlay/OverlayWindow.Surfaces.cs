@@ -48,6 +48,12 @@ public partial class OverlayWindow
         ? frame.Container
         : null;
 
+    internal bool NavigateSurfaceDirection(NavigationDirection direction)
+    {
+        return _surfaceFrames.TryPeek(out var frame) && frame.Content is OverlayFilePicker picker
+                                                     && picker.Navigate(direction);
+    }
+
     /// <summary>Opens a local keyboard surface while retaining the window's capture and navigation owner.</summary>
     /// <param name="prompt">Accessible field label.</param>
     /// <param name="initial">Text copied into the editor.</param>
@@ -129,8 +135,12 @@ public partial class OverlayWindow
     /// <returns>Accepted path, or null for cancellation/detach; close is deferred through the surface owner.</returns>
     internal Task<string?> PickLocalPathAsync(bool folder, params string[] extensions)
     {
+        return PickLocalPathAsync(new OverlayFilePicker(folder, extensions), folder);
+    }
+
+    internal Task<string?> PickLocalPathAsync(OverlayFilePicker picker, bool folder)
+    {
         var completion = new TaskCompletionSource<string?>();
-        var picker = new OverlayFilePicker(folder, extensions);
         picker.Completed += path =>
         {
             if (completion.TrySetResult(path))
@@ -321,14 +331,17 @@ public partial class OverlayWindow
         heading.Children.Add(close);
         var body = new Grid { RowDefinitions = new RowDefinitions("Auto,*") };
         body.Children.Add(heading);
-        var scroller = new ScrollViewer
-            { Content = content, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+        var scroller = content is OverlayFilePicker
+            ? content
+            : new ScrollViewer
+                { Content = content, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
         Grid.SetRow(scroller, 1);
         body.Children.Add(scroller);
         var anchor =
             (invokingControl as Control)?.TranslatePoint(new Point(0, (invokingControl as Control)?.Bounds.Height ?? 0),
                 SurfaceRoot);
-        var top = kind == SurfaceKind.Utility
+        var picker = content is OverlayFilePicker;
+        var top = kind == SurfaceKind.Utility && !picker
             ? Math.Clamp((anchor?.Y ?? 72) + 12, 16, Math.Max(16, SurfaceRoot.Bounds.Height - 260))
             : 16;
         var container = new Border
@@ -338,12 +351,19 @@ public partial class OverlayWindow
             Margin = new Thickness(16, top, 16, 16),
             CornerRadius = new CornerRadius(6),
             BorderThickness = new Thickness(1),
-            HorizontalAlignment = kind == SurfaceKind.Keyboard ? HorizontalAlignment.Stretch :
+            HorizontalAlignment = picker ? HorizontalAlignment.Center :
+                kind == SurfaceKind.Keyboard ? HorizontalAlignment.Stretch :
                 kind == SurfaceKind.Power ? HorizontalAlignment.Center : HorizontalAlignment.Right,
-            VerticalAlignment = kind == SurfaceKind.Keyboard ? VerticalAlignment.Bottom
+            VerticalAlignment = picker ? VerticalAlignment.Center
+                : kind == SurfaceKind.Keyboard ? VerticalAlignment.Bottom
                 : kind == SurfaceKind.Utility ? VerticalAlignment.Top : VerticalAlignment.Center,
-            MaxWidth = kind == SurfaceKind.Keyboard ? double.PositiveInfinity : kind == SurfaceKind.Power ? 640 : 620,
-            Width = kind == SurfaceKind.Keyboard ? double.NaN : kind == SurfaceKind.Power ? 640 : 620,
+            MaxWidth = picker ? Math.Min(1000, SurfaceRoot.Bounds.Width - 32) :
+                kind == SurfaceKind.Keyboard ? double.PositiveInfinity :
+                kind == SurfaceKind.Power ? 640 : 620,
+            Width = picker ? Math.Min(1000, SurfaceRoot.Bounds.Width - 32) :
+                kind == SurfaceKind.Keyboard ? double.NaN :
+                kind == SurfaceKind.Power ? 640 : 620,
+            Height = picker ? Math.Min(620, SurfaceRoot.Bounds.Height - 48) : double.NaN,
             MaxHeight = Math.Max(240, SurfaceRoot.Bounds.Height - top - 16)
         };
         container.Bind(Border.BackgroundProperty, this.GetResourceObservable("DeckSurfaceBrush"));
@@ -458,7 +478,11 @@ public partial class OverlayWindow
             : ActiveSurfaceFocusTarget ?? DefaultFocusTarget;
         if (restoreFocus)
         {
-            target.Focus(NavigationMethod.Directional);
+            if (!_surfaceFrames.TryPeek(out var active) || active.Content is not OverlayFilePicker picker
+                                                        || !picker.RestorePendingFocus())
+            {
+                target.Focus(NavigationMethod.Directional);
+            }
         }
     }
 

@@ -479,7 +479,10 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
     ///     <see cref="StatusText" /> with the outcome.
     /// </summary>
     /// <param name="entry">The row to eject.</param>
-    /// <returns>Completion after the eject attempt and observer cleanup, or immediately for a disabled row. Inspect the row and StatusText for the outcome.</returns>
+    /// <returns>
+    ///     Completion after the eject attempt and observer cleanup, or immediately for a disabled row. Inspect the row
+    ///     and StatusText for the outcome.
+    /// </returns>
     /// <remarks>
     ///     Up to three PnP-veto or lettered-volume-lock attempts are made, 500 ms apart. A lettered volume
     ///     is safe after successful lock and dismount even if mechanical eject is unsupported. Unlettered
@@ -536,7 +539,6 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
                 entry.ResultText = result.Message;
                 StatusText = result.Message;
             }
-
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -769,6 +771,7 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
     {
         /// <summary>Current disk interface path for media without a drive letter; empty when unavailable.</summary>
         internal string DiskPath { get; init; } = "";
+
         /// <summary>Drive letters included in this eject action, used by library reconciliation.</summary>
         internal IReadOnlyList<char> VolumeLetters { get; init; } = [];
     }

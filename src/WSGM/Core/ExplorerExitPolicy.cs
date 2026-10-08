@@ -7,8 +7,10 @@ internal enum ExplorerExitAction
 {
     /// <summary>Continue observing ownership and absence without dispatching another request.</summary>
     Wait,
+
     /// <summary>Ask windows owned by the retired process to close; never terminate the process.</summary>
     RequestClose,
+
     /// <summary>The shell has remained absent long enough to proceed, even if a retired process lingers.</summary>
     Complete
 }

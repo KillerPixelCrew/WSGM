@@ -23,7 +23,10 @@ internal static class AllyControllerNodes
     ///     keyboard and lighting collections are not hidden: the plugin itself reads them.
     /// </remarks>
     /// <param name="productIds">Product IDs admitted for this model under the ASUS vendor ID.</param>
-    /// <returns>Present XUSB, Xbox composite and XInput-compatible HID nodes; vendor, keyboard and lighting collections are excluded.</returns>
+    /// <returns>
+    ///     Present XUSB, Xbox composite and XInput-compatible HID nodes; vendor, keyboard and lighting collections are
+    ///     excluded.
+    /// </returns>
     public static IReadOnlyList<DeviceNode> Find(IReadOnlyCollection<ushort> productIds)
     {
         return
@@ -48,7 +51,10 @@ internal interface IAllyVendorHid : IAsyncDisposable
     /// <remarks>The fault callback runs once if the reader stops on its own, such as when the MCU re-enumerates.</remarks>
     /// <param name="callback">Sequential reader callback receiving each nonzero vendor event and its observation time.</param>
     /// <param name="fault">Reader failure callback; avoid blocking or throwing from it.</param>
-    /// <param name="cancellationToken">Cancels admission before opening the stream; StopAsync owns the running-reader lifetime.</param>
+    /// <param name="cancellationToken">
+    ///     Cancels admission before opening the stream; StopAsync owns the running-reader
+    ///     lifetime.
+    /// </param>
     /// <returns>True when already reading or a reader was started; false when no readable vendor collection is available.</returns>
     ValueTask<bool> StartAsync(
         Func<byte, DateTimeOffset, ValueTask> callback,
@@ -84,7 +90,10 @@ internal interface IAllyAuraHid : IAsyncDisposable
 ///     HC selects the collection whose feature report 0x5A reads (<c>ROGAlly.cs:416-436</c>), and so does this.
 ///     Configuration uses feature reports as HC does (<c>ROGAlly.cs:646-668</c>).
 /// </remarks>
-/// <param name="productIds">Model-specific ASUS controller product IDs searched for a collection answering feature report 0x5A.</param>
+/// <param name="productIds">
+///     Model-specific ASUS controller product IDs searched for a collection answering feature report
+///     0x5A.
+/// </param>
 internal sealed class WindowsAllyVendorHid(IReadOnlyCollection<ushort> productIds) : IAllyVendorHid
 {
     private readonly Lock _gate = new();

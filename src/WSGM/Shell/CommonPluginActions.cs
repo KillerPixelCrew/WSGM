@@ -78,14 +78,19 @@ internal sealed class CommonPluginActions
 
     /// <summary>Read-only action declarations with copied argument schemas and choice lists.</summary>
     internal IReadOnlyList<PluginAction> Actions { get; }
+
     /// <summary>Captured controls whose action and argument links passed admission validation.</summary>
     internal IReadOnlyList<PluginUiContribution> Contributions { get; }
+
     /// <summary>Captured widgets with copied contribution identifier lists.</summary>
     internal IReadOnlyList<PluginWidget> Widgets { get; }
+
     /// <summary>Steam entry points linked to admitted actions; app-context links require a numeric argument.</summary>
     internal IReadOnlyList<PluginSteamUiContribution> SteamUiContributions { get; }
+
     /// <summary>Captured module references; the host still owns route and surface admission.</summary>
     internal IReadOnlyList<ISteamUiModule> SteamUiModules { get; }
+
     /// <summary>Captured page declarations; their route availability is checked by the frontend host.</summary>
     internal IReadOnlyList<SteamPage> SteamPages { get; }
 
@@ -216,8 +221,8 @@ internal sealed class CommonPluginActions
     /// <param name="context">Current instance identity, generation, and deadline.</param>
     /// <param name="cancellationToken">Cancels before dispatch or cooperatively during execution.</param>
     /// <returns>
-    /// The provider's correlated result; invalid input is rejected. Exceptions, including cancellation after
-    /// dispatch, and invalid confirmations become unconfirmed results and are never retried here.
+    ///     The provider's correlated result; invalid input is rejected. Exceptions, including cancellation after
+    ///     dispatch, and invalid confirmations become unconfirmed results and are never retried here.
     /// </returns>
     internal async Task<PluginActionResult> ExecuteAsync(string actionId, PluginActionOrigin origin,
         IReadOnlyDictionary<string, PluginValue> arguments, PluginContext context, CancellationToken cancellationToken)

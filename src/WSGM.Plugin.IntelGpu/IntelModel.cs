@@ -90,7 +90,10 @@ internal sealed class IntelModel
 
     /// <summary>Omits controls the driver explicitly reported as unsupported during discovery.</summary>
     /// <param name="unsupported">Routing keys whose startup support probes explicitly rejected their controls.</param>
-    /// <returns>This model when no control is removed, otherwise a new model omitting those controls and native-profile targets while retaining section declarations.</returns>
+    /// <returns>
+    ///     This model when no control is removed, otherwise a new model omitting those controls and native-profile
+    ///     targets while retaining section declarations.
+    /// </returns>
     public IntelModel WithoutControls(IReadOnlySet<string> unsupported)
     {
         var controls = Controls.Where(control => !unsupported.Contains(control.Key)).ToArray();

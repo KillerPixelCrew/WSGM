@@ -7,7 +7,10 @@ using WSGM.Device.Sdk.Input;
 namespace WSGM.Input;
 
 /// <summary>Owns one logical virtual-target lifetime and serializes create, neutralize, replace and removal transitions.</summary>
-/// <remarks>The caller owns the backend and physical sink. Sample forwarding uses the current generation without the transition gate.</remarks>
+/// <remarks>
+///     The caller owns the backend and physical sink. Sample forwarding uses the current generation without the
+///     transition gate.
+/// </remarks>
 internal sealed class ManagedControllerRouter : IAsyncDisposable
 {
     private readonly IControllerTargetBackend _backend;

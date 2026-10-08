@@ -23,6 +23,7 @@ internal sealed class AnimationBrowseSession : IAnimationBrowseSession
 
     /// <inheritdoc />
     public string Tab { get; set; } = "library";
+
     /// <inheritdoc />
     public event Action? Changed;
 

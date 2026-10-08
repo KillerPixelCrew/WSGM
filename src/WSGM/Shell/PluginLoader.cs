@@ -238,7 +238,10 @@ internal static class PluginLoader
         string EntryType,
         string? WsgmVersion);
 
-    /// <summary>Collectible managed load context sharing host SDK/WinRT type identity and resolving package assemblies in memory.</summary>
+    /// <summary>
+    ///     Collectible managed load context sharing host SDK/WinRT type identity and resolving package assemblies in
+    ///     memory.
+    /// </summary>
     internal sealed class PluginLoadContext : AssemblyLoadContext
     {
         // SDK identity and CsWinRT's process-global ComWrappers registration require a single host copy.

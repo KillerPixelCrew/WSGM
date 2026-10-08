@@ -51,10 +51,13 @@ internal sealed class SteamGuideChordMirror : IDisposable
 
     /// <summary>Steam chord-template filename used by the owned mirror.</summary>
     internal const string TemplateFileName = "chord_neptune.vdf";
+
     /// <summary>Suffix identifying the preserved pre-mirror template.</summary>
     internal const string BackupSuffix = ".wsgm-original";
+
     /// <summary>Suffix marking the reset-to-Steam-defaults recovery intent.</summary>
     internal const string ResetMarkerSuffix = ".wsgm-reset";
+
     private const string AutosavePattern = "*.vdf";
     private static readonly TimeSpan Debounce = TimeSpan.FromMilliseconds(150);
 

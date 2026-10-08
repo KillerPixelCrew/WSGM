@@ -600,8 +600,14 @@ internal static class PluginPackageWorkflow
 }
 
 /// <summary>Serves glyph validation from the same pinned file handles used by package validation.</summary>
-/// <param name="snapshot">Borrowed pinned package snapshot; its owner must keep the retained handles open during glyph validation.</param>
-/// <param name="cancellationToken">Checked before enumeration and reads; does not interrupt a synchronous file read already running.</param>
+/// <param name="snapshot">
+///     Borrowed pinned package snapshot; its owner must keep the retained handles open during glyph
+///     validation.
+/// </param>
+/// <param name="cancellationToken">
+///     Checked before enumeration and reads; does not interrupt a synchronous file read
+///     already running.
+/// </param>
 internal sealed class SnapshotGlyphPackageSource(
     DeviceLabPackageSnapshot snapshot,
     CancellationToken cancellationToken = default) : IGlyphPackageSource

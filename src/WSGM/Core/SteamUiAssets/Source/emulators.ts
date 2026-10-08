@@ -3,6 +3,7 @@ const emulatorStyles = `
 #wsgm-import.wsgm-emulators .wsgm-import-head { padding-bottom:12px; }
 #wsgm-import.wsgm-emulators .wsgm-import-body { display:block; overflow:auto; padding-bottom:56px; }
 .wsgm-emu-content { display:flex; flex-direction:column; gap:14px; min-width:0; }
+.wsgm-emu-content h2,.wsgm-emu-content p { margin:0; }
 .wsgm-emu-tabs { display:flex; gap:8px; flex-wrap:wrap; border-bottom:1px solid #3d4450; padding-bottom:12px; }
 .wsgm-emu-tabs .DialogButton { width:auto; min-width:0; height:36px; }
 .wsgm-emu-tabs [aria-pressed=true] { background:var(--gpSystemBlue,#1a9fff); color:white; }
@@ -27,8 +28,6 @@ const emulatorStyles = `
 .wsgm-emu-core { display:grid; grid-template-columns:minmax(160px,1fr) minmax(100px,1fr) auto; gap:16px; align-items:center; padding:10px 12px; }
 .wsgm-emu-core.gpfocus { background:#fff; color:#0e141b; }
 .wsgm-emu-default { display:grid; grid-template-columns:180px minmax(180px,1fr) minmax(180px,1fr); align-items:center; gap:14px; padding:8px 0; }
-.wsgm-emu-default .DialogLabel { display:none; }
-.wsgm-emu-default .DialogDropDown { margin:0; }
 @media(max-width:1000px) { .wsgm-emu-default { grid-template-columns:130px minmax(120px,1fr) minmax(120px,1fr); } }
 @media(max-width:750px) { .wsgm-emu-split { grid-template-columns:1fr; } .wsgm-emu-default { grid-template-columns:1fr; } }
 `;
@@ -154,7 +153,7 @@ function ImportEmulatorPage({ state, status, onBack }: any) {
           box("Set up from your BIOS folder",fact("BIOS folder",bios.folder),
             ...definition.prerequisites.map((rule: any)=>fact(rule.name,rule.description)),button("Open BIOS & firmware",toBios,false))),
         h("div",{className:"wsgm-emu-column"},box("Install",
-          h(importUi.dropdown,{label:"Release channel",rgOptions:definition.channels.map((value: string)=>({data:value,label:value})),
+          renderSteamUiChoice(importUi,{label:"Release channel",rgOptions:definition.channels.map((value: string)=>({data:value,label:value})),
             selectedOption:channel,onChange:(option: any)=>option && setChannel(option.data)}),
           fact("Latest",offer?.error || offer?.version || "Check for updates to read releases"),
           definition.dataPolicy?.hasCores ? h("p",{},"Installs the complete published Windows core catalogue.") : null,
@@ -177,10 +176,10 @@ function ImportEmulatorPage({ state, status, onBack }: any) {
         const preference = manager.systemPreferences.find((item: any)=>item.systemId===system.id);
         const selected = choices.find((item: any)=>item.id===preference?.installationId);
         return h(importUi.focusable,{key:system.id,className:"wsgm-emu-default","flow-children":"row"},h("span",{},system.name),
-          h(importUi.dropdown,{label:`${system.name} emulator`,rgOptions:[{data:"",label:"No default"},...choices.map((item: any)=>({data:item.id,label:item.label}))],
+          renderSteamUiChoice(importUi,{label:`${system.name} emulator`,showLabel:false,rgOptions:[{data:"",label:"No default"},...choices.map((item: any)=>({data:item.id,label:item.label}))],
             selectedOption:preference?.installationId ?? "",disabled:progress.busy,onChange:(option: any)=>option && void emulatorAct("setPreferredEmulator",{
               systemId:system.id,installationId:option.data,coreId:choices.find((item: any)=>item.id===option.data)?.defaultCoreId ?? ""})}),
-          selected?.requiresCore ? h(importUi.dropdown,{label:`${system.name} core`,rgOptions:selected.cores.map((item: any)=>({data:item.id,label:item.label})),
+          selected?.requiresCore ? renderSteamUiChoice(importUi,{label:`${system.name} core`,showLabel:false,rgOptions:selected.cores.map((item: any)=>({data:item.id,label:item.label})),
             selectedOption:preference?.coreId || selected.defaultCoreId,disabled:progress.busy,onChange:(option: any)=>option && void emulatorAct("setPreferredEmulator",{
               systemId:system.id,installationId:selected.id,coreId:option.data})}) : h("span",{className:"steam-ui-kit-muted"},selected ? "Standalone" : "—"));
       }))));
@@ -196,8 +195,10 @@ function ImportEmulatorPage({ state, status, onBack }: any) {
       !bios.checked ? h("p",{},"Choose Verify files to check your BIOS folder.") : null,
       h("div",{className:"wsgm-emu-split"},
         h("div",{className:"wsgm-emu-column"},box("Systems your emulators run",
-          ...bios.systems.map((system: any)=>h(importUi.dialogButton,{key:system.id,"aria-pressed":selected?.id===system.id,onClick:()=>setBiosId(system.id)},
-            h("span",{},system.name),badge(system.status),h("small",{},system.emulators.length ? "Used by "+system.emulators.join(" · ") : "Emulator not installed"))))),
+          ...bios.systems.map((system: any)=>renderSteamUiSelectRow(importUi,{
+            key:system.id,title:system.name,status:badge(system.status),selected:selected?.id===system.id,
+            detail:system.emulators.length ? "Used by "+system.emulators.join(" · ") : "Emulator not installed",
+            onClick:()=>setBiosId(system.id)})))),
         selected ? h("div",{className:"wsgm-emu-column"},h("h2",{},selected.name),
           box("Files in the BIOS folder",...(selected.files ?? []).filter((file: any)=>selected.id!=="ps2" || file.status!=="Missing").map((file: any)=>h("div",{
             key:file.path,className:"wsgm-emu-file",title:file.md5 ? `MD5 ${file.md5}` : undefined},h("span",{},file.path+(file.optional ? " · Optional" : "")),badge(file.status))),

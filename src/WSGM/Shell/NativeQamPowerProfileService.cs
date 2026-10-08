@@ -119,7 +119,10 @@ internal sealed class NativeQamPowerProfileService : ISteamPowerProfileBackend
 
     /// <summary>Refreshes the overlay's list and active GUID without selecting or persisting anything.</summary>
     /// <param name="cancellationToken">Cancels admission before the synchronous worker reads.</param>
-    /// <returns>Installed schemes and active GUID; an active-read failure retains the options with null Active and its error detail.</returns>
+    /// <returns>
+    ///     Installed schemes and active GUID; an active-read failure retains the options with null Active and its error
+    ///     detail.
+    /// </returns>
     /// <remarks>Enumeration failures fault the task. This forces a list refresh, bypassing the Steam cache interval.</remarks>
     internal Task<(IReadOnlyList<PowerScheme> Items, Guid? Active, string? Detail)> ReadSchemesAsync(
         CancellationToken cancellationToken)
@@ -167,7 +170,10 @@ internal sealed class NativeQamPowerProfileService : ISteamPowerProfileBackend
     }
 
     /// <summary>Publishes one accepted selection without readback, then resumes independent state reads.</summary>
-    /// <returns>Steam choices and status; read failures produce unavailable state or preserve options when only active lookup fails.</returns>
+    /// <returns>
+    ///     Steam choices and status; read failures produce unavailable state or preserve options when only active lookup
+    ///     fails.
+    /// </returns>
     /// <remarks>Work is serialized on a worker. Options refresh when requested or after the one-minute cache interval.</remarks>
     internal ValueTask<SteamPowerProfileState?> ReadAsync()
     {

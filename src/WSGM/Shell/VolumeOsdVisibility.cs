@@ -43,7 +43,10 @@ internal static class VolumeOsdVisibility
     /// </summary>
     /// <param name="hresult">SHQueryUserNotificationState result; any negative HRESULT suppresses the OSD.</param>
     /// <param name="state">Raw notification state, meaningful only on success.</param>
-    /// <returns>False for a failed query, not-present session or exclusive Direct3D fullscreen; true for other states, including busy and unknown values.</returns>
+    /// <returns>
+    ///     False for a failed query, not-present session or exclusive Direct3D fullscreen; true for other states,
+    ///     including busy and unknown values.
+    /// </returns>
     internal static bool AllowsVolumeOsd(int hresult, int state)
     {
         return hresult >= 0 && state is not NativeMethods.QunsNotPresent

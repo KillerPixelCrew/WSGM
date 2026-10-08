@@ -19,10 +19,13 @@ namespace WSGM.Core;
 internal sealed class ExplorerShellAnchor : IAsyncDisposable
 {
     private const string AnchorArgument = "--shell-anchor";
+
     /// <summary>Fixed recovery image name kept distinct from the installer's primary WSGM process target.</summary>
     internal const string ExecutableFileName = "WSGM.ShellAnchor.exe";
+
     /// <summary>Cross-version session event signaled after anchor recovery has settled.</summary>
     internal const string RecoverySettledEventName = SessionProtocolNames.AnchorRecoverySettled;
+
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan CommandTimeout = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(2);

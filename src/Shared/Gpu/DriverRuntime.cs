@@ -40,6 +40,7 @@ internal sealed class DriverFailure(string message, bool attempted = false, bool
 {
     /// <summary>Whether at least one setter may have reached the driver; false does not classify session health.</summary>
     internal bool Attempted { get; } = attempted;
+
     /// <summary>Whether the session is unusable and must retire before reopening.</summary>
     internal bool Lost { get; } = lost;
 }
@@ -50,13 +51,17 @@ internal abstract class DriverControl(CapabilityDescriptor descriptor)
 {
     /// <summary>Stable descriptor used for command validation and host publication.</summary>
     internal CapabilityDescriptor Descriptor { get; } = descriptor;
+
     /// <summary>Capability and instance identifiers joined for the session's internal lookup.</summary>
     internal string Key => Descriptor.CapabilityId + "/" + Descriptor.InstanceId;
+
     /// <summary>Support-probe cache key; adapters may share a probe result across related controls.</summary>
     internal virtual string SupportKey => Key;
+
     /// <summary>Reads the control from its live native session on the runtime's serialized lane.</summary>
     /// <returns>The observed typed value; failures throw rather than fabricate a known value.</returns>
     internal abstract CapabilityValue Read();
+
     /// <summary>Attempts one native setter after checking the supplied write admission.</summary>
     /// <param name="value">Descriptor-compatible requested value.</param>
     /// <param name="admission">Deadline/cancellation gate checked immediately before native mutation.</param>

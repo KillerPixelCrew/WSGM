@@ -178,7 +178,10 @@ public static class UpdateChecker
     /// <param name="release">Asset URLs and setup filename; only its basename is used under the destination.</param>
     /// <param name="progress">Optional transfer fraction, reported only when Content-Length is positive.</param>
     /// <param name="cancellationToken">Cancels network, file writes, and SHA-256 calculation.</param>
-    /// <param name="downloadDirectory">Destination directory to create when needed; callers must serialize same-filename downloads.</param>
+    /// <param name="downloadDirectory">
+    ///     Destination directory to create when needed; callers must serialize same-filename
+    ///     downloads.
+    /// </param>
     /// <param name="stallTimeout">Maximum silence for each response-body read, or null for the shared default.</param>
     /// <returns>The final verified path, replacing an earlier same-named setup only after verification.</returns>
     /// <exception cref="InvalidDataException">Hash metadata is invalid or setup bytes do not match it.</exception>

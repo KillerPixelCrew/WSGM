@@ -9,10 +9,13 @@ internal enum ApplicationShutdownReason
 {
     /// <summary>Ordinary resident exit with the normal cleanup budget.</summary>
     Normal,
+
     /// <summary>Installer replacement; stop within the update handoff budget.</summary>
     Update,
+
     /// <summary>Windows session termination with the shortest cleanup budget.</summary>
     SessionEnd,
+
     /// <summary>Installer removal with the longer restoration budget.</summary>
     Uninstall
 }
@@ -22,10 +25,13 @@ internal enum ApplicationShutdownOutcome
 {
     /// <summary>Cleanup completed before the outer deadline.</summary>
     Clean,
+
     /// <summary>Cleanup began but failed to prove completion.</summary>
     Unverified,
+
     /// <summary>The outer deadline elapsed; cleanup may still be running.</summary>
     TimedOut,
+
     /// <summary>Cleanup could not start, or the process owner failed.</summary>
     Failed
 }
@@ -38,6 +44,7 @@ internal static class ApplicationShutdownRequest
 
     /// <summary>Gets the highest-priority reason requested so far: uninstall, update, session end, then normal.</summary>
     internal static ApplicationShutdownReason Current => (ApplicationShutdownReason)Volatile.Read(ref _reason);
+
     /// <summary>Gets whether any caller reported Windows session termination, independently of reason priority.</summary>
     internal static bool SessionEnding => Volatile.Read(ref _sessionEnding) != 0;
 
@@ -83,8 +90,14 @@ internal static class ApplicationShutdownRequest
 
 /// <summary>Owns the single process exit attempt independently of Avalonia's shutdown events.</summary>
 /// <param name="sessionShutdown">Optional session cleanup receiving its policy and absolute UTC deadline.</param>
-/// <param name="forcedExit">Terminates the process with the selected exit code unless Windows is already ending the session.</param>
-/// <param name="reportHandoff">Publishes the outcome after the bounded cleanup attempt; called once even if late cleanup continues.</param>
+/// <param name="forcedExit">
+///     Terminates the process with the selected exit code unless Windows is already ending the
+///     session.
+/// </param>
+/// <param name="reportHandoff">
+///     Publishes the outcome after the bounded cleanup attempt; called once even if late cleanup
+///     continues.
+/// </param>
 /// <param name="utcNow">UTC clock override, or null to use the system clock.</param>
 internal sealed class ApplicationRuntime(
     Func<ApplicationShutdownReason, DateTimeOffset, ValueTask>? sessionShutdown,
@@ -102,6 +115,7 @@ internal sealed class ApplicationRuntime(
 
     /// <summary>Gets whether the shared exit attempt has been published, including a completed attempt.</summary>
     internal bool ExitRequested => _exit is not null;
+
     /// <summary>Gets whether startup failure must force a nonzero process exit code.</summary>
     internal bool StartupFailed => _startupFailed;
 

@@ -18,7 +18,10 @@ internal sealed unsafe partial class RtssProfileApi : IDisposable
 
     /// <summary>Loads a caller-verified RTSS profile DLL and resolves its required Cdecl exports.</summary>
     /// <param name="libraryPath">Exact trusted library path; this wrapper does not establish its signature or provenance.</param>
-    /// <remarks>The caller serializes profile transactions. Missing libraries/exports throw and release partial native ownership.</remarks>
+    /// <remarks>
+    ///     The caller serializes profile transactions. Missing libraries/exports throw and release partial native
+    ///     ownership.
+    /// </remarks>
     internal RtssProfileApi(string libraryPath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(libraryPath);

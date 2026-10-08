@@ -431,7 +431,10 @@ internal sealed unsafe partial class NvApi : INvProfiles, IDisposable
     /// <param name="display">Current NVAPI display id; the caller revalidates topology before native access.</param>
     /// <param name="command">NV_COLOR_CMD value: 1 reads current color, 3 validates a complete proposed combination.</param>
     /// <param name="input">Native color-v5 buffer to clone, or null for a fresh zeroed query buffer.</param>
-    /// <returns>A new color-v5 buffer containing the driver response; the supplied input is unchanged and native failures throw.</returns>
+    /// <returns>
+    ///     A new color-v5 buffer containing the driver response; the supplied input is unchanged and native failures
+    ///     throw.
+    /// </returns>
     internal byte[] Color(uint display, byte command, byte[]? input = null)
     {
         var buffer = ColorBuffer(command, input);

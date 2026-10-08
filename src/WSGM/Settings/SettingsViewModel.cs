@@ -167,6 +167,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         GlyphStyleIndex = (int)_config.GlyphStyle;
         AccentColorHex = _config.AccentColor;
         OverlayBlurRadius = _config.OverlayBlurRadius;
+        SteamCefPluginWarningAccepted = _config.SteamCefPluginWarningAccepted;
         LoadSplash(_config.Splash);
 
         foreach (var app in _config.StartupApps)

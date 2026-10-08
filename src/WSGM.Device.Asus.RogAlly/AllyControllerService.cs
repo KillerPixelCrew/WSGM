@@ -227,7 +227,10 @@ internal sealed class ControllerService(
     ///     ends idle. The zero-rumble write fails whenever the pad has already dropped off the bus, which
     ///     is exactly when a release happens, so it cannot be a reason to report anything.
     /// </remarks>
-    /// <returns>Completion after best-effort cleanup; ordinary motor, reader and table failures are traced and the service ends idle.</returns>
+    /// <returns>
+    ///     Completion after best-effort cleanup; ordinary motor, reader and table failures are traced and the service
+    ///     ends idle.
+    /// </returns>
     public async ValueTask ReleaseControllerAsync(
         Deadline deadline,
         CancellationToken cancellationToken)
@@ -285,7 +288,10 @@ internal sealed class ControllerService(
     /// <summary>Serializes rumble updates, suppressing small repeated changes while always admitting a transition to zero.</summary>
     /// <param name="frame">Host-clamped low/high motor frame; unsupported trigger channels are not written.</param>
     /// <param name="cancellationToken">Cancels waiting for the output gate or the transport operation.</param>
-    /// <returns>Completion after an admitted motor write, or immediately when not owned or the change is suppressed; transport failures propagate.</returns>
+    /// <returns>
+    ///     Completion after an admitted motor write, or immediately when not owned or the change is suppressed; transport
+    ///     failures propagate.
+    /// </returns>
     public async ValueTask ApplyHapticsAsync(HapticOutputFrame frame, CancellationToken cancellationToken)
     {
         await _outputGate.WaitAsync(cancellationToken).ConfigureAwait(false);

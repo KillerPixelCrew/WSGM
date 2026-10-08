@@ -249,9 +249,15 @@ public abstract class ServiceSubView : OverlaySubView
 
     /// <summary>Completes after the service command and its current-view notification have finished.</summary>
     /// <param name="onApplied">Updates the current view after the command is applied.</param>
-    /// <param name="operation">Service-owned operation; it receives CancellationToken.None so leaving the view does not cancel durable work.</param>
+    /// <param name="operation">
+    ///     Service-owned operation; it receives CancellationToken.None so leaving the view does not cancel
+    ///     durable work.
+    /// </param>
     /// <param name="what">Operation name used for diagnostics.</param>
-    /// <returns>Completion after the operation and any current-generation refusal notification; safe-run error handling remains in effect.</returns>
+    /// <returns>
+    ///     Completion after the operation and any current-generation refusal notification; safe-run error handling
+    ///     remains in effect.
+    /// </returns>
     internal Task RunCommandAsync(Func<CancellationToken, Task<SteamUiCommandResult>> operation,
         string what = "command", Action? onApplied = null)
     {

@@ -12,7 +12,10 @@ namespace WSGM.Shell;
 /// <param name="EndpointId">Default playback endpoint observed during this read.</param>
 /// <param name="SupportedFormats">Finite set of formats successfully probed for this endpoint.</param>
 /// <param name="CurrentFormat">Device format observed before the probes.</param>
-/// <param name="SupportedSpatialFormats">Spatial formats reported by Windows; support does not guarantee licence availability.</param>
+/// <param name="SupportedSpatialFormats">
+///     Spatial formats reported by Windows; support does not guarantee licence
+///     availability.
+/// </param>
 /// <param name="CurrentSpatialFormat">Observed spatial format, including the Off sentinel.</param>
 internal sealed record AudioPlaybackCapabilities(
     string EndpointId,
@@ -36,7 +39,10 @@ internal sealed record AudioProfileApplyResult(IReadOnlyList<AudioProfileOperati
 }
 
 /// <summary>Core Audio operations used by the profile service.</summary>
-/// <remarks>Methods return HRESULTs: negative values indicate failure and make out values unusable unless documented otherwise.</remarks>
+/// <remarks>
+///     Methods return HRESULTs: negative values indicate failure and make out values unusable unless documented
+///     otherwise.
+/// </remarks>
 internal interface IAudioProfileOperations
 {
     /// <summary>Lists active endpoints in one direction.</summary>
@@ -162,7 +168,10 @@ internal sealed class AudioProfileService : IAsyncDisposable
 
     /// <summary>Serializes audio preference writes, preserving unspecified settings.</summary>
     /// <param name="preference">Requested settings, or null for no work.</param>
-    /// <param name="cancellationToken">Cancels gate and endpoint-arrival waits. Native writes already started are not interrupted or rolled back.</param>
+    /// <param name="cancellationToken">
+    ///     Cancels gate and endpoint-arrival waits. Native writes already started are not
+    ///     interrupted or rolled back.
+    /// </param>
     /// <returns>Per-setting acceptance results; a successful result is not a confirming readback.</returns>
     internal async Task<AudioProfileApplyResult> ApplyAsync(
         AudioProfilePreference? preference,

@@ -49,7 +49,10 @@ internal static class ProcessInspector
     private const int LongPathCharacters = 32_768;
 
     /// <summary>Every process currently running, or an empty list when the snapshot failed.</summary>
-    /// <returns>Entries yielded by the process snapshot; empty on initial failure and potentially partial if enumeration stops early.</returns>
+    /// <returns>
+    ///     Entries yielded by the process snapshot; empty on initial failure and potentially partial if enumeration stops
+    ///     early.
+    /// </returns>
     internal static IReadOnlyList<ProcessEntry> Snapshot()
     {
         var snapshot = NativeMethods.CreateToolhelp32Snapshot(NativeMethods.Th32CsSnapProcess, 0);
@@ -168,7 +171,10 @@ internal static class ProcessInspector
     ///     admitted when it actually hosts a CoreWindow belonging to this process, and never
     ///     otherwise: every packaged app on the machine shares that host.
     /// </remarks>
-    /// <returns>Observed top-level windows owned by the process or hosting its CoreWindow; handles are borrowed and may become stale.</returns>
+    /// <returns>
+    ///     Observed top-level windows owned by the process or hosting its CoreWindow; handles are borrowed and may become
+    ///     stale.
+    /// </returns>
     internal static IReadOnlyList<WindowEntry> WindowsOf(int processId)
     {
         List<WindowEntry> found = [];

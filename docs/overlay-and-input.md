@@ -552,9 +552,13 @@ providers and state store. CEF browsing cannot replace an Overlay detail, and co
 publish to the other surface. The importer's current-artwork action nests the Artwork host and
 restores the review on Back. Staged import artwork stays separate from immediate artwork writes.
 
-The shared file/folder picker stays in the Overlay and works without Explorer. Back cancels it; Up
-and Drives navigate directories. WebM import, local artwork, shortcut folders and sound-pack ZIP
-import use it. Listings run off the UI thread and ignore canceled/stale directory results.
+The shared file/folder picker stays in the Overlay and works without Explorer. Its centered surface
+has a drives/user-folders rail, an editable current path, a virtualized directory/file list and
+fixed Open, Choose this folder and Cancel actions. Enter/A opens a folder or selects a file; Back
+cancels. The list scrolls independently so navigation and selection stay reachable in large
+directories. WebM import, local artwork, shortcut folders and sound-pack ZIP import use it. Both
+frontends borrow the toolkit's file-listing rules; reads run off the UI thread and canceled/stale
+results are discarded.
 
 Preview images load near the visible viewport, reuse a bounded byte cache, validate dimensions and
 decode at a bounded size. Movie and animated-image details use one explicit WebView2 viewport; all

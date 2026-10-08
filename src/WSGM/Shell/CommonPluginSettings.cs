@@ -43,8 +43,10 @@ internal sealed class CommonPluginSettings
 
     /// <summary>The last composed delivery, including defaults; null before a valid delivery is prepared.</summary>
     internal PluginConfiguration? Desired { get; private set; }
+
     /// <summary>The last delivery result; null before delivery, and unconfirmed while a delivery is outstanding.</summary>
     internal PluginConfigurationResult? Result { get; private set; }
+
     /// <summary>The captured read-only schema, with separate read-only copies of choice lists.</summary>
     internal IReadOnlyList<PluginSetting> Schema { get; }
 
@@ -78,7 +80,10 @@ internal sealed class CommonPluginSettings
     /// <param name="expectedRevision">Saved revision against which this edit was made; stale edits throw.</param>
     /// <param name="changes">Declared keys and valid values to copy into the saved change set.</param>
     /// <param name="context">Current instance generation and delivery deadline.</param>
-    /// <param name="cancellationToken">Cancels before saving or during delivery; cancellation after save does not revert preferences.</param>
+    /// <param name="cancellationToken">
+    ///     Cancels before saving or during delivery; cancellation after save does not revert
+    ///     preferences.
+    /// </param>
     /// <returns>The delivery result. Rejected or unconfirmed delivery leaves the saved desired preferences intact.</returns>
     /// <exception cref="InvalidOperationException">The saved revision differs from the expected revision.</exception>
     /// <exception cref="ArgumentException">An edit or existing saved value does not match the current schema.</exception>

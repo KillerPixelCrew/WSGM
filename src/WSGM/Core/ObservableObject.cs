@@ -4,7 +4,10 @@ using System.ComponentModel;
 namespace WSGM.Core;
 
 /// <summary>Change notification for the objects Settings, the overlay and the taskbar bind to.</summary>
-/// <remarks>Notifications run synchronously on the caller's thread. UI-bound owners must marshal changes; subscriber exceptions propagate.</remarks>
+/// <remarks>
+///     Notifications run synchronously on the caller's thread. UI-bound owners must marshal changes; subscriber
+///     exceptions propagate.
+/// </remarks>
 public abstract class ObservableObject : INotifyPropertyChanged
 {
     /// <summary>Raised after a bound property changes.</summary>

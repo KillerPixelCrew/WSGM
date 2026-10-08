@@ -105,7 +105,10 @@ internal sealed class AllyPowerCapability(
     /// <param name="sustained">SPL watts, within this model's limits.</param>
     /// <param name="boost">SPPT and FPPT watts, within this model's limits.</param>
     /// <param name="cancellationToken">Cancels inter-write delays; earlier native writes can already have occurred.</param>
-    /// <returns>Rejected for an invalid range, unverified after all writes return, or indeterminate after failure; no rollback occurs.</returns>
+    /// <returns>
+    ///     Rejected for an invalid range, unverified after all writes return, or indeterminate after failure; no rollback
+    ///     occurs.
+    /// </returns>
     public async ValueTask<CapabilityCommandResult> ApplyLimitsAsync(
         CapabilityCommand command,
         int sustained,
@@ -391,7 +394,10 @@ internal sealed class AllyFanCapability(IAsusAcpi acpi, Func<TimeSpan, Cancellat
 
     /// <summary>Returns the fans to firmware control: the captured curves, else HC's defaults.</summary>
     /// <param name="command">Admitted command whose identity is retained in the result.</param>
-    /// <param name="original">Captured CPU/GPU curves, or null for HC defaults; a missing mid-fan curve uses the selected CPU curve.</param>
+    /// <param name="original">
+    ///     Captured CPU/GPU curves, or null for HC defaults; a missing mid-fan curve uses the selected CPU
+    ///     curve.
+    /// </param>
     /// <param name="cancellationToken">Cancels channel-spacing delays without reverting completed writes.</param>
     /// <returns>Unverified after the curve writes return, or indeterminate after failure; no readback or rollback occurs.</returns>
     public ValueTask<CapabilityCommandResult> ApplyAutomaticAsync(

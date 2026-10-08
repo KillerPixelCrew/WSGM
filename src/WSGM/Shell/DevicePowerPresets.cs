@@ -92,8 +92,14 @@ internal sealed class DevicePowerPresets(
     /// <param name="persistValues">Whether accepted watt-control writes enter the host's manual preference path.</param>
     /// <param name="expectedOnAc">Optional AC/battery state the caller observed; a changed source refuses remaining work.</param>
     /// <param name="customValues">Values for a custom assignment; ignored for a declared preset.</param>
-    /// <returns>Success when every step reports application, including accepted writes without readback; otherwise the failure detail.</returns>
-    /// <remarks>A partial or uncertain operation is neither automatically retried nor rolled back across device and Windows owners.</remarks>
+    /// <returns>
+    ///     Success when every step reports application, including accepted writes without readback; otherwise the failure
+    ///     detail.
+    /// </returns>
+    /// <remarks>
+    ///     A partial or uncertain operation is neither automatically retried nor rolled back across device and Windows
+    ///     owners.
+    /// </remarks>
     internal async Task<PowerPresetApplyResult> ApplyAsync(string id, CancellationToken cancellationToken,
         bool persistValues = true, bool? expectedOnAc = null,
         DevicePowerCustomValues? customValues = null)

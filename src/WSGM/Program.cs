@@ -942,7 +942,10 @@ internal static class CrashLoopBreaker
 
     /// <summary>Call AFTER RecordStart so the current start counts toward the 3.</summary>
     /// <param name="root">Data directory containing the startup marker.</param>
-    /// <returns>True for at least three recorded starts in the last two minutes; false for missing or unreadable markers. Stale entries may be pruned.</returns>
+    /// <returns>
+    ///     True for at least three recorded starts in the last two minutes; false for missing or unreadable markers.
+    ///     Stale entries may be pruned.
+    /// </returns>
     public static bool IsLooping(string root)
     {
         try

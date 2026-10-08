@@ -178,7 +178,10 @@ internal sealed record SteamThemesState(
     long Revision);
 
 /// <summary>Answers theme commands shared by Steam pages and overlay browse sessions.</summary>
-/// <remarks>Accepted store and installation work belongs to the service lifetime; observe Busy, Loading and Error for completion. Display names do not substitute for store or installed-theme identities.</remarks>
+/// <remarks>
+///     Accepted store and installation work belongs to the service lifetime; observe Busy, Loading and Error for
+///     completion. Display names do not substitute for store or installed-theme identities.
+/// </remarks>
 internal interface ISteamThemesBackend
 {
     /// <summary>Shows one of the page's tabs.</summary>

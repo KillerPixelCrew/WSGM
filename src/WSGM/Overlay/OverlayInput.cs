@@ -53,7 +53,9 @@ internal static class OverlayInput
                     }
                 }
             },
-            direction => !window.HasActiveSurface && window.NavigateWorkspace(direction),
+            direction => window.HasActiveSurface
+                ? window.NavigateSurfaceDirection(direction)
+                : window.NavigateWorkspace(direction),
             true, () => window.ActiveSurfaceNavigationRoot);
     }
 }

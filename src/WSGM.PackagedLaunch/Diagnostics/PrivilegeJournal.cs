@@ -60,7 +60,10 @@ internal sealed class PrivilegeJournal
     }
 
     /// <summary>How this process is running, in the words a log reader needs.</summary>
-    /// <returns>Elevated or unelevated according to the current principal's administrator membership, or an unreadable-elevation message.</returns>
+    /// <returns>
+    ///     Elevated or unelevated according to the current principal's administrator membership, or an
+    ///     unreadable-elevation message.
+    /// </returns>
     internal static string Elevation()
     {
         try

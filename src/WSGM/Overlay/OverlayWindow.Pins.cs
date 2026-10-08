@@ -401,7 +401,10 @@ public partial class OverlayWindow
     ///     icon, otherwise pin/unpin the focused row. Logged either way — this is
     ///     remote-diagnosis territory.
     /// </summary>
-    /// <param name="focused">Current focus target, or null; contextual pin or tray behavior is selected from its semantic identity.</param>
+    /// <param name="focused">
+    ///     Current focus target, or null; contextual pin or tray behavior is selected from its semantic
+    ///     identity.
+    /// </param>
     internal void RequestSecondaryAction(InputElement? focused)
     {
         if (focused is Control { DataContext: TrayIconEntry entry } control)

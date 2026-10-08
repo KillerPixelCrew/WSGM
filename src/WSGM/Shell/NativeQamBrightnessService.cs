@@ -32,8 +32,14 @@ internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDis
 
     /// <summary>Creates a serialized brightness adapter with an owned polling timer.</summary>
     /// <param name="active">Live admission predicate for periodic polling and writes.</param>
-    /// <param name="read">Borrowed read callback returning a percentage, or null when unavailable; invoked under the state lock.</param>
-    /// <param name="write">Borrowed write callback returning whether Windows accepted the percentage; invoked under the state lock.</param>
+    /// <param name="read">
+    ///     Borrowed read callback returning a percentage, or null when unavailable; invoked under the state
+    ///     lock.
+    /// </param>
+    /// <param name="write">
+    ///     Borrowed write callback returning whether Windows accepted the percentage; invoked under the state
+    ///     lock.
+    /// </param>
     /// <param name="pollInterval">Timer due time and interval; the caller must dispose this service to stop polling.</param>
     internal NativeQamBrightnessService(
         Func<bool> active, Func<int?> read, Func<int, bool> write, TimeSpan pollInterval)
@@ -44,7 +50,10 @@ internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDis
         _poll = new Timer(OnPoll, null, pollInterval, pollInterval);
     }
 
-    /// <summary>Returns the last observed or accepted brightness without reading the panel; null before a successful read or when unavailable.</summary>
+    /// <summary>
+    ///     Returns the last observed or accepted brightness without reading the panel; null before a successful read or
+    ///     when unavailable.
+    /// </summary>
     internal SteamBrightnessState? Current
     {
         get
@@ -110,7 +119,10 @@ internal sealed class NativeQamBrightnessService : ISteamBrightnessBackend, IDis
     internal event Action? Changed;
 
     /// <summary>Reads the panel on a worker thread and updates the cached state under the shared lock.</summary>
-    /// <returns>A valid 0–100 percent reading and revision, or null when disposed, unavailable or out of range; callback exceptions propagate.</returns>
+    /// <returns>
+    ///     A valid 0–100 percent reading and revision, or null when disposed, unavailable or out of range; callback
+    ///     exceptions propagate.
+    /// </returns>
     internal async ValueTask<SteamBrightnessState?> ReadAsync()
     {
         return await Task.Run(ReadCurrent).ConfigureAwait(false);

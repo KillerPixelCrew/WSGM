@@ -537,7 +537,10 @@ internal sealed partial class NativeShellChildProcess : IDisposable
     /// <summary>Waits boundedly for the exact created process to exit.</summary>
     /// <param name="timeout">Maximum wait for the exact child.</param>
     /// <param name="cancellationToken">Cancels observation without stopping the child.</param>
-    /// <returns>True when already disposed or exited, false on timeout/native wait failure; keep the wrapper alive until completion.</returns>
+    /// <returns>
+    ///     True when already disposed or exited, false on timeout/native wait failure; keep the wrapper alive until
+    ///     completion.
+    /// </returns>
     internal Task<bool> WaitForExitAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
     {
         var handle = _processHandle;

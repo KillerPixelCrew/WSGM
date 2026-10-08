@@ -119,7 +119,10 @@ internal sealed unsafe class IgclApi : IDisposable
     }
 
     /// <summary>Binds the same required and optional exports from a supplied address resolver.</summary>
-    /// <param name="resolve">Returns an export address or zero; borrowed addresses must remain valid for the returned API lifetime.</param>
+    /// <param name="resolve">
+    ///     Returns an export address or zero; borrowed addresses must remain valid for the returned API
+    ///     lifetime.
+    /// </param>
     /// <param name="log">Receives missing-binding diagnostics.</param>
     /// <returns>The bound API, or null when a required export is absent; it owns no library handle.</returns>
     internal static IgclApi? Bind(Func<string, nint> resolve, IntelLog log)

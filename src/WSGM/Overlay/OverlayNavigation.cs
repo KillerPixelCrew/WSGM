@@ -155,8 +155,10 @@ internal readonly record struct SectionKey(string Id)
 {
     private const string FocusPrefix = "section.device.";
     private const string PinPrefix = "device.section.";
+
     /// <summary>Semantic focus key for the source section heading.</summary>
     internal string FocusKey => FocusPrefix + Id;
+
     /// <summary>Persisted Quick Access pin key for this section.</summary>
     internal string PinKey => PinPrefix + Id;
 

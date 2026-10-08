@@ -27,6 +27,7 @@ internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationSt
 
     /// <summary>Accepted current-instance health notifications, delivered through the UI dispatcher.</summary>
     internal event Action<PluginHealthPublication>? HealthChanged;
+
     /// <summary>Accepted current-generation state changes, revalidated when delivered on the UI thread.</summary>
     internal event Action<PluginStatePublication>? StateChanged;
 
@@ -69,8 +70,14 @@ internal sealed class PluginHost(Action<Action> postToUi, IPluginConfigurationSt
     ///     <see cref="IPluginHost.Capabilities" />. Required for that category and refused for any other.
     /// </param>
     /// <returns>An unstarted registration. Its slot remains reserved until stop confirms release and disposal succeeds.</returns>
-    /// <exception cref="ArgumentException">Identity, generation, category, state path, or GPU channel is invalid; device packages use their own runtime.</exception>
-    /// <exception cref="InvalidOperationException">Selection/multiplicity policy or an existing reservation prevents admission.</exception>
+    /// <exception cref="ArgumentException">
+    ///     Identity, generation, category, state path, or GPU channel is invalid; device
+    ///     packages use their own runtime.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    ///     Selection/multiplicity policy or an existing reservation prevents
+    ///     admission.
+    /// </exception>
     internal PluginRegistration Admit(IPlugin plugin, PluginInstanceIdentity identity, string category,
         PluginCategoryPolicy policy, bool selected, long generation, string stateDirectory,
         PluginCapabilityChannel? capabilities = null)
@@ -319,16 +326,22 @@ internal sealed class PluginRegistration(
     private bool _stopAttempted;
     private Exception? _stopFailure;
     private int _stopRequested;
+
     /// <summary>Stable identity of the reserved instance.</summary>
     internal PluginInstanceIdentity Identity { get; } = identity;
+
     /// <summary>Admitted manifest category used for multiplicity accounting.</summary>
     internal string Category { get; } = category;
+
     /// <summary>Category policy that must match every other reservation in this category.</summary>
     internal PluginCategoryPolicy Policy { get; } = policy;
+
     /// <summary>Current context, updated on the serial lane before each lifecycle operation.</summary>
     internal PluginContext Context { get; private set; } = context;
+
     /// <summary>Whether admission has closed; queued actions and settings may no longer dispatch.</summary>
     internal bool IsStopping => Volatile.Read(ref _stopRequested) != 0;
+
     /// <summary>Whether uncertain lifecycle or frontend failure prevents further running operations.</summary>
     internal bool Quarantined { get; private set; }
 

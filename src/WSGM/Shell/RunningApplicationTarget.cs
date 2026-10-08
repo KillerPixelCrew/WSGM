@@ -24,7 +24,10 @@ internal enum RunningApplicationTargetState
 /// <summary>
 ///     Canonical running-application identity shared by controller and performance policy clients.
 /// </summary>
-/// <param name="Generation">Local content revision; increments when identity, source generation, availability or diagnostic evidence changes.</param>
+/// <param name="Generation">
+///     Local content revision; increments when identity, source generation, availability or
+///     diagnostic evidence changes.
+/// </param>
 /// <param name="SourceGeneration">Generation supplied by the latest Steam observation.</param>
 /// <param name="State">Availability and confidence of the projected identity.</param>
 /// <param name="ApplicationId">Canonical profile identity, or null when no unambiguous application is known.</param>
@@ -461,7 +464,10 @@ internal static class SteamRunningAppPairing
 
     /// <summary>Turns a store title's reported install folder into pairing evidence.</summary>
     /// <param name="folder">The <c>strInstallFolder</c> value Steam reported.</param>
-    /// <returns>An existing absolute install folder as pairing evidence, or a diagnostic with no folder. No executable identity is inferred here.</returns>
+    /// <returns>
+    ///     An existing absolute install folder as pairing evidence, or a diagnostic with no folder. No executable
+    ///     identity is inferred here.
+    /// </returns>
     internal static SteamRunningAppProfile NormalizeInstallFolder(string folder)
     {
         folder = folder.Trim();
@@ -572,6 +578,7 @@ internal interface IRunningApplicationTargetSource
 {
     /// <summary>The latest published immutable identity snapshot; reading it does not query Steam.</summary>
     RunningApplicationTargetSnapshot Current { get; }
+
     /// <summary>Raised on the publishing thread when projected snapshot content changes; subscribers must not block.</summary>
     event Action<RunningApplicationTargetSnapshot>? Changed;
 

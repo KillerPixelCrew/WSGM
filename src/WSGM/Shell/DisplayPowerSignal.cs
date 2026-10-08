@@ -7,8 +7,10 @@ internal static class DisplayPowerSignal
 {
     /// <summary>Windows display-state value for an off display.</summary>
     internal const int DisplayOff = 0;
+
     /// <summary>Windows display-state value for a lit display.</summary>
     internal const int DisplayOn = 1;
+
     /// <summary>Windows display-state value for a dimmed, still-lit display.</summary>
     internal const int DisplayDimmed = 2;
 

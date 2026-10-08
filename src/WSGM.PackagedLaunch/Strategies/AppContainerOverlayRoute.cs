@@ -14,7 +14,10 @@ namespace WSGM.PackagedLaunch;
 ///     path through Steam. Foreground-window ownership is maintained separately by the session.
 ///     Game-side hooks are WSGM code; this route does not establish anti-cheat compatibility.
 /// </remarks>
-/// <param name="injector">Shared injector whose uncertainty latch prevents further remote work after an indeterminate operation.</param>
+/// <param name="injector">
+///     Shared injector whose uncertainty latch prevents further remote work after an indeterminate
+///     operation.
+/// </param>
 internal sealed class AppContainerOverlayRoute(GameInjector injector) : IDisposable
 {
     private OverlayObjectBroker? _broker;

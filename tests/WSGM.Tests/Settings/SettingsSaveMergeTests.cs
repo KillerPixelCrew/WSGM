@@ -107,7 +107,9 @@ public sealed class SettingsSaveMergeTests
         var rebound = SettingsTestServices.Model(merged);
         var reloaded = rebound.CaptureSaveRequest();
 
-        Assert.DoesNotContain(edited, path => !Equals(ReadBinding(window, path), ReadBinding(rebound, path)));
+        var mismatched = edited.Select(path => (Path: path, Expected: ReadBinding(window, path),
+            Actual: ReadBinding(rebound, path))).Where(item => !Equals(item.Expected, item.Actual)).ToArray();
+        Assert.Empty(mismatched);
 
         Assert.Equal(JsonSerializer.Serialize(request.Values, ConfigJsonContext.Default.AppConfig),
             JsonSerializer.Serialize(reloaded.Values, ConfigJsonContext.Default.AppConfig));

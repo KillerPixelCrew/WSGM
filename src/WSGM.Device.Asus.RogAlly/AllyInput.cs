@@ -589,7 +589,10 @@ internal interface IAllyKeyboardSource : IAsyncDisposable
         CancellationToken cancellationToken);
 
     /// <summary>Replaces the set of consumed keys. Keys outside it pass through untouched.</summary>
-    /// <param name="virtualKeys">Complete replacement set of virtual-key codes; the Windows implementation ignores values outside 0-255.</param>
+    /// <param name="virtualKeys">
+    ///     Complete replacement set of virtual-key codes; the Windows implementation ignores values
+    ///     outside 0-255.
+    /// </param>
     void Watch(IReadOnlyCollection<uint> virtualKeys);
 
     ValueTask StopAsync(CancellationToken cancellationToken);

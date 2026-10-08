@@ -109,8 +109,14 @@ internal sealed unsafe class ThreeDFeature
     }
 
     /// <summary>Probes the setter with the whole global native value while preserving inherited defaults.</summary>
-    /// <param name="admission">Caller cancellation, deadline and live-session admission, checked immediately before any setter.</param>
-    /// <returns>The native round-trip outcome; an inherited/default global value succeeds without materializing a stored override.</returns>
+    /// <param name="admission">
+    ///     Caller cancellation, deadline and live-session admission, checked immediately before any
+    ///     setter.
+    /// </param>
+    /// <returns>
+    ///     The native round-trip outcome; an inherited/default global value succeeds without materializing a stored
+    ///     override.
+    /// </returns>
     public ControlWrite ProbeSupport(WriteAdmission admission)
     {
         var result = Read(null, out var current);
@@ -131,7 +137,10 @@ internal sealed unsafe class ThreeDFeature
     }
 
     /// <summary>What the driver means when it has no stored value: the defaults its table reports.</summary>
-    /// <returns>A correctly shaped native value populated from the feature capability table, including enabled flags and custom feature defaults.</returns>
+    /// <returns>
+    ///     A correctly shaped native value populated from the feature capability table, including enabled flags and
+    ///     custom feature defaults.
+    /// </returns>
     public RawFeatureValue DefaultValue()
     {
         RawFeatureValue value = default;

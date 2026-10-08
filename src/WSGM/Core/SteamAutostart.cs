@@ -127,6 +127,7 @@ public static class SteamAutostartScanner
 
     /// <summary>StartupApproved subkey for 32-bit Run entries.</summary>
     internal const string Run32List = "Run32";
+
     /// <summary>StartupApproved subkey for startup-folder shortcuts.</summary>
     internal const string StartupFolderList = "StartupFolder";
 

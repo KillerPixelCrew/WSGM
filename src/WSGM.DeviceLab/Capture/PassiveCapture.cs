@@ -233,7 +233,10 @@ internal interface IPassiveCaptureSource
     /// <param name="step">Observe-only step.</param>
     /// <param name="emit">Callback into the shared timeline.</param>
     /// <param name="cancellationToken">Step deadline or caller cancellation.</param>
-    /// <returns>Completion when observation stops and all emitted callbacks finish; the source must cooperate with cancellation.</returns>
+    /// <returns>
+    ///     Completion when observation stops and all emitted callbacks finish; the source must cooperate with
+    ///     cancellation.
+    /// </returns>
     Task ObserveAsync(
         ObservationStep step,
         Func<PassiveObservation, ValueTask> emit,

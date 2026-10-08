@@ -8,6 +8,7 @@ internal interface IPowerModeApi
 {
     /// <inheritdoc cref="WindowsPower.GetEffectiveMode" />
     Guid Read();
+
     /// <inheritdoc cref="WindowsPower.SetActiveMode" />
     void Set(Guid mode);
 }

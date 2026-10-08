@@ -26,12 +26,16 @@ internal sealed record PhysicalGlyphRenderPlan
 {
     /// <summary>Resolved physical control identity; null when no device mapping is available.</summary>
     internal required GlyphControlId? PhysicalControl { get; init; }
+
     /// <summary>Why device artwork could not be selected, or None for a resolved device glyph.</summary>
     internal required PhysicalGlyphFallbackReason FallbackReason { get; init; }
+
     /// <summary>Vector coordinate bounds; null for a nonvector plan.</summary>
     internal required GlyphViewBox? ViewBox { get; init; }
+
     /// <summary>Validated vector paths; empty for raster artwork or a fallback.</summary>
     internal required IReadOnlyList<PhysicalGlyphPath> Paths { get; init; }
+
     /// <summary>Validated raster PNG bytes; empty for vector artwork or a fallback.</summary>
     internal required ReadOnlyMemory<byte> RasterPng { get; init; }
 

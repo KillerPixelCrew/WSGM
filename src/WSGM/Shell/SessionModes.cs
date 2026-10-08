@@ -136,7 +136,10 @@ public sealed class SessionModes
     /// <param name="monitor">Borrowed monitor whose exit notifications drive relaunch policy.</param>
     /// <param name="steamRunning">Fresh Steam-process presence probe.</param>
     /// <param name="steamInstalled">Steam installation probe.</param>
-    /// <param name="launchSteamDesktop">Optional launcher receiving input-management, unelevated-launch and CEF switches; null uses the production launcher.</param>
+    /// <param name="launchSteamDesktop">
+    ///     Optional launcher receiving input-management, unelevated-launch and CEF switches; null
+    ///     uses the production launcher.
+    /// </param>
     internal SessionModes(AppConfig config, SteamMonitor? monitor, Func<bool> steamRunning,
         Func<bool> steamInstalled, Func<bool, bool, bool, bool>? launchSteamDesktop)
     {
@@ -882,7 +885,10 @@ public sealed class SessionModes
     /// <summary>
     ///     Requests a Big Picture launch using the current configuration, unless shutdown has begun.
     /// </summary>
-    /// <returns>A user-facing launch warning, or null when launch was accepted or shutdown suppressed it. Null does not establish Steam or Big Picture readiness.</returns>
+    /// <returns>
+    ///     A user-facing launch warning, or null when launch was accepted or shutdown suppressed it. Null does not
+    ///     establish Steam or Big Picture readiness.
+    /// </returns>
     public string? StartBigPicture()
     {
         if (Volatile.Read(ref _shutdownRequested) != 0)

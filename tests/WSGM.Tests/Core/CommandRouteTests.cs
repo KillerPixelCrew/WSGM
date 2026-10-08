@@ -98,7 +98,9 @@ public sealed class CommandRouteTests
 
         Assert.Equal($"\"{Epic}\"", fields.Target);
         Assert.Equal(Uri, fields.LaunchOptions);
-        Assert.True(CommandShortcut.Runs(new ExistingShortcut(1, Epic, Uri), ThroughLauncher, Launcher));
+        Assert.True(CommandShortcut.Runs(new ExistingShortcut(1, Epic, Uri, fields.StartDirectory), ThroughLauncher,
+            Launcher));
+        Assert.False(CommandShortcut.Runs(new ExistingShortcut(1, Epic, Uri, @"D:\Other"), ThroughLauncher, Launcher));
     }
 
     [Fact]
@@ -110,7 +112,8 @@ public sealed class CommandRouteTests
         Assert.Equal(Launcher, fields.Target);
         Assert.StartsWith(@"--follow --dir ""D:\Games\Hades"" -- ", fields.LaunchOptions);
         Assert.EndsWith(Uri, fields.LaunchOptions);
-        Assert.True(CommandShortcut.Runs(new ExistingShortcut(1, fields.Target, fields.LaunchOptions), followed,
+        Assert.True(CommandShortcut.Runs(
+            new ExistingShortcut(1, fields.Target, fields.LaunchOptions, fields.StartDirectory), followed,
             Launcher));
         Assert.False(CommandShortcut.Runs(new ExistingShortcut(1, fields.Target, fields.LaunchOptions), followed,
             string.Empty));
@@ -160,7 +163,8 @@ public sealed class CommandRouteTests
         var written = $@"--follow --dir ""D:\Games\Hades\"" -- ""{Epic}"" {Uri}";
         var sibling = written.Replace(@"Hades\""", @"Hades 2\""", StringComparison.Ordinal);
 
-        Assert.True(CommandShortcut.Runs(new ExistingShortcut(1, Launcher, written), followed, Launcher));
+        Assert.True(CommandShortcut.Runs(new ExistingShortcut(1, Launcher, written, Path.GetDirectoryName(Launcher)!),
+            followed, Launcher));
         Assert.False(CommandShortcut.Runs(new ExistingShortcut(1, Launcher, sibling), followed, Launcher));
     }
 

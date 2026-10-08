@@ -11,6 +11,7 @@ internal sealed class SessionActivation : IDisposable
 {
     /// <summary>Per-session named event used by secondary WSGM activations.</summary>
     internal const string EventName = @"Local\WSGM.Activate";
+
     private readonly EventWaitHandle? _signal;
     private readonly RegisteredWaitHandle? _wait;
     private bool _disposed;

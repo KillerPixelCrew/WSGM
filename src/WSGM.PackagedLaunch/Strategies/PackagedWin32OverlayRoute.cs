@@ -18,7 +18,10 @@ public sealed record RouteOutcome(bool Succeeded, string Detail, bool Degraded =
 ///     renderer, then observes the real game for Steam's handoff. It performs no delayed writes to
 ///     the game process.
 /// </remarks>
-/// <param name="injector">Shared injector used only to prepare the activation-returned helper; its uncertainty latch is retained.</param>
+/// <param name="injector">
+///     Shared injector used only to prepare the activation-returned helper; its uncertainty latch is
+///     retained.
+/// </param>
 internal sealed class PackagedWin32OverlayRoute(GameInjector injector)
 {
     /// <summary>Sets Steam up in the launch helper activation returned.</summary>

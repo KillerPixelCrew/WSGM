@@ -71,7 +71,10 @@ internal static class SteamWsgmSettingsSurface
     /// <summary>Reads <c>{key, value}</c>, retaining a cloned value for backend row validation.</summary>
     /// <param name="payload">An object containing exactly key and value.</param>
     /// <param name="value">Parsed request with a cloned JSON value independent of the payload document; default on failure.</param>
-    /// <returns>True when the key is nonblank and the value is neither object, null nor undefined; the backend validates row-specific types.</returns>
+    /// <returns>
+    ///     True when the key is nonblank and the value is neither object, null nor undefined; the backend validates
+    ///     row-specific types.
+    /// </returns>
     internal static bool TryReadSet(JsonElement payload, out SetRequest value)
     {
         value = default;

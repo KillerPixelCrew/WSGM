@@ -14,8 +14,10 @@ namespace WSGM.LogonService;
 internal sealed class WindowsSessionHost : ISessionHost
 {
     private const uint WaitObject0 = 0;
+
     /// <inheritdoc />
     public bool HasPendingSetup => InstallLayout.HasPendingSetup;
+
     /// <inheritdoc />
     public int LastError => Marshal.GetLastWin32Error();
 

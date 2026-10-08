@@ -123,7 +123,7 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
         internal event Action<string>? Status;
 
         /// <inheritdoc />
-    protected override IPlatformHandle CreateNativeControlCore(IPlatformHandle parent)
+        protected override IPlatformHandle CreateNativeControlCore(IPlatformHandle parent)
         {
             if (parent.HandleDescriptor != "HWND")
             {
@@ -141,7 +141,7 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
         }
 
         /// <inheritdoc />
-    protected override void DestroyNativeControlCore(IPlatformHandle control)
+        protected override void DestroyNativeControlCore(IPlatformHandle control)
         {
             _load?.Cancel();
             _load?.Dispose();

@@ -89,7 +89,10 @@ internal static partial class NativeViiper
     /// <param name="busId">Existing VIIPER bus identity.</param>
     /// <param name="deviceId">Device whose host output is observed.</param>
     /// <param name="callback">Cdecl callback invoked on a library thread; must not throw or retain the borrowed report buffer.</param>
-    /// <param name="userData">Caller-owned context kept alive through callback quiescence; WSGM retains it until Shutdown completes.</param>
+    /// <param name="userData">
+    ///     Caller-owned context kept alive through callback quiescence; WSGM retains it until Shutdown
+    ///     completes.
+    /// </param>
     /// <returns>Zero when registered; otherwise read TakeLastError.</returns>
     [LibraryImport(Library, EntryPoint = "viiper_device_set_feedback_callback")]
     internal static unsafe partial int DeviceSetFeedbackCallback(

@@ -158,7 +158,10 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     /// <param name="config">Initial normalized saved configuration.</param>
     /// <param name="store">Borrowed process configuration store.</param>
     /// <param name="sessionId">Windows session served by this coordinator and its diagnostics endpoint.</param>
-    /// <param name="ownerMutex">Handle-owned admission marker transferred for disposal during shutdown; it is never mutex-owned.</param>
+    /// <param name="ownerMutex">
+    ///     Handle-owned admission marker transferred for disposal during shutdown; it is never
+    ///     mutex-owned.
+    /// </param>
     /// <param name="postToUi">Queues router projection notifications on the UI thread.</param>
     /// <param name="profiles">Shared profile owner used for all global and per-game edits.</param>
     /// <param name="autoTdpTargetFrametimeMs">Reads the current frame-time target in milliseconds; zero disables control.</param>
@@ -169,7 +172,10 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     /// <param name="collectIdentity">Collects machine identity for device detection and profile addressing.</param>
     /// <param name="discoverPackage">Discovers and validates the installed device package without starting it.</param>
     /// <param name="loadRuntime">Loads an owned runtime for the selected package, cycle, and instance state directory.</param>
-    /// <param name="registerPowerModeNotification">Registers a wake signal; any returned subscription is disposed during shutdown.</param>
+    /// <param name="registerPowerModeNotification">
+    ///     Registers a wake signal; any returned subscription is disposed during
+    ///     shutdown.
+    /// </param>
     /// <param name="readOnAcPower">Reads AC/battery status; null means unknown.</param>
     /// <param name="restartDelay">Cancelable delay used by the bounded automatic restart policy.</param>
     /// <param name="createDiagnostics">Starts an optional owned read-only diagnostics endpoint after composition succeeds.</param>
@@ -372,7 +378,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         try
         {
             return !_disposed && CanPreviewRumble
-                   && await Controllers.PreviewRumbleAsync(testFloor, token).ConfigureAwait(false);
+                              && await Controllers.PreviewRumbleAsync(testFloor, token).ConfigureAwait(false);
         }
         finally
         {
@@ -781,7 +787,10 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     /// <summary>Applies a saved ownership configuration to this authoritative process.</summary>
     /// <param name="config">Normalized configuration already saved by the configuration owner; retained as current state.</param>
     /// <param name="cancellationToken">Cancels transition admission and dependent lifecycle work.</param>
-    /// <returns>Completion of the requested ownership/profile reconciliation; it does not itself save the supplied configuration.</returns>
+    /// <returns>
+    ///     Completion of the requested ownership/profile reconciliation; it does not itself save the supplied
+    ///     configuration.
+    /// </returns>
     internal async Task ApplyConfigAsync(AppConfig config, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(config);
@@ -1078,7 +1087,10 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
 
     /// <summary>Starts one user-requested attempt after automatic recovery was exhausted.</summary>
     /// <param name="cancellationToken">Cancels transition admission and the explicit startup attempt.</param>
-    /// <returns>True when a fresh attempt ran, not proof that the device became active; false unless faulted and fully retired.</returns>
+    /// <returns>
+    ///     True when a fresh attempt ran, not proof that the device became active; false unless faulted and fully
+    ///     retired.
+    /// </returns>
     internal async Task<bool> RetryAfterFaultAsync(CancellationToken cancellationToken = default)
     {
         if (_disposed)

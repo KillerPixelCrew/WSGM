@@ -69,7 +69,8 @@ internal static class LibraryTabManager
         "(async()=>{const ns=" + SteamCef.JsString(SteamUiBridgeIdentity.Namespace) + ";"
         + "const ready=()=>!!window.webpackChunksteamui&&!!window.collectionStore&&!!window.appStore"
         + "&&!!window[ns]?.gate('wsgmLibraryTabs');"
-        + "const until=Date.now()+" + LibraryReadyProbeBudget.TotalMilliseconds.ToString(CultureInfo.InvariantCulture) + ";"
+        + "const until=Date.now()+" + LibraryReadyProbeBudget.TotalMilliseconds.ToString(CultureInfo.InvariantCulture) +
+        ";"
         + "while(!ready()){if(Date.now()>until)return 'false';await new Promise(r=>setTimeout(r,250));}"
         + "return 'true';})()";
 
@@ -106,7 +107,10 @@ internal static class LibraryTabManager
     /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
     /// <param name="steam">The session's Steam client.</param>
     /// <param name="cancellationToken">Cancels the run.</param>
-    /// <returns>A user-facing synchronization outcome. Cancellation after admission is reported as a summary; cancellation while waiting for the gate can propagate.</returns>
+    /// <returns>
+    ///     A user-facing synchronization outcome. Cancellation after admission is reported as a summary; cancellation
+    ///     while waiting for the gate can propagate.
+    /// </returns>
     public static async Task<string> SyncAllAsync(
         ConfigStore store, SteamClient steam, CancellationToken cancellationToken = default)
     {
@@ -117,7 +121,10 @@ internal static class LibraryTabManager
     /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
     /// <param name="steam">The session's Steam client.</param>
     /// <param name="cancellationToken">Cancels the run.</param>
-    /// <returns>The tab publication outcome and retry state; local discovery may already be saved when Steam publication fails.</returns>
+    /// <returns>
+    ///     The tab publication outcome and retry state; local discovery may already be saved when Steam publication
+    ///     fails.
+    /// </returns>
     public static async Task<LibraryTabSyncResult> SyncAllDetailedAsync(
         ConfigStore store, SteamClient steam, CancellationToken cancellationToken = default)
     {
@@ -900,7 +907,10 @@ internal static class LibraryTabManager
     ///     Ids of the tabs the builder loaded. One missing from <paramref name="tabs" /> was deleted
     ///     there; a tab added elsewhere since is kept.
     /// </param>
-    /// <returns>Completion after the editor’s changes are merged and saved; the queued Steam-tab synchronization is not awaited.</returns>
+    /// <returns>
+    ///     Completion after the editor’s changes are merged and saved; the queued Steam-tab synchronization is not
+    ///     awaited.
+    /// </returns>
     internal static async Task SaveCustomTabsAsync(ConfigStore store, SteamClient? steam,
         IReadOnlyList<CustomTabConfig> tabs, IReadOnlySet<string> baseline)
     {
@@ -994,7 +1004,10 @@ internal static class LibraryTabManager
     /// <param name="store">The configuration persistence the tabs and cards are kept in.</param>
     /// <param name="mutate">Applies changes and returns a snapshot value.</param>
     /// <param name="cancellationToken">Cancels the off-thread work.</param>
-    /// <returns>The mutation’s result after the configuration update finishes. The callback must return a detached snapshot if it exposes mutable data.</returns>
+    /// <returns>
+    ///     The mutation’s result after the configuration update finishes. The callback must return a detached snapshot if
+    ///     it exposes mutable data.
+    /// </returns>
     internal static Task<T> MutateConfigAsync<T>(ConfigStore store, Func<AppConfig, T> mutate,
         CancellationToken cancellationToken = default)
     {

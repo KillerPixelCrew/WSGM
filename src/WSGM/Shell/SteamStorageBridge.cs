@@ -41,15 +41,15 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
     private readonly Func<bool> _formatAllowed;
     private readonly SdFormatManager _formats;
 
+    // A reader can retain its disk interface and cached capacity after Windows ejects its volume.
+    // Remember mounted readers until the disk leaves, so that interface is not a new blank library.
+    private readonly HashSet<string> _mountedDriveIds = new(StringComparer.Ordinal);
+
     /// <summary>The session's library policy, or null when this session owns none.</summary>
     private readonly LibraryPolicy? _policy;
 
     // Touched only by the publication loop.
     private string _loggedProjection = "";
-
-    // A reader can retain its disk interface and cached capacity after Windows ejects its volume.
-    // Remember mounted readers until the disk leaves, so that interface is not a new blank library.
-    private readonly HashSet<string> _mountedDriveIds = new(StringComparer.Ordinal);
 
     // Both managers' collections are UI-thread owned and are read here from the publication loop and
     // from command threads, so those read this immutable copy instead. Rebuilt on the UI thread on
@@ -444,9 +444,9 @@ internal sealed class SteamStorageBridge : ISteamStorageBackend, IDisposable
         IReadOnlyList<RemovableDriveEntry> ejectable, bool wasMounted)
     {
         if (ejectable.Any(entry => entry.Ejected
-                                  && (string.Equals(entry.Id, target.Id, StringComparison.Ordinal)
-                                      || (char.IsAsciiLetter(target.PreferredLetter)
-                                          && entry.VolumeLetters.Contains(target.PreferredLetter)))))
+                                   && (string.Equals(entry.Id, target.Id, StringComparison.Ordinal)
+                                       || (char.IsAsciiLetter(target.PreferredLetter)
+                                           && entry.VolumeLetters.Contains(target.PreferredLetter)))))
         {
             return false;
         }

@@ -11,18 +11,25 @@ internal enum PhysicalGlyphFallbackReason
 {
     /// <summary>A matching reviewed physical profile was selected.</summary>
     None,
+
     /// <summary>Device integration is disabled, so no device artwork is eligible.</summary>
     DeviceIntegrationDisabled,
+
     /// <summary>The user explicitly selected Steam's native glyphs.</summary>
     NativeSteamSelected,
+
     /// <summary>No profile matches the active exact device definition.</summary>
     ExactDeviceMismatch,
+
     /// <summary>The input source does not identify the integrated handheld controls.</summary>
     SourceNotHandheld,
+
     /// <summary>The selected profile does not declare this physical control.</summary>
     ControlAbsent,
+
     /// <summary>Declared artwork could not be found.</summary>
     ArtworkMissing,
+
     /// <summary>The consuming surface rejected the supplied artwork.</summary>
     RenderRejected
 }
@@ -30,7 +37,10 @@ internal enum PhysicalGlyphFallbackReason
 /// <summary>Selected physical profile and fallback diagnostics for all glyph consumers.</summary>
 /// <param name="Profile">Shared immutable imported profile, or null to use native Steam presentation.</param>
 /// <param name="FallbackReason">Reason no physical profile was selected, or None on success.</param>
-/// <param name="FellBackFromMissingManualProfile">Whether a missing or incompatible manual selection required automatic fallback.</param>
+/// <param name="FellBackFromMissingManualProfile">
+///     Whether a missing or incompatible manual selection required automatic
+///     fallback.
+/// </param>
 internal sealed record PhysicalGlyphSelectionResult(
     ImportedGlyphProfile? Profile,
     PhysicalGlyphFallbackReason FallbackReason,
@@ -63,7 +73,10 @@ internal sealed class PhysicalGlyphCatalog : IDisposable
         Changed = null;
     }
 
-    /// <summary>Raised synchronously on the updating thread after device/profile state changes; subscribers must marshal UI work.</summary>
+    /// <summary>
+    ///     Raised synchronously on the updating thread after device/profile state changes; subscribers must marshal UI
+    ///     work.
+    /// </summary>
     internal event Action? Changed;
 
     /// <summary>Records which device definition the active plugin matched.</summary>
@@ -92,7 +105,10 @@ internal sealed class PhysicalGlyphCatalog : IDisposable
     }
 
     /// <summary>Atomically replaces the profile lookup after validating unique ordinal profile identities.</summary>
-    /// <param name="profiles">Imported immutable profiles to retain by reference; the enumeration is copied before publication.</param>
+    /// <param name="profiles">
+    ///     Imported immutable profiles to retain by reference; the enumeration is copied before
+    ///     publication.
+    /// </param>
     /// <exception cref="ArgumentNullException">The enumeration is null.</exception>
     /// <exception cref="ArgumentException">Two profiles have the same identity.</exception>
     /// <exception cref="ObjectDisposedException">The catalog has been disposed.</exception>

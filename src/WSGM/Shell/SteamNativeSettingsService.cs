@@ -88,8 +88,14 @@ internal sealed class SteamNativeSettingsService(
     }
 
     /// <summary>Reads fresh state from the same adapters that publish Quick Access.</summary>
-    /// <returns>Fresh native settings pages and revision; the completed read atomically replaces the exact offered command set.</returns>
-    /// <remarks>Concurrent reads are serialized. Dependencies remain borrowed, and row keys retain the profile/device generation they describe.</remarks>
+    /// <returns>
+    ///     Fresh native settings pages and revision; the completed read atomically replaces the exact offered command
+    ///     set.
+    /// </returns>
+    /// <remarks>
+    ///     Concurrent reads are serialized. Dependencies remain borrowed, and row keys retain the profile/device
+    ///     generation they describe.
+    /// </remarks>
     internal async ValueTask<SteamNativeSettingsState?> ReadAsync()
     {
         await _reads.WaitAsync().ConfigureAwait(false);
@@ -682,7 +688,10 @@ internal sealed class SteamNativeSettingsService(
     /// <param name="key">Base semantic command key.</param>
     /// <param name="active">Application and game-profile identity the row describes.</param>
     /// <param name="editsGame">Whether that row edits the game override rather than global defaults.</param>
-    /// <returns>The base key with a hash of the complete editing-scope identity, so stale-scope commands cannot match the new offered set.</returns>
+    /// <returns>
+    ///     The base key with a hash of the complete editing-scope identity, so stale-scope commands cannot match the new
+    ///     offered set.
+    /// </returns>
     internal static string ProfileKey(string key, ActiveProfile active, bool editsGame)
     {
         var identity = string.Join('\0', active.ApplicationId ?? string.Empty, active.GameProfileId ?? string.Empty,

@@ -24,7 +24,10 @@ internal sealed class NativeQamBluetoothService : ISteamBluetoothBackend
 
     /// <summary>Creates the service over the session's radio manager.</summary>
     /// <param name="radios">Borrowed session radio manager; observable operations are dispatched to its UI thread.</param>
-    /// <param name="showBluetoothPanel">Opens the owner's pairing prompt and reports whether it is available; null makes pairing unavailable.</param>
+    /// <param name="showBluetoothPanel">
+    ///     Opens the owner's pairing prompt and reports whether it is available; null makes
+    ///     pairing unavailable.
+    /// </param>
     internal NativeQamBluetoothService(RadioManager radios, Func<bool>? showBluetoothPanel = null)
     {
         _radios = radios;

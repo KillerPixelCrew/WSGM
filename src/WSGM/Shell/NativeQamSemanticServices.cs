@@ -715,7 +715,10 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
     }
 
     /// <inheritdoc />
-    /// <remarks>Profile changes republish the sliders. Cancellation is checked before the coordinator save; later cancellation does not revoke it. An unavailable mode returns its refusal reason.</remarks>
+    /// <remarks>
+    ///     Profile changes republish the sliders. Cancellation is checked before the coordinator save; later cancellation
+    ///     does not revoke it. An unavailable mode returns its refusal reason.
+    /// </remarks>
     public async Task<SteamUiCommandResult> SetUnifiedModeAsync(bool unified, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -1163,7 +1166,10 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : ISteamAutoTdpBa
     public event Action? StateChanged;
 
     /// <summary>Stores the AutoTDP setting through its one owner.</summary>
-    /// <param name="enabled">Requested AutoTDP state; disabling remains allowed when a coordinator exists even if control is unavailable.</param>
+    /// <param name="enabled">
+    ///     Requested AutoTDP state; disabling remains allowed when a coordinator exists even if control is
+    ///     unavailable.
+    /// </param>
     /// <param name="cancellationToken">Cancels the coordinator's serialized setting transition.</param>
     /// <returns>Whether the setting was accepted, or the authoritative availability refusal.</returns>
     /// <exception cref="ObjectDisposedException">This adapter has been disposed.</exception>

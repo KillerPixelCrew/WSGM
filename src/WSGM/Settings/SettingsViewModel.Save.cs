@@ -151,7 +151,10 @@ public sealed partial class SettingsViewModel
     }
 
     /// <summary>Captures every UI-owned value into an isolated graph on the UI thread.</summary>
-    /// <returns>A detached request including edited-field baselines; safe for the persistence worker while the UI continues editing.</returns>
+    /// <returns>
+    ///     A detached request including edited-field baselines; safe for the persistence worker while the UI continues
+    ///     editing.
+    /// </returns>
     internal SaveRequest CaptureSaveRequest()
     {
         var splash = BuildSplashConfig();

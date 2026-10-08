@@ -11,7 +11,10 @@ namespace WSGM.DeviceLab.Transports;
 internal interface ILabRumbleWorker : IDisposable
 {
     /// <summary>Creates the motor checkpoint description without reading a hardware baseline.</summary>
-    /// <returns>A statement that motor state is unreadable and cleanup must send zero; not evidence that motors are already silent.</returns>
+    /// <returns>
+    ///     A statement that motor state is unreadable and cleanup must send zero; not evidence that motors are already
+    ///     silent.
+    /// </returns>
     [LabWorkerSnapshot]
     string Original();
 
@@ -28,7 +31,10 @@ internal interface ILabRumbleWorker : IDisposable
     void SetIntensity(LabRumbleFrame frame);
 
     /// <summary>Returns the worker's streamed frame evidence after the slider stops.</summary>
-    /// <returns>A detached list of stream, stream-stop and worker-zero writes, including failures; ordinary pulse writes are excluded.</returns>
+    /// <returns>
+    ///     A detached list of stream, stream-stop and worker-zero writes, including failures; ordinary pulse writes are
+    ///     excluded.
+    /// </returns>
     IReadOnlyList<LabRumbleWrite> StreamWrites();
 
     /// <summary>Sends a final zero, also used when the worker closes the service.</summary>

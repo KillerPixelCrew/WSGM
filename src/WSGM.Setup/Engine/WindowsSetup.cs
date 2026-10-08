@@ -486,7 +486,10 @@ internal static class WindowsSetup
     /// <summary>Runs a program hidden and returns its exit code, or -1 when it could not start.</summary>
     /// <param name="file">Executable path to start directly.</param>
     /// <param name="arguments">Command-line arguments for that executable.</param>
-    /// <param name="timeout">Initial wait budget, default ten minutes; expiry logs a warning and then waits without a deadline.</param>
+    /// <param name="timeout">
+    ///     Initial wait budget, default ten minutes; expiry logs a warning and then waits without a
+    ///     deadline.
+    /// </param>
     /// <returns>Child exit code, or -1 on a caught start/access failure; a slow child is not terminated.</returns>
     public static int Run(string file, string arguments, TimeSpan? timeout = null)
     {

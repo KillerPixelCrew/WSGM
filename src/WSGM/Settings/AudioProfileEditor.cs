@@ -278,7 +278,10 @@ public sealed class AudioProfileEditor : ObservableObject
     }
 
     /// <summary>Builds the nullable persisted preference from this draft.</summary>
-    /// <returns>A detached preference preserving unavailable saved endpoint/format choices, or null when nothing is configured.</returns>
+    /// <returns>
+    ///     A detached preference preserving unavailable saved endpoint/format choices, or null when nothing is
+    ///     configured.
+    /// </returns>
     internal AudioProfilePreference? Build()
     {
         var result = new AudioProfilePreference
@@ -368,7 +371,10 @@ public sealed class AudioProfileEditor : ObservableObject
 }
 
 /// <summary>One named default-format choice.</summary>
-/// <param name="Format">Native playback format retained for persistence and shown with its sample-rate/bit-depth/channel label.</param>
+/// <param name="Format">
+///     Native playback format retained for persistence and shown with its sample-rate/bit-depth/channel
+///     label.
+/// </param>
 public sealed record AudioFormatOption(CoreAudio.AudioDeviceFormat Format)
 {
     /// <inheritdoc />

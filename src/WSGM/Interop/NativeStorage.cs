@@ -215,7 +215,10 @@ internal static unsafe partial class NativeStorage
     }
 
     /// <summary>Opens the exact enumerated disk interface for a media eject request.</summary>
-    /// <param name="path">Exact currently enumerated device-interface path; this method does not revalidate its physical identity.</param>
+    /// <param name="path">
+    ///     Exact currently enumerated device-interface path; this method does not revalidate its physical
+    ///     identity.
+    /// </param>
     /// <returns>Caller-owned handle; inspect IsInvalid and LastWin32Error before use, then dispose it.</returns>
     internal static SafeFileHandle OpenDeviceForMediaEject(string path)
     {

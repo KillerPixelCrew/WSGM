@@ -83,7 +83,10 @@ internal sealed class PowerService(
     /// </remarks>
     /// <param name="identity">Current verified machine and firmware binding for the original state.</param>
     /// <param name="cancellationToken">Cancels journal persistence; no hardware mutation is performed here.</param>
-    /// <returns>Completion after preserving the first readable original, or without a new entry when already held or unreadable.</returns>
+    /// <returns>
+    ///     Completion after preserving the first readable original, or without a new entry when already held or
+    ///     unreadable.
+    /// </returns>
     public async ValueTask PrepareWriteAsync(AllyIdentityState identity, CancellationToken cancellationToken)
     {
         if (journal.HoldsOriginal(ServiceId, identity.FirmwareIdentity))
@@ -216,7 +219,10 @@ internal sealed class FanService(
     /// </remarks>
     /// <param name="identity">Current verified machine and firmware binding for the original state.</param>
     /// <param name="cancellationToken">Cancels journal persistence; no hardware mutation is performed here.</param>
-    /// <returns>Completion after preserving the first readable original, or without a new entry when already held or unreadable.</returns>
+    /// <returns>
+    ///     Completion after preserving the first readable original, or without a new entry when already held or
+    ///     unreadable.
+    /// </returns>
     public async ValueTask PrepareWriteAsync(AllyIdentityState identity, CancellationToken cancellationToken)
     {
         if (journal.HoldsOriginal(ServiceId, identity.FirmwareIdentity))
@@ -458,7 +464,10 @@ internal sealed class LightingService(IAllyAuraHid aura) : DeviceService<AllyIde
     ///     four per-zone messages at the slow speed with no apply or set (<c>ROGAlly.cs:574-593</c>).
     /// </remarks>
     /// <param name="state">Previously validated desired lighting values.</param>
-    /// <returns>Ordered newly allocated reports with Feature distinguishing brightness from output reports; no hardware is touched.</returns>
+    /// <returns>
+    ///     Ordered newly allocated reports with Feature distinguishing brightness from output reports; no hardware is
+    ///     touched.
+    /// </returns>
     internal static IReadOnlyList<(byte[] Bytes, bool Feature)> Encode(AllyLightingState state)
     {
         List<(byte[], bool)> reports = [(AllyProtocol.Brightness(state.Brightness), true)];

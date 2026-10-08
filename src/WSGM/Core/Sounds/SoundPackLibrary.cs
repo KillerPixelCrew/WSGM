@@ -32,10 +32,13 @@ internal sealed record SoundPack(
 {
     /// <summary>Distinct supported preview and sound paths, relative to the pack directory.</summary>
     internal string[] Assets { get; init; } = [];
+
     /// <summary>Author-supplied manifest identity, when present.</summary>
     internal string ManifestId { get; init; } = "";
+
     /// <summary>Repository/source text from the manifest or installation sidecar.</summary>
     internal string Source { get; init; } = "";
+
     /// <summary>Most recent comparison against Steam resources, when the caller supplied one.</summary>
     internal SoundPackCompatibility? Compatibility { get; init; }
 }

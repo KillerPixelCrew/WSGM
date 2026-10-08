@@ -233,7 +233,10 @@ internal sealed partial class LabInputCapture : IDisposable
     public event Action<LabInputDevice, bool>? DeviceChanged;
 
     /// <summary>Starts every source and returns once the message thread is running.</summary>
-    /// <param name="windowHandle">Borrowed window handle used for DirectInput cooperative acquisition; keep the window alive until capture stops.</param>
+    /// <param name="windowHandle">
+    ///     Borrowed window handle used for DirectInput cooperative acquisition; keep the window alive
+    ///     until capture stops.
+    /// </param>
     /// <returns>The running capture.</returns>
     public static LabInputCapture Start(nint windowHandle)
     {

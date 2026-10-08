@@ -56,7 +56,10 @@ internal sealed record LabPendingRumbleRoute(string? RecordId, string RouteId, s
 ///     absent entry is a no-op); a change without a record would be a leak. A record that exists but cannot
 ///     be read is never written over: it may hold the only copy of the originals.
 /// </remarks>
-/// <param name="path">Machine-change ledger path, normalized at construction; construction does not create or read the file.</param>
+/// <param name="path">
+///     Machine-change ledger path, normalized at construction; construction does not create or read the
+///     file.
+/// </param>
 internal sealed class LabMachineState(string path)
 {
     private readonly object _gate = new();

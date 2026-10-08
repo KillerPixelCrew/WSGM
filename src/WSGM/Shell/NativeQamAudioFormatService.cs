@@ -114,7 +114,10 @@ internal sealed class NativeQamAudioFormatService : ISteamAudioFormatBackend, ID
     }
 
     /// <summary>Returns choices together with the exact endpoint that offered them.</summary>
-    /// <returns>Capabilities paired with their endpoint identity; an unavailable state and null id clear command admission when no endpoint can be read.</returns>
+    /// <returns>
+    ///     Capabilities paired with their endpoint identity; an unavailable state and null id clear command admission
+    ///     when no endpoint can be read.
+    /// </returns>
     internal async ValueTask<(SteamAudioFormatState State, string? EndpointId)> ReadEndpointAsync()
     {
         var capabilities = await _profiles.ReadPlaybackCapabilitiesAsync(CancellationToken.None).ConfigureAwait(false);

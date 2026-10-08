@@ -84,6 +84,21 @@ page-specific focus system, hard-code a hashed Steam class or copy Avalonia's pa
 
 ## Keep state refresh separate from user intent
 
+### Contain native fields and selectable rows
+
+Use `renderSteamUiChoice` in a narrow box, toolbar or table cell. Steam's full DropDownField
+includes its own label, spacing and a fixed minimum-width control; placing it beside another label
+repeats the text and can overflow the column. The helper uses the native bare dropdown when
+available and below layout for its field fallback. Give it an accessible label and hide only the
+duplicate visible label in a table. Use `renderSteamUiSelectRow` for title/status/detail buttons,
+rather than appending several spans that run together inside Steam's native button.
+
+Grid/flex children must be shrinkable, percentage-width controls must use border-box sizing, and
+pickers must fit their actual modal parent. Never force a picker body's minimum width from viewport
+width alone. Verify long names/paths and narrow columns in the running Steam client: compare control
+and containing-panel bounds, check the modal footer, and open the dropdown to check its popup.
+Compilation, React stand-ins and Overlay captures do not establish Steam layout acceptance.
+
 Readback, controller focus and editing must coexist. Preserve stable semantic row IDs and keys
 across refreshes; avoid replacing the focused control during an active edit. In Overlay service
 views, use `Tagged` keys with `ServiceSubView` reconciliation and the refreshable editors in

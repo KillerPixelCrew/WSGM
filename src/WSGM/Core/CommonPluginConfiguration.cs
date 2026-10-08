@@ -100,7 +100,10 @@ internal sealed class ApplicationPluginConfigurationStore(ConfigStore store) : I
     /// <param name="config">Non-null configuration to inspect without mutation.</param>
     /// <param name="identity">Exact package/instance key.</param>
     /// <returns>An isolated read-only value map and revision; empty at revision zero when absent.</returns>
-    /// <exception cref="InvalidOperationException">Duplicate identities, negative revisions, or invalid preference data were found.</exception>
+    /// <exception cref="InvalidOperationException">
+    ///     Duplicate identities, negative revisions, or invalid preference data were
+    ///     found.
+    /// </exception>
     internal static SavedPluginConfiguration ReadFrom(AppConfig config, PluginInstanceIdentity identity)
     {
         var matches = config.PluginConfigurations.Where(entry =>

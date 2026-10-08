@@ -108,7 +108,10 @@ internal sealed class ClawPowerCapability(
     ///     something else, as HC shows its requested limits.
     /// </summary>
     /// <param name="read">Latest non-null hardware snapshot.</param>
-    /// <returns>The snapshot with this cycle's accepted power/scenario writes projected over it; FastWatts remains read-derived.</returns>
+    /// <returns>
+    ///     The snapshot with this cycle's accepted power/scenario writes projected over it; FastWatts remains
+    ///     read-derived.
+    /// </returns>
     public PowerPair Observe(PowerPair read)
     {
         ArgumentNullException.ThrowIfNull(read);
@@ -191,7 +194,10 @@ internal sealed class ClawPowerCapability(
     /// </remarks>
     /// <param name="command">Validated host command carrying identity and result correlation.</param>
     /// <param name="sustainedWatts">Requested PL1 in the model's inclusive wattage range.</param>
-    /// <param name="boostWatts">Requested PL2 in the model's inclusive wattage range; the caller validates PL1 does not exceed PL2.</param>
+    /// <param name="boostWatts">
+    ///     Requested PL2 in the model's inclusive wattage range; the caller validates PL1 does not exceed
+    ///     PL2.
+    /// </param>
     /// <param name="cancellationToken">Cancels transport/delay work without proving that an accepted write was undone.</param>
     /// <returns>Range rejection, indeterminate failed write, or accepted pair; matching readback only upgrades verification.</returns>
     public async ValueTask<CapabilityCommandResult> ApplyLimitsAsync(
@@ -485,7 +491,10 @@ internal sealed class ClawFanCapability(IMsiWmiTransport transport)
 
     /// <summary>The snapshot to publish: written mode and curve where the tables read otherwise.</summary>
     /// <param name="read">Latest mode flags and raw tables from both channels.</param>
-    /// <returns>A projection preserving unknown flag bits and right-channel readback while applying accepted mode and left-curve presentation.</returns>
+    /// <returns>
+    ///     A projection preserving unknown flag bits and right-channel readback while applying accepted mode and
+    ///     left-curve presentation.
+    /// </returns>
     public FanSnapshot Observe(FanSnapshot read)
     {
         var observed = read;
@@ -581,7 +590,10 @@ internal sealed class ClawFanCapability(IMsiWmiTransport transport)
     /// <param name="command">Validated host command used for result identity.</param>
     /// <param name="curve">Exactly six nondecreasing temperature/duty points, each within 0–100 °C/percent.</param>
     /// <param name="cancellationToken">Cancels reads/writes; cancellation after dispatch can leave partial effects.</param>
-    /// <returns>Validation/preparation rejection, indeterminate failed write, or accepted curve with optional readback verification.</returns>
+    /// <returns>
+    ///     Validation/preparation rejection, indeterminate failed write, or accepted curve with optional readback
+    ///     verification.
+    /// </returns>
     public async ValueTask<CapabilityCommandResult> ApplyCurveAsync(
         CapabilityCommand command,
         IReadOnlyList<CurvePoint> curve,

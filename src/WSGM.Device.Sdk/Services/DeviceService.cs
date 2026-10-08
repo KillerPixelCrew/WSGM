@@ -114,10 +114,10 @@ public abstract class DeviceServiceStatus(string serviceId)
 /// <typeparam name="TIdentity">The plugin's own identity snapshot for the cycle.</typeparam>
 /// <param name="serviceId">Stable service identifier.</param>
 /// <remarks>
-    ///     <see cref="DeviceServiceLifecycle" /> runs these operations and applies their results. Implementations
-    ///     own transport cleanup and temporary-state restoration. The context deadline is data; implementations
-    ///     must enforce it or use the caller's bounded token. Callers serialize access to mutable service state.
-    /// </remarks>
+///     <see cref="DeviceServiceLifecycle" /> runs these operations and applies their results. Implementations
+///     own transport cleanup and temporary-state restoration. The context deadline is data; implementations
+///     must enforce it or use the caller's bounded token. Callers serialize access to mutable service state.
+/// </remarks>
 public abstract class DeviceService<TIdentity>(string serviceId) : DeviceServiceStatus(serviceId)
 {
     /// <summary>Whether the service stops for suspend and is reacquired on resume.</summary>

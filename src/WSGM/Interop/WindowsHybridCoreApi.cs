@@ -8,8 +8,10 @@ internal interface IHybridCoreApi
 {
     /// <inheritdoc cref="WindowsPower.QueryHybridCores" />
     HybridCoreSupport Query(Guid scheme);
+
     /// <inheritdoc cref="WindowsPower.ReadHybridCores" />
     HybridCoreState Read(Guid scheme, bool onBattery);
+
     /// <inheritdoc cref="WindowsPower.WriteHybridCores" />
     void Write(Guid scheme, bool onBattery, HybridCoreState state);
 }

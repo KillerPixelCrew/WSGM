@@ -79,7 +79,10 @@ internal sealed class BootTakeoverCancellation : IDisposable
     ///     never starts another session transition; the shutdown owner decides whether recovery is
     ///     needed after every in-flight transition has settled.
     /// </summary>
-    /// <returns>True when teardown cancellation was newly recorded, including replacing a desktop request; false if already shut down or completed.</returns>
+    /// <returns>
+    ///     True when teardown cancellation was newly recorded, including replacing a desktop request; false if already
+    ///     shut down or completed.
+    /// </returns>
     internal bool RequestShutdown()
     {
         lock (_gate)

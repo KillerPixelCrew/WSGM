@@ -23,7 +23,10 @@ internal static partial class Kernel32
     /// <param name="fileName">File, directory, or device path passed to CreateFileW.</param>
     /// <param name="desiredAccess">Requested Win32 access mask; zero requests metadata access only.</param>
     /// <param name="shareMode">Win32 share flags controlling subsequent opens.</param>
-    /// <param name="securityAttributes">Borrowed SECURITY_ATTRIBUTES pointer, or zero for default security and a noninheritable handle.</param>
+    /// <param name="securityAttributes">
+    ///     Borrowed SECURITY_ATTRIBUTES pointer, or zero for default security and a
+    ///     noninheritable handle.
+    /// </param>
     /// <param name="creationDisposition">Win32 create/open disposition.</param>
     /// <param name="flagsAndAttributes">File attributes and open flags.</param>
     /// <param name="templateFile">Borrowed template handle for file creation, or zero.</param>
@@ -46,7 +49,10 @@ internal static partial class Kernel32
     /// <param name="fileName">File, directory, or device path passed to CreateFileW.</param>
     /// <param name="desiredAccess">Requested Win32 access mask; zero requests metadata access only.</param>
     /// <param name="shareMode">Win32 share flags controlling subsequent opens.</param>
-    /// <param name="securityAttributes">Borrowed SECURITY_ATTRIBUTES pointer, or zero for default security and a noninheritable handle.</param>
+    /// <param name="securityAttributes">
+    ///     Borrowed SECURITY_ATTRIBUTES pointer, or zero for default security and a
+    ///     noninheritable handle.
+    /// </param>
     /// <param name="creationDisposition">Win32 create/open disposition.</param>
     /// <param name="flagsAndAttributes">File attributes and open flags.</param>
     /// <param name="templateFile">Borrowed template handle for file creation, or zero.</param>

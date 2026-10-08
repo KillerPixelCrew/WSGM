@@ -113,7 +113,10 @@ internal sealed class RegistryValueSnapshot<T>
     /// </summary>
     /// <param name="key">Caller-owned writable registry key; kept open after the operation.</param>
     /// <param name="config">Configuration containing a previously captured snapshot.</param>
-    /// <remarks>Caller must check <see cref="IsCaptured" /> first. Registry failures propagate; configuration is not saved or cleared.</remarks>
+    /// <remarks>
+    ///     Caller must check <see cref="IsCaptured" /> first. Registry failures propagate; configuration is not saved or
+    ///     cleared.
+    /// </remarks>
     public void Restore(RegistryKey key, AppConfig config)
     {
         if (HasValue(config))

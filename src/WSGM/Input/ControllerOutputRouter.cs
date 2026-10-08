@@ -45,8 +45,8 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
     private long _lastDispatchTimestamp;
     private bool _outputObserved;
     private bool _previewing;
-    private long _pulseSequence = -1;
     private DateTimeOffset _pulseDeadline;
+    private long _pulseSequence = -1;
     private ControllerTargetHandle? _target;
 
     /// <summary>Subscribes to backend feedback and starts the serialized physical-output worker.</summary>
@@ -162,8 +162,14 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
     }
 
     /// <summary>One explicit, bounded test. Game feedback cannot extend or replace the preview.</summary>
-    /// <param name="testFloor">True to preview the configured/plugin motor floor; false for the calibrated quarter-strength sample.</param>
-    /// <param name="cancellationToken">Cancels sink acquisition or preview dispatch; cleanup invalidates the preview on failure.</param>
+    /// <param name="testFloor">
+    ///     True to preview the configured/plugin motor floor; false for the calibrated quarter-strength
+    ///     sample.
+    /// </param>
+    /// <param name="cancellationToken">
+    ///     Cancels sink acquisition or preview dispatch; cleanup invalidates the preview on
+    ///     failure.
+    /// </param>
     /// <returns>True when the bounded preview was accepted; false when unavailable or already previewing.</returns>
     internal async Task<bool> PreviewAsync(bool testFloor, CancellationToken cancellationToken)
     {
@@ -501,6 +507,7 @@ internal sealed class ControllerOutputRouter : IAsyncDisposable
                     {
                         return;
                     }
+
                     // A callback queued for an older pulse must not shorten the current one.
                     var remaining = _pulseDeadline - _timeProvider.GetUtcNow();
                     if (remaining > TimeSpan.Zero)

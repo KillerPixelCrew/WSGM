@@ -866,13 +866,13 @@
     }
   };
   // @fragment file-picker.ts
-  // Controller-accessible file selection; filesystem listing is delegated to the host bridge.
+  // Controller-accessible file selection; the host owns directory enumeration.
   const SteamFilePickerPatchId = "steam-ui.file-picker";
   /**
-   * Opens a controller-accessible picker backed by the file-picker bridge commands.
-   * @param ui Steam's resolved React and native control components.
-   * @param options Optional title, folder/file mode, extension filters and starting path.
-   * @returns A promise for the selected path, or null on cancellation or unavailable modal components.
+   * Opens a contained two-pane file picker using native Steam controls.
+   * @param ui Steam's resolved React, buttons, focus and modal components.
+   * @param options Title, folder/file mode, extension filters and optional starting path.
+   * @returns The accepted path or null; cancellation and late listings cannot settle it twice.
    */
   const showSteamFilePicker = (ui, options = {}) =>
     new Promise((resolve) => {
@@ -887,48 +887,38 @@
           resolve(value);
         }
       };
-      const rowStyle = {
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: "12px",
-        width: "100%",
-        textAlign: "left",
-        margin: "0 0 2px",
-      };
-      // Declared once per picker, so the modal keeps one component for as long as it is open.
       function Picker({ close }) {
-        const finish = (value) => {
-          settle(value);
-          close();
-        };
+        const h = react.createElement;
         const [places, setPlaces] = react.useState([]);
         const [listing, setListing] = react.useState(null);
         const [error, setError] = react.useState("");
         const [loading, setLoading] = react.useState(false);
-        // The folder asked for last. A listing that answers after a later one was asked for, a
-        // slow network drive overtaken by a local folder, is dropped rather than shown, so what
-        // "Use this folder" accepts is always the folder on screen. -1 once the picker is gone,
-        // so nothing that answers after that is applied.
         const requested = react.useRef(0);
+        const finish = (path) => {
+          if (settled) return;
+          settle(path);
+          close();
+        };
         const open = (path) => {
           const ticket = ++requested.current;
           setLoading(true);
+          setError("");
           void request(SteamFilePickerPatchId, "listFolder", {
             path,
-            extensions: mode === "file" ? extensions : [],
+            extensions: mode === "folder" ? [] : extensions.length ? extensions : [".*"],
           }).then(
             (answer) => {
               if (ticket !== requested.current) return;
               setLoading(false);
-              if (!answer) return;
-              setListing(answer);
-              setError(answer.error ?? "");
+              if (answer) {
+                setListing(answer);
+                setError(answer.error ?? "");
+              }
             },
             (failure) => {
               if (ticket !== requested.current) return;
               setLoading(false);
-              setError(String(failure?.message ?? failure ?? "The folder could not be listed."));
+              setError(String(failure?.message ?? failure));
             },
           );
         };
@@ -938,158 +928,110 @@
               if (requested.current < 0) return;
               const found = answer?.places ?? [];
               setPlaces(found);
-              // The start folder opens only while nothing else has been asked for.
               const first = options.start || found[0]?.path;
               if (first && requested.current === 0) open(first);
             },
             (failure) => {
-              if (requested.current < 0) return;
-              setError(String(failure?.message ?? failure ?? "The drives could not be listed."));
+              if (requested.current >= 0) setError(String(failure?.message ?? failure));
             },
           );
-          // However the modal goes away, by a choice, Cancel, B, or Steam closing it, the
-          // caller hears once: a choice already settled, and anything else is a cancel.
           return () => {
             requested.current = -1;
             settle(null);
           };
         }, []);
         const current = listing?.path ?? "";
-        const up = () => {
-          if (listing?.parent) open(listing.parent);
-        };
+        const up = () => listing?.parent && open(listing.parent);
         const useCurrent = () => {
           if (mode === "folder" && current && !listing?.error && !loading) finish(current);
         };
-        // A DialogButton answers both the mouse and the controller's A through onClick; giving it
-        // onActivate as well ran each choice twice.
-        const placeRow = (place) =>
-          react.createElement(
-            ui.dialogButton,
-            { key: place.path, style: rowStyle, onClick: () => open(place.path) },
-            react.createElement("span", {}, place.name),
-            place.detail
-              ? react.createElement(
-                  "span",
-                  { style: { fontSize: "12px", opacity: 0.7 } },
-                  place.detail,
-                )
-              : null,
-          );
-        const entryRow = (entry) =>
-          react.createElement(
-            ui.dialogButton,
-            {
-              key: entry.path,
-              style: { ...rowStyle, opacity: entry.folder || mode === "file" ? 1 : 0.6 },
-              onClick: () => (entry.folder ? open(entry.path) : finish(entry.path)),
-            },
-            react.createElement("span", {}, entry.folder ? `${entry.name}\\` : entry.name),
-            react.createElement(
-              "span",
-              { style: { fontSize: "12px", opacity: 0.7 } },
-              entry.folder ? "Folder" : "File",
-            ),
-          );
         const entries = listing?.entries ?? [];
-        return react.createElement(
+        return h(
           ui.focusable,
           {
-            style: {
-              display: "flex",
-              flexDirection: "column",
-              gap: "12px",
-              minWidth: "min(900px, 80vw)",
-            },
+            className: "steam-ui-kit-picker",
+            "flow-children": "column",
             onCancelButton: () => finish(null),
             onSecondaryButton: useCurrent,
             onSecondaryActionDescription: mode === "folder" ? "Use this folder" : undefined,
             onOptionsButton: up,
             onOptionsActionDescription: "Up one level",
           },
-          react.createElement(
-            "div",
-            { style: { fontSize: "14px", opacity: 0.8, wordBreak: "break-all" } },
-            loading ? `${current || "…"} (loading)` : current,
-          ),
-          react.createElement(
-            "div",
-            { style: { display: "flex", gap: "16px", minHeight: "320px", maxHeight: "55vh" } },
-            react.createElement(
-              ui.focusable,
-              {
-                "flow-children": "column",
-                style: {
-                  width: "34%",
-                  overflowY: "auto",
-                  display: "flex",
-                  flexDirection: "column",
-                },
-              },
-              ...places.map(placeRow),
-            ),
-            react.createElement(
-              ui.focusable,
-              {
-                "flow-children": "column",
-                style: { flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" },
-              },
-              listing?.parent
-                ? react.createElement(
-                    ui.dialogButton,
-                    { key: "..", style: rowStyle, onClick: up },
-                    react.createElement("span", {}, ".."),
-                    react.createElement(
-                      "span",
-                      { style: { fontSize: "12px", opacity: 0.7 } },
-                      "Up",
-                    ),
-                  )
-                : null,
-              ...entries.map(entryRow),
-              entries.length === 0 && !loading && !error
-                ? react.createElement(
-                    "div",
-                    { style: { opacity: 0.7, padding: "8px" } },
-                    "This folder is empty.",
-                  )
-                : null,
-            ),
-          ),
-          error
-            ? react.createElement("div", { style: { color: "#ff6d6d", fontSize: "14px" } }, error)
-            : null,
-          react.createElement(
+          steamUiKitStyle(react),
+          h(
             ui.focusable,
-            {
-              "flow-children": "row",
-              style: { display: "flex", gap: "8px", justifyContent: "flex-end" },
-            },
-            react.createElement(
-              ui.dialogButton,
-              { onClick: () => finish(null), style: { width: "auto" } },
-              "Cancel",
+            { className: "steam-ui-kit-picker-actions", "flow-children": "row" },
+            h(ui.dialogButton, { disabled: !listing?.parent || loading, onClick: up }, "Up"),
+            h(
+              "div",
+              { className: "steam-ui-kit-picker-path", role: "status" },
+              loading ? (current || "Places") + " (loading)" : current,
             ),
+          ),
+          h(
+            "div",
+            { className: "steam-ui-kit-picker-body" },
+            h(
+              ui.focusable,
+              { className: "steam-ui-kit-picker-places", "flow-children": "column" },
+              h("div", { className: "steam-ui-kit-picker-heading" }, "Places"),
+              ...places.map((place) =>
+                renderSteamUiSelectRow(ui, {
+                  key: place.path,
+                  title: place.name,
+                  detail: place.detail,
+                  selected: current === place.path,
+                  onClick: () => open(place.path),
+                }),
+              ),
+            ),
+            h(
+              ui.focusable,
+              { className: "steam-ui-kit-picker-files", "flow-children": "column" },
+              h("div", { className: "steam-ui-kit-picker-heading" }, "Files and folders"),
+              ...entries.map((entry) =>
+                renderSteamUiSelectRow(ui, {
+                  key: entry.path,
+                  title: entry.name,
+                  status: h(
+                    "span",
+                    { className: "steam-ui-kit-muted" },
+                    entry.folder ? "Folder" : "File",
+                  ),
+                  onClick: () => (entry.folder ? open(entry.path) : finish(entry.path)),
+                }),
+              ),
+              entries.length === 0 && !loading && !error
+                ? h("p", {}, "This folder is empty.")
+                : null,
+            ),
+          ),
+          error ? h("p", { className: "steam-ui-kit-sheet-error", role: "alert" }, error) : null,
+          h(
+            ui.focusable,
+            { className: "steam-ui-kit-picker-actions", "flow-children": "row" },
+            h(ui.dialogButton, { onClick: () => finish(null) }, "Cancel"),
             mode === "folder"
-              ? react.createElement(
+              ? h(
                   ui.dialogButtonPrimary ?? ui.dialogButton,
                   {
                     onClick: useCurrent,
                     disabled: !current || !!listing?.error || loading,
-                    style: { width: "auto" },
                   },
-                  current ? `Use ${current}` : "Use this folder",
+                  "Use this folder",
                 )
               : null,
           ),
         );
       }
-      const shown = showSteamModal(ui, {
-        title,
-        render: (close) => react.createElement(Picker, { close }),
-        onCancel: () => settle(null),
-      });
-      if (!shown) settle(null);
+      if (
+        !showSteamModal(ui, {
+          title,
+          render: (close) => react.createElement(Picker, { close }),
+          onCancel: () => settle(null),
+        })
+      )
+        settle(null);
     });
   // @fragment gate-helpers.ts
   // What the gates that walk Steam's React output have in common, and the lifecycle steps every gate
@@ -3962,6 +3904,29 @@
 .steam-ui-kit-box{background:rgba(27,40,56,.9);border-radius:4px;padding:16px;display:flex;flex-direction:column;gap:10px}
 .steam-ui-kit-box-title{display:flex;align-items:center;gap:6px;font-size:16px;font-weight:600;color:#fff}
 .steam-ui-kit-box-title svg{width:18px;height:18px}
+.steam-ui-kit-box p{margin:0;line-height:1.45}
+.steam-ui-kit-box,.steam-ui-kit-group,.steam-ui-kit-group-body,.steam-ui-kit-pane,.steam-ui-kit-detail-aside{min-width:0;max-width:100%;box-sizing:border-box}
+.steam-ui-kit-box>*{min-width:0;max-width:100%;box-sizing:border-box}
+.steam-ui-kit-box .DialogButton,.steam-ui-kit-sheet .DialogButton{min-width:0!important;max-width:100%;box-sizing:border-box!important;white-space:normal;overflow-wrap:anywhere}
+.steam-ui-kit-choice{display:flex;flex-direction:column;gap:6px;min-width:0;max-width:100%;width:100%;box-sizing:border-box}
+.steam-ui-kit-choice-label{font-size:14px;color:#dcdedf}
+.steam-ui-kit-choice .DialogDropDown{min-width:0!important;max-width:100%!important;width:100%!important;box-sizing:border-box!important;margin:0}
+.steam-ui-kit-choice div{min-width:0!important;max-width:100%!important;box-sizing:border-box!important}
+.steam-ui-kit-choice .DialogButton{width:100%!important;min-width:0!important;max-width:100%!important;box-sizing:border-box!important}
+.steam-ui-kit-choice .DialogDropDown_CurrentDisplay{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.steam-ui-kit-choice>div{width:100%!important;min-width:0;max-width:100%;box-sizing:border-box;--field-negative-horizontal-margin:0px}
+.steam-ui-kit-select-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;width:100%;min-width:0;text-align:left;box-sizing:border-box}
+.steam-ui-kit-select-row-title{min-width:0;overflow-wrap:anywhere}
+.steam-ui-kit-select-row-detail{grid-column:1 / -1;min-width:0;font-size:13px;color:#8b929a;white-space:normal;overflow-wrap:anywhere}
+.steam-ui-kit-picker{display:flex;flex-direction:column;gap:12px;min-width:0;width:min(900px,100%);max-width:100%;box-sizing:border-box}
+.steam-ui-kit-picker-body{display:grid;grid-template-columns:minmax(140px,1fr) minmax(0,2fr);gap:16px;min-height:0;height:min(360px,48vh)}
+.steam-ui-kit-picker-places,.steam-ui-kit-picker-files{min-width:0;min-height:0;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;gap:6px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.12);border-radius:4px;padding:8px;box-sizing:border-box}
+.steam-ui-kit-picker-heading{padding:4px 8px 8px;border-bottom:1px solid #3d4450;font-size:12px;font-weight:600;color:#8b929a;text-transform:uppercase;letter-spacing:.06em}
+.steam-ui-kit-picker .steam-ui-kit-select-row{padding:4px 0;border-bottom:1px solid rgba(255,255,255,.14)}
+.steam-ui-kit-picker .DialogButton{min-width:0!important;max-width:100%;width:100%;box-sizing:border-box!important;white-space:normal;margin:0}
+.steam-ui-kit-picker-path{font-size:14px;color:#b8bcbf;overflow-wrap:anywhere}
+.steam-ui-kit-picker-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.steam-ui-kit-picker-actions .DialogButton{width:auto}
 .steam-ui-kit-muted{color:rgb(124,142,163);font-size:13px}
 .steam-ui-kit-gallery{display:flex;gap:12px}
 .steam-ui-kit-thumbs{display:flex;flex-direction:column;gap:8px}
@@ -4004,6 +3969,55 @@
       steamUiKitIcons.set(react, icon);
     }
     return icon;
+  };
+  /**
+   * Fits a native dropdown to a box, toolbar or table cell without a second settings-row label.
+   * @param ui Resolved native controls; a full field with below layout is the fallback.
+   * @param props Accessible label, optional visible label and native option/selection/change props.
+   * @returns A contained dropdown; its popup remains owned by Steam.
+   */
+  const renderSteamUiChoice = (ui, props) => {
+    const h = ui.react.createElement;
+    const bare = !!ui.dropdownControl;
+    return h(
+      "div",
+      { className: "steam-ui-kit-choice", "aria-label": props.label },
+      bare && props.showLabel !== false
+        ? h("div", { className: "steam-ui-kit-choice-label" }, props.label)
+        : null,
+      h(ui.dropdownControl ?? ui.dropdown, {
+        label: bare || props.showLabel !== false ? props.label : "",
+        menuLabel: props.label,
+        layout: "below",
+        rgOptions: props.rgOptions,
+        selectedOption: props.selectedOption,
+        disabled: !!props.disabled,
+        onChange: props.onChange,
+        "aria-label": props.label,
+      }),
+    );
+  };
+  /**
+   * Arranges a selectable item as a title, trailing status and separate supporting line.
+   * @param ui Resolved native Steam button.
+   * @param props Stable key, label/detail/status, selected state and one activation callback.
+   * @returns One native focus target with structured content instead of concatenated button text.
+   */
+  const renderSteamUiSelectRow = (ui, props) => {
+    const h = ui.react.createElement;
+    return h(
+      ui.dialogButton,
+      { key: props.key, "aria-pressed": !!props.selected, onClick: props.onClick },
+      h(
+        "div",
+        { className: "steam-ui-kit-select-row" },
+        h("span", { className: "steam-ui-kit-select-row-title" }, props.title),
+        props.status ?? null,
+        props.detail
+          ? h("span", { className: "steam-ui-kit-select-row-detail" }, props.detail)
+          : null,
+      ),
+    );
   };
   /**
    * Creates a section heading with optional controller-accessible folding.
@@ -14411,6 +14425,7 @@
 #wsgm-import.wsgm-emulators .wsgm-import-head { padding-bottom:12px; }
 #wsgm-import.wsgm-emulators .wsgm-import-body { display:block; overflow:auto; padding-bottom:56px; }
 .wsgm-emu-content { display:flex; flex-direction:column; gap:14px; min-width:0; }
+.wsgm-emu-content h2,.wsgm-emu-content p { margin:0; }
 .wsgm-emu-tabs { display:flex; gap:8px; flex-wrap:wrap; border-bottom:1px solid #3d4450; padding-bottom:12px; }
 .wsgm-emu-tabs .DialogButton { width:auto; min-width:0; height:36px; }
 .wsgm-emu-tabs [aria-pressed=true] { background:var(--gpSystemBlue,#1a9fff); color:white; }
@@ -14435,8 +14450,6 @@
 .wsgm-emu-core { display:grid; grid-template-columns:minmax(160px,1fr) minmax(100px,1fr) auto; gap:16px; align-items:center; padding:10px 12px; }
 .wsgm-emu-core.gpfocus { background:#fff; color:#0e141b; }
 .wsgm-emu-default { display:grid; grid-template-columns:180px minmax(180px,1fr) minmax(180px,1fr); align-items:center; gap:14px; padding:8px 0; }
-.wsgm-emu-default .DialogLabel { display:none; }
-.wsgm-emu-default .DialogDropDown { margin:0; }
 @media(max-width:1000px) { .wsgm-emu-default { grid-template-columns:130px minmax(120px,1fr) minmax(120px,1fr); } }
 @media(max-width:750px) { .wsgm-emu-split { grid-template-columns:1fr; } .wsgm-emu-default { grid-template-columns:1fr; } }
 `;
@@ -14795,7 +14808,7 @@
             { className: "wsgm-emu-column" },
             box(
               "Install",
-              h(importUi.dropdown, {
+              renderSteamUiChoice(importUi, {
                 label: "Release channel",
                 rgOptions: definition.channels.map((value) => ({ data: value, label: value })),
                 selectedOption: channel,
@@ -14881,8 +14894,9 @@
                 importUi.focusable,
                 { key: system.id, className: "wsgm-emu-default", "flow-children": "row" },
                 h("span", {}, system.name),
-                h(importUi.dropdown, {
+                renderSteamUiChoice(importUi, {
                   label: `${system.name} emulator`,
+                  showLabel: false,
                   rgOptions: [
                     { data: "", label: "No default" },
                     ...choices.map((item) => ({ data: item.id, label: item.label })),
@@ -14898,8 +14912,9 @@
                     }),
                 }),
                 selected?.requiresCore
-                  ? h(importUi.dropdown, {
+                  ? renderSteamUiChoice(importUi, {
                       label: `${system.name} core`,
+                      showLabel: false,
                       rgOptions: selected.cores.map((item) => ({
                         data: item.id,
                         label: item.label,
@@ -14953,23 +14968,16 @@
             box(
               "Systems your emulators run",
               ...bios.systems.map((system) =>
-                h(
-                  importUi.dialogButton,
-                  {
-                    key: system.id,
-                    "aria-pressed": selected?.id === system.id,
-                    onClick: () => setBiosId(system.id),
-                  },
-                  h("span", {}, system.name),
-                  badge(system.status),
-                  h(
-                    "small",
-                    {},
-                    system.emulators.length
-                      ? "Used by " + system.emulators.join(" · ")
-                      : "Emulator not installed",
-                  ),
-                ),
+                renderSteamUiSelectRow(importUi, {
+                  key: system.id,
+                  title: system.name,
+                  status: badge(system.status),
+                  selected: selected?.id === system.id,
+                  detail: system.emulators.length
+                    ? "Used by " + system.emulators.join(" · ")
+                    : "Emulator not installed",
+                  onClick: () => setBiosId(system.id),
+                }),
               ),
             ),
           ),

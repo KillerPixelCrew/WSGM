@@ -87,7 +87,10 @@ internal interface ILabMsiWmi : IDisposable
 
     /// <summary>Writes fan mode flags and reads them back.</summary>
     /// <param name="state">Exact flag bytes to restore or test, preserving unrelated firmware bits.</param>
-    /// <returns>True when both bytes read back exactly; false on mismatch. Earlier writes remain applied if a later operation fails.</returns>
+    /// <returns>
+    ///     True when both bytes read back exactly; false on mismatch. Earlier writes remain applied if a later operation
+    ///     fails.
+    /// </returns>
     [LabWorkerWrite]
     bool WriteFans(LabMsiFanState state);
 }

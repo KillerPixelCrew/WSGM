@@ -35,7 +35,10 @@ internal sealed class NativeQamPowerPresetService(DevicePowerPresets? presets, D
     }
 
     /// <summary>Reads device presets and combines them with the current AC/battery assignment scope.</summary>
-    /// <returns>Choices, observed preset and assignments; unavailable dependencies produce an unavailable state, and Custom is a display-only option.</returns>
+    /// <returns>
+    ///     Choices, observed preset and assignments; unavailable dependencies produce an unavailable state, and Custom is
+    ///     a display-only option.
+    /// </returns>
     internal async ValueTask<SteamPowerPresetState?> ReadAsync()
     {
         if (presets is null)

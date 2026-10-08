@@ -247,7 +247,10 @@ internal static class IconRasterizer
     /// </summary>
     /// <param name="hIcon">Borrowed live icon handle; the caller retains ownership and keeps it valid during drawing.</param>
     /// <param name="size">Positive square output dimension in physical pixels.</param>
-    /// <returns>A new caller-owned bitmap to dispose, or null when native drawing fails; managed allocation failures propagate.</returns>
+    /// <returns>
+    ///     A new caller-owned bitmap to dispose, or null when native drawing fails; managed allocation failures
+    ///     propagate.
+    /// </returns>
     internal static Bitmap? Rasterize(nint hIcon, int size)
     {
         var pixels = new byte[size * size * 4];

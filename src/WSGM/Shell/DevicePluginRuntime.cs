@@ -59,12 +59,15 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
 
     /// <summary>Terminal lifecycle notification; completion does not imply that late native cleanup has finished.</summary>
     internal Task<DeviceRuntimeExit> Completion => _completion.Task;
+
     /// <summary>Retained cleanup work that outlived the disposal budget; initially an already-completed task.</summary>
     internal Task LateCleanup { get; private set; } = Task.CompletedTask;
+
     /// <summary>Latest aggregate lifecycle state, independent of individual capability availability.</summary>
     internal DeviceCycleState LifecycleState => _cycleState;
 
     private IDevicePlugin Plugin => _package.Plugin;
+
     /// <summary>Last valid complete settings declaration, or null before the plugin publishes one.</summary>
     internal PluginSettingsManifest? SettingsManifest => Volatile.Read(ref _settingsManifest);
 
@@ -83,6 +86,7 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
 
     /// <inheritdoc />
     public event Action<CapabilityDescriptorSet>? DescriptorSetReceived;
+
     /// <inheritdoc />
     public event Action<CapabilityStateDelta>? CapabilityStateReceived;
 
@@ -289,16 +293,22 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
     /// <summary>Runtime lifecycle changes raised on the calling lifecycle thread.</summary>
     internal event Action<DevicePluginState>? LifecycleStateReceived;
 
-    /// <summary>Complete physical-device ownership and haptic-capability replacements; an empty device list retracts ownership.</summary>
+    /// <summary>
+    ///     Complete physical-device ownership and haptic-capability replacements; an empty device list retracts
+    ///     ownership.
+    /// </summary>
     internal event Action<(IReadOnlyList<PhysicalDeviceIdentity> Devices, HapticCapabilities? Output)>?
         PhysicalIdentitiesReceived;
 
     /// <summary>Complete replacement OEM-control declarations for the current cycle.</summary>
     internal event Action<IReadOnlyList<OemControlDescriptor>>? OemControlsReceived;
+
     /// <summary>Published OEM events; subscribers validate freshness and apply host action policy.</summary>
     internal event Action<OemControlEvent>? OemEventReceived;
+
     /// <summary>Published canonical samples; downstream validation and virtual-target acceptance remain separate.</summary>
     internal event Action<CanonicalControllerSample>? ControllerSampleReceived;
+
     /// <summary>Accepted complete settings declarations used by the host's separate desired-setting owner.</summary>
     internal event Action<PluginSettingsManifest>? SettingsManifestReceived;
 
@@ -636,7 +646,10 @@ internal sealed class DevicePluginRuntime : IAsyncDisposable, ICapabilityPublish
     /// <summary>Serializes one physical-controller handoff and retains the lifecycle lane if native work outlives its wait.</summary>
     /// <param name="scope">Extent of handoff; full deactivation also closes capability admission and quiesces commands.</param>
     /// <param name="deadline">Absolute admission and handoff budget.</param>
-    /// <param name="cancellationToken">Cancels waiting and requests release cancellation; it does not prove hardware restoration.</param>
+    /// <param name="cancellationToken">
+    ///     Cancels waiting and requests release cancellation; it does not prove hardware
+    ///     restoration.
+    /// </param>
     /// <returns>Plugin handoff completion; an expired wait can leave retained late lifecycle cleanup running.</returns>
     internal async Task ReleaseControllerAsync(
         HandoffScope scope,
@@ -1311,6 +1324,7 @@ internal enum DeviceRuntimeExitReason
 {
     /// <summary>The host requested runtime disposal.</summary>
     Intentional,
+
     /// <summary>Unexpected plugin background failure ended the runtime.</summary>
     BackgroundFault
 }
@@ -1325,10 +1339,13 @@ internal sealed record DevicePluginState
 {
     /// <summary>Aggregate cycle state; individual capabilities may still be unavailable.</summary>
     internal required DeviceCycleState State { get; init; }
+
     /// <summary>Host generation that produced this state.</summary>
     internal required long CycleGeneration { get; init; }
+
     /// <summary>Exact matched device definition, or null when no match is active.</summary>
     internal string? DeviceDefinitionId { get; init; }
+
     /// <summary>Optional diagnostic reason for the lifecycle transition.</summary>
     internal CapabilityReason? Reason { get; init; }
 }

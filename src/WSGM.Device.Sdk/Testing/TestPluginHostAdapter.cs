@@ -11,11 +11,11 @@ namespace WSGM.Device.Sdk.Testing;
 
 /// <summary>In-memory host adapter for focused plugin tests.</summary>
 /// <remarks>
-    ///     Records publications without dispatching commands or enforcing production descriptor, generation,
-    ///     freshness or settings validation. Collection getters return snapshots; records and nested collections
-    ///     are retained by reference except physical-device and OEM-control lists, which are copied on receipt.
-    ///     Recording is synchronized but this adapter does not model host lifecycle or hardware ownership.
-    /// </remarks>
+///     Records publications without dispatching commands or enforcing production descriptor, generation,
+///     freshness or settings validation. Collection getters return snapshots; records and nested collections
+///     are retained by reference except physical-device and OEM-control lists, which are copied on receipt.
+///     Recording is synchronized but this adapter does not model host lifecycle or hardware ownership.
+/// </remarks>
 public sealed class TestPluginHostAdapter : IPluginHostAdapter
 {
     private readonly List<CapabilityState> _capabilityStates = [];

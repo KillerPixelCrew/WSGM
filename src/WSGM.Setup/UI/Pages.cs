@@ -34,7 +34,10 @@ internal abstract class Observable : INotifyPropertyChanged
 }
 
 /// <summary>A command that runs an action.</summary>
-/// <param name="execute">Action invoked synchronously on the caller's thread; the command is always enabled and ignores its parameter.</param>
+/// <param name="execute">
+///     Action invoked synchronously on the caller's thread; the command is always enabled and ignores
+///     its parameter.
+/// </param>
 internal sealed class Command(Action execute) : ICommand
 {
     public event EventHandler? CanExecuteChanged
@@ -491,7 +494,10 @@ internal sealed class ConfirmClosePage(Page resume) : Page
 ///     boot. The only way forward is the restart; setup comes back on its own afterwards.
 /// </summary>
 /// <param name="steps">Completed run's rows displayed in the restart summary.</param>
-/// <param name="resumes">Whether setup is scheduled to reopen automatically after restart; false asks the user to run it again.</param>
+/// <param name="resumes">
+///     Whether setup is scheduled to reopen automatically after restart; false asks the user to run it
+///     again.
+/// </param>
 internal sealed class RestartPage(IReadOnlyList<StepRow> steps, bool resumes) : Page
 {
     public override string Eyebrow => "Restart";

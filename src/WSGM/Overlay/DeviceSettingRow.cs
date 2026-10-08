@@ -40,6 +40,7 @@ internal sealed class DeviceSettingRow : FASettingsExpanderItem
 
     /// <summary>Whether published state is being synchronized; change handlers must suppress writes while true.</summary>
     internal bool Refreshing { get; private set; }
+
     /// <summary>Mounted interactive footer; ownership remains with this row.</summary>
     internal Control Editor => (Control)Footer!;
 

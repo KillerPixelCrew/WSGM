@@ -352,10 +352,16 @@ public sealed class SteamUiSessionHostTests : IDisposable
         await transport.BridgeInstalled.Task.WaitAsync(TimeSpan.FromSeconds(2));
         await WaitForAsync(() => transport.BridgeConfiguration is not null);
 
-        Assert.Contains(
-            "\"steam-ui.library-badge\":[\"homeLayout\"]",
-            transport.BridgeConfiguration,
-            StringComparison.Ordinal);
+        var asset = SteamUiAssetCatalog.LoadNativeQamBootstrap().Source;
+        const string configurationToken = "__STEAM_UI_CONFIGURATION_JSON__";
+        var configurationStart = asset.IndexOf(configurationToken, StringComparison.Ordinal);
+        Assert.True(configurationStart >= 0);
+        var suffixLength = asset.Length - configurationStart - configurationToken.Length;
+        var bootstrap = transport.BridgeConfiguration!;
+        using var configuration = JsonDocument.Parse(bootstrap.Substring(configurationStart,
+            bootstrap.Length - configurationStart - suffixLength));
+        Assert.Equal(SteamLibraryBadgeSurface.Commands, configuration.RootElement.GetProperty("allowed")
+            .GetProperty(SteamLibraryBadgeSurface.PatchId).EnumerateArray().Select(command => command.GetString()));
         var badge = Assert.Single(
             host.GetPatchSnapshots(), snapshot => snapshot.Id == SteamLibraryBadgeSurface.PatchId);
         Assert.NotEqual(SteamUiPatchState.Disabled, badge.State);

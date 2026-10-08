@@ -20,7 +20,10 @@ namespace WSGM.Shell;
 ///     including letterless media, before writing. Formatting erases the disk and has no rollback.
 /// </summary>
 /// <param name="store">Borrowed configuration store used to persist library preferences.</param>
-/// <param name="lifetime">Session cancellation token used by cancellable format stages; cancellation cannot undo disk writes.</param>
+/// <param name="lifetime">
+///     Session cancellation token used by cancellable format stages; cancellation cannot undo disk
+///     writes.
+/// </param>
 /// <param name="steam">Borrowed Steam client for live library registration, or null to use the offline path.</param>
 public sealed class SdFormatManager(
     ConfigStore store,
@@ -350,7 +353,10 @@ public sealed class SdFormatManager(
     ///     Merges a fresh target list into the bound collection without
     ///     replacing surviving rows.
     /// </summary>
-    /// <param name="fresh">Current target snapshot to reconcile on the UI thread; matching identities retain rows unless their disk number changed.</param>
+    /// <param name="fresh">
+    ///     Current target snapshot to reconcile on the UI thread; matching identities retain rows unless their
+    ///     disk number changed.
+    /// </param>
     internal void Apply(List<FormatTarget> fresh)
     {
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -433,7 +439,10 @@ public sealed class SdFormatManager(
     ///     The volume label (already sanitized); quoted so a name
     ///     with spaces stays one token.
     /// </param>
-    /// <returns>CRLF-separated disk/partition selection and one quick NTFS format command; the caller validates identity before execution.</returns>
+    /// <returns>
+    ///     CRLF-separated disk/partition selection and one quick NTFS format command; the caller validates identity
+    ///     before execution.
+    /// </returns>
     internal static string BuildDiskpartFormatScript(
         int diskNumber, string label = DefaultLabel)
     {
@@ -453,7 +462,10 @@ public sealed class SdFormatManager(
     /// </summary>
     /// <param name="diskNumber">The physical disk number.</param>
     /// <param name="preferredLetter">The letter to reassign, or '\0' for none.</param>
-    /// <returns>Commands selecting partition 1 and assigning the requested uppercase A-Z letter, or the next free letter for any other value.</returns>
+    /// <returns>
+    ///     Commands selecting partition 1 and assigning the requested uppercase A-Z letter, or the next free letter for
+    ///     any other value.
+    /// </returns>
     internal static string BuildDiskpartAssignScript(int diskNumber, char preferredLetter)
     {
         return $"select disk {diskNumber.ToString(CultureInfo.InvariantCulture)}\r\n"
@@ -822,7 +834,10 @@ public sealed class SdFormatManager(
     /// <param name="busType">The STORAGE_BUS_TYPE just read; -1 means the query failed.</param>
     /// <param name="expectedSize">The size the run started from.</param>
     /// <param name="expectedBusType">The bus type the run started from.</param>
-    /// <returns>Changed for a guarded disk or conflicting known identity; Unreadable for failed handle/size reads; otherwise Same, which cannot detect equal-capacity swaps.</returns>
+    /// <returns>
+    ///     Changed for a guarded disk or conflicting known identity; Unreadable for failed handle/size reads; otherwise
+    ///     Same, which cannot detect equal-capacity swaps.
+    /// </returns>
     internal static TargetIdentity CompareIdentity(
         bool opened, bool systemDisk, bool removable, long size, int busType,
         long expectedSize, int expectedBusType)
@@ -1558,7 +1573,10 @@ public sealed class SdFormatManager(
     ///     keeps its contentid untouched and is only registered.
     /// </summary>
     /// <param name="folderPath">The folder the user picked.</param>
-    /// <returns>Completion of library creation and registration, or immediately when busy. Inspect StatusText and the published result for failure.</returns>
+    /// <returns>
+    ///     Completion of library creation and registration, or immediately when busy. Inspect StatusText and the
+    ///     published result for failure.
+    /// </returns>
     public async Task AddLibraryAsync(string folderPath)
     {
         if (Busy)
@@ -1591,7 +1609,10 @@ public sealed class SdFormatManager(
     ///     the conventional SteamLibrary subfolder, everything else is taken as-is.
     /// </summary>
     /// <param name="folderPath">The folder the user picked.</param>
-    /// <returns>SteamLibrary below a drive root, otherwise the folder without trailing separators; an all-separator input is preserved.</returns>
+    /// <returns>
+    ///     SteamLibrary below a drive root, otherwise the folder without trailing separators; an all-separator input is
+    ///     preserved.
+    /// </returns>
     internal static string ResolveLibraryRoot(string folderPath)
     {
         var trimmed = folderPath.TrimEnd('\\', '/');

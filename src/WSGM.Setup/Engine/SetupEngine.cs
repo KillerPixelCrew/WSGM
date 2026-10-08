@@ -32,12 +32,16 @@ internal enum StepState
 {
     /// <summary>Not yet run.</summary>
     Waiting,
+
     /// <summary>The step callback is executing.</summary>
     Running,
+
     /// <summary>The callback succeeded without selecting Skipped.</summary>
     Done,
+
     /// <summary>The callback refused or threw; Fatal determines whether subsequent steps run.</summary>
     Failed,
+
     /// <summary>No action was needed, as selected by the callback.</summary>
     Skipped
 }
@@ -51,10 +55,13 @@ internal sealed class SetupStep(string label, string doneLabel, bool fatal, Func
 {
     /// <summary>Pending/running presentation label.</summary>
     public string Label { get; } = label;
+
     /// <summary>Success/skip presentation label, which a step may refine.</summary>
     public string DoneLabel { get; set; } = doneLabel;
+
     /// <summary>Whether a failed step stops subsequent work.</summary>
     public bool Fatal { get; } = fatal;
+
     /// <summary>Current execution status, published by SetupEngine.Run.</summary>
     public StepState State { get; set; } = StepState.Waiting;
 

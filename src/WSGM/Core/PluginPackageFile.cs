@@ -28,6 +28,7 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
 {
     /// <summary>Required case-insensitive filename extension for an installed plugin package.</summary>
     internal const string Extension = ".wsgmpkg";
+
     /// <summary>Required root manifest entry name within the package.</summary>
     internal const string ManifestName = "plugin.wsgm.json";
 

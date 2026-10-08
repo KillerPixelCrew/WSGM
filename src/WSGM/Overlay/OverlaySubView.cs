@@ -58,7 +58,10 @@ public abstract partial class OverlaySubView : UserControl
     internal event Action? LevelChanged;
 
     /// <summary>Invalidates pending view generations and releases the mounted content and navigation stack.</summary>
-    /// <remarks>Does not cancel service-owned durable work. Derived views cancel their own transient browsing before calling base.</remarks>
+    /// <remarks>
+    ///     Does not cancel service-owned durable work. Derived views cancel their own transient browsing before calling
+    ///     base.
+    /// </remarks>
     internal virtual void Leave()
     {
         NavigationGeneration++;

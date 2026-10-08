@@ -17,7 +17,10 @@ namespace WSGM.Shell;
 ///     a confirming read. Later refreshes observe scheme changes. Failed writes never close admission
 ///     for another explicit selection.
 /// </remarks>
-/// <param name="cores">Borrowed Windows core-placement owner shared with the overlay; this adapter serializes its own reads and writes.</param>
+/// <param name="cores">
+///     Borrowed Windows core-placement owner shared with the overlay; this adapter serializes its own
+///     reads and writes.
+/// </param>
 internal sealed class NativeQamHybridCoreService(HybridCores cores) : ISteamHybridCoreBackend
 {
     private readonly Lock _sync = new();
@@ -68,7 +71,10 @@ internal sealed class NativeQamHybridCoreService(HybridCores cores) : ISteamHybr
     }
 
     /// <summary>Publishes a pending write result once, then refreshes Windows core-placement capabilities.</summary>
-    /// <returns>Available choices and AC selection, or an unavailable state with a reason; the read runs on a worker under the same lock as writes.</returns>
+    /// <returns>
+    ///     Available choices and AC selection, or an unavailable state with a reason; the read runs on a worker under the
+    ///     same lock as writes.
+    /// </returns>
     internal ValueTask<SteamHybridCoreState?> ReadAsync()
     {
         return new ValueTask<SteamHybridCoreState?>(Task.Run<SteamHybridCoreState?>(() =>

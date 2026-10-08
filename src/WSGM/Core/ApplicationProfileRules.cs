@@ -14,7 +14,10 @@ internal static class ApplicationProfileRules
     /// <param name="executable">Executable basename to match case-insensitively; null cannot match a valid process list.</param>
     /// <param name="identity">Reads each profile's case-sensitive application identity.</param>
     /// <param name="processes">Reads each profile's executable names; an empty list marks an application fallback.</param>
-    /// <returns>The unique executable match or first application fallback; null for missing identity or ambiguous executable matches.</returns>
+    /// <returns>
+    ///     The unique executable match or first application fallback; null for missing identity or ambiguous executable
+    ///     matches.
+    /// </returns>
     internal static T? Match<T>(IEnumerable<T> profiles, string? applicationId, string? executable,
         Func<T, string> identity, Func<T, IReadOnlyList<string>> processes) where T : class
     {
@@ -47,7 +50,10 @@ internal static class ApplicationProfileRules
     /// <summary>Normalizes and validates executable basenames used by profile matching.</summary>
     /// <param name="names">Non-null names to trim, remove blanks from, and deduplicate case-insensitively.</param>
     /// <returns>Executable names in first-occurrence order.</returns>
-    /// <exception cref="ArgumentException">A nonblank entry lacks .exe or contains path, wildcard, control, or invalid filename characters.</exception>
+    /// <exception cref="ArgumentException">
+    ///     A nonblank entry lacks .exe or contains path, wildcard, control, or invalid
+    ///     filename characters.
+    /// </exception>
     internal static string[] ValidateProcesses(IEnumerable<string> names)
     {
         var result = names.Select(name => name.Trim()).Where(name => name.Length > 0)

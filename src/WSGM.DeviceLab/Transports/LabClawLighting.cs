@@ -20,7 +20,10 @@ internal interface ILabClawLighting : IDisposable
 
     /// <summary>Writes a complete profile once and verifies it.</summary>
     /// <param name="profile">Complete validated 32-byte profile; the caller retains the array.</param>
-    /// <returns>True when the subsequent profile read matches every byte; false for a mismatch. Transport failures throw without retry.</returns>
+    /// <returns>
+    ///     True when the subsequent profile read matches every byte; false for a mismatch. Transport failures throw
+    ///     without retry.
+    /// </returns>
     [LabWorkerWrite]
     bool Apply(byte[] profile);
 }

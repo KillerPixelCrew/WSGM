@@ -25,8 +25,10 @@ public sealed class LiveBackdrop : IDisposable
     // Replaceable native boundary for headless lifecycle checks.
     /// <summary>Replaceable native factory; the returned handle transfers to the attachment.</summary>
     internal static CreateSession Create = NativeMethods.BackdropCreate;
+
     /// <summary>Replaceable synchronous blur update on the creating UI thread.</summary>
     internal static Func<nint, float, int> SetBlur = NativeMethods.BackdropSetBlur;
+
     /// <summary>Replaceable native destructor; consumes the handle on its creating UI thread.</summary>
     internal static Action<nint> Destroy = NativeMethods.BackdropDestroy;
 
@@ -113,7 +115,10 @@ public sealed class LiveBackdrop : IDisposable
         }
     }
 
-    /// <summary>Releases native resources and subscriptions and restores the window's original background and owned style bits.</summary>
+    /// <summary>
+    ///     Releases native resources and subscriptions and restores the window's original background and owned style
+    ///     bits.
+    /// </summary>
     /// <remarks>Call on the UI thread. Repeated disposal is harmless; the window can then receive a new attachment.</remarks>
     public void Dispose()
     {
@@ -311,7 +316,10 @@ public sealed class LiveBackdrop : IDisposable
         _callback = null;
     }
 
-    /// <summary>Replaceable native session factory with the same ownership contract as <see cref="NativeMethods.BackdropCreate" />.</summary>
+    /// <summary>
+    ///     Replaceable native session factory with the same ownership contract as
+    ///     <see cref="NativeMethods.BackdropCreate" />.
+    /// </summary>
     /// <param name="owner">Borrowed HWND on the calling UI thread.</param>
     /// <param name="sigma">Finite Gaussian deviation in physical pixels, from zero through 60.</param>
     /// <param name="callback">Rooted until destruction; queues failure handling without destroying the session inline.</param>
