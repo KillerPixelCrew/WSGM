@@ -1,21 +1,21 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using LibGPUDriverInteract;
-using WSGM.Plugin.Sdk;
 
 namespace WSGM.Core;
 
-/// <summary>A built-in driver backend and its retained configuration/profile identity.</summary>
-internal sealed record BuiltinGpuDriver(GpuVendor Vendor, string Id, string Name, string PciVendorId);
+/// <summary>A linked graphics backend and its stable profile identity.</summary>
+internal sealed record BuiltinGpuDriver(GpuVendor Vendor, string Id, string Name);
 
-/// <summary>The directly linked graphics drivers; their old identifiers preserve saved user data.</summary>
+/// <summary>The three process-wide driver owners and their explicit configuration.</summary>
 internal static class BuiltinGpuDrivers
 {
     internal static IReadOnlyList<BuiltinGpuDriver> All { get; } =
     [
-        new(GpuVendor.Intel, "wsgm.gpu.intel", "Intel graphics", "8086"),
-        new(GpuVendor.Amd, "wsgm.gpu.amd", "AMD graphics", "1002"),
-        new(GpuVendor.Nvidia, "wsgm.gpu.nvidia", "NVIDIA graphics", "10de")
+        new(GpuVendor.Intel, "wsgm.gpu.intel", "Intel graphics"),
+        new(GpuVendor.Amd, "wsgm.gpu.amd", "AMD graphics"),
+        new(GpuVendor.Nvidia, "wsgm.gpu.nvidia", "NVIDIA graphics")
     ];
 
     internal static bool Contains(string id)
@@ -23,23 +23,49 @@ internal static class BuiltinGpuDrivers
         return All.Any(driver => driver.Id == id);
     }
 
-    internal static IEnumerable<(BuiltinGpuDriver Driver, PluginInstanceIdentity Identity, bool Enabled)> Instances(
-        IReadOnlyList<CommonPluginInstanceConfig> configured)
+    internal static IReadOnlyList<BuiltinGpuDriver> Detect()
     {
-        foreach (var driver in All)
-        {
-            var instances = configured.Where(instance => instance.PluginId == driver.Id).ToArray();
-            if (instances.Length == 0)
-            {
-                yield return (driver, new PluginInstanceIdentity(driver.Id, CommonPluginEnablement.DefaultInstanceId),
-                    true);
-                continue;
-            }
+        var vendors = GpuDriver.DetectVendors();
+        return All.Where(driver => vendors.Contains(driver.Vendor)).ToArray();
+    }
 
-            foreach (var instance in instances)
-            {
-                yield return (driver, new PluginInstanceIdentity(driver.Id, instance.InstanceId), instance.Enabled);
-            }
+    internal static void Normalize(AppConfig config)
+    {
+        config.GpuDrivers ??= new GpuDriverConfig
+        {
+            Intel = config.PluginInstances.Any(instance => instance.PluginId == "wsgm.gpu.intel" && instance.Enabled),
+            Amd = config.PluginInstances.Any(instance => instance.PluginId == "wsgm.gpu.amd" && instance.Enabled),
+            Nvidia = config.PluginInstances.Any(instance => instance.PluginId == "wsgm.gpu.nvidia" && instance.Enabled)
+        };
+        config.PluginInstances.RemoveAll(instance => Contains(instance.PluginId));
+    }
+
+    internal static bool Enabled(AppConfig config, GpuVendor vendor)
+    {
+        if (config.GpuDrivers is null)
+        {
+            var id = All.First(driver => driver.Vendor == vendor).Id;
+            return config.PluginInstances.Any(instance => instance.PluginId == id && instance.Enabled);
+        }
+
+        return vendor switch
+        {
+            GpuVendor.Intel => config.GpuDrivers.Intel,
+            GpuVendor.Amd => config.GpuDrivers.Amd,
+            GpuVendor.Nvidia => config.GpuDrivers.Nvidia,
+            _ => throw new ArgumentOutOfRangeException(nameof(vendor))
+        };
+    }
+
+    internal static void SetEnabled(AppConfig config, string id, bool enabled)
+    {
+        Normalize(config);
+        switch (All.First(driver => driver.Id == id).Vendor)
+        {
+            case GpuVendor.Intel: config.GpuDrivers!.Intel = enabled; break;
+            case GpuVendor.Amd: config.GpuDrivers!.Amd = enabled; break;
+            case GpuVendor.Nvidia: config.GpuDrivers!.Nvidia = enabled; break;
+            default: throw new ArgumentOutOfRangeException(nameof(id));
         }
     }
 }

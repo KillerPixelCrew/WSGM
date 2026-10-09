@@ -10,7 +10,7 @@ internal sealed class FakeCapabilityPublisher(params CapabilityRole[] roles) : I
     internal List<CapabilityCommand> Commands { get; } = [];
     internal Func<CapabilityCommand, CancellationToken, Task<DeviceCommandDispatch>>? Dispatch { get; set; }
 
-    public long CycleGeneration => 1;
+    public bool IsActive { get; set; } = true;
 
     public IReadOnlyList<CapabilityRole> DeclaredCapabilities { get; } = roles;
 

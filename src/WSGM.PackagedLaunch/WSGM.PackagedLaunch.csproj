@@ -25,6 +25,7 @@
          cannot drift. The same arrangement WSGM.Launch uses for ScheduledTaskXml. -->
     <Compile Include="..\Shared\Launch\PackagedLaunchCommand.cs" Link="Shared\PackagedLaunchCommand.cs"/>
     <Compile Include="..\Shared\Library\EmulatorModels.cs" Link="Shared\EmulatorModels.cs"/>
+    <Compile Include="..\WSGM\Core\Emulators\EmulatorPortable.cs" Link="Shared\EmulatorPortable.cs"/>
     <Compile Include="..\Shared\Library\ManagedContentModels.cs" Link="Shared\ManagedContentModels.cs"/>
     <Compile Include="..\Shared\Library\IniFile.cs" Link="Shared\IniFile.cs"/>
     <Compile Include="..\Shared\Library\StoragePaths.cs" Link="Shared\StoragePaths.cs"/>

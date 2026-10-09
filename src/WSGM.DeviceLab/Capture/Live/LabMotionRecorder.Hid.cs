@@ -6,7 +6,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
-using WSGM.Device.Sdk.Windows;
+using WSGM.DeviceLab.Windows;
 using WSGM.Interop;
 using static WSGM.DeviceLab.Capture.Live.LabSensorInterop;
 

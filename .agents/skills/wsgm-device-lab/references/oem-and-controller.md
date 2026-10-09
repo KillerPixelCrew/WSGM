@@ -127,10 +127,10 @@ event carries marker `0x5753474D`. The hook reads `KBDLLHOOKSTRUCT` through a po
 Primary evidence and implementation paths:
 
 - `_plan/claw-8-a2vm-plugin.md`: dated measurements and the remaining attended matrix.
-- `src/WSGM.Device.Msi.Claw/ClawInput.cs`: the codec.
+- `external/libhandheld/src/LibHandheld/Families/MsiClaw/ClawInput.cs`: the codec.
 - `WindowsHidTransports.cs`: endpoint discovery, mode continuation, read/write behavior.
 - `MsiWmiPlatform.cs` and `ClawServices.cs`: the WMI event source, latches and suppression.
-- `tests/WSGM.Device.Msi.Claw.Tests`, especially `ClawInputTests`, `WindowsHidTransportsTests` and
+- `external/libhandheld/tests`, especially `ClawInputTests`, `WindowsHidTransportsTests` and
   `FirmwareChordTests`: raw fixtures and mode, OEM, cleanup and regression evidence.
 
 ## ROG Ally X: no measured controller evidence yet
@@ -143,8 +143,9 @@ remote RC73XA (Xbox Ally X) inventory, in the ROG Ally X sections of `_plan/impl
 - an `FF31:0080` collection with no output report, and no HID gamepad collection.
 
 Do not assume a Claw-style gamepad report codec or a HID rumble route on that firmware. The report
-`0x5A` events, controller tables and Aura bytes in `src/WSGM.Device.Asus.RogAlly` (`AllyProtocol.cs`
-and `AllyModels.cs`, cited in its `PROVENANCE.md`) come from HHD and HC source, not from
-measurement. HC is the primary Windows-native source, including for buttons; use HHD to cross-check
-behavior HC does not cover. Record findings from a returned Device Lab `.wsgmlab` report
-(`wsgm-device review`) in the tracker before encoding them in the plugin.
+`0x5A` events, controller tables and Aura bytes in
+`external/libhandheld/src/LibHandheld/Families/RogAlly` (`AllyProtocol.cs` and `AllyModels.cs`,
+cited in its `PROVENANCE.md`) come from HHD and HC source, not from measurement. HC is the primary
+Windows-native source, including for buttons; use HHD to cross-check behavior HC does not cover.
+Record findings from a returned Device Lab `.wsgmlab` report (`wsgm-device review`) in the tracker
+before encoding them in the plugin.

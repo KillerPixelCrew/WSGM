@@ -118,8 +118,6 @@ public sealed class DeviceDesiredWriteAdmissionTests
                     CapabilityId = "power.slow-limit",
                     Available = true,
                     Quality = HardwareStateQuality.Observed,
-                    CycleGeneration = 1,
-                    DescriptorGeneration = 1,
                     ObservedValue = CapabilityValue.Integer(20)
                 }
             }, null);

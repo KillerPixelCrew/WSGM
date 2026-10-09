@@ -14,8 +14,6 @@
 [submodule "external/libhandheld"]
 	path = external/libhandheld
 	url = https://github.com/KillerPixelCrew/LibHandheld.git
-	branch = chore/device-integration-rework
 [submodule "external/libgpu-driver-interact"]
 	path = external/libgpu-driver-interact
 	url = https://github.com/KillerPixelCrew/LibGPUDriverInteract.git
-	branch = chore/device-integration-rework

@@ -1,13 +1,13 @@
 # WSGM setup
 
-This scope owns `WSGM.Setup.exe`: install composition, hardware-driven plugin and component
+This scope owns `WSGM.Setup.exe`: install composition, hardware-driven integration and component
 selection, privilege boundaries, updates, repair, rollback and uninstall. Read docs/boot-and-shell.md,
 docs/elevation.md, and the relevant device or input document before changing behavior. The approved
 screen design is `docs/mockup.html`; keep flow, wording and layout aligned with it. One
 deliberate changes since (maintainer, 2026-09-25): Customize is its own step after Profile in every install, update and repair, not a panel on Profile.
 Each switch there has a short description, and a NEW badge marks what WSGM 1.0.0 (the tree before
 `db0b0527`) did not have. A feature added later gets the badge too. The hardware page lets the user decline the
-device plugin (for Handheld Companion and similar tools); a fresh install's profile starts from Full with
+built-in handheld integration (for Handheld Companion and similar tools); a fresh install's profile starts from Full with
 the plugin and Minimal without it, until the user picks a level or changes a switch.
 
 ## Invariants
@@ -26,10 +26,12 @@ the plugin and Minimal without it, until the user picks a level or changes a swi
   revision is older than any revisioned build.
 - Preserve the supported Windows and architecture checks and the Steam prerequisite. Fail with an
   actionable message before modifying the machine.
-- Hardware detection decides the device plugin: only a plugin whose hardware rules match is
-  installed, never two. The installed plugin's declared capabilities decide the components
-  (`SetupComponents`): VIIPER, USB/IP and HidHide only for a controller role. No plugin means plain
-  WSGM with device integration off.
+- Pure LibHandheld detection selects one exact model without opening hardware. The hardware page
+  preserves the model's hardware-verification caution and permits declining integration. Its
+  `HasController` and `HardwareAccess` decide optional controller, PawnIO and InpOut components.
+  No exact match leaves integration off. A failure of an optional driver step never rolls back WSGM.
+  Record components actually installed by WSGM and offer their removal at uninstall; pre-existing
+  drivers remain unowned. Restart requirements are typed driver outcomes, never parsed prose.
 - Graphics plugins (`wsgm.gpu`) follow the present display adapters, not the device choice: every
   match is recommended and checked, several at once, and nothing else is offered. Every run,
   including updates and repairs, adds matched ones not yet installed; installed ones are kept.

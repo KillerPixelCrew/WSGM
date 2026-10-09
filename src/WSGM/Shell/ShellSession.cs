@@ -31,6 +31,7 @@ public sealed partial class ShellSession
     // The one owner of the display-off timeouts: the overlay's Power page and the rows WSGM adds to
     // Steam's Screensaver settings both edit through it, and it hears Steam's screensaver timeout.
     private readonly DisplayTimeouts _displayTimeouts;
+    private readonly ImportStateStore _libraryImportState;
 
     /// <summary>
     ///     The one owner of removable-library registration for this session, shared by the card
@@ -252,6 +253,7 @@ public sealed partial class ShellSession
     {
         _config = config;
         _store = store ?? throw new ArgumentNullException(nameof(store));
+        _libraryImportState = new ImportStateStore(_store.Context);
         _steamInput = steamInput ?? throw new ArgumentNullException(nameof(steamInput));
         _displayTimeouts = new DisplayTimeouts(_power.Timeouts);
         _powerProfiles = new NativeQamPowerProfileService(_power.Schemes, id =>
@@ -405,7 +407,8 @@ public sealed partial class ShellSession
             {
                 try
                 {
-                    _emulators = await Task.Run(() => new EmulatorManager(_store.Context), _shutdownCancellation.Token)
+                    _emulators = await Task.Run(() => new EmulatorManager(_store.Context, null, _libraryImportState),
+                            _shutdownCancellation.Token)
                         .ConfigureAwait(false);
                     _emulatorTool = new EmulatorService(_emulators, url => AppLauncher.Open(url));
                 }
@@ -939,10 +942,7 @@ public sealed partial class ShellSession
             () => _pluginSteamUi?.ReadSettings() ?? [],
             (id, key, value, revision, token) => _pluginSteamUi is { } source
                 ? source.ConfigureAsync(id, key, value, revision, token)
-                : Task.FromResult(new SteamUiCommandResult(false, "Plugins are not available.")),
-            // The Plugins folder as the common plugin manager last read it, which includes the device
-            // package; a package installed since applies at the next start anyway.
-            () => _commonPlugins?.Catalog.InstalledDevicePluginId));
+                : Task.FromResult(new SteamUiCommandResult(false, "Plugins are not available."))));
 
         ReleaseAbandonedPackageExemptions();
 
@@ -970,7 +970,7 @@ public sealed partial class ShellSession
                     new AtLauncherSource()
                 ],
                 UninstallEntries.Read,
-                new ImportStateStore(_store.Context),
+                _libraryImportState,
                 () => new SteamShortcutWriter(
                     AddShortcutAsync,
                     async (appId, fields, token) =>
@@ -1167,7 +1167,8 @@ public sealed partial class ShellSession
         // alike; the overlay test keeps its sheet's Settings row too. It runs in this process, so its action
         // lists offer what is actually running.
         var settings = _settingsSurface = new SettingsSurface(
-            read => SettingsViewModel.FromLoadedConfig(read, _store, _steamInput.Shim, ReadPluginActionOptions),
+            read => SettingsViewModel.FromLoadedConfig(read, _store, _steamInput.Shim, ReadPluginActionOptions,
+                _deviceCoordinator?.DeviceDefinition),
             _store,
             _steamInput,
             () => _inGameMode,

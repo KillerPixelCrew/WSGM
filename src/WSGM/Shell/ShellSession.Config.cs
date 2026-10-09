@@ -341,7 +341,7 @@ public sealed partial class ShellSession
         _runningApplicationTargets?.RefreshCurrent();
     }
 
-    private async Task ApplyCommonPluginConfigAsync(AppConfig config)
+    private async Task ApplyGraphicsConfigAsync(AppConfig config)
     {
         try
         {
@@ -349,7 +349,21 @@ public sealed partial class ShellSession
             {
                 await graphics.ReconcileAsync(config, _shutdownCancellation.Token).ConfigureAwait(false);
             }
+        }
+        catch (OperationCanceledException) when (_shutdownCancellation.IsCancellationRequested)
+        {
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Error("Graphics configuration failed", ex);
+        }
+    }
 
+    private async Task ApplyCommonPluginConfigAsync(AppConfig config)
+    {
+        var graphicsWork = ApplyGraphicsConfigAsync(config);
+        try
+        {
             if (_commonPlugins is { } manager)
             {
                 // Exactly what the user enabled. Nothing is admitted implicitly: the auto-enable pass
@@ -366,6 +380,8 @@ public sealed partial class ShellSession
         {
             Log.Error("Common plugin configuration failed", ex);
         }
+
+        await graphicsWork.ConfigureAwait(false);
     }
 
     private void ApplyPerformanceConfig(AppConfig config)

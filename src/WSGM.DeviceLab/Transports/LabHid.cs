@@ -5,7 +5,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.Json.Serialization;
 using Microsoft.Win32.SafeHandles;
-using WSGM.Device.Sdk.Windows;
+using WSGM.DeviceLab.Windows;
 
 namespace WSGM.DeviceLab.Transports;
 

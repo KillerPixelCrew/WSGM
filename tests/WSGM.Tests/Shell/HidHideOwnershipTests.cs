@@ -1,6 +1,6 @@
-using WSGM.Device.Sdk.Input;
 using WSGM.Shell;
 using WSGM.Testing;
+using PhysicalDeviceIdentity = LibHandheld.Contracts.PhysicalDeviceIdentity;
 
 namespace WSGM.Tests.Shell;
 

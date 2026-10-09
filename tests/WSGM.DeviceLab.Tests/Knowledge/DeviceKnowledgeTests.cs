@@ -1,4 +1,3 @@
-using WSGM.Device.Sdk.Identity;
 using WSGM.DeviceLab.Inventory;
 using WSGM.DeviceLab.Knowledge;
 
@@ -217,14 +216,14 @@ public sealed class DeviceKnowledgeTests
         Assert.Equal("hc.gpd-win4", Assert.Single(DeviceKnowledgeMatcher.Match(Knowledge, identity)).RecordId);
     }
 
-    private static DeviceIdentitySnapshot Identity(
+    private static LibHandheld.Contracts.DeviceIdentitySnapshot Identity(
         string manufacturer,
         string product,
         string? processor = null,
         string? model = null,
         string? sku = null)
     {
-        return new DeviceIdentitySnapshot
+        return new LibHandheld.Contracts.DeviceIdentitySnapshot
         {
             BaseboardManufacturer = manufacturer,
             BaseboardProduct = product,
@@ -242,7 +241,7 @@ public sealed class DeviceKnowledgeTests
             Id = id,
             DisplayName = id,
             Status = status,
-            Identity = [new HardwareMatchRule { BaseboardManufacturer = "Contoso" }]
+            Identity = [new DeviceKnowledgeIdentityRule { BaseboardManufacturer = "Contoso" }]
         };
     }
 }

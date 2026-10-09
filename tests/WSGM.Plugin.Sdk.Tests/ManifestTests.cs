@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Text;
 using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Packaging;
 using WSGM.Device.Sdk.Plugin;
@@ -28,12 +27,10 @@ public sealed class ManifestTests
     };
 
     [Fact]
-    public void CategoriesAreOpenAndDeviceIsAnOptionalSelectedSlot()
+    public void CommonCategoriesAreOpenAndRetiredDevicePackagesAreRefused()
     {
         Assert.Empty(PluginManifestReader.Validate(Valid));
-        Assert.Equal(0, PluginCategoryPolicy.Device.MinimumActive);
-        Assert.Equal(1, PluginCategoryPolicy.Device.MaximumActive);
-        Assert.True(PluginCategoryPolicy.Device.RequiresSelection);
+        Assert.NotEmpty(PluginManifestReader.Validate(Valid with { Category = PluginCategories.Device }));
         Assert.Null(PluginCategoryPolicy.Multiple.MaximumActive);
         Assert.DoesNotContain(typeof(IPlugin).Assembly.GetReferencedAssemblies(),
             name => name.Name!.StartsWith("WSGM.", StringComparison.Ordinal));
@@ -45,8 +42,7 @@ public sealed class ManifestTests
         Assert.Equal(5, PluginApi.Version);
         Assert.Same(typeof(IPlugin).Assembly, typeof(CapabilityDescriptor).Assembly);
         Assert.Same(typeof(IPlugin).Assembly, typeof(Deadline).Assembly);
-        Assert.Same(typeof(IPlugin).Assembly, typeof(PluginTrace).Assembly);
-        Assert.Same(typeof(IPlugin).Assembly, typeof(CanonicalControllerSample).Assembly);
+        Assert.Same(typeof(IPlugin).Assembly, typeof(DeviceTraceLevel).Assembly);
         Assert.DoesNotContain("WSGM.Device.Sdk", PluginPackageLayout.HostProvidedAssemblies);
         Assert.Contains("LibHandheld", PluginPackageLayout.HostProvidedAssemblies);
         Assert.Contains("LibGPUDriverInteract", PluginPackageLayout.HostProvidedAssemblies);

@@ -7,11 +7,11 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
-using WSGM.Device.Sdk.Windows;
 using WSGM.DeviceLab.Application;
 using WSGM.DeviceLab.Capture.Live;
 using WSGM.DeviceLab.Knowledge;
 using WSGM.DeviceLab.Transports;
+using WSGM.DeviceLab.Windows;
 
 namespace WSGM.DeviceLab.Wizard;
 

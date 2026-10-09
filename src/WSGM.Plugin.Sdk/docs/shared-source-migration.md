@@ -1,73 +1,15 @@
-# Shared source migration
+# Shared source ownership
 
-All 64 tracked Device SDK C# files moved into this assembly without changing their source
-namespaces. No declarations were excluded. The source project, its guides and its standalone
-assembly are retired. The shared contract reference preserves member semantics; API 5 requires
-rebuilt plugin consumers.
+Only shared records and helpers with actual common-plugin or WSGM consumers remain in this SDK. The
+old blanket Device SDK source merge has been pruned: device plugin entry points, runtime services,
+recovery, identity duplication, input/motion, Windows transports and device preference manifests are
+removed. LibHandheld owns the built-in hardware implementation and public input contracts. Device
+Lab owns its evidence and lab transport helpers.
 
-Each path below is relative to the former src/WSGM.Device.Sdk and now lives at Shared/<path>.
+[Retained shared contracts](shared-reference.md) records each remaining group's consumer. Common
+plugin API admission has a floor of 5 and still honors a declared compatible minimum/maximum range;
+an additive API bump does not require exact equality of both range endpoints.
 
-- `Capabilities/CapabilityCommand.cs`
-- `Capabilities/CapabilityDescriptor.cs`
-- `Capabilities/CapabilityDisplay.cs`
-- `Capabilities/CapabilityIds.cs`
-- `Capabilities/CapabilityLayout.cs`
-- `Capabilities/CapabilityProfileScope.cs`
-- `Capabilities/CapabilityReason.cs`
-- `Capabilities/CapabilityRole.cs`
-- `Capabilities/CapabilitySection.cs`
-- `Capabilities/CapabilityState.cs`
-- `Capabilities/CapabilityValueValidation.cs`
-- `Capabilities/CommandResults.cs`
-- `Capabilities/DevicePowerPair.cs`
-- `Capabilities/DevicePowerPreset.cs`
-- `Capabilities/DeviceSections.cs`
-- `Capabilities/PlainText.cs`
-- `DeviceApi.cs`
-- `Glyphs/GlyphAssetValidation.cs`
-- `Glyphs/GlyphPackageImporter.cs`
-- `Glyphs/GlyphPackageLayout.cs`
-- `Glyphs/GlyphProfile.cs`
-- `Glyphs/ImmutableGlyphPackageDirectorySource.cs`
-- `Identity/DeviceIdentitySnapshot.cs`
-- `Identity/HardwareMatchRule.cs`
-- `Identity/IdentityText.cs`
-- `Input/CanonicalControllerState.cs`
-- `Input/HapticOutput.cs`
-- `Input/MotionFilters.cs`
-- `Input/MotionSampleBuilder.cs`
-- `Input/OemButtonLatch.cs`
-- `Input/OemControls.cs`
-- `Input/PhysicalDeviceIdentity.cs`
-- `Lifecycle/ActiveClock.cs`
-- `Lifecycle/ControllerHandoff.cs`
-- `Lifecycle/Deadline.cs`
-- `Lifecycle/DeviceLifecycle.cs`
-- `Lifecycle/DeviceWriteBudget.cs`
-- `Packaging/ManifestLimits.cs`
-- `Packaging/ManifestRules.cs`
-- `Packaging/ManifestValidation.cs`
-- `Packaging/PluginManifest.cs`
-- `Packaging/PluginManifestReader.cs`
-- `Packaging/PluginManifestValidator.cs`
-- `Packaging/PluginPackageLayout.cs`
-- `Plugin/DiagnosticText.cs`
-- `Plugin/PluginContracts.cs`
-- `Plugin/PluginHostAdapter.cs`
-- `Plugin/PluginTrace.cs`
-- `Serialization/DeviceJsonContext.cs`
-- `Services/DeviceCommandSerializer.cs`
-- `Services/DeviceRecoveryJournal.cs`
-- `Services/DeviceService.cs`
-- `Services/DeviceServiceLifecycle.cs`
-- `Settings/PluginSettingSection.cs`
-- `Settings/PluginSettingsManifest.cs`
-- `Testing/TestPluginHostAdapter.cs`
-- `Windows/DeviceReconnect.cs`
-- `Windows/HidDevices.Inspect.cs`
-- `Windows/HidDevices.cs`
-- `Windows/LegacyMotionSensors.Events.cs`
-- `Windows/LegacyMotionSensors.cs`
-- `Windows/LegacyMotionStream.cs`
-- `Windows/LowLevelKeyboardHook.cs`
-- `Windows/PrecisionTicker.cs`
+There is no conversion of device archives into built-in support and no legacy preference migration.
+Fresh exact device metadata and authored profiles are owned by the application. Source removal does
+not change common-plugin settings, actions, Steam CEF extensions or their independent enablement.

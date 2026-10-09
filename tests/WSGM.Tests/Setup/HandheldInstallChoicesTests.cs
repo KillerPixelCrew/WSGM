@@ -1,5 +1,5 @@
 using System.Text.Json.Nodes;
-using WSGM.Device.Sdk.Identity;
+using LibHandheld.Contracts;
 using WSGM.Install;
 using WSGM.Setup.Engine;
 

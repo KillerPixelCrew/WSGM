@@ -22,12 +22,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\WSGM.DeviceLab\WSGM.DeviceLab.csproj"/>
-    <ProjectReference
-      Include="..\..\src\WSGM.Plugin.Sdk\WSGM.Plugin.Sdk.csproj"/>
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Include="..\Shared\PluginManifestFixture.cs" Link="Shared\PluginManifestFixture.cs"/>
     <Compile Include="..\Shared\RepositoryFiles.cs" Link="Shared\RepositoryFiles.cs"/>
     <Compile Include="..\Shared\TemporaryDirectory.cs" Link="Shared\TemporaryDirectory.cs"/>
   </ItemGroup>

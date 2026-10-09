@@ -76,7 +76,7 @@ skills' readiness procedure; do not connect in order to discover whether startup
   snapshots only to the still-current owner, and reconcile bound collections in place when focus or
   item identity matters.
 - Treat Device Integration off as a real architecture mode: the session coordinator/owner marker
-  still exist, but there is no Device plugin lifecycle, controller target, Device hardware write, or
+  still exist, but there is no handheld lifecycle, controller target, Device hardware write, or
   AutoTDP; independent WSGM, explicitly enabled common plugins and RTSS behavior remains usable.
 - Serialize capability or other persistent writes. Preserve each adapter's accepted-write contract:
   publish an accepted command as observed where the Windows/device API owns success, without a

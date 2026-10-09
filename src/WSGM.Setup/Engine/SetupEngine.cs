@@ -6,7 +6,7 @@ using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
-using WSGM.Device.Sdk.Identity;
+using LibHandheld.Contracts;
 using WSGM.Install;
 using WSGM.Shared;
 
@@ -91,7 +91,14 @@ internal sealed record InstallChoices(
 /// <param name="KeepData">Whether per-user data should remain; unresolved recovery data is retained regardless.</param>
 /// <param name="RemoveUsbip">Whether to remove a USB/IP installation recorded as WSGM-owned.</param>
 /// <param name="RemoveHidHide">Whether to remove a HidHide installation recorded as WSGM-owned.</param>
-internal sealed record UninstallChoices(bool KeepData, bool RemoveUsbip, bool RemoveHidHide);
+/// <param name="RemovePawnIo">Whether to remove a PawnIO installation recorded as WSGM-owned.</param>
+/// <param name="RemoveInpOut">Whether to remove an InpOut installation recorded as WSGM-owned.</param>
+internal sealed record UninstallChoices(
+    bool KeepData,
+    bool RemoveUsbip,
+    bool RemoveHidHide,
+    bool RemovePawnIo = false,
+    bool RemoveInpOut = false);
 
 /// <summary>Owns setup plans, runtime shutdown, file rollback and component/recovery obligations.</summary>
 internal sealed class SetupEngine : IDisposable
@@ -337,7 +344,7 @@ internal sealed class SetupEngine : IDisposable
     public IReadOnlyList<string> InstalledCommonPluginIds()
     {
         return Payload?.Bundle.Plugins
-            .Where(plugin => !plugin.IsDevice && InstalledPluginIds.Contains(plugin.Id))
+            .Where(plugin => InstalledPluginIds.Contains(plugin.Id))
             .Select(plugin => plugin.Id)
             .ToArray() ?? [];
     }
@@ -375,7 +382,7 @@ internal sealed class SetupEngine : IDisposable
             : null;
     }
 
-    /// <summary>The system components the chosen native device and common plugins need.</summary>
+    /// <summary>The system components the chosen native handheld definition needs.</summary>
     /// <param name="choices">Selected native device and bundled common plugin ids.</param>
     /// <returns>Distinct required components, or an empty list without a payload.</returns>
     public IReadOnlyList<SetupComponent> RequiredComponents(InstallChoices choices)
@@ -385,14 +392,11 @@ internal sealed class SetupEngine : IDisposable
                      && choices.HandheldDefinitionId is not null
             ? support!.Components
             : [];
-        var common = Payload?.Bundle.Plugins
-            .Where(plugin => choices.CommonPluginIds.Contains(plugin.Id))
-            .SelectMany(plugin => SetupComponents.Required(plugin.Capabilities)) ?? [];
-        return native.Concat(common).Distinct().ToArray();
+        return native;
     }
 
     /// <summary>Whether the controller stack must be installed because it is missing.</summary>
-    /// <param name="choices">Chosen plugins whose roles determine the stack requirement.</param>
+    /// <param name="choices">Chosen native definition whose controller flag determines the stack requirement.</param>
     /// <returns>Whether the stack is required and USB/IP or HidHide is absent; installed versions are not checked here.</returns>
     public bool NeedsDrivers(InstallChoices choices)
     {
@@ -438,20 +442,43 @@ internal sealed class SetupEngine : IDisposable
 
         if (RequiredComponents(choices).Contains(SetupComponent.PawnIo))
         {
-            steps.Add(new SetupStep("Installing handheld hardware access", "PawnIO installed", true,
+            steps.Add(new SetupStep("Installing handheld hardware access", "PawnIO installed", false,
                 step =>
                 {
-                    var result = PawnIoInstaller.Install(step);
-                    RestartRequired |= step.Note == "PawnIO installation requires a restart.";
-                    return result;
+                    var present = PawnIoInstaller.IsPresent();
+                    var result = PawnIoInstaller.Install();
+                    RestartRequired |= result.RestartRequired;
+                    if (result.Installed && !present)
+                    {
+                        Components = Components with { PawnIo = true };
+                        Components.Write(ComponentsFile);
+                    }
+
+                    if (result.RestartRequired)
+                    {
+                        step.Note = "PawnIO installation requires a restart.";
+                    }
+
+                    return Fail(step, result.Succeeded, result.Error ?? "PawnIO is unavailable.");
                 }));
         }
 
         if (RequiredComponents(choices).Contains(SetupComponent.InpOut))
         {
             steps.Add(new SetupStep("Installing Steam Deck firmware access", "Steam Deck firmware access installed",
-                true,
-                _ => InpOutInstaller.Install(App)));
+                false,
+                _ =>
+                {
+                    var present = InpOutInstaller.IsInstalled();
+                    var installed = InpOutInstaller.Install(App);
+                    if (installed && !present)
+                    {
+                        Components = Components with { InpOut = true };
+                        Components.Write(ComponentsFile);
+                    }
+
+                    return installed;
+                }));
         }
 
         // RTSS is the one component setup downloads rather than carries; a failure leaves WSGM working without it.
@@ -505,6 +532,22 @@ internal sealed class SetupEngine : IDisposable
         {
             steps.Add(new SetupStep("Removing HidHide", "HidHide removed", false,
                 step => RemoveComponent(step, "HidHide", () => Registration.FindUninstallCommand("HidHide"))));
+        }
+
+        if (choices.RemovePawnIo && Components.PawnIo)
+        {
+            steps.Add(new SetupStep("Removing PawnIO", "PawnIO removed", false, step =>
+            {
+                var result = PawnIoInstaller.Uninstall();
+                RestartRequired |= result.RestartRequired;
+                return Fail(step, result.Succeeded, result.Error ?? "PawnIO could not be removed.");
+            }));
+        }
+
+        if (choices.RemoveInpOut && Components.InpOut)
+        {
+            steps.Add(new SetupStep("Removing Steam Deck firmware access", "Steam Deck firmware access removed", false,
+                step => Fail(step, InpOutInstaller.Uninstall(_runtime), "InpOut could not be removed.")));
         }
 
         steps.Add(new SetupStep("Deleting program files", "Program files deleted", false, DeleteProgramFiles));
@@ -819,7 +862,7 @@ internal sealed class SetupEngine : IDisposable
 
         foreach (var path in Directory.EnumerateFiles(Plugins, "*.wsgmpkg"))
         {
-            if (GpuPackageRetirement.IsRetiredPackage(path))
+            if (NeutralLibraryPackageRetirement.IsRetiredPackage(path))
             {
                 File.Delete(path);
             }
@@ -870,7 +913,7 @@ internal sealed class SetupEngine : IDisposable
     {
         Directory.CreateDirectory(Plugins);
         // Setup owns the ids it bundles: every other build of this id goes, and so does every build of
-        // an id it replaced, since two device packages refuse to load. A local build of another id stays.
+        // an id it replaced, while unrelated common packages remain installed. A local build of another id stays.
         foreach (var id in (IEnumerable<string>)[plugin.Id, .. plugin.Replaces])
         {
             foreach (var old in Directory.EnumerateFiles(Plugins, "*.wsgmpkg")

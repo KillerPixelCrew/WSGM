@@ -19,11 +19,11 @@ guide, plan and skill. The maintainer works alone on this repository and reviews
   `WSGM.PackagedLaunch` is the shortcut target for imported packaged games, a sibling of
   WSGM.Launch; `WSGM.LogonService` starts WSGM at logon; `WSGM.Setup` installs. `external/` holds
   the pinned submodules (steam-input-lease, steam-ui-toolkit, viiper, windows-device-control) and
-  vendored code. `WSGM.Plugin.Sdk` and `WSGM.Device.Sdk` are the plugin contracts, MIT on purpose so
-  outside packages can implement them; the product stays GPL. `WSGM.DeviceLab` is the hardware
-  validation tool, `WSGM.Device.Msi.Claw` the reference package (every MSI Claw, hardware-tested on the Claw 8 AI+ A2VM, the rest from HC), `WSGM.Device.Asus.RogAlly`
-  the Ally package built blind and awaiting Device Lab evidence, `WSGM.Device.HandheldCompanion` a
-  scaffold. `WSGM.Plugin.Ir` is under development; read its README and protocol.md first.
+  vendored code. `WSGM.Plugin.Sdk` is the MIT common-plugin contract. `external/libhandheld` owns
+  built-in handheld detection, hardware protocols and physical input; `external/libgpu-driver-interact`
+  owns built-in GPU control. `WSGM.DeviceLab` collects hardware evidence and scaffolds LibHandheld
+  source contributions. Its read-only LibreHardwareMonitor telemetry is separate from runtime
+  handheld control. `WSGM.Plugin.Ir` is under development; read its README and protocol.md first.
 - Projects target `net10.0-windows`; a project moves to `net10.0-windows10.0.19041.0` only when it
   uses WinRT or references WindowsDeviceControl.
 - A dated hardware note in the docs is evidence from that day. Never present one as a fresh live
@@ -31,10 +31,9 @@ guide, plan and skill. The maintainer works alone on this repository and reviews
 
 ## Product rules
 
-- WSGM runs exactly one installed device package. With device integration off there is no device
+- WSGM runs at most one exact detected LibHandheld definition. With device integration off there is no device
   lifecycle, controller target, hardware write or AutoTDP, and everything else keeps working.
-- Policy and orchestration live in WSGM, contracts in the SDKs, machine-specific behaviour in the
-  device package.
+- Policy and orchestration live in WSGM, contracts in the SDKs, machine-specific behaviour in LibHandheld.
 - WSGM Settings configures WSGM itself. Controls for Windows or other external state go on the
   overlay's relevant page or Steam's Quick Access; the two recorded exceptions are in
   docs/decisions.md.

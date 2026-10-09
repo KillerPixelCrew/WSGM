@@ -239,6 +239,12 @@ internal sealed record InstalledComponents
     /// <summary>Setup installed HidHide.</summary>
     public bool HidHide { get; init; }
 
+    /// <summary>Setup installed PawnIO when no PawnIO installation existed.</summary>
+    public bool PawnIo { get; init; }
+
+    /// <summary>Setup installed the InpOut driver when no service existed.</summary>
+    public bool InpOut { get; init; }
+
     public static InstalledComponents Read(string path)
     {
         try

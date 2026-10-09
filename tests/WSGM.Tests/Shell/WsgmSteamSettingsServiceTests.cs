@@ -1,8 +1,6 @@
 using System.Text.Json;
 using SteamUiToolkit;
 using WSGM.Core;
-using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Sdk.Settings;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
 using WSGM.Testing;
@@ -220,49 +218,6 @@ public sealed class WsgmSteamSettingsServiceTests
     }
 
     [Fact]
-    public async Task ADeviceSettingIsValidatedAgainstItsDeclarationAndStoredInItsScope()
-    {
-        Harness harness = new();
-        harness.Stored.DeviceIntegration.PluginSettings =
-        [
-            new PluginSettingsScope
-            {
-                DeviceDefinitionId = "device",
-                PluginId = "plugin",
-                Declaration = new PluginSettingsManifest
-                {
-                    Sections = [new PluginSettingSection { SectionId = "power", Key = SettingSectionKey.Power }],
-                    Settings =
-                    [
-                        new PluginSettingDescriptor
-                        {
-                            SettingId = "limit",
-                            ValueKind = CapabilityValueKind.Integer,
-                            Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Limit" },
-                            Default = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = 10 },
-                            Minimum = 5,
-                            Maximum = 20,
-                            Step = 1,
-                            SectionId = "power"
-                        }
-                    ]
-                }
-            }
-        ];
-        var service = harness.Create();
-
-        var row = Row(service.ReadState(), "device.setting:limit");
-        var outOfRange = await service.SetAsync("device.setting:limit", Json("99"), CancellationToken.None);
-        var saved = await service.SetAsync("device.setting:limit", Json("12"), CancellationToken.None);
-
-        Assert.Equal(SteamSettingsRowKind.Range, row.Kind);
-        Assert.Equal((5d, 20d), (row.Minimum, row.Maximum));
-        Assert.False(outOfRange.Succeeded);
-        Assert.True(saved.Succeeded);
-        Assert.Equal(12, Assert.Single(harness.Stored.DeviceIntegration.PluginSettings[0].Values).Integer);
-    }
-
-    [Fact]
     public async Task AReloadHandsTheRowsBackToTheShellsConfiguration()
     {
         Harness harness = new();
@@ -355,48 +310,6 @@ public sealed class WsgmSteamSettingsServiceTests
     }
 
     [Fact]
-    public void ADeviceDeclarationLeftBehindByARemovedPluginIsNotOffered()
-    {
-        // Removing a device plugin leaves its cached declaration in configuration.
-        Harness harness = new() { InstalledDevicePlugin = null };
-        harness.Stored.DeviceIntegration.PluginSettings =
-        [
-            new PluginSettingsScope
-            {
-                DeviceDefinitionId = "device", PluginId = "plugin",
-                Declaration = new PluginSettingsManifest
-                {
-                    Settings =
-                    [
-                        new PluginSettingDescriptor
-                        {
-                            SettingId = "flag", ValueKind = CapabilityValueKind.Boolean,
-                            Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Flag" },
-                            Default = new CapabilityValue { Kind = CapabilityValueKind.Boolean, BooleanValue = false }
-                        }
-                    ]
-                }
-            }
-        ];
-
-        var removed = harness.Create().ReadState();
-        harness.InstalledDevicePlugin = "another.plugin";
-        var replaced = harness.Create().ReadState();
-        harness.InstalledDevicePlugin = "plugin";
-        var installed = harness.Create().ReadState();
-
-        static bool Offers(WsgmSteamSettingsState state)
-        {
-            return state.Pages.SelectMany(page => page.Sections).SelectMany(section => section.Rows)
-                .Any(row => row.Key == "device.setting:flag");
-        }
-
-        Assert.False(Offers(removed));
-        Assert.False(Offers(replaced));
-        Assert.True(Offers(installed));
-    }
-
-    [Fact]
     public void InstancesOfOnePackageAreToldApart()
     {
         Harness harness = new();
@@ -443,7 +356,6 @@ public sealed class WsgmSteamSettingsServiceTests
         internal readonly List<(string Id, string Key, string Value, long Revision)> PluginWrites = [];
         internal readonly List<AppConfig> SteamInputApplied = [];
         internal List<InstalledCommonPlugin> Installed = [];
-        internal string? InstalledDevicePlugin = "plugin";
         internal List<CommonPluginSettingsView> Running = [];
         internal AppConfig Stored = AppConfigRules.Normalize(new AppConfig()).Value;
 
@@ -468,8 +380,7 @@ public sealed class WsgmSteamSettingsServiceTests
                 {
                     PluginWrites.Add((id, key, value.GetRawText(), revision));
                     return Task.FromResult(SteamUiCommandResult.Applied);
-                },
-                () => InstalledDevicePlugin);
+                });
         }
     }
 }

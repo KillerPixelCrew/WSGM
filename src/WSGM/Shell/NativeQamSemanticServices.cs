@@ -901,9 +901,7 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : ISteamDe
             return new SteamUiCommandResult(false, "Device Integration is not active in this session.");
         }
 
-        var matches = _coordinator.Capabilities.Snapshot()
-            .Where(view => view.Descriptor.Role == role)
-            .ToArray();
+        var matches = PrimaryRanges(_coordinator.Capabilities.Snapshot(), role);
         if (matches.Length != 1 || !WritableRange(matches[0], role, out _, out _, out _))
         {
             Log.Warn($"Native QAM device range refused: role={role}, matches={matches.Length}.");
@@ -991,13 +989,18 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : ISteamDe
         return new SteamDeviceControlsState(charge, brightness, zones);
     }
 
+    private static DeviceCapabilityView[] PrimaryRanges(IReadOnlyList<DeviceCapabilityView> views, CapabilityRole role)
+    {
+        var all = views.Where(view => view.Descriptor.Role == role).ToArray();
+        var primary = all.Where(view => view.Descriptor.InstanceId is null).ToArray();
+        return primary.Length > 0 ? primary : all;
+    }
+
     private static SteamDeviceRangeState? ProjectUniqueRange(
         IReadOnlyList<DeviceCapabilityView> views,
         CapabilityRole role)
     {
-        var matches = views
-            .Where(view => view.Descriptor.Role == role)
-            .ToArray();
+        var matches = PrimaryRanges(views, role);
         if (matches.Length == 0)
         {
             return null;

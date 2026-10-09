@@ -1,7 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using WSGM.Device.Sdk.Input;
+using LibHandheld.Contracts;
 using WSGM.Input;
 
 namespace WSGM.Shell;

@@ -33,25 +33,37 @@ public sealed class SteamNativeSettingsServiceTests
     }
 
     [Fact]
-    public void LightingEditorStagesAnOpaqueColorAndRetractsItsOldIdentityOnReconnect()
+    public void RangeReplacementRequiresRebuildingTheMountedEditor()
+    {
+        var row = new DeviceOverlayCapability("limit", null, DeviceOverlaySection.PowerAndThermals,
+            DescriptorStatus.Available, "Limit", "", "", true, CapabilityValue.Integer(10))
+        {
+            Role = CapabilityRole.GenericRange, Writable = true, ValueKind = CapabilityValueKind.Integer,
+            Minimum = 0, Maximum = 40, Step = 1
+        };
+        Assert.True(row.SameLayoutAs(row with { CurrentValue = CapabilityValue.Integer(15) }));
+        Assert.False(row.SameLayoutAs(row with { Maximum = 20 }));
+        Assert.False(row.SameLayoutAs(row with { Step = 5 }));
+        Assert.False(row.SameLayoutAs(row with { Role = CapabilityRole.PowerSustainedLimit }));
+    }
+
+    [Fact]
+    public void LightingEditorStagesOpaqueColorWithStableLogicalIdentity()
     {
         var capability = new DeviceOverlayCapability("lighting.color", "left", DeviceOverlaySection.LightingAndFeatures,
             DescriptorStatus.Available, "Left ring", string.Empty, string.Empty, true,
             new CapabilityValue { Kind = CapabilityValueKind.Color, ColorValue = 0x123456 })
         {
             Writable = true,
-            ValueKind = CapabilityValueKind.Color,
-            CycleGeneration = 1,
-            DescriptorGeneration = 2
+            ValueKind = CapabilityValueKind.Color
         };
         var row = SteamNativeSettingsService.DeviceRow(capability);
         Assert.Equal(SteamSettingsRowKind.Color, row.Kind);
         Assert.Equal("#123456", row.Text);
         Assert.False(row.ColorAlpha);
         Assert.Contains("Save", row.Description);
-        Assert.NotEqual(row.Key, SteamNativeSettingsService.DeviceRow(capability with { CycleGeneration = 2 }).Key);
-        Assert.NotEqual(row.Key,
-            SteamNativeSettingsService.DeviceRow(capability with { DescriptorGeneration = 3 }).Key);
+        Assert.Equal(row.Key, SteamNativeSettingsService.DeviceRow(capability).Key);
+        Assert.NotEqual(row.Key, SteamNativeSettingsService.DeviceRow(capability with { InstanceId = "right" }).Key);
     }
 
     [Fact]

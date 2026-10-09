@@ -176,7 +176,10 @@ internal sealed class CandidateOption(HandheldOffer offer) : Observable
     private bool _selected;
     public HandheldOffer Offer { get; } = offer;
     public string Name => Offer.Definition.Name;
-    public string Badges => "Built-in support, exact model";
+
+    public string Badges => Offer.Definition.HardwareVerified
+        ? "Built-in support, exact model, hardware verified"
+        : "Built-in support, exact model, hardware unverified";
 
     public bool Selected
     {
@@ -249,7 +252,6 @@ internal sealed class HardwarePage : Page
     public bool HasGraphics => Graphics.Count > 0;
     public bool HasMatch => Candidates.Count > 0;
     public bool NoMatch => !HasMatch;
-    public bool NeedsChoice => Candidates.Count > 1;
     public bool HasCommons => Commons.Count > 0;
     public CandidateOption? Chosen => InstallPlugin ? Candidates.FirstOrDefault(candidate => candidate.Selected) : null;
 
@@ -288,7 +290,9 @@ internal sealed class HardwarePage : Page
 
     /// <summary>What accepting installs, in one line under the choice.</summary>
     public string AcceptDetail => Candidates.Count == 1
-        ? $"Enables native support for {Candidates[0].Name}, so WSGM manages power, fans, lighting and the controller on this device."
+        ? Candidates[0].Offer.Definition.HasController
+            ? $"Enables the controls implemented for {Candidates[0].Name}, including controller management."
+            : $"Enables the controls implemented for {Candidates[0].Name}. Controller management is unavailable for this model."
         : "";
 
     public override string Eyebrow => "Hardware";
@@ -304,7 +308,9 @@ internal sealed class HardwarePage : Page
             : "";
 
     /// <summary>Additional hardware warning, when applicable.</summary>
-    public string Caution => "";
+    public string Caution => Candidates.Count == 1 && !Candidates[0].Offer.Definition.HardwareVerified
+        ? "This exact model matches, but its support has not been verified on hardware. Try its controls carefully and report problems."
+        : "";
 
     public bool HasCaution => Caution.Length > 0;
 
@@ -509,12 +515,19 @@ internal sealed class RestartPage(IReadOnlyList<StepRow> steps, bool resumes) : 
             : "Run this setup again after that restart.");
 }
 
-internal sealed class UninstallPage(string version, bool usbipOwned, bool hidHideOwned) : Page
+internal sealed class UninstallPage(
+    string version,
+    bool usbipOwned,
+    bool hidHideOwned,
+    bool pawnIoOwned = false,
+    bool inpOutOwned = false) : Page
 {
     private bool _confirming;
     private bool _custom;
     private bool _keepData = true;
     private bool _removeHidHide = hidHideOwned;
+    private bool _removeInpOut;
+    private bool _removePawnIo;
     private bool _removeUsbip = usbipOwned;
 
     public override string Eyebrow => $"WSGM {version}";
@@ -526,7 +539,21 @@ internal sealed class UninstallPage(string version, bool usbipOwned, bool hidHid
 
     public bool CanRemoveUsbip { get; } = usbipOwned;
     public bool CanRemoveHidHide { get; } = hidHideOwned;
-    public bool HasOwnedComponents => CanRemoveUsbip || CanRemoveHidHide;
+    public bool CanRemovePawnIo { get; } = pawnIoOwned;
+    public bool CanRemoveInpOut { get; } = inpOutOwned;
+    public bool HasOwnedComponents => CanRemoveUsbip || CanRemoveHidHide || CanRemovePawnIo || CanRemoveInpOut;
+
+    public bool RemovePawnIo
+    {
+        get => _removePawnIo;
+        set => Set(ref _removePawnIo, value);
+    }
+
+    public bool RemoveInpOut
+    {
+        get => _removeInpOut;
+        set => Set(ref _removeInpOut, value);
+    }
 
     public bool KeepData
     {
@@ -577,7 +604,9 @@ internal sealed class UninstallPage(string version, bool usbipOwned, bool hidHid
         "WSGM and its plugins are removed",
         KeepData ? "Your settings and data are kept" : "Your settings and data are deleted",
         CanRemoveUsbip ? RemoveUsbip ? "The USB/IP driver is removed" : "The USB/IP driver stays" : "",
-        CanRemoveHidHide ? RemoveHidHide ? "HidHide is removed" : "HidHide stays" : ""
+        CanRemoveHidHide ? RemoveHidHide ? "HidHide is removed" : "HidHide stays" : "",
+        CanRemovePawnIo ? RemovePawnIo ? "PawnIO is removed" : "PawnIO stays" : "",
+        CanRemoveInpOut ? RemoveInpOut ? "InpOut is removed" : "InpOut stays" : ""
     ];
 
     public override string Primary => _confirming ? "Uninstall" : "Continue";

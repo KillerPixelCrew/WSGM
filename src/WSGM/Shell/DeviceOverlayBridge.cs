@@ -9,10 +9,10 @@ using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Glyphs;
-using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Device.Sdk.Settings;
 using WSGM.Overlay;
+using CanonicalControllerSample = LibHandheld.Contracts.CanonicalControllerSample;
 
 namespace WSGM.Shell;
 
@@ -126,6 +126,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             }
             : null;
         var authored = _coordinator.AuthoredProfileSelection();
+        var lighting = _coordinator.LightingProfileSelection();
         var glyphPreview = GlyphPreview(
             glyphSelectionState,
             _glyphs,
@@ -173,8 +174,16 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 [DeviceHostRowIds.AuthoredProfile] = new(authored?.Selected.Value ?? "",
                     new[] { HostChoice("", "None") }
                         .Concat(authored?.Profiles.Select(profile => HostChoice(profile.ProfileId, profile.Name)) ?? [])
+                        .ToArray()),
+                [DeviceHostRowIds.LightingProfile] = new(lighting?.Selected.Value ?? "",
+                    new[] { HostChoice("", _coordinator.Profiles.Current.EditsGame ? "Use Global" : "None") }
+                        .Concat(lighting?.Profiles.Select(profile => HostChoice(profile.ProfileId, profile.Name)) ?? [])
                         .ToArray())
             },
+            LightingProfile = lighting is { } colors
+                ? LightingProfileView(colors.Profiles, colors.Selected,
+                    _coordinator.LightingProfileDetail, _coordinator.LightingProfileStatus)
+                : null,
             GlyphMode = _coordinator.PhysicalGlyphSelection,
             PluginSections = ProjectSections(declaredSections)
         };
@@ -200,8 +209,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         var current = _coordinator.Capabilities.Snapshot().FirstOrDefault(view =>
             view.Descriptor.CapabilityId == capability.CapabilityId &&
             view.Descriptor.InstanceId == capability.InstanceId);
-        if (current is null || current.Projection.State.CycleGeneration != capability.CycleGeneration
-                            || current.Projection.State.DescriptorGeneration != capability.DescriptorGeneration)
+        if (current is null)
         {
             // A deferred editor callback belongs to the descriptor the user actually saw.
             Changed?.Invoke();
@@ -227,6 +235,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                                                    && _coordinator.Controllers.SupportedTargets.Contains(target) =>
                 _coordinator.SetControllerTargetAsync(target, cancellationToken),
             DeviceHostRowIds.AuthoredProfile => _coordinator.SelectAuthoredProfileAsync(
+                string.IsNullOrEmpty(value) ? null : value, cancellationToken),
+            DeviceHostRowIds.LightingProfile => _coordinator.SelectLightingProfileAsync(
                 string.IsNullOrEmpty(value) ? null : value, cancellationToken),
             _ => Task.CompletedTask
         };
@@ -351,9 +361,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         var current = _gpu?.Snapshot(pluginId)?.Capabilities.FirstOrDefault(candidate =>
             candidate.View.Descriptor.CapabilityId == capability.CapabilityId
             && candidate.View.Descriptor.InstanceId == capability.InstanceId)?.View;
-        if (_gpu is null || current is null
-                         || current.Projection.State.CycleGeneration != capability.CycleGeneration
-                         || current.Projection.State.DescriptorGeneration != capability.DescriptorGeneration)
+        if (_gpu is null || current is null)
         {
             Changed?.Invoke();
             return;
@@ -611,6 +619,22 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             selected is null ? DescriptorStatus.None : DescriptorStatus.Available);
     }
 
+    internal static DescriptorRow LightingProfileView(IReadOnlyList<DeviceAuthoredProfile> profiles,
+        Resolved<string?> selected, string? detail, DescriptorStatus status)
+    {
+        var row = AuthoredProfileView(profiles, selected.Value, selected.Source)
+                  ?? new DescriptorRow(DeviceHostRowIds.LightingProfile, "Lighting profile",
+                      "Create a color profile in Settings, Device profiles.", "NONE", false);
+        return row with
+        {
+            Id = DeviceHostRowIds.LightingProfile,
+            Title = "Lighting profile",
+            Description = detail is null ? row.Description : row.Description + " · " + detail,
+            Status = status == DescriptorStatus.None ? row.Status : status,
+            OverrideId = selected.IsGameOverride ? nameof(ProfileField.LightingProfile) : null
+        };
+    }
+
     /// <summary>Projects the device cycle's recoverable state into the Diagnostics page's own row.</summary>
     /// <param name="state">The current cycle state.</param>
     /// <returns>The row, or null when the cycle is healthy and there is nothing to recover.</returns>
@@ -837,8 +861,6 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 : null,
             SortOrder = descriptor.SortOrder,
             OverrideId = OverrideIdFor(view, layers),
-            DescriptorGeneration = state.DescriptorGeneration,
-            CycleGeneration = state.CycleGeneration,
             Prominence = descriptor.Prominence,
             LayoutPair = descriptor.LayoutPair,
             ValueKind = descriptor.ValueKind,
@@ -870,6 +892,9 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                 : null,
             CapabilityRole.VariableRefreshRate => CapabilityProjection.OverrideId(layers,
                 new ProfileSettingKey(ProfileField.VariableRefreshRate)),
+            CapabilityRole.LightingZoneColor when
+                layers?.Reference(values => values.LightingProfileId).IsGameOverride == true =>
+                nameof(ProfileField.LightingProfile),
             _ => CapabilityProjection.DeviceOverrideId(view)
         };
     }
@@ -1048,8 +1073,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         }
 
         if (projection.State.Quality is HardwareStateQuality.Stale
-            || projection.State.Reason?.Code is CapabilityReasonCode.GenerationChanged
-                or CapabilityReasonCode.ObservationExpired)
+            || projection.State.Reason?.Code is CapabilityReasonCode.ObservationExpired)
         {
             return DescriptorStatus.Stale;
         }

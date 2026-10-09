@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using LibHandheld.Contracts;
 using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Install;
@@ -27,15 +28,13 @@ public sealed partial class SettingsViewModel : ObservableObject
     ///     The configuration this view model edits. It is taken over, not copied: the save path loads
     ///     fresh configuration and merges before persisting anyway.
     /// </param>
-    /// <param name="installedPluginId">Installed package ID, or null when the slot is empty or invalid.</param>
-    /// <param name="filterToInstalledPlugin">Whether the Plugin page shows only the installed package's settings.</param>
+    /// <param name="definition">Cached exact handheld metadata; null leaves device-profile authoring unavailable.</param>
     /// <param name="services">Every machine read and write the window uses; a test supplies inert ones.</param>
     /// <param name="store">The persistence owner, for the log folder and the update check; null in tests.</param>
     internal SettingsViewModel(
         AppConfig config,
-        string? installedPluginId,
-        bool filterToInstalledPlugin,
         SettingsServices services,
+        HandheldDefinition? definition = null,
         ConfigStore? store = null)
     {
         _store = store;
@@ -90,7 +89,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         SavedAccentColor = _config.AccentColor;
         RecordSharedBaseline(_config);
-        LoadPluginSettings(_config, installedPluginId, filterToInstalledPlugin);
+        LoadDeviceProfiles(definition);
         LoadGraphicsDrivers();
 
         SteamAutoRelaunch = _config.SteamAutoRelaunch;
@@ -216,14 +215,14 @@ public sealed partial class SettingsViewModel : ObservableObject
     ///     The actions the running plugins declare: the resident session's own source, or an empty list for a
     ///     standalone Settings process, which then shows saved steps read-only.
     /// </param>
+    /// <param name="definition">Exact handheld metadata captured by the caller before constructing the UI.</param>
     /// <returns>A UI-thread model with explicit production services and any configuration-read problem retained for display.</returns>
     internal static SettingsViewModel FromLoadedConfig(ConfigReadResult read, ConfigStore store,
-        SteamInputShim steamInputShim, Func<IReadOnlyList<PluginActionOption>> readPluginActions)
+        SteamInputShim steamInputShim, Func<IReadOnlyList<PluginActionOption>> readPluginActions,
+        HandheldDefinition? definition = null)
     {
-        // The installed plugin is not known until the Plugins folder is read on a worker; the plugin
-        // settings page fills in when that read lands.
-        var viewModel = new SettingsViewModel(read.Config ?? new AppConfig(), null, true,
-            SettingsServices.Windows(store, steamInputShim, readPluginActions), store);
+        var viewModel = new SettingsViewModel(read.Config ?? new AppConfig(),
+            SettingsServices.Windows(store, steamInputShim, readPluginActions), definition, store);
         Log.Observe(viewModel.LoadPluginPackagesAsync(), "Settings plugin packages");
         viewModel.ShowConfigReadProblem(read);
         return viewModel;

@@ -41,7 +41,7 @@ public sealed class HandheldPackageRetirementTests
         using var installation = new SetupTestInstallation();
         var path = Path.Combine(installation.Root, "Plugins", "wsgm.device.msi.claw.wsgmpkg");
         WriteArchive(path, "community.device.claw");
-        Assert.False(GpuPackageRetirement.IsRetiredPackage(path));
+        Assert.False(NeutralLibraryPackageRetirement.IsRetiredPackage(path));
     }
 
     private static void WriteArchive(string path, string id)

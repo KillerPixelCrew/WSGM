@@ -13,8 +13,6 @@ namespace WSGM.Core;
 ///     its <c>default</c> instance, until the configuration names an instance of it; and it never runs on a
 ///     machine without such an adapter, whatever the configuration says. Setup offers these packages by the
 ///     same match, so it writes no enable entry for them.
-///     The three built-in graphics identities are excluded: their saved preferences belong to the
-///     directly linked driver owner instead of the common plugin host.
 /// </remarks>
 internal static class CommonPluginEnablement
 {
@@ -39,8 +37,7 @@ internal static class CommonPluginEnablement
     /// <returns>True for a graphics package that serves this machine.</returns>
     internal static bool EnabledByDefault(PluginManifest manifest, IReadOnlyList<DisplayAdapterIdentity> adapters)
     {
-        return !BuiltinGpuDrivers.Contains(manifest.Id)
-               && manifest.Category == PluginCategories.Gpu && ServesMachine(manifest, adapters);
+        return manifest.Category == PluginCategories.Gpu && ServesMachine(manifest, adapters);
     }
 
     /// <summary>The instances that should run.</summary>
@@ -56,8 +53,7 @@ internal static class CommonPluginEnablement
         ArgumentNullException.ThrowIfNull(configured);
         ArgumentNullException.ThrowIfNull(installed);
         List<PluginInstanceIdentity> desired = [];
-        foreach (var instance in configured.Where(instance =>
-                     instance.Enabled && !BuiltinGpuDrivers.Contains(instance.PluginId)))
+        foreach (var instance in configured.Where(instance => instance.Enabled))
         {
             var package = installed.FirstOrDefault(candidate => candidate.Manifest.Id == instance.PluginId);
             if (package is { Manifest.Category: PluginCategories.Gpu } && !ServesMachine(package.Manifest, adapters))

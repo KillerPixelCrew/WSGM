@@ -7,7 +7,6 @@ using System.Threading.Tasks;
 using Avalonia;
 using WindowsDeviceControl;
 using WSGM.Core;
-using WSGM.Device.Sdk.Capabilities;
 using WSGM.Themes;
 
 namespace WSGM.Settings;
@@ -168,10 +167,9 @@ public sealed partial class SettingsViewModel
         return new SaveRequest(
             values,
             splash,
-            new Dictionary<string, CapabilityValue>(_pluginSettingEdits, StringComparer.Ordinal),
             _deviceProfilesEdited ? [.. DeviceProfiles.Select(static profile => profile.ToStored())] : null,
-            _pluginSettingsDevice,
-            _pluginSettingsPlugin)
+            _deviceProfileDefinition,
+            _deviceProfileFamily)
         {
             SharedEdits =
             [
@@ -579,16 +577,8 @@ public sealed partial class SettingsViewModel
             }
         }
 
-        var sameScope = _pluginSettingsDevice == request.PluginDevice
-                        && _pluginSettingsPlugin == request.PluginId;
-        foreach (var (id, value) in request.PluginEdits)
-        {
-            if (sameScope && _pluginSettingEdits.TryGetValue(id, out var current) && current == value)
-            {
-                _pluginSettingEdits.Remove(id);
-            }
-        }
-
+        var sameScope = _deviceProfileDefinition == request.DeviceDefinitionId
+                        && _deviceProfileFamily == request.FamilyId;
         if (sameScope && request.DeviceProfiles is not null
                       && JsonSerializer.Serialize(DeviceProfiles.Select(profile => profile.ToStored()).ToList(),
                           ConfigJsonContext.Default.ListDeviceAuthoredProfile)
@@ -615,17 +605,15 @@ public sealed partial class SettingsViewModel
     /// <summary>Detached UI snapshot captured once for a worker-side merge onto fresh configuration.</summary>
     /// <param name="Values">Only Settings-owned values are merged; this is not a replacement for the fresh persisted graph.</param>
     /// <param name="Splash">Captured splash settings and staged asset references.</param>
-    /// <param name="PluginEdits">Edited capability values keyed by stable setting identity.</param>
     /// <param name="DeviceProfiles">Authored profile replacement when edited, otherwise null to preserve fresh profiles.</param>
-    /// <param name="PluginDevice">Device scope for plugin-setting merge.</param>
-    /// <param name="PluginId">Installed plugin scope for plugin-setting merge.</param>
+    /// <param name="DeviceDefinitionId">Exact device scope for authored profiles.</param>
+    /// <param name="FamilyId">Plain built-in family identity.</param>
     internal sealed record SaveRequest(
         AppConfig Values,
         SplashConfig Splash,
-        IReadOnlyDictionary<string, CapabilityValue> PluginEdits,
         IReadOnlyList<DeviceAuthoredProfile>? DeviceProfiles,
-        string PluginDevice,
-        string PluginId)
+        string DeviceDefinitionId,
+        string FamilyId)
     {
         /// <summary>Display identities explicitly removed by this captured edit, preserving unrelated fresh catalog entries.</summary>
         internal IReadOnlyList<DisplayTargetIdentity> ForgottenDisplays { get; init; } = [];

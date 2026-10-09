@@ -10,9 +10,10 @@ package loading, UI projection and session automation are covered in
 [PluginManifest.cs](../PluginManifest.cs) defines `PluginApi`, `PluginCategories`,
 `PluginCategoryPolicy`, `PluginDependency`, `PluginManifest`, `DisplayAdapterMatch` and
 `PluginFrontendModule`. API compatibility is independent of the package's version. A manifest's
-`minimumApiVersion` / `maximumApiVersion` must both equal `PluginApi.Version`. API 5 refuses broad
-legacy ranges because shared contract types changed their assembly identity. Device packages are no
-longer admitted; WSGM integrates LibHandheld directly.
+`minimumApiVersion` / `maximumApiVersion` must contain the host API version and have a minimum of 5.
+API 5 is the first shared assembly identity; future additive API versions may remain inside a
+compatible declared range. Device packages are no longer admitted; WSGM integrates LibHandheld
+directly.
 
 The manifest identifies the package, its category, root DLL and public entry type, optional numeric
 dependency ranges and WSGM release, declared permissions, GPU adapter rules and capability roles,
@@ -21,7 +22,7 @@ nothing. All admitted code runs in WSGM's process with its authority.
 
 [PluginManifestReader.cs](../PluginManifestReader.cs) reads camel-case JSON, rejects unknown
 members, bounds the document to 256 KiB and depth 16, and validates identifiers, canonical versions,
-entry names, dependencies and frontend paths. Common/device identity rules come from shared
+entry names, dependencies and frontend paths. Common identity and entry-point rules come from shared
 `ManifestRules`. Parsing does not load code, resolve dependencies or prove a package safe. The host
 validates its archive and admitted metadata again when opening the entry assembly.
 
@@ -116,15 +117,14 @@ refresh and pinning never dispatch actions; editable drafts require explicit sub
 
 [PluginCapabilities.cs](../PluginCapabilities.cs) supplies `ICapabilityHost` and
 `ICapabilityPlugin`. WSGM currently admits this channel only for `wsgm.gpu`; it is required for that
-category. The channel carries Device SDK descriptors, observations and commands, without physical
+category. The channel carries shared SDK descriptors, observations and commands, without physical
 controller, OEM or haptic publications. Each publisher has its own router and profile key.
 
-`ICapabilityHost.CycleGeneration` changes before start and resume. Publish a complete descriptor
-replacement before states, with increasing descriptor generations inside that cycle. Roles must
-appear in the manifest. Completing a publication dispatch does not prove the downstream router
-accepted the layout or state; inspect validation diagnostics. Command handlers must independently
-revalidate identity, generation, bounds, availability and deadline before a write.
-
+Publish complete descriptor replacements before their observations. Roles must appear in the
+manifest. The owning publisher serializes updates and commands; receiving a publication does not
+prove that its consumer accepted it. Commands revalidate current identity, bounds, availability and
+deadline immediately before dispatch. Retired capabilities reject commands rather than using stale
+metadata. Hardware input and device lifecycle do not pass through this common capability channel.
 The [shared contract reference](shared-reference.md) defines capability roles, value shapes, command
 outcomes, profile scope, apply timing and written-versus-verified state. A supported write can
 succeed without readback; uncertain writes are never blindly retried.

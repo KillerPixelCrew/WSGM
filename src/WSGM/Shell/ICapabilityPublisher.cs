@@ -16,8 +16,8 @@ namespace WSGM.Shell;
 /// </remarks>
 internal interface ICapabilityPublisher
 {
-    /// <summary>The current cycle generation. Only the publisher's owner advances it.</summary>
-    long CycleGeneration { get; }
+    /// <summary>Whether this owned publisher currently accepts commands and observations.</summary>
+    bool IsActive { get; }
 
     /// <summary>The capability roles the package manifest declares; the router refuses any other.</summary>
     IReadOnlyList<CapabilityRole> DeclaredCapabilities { get; }

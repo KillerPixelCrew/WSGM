@@ -200,10 +200,7 @@ internal sealed class EmulatorPackages(EmulatorNetwork network)
             throw new IOException("The emulator cleanup target is outside its owned root.");
         }
 
-        if (Directory.Exists(full))
-        {
-            Directory.Delete(full, true);
-        }
+        EmulatorPortableSetup.DeleteProgram(full, root);
     }
 
     public static string FindExecutable(string root, EmulatorPackageDefinition definition, string architecture)

@@ -1,14 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Glyphs;
-using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Settings;
 using WSGM.Overlay;
+using CanonicalControllerSample = LibHandheld.Contracts.CanonicalControllerSample;
 
 namespace WSGM.Shell;
 
@@ -68,17 +69,11 @@ internal sealed record DeviceOverlayCapability(
     CapabilityValue? CurrentValue = null,
     CapabilityValue? NextValue = null)
 {
-    /// <summary>Descriptor identity used to invalidate layout independently of state updates.</summary>
-    public long DescriptorGeneration { get; init; }
-
     /// <summary>
     ///     The profile setting id while the running game's own profile supplies this value, else null.
     ///     The row marks it and offers Use global.
     /// </summary>
     public string? OverrideId { get; init; }
-
-    /// <summary>Device cycle that owns this descriptor.</summary>
-    public long CycleGeneration { get; init; }
 
     /// <summary>
     ///     The graphics plugin that publishes this row, or null for the device package. Variable refresh is
@@ -137,6 +132,18 @@ internal sealed record DeviceOverlayCapability(
 
     /// <summary>Maximum text length for a text capability, or null when it has none.</summary>
     public int? MaximumLength { get; init; }
+
+    /// <summary>Whether a mounted control can retain its layout and editor without stale bounds.</summary>
+    internal bool SameLayoutAs(DeviceOverlayCapability other)
+    {
+        return CapabilityId == other.CapabilityId
+               && InstanceId == other.InstanceId && GpuPluginId == other.GpuPluginId && Role == other.Role
+               && ValueKind == other.ValueKind && Writable == other.Writable && SupportsAction == other.SupportsAction
+               && Minimum == other.Minimum && Maximum == other.Maximum && Step == other.Step && Unit == other.Unit
+               && MaximumLength == other.MaximumLength && Choices.SequenceEqual(other.Choices)
+               && Prominence == other.Prominence && LayoutPair == other.LayoutPair && SortOrder == other.SortOrder
+               && Title == other.Title && CategoryId == other.CategoryId && PluginSectionId == other.PluginSectionId;
+    }
 }
 
 /// <summary>One category heading of a plugin-declared overlay section.</summary>
@@ -212,6 +219,7 @@ internal sealed record DeviceOverlayGlyphPreview(
 /// <param name="Recovery">Explicit cycle recovery action, or null when no recovery is offered.</param>
 /// <param name="GlyphPreview">Artwork and physical-input preview, or null when absent.</param>
 /// <param name="AuthoredProfile">Authored fan-profile selector, or null when absent.</param>
+/// <param name="LightingProfile">Authored color-profile selector with its application status.</param>
 internal sealed record DeviceOverlaySnapshot(
     bool Visible,
     string Status,
@@ -222,7 +230,8 @@ internal sealed record DeviceOverlaySnapshot(
     DescriptorRow? Controller = null,
     DescriptorRow? Recovery = null,
     DeviceOverlayGlyphPreview? GlyphPreview = null,
-    DescriptorRow? AuthoredProfile = null)
+    DescriptorRow? AuthoredProfile = null,
+    DescriptorRow? LightingProfile = null)
 {
     /// <summary>Explicit host-owned choices, keyed by stable row identity.</summary>
     public IReadOnlyDictionary<string, DeviceHostSelection> HostSelections { get; init; } =
@@ -242,6 +251,7 @@ internal static class DeviceHostRowIds
     public const string AutoTdp = "device.auto-tdp";
     public const string ControllerTarget = "device.controller-target";
     public const string AuthoredProfile = "device.authored-profile";
+    public const string LightingProfile = "device.lighting-profile";
     public const string Retry = "device.retry";
     public const string GlyphSelection = "device.glyph-selection";
 }

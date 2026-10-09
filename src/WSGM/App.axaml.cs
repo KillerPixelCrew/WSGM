@@ -5,7 +5,9 @@ using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using Avalonia.Threading;
+using LibHandheld;
 using WSGM.Core;
+using WSGM.Install;
 using WSGM.Settings;
 using WSGM.Shell;
 using WSGM.Themes;
@@ -77,7 +79,8 @@ public class App : Application
                 case RunMode.Settings:
                 default:
                     // Standalone Settings has no plugin host; saved plugin actions remain read-only.
-                    var settings = SettingsViewModel.FromLoadedConfig(_startupRead, _store, _steamInput.Shim, () => []);
+                    var settings = SettingsViewModel.FromLoadedConfig(_startupRead, _store, _steamInput.Shim, () => [],
+                        HandheldDevice.Detect(DeviceMachineIdentity.Collect()));
                     desktop.MainWindow = new SettingsWindow(settings,
                         SettingsWindowServices.Create(settings, _steamInput, null,
                             SettingsSurface.TestSheet(_store, _steamInput, null)));

@@ -378,6 +378,10 @@
                       Content="Remove the USB/IP driver (restarts every USB hub)" />
             <CheckBox IsChecked="{Binding RemoveHidHide}" IsVisible="{Binding CanRemoveHidHide}"
                       Content="Remove HidHide (keep it if another app uses it)" />
+            <CheckBox IsChecked="{Binding RemovePawnIo}" IsVisible="{Binding CanRemovePawnIo}"
+                      Content="Remove PawnIO (keep it if another app uses it)" />
+            <CheckBox IsChecked="{Binding RemoveInpOut}" IsVisible="{Binding CanRemoveInpOut}"
+                      Content="Remove InpOut (keep it if another app uses it)" />
           </StackPanel>
         </StackPanel>
         <Border Classes="card" IsVisible="{Binding Confirming}">

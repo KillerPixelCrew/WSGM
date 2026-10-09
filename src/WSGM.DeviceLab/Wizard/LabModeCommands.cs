@@ -8,10 +8,10 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
-using WSGM.Device.Sdk.Windows;
 using WSGM.DeviceLab.Application;
 using WSGM.DeviceLab.Knowledge;
 using WSGM.DeviceLab.Transports;
+using WSGM.DeviceLab.Windows;
 
 namespace WSGM.DeviceLab.Wizard;
 

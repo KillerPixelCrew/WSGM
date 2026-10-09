@@ -4,8 +4,8 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using WSGM.Device.Sdk.Windows;
 using WSGM.DeviceLab.Application;
+using WSGM.DeviceLab.Windows;
 using WSGM.Interop;
 
 namespace WSGM.DeviceLab.Capture.Live;

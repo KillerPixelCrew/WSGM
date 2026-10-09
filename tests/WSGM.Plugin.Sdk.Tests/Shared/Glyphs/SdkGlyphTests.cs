@@ -190,7 +190,7 @@ public sealed class SdkGlyphTests
             [GlyphPackageLayout.ProfileManifest(manifest.ProfileId)] =
                 JsonSerializer.SerializeToUtf8Bytes(
                     manifest,
-                    DeviceJsonContext.Default.GlyphProfileManifest),
+                    GlyphJsonContext.Default.GlyphProfileManifest),
             [GlyphPackageLayout.Asset(assetId, GlyphAssetFormat.Svg)] = svg,
             [manifest.NoticePath] = [.. "Synthetic test artwork.\n"u8]
         };

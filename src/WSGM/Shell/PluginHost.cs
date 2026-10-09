@@ -433,7 +433,7 @@ internal sealed class PluginRegistration(
                 Settings = new CommonPluginSettings(configurable, host.ConfigurationStore, Identity);
             }
 
-            capabilities?.BeginCycle(Context.Generation);
+            capabilities?.Open();
             var health = await plugin.StartAsync(this, Context, token).ConfigureAwait(false);
             if (Settings is not null)
             {
@@ -602,7 +602,7 @@ internal sealed class PluginRegistration(
 
             Context = Context with { Generation = generation };
             PublishHealth(new PluginHealthPublication(Identity, generation, PluginHealth.Unavailable, "Resuming"));
-            capabilities?.BeginCycle(generation);
+            capabilities?.Open();
             await plugin.ResumeAsync(Context, token).ConfigureAwait(false);
             return true;
         }, cancellationToken: cancellationToken);

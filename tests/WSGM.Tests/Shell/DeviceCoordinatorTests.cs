@@ -1,14 +1,14 @@
 using System.Diagnostics;
+using LibHandheld;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Sdk.Identity;
 using WSGM.Device.Sdk.Lifecycle;
-using WSGM.Device.Sdk.Plugin;
 using WSGM.Interop;
 using WSGM.Shell;
 using WSGM.Tests.Builders;
 using WSGM.Tests.Fakes;
 using WSGM.Tests.Input;
+using DeviceIdentitySnapshot = LibHandheld.Contracts.DeviceIdentitySnapshot;
 using HandheldDefinition = LibHandheld.Contracts.HandheldDefinition;
 
 namespace WSGM.Tests.Shell;
@@ -47,18 +47,18 @@ public sealed class DeviceCoordinatorTests
     }
 
     [Fact]
-    public async Task SuspendAndResumeKeepTheRuntimeAndAdvanceTheGenerationExactlyOnce()
+    public async Task SuspendAndResumeRetainTheSameNativeOwnerAndOneLifecycle()
     {
         await using Harness harness = new();
         await harness.Coordinator.InitializeAsync();
-        var generation = harness.Runtime!.CycleGeneration;
+        var owner = harness.Runtime!.Device;
 
         await harness.Coordinator.SuspendAsync();
         Assert.Equal(DeviceCycleState.Suspended, harness.Coordinator.State);
         await harness.Coordinator.ResumeAsync(true);
 
         Assert.Equal(DeviceCycleState.Active, harness.Coordinator.State);
-        Assert.Equal(generation + 1, harness.Runtime.CycleGeneration);
+        Assert.Same(owner, harness.Runtime!.Device);
         Assert.Equal(1, harness.Loads);
         Assert.Equal(["detect", "start", "suspend", "resume"], harness.Calls);
     }
@@ -222,7 +222,8 @@ public sealed class DeviceCoordinatorTests
                 : Task.CompletedTask;
         }
 
-        await harness.Coordinator.ShutdownAsync(PluginStopReason.WsgmExiting, Deadline.After(TimeSpan.FromSeconds(5)));
+        await harness.Coordinator.ShutdownAsync(HandheldStopReason.WsgmExiting,
+            Deadline.After(TimeSpan.FromSeconds(5)));
         await harness.Coordinator.Completion;
         await harness.Coordinator.DisposeAsync();
 
@@ -256,7 +257,7 @@ public sealed class DeviceCoordinatorTests
         };
         try
         {
-            var shutdown = harness.Coordinator.ShutdownAsync(PluginStopReason.WsgmExiting,
+            var shutdown = harness.Coordinator.ShutdownAsync(HandheldStopReason.WsgmExiting,
                 Deadline.After(TimeSpan.FromSeconds(1))).AsTask();
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
             await shutdown.WaitAsync(TimeSpan.FromSeconds(5));
@@ -282,10 +283,11 @@ public sealed class DeviceCoordinatorTests
     }
 
     [Fact]
-    public async Task CallerCanceledResumePropagatesWithoutRestartAndKeepsTheRuntimeGenerationInSync()
+    public async Task CallerCanceledResumePropagatesWithoutRestartOrReplacingTheNativeOwner()
     {
         await using Harness harness = new();
         await harness.Coordinator.InitializeAsync();
+        var owner = harness.Runtime!.Device;
         await harness.Coordinator.SuspendAsync();
         using CancellationTokenSource cancellation = new();
         harness.Hook = (call, token) =>
@@ -304,8 +306,7 @@ public sealed class DeviceCoordinatorTests
 
         Assert.Equal(1, harness.Loads);
         Assert.Equal(0, harness.RestartDelays);
-        Assert.Equal(harness.Runtime!.CycleGeneration,
-            harness.Coordinator.Capabilities.Snapshot().First().Projection.State.CycleGeneration);
+        Assert.Same(owner, harness.Runtime!.Device);
     }
 
     [Fact]
@@ -326,7 +327,8 @@ public sealed class DeviceCoordinatorTests
 
         List<DeviceCycleState> stopping = [];
         harness.Coordinator.StateChanged += stopping.Add;
-        await harness.Coordinator.ShutdownAsync(PluginStopReason.WsgmExiting, Deadline.After(TimeSpan.FromSeconds(5)));
+        await harness.Coordinator.ShutdownAsync(HandheldStopReason.WsgmExiting,
+            Deadline.After(TimeSpan.FromSeconds(5)));
         await harness.Coordinator.Completion;
         Assert.Equal([DeviceCycleState.Deactivating, DeviceCycleState.Disabled], stopping);
         Assert.True(harness.OwnerDisposed);
@@ -393,7 +395,8 @@ public sealed class DeviceCoordinatorTests
 
         Assert.False(harness.Coordinator.AutoTdpEnabled);
         Assert.True(harness.Coordinator.IntegrationEnabled);
-        await harness.Coordinator.ShutdownAsync(PluginStopReason.WsgmExiting, Deadline.After(TimeSpan.FromSeconds(5)));
+        await harness.Coordinator.ShutdownAsync(HandheldStopReason.WsgmExiting,
+            Deadline.After(TimeSpan.FromSeconds(5)));
         await harness.Coordinator.Completion;
         Assert.Equal(1, harness.Calls.Count(call => call == "stop"));
         Assert.Equal(1, harness.Calls.Count(call => call == "dispose"));
@@ -418,7 +421,7 @@ public sealed class DeviceCoordinatorTests
             Maximum = 40,
             Step = 1
         };
-        harness.Coordinator.Capabilities.Attach(publisher, 1);
+        harness.Coordinator.Capabilities.Attach(publisher);
         publisher.Publish(CapabilityBuilders.Set(1, descriptor));
         publisher.PublishState(1, CapabilityBuilders.State(1, CapabilityValue.Integer(20)) with
         {
@@ -442,7 +445,8 @@ public sealed class DeviceCoordinatorTests
 
         Assert.Equal(CommandOutcome.AppliedVerified, restored.Outcome);
         Assert.Equal(20, Assert.Single(publisher.Commands).RequestedValue!.IntegerValue);
-        await harness.Coordinator.ShutdownAsync(PluginStopReason.WsgmExiting, Deadline.After(TimeSpan.FromSeconds(5)));
+        await harness.Coordinator.ShutdownAsync(HandheldStopReason.WsgmExiting,
+            Deadline.After(TimeSpan.FromSeconds(5)));
         await harness.Coordinator.Completion;
         await Assert.ThrowsAsync<ObjectDisposedException>(() => harness.Coordinator.ExecuteCapabilityAsync(
             descriptor.CapabilityId, null, CapabilityValue.Integer(20), TimeSpan.FromSeconds(1),
@@ -470,21 +474,19 @@ public sealed class DeviceCoordinatorTests
 
         internal Harness(bool enabled = true)
         {
-            Definition = new HandheldDefinition(RuntimeFixturePlugin.DeviceDefinitionIdValue,
-                RuntimeFixturePlugin.PackageIdValue, "Runtime fixture", "fixture");
+            Definition = new HandheldDefinition(NativeRuntimeEngine.DefinitionId,
+                    NativeRuntimeEngine.FamilyId, "Runtime fixture", "fixture")
+                { DeclaredRoles = [LibHandheld.Contracts.CapabilityRole.GenericToggle] };
             Config = new AppConfig
             {
                 DeviceIntegration = new DeviceIntegrationConfig
                 {
+                    PreferencesSchemaVersion = DeviceIntegrationConfig.CurrentPreferencesSchemaVersion,
                     Enabled = enabled,
                     ControllerManagementEnabled = false
                 }
             };
             ProfileService profiles = new(Config.Profiles, (_, _) => Task.FromResult(Config.Profiles));
-            AppContext.SetData(RuntimeFixturePlugin.LifecycleCallsKey, Calls);
-            AppContext.SetData(RuntimeFixturePlugin.LifecycleHookKey,
-                (Func<string, CancellationToken, Task>)((call, token) =>
-                    Hook?.Invoke(call, token) ?? Task.CompletedTask));
             Coordinator = new DeviceCoordinator(Config, _temporary.Store, 0, new Owner(this),
                 action => action(), profiles, () => 0, () => RtssOsdMetrics.Empty, _ => { },
                 new WindowsPowerModes(new PowerSchemes(new UnusedPowerSchemeApi()), new UnusedPowerModeApi()),
@@ -499,11 +501,15 @@ public sealed class DeviceCoordinatorTests
                     Discoveries++;
                     return Task.FromResult<HandheldDefinition?>(Definition);
                 },
-                (definition, generation, token, root) =>
+                (definition, identity, token, root) =>
                 {
                     Loads++;
                     token.ThrowIfCancellationRequested();
-                    Runtime = new HandheldDeviceRuntime(new RuntimeFixturePlugin(), generation, root);
+                    var directory = Path.Combine(root, definition.FamilyId);
+                    var engine = new NativeRuntimeEngine(Calls,
+                        (call, ct) => Hook?.Invoke(call, ct) ?? Task.CompletedTask);
+                    var device = new HandheldDevice(definition, identity, directory, null, engine);
+                    Runtime = new HandheldDeviceRuntime(device, directory);
                     return Task.FromResult(Runtime);
                 },
                 _ =>
@@ -533,8 +539,6 @@ public sealed class DeviceCoordinatorTests
             }
             finally
             {
-                AppContext.SetData(RuntimeFixturePlugin.LifecycleCallsKey, null);
-                AppContext.SetData(RuntimeFixturePlugin.LifecycleHookKey, null);
                 _temporary.Dispose();
             }
         }
@@ -542,7 +546,7 @@ public sealed class DeviceCoordinatorTests
         internal string StatePath(string name)
         {
             return Path.Combine(_temporary.Context.Root, "DeviceState",
-                RuntimeFixturePlugin.PackageIdValue, name);
+                NativeRuntimeEngine.FamilyId, name);
         }
 
         private sealed class Diagnostics(Harness harness) : IAsyncDisposable

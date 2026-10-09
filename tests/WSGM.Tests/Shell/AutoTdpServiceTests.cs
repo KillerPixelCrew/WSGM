@@ -473,7 +473,7 @@ public sealed class AutoTdpServiceTests
         {
             Projection = power.Projection with
             {
-                State = power.Projection.State with { CycleGeneration = 2 }
+                State = power.Projection.State
             }
         };
 
@@ -689,7 +689,7 @@ public sealed class AutoTdpServiceTests
             {
                 Projection = views[i].Projection with
                 {
-                    State = views[i].Projection.State with { CycleGeneration = 2 }
+                    State = views[i].Projection.State
                 }
             };
         }
@@ -807,7 +807,7 @@ public sealed class AutoTdpServiceTests
         {
             Projection = primary.Projection with
             {
-                State = primary.Projection.State with { CycleGeneration = 2 }
+                State = primary.Projection.State
             }
         };
         await using AutoTdpService service = new(
@@ -841,8 +841,6 @@ public sealed class AutoTdpServiceTests
                     CapabilityId = id,
                     Available = true,
                     Quality = HardwareStateQuality.Verified,
-                    DescriptorGeneration = 1,
-                    CycleGeneration = 1,
                     ObservedValue = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = watts }
                 }
             }, null);
@@ -996,9 +994,7 @@ public sealed class AutoTdpServiceTests
                         {
                             Kind = CapabilityValueKind.Integer,
                             IntegerValue = watts
-                        },
-                        DescriptorGeneration = 1,
-                        CycleGeneration = 1
+                        }
                     }
                 },
                 null);

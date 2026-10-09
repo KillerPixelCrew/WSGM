@@ -1,12 +1,10 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using LibHandheld.Contracts;
-using CapabilityRole = WSGM.Device.Sdk.Capabilities.CapabilityRole;
 
 namespace WSGM.Install;
 
-/// <summary>A system component setup installs on behalf of a plugin.</summary>
+/// <summary>A system component setup installs for the selected handheld definition.</summary>
 public enum SetupComponent
 {
     /// <summary>VIIPER, the USB/IP driver and HidHide: the virtual controller and hiding the physical one.</summary>
@@ -20,31 +18,10 @@ public enum SetupComponent
 }
 
 /// <summary>
-///     Maps the capability roles a plugin declares to the system components it needs. Plugins never
-///     name installers or drivers; this table is the only place that knows them.
+///     Maps an exact handheld definition's hardware requirements to optional system components.
 /// </summary>
 public static class SetupComponents
 {
-    private static readonly IReadOnlyDictionary<CapabilityRole, SetupComponent> ByRole =
-        new Dictionary<CapabilityRole, SetupComponent>
-        {
-            [CapabilityRole.ControllerSource] = SetupComponent.ControllerStack,
-            [CapabilityRole.MotionSource] = SetupComponent.ControllerStack,
-            [CapabilityRole.HapticSink] = SetupComponent.ControllerStack
-        };
-
-    /// <summary>The components a set of declared roles requires, in a stable order.</summary>
-    /// <param name="roles">The roles a plugin manifest declares.</param>
-    /// <returns>Distinct components, or none.</returns>
-    public static IReadOnlyList<SetupComponent> Required(IEnumerable<CapabilityRole> roles)
-    {
-        ArgumentNullException.ThrowIfNull(roles);
-        return
-        [
-            .. roles.Where(ByRole.ContainsKey).Select(role => ByRole[role]).Distinct().Order()
-        ];
-    }
-
     /// <summary>Native dependencies required by the detected model, independently of common plugins.</summary>
     /// <param name="definition">Exact library model.</param>
     /// <returns>Distinct system components in installation order.</returns>

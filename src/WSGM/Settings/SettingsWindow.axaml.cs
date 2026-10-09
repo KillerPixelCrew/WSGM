@@ -101,10 +101,8 @@ public partial class SettingsWindow : Window
             ("Display", Icons.Monitor, PageDisplay),
             ("Appearance", Icons.Palette, PageAppearance),
             ("About", Icons.Info, PageAbout),
-            // Last, because its content belongs to whichever plugin is installed: WSGM's own pages
-            // keep their positions on every machine rather than shifting around a tab that may not
-            // be there.
-            ("Plugin", Icons.Wrench, PagePluginSettings)
+            ("Plugins", Icons.Wrench, PagePlugins),
+            ("Device profiles", Icons.Wrench, PageDeviceProfiles)
         ];
         _pages = [.. pages.Select(static entry => entry.Page)];
         Tabs.Tabs = [.. pages.Select((entry, index) => new TabStripItem(entry.Title, entry.Icon, index))];

@@ -216,33 +216,6 @@ internal sealed class ProfileService
         return result.Snapshot;
     }
 
-    internal async Task MigrateLegacyBoostAsync(string identityKey, string capabilityId, string? instanceId,
-        CancellationToken cancellationToken)
-    {
-        await MutateAsync((config, _) =>
-        {
-            var changed = false;
-            foreach (var values in new[] { config.Global }.Concat(config.Games.Select(game => game.Values)))
-            {
-                if (values.BoostWatts is not { } watts)
-                {
-                    continue;
-                }
-
-                if (values.FindDevice(identityKey, capabilityId, instanceId)?.Value is null)
-                {
-                    values.SetDevice(identityKey, capabilityId, instanceId,
-                        new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = watts });
-                }
-
-                values.BoostWatts = null;
-                changed = true;
-            }
-
-            return changed;
-        }, cancellationToken).ConfigureAwait(false);
-    }
-
     /// <summary>Removes the running game's override, so the setting falls back to Global.</summary>
     /// <param name="key">The setting.</param>
     /// <param name="deviceIdentityKey">The device, for a device setting.</param>

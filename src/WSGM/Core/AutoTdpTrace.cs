@@ -118,8 +118,6 @@ internal sealed class AutoTdpTraceRow
     internal long? PairedObservedWatts { get; set; }
 
     /// <summary>Device capability projection generation used by the decision.</summary>
-    internal long? CycleGeneration { get; set; }
-
     /// <summary>Number of live RTSS renderers considered for sample selection.</summary>
     internal int? Renderers { get; set; }
 
@@ -246,7 +244,6 @@ internal static class AutoTdpTraceCsv
         ("observed_w", row => Integer(row.ObservedWatts)),
         ("observed_quality", row => row.ObservedQuality),
         ("paired_observed_w", row => Integer(row.PairedObservedWatts)),
-        ("cycle_generation", row => Integer(row.CycleGeneration)),
         ("rtss_renderers", row => Integer(row.Renderers)),
         ("rtss_selection", row => row.Selection),
         ("rtss_time0", row => Integer(row.Frametime?.WindowStartTicks)),

@@ -38,7 +38,7 @@ internal sealed record PowerPresetApplyResult(bool Succeeded, string? Error);
 /// <param name="automaticPowerOwner">Whether AutoTDP currently owns the runtime power limits.</param>
 internal sealed class DevicePowerPresets(
     Func<IReadOnlyList<DeviceCapabilityView>> snapshot,
-    Func<string, CapabilityValue, long, long, bool, CancellationToken, Task<CapabilityCommandResult>> execute,
+    Func<string, CapabilityValue, bool, CancellationToken, Task<CapabilityCommandResult>> execute,
     WindowsPowerModes modes,
     Func<bool?>? readOnAc = null,
     SemaphoreSlim? powerLane = null,
@@ -126,8 +126,6 @@ internal sealed class DevicePowerPresets(
             {
                 // Check Windows access before touching hardware. There is no fallback to another plan.
                 await Task.Run(modes.Read, cancellationToken).ConfigureAwait(false);
-                var cycle = sustained!.Projection.State.CycleGeneration;
-                var generation = sustained.Projection.State.DescriptorGeneration;
                 var onAc = expectedOnAc ?? readOnAc?.Invoke();
                 CheckCurrent();
                 if (preset.ScenarioOnAc is not null)
@@ -137,7 +135,7 @@ internal sealed class DevicePowerPresets(
                     mutationStarted = true;
                     var result = await execute(scenario.Descriptor.CapabilityId,
                         new CapabilityValue { Kind = CapabilityValueKind.Choice, ChoiceValue = target },
-                        cycle, generation, false, cancellationToken).ConfigureAwait(false);
+                        false, cancellationToken).ConfigureAwait(false);
                     if (!result.Outcome.IsApplied())
                     {
                         throw new InvalidOperationException(result.Reason?.Detail ??
@@ -168,7 +166,7 @@ internal sealed class DevicePowerPresets(
                     mutationStarted = true;
                     var result = await execute(write.View.Descriptor.CapabilityId,
                             new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = write.Watts },
-                            cycle, generation, persistValues, cancellationToken)
+                            persistValues, cancellationToken)
                         .ConfigureAwait(false);
                     if (!result.Outcome.IsApplied())
                     {
@@ -191,7 +189,7 @@ internal sealed class DevicePowerPresets(
                 void CheckCurrent()
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    if (!SameGeneration(snapshot(), cycle, generation, preset, customValues is not null)
+                    if (!SameTarget(snapshot(), preset, customValues is not null)
                         || readOnAc?.Invoke() != onAc
                         || (preset.ScenarioOnAc is not null && onAc is null))
                     {
@@ -239,11 +237,7 @@ internal sealed class DevicePowerPresets(
         var presets = Presets(views);
         if (!TryPair(views, out var sustained, out var slow)
             || (presets.Any(preset => preset.ScenarioOnAc is not null)
-                && (!Current(ScenarioView(views))
-                    || ScenarioView(views)!.Projection.State.CycleGeneration !=
-                    sustained!.Projection.State.CycleGeneration
-                    || ScenarioView(views)!.Projection.State.DescriptorGeneration !=
-                    sustained.Projection.State.DescriptorGeneration)))
+                && !Current(ScenarioView(views))))
         {
             return new DevicePowerPresetState(presets, false, string.Empty,
                 "The device's power controls are not available.");
@@ -308,18 +302,10 @@ internal sealed class DevicePowerPresets(
             : Presets(views).Contains(preset);
     }
 
-    private static bool SameGeneration(IReadOnlyList<DeviceCapabilityView> views, long cycle, long generation,
-        DevicePowerPreset preset, bool custom)
+    private static bool SameTarget(IReadOnlyList<DeviceCapabilityView> views, DevicePowerPreset preset, bool custom)
     {
-        return ValidTarget(views, preset, custom) && TryPair(views, out var sustained, out var slow)
-                                                  && sustained!.Projection.State.CycleGeneration == cycle &&
-                                                  sustained.Projection.State.DescriptorGeneration == generation
-                                                  && slow!.Projection.State.CycleGeneration == cycle &&
-                                                  slow.Projection.State.DescriptorGeneration == generation
-                                                  && (preset.ScenarioOnAc is null || (Current(ScenarioView(views))
-                                                      && ScenarioView(views)!.Projection.State.CycleGeneration == cycle
-                                                      && ScenarioView(views)!.Projection.State.DescriptorGeneration ==
-                                                      generation));
+        return ValidTarget(views, preset, custom) && TryPair(views, out _, out _)
+                                                  && (preset.ScenarioOnAc is null || Current(ScenarioView(views)));
     }
 
     private static DeviceCapabilityView? ScenarioView(IReadOnlyList<DeviceCapabilityView> views)
@@ -336,11 +322,7 @@ internal sealed class DevicePowerPresets(
         var slowMatches = views.Where(view => view.Descriptor.Role == CapabilityRole.PowerSlowLimit).ToArray();
         sustained = sustainedMatches.Length == 1 ? sustainedMatches[0] : null;
         slow = slowMatches.Length == 1 ? slowMatches[0] : null;
-        return Current(sustained) && Current(slow)
-                                  && sustained!.Projection.State.CycleGeneration ==
-                                  slow!.Projection.State.CycleGeneration
-                                  && sustained.Projection.State.DescriptorGeneration ==
-                                  slow.Projection.State.DescriptorGeneration;
+        return Current(sustained) && Current(slow);
     }
 
     /// <summary>Whether the capability can be commanded in this cycle.</summary>

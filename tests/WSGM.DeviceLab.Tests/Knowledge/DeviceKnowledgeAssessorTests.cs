@@ -1,4 +1,3 @@
-using WSGM.DeviceLab.Application;
 using WSGM.DeviceLab.Inventory;
 using WSGM.DeviceLab.Knowledge;
 using WSGM.DeviceLab.Probes;
@@ -129,8 +128,8 @@ public sealed class DeviceKnowledgeAssessorTests
         };
 
         string[] expected = ["root\\WMI:MSI_ACPI"];
-        Assert.Empty(DeviceLabApplication.ToPluginIdentity(unavailable).WmiProviderSignatures);
-        Assert.Equal(expected, DeviceLabApplication.ToPluginIdentity(accessDenied).WmiProviderSignatures);
+        Assert.Empty(DeviceKnowledgeIdentity.From(unavailable).WmiProviderSignatures);
+        Assert.Equal(expected, DeviceKnowledgeIdentity.From(accessDenied).WmiProviderSignatures);
     }
 
     private static MachineInventory Inventory()

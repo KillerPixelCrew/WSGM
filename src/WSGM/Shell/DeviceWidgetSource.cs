@@ -19,6 +19,7 @@ internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceO
     private readonly Dictionary<string, DeviceCapabilityView> _views = new(StringComparer.Ordinal);
     private long _generation;
     private PluginInstanceIdentity? _identity;
+    private IReadOnlyList<DeviceOverlayCapability> _rows = [];
     private string _scope = "";
     private long _sequence;
 
@@ -32,16 +33,24 @@ internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceO
         {
             _views.Clear();
             _scope = "";
+            _rows = [];
             return [];
         }
 
-        var first = views[0].Projection.State;
-        var scope = $"{plugin}:{first.CycleGeneration}:{first.DescriptorGeneration}:{coordinator.ManualTdpUnified}";
-        if (_scope != scope)
+        var scope = $"{plugin}:{coordinator.ManualTdpUnified}";
+        var sameLayout = _rows.Count == snapshot.Capabilities.Count;
+        for (var i = 0; sameLayout && i < _rows.Count; i++)
+        {
+            sameLayout = _rows[i].SameLayoutAs(snapshot.Capabilities[i]);
+        }
+
+        if (_scope != scope || !sameLayout)
         {
             _scope = scope;
             _generation++;
         }
+
+        _rows = snapshot.Capabilities;
 
         _identity = new PluginInstanceIdentity(plugin, "device");
         List<PluginAction> actions = [];
@@ -129,9 +138,7 @@ internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceO
         {
             var view = current.FirstOrDefault(item => item.Descriptor.CapabilityId == original.Descriptor.CapabilityId
                                                       && item.Descriptor.InstanceId == original.Descriptor.InstanceId);
-            if (view is null || view.Projection.State.CycleGeneration != original.Projection.State.CycleGeneration
-                             || view.Projection.State.DescriptorGeneration !=
-                             original.Projection.State.DescriptorGeneration)
+            if (view is null)
             {
                 continue;
             }
@@ -179,14 +186,12 @@ internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceO
             return new PluginActionResult(operation, PluginActionOutcome.Rejected, "Invalid Device widget value.");
         }
 
-        var state = view.Projection.State;
         var result = await coordinator.ExecuteCapabilityAsync(view.Descriptor.CapabilityId, view.Descriptor.InstanceId,
-            requested, TimeSpan.FromSeconds(5), cancellationToken: cancellationToken,
-            expectedCycle: state.CycleGeneration,
-            expectedDescriptors: state.DescriptorGeneration).ConfigureAwait(false);
+            requested, TimeSpan.FromSeconds(5), cancellationToken: cancellationToken).ConfigureAwait(false);
         return new PluginActionResult(operation, result.Outcome switch
         {
             CommandOutcome.AppliedVerified => PluginActionOutcome.AppliedVerified,
+            CommandOutcome.Applied or CommandOutcome.AppliedUnverified => PluginActionOutcome.Dispatched,
             CommandOutcome.Rejected => PluginActionOutcome.Rejected,
             _ => PluginActionOutcome.Unconfirmed
         }, result.Reason?.Detail);

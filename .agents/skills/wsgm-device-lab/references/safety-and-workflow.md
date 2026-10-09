@@ -12,10 +12,9 @@ src\WSGM.DeviceLab\bin\Release\net10.0-windows10.0.19041.0\win-x64\wsgm-device.e
 
 `dotnet run --project src/WSGM.DeviceLab --configuration Release -- <command>` also works. No
 arguments, or `wizard`, starts the tester wizard and requests elevation once; `gui` opens the
-as-invoker developer tabs. The GUI and CLI share `Application/DeviceLabApplication.cs`. The GUI's
-attended action offers `capability`, `haptic` and `controller` (not `haptic-sweep`) and asks for the
-same typed `RUN HARDWARE`. `eng/publish-device-lab.ps1` writes the portable tree to
-`publish/DeviceLab`. Run it only when a publish is requested.
+as-invoker developer tabs. The GUI and CLI share `Application/DeviceLabApplication.cs`.
+`eng/publish-device-lab.ps1` writes the portable tree to `publish/DeviceLab`. Run it only when a
+publish is requested.
 
 ## Command classes
 
@@ -31,15 +30,11 @@ wsgm-device compare <before.wsgmcap> <after.wsgmcap>
 wsgm-device correlate <capture.wsgmcap> --action <id> --sources <id,id>
 wsgm-device fixture extract --from <capture.wsgmcap> --id <id> --out-dir <new-dir>
 wsgm-device scaffold --from <capture.wsgmcap> --out-dir <new-dir> [--usb-instance <exact-id>]
-wsgm-device validate <plugin-dir>
-wsgm-device test sample
-wsgm-device glyph import <plugin-dir>
-wsgm-device pack <plugin-dir> --out <new-file.wsgmpkg>
 ```
 
 None of these authorize a hardware mutation. They can write the requested output, so give each one a
 new directory or file. `scaffold` needs `--usb-instance` when the capture holds more than one exact
-USB endpoint. `validate` is static and never loads plugin code.
+USB endpoint. Scaffolding emits reviewed library source, not an executable package.
 
 ### Live machine observation
 
@@ -59,9 +54,9 @@ actual run is a hardware read and needs operator approval:
 wsgm-device probe-read --from <inventory.json> --run <probe-id> --out-dir <dedicated-dir>
 ```
 
-Close the running WSGM shell session before an actual probe or any `test hardware` workflow. The
-shell holds `Global\WSGM.DeviceOwner` for its whole lifetime, even with Device Integration disabled,
-so switching integration off is not enough.
+Close the running WSGM shell session before an actual probe or an attended wizard hardware session.
+The shell holds `Global\WSGM.DeviceOwner` for its whole lifetime, even with Device Integration
+disabled, so switching integration off is not enough.
 
 Each probe compiles exact family, endpoint, getter, request, response shape, range, repetition,
 rate, deadline and an independent cross-check. It runs in an authenticated one-use hidden worker and
@@ -71,17 +66,6 @@ under `Knowledge/Devices` and covers many handhelds. Compiled getter profiles in
 `Probes/ReadProbeProfiles.cs` currently provide only the MSI Claw family, gated by
 `DeviceKnowledgeAssessor` and its curated record. A matching Ally candidate does not create a
 runnable compiled probe.
-
-### Code-loading boundary
-
-```powershell
-wsgm-device test plugin <plugin-dir> --from <inventory.json>
-```
-
-This validates, loads and constructs the plugin, then calls `DetectAsync`. It does not intentionally
-mutate hardware, but plugin code runs with Device Lab's authority. The worker and its job object
-contain crashes and deadlines; they are not a sandbox. Review the constructor and `DetectAsync` for
-side effects, and never run this on an untrusted package.
 
 ### Attended capture
 
@@ -99,22 +83,12 @@ as unavailable until a reviewed observer is compiled and registered. That covers
 PnP, HID input, Raw Input, hooks, WMI, controller APIs, sensors, serial, processes, plugin events
 and telemetry. A recipe is closed metadata; it cannot grant arbitrary HID, WMI or script execution.
 
-### Attended plugin mutation door
+### Attended wizard mutation
 
-```powershell
-wsgm-device test hardware <plugin-dir> --from <inventory.json> --state-dir <new-dir> `
-  --action capability --capability <id> --value <semantic-value> [--instance <id>]
-```
-
-The other actions are `haptic` (one 250 ms pulse with zero-output cleanup), `haptic-sweep` and
-`controller` (one acquisition with verified topology release). All of them accept `--instance`, and
-only `capability` takes `--capability` and `--value`. The command refuses redirected I/O, CI and
-every form of `--yes`. It then asks for the exact phrase `RUN HARDWARE`. After that it recollects
-live identity and runs the static and owner preflight. That preflight refuses nonmatching identity,
-active or unknown production ownership, non-elevation and a reused state directory. It reserves
-`Global\WSGM.DeviceOwner` before it loads the plugin. Each invocation performs one selected workflow
-and must restore, zero or release on every path. The bounded `haptic-sweep` runs for up to five
-minutes and is the one deliberate multi-write exception. Never automate it.
+Hardware writes occur only in the local attended wizard and its authenticated, checkpointed worker.
+Each named operation checks exact identity, captures available originals, records pending changes
+before dispatch and restores or zeroes output on every exit. Keep failed restoration evidence. Do
+not automate confirmation or turn an imported recipe into a hardware command.
 
 Exit codes are `0` success, `64` usage, and `70` operation failure. Result JSON goes to stdout and
 diagnostics to stderr.
@@ -159,10 +133,10 @@ process change belongs to the action. Repeat isolated trials and include a negat
 Record device facts next to the device they describe:
 
 - **Claw:** the dated measurements are in `_plan/claw-8-a2vm-plugin.md` and the provenance is in
-  `src/WSGM.Device.Msi.Claw/PROVENANCE.md`.
+  `external/libhandheld/src/LibHandheld/Families/MsiClaw/PROVENANCE.md`.
 - **Ally family:** the remote-tester results are in the ROG Ally X sections of
   `_plan/implementation-todo.md`, and the pinned HHD/HC facts and the list of what a lab report must
-  confirm are in `src/WSGM.Device.Asus.RogAlly/PROVENANCE.md`.
+  confirm are in `external/libhandheld/src/LibHandheld/Families/RogAlly/PROVENANCE.md`.
 
 ## Source map
 
@@ -181,7 +155,6 @@ All paths are under `src/WSGM.DeviceLab/`.
 | Redaction and preview    | `Capture/Redaction.cs`, `InventoryRedaction.cs`, `CapturePrivacyPreview.cs`                                                    |
 | Correlation and fixtures | `Capture/PassiveCorrelation.cs`, `Fixtures/FixtureExtractionWorkflow.cs`                                                       |
 | Output/owner safety      | `Preflight/OutputPathPolicy.cs`, `SafetyPreflight.cs`, `WindowsPreflightInspection.cs`                                         |
-| Hardware door            | `Testing/PluginTestWorkflow.cs`, `PluginTestWorker.cs`, `AttendedPluginAction.cs`                                              |
 | Scaffolding/package      | `Scaffolding/`, `Packaging/` (also `NativePackageSource.cs` and `NativePathIdentity.cs`, Lab-only), `Templates/MinimalPlugin/` |
 
 Offline suite, run after the maintainer's manual test under the root validation policy:
@@ -203,8 +176,9 @@ points in mind:
 - Read a returned report with `wsgm-device report`, `review` and `promote`; `scaffold --from` takes
   it too. Promote only after reviewing the disagreements.
 - HC is the primary Windows-native Ally reference, including buttons; HHD cross-checks behavior HC
-  does not cover. Use the pinned tables in `src/WSGM.Device.Asus.RogAlly/PROVENANCE.md`. `_ref` may
-  be missing from a checkout; when it is present, search it with `rg --hidden --no-ignore`.
+  does not cover. Use the pinned tables in
+  `external/libhandheld/src/LibHandheld/Families/RogAlly/PROVENANCE.md`. `_ref` may be missing from
+  a checkout; when it is present, search it with `rg --hidden --no-ignore`.
 
 ## Wizard worker and evidence ownership
 

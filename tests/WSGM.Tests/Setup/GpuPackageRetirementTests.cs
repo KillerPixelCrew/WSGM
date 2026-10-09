@@ -64,7 +64,7 @@ public sealed class GpuPackageRetirementTests
         var path = directory.GetPath("wsgm.gpu.intel-0.1.0.wsgmpkg");
         File.WriteAllText(path, content);
 
-        Assert.False(GpuPackageRetirement.IsRetiredPackage(path));
+        Assert.False(NeutralLibraryPackageRetirement.IsRetiredPackage(path));
         Assert.Equal(content, File.ReadAllText(path));
     }
 
@@ -82,7 +82,7 @@ public sealed class GpuPackageRetirementTests
             writer.Write(manifest);
         }
 
-        Assert.False(GpuPackageRetirement.IsRetiredPackage(path));
+        Assert.False(NeutralLibraryPackageRetirement.IsRetiredPackage(path));
         Assert.True(File.Exists(path));
     }
 

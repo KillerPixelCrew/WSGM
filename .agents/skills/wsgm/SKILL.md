@@ -3,8 +3,8 @@ name: wsgm
 description:
   Plan, implement, review or document work anywhere in WSGM. Start here for project architecture,
   source ownership, reusable building blocks, UI parity, maintenance rules and routing to the Core,
-  Steam CEF, Device SDK or Device Lab skill. Use before deciding where a feature belongs or adding a
-  new service, control, project or abstraction.
+  Steam CEF, handheld integration or Device Lab skill. Use before deciding where a feature belongs
+  or adding a new service, control, project or abstraction.
 ---
 
 # WSGM
@@ -35,9 +35,9 @@ the overlay and Steam Big Picture. The maintainer's instructions take precedence
 | Overlay, Settings, navigation, styling or ordinary application input                    | `Overlay/`, `Settings/`, `Controls/`, `Themes/`, `Input/`; views express intent through existing owners                                      | [WSGM Core](../wsgm-core/SKILL.md), then [UI and overlay parity](../wsgm-steam-cef-toolkit/references/ui-and-overlay-parity.md) when Steam is involved                     |
 | Add or change a Steam page, QAM row, native setting, patch, bridge contract or frontend | Reusable mechanics in `external/steam-ui-toolkit`; WSGM policy/adapters in `Shell/`, WSGM-only feature logic/frontend fragments in `Core/`   | [Steam CEF toolkit](../wsgm-steam-cef-toolkit/SKILL.md)                                                                                                                    |
 | Diagnose a Steam frontend or attachment failure                                         | Start with logs and the failed lifecycle boundary; use current-run Steam startup evidence before any live debugger tool                      | [Steam CEF debugging](../wsgm-steam-cef-debugging/SKILL.md)                                                                                                                |
-| Device lifecycle, capabilities, controller reports or package authoring                 | `WSGM.Device.Sdk` contracts, `Shell/Device*` host policy, machine behavior in `WSGM.Device.*`                                                | [Device SDK](../wsgm-device-sdk/SKILL.md)                                                                                                                                  |
+| Device lifecycle, capabilities, controller reports or package authoring                 | LibHandheld public contracts and family protocols; `Shell/Device*` host policy                                                               | [Device SDK](../wsgm-device-sdk/SKILL.md)                                                                                                                                  |
 | Unknown hardware, OEM protocols, controller/motion/haptics evidence                     | `WSGM.DeviceLab`; its knowledge and reports are evidence, not runtime hardware drivers                                                       | [Device Lab](../wsgm-device-lab/SKILL.md)                                                                                                                                  |
-| Common plugin, session action or GPU driver feature                                     | `WSGM.Plugin.Sdk`, `Shell/CommonPlugin*`, `Shell/GpuCoordinator` and `WSGM.Plugin.*`; independent of the singleton device slot               | [Plugin system](../../../docs/plugin-system.md), [Plugin SDK reference](../../../src/WSGM.Plugin.Sdk/docs/reference.md), and Core/Device SDK as appropriate                |
+| Common plugin, session action or GPU driver feature                                     | `WSGM.Plugin.Sdk`, `Shell/CommonPlugin*`, `Shell/GpuCoordinator` and `WSGM.Plugin.*`; independent of the selected handheld lifetime          | [Plugin system](../../../docs/plugin-system.md), [Plugin SDK reference](../../../src/WSGM.Plugin.Sdk/docs/reference.md), and Core/Device SDK as appropriate                |
 | Reusable Windows audio, radios, brightness, display or power primitive                  | `external/windows-device-control`; the caller owns UI, user policy and persistent recovery                                                   | [Windows library](../../../external/windows-device-control/docs/README.md)                                                                                                 |
 | Installation, sign-in service or game wrappers                                          | `WSGM.Setup`, `WSGM.Install`, `WSGM.LogonService`, `WSGM.Launch`, `WSGM.PackagedLaunch`; preserve their distinct token and process lifetimes | [Development](../../../docs/development.md), [setup](../../../docs/setup.md), [boot](../../../docs/boot-and-shell.md), [launcher](../../../docs/packaged-game-launcher.md) |
 
@@ -60,10 +60,10 @@ not the full application configuration. Installed plugins run in-process and are
 - **Controls and Themes**: reusable presentation, styles and tokens. **Input**: canonical reports,
   navigation/capture and virtual target routing. **Interop**: narrow ABI declarations and native
   handles, without product decisions.
-- **Device package**: its machine's protocol and semantic capabilities. **Device SDK**: contracts
-  another package can implement. The host owns profiles, controller targeting, HidHide and policy.
-  Device Integration off runs no device lifecycle, controller target, device writes or AutoTDP;
-  independent common/GPU plugins and Windows features remain usable.
+- **LibHandheld**: exact machine protocols, physical input and public semantic contracts. The host
+  owns profiles, controller targeting, HidHide and policy. Device Integration off runs no device
+  lifecycle, controller target, device writes or AutoTDP; independent common/GPU plugins and Windows
+  features remain usable.
 - **Reusable submodule**: behavior useful to another consumer, with no WSGM configuration or UI
   dependency. SteamUiToolkit owns transport/bridge/patch/surface mechanics; WindowsDeviceControl
   owns Windows primitives. Keep WSGM adapters in WSGM instead of copying library code.
@@ -99,7 +99,7 @@ Keep a useful abstraction at the smallest responsible boundary. Avoid compatibil
 frameworks, pass-through wrappers and parallel state stores unless the task demonstrates a need.
 
 One fact has one owner. Share policy, validators, identity, capability availability and command
-results; keep surface rendering separate. Do not make a device plugin know about overlay layout, a
+results; keep surface rendering separate. Do not make a handheld family know about overlay layout, a
 Windows primitive know about `AppConfig`, or a React component own hardware lifetime. Comment the
 reason, contract, ownership and non-obvious failure behavior; use clear names for the ordinary
 steps. Public C# XML documentation and the frontend contracts are part of the implementation.

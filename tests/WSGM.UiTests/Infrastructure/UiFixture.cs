@@ -143,7 +143,7 @@ internal sealed class UiFixture : IDisposable
             ReadAudio = _ => Audio
         };
         var model = new SettingsViewModel(ConfigJson.Clone(Saved, ConfigJsonContext.Default.AppConfig),
-            null, false, services, Store);
+            services, store: Store);
         var windowServices = new SettingsWindowServices(new GamepadService(),
             () => Calls.Add("input-start"), () => Calls.Add("input-stop"),
             () => Calls.Add("window-import-begin"), () => Calls.Add("window-import-end"),

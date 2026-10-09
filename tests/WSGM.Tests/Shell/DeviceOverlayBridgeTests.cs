@@ -26,8 +26,7 @@ public sealed class DeviceOverlayBridgeTests
         {
             CapabilityId = descriptor.CapabilityId, Available = available,
             Quality = HardwareStateQuality.Observed,
-            ObservedValue = CapabilityValue.Curve([new CurvePoint(40, 20), new CurvePoint(90, 100)]),
-            DescriptorGeneration = 1, CycleGeneration = 1
+            ObservedValue = CapabilityValue.Curve([new CurvePoint(40, 20), new CurvePoint(90, 100)])
         };
         var view = DeviceOverlayBridge.ToOverlayCapability(
             new DeviceCapabilityView(descriptor, new CapabilityProjection { State = state }, null),
@@ -63,9 +62,7 @@ public sealed class DeviceOverlayBridgeTests
             CapabilityId = descriptor.CapabilityId,
             Available = true,
             Quality = HardwareStateQuality.Observed,
-            ObservedValue = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = observedWatts },
-            DescriptorGeneration = 1,
-            CycleGeneration = 1
+            ObservedValue = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = observedWatts }
         };
         CapabilityProjection projection = new()
         {
@@ -123,9 +120,7 @@ public sealed class DeviceOverlayBridgeTests
         {
             CapabilityId = descriptor.CapabilityId,
             Available = true,
-            Quality = HardwareStateQuality.Unknown,
-            DescriptorGeneration = 4,
-            CycleGeneration = 3
+            Quality = HardwareStateQuality.Unknown
         };
 
         var capability = DeviceOverlayBridge.ToOverlayCapability(

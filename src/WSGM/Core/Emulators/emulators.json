@@ -64,7 +64,19 @@
           "savestate_directory": "{data}/states",
           "input_remapping_directory": "{data}/remaps",
           "playlist_directory": "{data}/playlists",
-          "screenshot_directory": "{data}/screenshots"
+          "screenshot_directory": "{data}/screenshots",
+          "cache_directory": "{data}/cache",
+          "rgui_config_directory": "{data}/config",
+          "core_options_path": "{data}/retroarch-core-options.cfg",
+          "cheat_database_path": "{data}/cheats",
+          "recording_output_directory": "{data}/recordings",
+          "recording_config_directory": "{data}/recording-config",
+          "log_dir": "{data}/logs",
+          "content_history_path": "{data}/content_history.lpl",
+          "content_favorites_path": "{data}/content_favorites.lpl",
+          "content_image_history_path": "{data}/content_image_history.lpl",
+          "content_music_history_path": "{data}/content_music_history.lpl",
+          "content_video_history_path": "{data}/content_video_history.lpl"
         },
         "externalRoots": ["{program}"],
         "prerequisites": [
@@ -114,7 +126,7 @@
         }
       },
       "dataPolicy": {
-        "externalRoots": ["{documents}/DuckStation", "{localAppData}/DuckStation"],
+        "externalRoots": ["{program}"],
         "prerequisites": [
           {
             "iniSection": "BIOS",
@@ -136,7 +148,7 @@
         "portableDirectory": "",
         "portableMarkers": ["portable.txt", "settings.ini"],
         "probeDirectory": "",
-        "nativeRoots": ["{documents}/DuckStation", "{localAppData}/DuckStation"],
+        "nativeRoots": [],
         "environment": {}
       }
     },
@@ -183,13 +195,11 @@
         "dataArguments": [],
         "hasCores": false,
         "requiresVisualCpp": true,
-        "portableDirectory": "",
-        "portableMarkers": [],
+        "portableDirectory": "portable",
+        "portableMarkers": ["portable"],
         "probeDirectory": "",
         "nativeRoots": [],
-        "environment": {
-          "RPCS3_CONFIG_DIR": "{data}"
-        }
+        "environment": {}
       }
     },
     {
@@ -216,7 +226,7 @@
         }
       },
       "dataPolicy": {
-        "externalRoots": ["{documents}/PCSX2"],
+        "externalRoots": ["{program}"],
         "prerequisites": [
           {
             "iniSection": "Folders",
@@ -232,7 +242,7 @@
             "iniFile": "inis/PCSX2.ini"
           }
         ],
-        "dataArguments": ["-datapath", "{data}"],
+        "dataArguments": [],
         "hasCores": false,
         "requiresVisualCpp": true,
         "portableDirectory": "",
@@ -274,7 +284,7 @@
         }
       },
       "dataPolicy": {
-        "externalRoots": ["{appData}/eden"],
+        "externalRoots": ["{program}"],
         "prerequisites": [
           {
             "required": true,
@@ -310,7 +320,7 @@
         "portableDirectory": "user",
         "portableMarkers": ["user"],
         "probeDirectory": "user",
-        "nativeRoots": ["{appData}/eden"],
+        "nativeRoots": [],
         "environment": {}
       }
     },
@@ -336,7 +346,7 @@
         }
       },
       "dataPolicy": {
-        "externalRoots": ["{documents}/Dolphin Emulator", "{appData}/Dolphin Emulator"],
+        "externalRoots": ["{program}"],
         "prerequisites": [
           {
             "extensions": [],

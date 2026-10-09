@@ -77,16 +77,14 @@ internal static class CapabilityBuilders
             Available = true,
             Quality = HardwareStateQuality.Verified,
             ObservedValue = observed,
-            ObservedAt = DateTimeOffset.UtcNow,
-            DescriptorGeneration = descriptorGeneration,
-            CycleGeneration = 1
+            ObservedAt = DateTimeOffset.UtcNow
         };
     }
 
     /// <summary>A descriptor set in cycle 1.</summary>
     internal static CapabilityDescriptorSet Set(long generation, params CapabilityDescriptor[] descriptors)
     {
-        return new CapabilityDescriptorSet { Generation = generation, CycleGeneration = 1, Descriptors = descriptors };
+        return new CapabilityDescriptorSet { Descriptors = descriptors };
     }
 
     /// <summary>A command turning <c>graphics.toggle</c> on.</summary>
@@ -97,8 +95,6 @@ internal static class CapabilityBuilders
             CommandId = Guid.NewGuid(),
             CapabilityId = "graphics.toggle",
             RequestedValue = Flag(true),
-            ExpectedDescriptorGeneration = 1,
-            ExpectedCycleGeneration = cycleGeneration,
             Deadline = Deadline.After(TimeSpan.FromSeconds(5))
         };
     }

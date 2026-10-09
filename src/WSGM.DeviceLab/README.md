@@ -2,9 +2,9 @@
 
 The authoring and diagnostic tool for LibHandheld source contributions and WSGM hardware research.
 It inventories the handheld, captures observed behaviour, and creates exact identity source, decoder
-research starters, recorded fixtures and provenance for a LibHandheld PR. Existing package
-inspection and attended plugin diagnostics remain available for legacy evidence; new handhelds are
-implemented in LibHandheld, not installed as device plugin DLLs.
+research starters, recorded fixtures and provenance for a LibHandheld PR. New handhelds are
+implemented in LibHandheld. Retired package validation, packing and plugin-test commands are
+removed.
 
 It is a GUI and a CLI over the same code. The executable is `wsgm-device`.
 
@@ -184,18 +184,11 @@ Regenerate the extracted records after updating the reference, and review the di
 
 The split is enforced, not advisory.
 
-**Read-only or offline:** `validate`, `inspect`, `compare`, `correlate`, `inventory`, `doctor` and
-`pack`. `validate` never loads plugin code. It checks the manifest, the package layout and that the
-entry assembly is a managed x64 image, all statically.
-
-**Unattended but running your code:** `test sample` and `test plugin` load and run plugin code in a
-contained worker with your authority. Only `validate` is fully static.
-
-**Attended:** `test hardware` writes to the device, so it demands an explicit action, a state
-directory you named, and your presence. It exists because a capability write is only ever proven on
-real hardware. Detection and the whole attended lifecycle run in an authenticated disposable worker
-process. Device Lab kills the full process tree at the hard deadline and keeps the production owner
-slot reserved if cleanup could not be verified.
+Offline analysis reads saved reports, inventories and captures and writes requested source
+contributions. inventory, doctor and compiled read probes observe the live machine and need the
+operator's requested scope. Hardware writes occur only in the attended wizard and its authenticated,
+checkpointed worker. It requires an exact identity, bounded operations and restoration or
+zero-output cleanup. Retired package validation, packing and plugin-test commands are removed.
 
 ## Capture exports and privacy
 

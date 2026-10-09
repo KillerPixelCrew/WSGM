@@ -103,8 +103,6 @@ public sealed class SdkPowerPairTests
             CapabilityId = capabilityId,
             RequestedValue = CapabilityValue.Integer(requested),
             PairedPowerLimitWatts = paired,
-            ExpectedDescriptorGeneration = 1,
-            ExpectedCycleGeneration = 1,
             Deadline = Deadline.After(TimeSpan.FromSeconds(5))
         };
     }

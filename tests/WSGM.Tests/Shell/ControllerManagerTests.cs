@@ -1,10 +1,12 @@
 using System.Diagnostics;
 using WSGM.Core;
-using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Input;
 using WSGM.Shell;
 using WSGM.Tests.Input;
+using CanonicalButtons = LibHandheld.Contracts.CanonicalButtons;
+using CanonicalControllerSample = LibHandheld.Contracts.CanonicalControllerSample;
+using PhysicalDeviceIdentity = LibHandheld.Contracts.PhysicalDeviceIdentity;
 using static WSGM.Tests.Builders.ControllerBuilders;
 
 namespace WSGM.Tests.Shell;

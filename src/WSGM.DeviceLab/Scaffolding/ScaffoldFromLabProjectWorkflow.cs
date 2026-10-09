@@ -9,8 +9,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading;
-using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Sdk.Identity;
+using LibHandheld.Contracts;
 using WSGM.DeviceLab.Inventory;
 using WSGM.DeviceLab.Knowledge;
 using WSGM.DeviceLab.Preflight;
@@ -117,9 +116,9 @@ internal static class ScaffoldFromLabProjectWorkflow
 
         // The contribution records this device: the record's exact rules that match what the report observed,
         // or the observed rule when none does.
-        HardwareMatchRule[] rules =
+        DeviceKnowledgeIdentityRule[] rules =
         [
-            .. record.Identity.Where(rule => !rule.Fallback && HardwareMatcher.Matches(rule, observed, []))
+            .. record.Identity.Where(rule => !rule.Fallback && DeviceKnowledgeAssessor.RuleMatches(rule, observed, []))
         ];
         if (rules.Length == 0)
         {
@@ -307,7 +306,7 @@ internal static class ScaffoldFromLabProjectWorkflow
         return provenance?.Source is DeviceKnowledgeSource.LabConfirmed;
     }
 
-    private static string RuleCode(HardwareMatchRule rule)
+    private static string RuleCode(DeviceKnowledgeIdentityRule rule)
     {
         List<string> fields = [];
 
@@ -319,13 +318,13 @@ internal static class ScaffoldFromLabProjectWorkflow
             }
         }
 
-        Add(nameof(HardwareMatchRule.BaseboardManufacturer), rule.BaseboardManufacturer);
-        Add(nameof(HardwareMatchRule.BaseboardProduct), rule.BaseboardProduct);
-        Add(nameof(HardwareMatchRule.SystemModel), rule.SystemModel);
-        Add(nameof(HardwareMatchRule.SystemSku), rule.SystemSku);
-        Add(nameof(HardwareMatchRule.ProcessorName), rule.ProcessorName);
-        Add(nameof(HardwareMatchRule.ProcessorNameContains), rule.ProcessorNameContains);
-        Add(nameof(HardwareMatchRule.BaseboardVersion), rule.BaseboardVersion);
+        Add(nameof(DeviceKnowledgeIdentityRule.BaseboardManufacturer), rule.BaseboardManufacturer);
+        Add(nameof(DeviceKnowledgeIdentityRule.BaseboardProduct), rule.BaseboardProduct);
+        Add(nameof(DeviceKnowledgeIdentityRule.SystemModel), rule.SystemModel);
+        Add(nameof(DeviceKnowledgeIdentityRule.SystemSku), rule.SystemSku);
+        Add(nameof(DeviceKnowledgeIdentityRule.ProcessorName), rule.ProcessorName);
+        Add(nameof(DeviceKnowledgeIdentityRule.ProcessorNameContains), rule.ProcessorNameContains);
+        Add(nameof(DeviceKnowledgeIdentityRule.BaseboardVersion), rule.BaseboardVersion);
         return $"        new HardwareMatchRule {{ {string.Join(", ", fields)} }}";
     }
 

@@ -4,11 +4,7 @@ using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Device.Sdk.Packaging;
 
-/// <summary>The identity and entry-point rules the device manifest and the common plugin manifest share.</summary>
-/// <remarks>
-///     Both manifests keep their own wire schema, error codes and messages; only the rules are one. Each rule
-///     checks shape and sets no length.
-/// </remarks>
+/// <summary>Pure identity, version and entry-point validation for common plugin manifests.</summary>
 public static class ManifestRules
 {
     /// <summary>

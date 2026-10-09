@@ -17,8 +17,8 @@ recovery primitives. Native ABI declarations remain in Interop; UI presentation 
   recovery. "Is the desktop up" is `IsDesktopShellRunning` (taskbar owned by explorer.exe), never a process count.
 - One owner creates and disposes each long-lived integration. Do not let views acquire hardware, Steam, RTSS, or input
   resources.
-- At most one device package runs; two different device packages in the Plugins folder refuse device integration.
-  With integration disabled, skip Device plugin lifecycle, controller targeting, Device hardware writes, and AutoTDP.
+- At most one exact LibHandheld definition runs; device packages are retired.
+  With integration disabled, skip handheld lifecycle, controller targeting, Device hardware writes, and AutoTDP.
   Explicitly enabled common plugin instances are independent of this switch.
 - Capability writes are serialized. If the outcome is uncertain, surface it; do not automatically retry a potentially
   successful write.

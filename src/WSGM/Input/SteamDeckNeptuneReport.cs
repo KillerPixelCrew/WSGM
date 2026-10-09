@@ -1,6 +1,8 @@
 using System;
 using System.Buffers.Binary;
-using WSGM.Device.Sdk.Input;
+using CanonicalButtons = LibHandheld.Contracts.CanonicalButtons;
+using CanonicalControllerSample = LibHandheld.Contracts.CanonicalControllerSample;
+using MotionSample = LibHandheld.Contracts.MotionSample;
 
 namespace WSGM.Input;
 

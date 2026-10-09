@@ -1,29 +1,26 @@
 using System;
-using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using LibGPUDriverInteract;
 using WSGM.Core;
 using WSGM.Device.Sdk.Lifecycle;
-using WSGM.Install;
-using WSGM.Plugin.Sdk;
 
 namespace WSGM.Shell;
 
-/// <summary>Owns the directly linked GPU drivers independently of common-plugin and device lifetimes.</summary>
+/// <summary>Owns one native driver per enabled installed vendor, independently of common plugins.</summary>
 internal sealed class BuiltinGpuService : IAsyncDisposable
 {
     private readonly GpuCoordinator _coordinator;
-    private readonly ConcurrentDictionary<PluginInstanceIdentity, Entry> _entries = [];
+    private readonly Dictionary<GpuVendor, Entry> _entries = [];
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Lock _registration = new();
     private readonly ConfigStore _store;
     private volatile bool _closed;
-    private CommonPluginInstanceConfig[] _configured = [];
+    private GpuVendor[] _configured = [];
     private bool _suspended;
 
     internal BuiltinGpuService(ConfigStore store, GpuCoordinator coordinator)
@@ -34,22 +31,13 @@ internal sealed class BuiltinGpuService : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        await StopAsync(Deadline.After(TimeSpan.FromSeconds(5)))
-            .ConfigureAwait(false);
+        await StopAsync(Deadline.After(TimeSpan.FromSeconds(5))).ConfigureAwait(false);
     }
 
     internal Task ReconcileAsync(AppConfig config, CancellationToken cancellationToken)
     {
-        if (_closed)
-        {
-            return Task.CompletedTask;
-        }
-
-        var configured = config.PluginInstances.Where(instance => BuiltinGpuDrivers.Contains(instance.PluginId))
-            .Select(instance => new CommonPluginInstanceConfig
-            {
-                PluginId = instance.PluginId, InstanceId = instance.InstanceId, Enabled = instance.Enabled
-            }).ToArray();
+        var configured = BuiltinGpuDrivers.All.Where(driver => BuiltinGpuDrivers.Enabled(config, driver.Vendor))
+            .Select(driver => driver.Vendor).ToArray();
         lock (_registration)
         {
             if (_closed)
@@ -74,20 +62,28 @@ internal sealed class BuiltinGpuService : IAsyncDisposable
                 return;
             }
 
-            CommonPluginInstanceConfig[] configured;
+            GpuVendor[] configured;
             lock (_registration)
             {
                 configured = _configured;
             }
 
-            var adapters = await Task.Run(CommonPluginEnablement.ReadAdapters, linked.Token).ConfigureAwait(false);
-            var desired = BuiltinGpuDrivers.Instances(configured)
-                .Where(instance => instance.Enabled && DisplayAdapterInventory.AnyVendor(adapters,
-                    [instance.Driver.PciVendorId])).ToArray();
-            foreach (var entry in _entries.Values.Where(entry =>
-                         desired.All(instance => instance.Identity != entry.Identity)))
+            var installed = await Task.Run(GpuDriver.DetectVendors, linked.Token).ConfigureAwait(false);
+            var desired = configured.Where(installed.Contains).ToArray();
+            Entry[] retiring;
+            lock (_registration)
             {
-                Retire(entry);
+                retiring = _entries.Where(pair => !desired.Contains(pair.Key) || pair.Value.Retirement is not null)
+                    .Select(pair => pair.Value).ToArray();
+            }
+
+            foreach (var entry in retiring)
+            {
+                await Retire(entry).WaitAsync(linked.Token).ConfigureAwait(false);
+                lock (_registration)
+                {
+                    _entries.Remove(entry.Definition.Vendor);
+                }
             }
 
             if (_suspended)
@@ -95,36 +91,9 @@ internal sealed class BuiltinGpuService : IAsyncDisposable
                 return;
             }
 
-            foreach (var instance in desired)
+            var starts = new List<Task>();
+            foreach (var vendor in desired)
             {
-                if (_entries.TryGetValue(instance.Identity, out var existing))
-                {
-                    lock (existing)
-                    {
-                        if (existing.Retirement is null)
-                        {
-                            continue;
-                        }
-
-                        if (!existing.Retirement.IsCompleted)
-                        {
-                            // A later user/configuration request may restart after this owner retires.
-                            existing.RestartRequested = true;
-                            continue;
-                        }
-
-                        if (!existing.Clean)
-                        {
-                            continue;
-                        }
-                    }
-
-                    _entries.TryRemove(instance.Identity, out _);
-                }
-
-                linked.Token.ThrowIfCancellationRequested();
-                var directory = Path.Combine(_store.Context.Root, "PluginState", instance.Identity.PluginId,
-                    Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(instance.Identity.InstanceId))));
                 Entry entry;
                 lock (_registration)
                 {
@@ -133,25 +102,21 @@ internal sealed class BuiltinGpuService : IAsyncDisposable
                         return;
                     }
 
-                    var driver = new GpuDriverAdapter(_coordinator, instance.Driver, instance.Identity, directory);
-                    entry = new Entry(instance.Identity, driver);
-                    if (!_entries.TryAdd(instance.Identity, entry))
+                    if (_entries.ContainsKey(vendor))
                     {
-                        throw new InvalidOperationException("A graphics driver identity was registered twice.");
+                        continue;
                     }
+
+                    var definition = BuiltinGpuDrivers.All.First(driver => driver.Vendor == vendor);
+                    var directory = Path.Combine(_store.Context.Root, "GpuState", definition.Id);
+                    entry = new Entry(definition, new GpuDriverPublisher(_coordinator, definition, directory));
+                    _entries.Add(vendor, entry);
                 }
 
-                try
-                {
-                    using var start = Deadline.After(TimeSpan.FromSeconds(5)).CreateCancellationSource(linked.Token);
-                    await entry.Adapter.StartAsync(start.Token).ConfigureAwait(false);
-                }
-                catch (Exception error) when (error is not OutOfMemoryException)
-                {
-                    Log.Warn($"Graphics {instance.Driver.Name} startup failed: {error.Message}");
-                    Retire(entry);
-                }
+                starts.Add(StartAsync(entry, linked.Token));
             }
+
+            await Task.WhenAll(starts).ConfigureAwait(false);
         }
         finally
         {
@@ -159,10 +124,27 @@ internal sealed class BuiltinGpuService : IAsyncDisposable
         }
     }
 
+    private static async Task StartAsync(Entry entry, CancellationToken token)
+    {
+        using var wait = Deadline.After(TimeSpan.FromSeconds(5)).CreateCancellationSource(token);
+        try
+        {
+            await entry.Publisher.StartAsync(wait.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (wait.IsCancellationRequested)
+        {
+            // Cancellation bounds this wait. The driver still owns initialization and late publication.
+            Log.Info($"Graphics {entry.Definition.Name} startup is continuing in its native owner.");
+        }
+        catch (Exception error) when (error is not OutOfMemoryException)
+        {
+            Log.Warn($"Graphics {entry.Definition.Name} startup failed: {error.Message}");
+        }
+    }
+
     internal async Task PowerTransitionAsync(bool suspend, CancellationToken cancellationToken)
     {
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
-        await _gate.WaitAsync(linked.Token).ConfigureAwait(false);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             if (_closed)
@@ -171,24 +153,15 @@ internal sealed class BuiltinGpuService : IAsyncDisposable
             }
 
             _suspended = suspend;
-            foreach (var entry in _entries.Values.Where(entry => entry.Retirement is null))
+            Entry[] entries;
+            lock (_registration)
             {
-                try
-                {
-                    using var budget = Deadline.After(TimeSpan.FromSeconds(5)).CreateCancellationSource(linked.Token);
-                    if (suspend)
-                    {
-                        await entry.Adapter.SuspendAsync(budget.Token).ConfigureAwait(false);
-                    }
-                    else
-                    {
-                        await entry.Adapter.ResumeAsync(budget.Token).ConfigureAwait(false);
-                    }
-                }
-                catch (Exception error) when (error is not OutOfMemoryException)
-                {
-                    Log.Warn($"Graphics {entry.Identity.PluginId} power transition failed: {error.Message}");
-                }
+                entries = _entries.Values.Where(entry => entry.Retirement is null).ToArray();
+            }
+
+            foreach (var entry in entries)
+            {
+                entry.Publisher.SetSuspended(suspend);
             }
         }
         finally
@@ -202,6 +175,19 @@ internal sealed class BuiltinGpuService : IAsyncDisposable
         }
     }
 
+    internal async Task RefreshTopologyAsync(AppConfig config, CancellationToken cancellationToken)
+    {
+        await ReconcileAsync(config, cancellationToken).ConfigureAwait(false);
+        Entry[] entries;
+        lock (_registration)
+        {
+            entries = _entries.Values.Where(entry => entry.Retirement is null).ToArray();
+        }
+
+        await Task.WhenAll(entries.Select(entry => entry.Publisher.RefreshTopologyAsync(cancellationToken).AsTask()))
+            .ConfigureAwait(false);
+    }
+
     internal void CloseAdmission()
     {
         lock (_registration)
@@ -210,7 +196,7 @@ internal sealed class BuiltinGpuService : IAsyncDisposable
             _lifetime.CancelAsync().ObserveFaults();
             foreach (var entry in _entries.Values)
             {
-                entry.Adapter.CloseAdmission();
+                entry.Publisher.CloseAdmission();
             }
         }
     }
@@ -221,80 +207,34 @@ internal sealed class BuiltinGpuService : IAsyncDisposable
         Entry[] entries;
         lock (_registration)
         {
-            entries = [.. _entries.Values];
+            entries = _entries.Values.ToArray();
         }
 
-        foreach (var entry in entries)
-        {
-            Retire(entry);
-        }
-
-        using var budget = deadline.CreateCancellationSource();
+        var retirement = Task.WhenAll(entries.Select(Retire));
+        using var wait = deadline.CreateCancellationSource();
         try
         {
-            await Task.WhenAll(entries.Select(entry => entry.Retirement!)).WaitAsync(budget.Token)
-                .ConfigureAwait(false);
-            if (entries.Any(entry => !entry.Clean))
-            {
-                Log.Warn("A graphics driver did not confirm clean retirement; its ownership remains retained.");
-            }
+            await retirement.WaitAsync(wait.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
-            Log.Warn("Graphics driver cleanup is still completing an owned native call.");
+            Log.Warn("Graphics cleanup is still completing an owned native call.");
         }
     }
 
-    private void Retire(Entry entry)
+    private static Task Retire(Entry entry)
     {
         lock (entry)
         {
-            if (entry.Retirement is not null)
-            {
-                return;
-            }
-
-            entry.Adapter.CloseAdmission();
-            entry.Retirement = Task.Run(async () =>
-            {
-                try
-                {
-                    if (!await entry.Adapter.StopAsync(CancellationToken.None).ConfigureAwait(false))
-                    {
-                        Log.Warn($"Graphics {entry.Identity.PluginId} retirement remains unconfirmed.");
-                        return;
-                    }
-
-                    await entry.Adapter.DisposeAsync().ConfigureAwait(false);
-                    entry.Clean = true;
-                }
-                catch (Exception error) when (error is not OutOfMemoryException)
-                {
-                    Log.Warn($"Graphics {entry.Identity.PluginId} cleanup failed: {error.Message}");
-                }
-            });
-            entry.Retirement.ContinueWith(_ =>
-            {
-                bool restart;
-                lock (entry)
-                {
-                    restart = entry.Clean && entry.RestartRequested;
-                }
-
-                if (!_closed && restart)
-                {
-                    Log.Observe(ReconcileCurrentAsync(_lifetime.Token), "Graphics retirement reconciliation", true);
-                }
-            }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+            entry.Publisher.CloseAdmission();
+            return entry.Retirement ??= entry.Publisher.DisposeAsync().AsTask();
         }
     }
 
-    private sealed class Entry(PluginInstanceIdentity identity, GpuDriverAdapter adapter)
+    private sealed class Entry(BuiltinGpuDriver definition, GpuDriverPublisher publisher)
     {
-        internal bool Clean;
-        internal bool RestartRequested;
         internal Task? Retirement;
-        internal PluginInstanceIdentity Identity { get; } = identity;
-        internal GpuDriverAdapter Adapter { get; } = adapter;
+        internal BuiltinGpuDriver Definition { get; } = definition;
+        internal GpuDriverPublisher Publisher { get; } = publisher;
     }
 }

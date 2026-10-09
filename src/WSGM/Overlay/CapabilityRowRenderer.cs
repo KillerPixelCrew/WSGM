@@ -21,20 +21,10 @@ internal static class CapabilityRowRenderer
     /// <remarks>Values never take part; a title, writability or category change still rebuilds the row.</remarks>
     /// <param name="before">Descriptor currently represented by the mounted control.</param>
     /// <param name="after">New published descriptor.</param>
-    /// <returns>True when identities, generations and layout-affecting fields match; values are ignored.</returns>
+    /// <returns>True when identity and layout fields match; values are ignored.</returns>
     internal static bool SameRowLayout(DeviceOverlayCapability before, DeviceOverlayCapability after)
     {
-        return before.CapabilityId == after.CapabilityId
-               && before.InstanceId == after.InstanceId
-               && before.GpuPluginId == after.GpuPluginId
-               && before.CycleGeneration == after.CycleGeneration
-               && before.DescriptorGeneration == after.DescriptorGeneration
-               && before.ValueKind == after.ValueKind
-               && before.Writable == after.Writable
-               && before.SupportsAction == after.SupportsAction
-               && before.Title == after.Title
-               && before.CategoryId == after.CategoryId
-               && before.PluginSectionId == after.PluginSectionId;
+        return before.SameLayoutAs(after);
     }
 
     /// <summary>Whether two row lists keep their controls, row by row.</summary>
@@ -78,8 +68,7 @@ internal static class CapabilityRowRenderer
                                                             && candidate.CapabilityId == seen.CapabilityId
                                                             && candidate.InstanceId == seen.InstanceId);
         return current is { CanInvoke: true }
-               && current.DescriptorGeneration == seen.DescriptorGeneration
-               && current.CycleGeneration == seen.CycleGeneration
+               && SameRowLayout(current, seen)
             ? current
             : null;
     }

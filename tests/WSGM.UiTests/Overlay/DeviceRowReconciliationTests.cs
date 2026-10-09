@@ -151,8 +151,7 @@ public sealed class DeviceRowReconciliationTests
             DescriptorStatus.Available, "Power limit", "", "15 W", true, CapabilityValue.Integer(15))
         {
             Role = CapabilityRole.PowerSustainedLimit, PluginSectionId = "power",
-            ValueKind = CapabilityValueKind.Integer, Writable = true, Minimum = 8, Maximum = 37,
-            DescriptorGeneration = 1, CycleGeneration = 1
+            ValueKind = CapabilityValueKind.Integer, Writable = true, Minimum = 8, Maximum = 37
         };
         device.State = device.State with { Capabilities = [capability] };
         var window = fixture.Overlay(1280, 720);
@@ -162,21 +161,33 @@ public sealed class DeviceRowReconciliationTests
             UiFixture.Click(window, UiFixture.Tab(window, 2));
             UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin.power"));
             UiFixture.OpenSections(window);
-            window.GetVisualDescendants().OfType<Slider>()
-                .Single(slider => Equals(slider.Tag, "power.test")).Value = 25;
+            var editor = window.GetVisualDescendants().OfType<Slider>()
+                .Single(slider => Equals(slider.Tag, "power.test"));
+            editor.Value = 25;
             device.State = device.State with
             {
                 Capabilities = change switch
                 {
                     0 => [capability, capability with { CapabilityId = "power.other" }],
                     1 => [],
-                    2 => [capability with { DescriptorGeneration = 2 }],
+                    2 => [capability with { Maximum = 30 }],
                     3 => [capability with { CanInvoke = false }],
-                    _ => [capability with { CycleGeneration = 2 }]
+                    _ => []
                 }
             };
             device.Notify();
             Dispatcher.UIThread.RunJobs();
+            if (change == 4)
+            {
+                device.State = device.State with { Capabilities = [capability] };
+                device.Notify();
+                Dispatcher.UIThread.RunJobs();
+                var replacement = window.GetVisualDescendants().OfType<Slider>()
+                    .Single(slider => Equals(slider.Tag, "power.test"));
+                Assert.NotSame(editor, replacement);
+                Assert.Equal(15, replacement.Value);
+            }
+
             if (change == 0)
             {
                 Assert.Equal(25, Assert.Single(writes).NextValue!.IntegerValue);
@@ -193,7 +204,7 @@ public sealed class DeviceRowReconciliationTests
     }
 
     [AvaloniaFact]
-    public void TelemetryRefreshKeepsTheSameEditorAndGenerationReplacementRebuildsIt()
+    public void TelemetryRefreshKeepsTheSameEditorAndChangedBoundsRebuildIt()
     {
         using var device = new FakeDevice();
         using var fixture = new UiFixture();
@@ -202,7 +213,7 @@ public sealed class DeviceRowReconciliationTests
         {
             Role = CapabilityRole.PowerSustainedLimit, PluginSectionId = "power",
             ValueKind = CapabilityValueKind.Integer,
-            Writable = true, Minimum = 8, Maximum = 37, DescriptorGeneration = 1, CycleGeneration = 1
+            Writable = true, Minimum = 8, Maximum = 37
         };
         device.State = device.State with { Capabilities = [capability] };
         var window = fixture.Overlay(1280, 720);
@@ -233,7 +244,7 @@ public sealed class DeviceRowReconciliationTests
         Assert.Equal(25, updated.Value);
         device.State = device.State with
         {
-            Capabilities = [capability with { DescriptorGeneration = 2, Maximum = 30 }]
+            Capabilities = [capability with { Maximum = 30 }]
         };
         device.Notify();
         Dispatcher.UIThread.RunJobs();
@@ -339,7 +350,7 @@ public sealed class DeviceRowReconciliationTests
                 {
                     Role = CapabilityRole.PowerSustainedLimit, PluginSectionId = "power",
                     ValueKind = CapabilityValueKind.Integer,
-                    Writable = true, Minimum = 8, Maximum = 37, DescriptorGeneration = 1, CycleGeneration = 1
+                    Writable = true, Minimum = 8, Maximum = 37
                 }
             ]
         };
@@ -369,7 +380,7 @@ public sealed class DeviceRowReconciliationTests
             DescriptorStatus.Available, "Lighting", "", "On", true,
             new CapabilityValue { Kind = CapabilityValueKind.Boolean, BooleanValue = true })
         {
-            ValueKind = CapabilityValueKind.Boolean, Writable = true, DescriptorGeneration = 1, CycleGeneration = 1
+            ValueKind = CapabilityValueKind.Boolean, Writable = true
         };
         device.State = device.State with { Capabilities = [capability], PluginSections = [] };
         var window = fixture.Overlay(1280, 720);

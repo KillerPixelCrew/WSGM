@@ -9,8 +9,9 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
-using WSGM.Device.Sdk.Input;
 using WSGM.Interop;
+using CanonicalControllerSample = LibHandheld.Contracts.CanonicalControllerSample;
+using HapticOutputFrame = LibHandheld.Contracts.HapticOutputFrame;
 
 namespace WSGM.Input;
 

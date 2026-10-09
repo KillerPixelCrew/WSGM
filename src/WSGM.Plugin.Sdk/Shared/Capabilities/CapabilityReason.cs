@@ -31,9 +31,6 @@ public enum CapabilityReasonCode
     /// <summary>The transport failed and the capability stays faulted until recovery.</summary>
     TransportFaulted,
 
-    /// <summary>The device generation changed and this state has not been refreshed.</summary>
-    GenerationChanged,
-
     /// <summary>The observation expired under the freshness policy.</summary>
     ObservationExpired,
 

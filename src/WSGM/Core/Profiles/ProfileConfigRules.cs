@@ -20,10 +20,13 @@ internal static class ProfileConfigRules
     /// <returns>An empty diagnostic list; these repairs do not produce warning entries.</returns>
     internal static IReadOnlyList<string> Normalize(ProfileConfig profiles, DeviceIntegrationConfig device)
     {
-        HashSet<string> authored = new(device.PluginSettings.SelectMany(scope => scope.Profiles)
+        HashSet<string> authored = new(device.DeviceProfiles.SelectMany(scope => scope.Profiles)
+            .Select(profile => profile.ProfileId), StringComparer.Ordinal);
+        HashSet<string> lighting = new(device.DeviceProfiles.SelectMany(scope => scope.Profiles)
+            .Where(profile => profile.CapabilityId == CapabilityIds.LightingColor)
             .Select(profile => profile.ProfileId), StringComparer.Ordinal);
         profiles.Global ??= new ProfileValues();
-        NormalizeProfileValues(profiles.Global, authored);
+        NormalizeProfileValues(profiles.Global, authored, lighting);
         profiles.Games ??= [];
         profiles.Games.RemoveAll(static game => game is null || string.IsNullOrWhiteSpace(game.Id));
         HashSet<string> ids = new(StringComparer.Ordinal);
@@ -50,13 +53,14 @@ internal static class ProfileConfigRules
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
             game.Values ??= new ProfileValues();
-            NormalizeProfileValues(game.Values, authored);
+            NormalizeProfileValues(game.Values, authored, lighting);
         }
 
         return [];
     }
 
-    private static void NormalizeProfileValues(ProfileValues values, HashSet<string> authoredProfiles)
+    private static void NormalizeProfileValues(ProfileValues values, HashSet<string> authoredProfiles,
+        HashSet<string> lightingProfiles)
     {
         values.AcPowerPreset = NormalizePowerPreset(values.AcPowerPreset);
         values.BatteryPowerPreset = NormalizePowerPreset(values.BatteryPowerPreset);
@@ -68,6 +72,11 @@ internal static class ProfileConfigRules
         if (values.FanCurveProfileId is { } fanCurve)
         {
             values.FanCurveProfileId = authoredProfiles.Contains(fanCurve.Trim()) ? fanCurve.Trim() : null;
+        }
+
+        if (values.LightingProfileId is { } lighting)
+        {
+            values.LightingProfileId = lightingProfiles.Contains(lighting.Trim()) ? lighting.Trim() : null;
         }
 
         values.Device ??= [];

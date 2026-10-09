@@ -1,7 +1,13 @@
 using WSGM.Core;
-using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Sdk.Input;
 using WSGM.Shell;
+using CapabilityDisplay = LibHandheld.Contracts.CapabilityDisplay;
+using DisplayKey = LibHandheld.Contracts.DisplayKey;
+using OemControlDefaultActionHint = LibHandheld.Contracts.OemControlDefaultActionHint;
+using OemControlDescriptor = LibHandheld.Contracts.OemControlDescriptor;
+using OemControlPlacement = LibHandheld.Contracts.OemControlPlacement;
+using OemControlEvent = LibHandheld.Contracts.OemControlEvent;
+using OemPressKind = LibHandheld.Contracts.OemPressKind;
+using OemControlEdge = LibHandheld.Contracts.OemControlEdge;
 
 namespace WSGM.Tests.Shell;
 
@@ -149,9 +155,11 @@ public sealed class DeviceOemActionRouterTests
         return new OemControlDescriptor
         {
             ControlId = "armoury-crate",
-            Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Armoury Crate" },
+            Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomText = "Armoury Crate" },
             Placement = placement,
-            CompanionApplication = companion
+            DefaultActionHint = companion
+                ? OemControlDefaultActionHint.CompanionApplication
+                : OemControlDefaultActionHint.None
         };
     }
 
@@ -171,8 +179,9 @@ public sealed class DeviceOemActionRouterTests
         return new OemControlDescriptor
         {
             ControlId = "touchpad-secondary-click",
-            Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Touchpad right click" },
-            Placement = OemControlPlacement.Front
+            Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomText = "Touchpad right click" },
+            Placement = OemControlPlacement.Front,
+            DefaultActionHint = OemControlDefaultActionHint.MouseSecondaryButton
         };
     }
 

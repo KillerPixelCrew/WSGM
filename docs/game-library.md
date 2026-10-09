@@ -389,7 +389,29 @@ shortcuts stay as written. The group is the source; a ROM source groups by syste
 **Emulator Manager is a standalone tool:** open it directly from the QAM Plugins tab or Overlay
 Tools. The importer keeps contextual setup links for ROM sources; it is not the manager's home. Its
 CEF route is `/wsgm/emulators`. It owns its backend and publishes catalog changes separately from
-download progress; importer cancellation never stops emulator operations.
+download progress; importer cancellation never stops emulator operations. Install, update, repair
+and release checks return after the shared backend accepts the work. Downloads continue when a page
+closes or its request expires; the manager's Cancel action and session shutdown stop the owned
+operation, while failures remain visible in progress and wsgm.log. All managed emulators use their
+upstream Windows portable layout. RetroArch (stable/nightly and all cores) launches with the owned
+`retroarch.cfg`, explicit data paths and content-directory saves disabled. DuckStation
+(latest/preview) uses `portable.txt` and the executable directory as its actual data root; updates
+and repair copy user settings, cards, states, profiles and other user files into the replacement
+version, retaining collision copies. RPCS3 (rolling) uses `portable/`, Eden (stable/nightly) uses
+`user/`, and Dolphin (release/development) uses `portable.txt` plus `User/`; these directories bind
+to the retained owned data folder. Portable directory aliases are removed without following their
+targets. Retired version contents are preserved under
+`EmulatorData/<installation>/.portable-snapshots` before pruning or removal. Previously managed
+native DuckStation/Eden data is copied without deleting the original.
+
+External registration requires the actual portable layout and refuses global Documents/AppData
+fallbacks with instructions for preparing the external folder. It does not change or move external
+files. Fresh launches verify the native marker or directory binding and portable launch arguments,
+including configured save/data redirects, instead of relying on the receipt alone.
+
+Managed PCSX2 versions use the upstream `portable.txt` data-directory binding, so stable and nightly
+builds retain the same configuration, BIOS, memory-card and save directory without moving user
+files.
 
 Installed and Available separate registered installations from the supported catalogue. Both
 surfaces show update/setup status, search by emulator or system, grouped installation details and

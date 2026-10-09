@@ -1,7 +1,5 @@
 {
   "Descriptors": {
-    "Generation": 1,
-    "CycleGeneration": 7,
     "Sections": [
       {
         "SectionId": "power",
@@ -659,9 +657,7 @@
         "TextValue": null
       },
       "Quality": "Observed",
-      "ObservedAt": "2026-09-05T16:13:58.3295013+00:00",
-      "DescriptorGeneration": 1,
-      "CycleGeneration": 7
+      "ObservedAt": "2026-09-05T16:13:58.3295013+00:00"
     },
     {
       "CapabilityId": "power.boost-limit",
@@ -678,9 +674,7 @@
         "TextValue": null
       },
       "Quality": "Observed",
-      "ObservedAt": "2026-09-05T16:13:58.3296387+00:00",
-      "DescriptorGeneration": 1,
-      "CycleGeneration": 7
+      "ObservedAt": "2026-09-05T16:13:58.3296387+00:00"
     },
     {
       "CapabilityId": "battery.charge-limit",
@@ -697,9 +691,7 @@
         "TextValue": null
       },
       "Quality": "Observed",
-      "ObservedAt": "2026-09-05T16:13:58.329671+00:00",
-      "DescriptorGeneration": 1,
-      "CycleGeneration": 7
+      "ObservedAt": "2026-09-05T16:13:58.329671+00:00"
     },
     {
       "CapabilityId": "power.scenario",
@@ -716,9 +708,7 @@
         "TextValue": null
       },
       "Quality": "Observed",
-      "ObservedAt": "2026-09-05T16:13:58.3297614+00:00",
-      "DescriptorGeneration": 1,
-      "CycleGeneration": 7
+      "ObservedAt": "2026-09-05T16:13:58.3297614+00:00"
     },
     {
       "CapabilityId": "fan.mode",
@@ -735,9 +725,7 @@
         "TextValue": null
       },
       "Quality": "Observed",
-      "ObservedAt": "2026-09-05T16:13:58.3298408+00:00",
-      "DescriptorGeneration": 1,
-      "CycleGeneration": 7
+      "ObservedAt": "2026-09-05T16:13:58.3298408+00:00"
     },
     {
       "CapabilityId": "fan.curve",
@@ -779,9 +767,7 @@
         "TextValue": null
       },
       "Quality": "Observed",
-      "ObservedAt": "2026-09-05T16:13:58.3316495+00:00",
-      "DescriptorGeneration": 1,
-      "CycleGeneration": 7
+      "ObservedAt": "2026-09-05T16:13:58.3316495+00:00"
     },
     {
       "CapabilityId": "lighting.brightness",
@@ -798,9 +784,7 @@
         "TextValue": null
       },
       "Quality": "Observed",
-      "ObservedAt": "2026-09-05T16:13:58.3316658+00:00",
-      "DescriptorGeneration": 1,
-      "CycleGeneration": 7
+      "ObservedAt": "2026-09-05T16:13:58.3316658+00:00"
     },
     {
       "CapabilityId": "lighting.zone-color",
@@ -817,9 +801,7 @@
         "TextValue": null
       },
       "Quality": "Observed",
-      "ObservedAt": "2026-09-05T16:13:58.331725+00:00",
-      "DescriptorGeneration": 1,
-      "CycleGeneration": 7
+      "ObservedAt": "2026-09-05T16:13:58.331725+00:00"
     },
     {
       "CapabilityId": "lighting.zone-color",
@@ -836,9 +818,7 @@
         "TextValue": null
       },
       "Quality": "Observed",
-      "ObservedAt": "2026-09-05T16:13:58.3317261+00:00",
-      "DescriptorGeneration": 1,
-      "CycleGeneration": 7
+      "ObservedAt": "2026-09-05T16:13:58.3317261+00:00"
     },
     {
       "CapabilityId": "lighting.zone-color",
@@ -855,9 +835,7 @@
         "TextValue": null
       },
       "Quality": "Observed",
-      "ObservedAt": "2026-09-05T16:13:58.3317278+00:00",
-      "DescriptorGeneration": 1,
-      "CycleGeneration": 7
+      "ObservedAt": "2026-09-05T16:13:58.3317278+00:00"
     },
     {
       "CapabilityId": "controller.source",
@@ -878,9 +856,7 @@
         "TextValue": null
       },
       "Quality": "Observed",
-      "ObservedAt": "2026-09-05T16:13:58.331784+00:00",
-      "DescriptorGeneration": 1,
-      "CycleGeneration": 7
+      "ObservedAt": "2026-09-05T16:13:58.331784+00:00"
     },
     {
       "CapabilityId": "motion.source",
@@ -897,9 +873,7 @@
         "TextValue": null
       },
       "Quality": "Observed",
-      "ObservedAt": "2026-09-05T16:13:58.3317852+00:00",
-      "DescriptorGeneration": 1,
-      "CycleGeneration": 7
+      "ObservedAt": "2026-09-05T16:13:58.3317852+00:00"
     },
     {
       "CapabilityId": "haptic.rumble",
@@ -912,9 +886,7 @@
       },
       "ObservedValue": null,
       "Quality": "Unknown",
-      "ObservedAt": null,
-      "DescriptorGeneration": 1,
-      "CycleGeneration": 7
+      "ObservedAt": null
     },
     {
       "CapabilityId": "telemetry.temperature",
@@ -931,9 +903,7 @@
         "TextValue": null
       },
       "Quality": "Observed",
-      "ObservedAt": "2026-09-05T16:13:58.3318085+00:00",
-      "DescriptorGeneration": 1,
-      "CycleGeneration": 7
+      "ObservedAt": "2026-09-05T16:13:58.3318085+00:00"
     },
     {
       "CapabilityId": "fan.measured-rpm",
@@ -950,9 +920,7 @@
         "TextValue": null
       },
       "Quality": "Observed",
-      "ObservedAt": "2026-09-05T16:13:58.3318188+00:00",
-      "DescriptorGeneration": 1,
-      "CycleGeneration": 7
+      "ObservedAt": "2026-09-05T16:13:58.3318188+00:00"
     },
     {
       "CapabilityId": "fan.measured-rpm",
@@ -969,9 +937,7 @@
         "TextValue": null
       },
       "Quality": "Observed",
-      "ObservedAt": "2026-09-05T16:13:58.3318285+00:00",
-      "DescriptorGeneration": 1,
-      "CycleGeneration": 7
+      "ObservedAt": "2026-09-05T16:13:58.3318285+00:00"
     }
   ]
 }

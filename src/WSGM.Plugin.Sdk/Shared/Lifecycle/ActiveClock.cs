@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using WSGM.Device.Sdk.Plugin;
 
 namespace WSGM.Device.Sdk.Lifecycle;
 
@@ -121,7 +120,7 @@ public static class ActiveClock
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            PluginTrace.Failure("clock", "Deadline cancellation callback failed", ex);
+            Trace.TraceWarning($"Deadline cancellation callback failed: {ex.Message}");
         }
     }
 

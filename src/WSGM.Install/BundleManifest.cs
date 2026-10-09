@@ -5,7 +5,6 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Sdk.Identity;
 
 namespace WSGM.Install;
 
@@ -15,9 +14,6 @@ namespace WSGM.Install;
 /// </remarks>
 public sealed record BundledPlugin
 {
-    /// <summary>The device category, as bundle.json writes it for a device package.</summary>
-    public const string DeviceCategory = "wsgm.device";
-
     /// <summary>The graphics category, whose packages setup offers by display adapter.</summary>
     public const string GpuCategory = "wsgm.gpu";
 
@@ -30,7 +26,7 @@ public sealed record BundledPlugin
     /// <summary>Plugin version.</summary>
     public required string Version { get; init; }
 
-    /// <summary><see cref="DeviceCategory" /> for a device package, otherwise the common category.</summary>
+    /// <summary>The common or graphics plugin category.</summary>
     public required string Category { get; init; }
 
     /// <summary><c>first-party</c> or <c>community</c>, set by the maintainer.</summary>
@@ -38,16 +34,6 @@ public sealed record BundledPlugin
 
     /// <summary><c>hardware-tested</c> or <c>blind</c>, set by the maintainer.</summary>
     public required string Validation { get; init; }
-
-    /// <summary>
-    ///     The baseboard products a hardware-tested device package was tested on. Empty means every
-    ///     machine its rules match; a package that covers untested models lists the tested ones.
-    /// </summary>
-    public IReadOnlyList<string> TestedHardware
-    {
-        get => field ?? [];
-        init;
-    } = [];
 
     /// <summary>Developer contact for a community plugin.</summary>
     public string? Contact { get; init; }
@@ -59,14 +45,7 @@ public sealed record BundledPlugin
         init;
     } = [];
 
-    /// <summary>The hardware rules of a device package.</summary>
-    public IReadOnlyList<HardwareMatchRule> Hardware
-    {
-        get => field ?? [];
-        init;
-    } = [];
-
-    /// <summary>The capability roles a device or graphics package declares.</summary>
+    /// <summary>The capability roles a common or graphics package declares.</summary>
     public IReadOnlyList<CapabilityRole> Capabilities
     {
         get => field ?? [];
@@ -89,10 +68,6 @@ public sealed record BundledPlugin
     /// <summary>Lowercase SHA-256 of the package file.</summary>
     public required string Sha256 { get; init; }
 
-    /// <summary>Whether this is the device-category package.</summary>
-    [JsonIgnore]
-    public bool IsDevice => Category == DeviceCategory;
-
     /// <summary>Whether this is a graphics package, offered where one of its display adapters is present.</summary>
     [JsonIgnore]
     public bool IsGpu => Category == GpuCategory;
@@ -113,17 +88,6 @@ public sealed record BundledPlugin
         ArgumentNullException.ThrowIfNull(adapters);
         return IsGpu && DisplayAdapterInventory.AnyVendor(adapters,
             DisplayAdapters.Select(adapter => adapter.PciVendorId));
-    }
-
-    /// <summary>Whether the maintainer tested it on this machine's hardware.</summary>
-    /// <param name="identity">The machine, or null to answer for the package as a whole.</param>
-    /// <returns>True when tested and either unrestricted or tested on this baseboard.</returns>
-    public bool HardwareTestedOn(DeviceIdentitySnapshot? identity)
-    {
-        return HardwareTested
-               && (identity is null
-                   || TestedHardware.Count == 0
-                   || TestedHardware.Contains(identity.BaseboardProduct?.Trim(), StringComparer.OrdinalIgnoreCase));
     }
 }
 

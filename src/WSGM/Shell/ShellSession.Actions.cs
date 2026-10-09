@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using Avalonia.Threading;
 using SteamUiToolkit;
 using WSGM.Core;
-using WSGM.Device.Sdk.Capabilities;
 using WSGM.Install;
 using WSGM.Interop;
 using WSGM.Plugin.Sdk;
@@ -83,25 +82,25 @@ public sealed partial class ShellSession
     }
 
     /// <summary>
-    ///     What this install has, of the things a device package needs.
-    ///     Read live rather than cached: the Plugins folder is one an administrator can copy a
-    ///     package into while WSGM is running, which is the whole case this exists for. An unreadable
-    ///     folder is not evidence of a package, so the banner does not guess. The overlay calls it on a
-    ///     worker.
+    ///     Optional component availability for the already detected exact handheld.
+    ///     An integration the user disabled is quiet and opens no device or driver handles here.
     /// </summary>
     private DevicePrerequisiteState ReadDevicePrerequisiteState()
     {
-        var device = HandheldDeviceAdapter.Detect(DeviceMachineIdentity.Collect());
-        var roles = device is not null
-            ? new[] { CapabilityRole.ControllerSource }
-            : Array.Empty<CapabilityRole>();
+        var device = _deviceCoordinator?.DeviceDefinition;
+        if (!_config.DeviceIntegration.Enabled || device is null)
+        {
+            return new DevicePrerequisiteState(device is not null, _config.DeviceIntegration.Enabled, false, false, []);
+        }
 
         return new DevicePrerequisiteState(
             device is not null,
             _config.DeviceIntegration.Enabled,
             DevicePrerequisiteSource.ControllerLibraryInstalled(AppContext.BaseDirectory),
             DevicePrerequisiteSource.HidHideInstalled(),
-            SetupComponents.Required(roles));
+            device is null ? [] : SetupComponents.Required(device),
+            DevicePrerequisiteSource.HardwareDriverInstalled("PawnIO"),
+            DevicePrerequisiteSource.HardwareDriverInstalled("inpoutx64"));
     }
 
     private async Task EnableDeviceIntegrationAsync()

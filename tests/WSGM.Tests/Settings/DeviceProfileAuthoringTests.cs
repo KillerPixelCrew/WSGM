@@ -1,15 +1,21 @@
+using LibHandheld.Contracts;
 using WSGM.Core;
-using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Sdk.Settings;
 using WSGM.Settings;
 using WSGM.Testing;
+using CurvePoint = WSGM.Device.Sdk.Capabilities.CurvePoint;
 
 namespace WSGM.Tests.Settings;
 
 public sealed class DeviceProfileAuthoringTests
 {
     private const string Device = "msi.claw8";
-    private const string Plugin = "wsgm.device.msi";
+    private const string Family = "msi-claw";
+
+    private static SettingsViewModel Model(AppConfig config)
+    {
+        return new SettingsViewModel(config, SettingsTestServices.Inert(config),
+            new HandheldDefinition(Device, Family, "MSI Claw", "msi-claw"));
+    }
 
     private static AppConfig Config(params DeviceAuthoredProfile[] profiles)
     {
@@ -17,13 +23,13 @@ public sealed class DeviceProfileAuthoringTests
         {
             DeviceIntegration = new DeviceIntegrationConfig
             {
-                PluginSettings =
+                PreferencesSchemaVersion = DeviceIntegrationConfig.CurrentPreferencesSchemaVersion,
+                DeviceProfiles =
                 [
-                    new PluginSettingsScope
+                    new DeviceProfileScope
                     {
                         DeviceDefinitionId = Device,
-                        PluginId = Plugin,
-                        Declaration = new PluginSettingsManifest(),
+                        FamilyId = Family,
                         Profiles = [.. profiles]
                     }
                 ]
@@ -49,7 +55,7 @@ public sealed class DeviceProfileAuthoringTests
     [Fact]
     public void StoredProfilesLoadIntoTheEditor()
     {
-        var viewModel = SettingsTestServices.Model(Config(Stored("quiet", "Quiet")));
+        var viewModel = Model(Config(Stored("quiet", "Quiet")));
 
         var row = Assert.Single(viewModel.DeviceProfiles);
         Assert.Equal("Quiet", row.Name);
@@ -62,7 +68,7 @@ public sealed class DeviceProfileAuthoringTests
     {
         // A curve needs two points to be valid, and an editor opening on an empty plot gives the
         // user nothing to drag.
-        var viewModel = SettingsTestServices.Model(Config());
+        var viewModel = Model(Config());
 
         viewModel.AddDeviceProfile("thermal.fan-curve");
 
@@ -74,7 +80,7 @@ public sealed class DeviceProfileAuthoringTests
     [Fact]
     public void RemovingTheSelectedProfileSelectsAnother()
     {
-        var viewModel = SettingsTestServices.Model(Config(Stored("a", "A"), Stored("b", "B")));
+        var viewModel = Model(Config(Stored("a", "A"), Stored("b", "B")));
         viewModel.SelectedDeviceProfile = viewModel.DeviceProfiles[0];
 
         viewModel.RemoveSelectedDeviceProfile();
@@ -86,7 +92,7 @@ public sealed class DeviceProfileAuthoringTests
     [Fact]
     public void RemovingTheLastProfileLeavesNothingSelected()
     {
-        var viewModel = SettingsTestServices.Model(Config(Stored("a", "A")));
+        var viewModel = Model(Config(Stored("a", "A")));
 
         viewModel.RemoveSelectedDeviceProfile();
 
@@ -97,7 +103,7 @@ public sealed class DeviceProfileAuthoringTests
     [Fact]
     public void ARenameKeepsTheProfileIdSoOverridesAreNotOrphaned()
     {
-        var viewModel = SettingsTestServices.Model(Config(Stored("quiet", "Quiet")));
+        var viewModel = Model(Config(Stored("quiet", "Quiet")));
         viewModel.DeviceProfiles[0].Name = "Silent";
 
         var stored = viewModel.DeviceProfiles[0].ToStored();
@@ -109,33 +115,33 @@ public sealed class DeviceProfileAuthoringTests
     [Fact]
     public void AnEditedProfileListIsWrittenAtSave()
     {
-        var viewModel = SettingsTestServices.Model(Config(Stored("a", "A")));
+        var viewModel = Model(Config(Stored("a", "A")));
         viewModel.AddDeviceProfile("thermal.fan-curve");
 
         var fresh = Config(Stored("a", "A"));
         var request = viewModel.CaptureSaveRequest();
         SettingsSaveMerge.Apply(fresh, request, request.Splash);
 
-        Assert.Equal(2, fresh.DeviceIntegration.PluginSettings[0].Profiles.Count);
+        Assert.Equal(2, fresh.DeviceIntegration.DeviceProfiles[0].Profiles.Count);
     }
 
     [Fact]
     public void AnUntouchedProfileListIsLeftAsAnotherProcessWroteIt()
     {
         // A save triggered by an unrelated page must not overwrite what something else put there.
-        var viewModel = SettingsTestServices.Model(Config(Stored("a", "A")));
+        var viewModel = Model(Config(Stored("a", "A")));
 
         var fresh = Config(Stored("a", "A"), Stored("b", "B"));
         var request = viewModel.CaptureSaveRequest();
         SettingsSaveMerge.Apply(fresh, request, request.Splash);
 
-        Assert.Equal(2, fresh.DeviceIntegration.PluginSettings[0].Profiles.Count);
+        Assert.Equal(2, fresh.DeviceIntegration.DeviceProfiles[0].Profiles.Count);
     }
 
     [Fact]
     public void AnEmptyNameFallsBackToTheIdRatherThanPersistingBlank()
     {
-        var viewModel = SettingsTestServices.Model(Config(Stored("quiet", "Quiet")));
+        var viewModel = Model(Config(Stored("quiet", "Quiet")));
         viewModel.DeviceProfiles[0].Name = "   ";
 
         Assert.Equal("quiet", viewModel.DeviceProfiles[0].ToStored().Name);
@@ -144,7 +150,7 @@ public sealed class DeviceProfileAuthoringTests
     [Fact]
     public void ALongProfileNameIsKeptWhole()
     {
-        var viewModel = SettingsTestServices.Model(Config(Stored("quiet", "Quiet")));
+        var viewModel = Model(Config(Stored("quiet", "Quiet")));
         viewModel.DeviceProfiles[0].Name = new string('x', 200);
 
         Assert.Equal(200, viewModel.DeviceProfiles[0].Name.Length);
@@ -153,7 +159,7 @@ public sealed class DeviceProfileAuthoringTests
     [Fact]
     public void AnAuthoredCurveRoundTripsThroughTheStoredShape()
     {
-        var viewModel = SettingsTestServices.Model(Config(Stored("quiet", "Quiet")));
+        var viewModel = Model(Config(Stored("quiet", "Quiet")));
         viewModel.DeviceProfiles[0].Curve = [new CurvePoint(20, 30), new CurvePoint(80, 70)];
 
         var stored = viewModel.DeviceProfiles[0].ToStored();
@@ -167,7 +173,7 @@ public sealed class DeviceProfileAuthoringTests
     {
         // One or the other, never both: a profile carrying an unused half would let a capability
         // change silently resurrect a value the user set for something else.
-        var viewModel = SettingsTestServices.Model(Config());
+        var viewModel = Model(Config());
 
         viewModel.AddDeviceProfile("lighting.color", true);
 
@@ -183,7 +189,7 @@ public sealed class DeviceProfileAuthoringTests
     {
         // "Has no curve" would class a half-built profile as a colour one and put a picker in front
         // of a fan curve.
-        var viewModel = SettingsTestServices.Model(Config(Stored("quiet", "Quiet")));
+        var viewModel = Model(Config(Stored("quiet", "Quiet")));
 
         Assert.False(viewModel.DeviceProfiles[0].IsColorProfile);
         Assert.True(viewModel.DeviceProfiles[0].IsCurveProfile);
@@ -194,7 +200,7 @@ public sealed class DeviceProfileAuthoringTests
     {
         // The picker hands back an alpha channel WSGM has no use for, and a stored value carrying
         // one reads as a wildly different colour when it is later unpacked as RGB.
-        var viewModel = SettingsTestServices.Model(Config());
+        var viewModel = Model(Config());
         viewModel.AddDeviceProfile("lighting.color", true);
 
         viewModel.DeviceProfiles[0].Color = unchecked((int)0xFFFF9D3D);
@@ -205,7 +211,7 @@ public sealed class DeviceProfileAuthoringTests
     [Fact]
     public void AColourProfileRoundTripsThroughTheStoredShape()
     {
-        var viewModel = SettingsTestServices.Model(Config());
+        var viewModel = Model(Config());
         viewModel.AddDeviceProfile("lighting.color", true);
         viewModel.DeviceProfiles[0].Color = 0x102030;
 
@@ -215,7 +221,7 @@ public sealed class DeviceProfileAuthoringTests
     [Fact]
     public void AColourProfileCanBeEditedThroughItsHexControllerPath()
     {
-        var viewModel = SettingsTestServices.Model(Config());
+        var viewModel = Model(Config());
         viewModel.AddDeviceProfile("lighting.color", true);
 
         viewModel.DeviceProfiles[0].ColorHex = "#123ABC";

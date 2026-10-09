@@ -45,7 +45,7 @@ public sealed class SdkPowerPresetTests
     public void ValidTargetsRoundTripWithTheDescriptorSet()
     {
         var preset = new DevicePowerPreset("battery", "Super Battery", 8, 9, DevicePowerMode.BetterBattery);
-        CapabilityDescriptorSet set = new() { Generation = 1, CycleGeneration = 1, Descriptors = Pair(preset) };
+        CapabilityDescriptorSet set = new() { Descriptors = Pair(preset) };
         Assert.True(DevicePowerPreset.TryValidate(set.Descriptors, out _));
         var json = JsonSerializer.Serialize(set);
         var read = JsonSerializer.Deserialize<CapabilityDescriptorSet>(json)!;

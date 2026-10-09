@@ -7,12 +7,12 @@ namespace WSGM.Tests.Shell;
 public sealed class DeviceCoordinatorDiagnosticsTests
 {
     [Fact]
-    public void Snapshot_RoundTripsOneOptionalInstalledPackageWithoutASecondSchema()
+    public void Snapshot_RoundTripsOneOptionalHandheldWithoutASecondSchema()
     {
         var original = Snapshot() with
         {
-            InstalledPackage = new DeviceInstalledPackageDiagnostic(
-                "wsgm.device.synthetic.dock-x1",
+            Handheld = new HandheldDiagnostic(
+                "fixture-family",
                 "1.0.0")
         };
 
@@ -29,7 +29,7 @@ public sealed class DeviceCoordinatorDiagnosticsTests
     }
 
     [Fact]
-    public void Snapshot_NoInstalledPackage_RoundTripsAsNull()
+    public void Snapshot_NoHandheld_RoundTripsAsNull()
     {
         var original = Snapshot();
 
@@ -41,7 +41,7 @@ public sealed class DeviceCoordinatorDiagnosticsTests
             DeviceCoordinatorDiagnosticsJsonContext.Default.DeviceCoordinatorDiagnosticsSnapshot);
 
         Assert.NotNull(restored);
-        Assert.Null(restored.InstalledPackage);
+        Assert.Null(restored.Handheld);
     }
 
     private static DeviceCoordinatorDiagnosticsSnapshot Snapshot()
@@ -49,7 +49,6 @@ public sealed class DeviceCoordinatorDiagnosticsTests
         return new DeviceCoordinatorDiagnosticsSnapshot
         {
             State = DeviceCycleState.Active,
-            CycleGeneration = 9,
             CapabilityCount = 3,
             HealthyCapabilityCount = 2,
             FaultedCapabilityCount = 1,

@@ -1,4 +1,4 @@
-using WSGM.Device.Sdk.Identity;
+using LibHandheld.Contracts;
 using WSGM.Install;
 
 namespace WSGM.Tests.Install;
@@ -6,8 +6,8 @@ namespace WSGM.Tests.Install;
 public sealed class HandheldSupportTests
 {
     [Theory]
-    [InlineData("Micro-Star International Co., Ltd.", "MS-1T52", "wsgm.device.msi.claw")]
-    [InlineData("ASUSTeK COMPUTER INC.", "RC72LA", "wsgm.device.asus.rog-ally")]
+    [InlineData("Micro-Star International Co., Ltd.", "MS-1T52", "msi-claw")]
+    [InlineData("ASUSTeK COMPUTER INC.", "RC72LA", "rog-ally")]
     public void ExactNativeSupportNeedsNoInstalledOrBundledDevicePackage(string manufacturer, string board,
         string family)
     {
@@ -18,7 +18,6 @@ public sealed class HandheldSupportTests
         Assert.NotNull(offers.Handheld);
         Assert.Equal(family, offers.Handheld.Definition.FamilyId);
         Assert.Equal([SetupComponent.ControllerStack], offers.Handheld.Components);
-        Assert.Empty(offers.DeviceCandidates);
     }
 
     [Theory]

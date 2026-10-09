@@ -251,7 +251,7 @@ public sealed class PhysicalGlyphPlansTests
             [GlyphPackageLayout.ProfileManifest(manifest.ProfileId)] =
                 JsonSerializer.SerializeToUtf8Bytes(
                     manifest,
-                    DeviceJsonContext.Default.GlyphProfileManifest),
+                    GlyphJsonContext.Default.GlyphProfileManifest),
             [manifest.NoticePath] = [.. "Example glyph notice\n"u8]
         };
         if (includeArtwork)

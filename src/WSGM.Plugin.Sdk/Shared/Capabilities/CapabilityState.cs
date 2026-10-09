@@ -64,12 +64,6 @@ public sealed record CapabilityState
 
     /// <summary>When the read or accepted write was observed, in UTC; null when no observation exists.</summary>
     public DateTimeOffset? ObservedAt { get; init; }
-
-    /// <summary>Descriptor generation this state was produced against.</summary>
-    public required long DescriptorGeneration { get; init; }
-
-    /// <summary>Process/reconnect cycle generation this state was produced against.</summary>
-    public required long CycleGeneration { get; init; }
 }
 
 /// <summary>

@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 using WSGM.Core;
-using WSGM.Device.Sdk.Input;
 using WSGM.Input;
+using HapticOutputFrame = LibHandheld.Contracts.HapticOutputFrame;
 
 namespace WSGM.Tests.Input;
 

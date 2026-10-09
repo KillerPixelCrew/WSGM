@@ -29,6 +29,7 @@ public partial class OverlayWindow
                              || previous.Controller is null != current.Controller is null
                              || previous.AutoTdp is null != current.AutoTdp is null
                              || previous.AuthoredProfile is null != current.AuthoredProfile is null
+                             || previous.LightingProfile is null != current.LightingProfile is null
                              || previous.Recovery is null != current.Recovery is null
                              || !CapabilityRowRenderer.SameRowLayouts(previous.Capabilities, current.Capabilities))
         {
@@ -119,6 +120,7 @@ public partial class OverlayWindow
             DeviceHostRowIds.AutoTdp => snapshot.AutoTdp,
             DeviceHostRowIds.ControllerTarget => snapshot.Controller,
             DeviceHostRowIds.AuthoredProfile => snapshot.AuthoredProfile,
+            DeviceHostRowIds.LightingProfile => snapshot.LightingProfile,
             DeviceHostRowIds.Retry => snapshot.Recovery,
             _ => null
         };

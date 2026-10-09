@@ -8,7 +8,6 @@ using System.Threading.Tasks;
 using SteamUiToolkit;
 using WinRT;
 using WSGM.Core;
-using WSGM.Device.Sdk.Plugin;
 using WSGM.Plugin.Sdk;
 using WinRtPoint = Windows.Foundation.Point;
 
@@ -222,7 +221,6 @@ internal static class PluginLoader
         // SDK identity and CsWinRT's process-global ComWrappers registration require a single host copy.
         private static readonly Dictionary<string, Assembly> HostOwned = new(StringComparer.Ordinal)
         {
-            [typeof(IDevicePlugin).Assembly.GetName().Name!] = typeof(IDevicePlugin).Assembly,
             [typeof(IPlugin).Assembly.GetName().Name!] = typeof(IPlugin).Assembly,
             [typeof(ISteamUiModule).Assembly.GetName().Name!] = typeof(ISteamUiModule).Assembly,
             [typeof(IWinRTObject).Assembly.GetName().Name!] = typeof(IWinRTObject).Assembly,

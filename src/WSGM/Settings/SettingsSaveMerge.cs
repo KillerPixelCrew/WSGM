@@ -100,6 +100,12 @@ internal static class SettingsSaveMerge
 
         foreach (var edit in request.CommonPluginEdits)
         {
+            if (BuiltinGpuDrivers.Contains(edit.PluginId))
+            {
+                BuiltinGpuDrivers.SetEnabled(config, edit.PluginId, edit.Enabled);
+                continue;
+            }
+
             var failure = edit.SteamCefReloadRequested
                 ? null
                 : config.PluginInstances.FirstOrDefault(entry =>
@@ -141,29 +147,21 @@ internal static class SettingsSaveMerge
             }
         }
 
-        if ((request.PluginEdits.Count > 0 || request.DeviceProfiles is not null)
-            && request.PluginDevice.Length > 0
-            && request.PluginId.Length > 0)
+        if (request.DeviceProfiles is not null
+            && request.DeviceDefinitionId.Length > 0
+            && request.FamilyId.Length > 0)
         {
-            var scope = FindOrAddSaveScope(config, request.PluginDevice, request.PluginId);
-            foreach (var (settingId, value) in request.PluginEdits)
+            var scope = FindOrAddSaveScope(config, request.DeviceDefinitionId, request.FamilyId);
+            // A deleted profile is removed from every layer that selected it.
+            foreach (var removed in scope.Profiles.Select(profile => profile.ProfileId)
+                         .Except(request.DeviceProfiles.Select(profile => profile.ProfileId),
+                             StringComparer.Ordinal).ToArray())
             {
-                PluginSettingsResolver.Store(scope, settingId, value);
+                ProfileEdits.RemoveFanCurveReferences(config.Profiles, removed);
+                ProfileEdits.RemoveLightingProfileReferences(config.Profiles, removed);
             }
 
-            if (request.DeviceProfiles is not null)
-            {
-                // A deleted profile is also removed from every layer that selected it, so that layer
-                // falls back to the one below instead of naming nothing.
-                foreach (var removed in scope.Profiles.Select(profile => profile.ProfileId)
-                             .Except(request.DeviceProfiles.Select(profile => profile.ProfileId),
-                                 StringComparer.Ordinal).ToArray())
-                {
-                    ProfileEdits.RemoveFanCurveReferences(config.Profiles, removed);
-                }
-
-                scope.Profiles = [.. request.DeviceProfiles];
-            }
+            scope.Profiles = [.. request.DeviceProfiles];
         }
 
         config.Splash = preparedSplash;
@@ -173,25 +171,25 @@ internal static class SettingsSaveMerge
             !managersWas && config.OtherManagersTakeoverAccepted));
     }
 
-    private static PluginSettingsScope FindOrAddSaveScope(
+    private static DeviceProfileScope FindOrAddSaveScope(
         AppConfig config,
         string deviceDefinitionId,
-        string pluginId)
+        string familyId)
     {
-        var scope = config.DeviceIntegration.PluginSettings.FirstOrDefault(candidate =>
+        var scope = config.DeviceIntegration.DeviceProfiles.FirstOrDefault(candidate =>
             string.Equals(candidate.DeviceDefinitionId, deviceDefinitionId, StringComparison.Ordinal)
-            && string.Equals(candidate.PluginId, pluginId, StringComparison.Ordinal));
+            && string.Equals(candidate.FamilyId, familyId, StringComparison.Ordinal));
         if (scope is not null)
         {
             return scope;
         }
 
-        scope = new PluginSettingsScope
+        scope = new DeviceProfileScope
         {
             DeviceDefinitionId = deviceDefinitionId,
-            PluginId = pluginId
+            FamilyId = familyId
         };
-        config.DeviceIntegration.PluginSettings.Add(scope);
+        config.DeviceIntegration.DeviceProfiles.Add(scope);
         return scope;
     }
 }

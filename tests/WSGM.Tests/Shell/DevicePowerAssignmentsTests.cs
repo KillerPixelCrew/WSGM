@@ -560,7 +560,7 @@ public sealed class DevicePowerAssignmentsTests
         {
             var presets = Device.Create(() => AutoTdpOwnsPower);
             return new DevicePowerAssignments(presets,
-                () => new DevicePowerAssignmentContext(Snapshot(), Plugin, Cycle, Enabled, Device.OnAc),
+                () => new DevicePowerAssignmentContext(Snapshot(), Plugin, Enabled, Device.OnAc),
                 (context, ac, reference) =>
                 {
                     Saves++;

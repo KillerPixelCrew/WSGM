@@ -32,6 +32,9 @@ param(
     [switch]$Desktop
 )
 
+# Read the exact package IDs shared with setup and runtime discovery.
+$retiredPackageIds = @([regex]::Matches((Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\src\WSGM.Install\NeutralLibraryRetirement.cs') -Raw), '"(wsgm\.[^"]+)"') | ForEach-Object { $_.Groups[1].Value })
+
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
@@ -102,6 +105,14 @@ if (-not $SkipBuild) {
 }
 
 $newExe = Join-Path $appPublish 'WSGM.exe'
+# Keep family licences and glyph notices readable in the established development install too.
+foreach ($family in 'MsiClaw', 'RogAlly') {
+    $familySource = Join-Path $root "external\libhandheld\src\LibHandheld\Families\$family"
+    foreach ($notice in 'THIRD_PARTY_NOTICES.md', 'PROVENANCE.md', 'LICENSE') {
+        Copy-Item -LiteralPath (Join-Path $familySource $notice) `
+            -Destination (Join-Path $appPublish "LibHandheld-$family-$notice") -Force
+    }
+}
 if (-not (Test-Path -LiteralPath $newExe)) {
     throw "No published WSGM.exe at $newExe - build first or drop -SkipBuild."
 }
@@ -192,6 +203,7 @@ $copies.Add(@{ Source = $newExe; Name = 'WSGM.ShellAnchor.exe'; Process = 'WSGM.
 foreach ($pattern in 'WSGM.Launch.exe', 'WSGM.PackagedLaunch.exe', '*.dll', 'WSGM.deps.json',
     'WSGM.runtimeconfig.json', 'LibGPUDriverInteract-LICENSE.txt', 'LibGPUDriverInteract-PROVENANCE.md',
     'LibHandheld-LICENSE.txt', 'LibHandheld-PROVENANCE.md', 'LibHandheld-Transports-NOTICES.md',
+    'LibHandheld-MsiClaw-*', 'LibHandheld-RogAlly-*',
     'LibHandheld-Transports-MPL-2.0.txt', 'LibHandheld-Transports-LGPL-2.1.txt') {
     foreach ($file in @(Get-ChildItem -LiteralPath $appPublish -Filter $pattern -ErrorAction SilentlyContinue)) {
         $copies.Add(@{ Source = $file.FullName; Name = $file.Name; Process = '' })
@@ -268,8 +280,7 @@ if (Test-Path -LiteralPath $request.PluginsRoot -PathType Container) {
                     try {
                         $manifest = $reader.ReadToEnd() | ConvertFrom-Json -ErrorAction Stop
                         $retired = $manifest -is [PSCustomObject] -and $manifest.id -is [string] -and
-                            $manifest.id -cin @('wsgm.gpu.intel', 'wsgm.gpu.amd', 'wsgm.gpu.nvidia',
-                                'wsgm.device.msi.claw', 'wsgm.device.asus.rog-ally')
+                            $manifest.id -cin $retiredPackageIds
                     } finally {
                         $reader.Dispose()
                     }

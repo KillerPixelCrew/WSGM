@@ -1,4 +1,4 @@
-using WSGM.Device.Sdk.Identity;
+using LibHandheld.Contracts;
 using WSGM.Install;
 using WSGM.Setup.UI;
 
@@ -17,7 +17,6 @@ public sealed class HandheldHardwarePageTests
         var page = new HardwarePage("Ally X", "RC72LA", offers, () => { });
 
         Assert.NotNull(page.Chosen);
-        Assert.False(page.NeedsChoice);
         Assert.Contains(SetupComponent.ControllerStack, page.Chosen.Offer.Components);
         page.SkipPlugin = true;
         Assert.Null(page.Chosen);

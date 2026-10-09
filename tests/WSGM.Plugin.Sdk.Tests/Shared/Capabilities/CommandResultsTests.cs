@@ -11,8 +11,6 @@ public sealed class CommandResultsTests
         {
             CommandId = Guid.NewGuid(),
             CapabilityId = "charge.limit",
-            ExpectedCycleGeneration = 1,
-            ExpectedDescriptorGeneration = 2,
             Deadline = Deadline.Never
         };
     }

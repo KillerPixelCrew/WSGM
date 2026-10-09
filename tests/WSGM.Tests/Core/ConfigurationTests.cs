@@ -2,7 +2,6 @@ using System.Text.Json;
 using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Sdk.Settings;
 using WSGM.Input;
 using WSGM.Plugin.Sdk;
 using WSGM.Testing;
@@ -124,9 +123,7 @@ public sealed class ConfigurationTests
         Assert.Equal(DeviceGlyphSelection.Automatic, config.DeviceIntegration.GlyphSelection);
         Assert.Null(Assert.Single(config.Profiles.Games).Values.ControllerTarget);
         Assert.Equal(OemAction.Disabled, Assert.Single(config.DeviceIntegration.OemAssignments).Action);
-        Assert.Equal(
-            CapabilityValueKind.None,
-            Assert.Single(config.Profiles.Global.Device).Value!.Kind);
+        Assert.Empty(config.DeviceIntegration.DeviceProfiles);
     }
 
     [Fact]
@@ -185,72 +182,7 @@ public sealed class ConfigurationTests
         Assert.NotNull(config);
         Assert.Equal("#FF00AA", config.AccentColor);
         Assert.Equal(FrameLimitStrategy.FrameLimitOnly, config.Performance.FrameLimitStrategy);
-        Assert.Equal(
-            CapabilityValueKind.None,
-            Assert.Single(Assert.Single(config.DeviceIntegration.PluginSettings)
-                .Declaration!.Settings).ValueKind);
-    }
-
-    [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void NormalizeValidatesCachedDeclarationsWithoutMutatingSnapshotsOrSavedValues(bool malformed)
-    {
-        var section = new PluginSettingSection
-        {
-            SectionId = "general",
-            Key = malformed ? (SettingSectionKey)99 : SettingSectionKey.General,
-            SortOrder = 7
-        };
-        var declaration = new PluginSettingsManifest
-        {
-            Sections = [section],
-            Settings =
-            [
-                new PluginSettingDescriptor
-                {
-                    SettingId = "enabled",
-                    ValueKind = CapabilityValueKind.Boolean,
-                    Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Enabled" },
-                    Default = CapabilityValue.Boolean(false),
-                    SectionId = "general",
-                    SortOrder = 11
-                }
-            ]
-        };
-        var saved = new PluginSettingValue
-            { SettingId = "enabled", Boolean = true };
-        var scope = new PluginSettingsScope
-        {
-            DeviceDefinitionId = "device",
-            PluginId = "plugin",
-            Declaration = declaration,
-            Values = [saved]
-        };
-        var config = new AppConfig { DeviceIntegration = { PluginSettings = [scope] } };
-        var values = scope.Values;
-        var original = JsonSerializer.Serialize(declaration, ConfigJsonContext.Default.PluginSettingsManifest);
-
-        var normalized = AppConfigRules.Normalize(config);
-
-        Assert.Same(scope, Assert.Single(normalized.Value.DeviceIntegration.PluginSettings));
-        Assert.Same(values, scope.Values);
-        Assert.Same(saved, Assert.Single(scope.Values));
-        Assert.True(saved.Boolean);
-        Assert.Equal(original,
-            JsonSerializer.Serialize(declaration, ConfigJsonContext.Default.PluginSettingsManifest));
-        if (malformed)
-        {
-            Assert.Null(scope.Declaration);
-            Assert.Contains(normalized.Diagnostics,
-                diagnostic => diagnostic.Contains("cached declaration", StringComparison.Ordinal));
-        }
-        else
-        {
-            Assert.Same(declaration, scope.Declaration);
-            Assert.Same(section, Assert.Single(scope.Declaration!.Sections));
-            Assert.Empty(normalized.Diagnostics);
-        }
+        Assert.Empty(config.DeviceIntegration.DeviceProfiles);
     }
 
     [Fact]
@@ -351,6 +283,7 @@ public sealed class ConfigurationTests
     public void NormalizeCollapsesDuplicateDeviceValuesOntoTheFirstAndMasksColours()
     {
         var config = new AppConfig();
+        config.DeviceIntegration.PreferencesSchemaVersion = DeviceIntegrationConfig.CurrentPreferencesSchemaVersion;
         config.Profiles.Global.Device =
         [
             new ProfileDeviceValue
@@ -383,9 +316,10 @@ public sealed class ConfigurationTests
     public void AFanCurveReferenceToADeletedProfileFallsBackInsteadOfNamingNothing()
     {
         var config = new AppConfig();
-        config.DeviceIntegration.PluginSettings.Add(new PluginSettingsScope
+        config.DeviceIntegration.PreferencesSchemaVersion = DeviceIntegrationConfig.CurrentPreferencesSchemaVersion;
+        config.DeviceIntegration.DeviceProfiles.Add(new DeviceProfileScope
         {
-            DeviceDefinitionId = "device", PluginId = "plugin",
+            DeviceDefinitionId = "device", FamilyId = "family",
             Profiles = [new DeviceAuthoredProfile { ProfileId = "quiet", CapabilityId = "fan.curve" }]
         });
         config.Profiles.Global.FanCurveProfileId = "quiet";

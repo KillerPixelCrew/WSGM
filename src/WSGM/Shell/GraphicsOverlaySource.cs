@@ -176,9 +176,7 @@ internal sealed class GraphicsOverlayBridge : IGraphicsOverlaySource
         var current = _gpu.Snapshot(pluginId)?.Capabilities.FirstOrDefault(candidate =>
             candidate.View.Descriptor.CapabilityId == capability.CapabilityId
             && candidate.View.Descriptor.InstanceId == capability.InstanceId)?.View;
-        if (current is null
-            || current.Projection.State.CycleGeneration != capability.CycleGeneration
-            || current.Projection.State.DescriptorGeneration != capability.DescriptorGeneration)
+        if (current is null)
         {
             // A deferred editor callback belongs to the descriptor the user actually saw.
             Changed?.Invoke();

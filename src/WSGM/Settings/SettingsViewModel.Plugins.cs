@@ -1,35 +1,22 @@
 using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using LibHandheld.Contracts;
 using WSGM.Core;
-using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Sdk.Settings;
 using WSGM.Install;
-using WSGM.Shell;
 using WSGM.Themes;
 
 namespace WSGM.Settings;
 
 public sealed partial class SettingsViewModel
 {
-    /// <summary>Edits made on the plugin page, applied at save. Empty until the user changes one.</summary>
-    private readonly Dictionary<string, CapabilityValue> _pluginSettingEdits =
-        new(StringComparer.Ordinal);
-
-    /// <summary>Whether the profile list was changed and should be written at save.</summary>
-    /// <remarks>
-    ///     Tracked rather than always written, for the same reason the plugin settings are: a save
-    ///     triggered by an unrelated page must not overwrite what another process put there.
-    /// </remarks>
+    private string _deviceProfileDefinition = string.Empty;
+    private string _deviceProfileFamily = string.Empty;
     private bool _deviceProfilesEdited;
-
-    private string _pluginSettingsDevice = string.Empty;
-    private string _pluginSettingsPlugin = string.Empty;
     private bool? _repairAvailable;
     private DeviceProfileRowViewModel? _selectedDeviceProfile;
 
@@ -87,12 +74,6 @@ public sealed partial class SettingsViewModel
     /// <summary>Runs the installed setup's repair, which installs what the plugins need.</summary>
     public RelayCommand RepairCommand => field ??= new RelayCommand(() => _services.StartRepair());
 
-    /// <summary>Sections the installed plugin declares, in render order.</summary>
-    public ObservableCollection<PluginSettingSectionViewModel> PluginSettingSections { get; } = [];
-
-    /// <summary>Whether the plugin settings page has anything to draw.</summary>
-    public bool PluginSettingsAvailable => PluginSettingSections.Count > 0;
-
     /// <summary>Authored fan and lighting profiles for the installed device.</summary>
     public ObservableCollection<DeviceProfileRowViewModel> DeviceProfiles { get; } = [];
 
@@ -126,18 +107,12 @@ public sealed partial class SettingsViewModel
     /// <summary>Whether a profile is selected and the editor has something to draw.</summary>
     public bool HasSelectedDeviceProfile => _selectedDeviceProfile is not null;
 
-    /// <summary>
-    ///     Why the plugin settings page is empty.
-    /// </summary>
-    /// <remarks>
-    ///     Shown instead of a blank page. A plugin that declares no settings and a machine with no
-    ///     plugin at all look identical otherwise, and the user cannot tell whether something failed.
-    /// </remarks>
-    public string PluginSettingsEmptyReason
-    {
-        get;
-        set => SetField(ref field, value, nameof(PluginSettingsEmptyReason));
-    } = "No device plugin is installed, so there are no plugin settings to show.";
+    /// <summary>Whether exact built-in device metadata permits authoring profiles.</summary>
+    public bool DeviceProfilesAvailable => _deviceProfileDefinition.Length > 0;
+
+    /// <summary>Explains an unavailable profile editor without activating device hardware.</summary>
+    public string DeviceProfilesEmptyReason =>
+        "No supported handheld was detected. Device profiles become available when this model is supported.";
 
     /// <summary>Starts the installed setup's repair, which installs what the plugins need.</summary>
     internal static void StartSetupRepair()
@@ -162,7 +137,6 @@ public sealed partial class SettingsViewModel
         var page = await Task.Run(_services.ReadPackages);
         LoadPluginPackages(page);
         LoadCommonPlugins(page);
-        LoadPluginSettings(_config, page.Catalog.InstalledDevicePluginId, true);
     }
 
     /// <summary>Fills the Plugins page: installed files, and what the installed release bundles.</summary>
@@ -172,7 +146,7 @@ public sealed partial class SettingsViewModel
         InstalledPackages.Clear();
         AvailablePackages.Clear();
         UnavailablePackages.Clear();
-        foreach (var state in page.Rows.Where(state => !BuiltinGpuDrivers.Contains(state.Id)))
+        foreach (var state in page.Rows)
         {
             PluginPackageRow row = new(state, action => _services.ActOnPackage(action, page.Bundle));
             (state.Section switch
@@ -190,7 +164,7 @@ public sealed partial class SettingsViewModel
     internal static PluginPackagePage ReadPluginPackagePage()
     {
         var catalog = PluginPackageCatalog.Discover(InstallLayout.Plugins);
-        // One adapter read serves both the offers and which graphics package runs by default.
+        // One adapter read serves the available common-plugin offers.
         var adapters = CommonPluginEnablement.ReadAdapters();
         BundleManifest? bundle = null;
         PluginOffers? offers = null;
@@ -201,8 +175,7 @@ public sealed partial class SettingsViewModel
             {
                 string[] installed =
                 [
-                    .. catalog.Common.Select(package => package.Manifest.Id),
-                    .. catalog.Device.InstalledPackage?.Manifest is { } device ? [device.Id] : Array.Empty<string>()
+                    .. catalog.Common.Select(package => package.Manifest.Id)
                 ];
                 offers = PluginOffers.Compute(bundle, DeviceMachineIdentity.Collect(), adapters, installed);
             }
@@ -216,7 +189,7 @@ public sealed partial class SettingsViewModel
             new PendingPluginRemovalStore(InstallLayout.PendingPluginRemovals));
         return new PluginPackagePage(catalog, adapters, bundle, rows.Select(row =>
         {
-            if (row.IsDevice || string.IsNullOrEmpty(row.PackagePath))
+            if (string.IsNullOrEmpty(row.PackagePath))
             {
                 return row;
             }
@@ -268,13 +241,12 @@ public sealed partial class SettingsViewModel
         var catalog = page.Catalog;
         SteamCefPluginWarningAccepted = _config.SteamCefPluginWarningAccepted;
         CommonPlugins.Clear();
-        foreach (var package in catalog.Common.Where(package => !BuiltinGpuDrivers.Contains(package.Manifest.Id)))
+        foreach (var package in catalog.Common)
         {
             var configured = _config.PluginInstances.Where(entry => entry.PluginId == package.Manifest.Id).ToArray();
             if (configured.Length == 0)
             {
-                // A graphics package runs by default on a machine with an adapter it serves, from the
-                // adapter list this page read for its offers.
+                // Use the package's declared defaults and this page's adapter snapshot.
                 CommonPlugins.Add(new CommonPluginInstanceRow(package.Manifest.Id,
                     CommonPluginEnablement.DefaultInstanceId, package.Manifest.Name,
                     CommonPluginEnablement.EnabledByDefault(package.Manifest, page.Adapters), true,
@@ -290,8 +262,7 @@ public sealed partial class SettingsViewModel
         }
 
         foreach (var instance in _config.PluginInstances.Where(entry =>
-                     !BuiltinGpuDrivers.Contains(entry.PluginId)
-                     && catalog.Common.All(package => package.Manifest.Id != entry.PluginId)))
+                     catalog.Common.All(package => package.Manifest.Id != entry.PluginId)))
         {
             CommonPlugins.Add(new CommonPluginInstanceRow(instance.PluginId, instance.InstanceId, instance.PluginId,
                 instance.Enabled, false));
@@ -315,6 +286,11 @@ public sealed partial class SettingsViewModel
     /// </remarks>
     internal void AddDeviceProfile(string capabilityId, bool color = false)
     {
+        if (!DeviceProfilesAvailable)
+        {
+            return;
+        }
+
         var id = $"profile-{Guid.NewGuid():N}";
         DeviceProfileRowViewModel row = new(new DeviceAuthoredProfile
         {
@@ -360,126 +336,14 @@ public sealed partial class SettingsViewModel
         _deviceProfilesEdited = true;
     }
 
-    /// <summary>Replaces the plugin settings page content.</summary>
-    /// <param name="view">The projected sections and their settings, in draw order.</param>
-    /// <param name="onEdited">Called with the setting id and new value after each edit.</param>
-    /// <remarks>
-    ///     Rebuilt wholesale rather than reconciled in place: the manifest changes only when a plugin is
-    ///     installed or updated, so the simple path is also the correct one, and a partial reconcile
-    ///     would have to answer what happens to a row whose declared kind changed underneath it.
-    ///     <para>
-    ///         Section ids are kept on the section view models so the window's focus and scroll restoration
-    ///         still has a stable key after a rebuild.
-    ///     </para>
-    /// </remarks>
-    internal void SetPluginSettings(
-        PluginSettingsView view,
-        Action<string, CapabilityValue> onEdited)
+    private void LoadDeviceProfiles(HandheldDefinition? definition)
     {
-        ArgumentNullException.ThrowIfNull(onEdited);
-        PluginSettingSections.Clear();
-        foreach (var section in view.Sections)
-        {
-            if (!view.Settings.TryGetValue(
-                    section.SectionId,
-                    out var settings))
-            {
-                continue;
-            }
-
-            List<PluginSettingRowViewModel> rows = [];
-            foreach (var setting in settings)
-            {
-                PluginSettingRowViewModel model = new(setting.Descriptor, setting.Value);
-                model.Edited += onEdited;
-                rows.Add(model);
-            }
-
-            PluginSettingSections.Add(new PluginSettingSectionViewModel(
-                section.SectionId,
-                SectionTitle(section),
-                rows));
-        }
-
-        Raise(nameof(PluginSettingsAvailable));
-    }
-
-    /// <summary>
-    ///     Builds the plugin settings page from the most recently published declaration.
-    /// </summary>
-    /// <param name="config">The configuration to read the cache and the stored values from.</param>
-    /// <param name="installedPluginId">Installed package ID, when discovery found one package.</param>
-    /// <param name="filterToInstalledPlugin">Whether declarations from other package IDs are excluded.</param>
-    /// <remarks>
-    ///     Settings does not activate device hardware, so the cached declaration is the only description
-    ///     of the plugin's settings available here. Stored values are still reconciled against it,
-    ///     because an older declaration can describe bounds the stored values no longer fit.
-    ///     <para>
-    ///         Exactly one scope is drawn — the one matching the installed plugin — and the reason is
-    ///         reported when none does, since a blank page cannot distinguish "no plugin" from "the page
-    ///         failed".
-    ///     </para>
-    /// </remarks>
-    private void LoadPluginSettings(
-        AppConfig config,
-        string? installedPluginId,
-        bool filterToInstalledPlugin)
-    {
-        ArgumentNullException.ThrowIfNull(config);
-        var candidates = config.DeviceIntegration.PluginSettings
-            .Where(candidate => candidate.Declaration is not null);
-        if (filterToInstalledPlugin)
-        {
-            candidates = installedPluginId is null
-                ? []
-                : candidates.Where(candidate => string.Equals(
-                    candidate.PluginId,
-                    installedPluginId,
-                    StringComparison.Ordinal));
-        }
-
-        var scope = candidates.LastOrDefault();
-        if (scope?.Declaration is not { } declaration)
-        {
-            PluginSettingSections.Clear();
-            PluginSettingsEmptyReason =
-                "No device plugin has published settings yet. Start WSGM's shell once with the "
-                + "plugin installed, then reopen Settings.";
-            Raise(nameof(PluginSettingsAvailable));
-            return;
-        }
-
-        var resolution = PluginSettingsResolver.Resolve(
-            declaration,
-            scope.Values);
-        foreach (var rejected in resolution.Values
-                     .Where(value => value.Origin is PluginSettingOrigin.Rejected))
-        {
-            // The stored value and the declared bound, together: a rejection reported without both
-            // cannot be acted on from a user's log.
-            Log.Warn(
-                $"Plugin setting '{rejected.SettingId}' fell back to its default: {rejected.Reason}");
-        }
-
-        _pluginSettingsDevice = scope.DeviceDefinitionId;
-        _pluginSettingsPlugin = scope.PluginId;
-        _pluginSettingEdits.Clear();
-        LoadDeviceProfiles(scope);
-        SetPluginSettings(
-            PluginSettingsCoordinator.Project(declaration, resolution),
-            (settingId, value) => _pluginSettingEdits[settingId] = value);
-
-        if (PluginSettingSections.Count == 0)
-        {
-            PluginSettingsEmptyReason =
-                "The installed device plugin declares no settings.";
-        }
-    }
-
-    private void LoadDeviceProfiles(PluginSettingsScope scope)
-    {
+        _deviceProfileDefinition = definition?.Id ?? string.Empty;
+        _deviceProfileFamily = definition?.FamilyId ?? string.Empty;
         DeviceProfiles.Clear();
-        foreach (var profile in scope.Profiles)
+        var scope = _config.DeviceIntegration.DeviceProfiles.FirstOrDefault(candidate =>
+            candidate.DeviceDefinitionId == _deviceProfileDefinition && candidate.FamilyId == _deviceProfileFamily);
+        foreach (var profile in scope?.Profiles ?? [])
         {
             DeviceProfiles.Add(new DeviceProfileRowViewModel(profile));
         }
@@ -488,15 +352,15 @@ public sealed partial class SettingsViewModel
         _deviceProfilesEdited = false;
     }
 
-    /// <remarks>
-    ///     A custom title is plugin-supplied plain text, already bounded and validated by
-    ///     <see cref="PluginSettingSection" />; it is rendered as text and never as markup. A keyed title
-    ///     is WSGM's, which is the entire reason the key exists.
-    /// </remarks>
-    private static string SectionTitle(PluginSettingSection section)
+    internal void UpdateDeviceDefinition(HandheldDefinition? definition)
     {
-        return section.Key is SettingSectionKey.Custom
-            ? (section.CustomTitle ?? section.SectionId).ToUpperInvariant()
-            : section.Key.ToString().ToUpperInvariant();
+        if (_deviceProfilesEdited || _deviceProfileDefinition == definition?.Id)
+        {
+            return;
+        }
+
+        LoadDeviceProfiles(definition);
+        Raise(nameof(DeviceProfilesAvailable));
+        Raise(nameof(DeviceProfilesEmptyReason));
     }
 }

@@ -10,8 +10,7 @@ namespace WSGM.Device.Sdk.Capabilities;
 /// </summary>
 /// <remarks>
 ///     A descriptor never changes. When firmware, the endpoint set, or dependency health changes what a
-///     capability can do, the plugin publishes a complete replacement set under a new
-///     <see cref="CapabilityDescriptorSet.Generation" /> and consumers discard everything they cached.
+///     capability can do, the plugin publishes a complete replacement set, which replaces the host's descriptors.
 ///     Mutating a descriptor in place would let a stale range validate a command the hardware will
 ///     reject.
 ///     <para>
@@ -197,14 +196,6 @@ public enum CapabilityPersistence
 /// </remarks>
 public sealed record CapabilityDescriptorSet
 {
-    /// <summary>
-    ///     Monotonic generation. Increments whenever any descriptor changes.
-    /// </summary>
-    public required long Generation { get; init; }
-
-    /// <summary>The device generation these descriptors describe.</summary>
-    public required long CycleGeneration { get; init; }
-
     /// <summary>
     ///     The overlay sections this set's descriptors may reference, in declaration order.
     /// </summary>

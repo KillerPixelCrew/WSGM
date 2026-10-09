@@ -38,12 +38,6 @@ public sealed record CapabilityCommand
     /// </remarks>
     public int? PairedPowerLimitWatts { get; init; }
 
-    /// <summary>Descriptor generation this command was authored against.</summary>
-    public required long ExpectedDescriptorGeneration { get; init; }
-
-    /// <summary>Device generation this command was authored against.</summary>
-    public required long ExpectedCycleGeneration { get; init; }
-
     /// <summary>When the command stops being worth applying, on the active clock.</summary>
     public required Deadline Deadline { get; init; }
 }
@@ -79,7 +73,10 @@ public enum CommandOutcome
     TimedOut,
 
     /// <summary>Interrupted mid-operation. Whether it was applied is unknown.</summary>
-    Indeterminate
+    Indeterminate,
+
+    /// <summary>The native operation completed successfully without a separate readback claim.</summary>
+    Applied
 }
 
 /// <summary>

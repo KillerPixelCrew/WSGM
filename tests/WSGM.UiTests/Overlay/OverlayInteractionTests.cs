@@ -166,10 +166,10 @@ public sealed class OverlayInteractionTests
         };
         DevicePowerPresets service = new(
             () => [Power(CapabilityRole.PowerSustainedLimit, 16), Power(CapabilityRole.PowerSlowLimit, 18)],
-            (_, _, _, _, _, _) => throw new InvalidOperationException("Rendering must not write hardware"),
+            (_, _, _, _) => throw new InvalidOperationException("Rendering must not write hardware"),
             new WindowsPowerModes(new PowerSchemes(new FakePower()), new ReadOnlyPowerModeApi()));
         DevicePowerAssignments assignments = new(service,
-            () => new DevicePowerAssignmentContext(new ProfileSnapshot(config, ActiveProfile.None, 1), "fixture", 1,
+            () => new DevicePowerAssignmentContext(new ProfileSnapshot(config, ActiveProfile.None, 1), "fixture",
                 true, ac),
             (_, _, _) => throw new InvalidOperationException("Rendering must not save assignments"));
         using DevicePowerPresetSelection model = new(service, false, assignments);
@@ -215,8 +215,6 @@ public sealed class OverlayInteractionTests
                     CapabilityId = role.ToString(),
                     Available = true,
                     Quality = HardwareStateQuality.Verified,
-                    CycleGeneration = 1,
-                    DescriptorGeneration = 1,
                     ObservedAt = DateTimeOffset.UtcNow,
                     ObservedValue = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = watts }
                 }
@@ -263,13 +261,13 @@ public sealed class OverlayInteractionTests
             [Power(CapabilityRole.PowerSustainedLimit, 17), Power(CapabilityRole.PowerSlowLimit, 18)];
         using SemaphoreSlim powerLane = new(1, 1);
         var service = new DevicePowerPresets(() => views,
-            (_, _, _, _, _, _) => throw new InvalidOperationException("Inactive source must not write hardware"),
+            (_, _, _, _) => throw new InvalidOperationException("Inactive source must not write hardware"),
             new WindowsPowerModes(new PowerSchemes(new FakePower()), new ReadOnlyPowerModeApi()), powerLane: powerLane);
         ProfileConfig config = new();
         var saves = 0;
         var assignments = new DevicePowerAssignments(service,
             () => new DevicePowerAssignmentContext(new ProfileSnapshot(config, ActiveProfile.None, saves + 1),
-                "fixture", 1, true, true),
+                "fixture", true, true),
             (_, ac, reference) =>
             {
                 Assert.False(ac);
@@ -341,8 +339,6 @@ public sealed class OverlayInteractionTests
                     Available = true,
                     Quality = HardwareStateQuality.Verified,
                     ObservedValue = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = watts },
-                    CycleGeneration = 1,
-                    DescriptorGeneration = 1,
                     ObservedAt = DateTimeOffset.UtcNow
                 }
             }, null);
@@ -563,7 +559,7 @@ public sealed class OverlayInteractionTests
         using PowerSchemeSelection schemes = new(new NativeQamPowerProfileService(new PowerSchemes(new FakePower()),
             _ => throw new InvalidOperationException("Unexpected power scheme write")));
         DevicePowerPresets service = new(() => [],
-            (_, _, _, _, _, _) => throw new InvalidOperationException("Unexpected preset write"),
+            (_, _, _, _) => throw new InvalidOperationException("Unexpected preset write"),
             new WindowsPowerModes(new PowerSchemes(new FakePower()), new UnusedPowerModeApi()));
         using DevicePowerPresetSelection presets = new(service, false);
         TaskCompletionSource operation = new();

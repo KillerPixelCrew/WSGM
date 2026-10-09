@@ -10,7 +10,7 @@ changing these paths.
   never depends on Avalonia, GPU, or a valid user configuration.
 - CEF readiness gates Steam-dependent behavior; it must not block independent shell recovery or core UI indefinitely.
 - Views report intent. Shell managers own the live lifecycle, and configuration stores persistent policy only.
-- Disabling device integration completes the ordered controller release before disposing the plugin. No manager may
+- Disabling device integration completes the ordered controller release before disposing the handheld. No manager may
   recreate a disabled integration.
 - Capability writes are serialized. An uncertain write is reported and is not retried automatically.
 - A system suspend within two seconds of a resume is the stale half of a modern standby wake and is dropped. These

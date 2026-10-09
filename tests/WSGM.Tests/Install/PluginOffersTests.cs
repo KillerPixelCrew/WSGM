@@ -1,8 +1,8 @@
 using System.Text;
-using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Sdk.Identity;
+using LibHandheld.Contracts;
 using WSGM.Install;
 using WSGM.Testing;
+using CapabilityRole = WSGM.Device.Sdk.Capabilities.CapabilityRole;
 
 namespace WSGM.Tests.Install;
 
@@ -56,130 +56,6 @@ public sealed class PluginOffersTests
     }
 
     [Fact]
-    public void ABundleWrittenBeforeTheTestedHardwareListReadsItsListsAsEmpty()
-    {
-        // A 2.0.3 bundle.json has no testedHardware or replaces; reading it closed Settings.
-        const string json = """
-                            {"schemaVersion":1,"wsgmVersion":"2.0.3","plugins":[
-                              {"id":"wsgm.device.msi.claw","name":"MSI Claw","version":"1.0.0","category":"wsgm.device",
-                               "origin":"first-party","validation":"hardware-tested","contact":null,
-                               "hardware":[{"baseboardManufacturer":"Micro-Star International Co., Ltd.","baseboardProduct":"MS-1T52"}],
-                               "file":"claw.wsgmplugin","size":1,"sha256":"00"}]}
-                            """;
-
-        var plugin = Assert.Single(BundleManifest.Parse(Encoding.UTF8.GetBytes(json))!.Plugins);
-
-        Assert.Empty(plugin.TestedHardware);
-        Assert.Empty(plugin.Replaces);
-        Assert.Empty(plugin.Capabilities);
-        Assert.True(plugin.HardwareTestedOn(Claw));
-    }
-
-    [Fact]
-    public void ExactTestedDevicePlugin_IsRecommendedWithItsComponents()
-    {
-        var bundle = Bundle(
-            Device("claw", true, new HardwareMatchRule { BaseboardProduct = "MS-1T52" },
-                [CapabilityRole.ControllerSource, CapabilityRole.FanMode]),
-            Device("ally", true, new HardwareMatchRule { BaseboardProduct = "RC72LA" }),
-            Common("ir"));
-
-        var offers = PluginOffers.Compute(bundle, Claw, [], []);
-
-        Assert.Equal("claw", offers.RecommendedDevice?.Plugin.Id);
-        Assert.Equal([SetupComponent.ControllerStack], offers.RecommendedDevice!.Components);
-        Assert.Equal("ally", Assert.Single(offers.NotForThisHardware).Id);
-        Assert.Equal("ir", Assert.Single(offers.Common).Plugin.Id);
-        Assert.False(offers.NeedsDeviceChoice);
-    }
-
-    [Fact]
-    public void ExactMatchOutranksAFamilyFallback_AndTestedOutranksBlind()
-    {
-        var bundle = Bundle(
-            Device("family", true, new HardwareMatchRule
-            {
-                BaseboardManufacturer = "Micro-Star International Co., Ltd.", Fallback = true
-            }),
-            Device("exact", false, new HardwareMatchRule { BaseboardProduct = "MS-1T52" }));
-
-        var offers = PluginOffers.Compute(bundle, Claw, [], []);
-
-        Assert.Equal(["exact", "family"], offers.DeviceCandidates.Select(offer => offer.Plugin.Id));
-        Assert.Equal("exact", offers.RecommendedDevice?.Plugin.Id);
-    }
-
-    [Fact]
-    public void TwoEquallyGoodDevicePlugins_AskTheUserToChoose()
-    {
-        var bundle = Bundle(
-            Device("a", true, new HardwareMatchRule { BaseboardProduct = "MS-1T52" }),
-            Device("b", true, new HardwareMatchRule { SystemSku = "1T52.1" }));
-
-        var offers = PluginOffers.Compute(bundle, Claw, [], []);
-
-        Assert.Null(offers.RecommendedDevice);
-        Assert.True(offers.NeedsDeviceChoice);
-    }
-
-    [Fact]
-    public void UnsupportedHardware_GetsNoDeviceOffer_AndInstalledPluginsAreMarked()
-    {
-        var bundle = Bundle(Device("ally", true, new HardwareMatchRule { BaseboardProduct = "RC72LA" }),
-            Common("ir"));
-
-        var offers = PluginOffers.Compute(bundle, Claw, [], ["ir"]);
-
-        Assert.Empty(offers.DeviceCandidates);
-        Assert.Null(offers.RecommendedDevice);
-        Assert.True(Assert.Single(offers.Common).Installed);
-    }
-
-    [Fact]
-    public void BundleManifest_RoundTripsAndRefusesAnotherSchema()
-    {
-        var bundle = Bundle(Device("claw", true, new HardwareMatchRule { BaseboardProduct = "MS-1T52" },
-            [CapabilityRole.HapticSink]));
-
-        var read = BundleManifest.Parse(bundle.ToUtf8Json());
-
-        Assert.Equal([CapabilityRole.HapticSink], Assert.Single(read.Plugins).Capabilities);
-        Assert.Equal("claw", read.ByHash("ABC")?.Id);
-        Assert.Throws<InvalidDataException>(() =>
-            BundleManifest.Parse(Encoding.UTF8.GetBytes("""{"schemaVersion":2,"wsgmVersion":"2.0.0"}""")));
-    }
-
-    [Fact]
-    public void Components_ComeOnlyFromControllerRoles()
-    {
-        Assert.Empty(SetupComponents.Required([CapabilityRole.FanMode, CapabilityRole.PowerSlowLimit]));
-        Assert.Equal([SetupComponent.ControllerStack],
-            SetupComponents.Required([CapabilityRole.MotionSource, CapabilityRole.HapticSink]));
-    }
-
-    [Fact]
-    public void TestedHardware_LimitsTheTestedStatusToThoseBoards()
-    {
-        var claw = Device("claw", true, new HardwareMatchRule { BaseboardProduct = "MS-1T8K" }) with
-        {
-            Hardware =
-            [
-                new HardwareMatchRule { BaseboardProduct = "MS-1T52" },
-                new HardwareMatchRule { BaseboardProduct = "MS-1T8K" }
-            ],
-            TestedHardware = ["MS-1T52"]
-        };
-        var bundle = Bundle(claw);
-
-        var tested = PluginOffers.Compute(bundle, Claw, [], []).RecommendedDevice;
-        var blind = PluginOffers.Compute(bundle, Claw with { BaseboardProduct = "MS-1T8K" }, [], []).RecommendedDevice;
-
-        Assert.True(tested?.HardwareTested);
-        Assert.False(blind?.HardwareTested);
-        Assert.True(claw.HardwareTestedOn(null));
-    }
-
-    [Fact]
     public void GraphicsPlugins_AreOfferedForEveryPresentAdapterVendor()
     {
         var bundle = Bundle(Gpu("intel", "8086"), Gpu("nvidia", "10DE"), Gpu("amd", "1002"), Common("ir"));
@@ -196,7 +72,6 @@ public sealed class PluginOffersTests
         Assert.Empty(offers.Gpu.SelectMany(offer => offer.Components));
         Assert.Equal("amd", Assert.Single(offers.GpuNotForThisHardware).Id);
         Assert.Equal("ir", Assert.Single(offers.Common).Plugin.Id);
-        Assert.Empty(offers.NotForThisHardware);
     }
 
     [Fact]
@@ -238,17 +113,6 @@ public sealed class PluginOffersTests
     private static BundleManifest Bundle(params BundledPlugin[] plugins)
     {
         return new BundleManifest { SchemaVersion = 1, WsgmVersion = "2.0.0", Plugins = plugins };
-    }
-
-    private static BundledPlugin Device(string id, bool tested, HardwareMatchRule rule,
-        IReadOnlyList<CapabilityRole>? roles = null)
-    {
-        return new BundledPlugin
-        {
-            Id = id, Name = id, Version = "1.0.0", Category = BundledPlugin.DeviceCategory, Origin = "first-party",
-            Validation = tested ? "hardware-tested" : "blind", Hardware = [rule], Capabilities = roles ?? [],
-            File = id + ".wsgmpkg", Sha256 = "abc"
-        };
     }
 
     private static BundledPlugin Gpu(string id, string vendor)

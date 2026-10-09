@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   pull_request:
   push:
-    branches-ignore: ["chore/device-integration-rework"]
+    branches: ["**"]
 
 permissions:
   contents: read
@@ -17,9 +17,8 @@ concurrency:
 
 jobs:
   verify:
-    if:
-      github.head_ref != 'chore/device-integration-rework' && github.ref_name !=
-      'chore/device-integration-rework'
+    # Opt in only after local validation and access to every pinned submodule.
+    if: vars.WSGM_CI_ENABLED == 'true'
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
@@ -94,9 +93,8 @@ jobs:
   # token and no secrets, and a community plugin that stops building shows up here as
   # outdated long before a release.
   bundle:
-    if:
-      github.head_ref != 'chore/device-integration-rework' && github.ref_name !=
-      'chore/device-integration-rework'
+    # Opt in only after local validation and access to every pinned submodule.
+    if: vars.WSGM_CI_ENABLED == 'true'
     runs-on: windows-latest
     timeout-minutes: 30
     permissions:
@@ -133,9 +131,8 @@ jobs:
   # this job a broken pin stayed green here and failed only inside the tag-triggered release
   # job, after a public tag already existed.
   viiper:
-    if:
-      github.head_ref != 'chore/device-integration-rework' && github.ref_name !=
-      'chore/device-integration-rework'
+    # Opt in only after local validation and access to every pinned submodule.
+    if: vars.WSGM_CI_ENABLED == 'true'
     runs-on: windows-latest
     timeout-minutes: 20
     steps:

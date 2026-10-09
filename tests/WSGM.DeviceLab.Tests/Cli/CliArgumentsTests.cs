@@ -1,211 +1,23 @@
 using WSGM.DeviceLab.Cli;
-using WSGM.DeviceLab.Testing;
 
 namespace WSGM.DeviceLab.Tests.Cli;
 
 public sealed class CliArgumentsTests
 {
-    public static TheoryData<string[]> DuplicateOptionCases =>
-    [
-        [
-            "plugin", "--from", "one.json", "-f", "two.json", "--state-dir", "state",
-            "--action", "haptic"
-        ],
-        [
-            "plugin", "--from", "inventory.json", "--state-dir", "one", "--state-dir", "two",
-            "--action", "haptic"
-        ],
-        [
-            "plugin", "--from", "inventory.json", "--state-dir", "state",
-            "--action", "haptic", "--action", "controller"
-        ],
-        [
-            "plugin", "--from", "inventory.json", "--state-dir", "state",
-            "--action", "capability", "--capability", "one", "--capability", "two",
-            "--value", "true"
-        ],
-        [
-            "plugin", "--from", "inventory.json", "--state-dir", "state",
-            "--action", "capability", "--capability", "lighting.zone",
-            "--instance", "left", "--instance", "right", "--value", "true"
-        ],
-        [
-            "plugin", "--from", "inventory.json", "--state-dir", "state",
-            "--action", "capability", "--capability", "lighting.zone",
-            "--value", "true", "--value", "false"
-        ]
-    ];
-
-    public static TheoryData<string[]> UnknownOrTrailingArgumentCases =>
-    [
-        [.. ValidFixedAction(), "--unknown", "value"],
-        [.. ValidFixedAction(), "trailing-value"]
-    ];
-
-    public static TheoryData<string[]> MissingValueCases =>
-    [
-        ["plugin", "--from"],
-        ["plugin", "--from", "--state-dir", "state", "--action", "haptic"],
-        ["plugin", "--from", "inventory.json", "--state-dir", "--action", "haptic"],
-        ["plugin", "--from", "inventory.json", "--state-dir", "state", "--action"],
-        [
-            "plugin", "--from", "inventory.json", "--state-dir", "state",
-            "--action", "capability", "--capability", "--value", "true"
-        ],
-        [
-            "plugin", "--from", "inventory.json", "--state-dir", "state",
-            "--action", "capability", "--capability", "lighting.zone", "--value"
-        ],
-        [
-            "plugin", "--from", "inventory.json", "--state-dir", "state",
-            "--action", "capability", "--capability", "lighting.zone",
-            "--instance", "--value", "true"
-        ]
-    ];
-
     [Fact]
     public void DeviceLabCli_RejectsAMisspelledRedactionFlag()
     {
-        var error = DeviceLabCli.ValidateArguments(
-            ["inventory", "--out-dir", "capture", "--sharable"]);
-
+        var error = DeviceLabCli.ValidateArguments(["inventory", "--out-dir", "capture", "--sharable"]);
         Assert.Contains("--sharable", error, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public void CapabilityAction_ParsesExactlyOneActionAndItsApplicableOptions()
-    {
-        string[] arguments =
-        [
-            "plugin",
-            "--from", "inventory.json",
-            "--state-dir", "state",
-            "--action", "capability",
-            "--capability", "performance.profile",
-            "--instance", "apu",
-            "--value", "balanced"
-        ];
-
-        var accepted = HardwareTestCliArguments.TryParse(
-            arguments,
-            out var parsed,
-            out var error);
-
-        Assert.True(accepted, error);
-        Assert.NotNull(parsed);
-        Assert.Equal("plugin", parsed.PackageDirectory);
-        Assert.Equal("inventory.json", parsed.InventoryPath);
-        Assert.Equal("state", parsed.StateDirectory);
-        Assert.Equal(AttendedPluginActionKind.CapabilityValue, parsed.Action.Kind);
-        Assert.Equal("performance.profile", parsed.Action.CapabilityId);
-        Assert.Equal("apu", parsed.Action.InstanceId);
-        Assert.Equal("balanced", parsed.Action.ValueText);
-    }
-
     [Theory]
-    [InlineData("haptic", "HapticPulse")]
-    [InlineData("haptic-sweep", "HapticSweep")]
-    [InlineData("controller", "ControllerManagement")]
-    public void FixedAction_ParsesWithoutCapabilityOptions(
-        string actionName,
-        string expectedKind)
+    [InlineData("test")]
+    [InlineData("pack")]
+    [InlineData("validate")]
+    [InlineData("glyph")]
+    public async Task RetiredPackageCommands_AreRefusedWithoutLoadingCode(string command)
     {
-        string[] arguments =
-        [
-            "plugin",
-            "-f", "inventory.json",
-            "--state-dir", "state",
-            "--action", actionName
-        ];
-
-        var accepted = HardwareTestCliArguments.TryParse(
-            arguments,
-            out var parsed,
-            out var error);
-
-        Assert.True(accepted, error);
-        Assert.NotNull(parsed);
-        Assert.Equal(expectedKind, parsed.Action.Kind.ToString());
-    }
-
-    [Fact]
-    public void FixedAction_AcceptsAnExactControllerInstance()
-    {
-        string[] arguments = [.. ValidFixedAction(), "--instance", "left"];
-
-        var accepted = HardwareTestCliArguments.TryParse(
-            arguments,
-            out var parsed,
-            out var error);
-
-        Assert.True(accepted, error);
-        Assert.Equal("left", parsed!.Action.InstanceId);
-    }
-
-    [Theory]
-    [MemberData(nameof(DuplicateOptionCases))]
-    public void DuplicateOption_IsRejected(string[] arguments)
-    {
-        Assert.False(HardwareTestCliArguments.TryParse(arguments, out _, out var error));
-        Assert.Contains("exactly once", error, StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [MemberData(nameof(UnknownOrTrailingArgumentCases))]
-    public void UnknownOrTrailingArgument_IsRejected(string[] arguments)
-    {
-        Assert.False(HardwareTestCliArguments.TryParse(arguments, out _, out var error));
-        Assert.Contains("Unknown or trailing", error, StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData("--yes")]
-    [InlineData("--YES")]
-    [InlineData("--YeS")]
-    public void YesFlag_IsRejectedCaseInsensitively(string flag)
-    {
-        var arguments = ValidFixedAction().Append(flag).ToArray();
-
-        Assert.False(HardwareTestCliArguments.TryParse(arguments, out _, out var error));
-        Assert.Contains("never accepts --yes", error, StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [MemberData(nameof(MissingValueCases))]
-    public void MissingOptionValue_IsRejected(string[] arguments)
-    {
-        Assert.False(HardwareTestCliArguments.TryParse(arguments, out _, out var error));
-        Assert.Contains("requires", error, StringComparison.Ordinal);
-    }
-
-    [Theory]
-    [InlineData("--capability", "lighting.zone")]
-    [InlineData("--value", "true")]
-    public void FixedAction_WithCapabilityOnlyOption_IsRejected(string option, string value)
-    {
-        var arguments = ValidFixedAction().Concat([option, value]).ToArray();
-
-        Assert.False(HardwareTestCliArguments.TryParse(arguments, out _, out var error));
-        Assert.Contains("apply only", error, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void MissingExplicitAction_IsRejected()
-    {
-        string[] arguments = ["plugin", "--from", "inventory.json", "--state-dir", "state"];
-
-        Assert.False(HardwareTestCliArguments.TryParse(arguments, out _, out var error));
-        Assert.Contains("exactly one --action", error, StringComparison.Ordinal);
-    }
-
-    private static string[] ValidFixedAction()
-    {
-        return
-        [
-            "plugin",
-            "--from", "inventory.json",
-            "--state-dir", "state",
-            "--action", "haptic"
-        ];
+        Assert.Equal(64, await DeviceLabCli.RunAsync([command], null));
     }
 }

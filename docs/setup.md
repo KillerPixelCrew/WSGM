@@ -26,11 +26,13 @@ Setup reads machine identity (SMBIOS, CPU) and calls the exact LibHandheld detec
 `HandheldSupport`. A native match offers Device Integration and the detected model's dependencies;
 the user can decline. Physical-controller models require VIIPER, USB/IP and HidHide. CPU-only and
 tablet definitions acquire no virtual controller. Signed PawnIO access is installed for the models
-that require it; Steam Deck's InpOut driver is installed only by its explicit setup step. Runtime
-never installs either driver. Pinned KX and InpOut helpers, signed modules and notices ship with
-App. No match leaves integration off. The native library ships with `App`, so there is no device
-archive selection or installation. Bundled common plugins are offered as checkboxes. Updates and
-repairs preserve the saved integration intent.
+that require it; Steam Deck's InpOut driver is installed only by its explicit setup step. An
+optional driver failure is reported and the rest of setup continues. Setup records the drivers it
+installed and offers only those for removal at uninstall. Runtime never installs either driver.
+Pinned KX and InpOut helpers, signed modules and notices ship with App. No match leaves integration
+off. The native library ships with `App`, so there is no device archive selection or installation.
+Bundled common plugins are offered as checkboxes. Updates and repairs preserve the saved integration
+intent.
 
 Intel, AMD and NVIDIA driver support ships in `App` through the directly referenced
 `LibGPUDriverInteract` library. It works independently of handheld integration and needs no GPU
@@ -39,10 +41,11 @@ through the existing overlay and Steam graphics surfaces.
 
 An install, update or repair retires installed archives whose root `plugin.wsgm.json` declares
 exactly `wsgm.gpu.intel`, `wsgm.gpu.amd`, `wsgm.gpu.nvidia`, `wsgm.device.msi.claw` or
-`wsgm.device.asus.rog-ally`. It reads the archive identity rather than relying on the filename. The
-existing setup file transaction backs those archives up and restores them if the installation rolls
-back. Other packages and per-user `PluginState` recovery records stay in place; direct integrations
-retain existing vendor journal and handheld family recovery identities.
+`wsgm.device.asus.rog-ally` or the legacy `wsgm.device.msi.claw-8-a2vm`. It reads the archive
+identity rather than relying on the filename. The existing setup file transaction backs those
+archives up and restores them if the installation rolls back. Other packages and per-user
+`PluginState` recovery records stay in place; direct integrations retain existing vendor journal and
+handheld family recovery identities.
 
 The Profile page asks Full or Minimal, Steam first or Desktop first, start at sign-in and consent to
 take over Steam's autostart. Customize is a separate following step in installs, updates and

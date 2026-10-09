@@ -1,6 +1,5 @@
 using System.Text;
 using WSGM.Core;
-using WSGM.Device.Sdk;
 using WSGM.Testing;
 using WSGM.Tests.Builders;
 
@@ -25,9 +24,6 @@ public sealed class PluginPackageCatalogTests
         using TemporaryDirectory temporary = new();
 
         var catalog = PluginPackageCatalog.Discover(temporary.GetPath("absent"));
-
-        Assert.Equal(DevicePackageCardinality.Empty, catalog.Device.Inventory.Cardinality);
-        Assert.Null(catalog.Device.InstalledPackage);
         Assert.Empty(catalog.Common);
         Assert.Empty(catalog.Errors);
     }
@@ -39,10 +35,6 @@ public sealed class PluginPackageCatalogTests
         var path = WriteDevicePackage(temporary.Root, "claw.wsgmpkg", "test.device", "1.0.0");
 
         var catalog = PluginPackageCatalog.Discover(temporary.Root);
-
-        Assert.Equal(DevicePackageCardinality.Empty, catalog.Device.Inventory.Cardinality);
-        Assert.Null(catalog.Device.InstalledPackage);
-        Assert.Null(catalog.InstalledDevicePluginId);
         Assert.Empty(catalog.Common);
         Assert.Empty(catalog.Errors);
         Assert.True(File.Exists(path));
@@ -58,10 +50,6 @@ public sealed class PluginPackageCatalogTests
             ("Fixture.dll", EntryImage()));
 
         var catalog = PluginPackageCatalog.Discover(temporary.Root);
-
-        Assert.Equal(DevicePackageCardinality.Empty, catalog.Device.Inventory.Cardinality);
-        Assert.Null(catalog.Device.InstalledPackage);
-        Assert.Null(catalog.Device.ErrorCode);
         Assert.Equal("test.ir", Assert.Single(catalog.Common).Manifest.Id);
         Assert.Empty(catalog.Errors);
         Assert.True(File.Exists(first));
@@ -78,8 +66,6 @@ public sealed class PluginPackageCatalogTests
             CommonManifestJson("test.ir", "wsgm.infrared", "1.10.0"), ("Fixture.dll", EntryImage()));
 
         var catalog = PluginPackageCatalog.Discover(temporary.Root);
-
-        Assert.Equal(DevicePackageCardinality.Empty, catalog.Device.Inventory.Cardinality);
         Assert.Equal("1.10.0", Assert.Single(catalog.Common).Manifest.Version);
         var superseded = Assert.Single(catalog.Superseded);
         Assert.Equal(Path.GetFullPath(older), superseded.PackagePath);
@@ -91,11 +77,9 @@ public sealed class PluginPackageCatalogTests
     public void RetiredDevicePackageForAnotherApiVersionIsStillIgnored()
     {
         using TemporaryDirectory temporary = new();
-        var path = WriteDevicePackage(temporary.Root, "future.wsgmpkg", "test.device", "1.0.0", DeviceApi.Version + 1);
+        var path = WriteDevicePackage(temporary.Root, "future.wsgmpkg", "test.device", "1.0.0", 13);
 
         var catalog = PluginPackageCatalog.Discover(temporary.Root);
-
-        Assert.Null(catalog.Device.InstalledPackage);
         Assert.Empty(catalog.Common);
         Assert.Empty(catalog.Errors);
         Assert.True(File.Exists(path));
@@ -114,8 +98,6 @@ public sealed class PluginPackageCatalogTests
         WritePackage(temporary.Root, "old.wsgmpkg", manifest, ("Fixture.dll", EntryImage()));
 
         var catalog = PluginPackageCatalog.Discover(temporary.Root);
-
-        Assert.Null(catalog.Device.InstalledPackage);
         Assert.Contains(builtFor ?? "(unstamped)", Assert.Single(catalog.Errors), StringComparison.Ordinal);
     }
 
@@ -132,8 +114,6 @@ public sealed class PluginPackageCatalogTests
         var path = WritePackage(temporary.Root, "old-device.wsgmpkg", manifest, ("plugin.dll", EntryImage()));
 
         var catalog = PluginPackageCatalog.Discover(temporary.Root);
-
-        Assert.Null(catalog.Device.InstalledPackage);
         Assert.Empty(catalog.Common);
         Assert.Empty(catalog.Errors);
         Assert.True(File.Exists(path));
@@ -151,7 +131,6 @@ public sealed class PluginPackageCatalogTests
         var catalog = PluginPackageCatalog.Discover(temporary.Root);
 
         Assert.Equal("test.ir", Assert.Single(catalog.Common).Manifest.Id);
-        Assert.Null(catalog.Device.InstalledPackage);
         Assert.Contains(catalog.Errors, error => error.StartsWith("sneaky.wsgmpkg", StringComparison.Ordinal));
     }
 
@@ -182,8 +161,6 @@ public sealed class PluginPackageCatalogTests
             ("Fixture.dll", EntryImage()), ("helper.dll", NativeImage()));
 
         var catalog = PluginPackageCatalog.Discover(temporary.Root);
-
-        Assert.Null(catalog.Device.InstalledPackage);
         Assert.Contains(catalog.Errors, error => error.Contains("native image", StringComparison.Ordinal));
     }
 
@@ -198,8 +175,6 @@ public sealed class PluginPackageCatalogTests
             ("Fixture.dll", EntryImage()), (entry, "x"u8.ToArray()));
 
         var catalog = PluginPackageCatalog.Discover(temporary.Root);
-
-        Assert.Null(catalog.Device.InstalledPackage);
         Assert.Single(catalog.Errors);
     }
 
@@ -211,23 +186,20 @@ public sealed class PluginPackageCatalogTests
         File.WriteAllText(Path.Combine(temporary.Root, "readme.txt"), "ignored");
 
         var catalog = PluginPackageCatalog.Discover(temporary.Root);
-
-        Assert.Null(catalog.Device.InstalledPackage);
         Assert.StartsWith("broken.wsgmpkg", Assert.Single(catalog.Errors), StringComparison.Ordinal);
     }
 
     [Fact]
-    public void OpenPackage_ServesGlyphFilesAndBlocksReplacementUntilDisposed()
+    public void OpenPackage_ServesBoundedModuleBytesAndBlocksReplacementUntilDisposed()
     {
         using TemporaryDirectory temporary = new();
-        var path = WritePackage(temporary.Root, "glyphs.wsgmpkg", DeviceManifestJson("test.device", "1.0.0"),
-            ("plugin.dll", EntryImage()),
+        var path = WritePackage(temporary.Root, "glyphs.wsgmpkg", CommonManifestJson("test.glyphs", "example.glyphs"),
+            ("Fixture.dll", EntryImage()),
             ("glyphs/profiles/pad.json", "{}"u8.ToArray()),
             ("glyphs/assets/a.svg", "<svg/>"u8.ToArray()));
 
         using (var package = PluginPackageFile.Open(path))
         {
-            Assert.Equal(["pad"], package.EnumerateProfileIds());
             Assert.True(package.TryRead("glyphs/assets/a.svg", 1024, out var bytes));
             Assert.Equal("<svg/>", Encoding.UTF8.GetString(bytes));
             Assert.False(package.TryRead("glyphs/assets/a.svg", 2, out _));
@@ -246,13 +218,13 @@ public sealed class PluginPackageCatalogTests
     }
 
     private static string WriteDevicePackage(string directory, string fileName, string id, string version,
-        int apiVersion = DeviceApi.Version)
+        int apiVersion = 12)
     {
         return WritePackage(directory, fileName, DeviceManifestJson(id, version, apiVersion),
             ("plugin.dll", EntryImage()));
     }
 
-    private static string DeviceManifestJson(string id, string version, int apiVersion = DeviceApi.Version,
+    private static string DeviceManifestJson(string id, string version, int apiVersion = 12,
         string? wsgmVersion = null)
     {
         return $$"""

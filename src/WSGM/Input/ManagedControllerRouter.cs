@@ -2,7 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
-using WSGM.Device.Sdk.Input;
+using CanonicalControllerSample = LibHandheld.Contracts.CanonicalControllerSample;
 
 namespace WSGM.Input;
 

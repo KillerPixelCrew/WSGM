@@ -11,6 +11,7 @@ jobs:
   # Community plugins are built from third-party source, so the bundle is made in a job
   # that holds no write token and handed to the release job as an artifact.
   bundle:
+    if: vars.WSGM_CI_ENABLED == 'true'
     runs-on: windows-latest
     timeout-minutes: 30
     permissions:
@@ -51,6 +52,7 @@ jobs:
           path: publish/bundle
 
   release:
+    if: vars.WSGM_CI_ENABLED == 'true'
     needs: bundle
     runs-on: windows-latest
     timeout-minutes: 60

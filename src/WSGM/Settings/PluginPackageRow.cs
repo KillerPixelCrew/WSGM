@@ -85,7 +85,7 @@ public sealed class PluginPackageRow : ObservableObject
     public IReadOnlyList<PluginBadgeView> Badges { get; }
 
     /// <summary>A gamepad for a device plugin, a wrench for an integration.</summary>
-    public StreamGeometry Icon => State.IsDevice ? Icons.SteamLike : Icons.Wrench;
+    public StreamGeometry Icon => Icons.Wrench;
 
     /// <summary>What needs attention, or what the last action did.</summary>
     public string Notice

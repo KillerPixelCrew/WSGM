@@ -49,7 +49,7 @@ public enum SectionIcon
 /// </summary>
 /// <remarks>
 ///     A category is a heading within a section's page, not a page of its own. It uses the same
-///     title contract as <see cref="PluginSettingSection" />: the plugin selects a
+///     title contract as <see cref="CapabilitySection" />: the plugin selects a
 ///     <see cref="SettingSectionKey" /> WSGM localizes, or supplies plain text through
 ///     <see cref="SettingSectionKey.Custom" />.
 /// </remarks>

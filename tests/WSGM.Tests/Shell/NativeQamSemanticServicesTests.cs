@@ -346,9 +346,7 @@ public sealed partial class NativeQamSemanticServicesTests
             Available = true,
             ObservedValue = CapabilityValue.Integer(17),
             Quality = HardwareStateQuality.Verified,
-            ObservedAt = DateTimeOffset.UtcNow,
-            DescriptorGeneration = 4,
-            CycleGeneration = 3
+            ObservedAt = DateTimeOffset.UtcNow
         };
         return new DeviceCapabilityView(
             descriptor,
@@ -426,9 +424,7 @@ public sealed partial class NativeQamSemanticServicesTests
             Available = true,
             ObservedValue = observed,
             Quality = HardwareStateQuality.Verified,
-            ObservedAt = DateTimeOffset.UtcNow,
-            DescriptorGeneration = 4,
-            CycleGeneration = 3
+            ObservedAt = DateTimeOffset.UtcNow
         };
         return new DeviceCapabilityView(
             descriptor,

@@ -2,18 +2,41 @@ using System;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using System.Text.Json;
+using Microsoft.Win32;
 
 namespace WSGM.Setup.Engine;
 
 /// <summary>Explicit setup-only installation of the Steam Deck helper's embedded driver.</summary>
 internal static class InpOutInstaller
 {
+    internal static bool IsInstalled()
+    {
+        using var key = Registry.LocalMachine.OpenSubKey(@"SYSTEM\CurrentControlSet\Services\inpoutx64");
+        return key is not null;
+    }
+
+    internal static bool Uninstall(IRuntimeShutdown runtime)
+    {
+        if (!IsInstalled())
+        {
+            return true;
+        }
+
+        runtime.Run(WindowsSetup.SystemTool("sc.exe"), "stop inpoutx64");
+        return runtime.Run(WindowsSetup.SystemTool("sc.exe"), "delete inpoutx64") == 0;
+    }
+
     internal static bool Install(string appDirectory)
     {
         var path = Path.Combine(appDirectory, "Resources", "InpOut", "inpoutx64.dll");
         using var held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         var digest = Convert.ToHexString(SHA256.HashData(held));
-        if (digest != "5F27ED4D5CD58A1EE23DEEB802E09E73F3A1D884CE2135F6E827F67B171269E7")
+        using var resource = typeof(InpOutInstaller).Assembly.GetManifestResourceStream("WSGM.InpOut.Pin")
+                             ?? throw new InvalidOperationException("Steam Deck helper pin is missing.");
+        using var pin = JsonDocument.Parse(resource);
+        var expected = pin.RootElement.GetProperty("component").GetProperty("sha256").GetString();
+        if (!string.Equals(digest, expected, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidDataException("Steam Deck helper does not match the pinned official distribution.");
         }

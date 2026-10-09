@@ -33,19 +33,12 @@ public sealed class DevicePrerequisitesTests
     }
 
     [Fact]
-    public void APackageDroppedOntoAMinimalInstallReportsBothHalves()
+    public void DecliningIntegrationDoesNotNagAboutMissingDrivers()
     {
-        // The case setup's Minimal mode creates: no controller bytes, integration seeded off, and
-        // then someone copies a package into the Plugins folder.
-        var advice = DevicePrerequisites.Describe(
-            State(integration: false, library: false, hidHide: false));
-
-        Assert.True(advice.HasAdvice);
-        Assert.Contains("Device Integration is switched off", advice.Detail, StringComparison.Ordinal);
-        Assert.Contains("neither the virtual controller library nor the HidHide driver",
-            advice.Detail, StringComparison.Ordinal);
-        Assert.True(advice.CanEnableIntegration);
-        Assert.True(advice.NeedsSetup);
+        var advice = DevicePrerequisites.Describe(State(integration: false, library: false, hidHide: false));
+        Assert.False(advice.HasAdvice);
+        Assert.False(advice.CanEnableIntegration);
+        Assert.False(advice.NeedsSetup);
     }
 
     [Fact]
@@ -61,11 +54,11 @@ public sealed class DevicePrerequisitesTests
     }
 
     [Fact]
-    public void IntegrationOffOnAnOtherwiseCompleteInstallOffersOnlyTheSwitch()
+    public void IntegrationOffOnAnOtherwiseCompleteInstallStaysQuiet()
     {
         var advice = DevicePrerequisites.Describe(State(integration: false));
 
-        Assert.True(advice.CanEnableIntegration);
+        Assert.False(advice.CanEnableIntegration);
         Assert.False(advice.NeedsSetup);
         Assert.DoesNotContain("Run Repair", advice.Detail, StringComparison.Ordinal);
     }
@@ -93,11 +86,23 @@ public sealed class DevicePrerequisitesTests
     }
 
     [Fact]
-    public void APackageThatDeclaresNoControllerRoleNeedsNoController()
+    public void APowerOnlyDefinitionNeedsNoController()
     {
         var advice = DevicePrerequisites.Describe(
             new DevicePrerequisiteState(true, true, false, false, []));
 
         Assert.False(advice.HasAdvice);
+    }
+
+    [Theory]
+    [InlineData(SetupComponent.PawnIo, false, true, "PawnIO")]
+    [InlineData(SetupComponent.InpOut, true, false, "InpOut")]
+    public void ExactNativeDriverRequirementsAreNamed(SetupComponent component, bool pawnIo, bool inpOut,
+        string expected)
+    {
+        var advice = DevicePrerequisites.Describe(new DevicePrerequisiteState(true, true, true, true,
+            [component], pawnIo, inpOut));
+        Assert.True(advice.NeedsSetup);
+        Assert.Contains(expected, advice.Detail);
     }
 }

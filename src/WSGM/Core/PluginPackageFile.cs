@@ -1,18 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Reflection.Metadata;
-using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
-using System.Text.Json;
-using WSGM.Device.Sdk.Glyphs;
 using WSGM.Device.Sdk.Packaging;
 using WSGM.Plugin.Sdk;
 using CommonManifest = WSGM.Plugin.Sdk.PluginManifest;
 using CommonManifestReader = WSGM.Plugin.Sdk.PluginManifestReader;
-using DeviceManifest = WSGM.Device.Sdk.Packaging.PluginManifest;
-using DeviceManifestReader = WSGM.Device.Sdk.Packaging.PluginManifestReader;
 
 namespace WSGM.Core;
 
@@ -24,7 +17,7 @@ namespace WSGM.Core;
 ///     assemblies, their symbols and data only: a native image cannot be loaded from memory, so one is
 ///     refused here rather than failing later inside plugin code.
 /// </remarks>
-internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
+internal sealed class PluginPackageFile : IDisposable
 {
     /// <summary>Required case-insensitive filename extension for an installed plugin package.</summary>
     internal const string Extension = ".wsgmpkg";
@@ -40,36 +33,31 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
         string path,
         FileStream handle,
         Dictionary<string, byte[]> entries,
-        DeviceManifest? device,
-        CommonManifest? common)
+        CommonManifest common)
     {
         Path = path;
         _handle = handle;
         _entries = entries;
-        DeviceManifest = device;
         CommonManifest = common;
     }
 
     /// <summary>Canonical absolute path of the package file.</summary>
     internal string Path { get; }
 
-    /// <summary>The device manifest, when this is a device package.</summary>
-    internal DeviceManifest? DeviceManifest { get; }
-
-    /// <summary>The common manifest, when this is a non-device package.</summary>
-    internal CommonManifest? CommonManifest { get; }
+    /// <summary>The validated independent plugin manifest.</summary>
+    internal CommonManifest CommonManifest { get; }
 
     /// <summary>Gets the validated package identity from its device or common manifest.</summary>
-    internal string Id => DeviceManifest?.Id ?? CommonManifest!.Id;
+    internal string Id => CommonManifest.Id;
 
     /// <summary>Gets the manifest version string used by catalog selection.</summary>
-    internal string Version => DeviceManifest?.Version ?? CommonManifest!.Version;
+    internal string Version => CommonManifest.Version;
 
     /// <summary>Gets the package-root managed entry assembly name.</summary>
-    internal string EntryAssembly => DeviceManifest?.EntryAssembly ?? CommonManifest!.EntryAssembly;
+    internal string EntryAssembly => CommonManifest.EntryAssembly;
 
     /// <summary>The WSGM version the package was built for, or null when packing did not stamp one.</summary>
-    internal string? WsgmVersion => DeviceManifest is { } device ? device.WsgmVersion : CommonManifest!.WsgmVersion;
+    internal string? WsgmVersion => CommonManifest.WsgmVersion;
 
     /// <summary>This host's release version, which a package's <see cref="WsgmVersion" /> must equal.</summary>
     /// <remarks>
@@ -78,9 +66,6 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
     /// </remarks>
     internal static Version HostVersion { get; } =
         Normalize(typeof(PluginPackageFile).Assembly.GetName().Version ?? new Version(0, 0));
-
-    /// <summary>Whether the entry point is an x64 managed assembly, which a device package requires.</summary>
-    internal bool EntryIsX64Assembly { get; private init; }
 
     /// <summary>Closes the package file lock; repeated disposal is harmless.</summary>
     /// <remarks>Stop plugin code before disposal. Cached entry bytes remain managed memory until this object is collected.</remarks>
@@ -95,26 +80,8 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
         _handle.Dispose();
     }
 
-    /// <inheritdoc />
-    public IReadOnlyList<string> EnumerateProfileIds()
-    {
-        const string prefix = "glyphs/profiles/";
-        return
-        [
-            .. _entries.Keys
-                .Where(name => name.StartsWith(prefix, StringComparison.Ordinal)
-                               && name.EndsWith(".json", StringComparison.Ordinal)
-                               && name.AsSpan(prefix.Length).IndexOf('/') < 0)
-                .Select(System.IO.Path.GetFileNameWithoutExtension)
-                .Where(id => !string.IsNullOrEmpty(id))
-                .Select(id => id!)
-                .Distinct(StringComparer.Ordinal)
-                .Order(StringComparer.Ordinal)
-        ];
-    }
-
-    /// <inheritdoc />
-    public bool TryRead(string relativePath, int maximumBytes, out byte[] bytes)
+    /// <summary>Reads a bounded package resource for a common plugin's admitted Steam module.</summary>
+    internal bool TryRead(string relativePath, int maximumBytes, out byte[] bytes)
     {
         bytes = [];
         if (maximumBytes <= 0
@@ -210,19 +177,16 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
                 throw new InvalidDataException($"The package has no {ManifestName} at its root.");
             }
 
-            var (device, common) = ReadManifest(manifestBytes);
-            var entryAssembly = device?.EntryAssembly ?? common!.EntryAssembly;
+            var common = ReadManifest(manifestBytes);
+            var entryAssembly = common.EntryAssembly;
             if (!PluginPackageLayout.TryNormalizeEntryName(entryAssembly, out var entryName)
                 || entryName.Contains('/')
-                || !entries.TryGetValue(entryName, out var entryImage))
+                || !entries.ContainsKey(entryName))
             {
                 throw new InvalidDataException("The plugin entry assembly is missing from the package root.");
             }
 
-            return new PluginPackageFile(path, handle, entries, device, common)
-            {
-                EntryIsX64Assembly = IsX64ManagedAssembly(entryImage)
-            };
+            return new PluginPackageFile(path, handle, entries, common);
         }
         catch
         {
@@ -231,72 +195,19 @@ internal sealed class PluginPackageFile : IGlyphPackageSource, IDisposable
         }
     }
 
-    /// <summary>Routes the manifest to the reader of its category; a common manifest names one.</summary>
-    private static (DeviceManifest? Device, CommonManifest? Common) ReadManifest(byte[] bytes)
+    /// <summary>Reads the independent plugin contract; native hardware libraries have no packages.</summary>
+    private static CommonManifest ReadManifest(byte[] bytes)
     {
-        if (bytes.Length > ManifestLimits.MaxDocumentBytes)
+        if (!CommonManifestReader.TryRead(bytes, out var common, out var errors))
         {
-            throw new InvalidDataException($"Manifest is above the {ManifestLimits.MaxDocumentBytes}-byte limit.");
+            throw new InvalidDataException(string.Join(" ", errors));
         }
 
-        bool hasCategory;
-        try
+        if (common!.Category == PluginCategories.Device)
         {
-            using var document =
-                JsonDocument.Parse(bytes, new JsonDocumentOptions { MaxDepth = ManifestLimits.MaxDepth });
-            hasCategory = document.RootElement.ValueKind is JsonValueKind.Object
-                          && document.RootElement.TryGetProperty("category", out _);
-        }
-        catch (JsonException ex)
-        {
-            throw new InvalidDataException("The plugin manifest is not valid JSON.", ex);
+            throw new InvalidDataException("Native handheld support is supplied by LibHandheld.");
         }
 
-        if (hasCategory)
-        {
-            if (!CommonManifestReader.TryRead(bytes, out var common, out var errors))
-            {
-                throw new InvalidDataException(string.Join(" ", errors));
-            }
-
-            if (common!.Category == PluginCategories.Device)
-            {
-                throw new InvalidDataException("Device packages use the device manifest, not a common category.");
-            }
-
-            return (null, common);
-        }
-
-        var read = DeviceManifestReader.Read(bytes);
-        // A package built for another API is still a readable device package: the catalog reports it as
-        // api-incompatible so the overlay can say which package it is, instead of a bare folder error.
-        if (read.Manifest is not null
-            && read.Errors.All(error => error.Code is ManifestValidationCode.InvalidApiVersion))
-        {
-            return (read.Manifest, null);
-        }
-
-        if (!read.IsValid || read.Manifest is null)
-        {
-            throw new InvalidDataException(string.Join("; ", read.Errors.Select(error => error.Message)));
-        }
-
-        return (read.Manifest, null);
-    }
-
-    private static bool IsX64ManagedAssembly(byte[] bytes)
-    {
-        try
-        {
-            using PEReader pe = new(new MemoryStream(bytes, false));
-            return pe.PEHeaders.CoffHeader.Machine is Machine.Amd64
-                   && pe.PEHeaders.CorHeader is not null
-                   && pe.HasMetadata
-                   && pe.GetMetadataReader().IsAssembly;
-        }
-        catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException)
-        {
-            return false;
-        }
+        return common;
     }
 }

@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using WSGM.Core;
-using WSGM.Device.Sdk.Input;
+using CanonicalButtons = LibHandheld.Contracts.CanonicalButtons;
 
 namespace WSGM.Shell;
 

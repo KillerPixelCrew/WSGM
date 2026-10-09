@@ -42,7 +42,10 @@ public enum ProfileField
     ControllerTarget,
 
     /// <summary>One device capability value, named by capability and instance.</summary>
-    Device
+    Device,
+
+    /// <summary>Authored lighting color profile.</summary>
+    LightingProfile
 }
 
 /// <summary>Names one setting, including a device capability instance.</summary>
@@ -190,6 +193,7 @@ public static class ProfileFields
             ProfileField.AcPowerPreset => values.AcPowerPreset is not null,
             ProfileField.BatteryPowerPreset => values.BatteryPowerPreset is not null,
             ProfileField.FanCurveProfile => values.FanCurveProfileId is not null,
+            ProfileField.LightingProfile => values.LightingProfileId is not null,
             ProfileField.ControllerTarget => values.ControllerTarget is not null,
             ProfileField.Device => values.Device.Any(entry => entry.Value is not null
                                                               && Matches(entry, key.Publisher ?? deviceIdentityKey,
@@ -245,6 +249,9 @@ public static class ProfileFields
                 break;
             case ProfileField.FanCurveProfile:
                 values.FanCurveProfileId = null;
+                break;
+            case ProfileField.LightingProfile:
+                values.LightingProfileId = null;
                 break;
             case ProfileField.ControllerTarget:
                 values.ControllerTarget = null;

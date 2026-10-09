@@ -5,7 +5,7 @@ using System.Linq;
 using System.Management;
 using System.Runtime.InteropServices;
 using System.Threading;
-using WSGM.Device.Sdk.Identity;
+using LibHandheld.Contracts;
 using WSGM.DeviceLab.Knowledge;
 using WSGM.DeviceLab.Transports;
 
@@ -596,7 +596,7 @@ internal static class LabPowerIdentity
     {
         ArgumentNullException.ThrowIfNull(record);
         var identity = Read();
-        if (identity is null || HardwareMatcher.Match(record.Identity, identity) is not { Fallback: false })
+        if (identity is null || DeviceKnowledgeMatcher.Match(record.Identity, identity) is not { Fallback: false })
         {
             return false;
         }

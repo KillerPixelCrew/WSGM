@@ -89,8 +89,8 @@ public static class GlyphPackageImporter
 {
     private const int MaxJsonDepth = 12;
 
-    private static readonly DeviceJsonContext ReadContext = new(
-        new JsonSerializerOptions(DeviceJsonContext.Default.Options)
+    private static readonly GlyphJsonContext ReadContext = new(
+        new JsonSerializerOptions(GlyphJsonContext.Default.Options)
         {
             MaxDepth = MaxJsonDepth
         });

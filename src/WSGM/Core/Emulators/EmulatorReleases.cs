@@ -59,8 +59,19 @@ internal sealed class EmulatorNetwork : IDisposable
 
     public async Task<HttpResponseMessage> OpenAsync(string url, CancellationToken cancellationToken)
     {
-        var response = await _http.GetAsync(Https(url), HttpCompletionOption.ResponseHeadersRead, cancellationToken)
-            .ConfigureAwait(false);
+        var uri = Https(url);
+        HttpResponseMessage response;
+        try
+        {
+            response = await _http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException($"The emulator request to {uri.Host} timed out before response headers arrived.",
+                exception);
+        }
+
         try
         {
             response.EnsureSuccessStatusCode();

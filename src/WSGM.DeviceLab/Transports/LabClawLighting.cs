@@ -3,8 +3,8 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using WSGM.Device.Sdk.Windows;
 using WSGM.DeviceLab.Knowledge;
+using WSGM.DeviceLab.Windows;
 using WSGM.DeviceLab.Wizard;
 using WSGM.DeviceLab.Worker;
 

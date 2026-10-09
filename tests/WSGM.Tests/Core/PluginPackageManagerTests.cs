@@ -1,8 +1,8 @@
 using WSGM.Core;
-using WSGM.Device.Sdk.Identity;
 using WSGM.Install;
 using WSGM.Testing;
 using WSGM.Tests.Builders;
+using DeviceIdentitySnapshot = LibHandheld.Contracts.DeviceIdentitySnapshot;
 
 namespace WSGM.Tests.Core;
 
@@ -39,7 +39,6 @@ public sealed class PluginPackageManagerTests
             temporary.GetPath("bundled"), null, Removals(temporary)));
 
         Assert.Equal(PluginPackageSection.Installed, row.Section);
-        Assert.False(row.IsDevice);
         Assert.Equal(
         [
             new PluginBadge("Installed", PluginBadgeTone.Good), new PluginBadge("v1.0.0", PluginBadgeTone.Neutral),

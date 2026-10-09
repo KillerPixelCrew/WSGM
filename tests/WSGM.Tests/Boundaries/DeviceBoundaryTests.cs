@@ -36,9 +36,12 @@ public sealed class DeviceBoundaryTests
         var library = RepositoryFiles.LoadProject("external/libhandheld/src/LibHandheld/LibHandheld.csproj");
 
         Assert.Empty(library.Descendants("ProjectReference"));
-        var package = Assert.Single(library.Descendants("PackageReference"));
-        Assert.Equal("System.Management", (string?)package.Attribute("Include"));
-        Assert.Equal("10.0.12", (string?)package.Attribute("Version"));
+        var packages = library.Descendants("PackageReference")
+            .ToDictionary(package => (string)package.Attribute("Include")!,
+                package => (string)package.Attribute("Version")!);
+        Assert.Equal("10.0.12", packages["System.Management"]);
+        Assert.Equal("10.0.3", packages["System.IO.Ports"]);
+        Assert.Equal(2, packages.Count);
     }
 
     [Fact]
@@ -69,7 +72,7 @@ public sealed class DeviceBoundaryTests
                         deviceControl,
                         "external/libgpu-driver-interact/external/windows-device-control/src/WindowsDeviceControl/WindowsDeviceControl.csproj"
                     ],
-                    "WSGM.DeviceLab" => [pluginSdk],
+                    "WSGM.DeviceLab" => [handheldLibrary],
                     "WSGM.Install" => [pluginSdk, handheldLibrary],
                     "WSGM" =>
                     [

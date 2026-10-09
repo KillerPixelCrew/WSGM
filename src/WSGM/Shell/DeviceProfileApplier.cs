@@ -96,9 +96,7 @@ internal static class DeviceProfileApplier
         // of confirmation as failure would report every one of them as broken. A timeout does not
         // count — whether it was written is unknown, and claiming success there is the one answer
         // that misleads.
-        var applied = result.Outcome
-            is CommandOutcome.AppliedVerified
-            or CommandOutcome.AppliedUnverified;
+        var applied = result.Outcome.IsApplied();
         if (!applied)
         {
             Log.Warn(

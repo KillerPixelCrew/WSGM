@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
-using WSGM.Device.Sdk.Input;
 using WSGM.Input;
+using CanonicalButtons = LibHandheld.Contracts.CanonicalButtons;
+using CanonicalControllerSample = LibHandheld.Contracts.CanonicalControllerSample;
 using static WSGM.Tests.Builders.ControllerSamples;
 
 namespace WSGM.Tests.Input;

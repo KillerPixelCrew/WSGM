@@ -5,9 +5,15 @@ using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Interop;
+using OemControlDescriptor = LibHandheld.Contracts.OemControlDescriptor;
+using OemControlEvent = LibHandheld.Contracts.OemControlEvent;
+using OemControlPlacement = LibHandheld.Contracts.OemControlPlacement;
+using OemControlEdge = LibHandheld.Contracts.OemControlEdge;
+using OemDefaultActionHint = LibHandheld.Contracts.OemControlDefaultActionHint;
+using PhysicalDeviceIdentity = LibHandheld.Contracts.PhysicalDeviceIdentity;
+using HapticCapabilities = LibHandheld.Contracts.HapticCapabilities;
 
 namespace WSGM.Shell;
 
@@ -76,7 +82,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
     private HandheldDeviceRuntime? _client;
     private bool _controllerManagementEnabled;
     private bool _disposed;
-    private Action<DevicePluginState>? _lifecycleHandler;
+    private Action<HandheldRuntimeState>? _lifecycleHandler;
     private bool _mouseAdmission = true;
     private bool _secondaryButtonDown;
     private bool _targetHasRearButtons;
@@ -135,6 +141,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
             ResetUnderGate();
             client.OemControlsReceived += OnControls;
             client.OemEventReceived += OnEvent;
+            client.PhysicalIdentitiesReceived += OnPhysicalDevices;
             _lifecycleHandler = state => OnLifecycle(client, state);
             client.LifecycleStateReceived += _lifecycleHandler;
         }
@@ -402,12 +409,14 @@ internal sealed class DeviceOemActionRouter : IDisposable
     /// <returns>Right mouse button for the tablet touchpad gesture, WSGM for a companion button, otherwise disabled.</returns>
     internal static OemAction DefaultAction(OemControlDescriptor control)
     {
-        if (control.ControlId is "touchpad-secondary-click" && control.Placement is OemControlPlacement.Front)
+        if (control.DefaultActionHint == OemDefaultActionHint.MouseSecondaryButton &&
+            control.Placement is OemControlPlacement.Front)
         {
             return OemAction.MouseSecondaryButton;
         }
 
-        return control is { CompanionApplication: true, Placement: OemControlPlacement.Front }
+        return control is
+            { DefaultActionHint: OemDefaultActionHint.CompanionApplication, Placement: OemControlPlacement.Front }
             ? OemAction.ToggleWsgmOverlay
             : OemAction.Disabled;
     }
@@ -478,7 +487,20 @@ internal sealed class DeviceOemActionRouter : IDisposable
         }
     }
 
-    private void OnLifecycle(HandheldDeviceRuntime client, DevicePluginState state)
+    private void OnPhysicalDevices(
+        (IReadOnlyList<PhysicalDeviceIdentity> Devices, HapticCapabilities? Output) notification)
+    {
+        lock (_gate)
+        {
+            _mouseAdmission = notification.Devices.Count > 0 && _client?.IsActive == true;
+            if (!_mouseAdmission)
+            {
+                ResetUnderGate();
+            }
+        }
+    }
+
+    private void OnLifecycle(HandheldDeviceRuntime client, HandheldRuntimeState state)
     {
         lock (_gate)
         {
@@ -499,6 +521,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
         {
             _client.OemControlsReceived -= OnControls;
             _client.OemEventReceived -= OnEvent;
+            _client.PhysicalIdentitiesReceived -= OnPhysicalDevices;
             if (_lifecycleHandler is { } lifecycleHandler)
             {
                 _client.LifecycleStateReceived -= lifecycleHandler;
@@ -514,6 +537,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
     private static bool ValidControl(OemControlDescriptor control)
     {
         return PlainText.IsIdentifier(control.ControlId)
+               && Enum.IsDefined(control.DefaultActionHint)
                && control.Display.TryValidate(out _);
     }
 }

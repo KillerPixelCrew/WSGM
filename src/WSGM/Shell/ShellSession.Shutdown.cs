@@ -7,7 +7,6 @@ using Avalonia;
 using Avalonia.Threading;
 using WSGM.Core;
 using WSGM.Device.Sdk.Lifecycle;
-using WSGM.Device.Sdk.Plugin;
 
 namespace WSGM.Shell;
 
@@ -86,16 +85,16 @@ public sealed partial class ShellSession
         }
     }
 
-    private static PluginStopReason DeviceShutdownReason(ApplicationShutdownReason reason)
+    private static HandheldStopReason DeviceShutdownReason(ApplicationShutdownReason reason)
     {
         return ApplicationShutdownRequest.SessionEnding
-            ? PluginStopReason.SessionEnding
+            ? HandheldStopReason.SessionEnding
             : reason switch
             {
-                ApplicationShutdownReason.Update => PluginStopReason.Updating,
-                ApplicationShutdownReason.SessionEnd => PluginStopReason.SessionEnding,
-                ApplicationShutdownReason.Uninstall => PluginStopReason.Uninstalling,
-                _ => PluginStopReason.WsgmExiting
+                ApplicationShutdownReason.Update => HandheldStopReason.Updating,
+                ApplicationShutdownReason.SessionEnd => HandheldStopReason.SessionEnding,
+                ApplicationShutdownReason.Uninstall => HandheldStopReason.Uninstalling,
+                _ => HandheldStopReason.WsgmExiting
             };
     }
 
