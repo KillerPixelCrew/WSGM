@@ -463,10 +463,11 @@ when no provider answers. Provider caches retain results; the importer keeps can
 memory and records applied artwork with the import receipt. BIOS, keys and firmware setup accepts
 local files or reviewed native setup; WSGM does not download unauthorized firmware.
 
-## Remaining validation
+## Validation and regression checklist
 
-Manual acceptance must cover all six real emulator paths, full core installation, save/config
-preservation, external ownership, controller/touch workflows on both surfaces, unavailable launches,
-same-name titles on different volumes, media removal/reinsertion, changed mounts, resume and large
-libraries. Automated suites and UI baselines follow the maintainer's manual pass. Scheduled sync
-remains outside this implementation.
+The maintainer confirmed on 2026-10-09 that the emulation system is tested. The following remains a
+regression checklist, rather than a statement that the feature is untested: all six real emulator
+paths, full core installation, save/config preservation, external ownership, controller/touch
+workflows on both surfaces, unavailable launches, same-name titles on different volumes, media
+removal/reinsertion, changed mounts, resume and large libraries. Automated suites and UI baselines
+follow the maintainer's manual pass. Scheduled sync remains outside this implementation.

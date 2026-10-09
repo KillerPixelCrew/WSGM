@@ -1,7 +1,7 @@
 {
   "id": "wsgm.gpu.nvidia",
   "origin": "first-party",
-  "validation": "blind",
+  "validation": "hardware-tested",
   "bundle": true,
   "project": "src/WSGM.Plugin.NvidiaGpu"
 }

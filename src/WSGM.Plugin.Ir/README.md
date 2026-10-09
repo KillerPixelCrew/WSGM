@@ -9,8 +9,9 @@ The current source provides endpoint identity and version checks over USB serial
 network, bounded raw learn and send, cancellation, command and scene storage, backup and restore,
 named actions, built-in remote actions, USB-only Wi-Fi pairing with a per-endpoint token, the
 common-host lifecycle, and management forms in Overlay Tools. It requires firmware 0.5.0 and
-protocol 2, including paged built-in catalogs. That firmware has not been built, flashed or accepted
-on hardware in this refactor work.
+protocol 2, including paged built-in catalogs. The maintainer confirmed on 2026-10-09 that the
+current IR firmware is fully tested. The observations below retain their original firmware versions
+and dates.
 
 Earlier checks loaded the package collectibly alongside a Device-category fixture, and on a live
 network paired, identified it and refused unpaired clients. On 2026-09-11 firmware 0.2.0 learned a

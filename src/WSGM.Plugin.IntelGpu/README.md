@@ -13,23 +13,9 @@ restart. Nothing Intel ships is vendored.
 
 ## Status
 
-The plugin itself has not yet run on hardware. The call sequences, structure layouts and value
-encodings it relies on were measured with a probe on 2026-09-29 on an Intel UHD laptop (8086:4688,
-driver 32.0.101.7088), and the Arc Sync, Endurance Gaming, shader download and memory paths are
-carried over from the Claw package, which exercised them on the Claw 8 AI+ A2VM. `PROVENANCE.md` has
-the details and dates. What is blind:
-
-- Frame synchronization (feature 9) is written through IGCL, not `Global_AsyncFlipMode`. The
-  laptop's legacy driver refused the write with `CTL_RESULT_ERROR_UNSUPPORTED_FEATURE`; the Claw's
-  earlier "IGCL cannot set feature 9" finding almost certainly came from reading the enum at the
-  wrong offset. This awaits Claw evidence.
-- Every display control (scaling, sharpness, colour, wire format, end-display settings, power
-  savings), the Arc Sync Custom profile and the per-application sync are built from the header and
-  Intel's samples only.
-- The game profile tiers (feature 11), VRR windowed blit (14), the per-application switch (15) and
-  the live state (19) are built from the header and `3D_Feature_Sample_App.cpp`. The laptop's table
-  listed feature 11 as custom-typed and feature 15; none of these has been read or written by the
-  plugin yet.
+Hardware testing was confirmed by the maintainer on 2026-10-09. The curated package is marked
+`hardware-tested`. `PROVENANCE.md` retains the earlier probe observations and implementation
+references as dated evidence.
 
 ## What it publishes
 

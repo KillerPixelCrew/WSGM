@@ -1,7 +1,7 @@
 {
   "id": "wsgm.gpu.intel",
   "origin": "first-party",
-  "validation": "blind",
+  "validation": "hardware-tested",
   "bundle": true,
   "project": "src/WSGM.Plugin.IntelGpu"
 }
