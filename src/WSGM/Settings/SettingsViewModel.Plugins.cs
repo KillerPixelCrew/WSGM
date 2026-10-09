@@ -172,7 +172,7 @@ public sealed partial class SettingsViewModel
         InstalledPackages.Clear();
         AvailablePackages.Clear();
         UnavailablePackages.Clear();
-        foreach (var state in page.Rows)
+        foreach (var state in page.Rows.Where(state => !BuiltinGpuDrivers.Contains(state.Id)))
         {
             PluginPackageRow row = new(state, action => _services.ActOnPackage(action, page.Bundle));
             (state.Section switch
@@ -268,7 +268,7 @@ public sealed partial class SettingsViewModel
         var catalog = page.Catalog;
         SteamCefPluginWarningAccepted = _config.SteamCefPluginWarningAccepted;
         CommonPlugins.Clear();
-        foreach (var package in catalog.Common)
+        foreach (var package in catalog.Common.Where(package => !BuiltinGpuDrivers.Contains(package.Manifest.Id)))
         {
             var configured = _config.PluginInstances.Where(entry => entry.PluginId == package.Manifest.Id).ToArray();
             if (configured.Length == 0)
@@ -290,7 +290,8 @@ public sealed partial class SettingsViewModel
         }
 
         foreach (var instance in _config.PluginInstances.Where(entry =>
-                     catalog.Common.All(package => package.Manifest.Id != entry.PluginId)))
+                     !BuiltinGpuDrivers.Contains(entry.PluginId)
+                     && catalog.Common.All(package => package.Manifest.Id != entry.PluginId)))
         {
             CommonPlugins.Add(new CommonPluginInstanceRow(instance.PluginId, instance.InstanceId, instance.PluginId,
                 instance.Enabled, false));

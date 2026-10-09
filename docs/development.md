@@ -24,7 +24,7 @@ in [boot and shell](boot-and-shell.md), installation in [setup](setup.md), ordin
 | [`WSGM.Plugin.Sdk`](../src/WSGM.Plugin.Sdk)                                                                                                                                                   | Common plugin contracts and extension vocabulary                                                                                | [Plugin system](plugin-system.md)                                                                 |
 | [`WSGM.Device.Sdk`](../src/WSGM.Device.Sdk)                                                                                                                                                   | Device contracts, lifecycle, capabilities, controller data and package layout                                                   | [Device plugin system](device-plugin-system.md)                                                   |
 | [`WSGM.Device.Msi.Claw`](../src/WSGM.Device.Msi.Claw), [`WSGM.Device.Asus.RogAlly`](../src/WSGM.Device.Asus.RogAlly), [`WSGM.Device.HandheldCompanion`](../src/WSGM.Device.HandheldCompanion) | Machine-specific behavior packaged separately from host policy; each README records implementation and hardware-evidence status | [Device authoring](device-plugin-authoring.md)                                                    |
-| [`WSGM.Plugin.IntelGpu`](../src/WSGM.Plugin.IntelGpu), [`WSGM.Plugin.NvidiaGpu`](../src/WSGM.Plugin.NvidiaGpu), [`WSGM.Plugin.AmdGpu`](../src/WSGM.Plugin.AmdGpu)                             | Vendor graphics-driver capability providers                                                                                     | [Plugin system](plugin-system.md) and package READMEs                                             |
+| [`LibGPUDriverInteract`](../external/libgpu-driver-interact)                                                                                                                                  | Direct Intel, AMD and NVIDIA driver backends, native profiles, supported controls and caller-owned restoration                  | [Library API](../external/libgpu-driver-interact/API.md)                                          |
 | [`WSGM.Plugin.Ir`](../src/WSGM.Plugin.Ir)                                                                                                                                                     | IR session-action plugin and its firmware/protocol                                                                              | [IR README](../src/WSGM.Plugin.Ir/README.md)                                                      |
 | [`WSGM.DeviceLab`](../src/WSGM.DeviceLab)                                                                                                                                                     | Package validation, authoring support and attended hardware diagnostics                                                         | [Device Lab README](../src/WSGM.DeviceLab/README.md)                                              |
 | [`Avalonia.LiveBackdrop`](../src/Avalonia.LiveBackdrop)                                                                                                                                       | Reusable live-backdrop rendering implementation                                                                                 | [LiveBackdrop README](../src/Avalonia.LiveBackdrop/README.md)                                     |
@@ -38,8 +38,8 @@ Inside WSGM, `Program.cs` owns entry ordering and `App.axaml.cs` composes the se
 session orchestration; `Overlay` and `Settings` project those owners into their respective UI;
 `Input` translates controller and hotkey activity; `Interop` contains native declarations;
 `Controls` and `Themes` contain presentation primitives. Device-specific writes belong to the
-selected device package, graphics-driver writes to their plugin, and reusable Windows mechanisms to
-WindowsDeviceControl. The SDK assemblies define contracts rather than host policy.
+selected device package, graphics-driver writes to LibGPUDriverInteract, and reusable Windows
+mechanisms to WindowsDeviceControl. The SDK assemblies define contracts rather than host policy.
 
 The SDKs are MIT-licensed so external packages can implement them. The product has its own GPL
 license; licenses and notices for vendored code remain with their respective components. See each
@@ -60,7 +60,7 @@ runtime copies of a type.
 | `Process/ParentProcessStart.cs`, `Process/Win32Common.cs`           | Process-start primitives used by WSGM and the packaged launcher; service also links the common native declarations   |
 | `Process/SteamControllerExclusion.cs`, `Process/RotatingFileLog.cs` | Launcher environment sanitization and rotating diagnostics; service shares the rotating logger                       |
 | `Launch/PackagedLaunchCommand.cs`                                   | Library shortcut composer and packaged launcher share parse/compose vocabulary                                       |
-| `Interop` and `Gpu`                                                 | Explicitly linked native and graphics implementation primitives; `.csproj` includes define their consumers           |
+| `Interop`                                                           | Explicitly linked native implementation primitives; `.csproj` includes define their consumers                        |
 
 The Steam browser payload is also composed from one set of owning sources.
 [`eng/build-steam-assets.mjs`](../eng/build-steam-assets.mjs) combines the toolkit fragment list
@@ -119,8 +119,8 @@ dotnet build WSGM.slnx -c Release --no-restore --warnaserror -p:SkipNativeArtifa
 `Directory.Build.props` enables Windows targeting for restore/analysis on non-Windows hosts. Windows
 desktop execution, native MSVC builds, service behavior and hardware verification still require
 Windows. `SkipNativeArtifacts` omits staged native content; it does not produce a complete runtime
-or validate a plugin/controller/installer scenario. Both managed-library submodules and the linked
-Steam Input binding sources must still be present.
+or validate a plugin/controller/installer scenario. The Steam UI toolkit, WindowsDeviceControl,
+LibGPUDriverInteract submodules and the linked Steam Input binding sources must still be present.
 
 Compilation includes project XML documentation according to the shared/project properties. Public
 API documentation belongs beside declarations and must explain contracts, results and ownership.
@@ -185,7 +185,9 @@ directory outside the root `publish` tree, which this script clears. The release
 community plugins in a separate job without secrets, then passes its bundle into the final build.
 [`plugins/curated`](../plugins/curated) is the source of package origin and pinned community
 commits; [`eng/build-bundle.ps1`](../eng/build-bundle.ps1) is the producer of `.wsgmpkg` files and
-the bundle manifest. An optional local bundle build is:
+the bundle manifest. It restores only Device Lab and the selected package projects, so the community
+job needs no access to the private GPU library or the application graph. An optional local bundle
+build is:
 
 ```powershell
 .\eng\build-bundle.ps1 -OutputRoot artifacts/local-bundle -SkipCommunity -SkipTools

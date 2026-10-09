@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   pull_request:
   push:
+    branches-ignore: ["chore/device-integration-rework"]
 
 permissions:
   contents: read
@@ -16,13 +17,14 @@ concurrency:
 
 jobs:
   verify:
+    if: github.head_ref != 'chore/device-integration-rework'
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Private library inventories are not build inputs yet.
+          # Initialize build dependencies explicitly; LibHandheld remains inventory-only.
           submodules: false
 
       - name: Check out build submodules
@@ -30,6 +32,7 @@ jobs:
         run:
           git submodule update --init --recursive -- external/steam-input-lease
           external/steam-ui-toolkit external/viiper external/windows-device-control
+          external/libgpu-driver-interact
 
       - name: Set up .NET SDK
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -89,6 +92,7 @@ jobs:
   # token and no secrets, and a community plugin that stops building shows up here as
   # outdated long before a release.
   bundle:
+    if: github.head_ref != 'chore/device-integration-rework'
     runs-on: windows-latest
     timeout-minutes: 30
     permissions:
@@ -125,6 +129,7 @@ jobs:
   # this job a broken pin stayed green here and failed only inside the tag-triggered release
   # job, after a public tag already existed.
   viiper:
+    if: github.head_ref != 'chore/device-integration-rework'
     runs-on: windows-latest
     timeout-minutes: 20
     steps:

@@ -94,23 +94,23 @@ parity review.
 
 ## Project ownership
 
-| Concern                                                  | Repository/path                                                           |
-| -------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Semantic device-plugin contract                          | `src/WSGM.Device.Sdk`                                                     |
-| Common plugin contract, instances and extension surfaces | `src/WSGM.Plugin.Sdk`                                                     |
-| Hardware authoring/evidence tool                         | `src/WSGM.DeviceLab`                                                      |
-| Handheld Companion scaffold (unfinished)                 | `src/WSGM.Device.HandheldCompanion`                                       |
-| MSI Claw device behavior                                 | `src/WSGM.Device.Msi.Claw`                                                |
-| ROG Ally device behavior and recorded evidence status    | `src/WSGM.Device.Asus.RogAlly`                                            |
-| Graphics driver plugins                                  | `src/WSGM.Plugin.IntelGpu`, `WSGM.Plugin.NvidiaGpu`, `WSGM.Plugin.AmdGpu` |
-| IR session actions and firmware                          | `src/WSGM.Plugin.Ir`                                                      |
-| Reusable live-backdrop rendering                         | `src/Avalonia.LiveBackdrop`                                               |
-| Reusable Steam CEF transport/patch/surfaces              | `external/steam-ui-toolkit`                                               |
-| Reusable Windows radio/audio/brightness/power primitives | `external/windows-device-control`                                         |
-| Native Steam Input shim/lease                            | `external/steam-input-lease`                                              |
-| VIIPER virtual controller library                        | `external/viiper`                                                         |
-| Vendored LoadingIndicators.Avalonia source               | `external/LoadingIndicators.Avalonia`                                     |
-| Controller dependency lock, licences, and VIIPER notes   | `external/controller`                                                     |
+| Concern                                                  | Repository/path                                                             |
+| -------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Semantic device-plugin contract                          | `src/WSGM.Device.Sdk`                                                       |
+| Common plugin contract, instances and extension surfaces | `src/WSGM.Plugin.Sdk`                                                       |
+| Hardware authoring/evidence tool                         | `src/WSGM.DeviceLab`                                                        |
+| Handheld Companion scaffold (unfinished)                 | `src/WSGM.Device.HandheldCompanion`                                         |
+| MSI Claw device behavior                                 | `src/WSGM.Device.Msi.Claw`                                                  |
+| ROG Ally device behavior and recorded evidence status    | `src/WSGM.Device.Asus.RogAlly`                                              |
+| Built-in graphics driver engines                         | `external/libgpu-driver-interact`; WSGM adapter and coordinator in `Shell/` |
+| IR session actions and firmware                          | `src/WSGM.Plugin.Ir`                                                        |
+| Reusable live-backdrop rendering                         | `src/Avalonia.LiveBackdrop`                                                 |
+| Reusable Steam CEF transport/patch/surfaces              | `external/steam-ui-toolkit`                                                 |
+| Reusable Windows radio/audio/brightness/power primitives | `external/windows-device-control`                                           |
+| Native Steam Input shim/lease                            | `external/steam-input-lease`                                                |
+| VIIPER virtual controller library                        | `external/viiper`                                                           |
+| Vendored LoadingIndicators.Avalonia source               | `external/LoadingIndicators.Avalonia`                                       |
+| Controller dependency lock, licences, and VIIPER notes   | `external/controller`                                                       |
 
 WSGM owns policy, orchestration, session state, and adapters. Device projects share this repository
 and one SDK project reference. Keep them separate assemblies. Only the reusable libraries, Steam

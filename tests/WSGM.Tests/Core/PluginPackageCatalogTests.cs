@@ -141,6 +141,25 @@ public sealed class PluginPackageCatalogTests
         Assert.Contains(catalog.Errors, error => error.StartsWith("sneaky.wsgmpkg", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData("wsgm.gpu.intel")]
+    [InlineData("wsgm.gpu.amd")]
+    [InlineData("wsgm.gpu.nvidia")]
+    public void RetiredGraphicsArchivesCannotBeAdmittedAlongsideBuiltinDrivers(string id)
+    {
+        using TemporaryDirectory temporary = new();
+        var retired = WritePackage(temporary.Root, "retired.wsgmpkg", CommonManifestJson(id, "wsgm.gpu"),
+            ("Fixture.dll", EntryImage()));
+        WritePackage(temporary.Root, "third-party.wsgmpkg", CommonManifestJson("vendor.gpu", "wsgm.gpu"),
+            ("Fixture.dll", EntryImage()));
+
+        var catalog = PluginPackageCatalog.Discover(temporary.Root);
+
+        Assert.Equal("vendor.gpu", Assert.Single(catalog.Common).Manifest.Id);
+        Assert.Empty(catalog.Errors);
+        Assert.True(File.Exists(retired));
+    }
+
     [Fact]
     public void NativeImage_IsRefusedBecauseItCannotLoadFromMemory()
     {
@@ -231,9 +250,12 @@ public sealed class PluginPackageCatalogTests
 
     private static string CommonManifestJson(string id, string category)
     {
+        var declarations = category == "wsgm.gpu"
+            ? ",\"displayAdapters\":[{\"pciVendorId\":\"8086\"}],\"capabilities\":[\"GenericToggle\"]"
+            : "";
         return $$"""
                  {"id":"{{id}}","name":"Fixture","version":"1.0.0","category":"{{category}}",
-                  "entryAssembly":"Fixture.dll","entryType":"Fixture.Plugin","wsgmVersion":"{{Host}}"}
+                  "entryAssembly":"Fixture.dll","entryType":"Fixture.Plugin","wsgmVersion":"{{Host}}"{{declarations}}}
                  """;
     }
 

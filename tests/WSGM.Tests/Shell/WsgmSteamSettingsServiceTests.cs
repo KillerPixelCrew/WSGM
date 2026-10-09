@@ -178,6 +178,48 @@ public sealed class WsgmSteamSettingsServiceTests
     }
 
     [Fact]
+    public async Task BuiltinGraphicsCanBeDisabledAndReenabledWithoutAnInstalledPackage()
+    {
+        Harness harness = new();
+        var service = harness.Create();
+        const string key = "plugins.enabled:wsgm.gpu.intel/default";
+        var integration = service.ReadState().Pages.Single(page => page.Id == "steam");
+        var graphics = integration.Sections.Single(section => section.Title == "Built-in graphics drivers");
+        Assert.Equal(3, graphics.Rows.Count);
+        Assert.True(Row(service.ReadState(), key).Checked);
+
+        var disabled = await service.SetAsync(key, Json("false"), CancellationToken.None);
+        Assert.True(disabled.Succeeded);
+        Assert.False(Row(service.ReadState(), key).Checked);
+        var enabled = await service.SetAsync(key, Json("true"), CancellationToken.None);
+
+        Assert.True(enabled.Succeeded);
+        Assert.True(Assert.Single(harness.Stored.PluginInstances).Enabled);
+        Assert.Empty(harness.Installed);
+    }
+
+    [Fact]
+    public void BuiltinGraphicsRetainNamedDisabledChoicesAndDoNotBecomePluginSections()
+    {
+        Harness harness = new();
+        harness.Stored.PluginInstances =
+        [
+            new CommonPluginInstanceConfig { PluginId = "wsgm.gpu.intel", InstanceId = "custom", Enabled = false }
+        ];
+        // A stale installed inventory must not duplicate a built-in driver in the Plugins page.
+        harness.Installed = [new InstalledCommonPlugin("wsgm.gpu.intel", "Old Intel package")];
+
+        var state = harness.Create().ReadState();
+
+        var intel = Row(state, "plugins.enabled:wsgm.gpu.intel/custom");
+        Assert.Equal("Intel graphics (custom)", intel.Label);
+        Assert.False(intel.Checked);
+        Assert.DoesNotContain(
+            state.Pages.Single(page => page.Id == "plugins").Sections.SelectMany(section => section.Rows),
+            row => row.Key.StartsWith("plugins.enabled:wsgm.gpu.", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task ADeviceSettingIsValidatedAgainstItsDeclarationAndStoredInItsScope()
     {
         Harness harness = new();

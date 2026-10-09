@@ -29,11 +29,16 @@ Work branch: `chore/device-integration-rework`.
 
 The library [plans](../external/libhandheld/PLAN.md) and
 [GPU extraction plan](../external/libgpu-driver-interact/PLAN.md) hold the detailed boundaries.
-The repositories currently contain inventories and plans, not implemented replacement libraries.
+LibGPUDriverInteract now contains extracted vendor engines and a direct API, with WSGM integration
+and migrated regression sources. LibHandheld remains the inventory/planning stage. GPU compilation,
+deployment and attended acceptance are recorded with the current delivery; inventory entries alone
+do not establish new hardware validation.
 
-## Private preparation submodules
+## Private library access
 
-The local development checkout includes both private repositories. CI initializes only the four
-current public build dependencies until the new libraries become build inputs. This keeps existing
-CI working without granting new credentials to community-plugin jobs. Private-library CI access
-must be resolved when compiled integration is introduced.
+The local development checkout includes both private repositories. The maintainer directed that CI
+remain inactive for `chore/device-integration-rework` while the new libraries are private and
+testing is ongoing. No cross-repository CI key or token was installed. The library build workflow
+is manual-only. LibHandheld remains outside the compiled graph; community bundle and VIIPER jobs
+retain their public dependency graph. Re-enable automatic application CI after testing and once
+the compiled library is accessible to the runner.

@@ -161,11 +161,18 @@ access based on manifest declarations.
 
 ## Graphics packages (`wsgm.gpu`)
 
-The bundled vendor packages are [Intel](../src/WSGM.Plugin.IntelGpu/README.md),
-[NVIDIA](../src/WSGM.Plugin.NvidiaGpu/README.md) and [AMD](../src/WSGM.Plugin.AmdGpu/README.md).
-NVIDIA uses DRS-native application values; AMD's documented ADLX 3D APIs use the host's Switched
-scope. Their package provenance records API sources and the remaining driver acceptance. Curated
-`blind` status does not claim hardware validation.
+Intel, NVIDIA and AMD are built-in driver integrations using
+[LibGPUDriverInteract](../external/libgpu-driver-interact/README.md). Their native sessions,
+discovery, support checks, journals and command outcomes belong to the library; WSGM owns profiles
+and both UI surfaces. `BuiltinGpuService` drives their lifetime and `GpuDriverAdapter` translates
+library records into the existing `GpuCoordinator` routers. Settings Integration and Steam
+Integration expose runtime enable/disable, preserving the existing saved instance choices,
+`gpu:wsgm.gpu.<vendor>` profile keys, pins and `PluginState/<id>/<instance hash>` journals.
+
+The exact old vendor package IDs are excluded from common-plugin admission and retired by setup and
+development deployment, preventing a second native driver owner. Other common plugins and
+third-party `wsgm.gpu` contributions retain the contract below. NVIDIA uses native application
+profiles; AMD's GPU-wide controls use WSGM's switched profile policy.
 
 A graphics package exposes a vendor driver's controls (variable refresh, sharpening, colour, latency
 and the like) as Device SDK capabilities. Several run at once, one per vendor, beside the device
@@ -255,8 +262,8 @@ setup offers the package, and WSGM runs it, only where a present adapter matches
 holds distinct `CapabilityRole` names the package may publish. The controller, motion, haptic and
 OEM roles belong to the device package and are refused, so a graphics package never brings VIIPER,
 USB/IP or HidHide. `eng/build-bundle.ps1` copies both lists into the package's `bundle.json` entry,
-where setup and the Plugins page read them without loading code. A first-party graphics package is
-bundled like any other through its `plugins/curated` file.
+where setup and the Plugins page read them without loading code. Third-party graphics packages can
+be bundled through `plugins/curated`; WSGM's Intel, AMD and NVIDIA engines are linked directly.
 
 Packaging publishes the project for `win-x64`, validates the manifest with this checkout's
 `PluginManifestReader` through `eng/plugin-manifest.cs`, checks the entry file, creates a new
@@ -514,18 +521,18 @@ separate from #52's carrier measurement and real-remote acceptance.
 
 ## Source routes
 
-| Boundary                                                    | Owning source                                                                                                                                                                                                                    |
-| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Public types and interface semantics                        | [Common SDK reference](../src/WSGM.Plugin.Sdk/docs/reference.md)                                                                                                                                                                 |
-| Archive admission and version selection                     | [PluginPackageFile](../src/WSGM/Core/PluginPackageFile.cs), [PluginPackageCatalog](../src/WSGM/Core/PluginPackageCatalog.cs)                                                                                                     |
-| Instance activation and dependency order                    | [CommonPluginManager](../src/WSGM/Shell/CommonPluginManager.cs), [CommonPluginDependencyPlan](../src/WSGM/Shell/CommonPluginDependencyPlan.cs)                                                                                   |
-| Collectible loading and shared assembly identity            | [PluginLoader](../src/WSGM/Shell/PluginLoader.cs)                                                                                                                                                                                |
-| Lifecycle serialization, generations and retained ownership | [PluginHost / PluginRegistration](../src/WSGM/Shell/PluginHost.cs)                                                                                                                                                               |
-| Desired configuration and effective state                   | [CommonPluginSettings](../src/WSGM/Shell/CommonPluginSettings.cs) and the registration's publication handlers                                                                                                                    |
-| Named actions and session sequences                         | [CommonPluginActions](../src/WSGM/Shell/CommonPluginActions.cs), [PluginActionSequence](../src/WSGM/Shell/PluginActionSequence.cs)                                                                                               |
-| Overlay and Steam projections                               | [CommonPluginOverlaySource](../src/WSGM/Shell/CommonPluginOverlaySource.cs), [CommonPluginSteamUiSource](../src/WSGM/Shell/CommonPluginSteamUiSource.cs)                                                                         |
-| GPU capability admission and profile routing                | [PluginCapabilityChannel](../src/WSGM/Shell/PluginCapabilityChannel.cs), [GpuCoordinator](../src/WSGM/Shell/GpuCoordinator.cs)                                                                                                   |
-| Shared AMD/NVIDIA runtime                                   | [DriverRuntime](../src/Shared/Gpu/DriverRuntime.cs), [DriverDescriptors](../src/Shared/Gpu/DriverDescriptors.cs), [WriteAdmission](../src/Shared/Gpu/WriteAdmission.cs), [DriverStateFile](../src/Shared/Gpu/DriverStateFile.cs) |
+| Boundary                                                    | Owning source                                                                                                                                                                        |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Public types and interface semantics                        | [Common SDK reference](../src/WSGM.Plugin.Sdk/docs/reference.md)                                                                                                                     |
+| Archive admission and version selection                     | [PluginPackageFile](../src/WSGM/Core/PluginPackageFile.cs), [PluginPackageCatalog](../src/WSGM/Core/PluginPackageCatalog.cs)                                                         |
+| Instance activation and dependency order                    | [CommonPluginManager](../src/WSGM/Shell/CommonPluginManager.cs), [CommonPluginDependencyPlan](../src/WSGM/Shell/CommonPluginDependencyPlan.cs)                                       |
+| Collectible loading and shared assembly identity            | [PluginLoader](../src/WSGM/Shell/PluginLoader.cs)                                                                                                                                    |
+| Lifecycle serialization, generations and retained ownership | [PluginHost / PluginRegistration](../src/WSGM/Shell/PluginHost.cs)                                                                                                                   |
+| Desired configuration and effective state                   | [CommonPluginSettings](../src/WSGM/Shell/CommonPluginSettings.cs) and the registration's publication handlers                                                                        |
+| Named actions and session sequences                         | [CommonPluginActions](../src/WSGM/Shell/CommonPluginActions.cs), [PluginActionSequence](../src/WSGM/Shell/PluginActionSequence.cs)                                                   |
+| Overlay and Steam projections                               | [CommonPluginOverlaySource](../src/WSGM/Shell/CommonPluginOverlaySource.cs), [CommonPluginSteamUiSource](../src/WSGM/Shell/CommonPluginSteamUiSource.cs)                             |
+| GPU capability admission and profile routing                | [PluginCapabilityChannel](../src/WSGM/Shell/PluginCapabilityChannel.cs), [GpuCoordinator](../src/WSGM/Shell/GpuCoordinator.cs)                                                       |
+| Built-in vendor driver library                              | [LibGPUDriverInteract](../external/libgpu-driver-interact/README.md), [public API](../external/libgpu-driver-interact/API.md), [WSGM adapter](../src/WSGM/Shell/GpuDriverAdapter.cs) |
 
 The common host serializes an instance's lifecycle/actions. Capability channels delegate hardware
 serialization to each GPU runtime; the AMD/NVIDIA shared runtime and Intel runtime keep their own

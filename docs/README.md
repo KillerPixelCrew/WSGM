@@ -26,10 +26,11 @@ Reusable libraries are pinned submodules, with their own source contracts and do
 [WindowsDeviceControl](../external/windows-device-control/README.md). WSGM's guides describe the
 product policy around those APIs; each library describes its own mechanics, outcomes and lifetimes.
 
-The planned device/GPU extraction is on `chore/device-integration-rework`. Its private preparation
-repositories are [LibHandheld](../external/libhandheld/README.md) and
+The device/GPU extraction is on `chore/device-integration-rework`. Its private repositories are
+[LibHandheld](../external/libhandheld/README.md) and
 [LibGPUDriverInteract](../external/libgpu-driver-interact/README.md); see the
-[rework plan](../_plan/device-integration-rework.md). They are not build inputs yet.
+[rework plan](../_plan/device-integration-rework.md). LibGPUDriverInteract is directly linked into
+WSGM; LibHandheld is still the inventory/planning stage.
 
 ## Implementation skills
 
@@ -83,8 +84,9 @@ and
 
 ## Devices and plugins
 
-Vendor graphics packages: [Intel](../src/WSGM.Plugin.IntelGpu/README.md),
-[NVIDIA](../src/WSGM.Plugin.NvidiaGpu/README.md) and [AMD](../src/WSGM.Plugin.AmdGpu/README.md).
+Intel, NVIDIA and AMD driver engines are provided by the directly linked
+[LibGPUDriverInteract](../external/libgpu-driver-interact/README.md) library. WSGM owns their
+profiles, integration switches and UI through its graphics adapter and coordinator.
 
 | Read                                                             | When you want to understand                                                                                                    |
 | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |

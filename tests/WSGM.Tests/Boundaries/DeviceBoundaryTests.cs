@@ -73,6 +73,8 @@ public sealed class DeviceBoundaryTests
         const string toolkit = "external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiToolkit.csproj";
         const string deviceControl =
             "external/windows-device-control/src/WindowsDeviceControl/WindowsDeviceControl.csproj";
+        const string gpuLibrary =
+            "external/libgpu-driver-interact/src/LibGPUDriverInteract/LibGPUDriverInteract.csproj";
         List<string> problems = [];
         foreach (var project in SolutionProjects())
         {
@@ -86,7 +88,11 @@ public sealed class DeviceBoundaryTests
                     "WindowsDeviceControl" or "SteamUiToolkit" or "WSGM.Device.Sdk" or "WSGM.Launch"
                         or "WSGM.LogonService" or "WSGM.PackagedLaunch" => [],
                     "WSGM.Plugin.Sdk" => [toolkit, deviceSdk],
-                    "WSGM.Plugin.NvidiaGpu" => [pluginSdk, deviceControl],
+                    "LibGPUDriverInteract" =>
+                    [
+                        deviceControl,
+                        "external/libgpu-driver-interact/external/windows-device-control/src/WindowsDeviceControl/WindowsDeviceControl.csproj"
+                    ],
                     "WSGM.DeviceLab" => [deviceSdk],
                     "WSGM" =>
                     [
@@ -95,7 +101,8 @@ public sealed class DeviceBoundaryTests
                         pluginSdk,
                         deviceSdk,
                         toolkit,
-                        deviceControl
+                        deviceControl,
+                        gpuLibrary
                     ],
                     _ when name.StartsWith("WSGM.Plugin.", StringComparison.Ordinal) => [pluginSdk],
                     _ when name.StartsWith("WSGM.Device.", StringComparison.Ordinal) => [deviceSdk],
@@ -173,7 +180,21 @@ public sealed class DeviceBoundaryTests
 
     private static IEnumerable<string> ResolvedProjectReferences(string project)
     {
-        return Resolved(project, RepositoryFiles.LoadProject(project).Descendants("ProjectReference"));
+        var document = RepositoryFiles.LoadProject(project);
+        var references = document.Descendants("ProjectReference").Select(reference => new XElement(reference))
+            .ToArray();
+        foreach (var reference in references.Where(reference =>
+                     (string?)reference.Attribute("Include") == "$(WindowsDeviceControlProject)"))
+        {
+            var paths = document.Descendants("WindowsDeviceControlProject").Select(property => property.Value)
+                .ToArray();
+            Assert.NotEmpty(paths);
+            Assert.All(paths, path => Assert.EndsWith("/src/WindowsDeviceControl/WindowsDeviceControl.csproj", path));
+            reference.SetAttributeValue("Include", paths.First(path => File.Exists(Path.GetFullPath(Path.Combine(
+                Path.GetDirectoryName(Path.Combine(RepositoryFiles.Root, project))!, path)))));
+        }
+
+        return Resolved(project, references);
     }
 
     /// <summary>Compile items whose path leaves the project's own folder, repository-relative.</summary>

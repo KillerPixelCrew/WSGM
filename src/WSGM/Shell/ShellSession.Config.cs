@@ -345,6 +345,11 @@ public sealed partial class ShellSession
     {
         try
         {
+            if (_builtinGpu is { } graphics)
+            {
+                await graphics.ReconcileAsync(config, _shutdownCancellation.Token).ConfigureAwait(false);
+            }
+
             if (_commonPlugins is { } manager)
             {
                 // Exactly what the user enabled. Nothing is admitted implicitly: the auto-enable pass

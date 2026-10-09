@@ -289,7 +289,7 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
 
         return new WsgmSteamSettingsState(
         [
-            new SteamSettingsPage("steam", "Steam integration",
+            new SteamSettingsPage("steam", "Integration",
             [
                 new SteamSettingsSection(null, [Row("cef.enabled", config)]),
                 new SteamSettingsSection("Library",
@@ -302,7 +302,8 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
                 [
                     Row("cef.wifiIndicator", config), Row("cef.nativeQuickAccess", config),
                     Row("cef.downloadKeepAwake", config), Row("cef.downloadQueueSort", config)
-                ])
+                ]),
+                BuiltinGraphicsSection(config)
             ], PageGlyphs.Integration),
             new SteamSettingsPage("startup", "Startup",
             [
@@ -339,6 +340,23 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
         var toggle = Toggles.First(candidate => candidate.Key == key);
         return new SteamSettingsRow(key, SteamSettingsRowKind.Boolean, toggle.Label, toggle.Description,
             toggle.Read(config), Confirm: toggle.Confirm);
+    }
+
+    private static SteamSettingsSection BuiltinGraphicsSection(AppConfig config)
+    {
+        var instances = BuiltinGpuDrivers.Instances(config.PluginInstances).ToArray();
+        return new SteamSettingsSection("Built-in graphics drivers",
+        [
+            .. instances.Select(instance => new SteamSettingsRow(
+                PluginEnabledPrefix + instance.Identity.PluginId + "/" + instance.Identity.InstanceId,
+                SteamSettingsRowKind.Boolean,
+                instance.Identity.InstanceId != CommonPluginEnablement.DefaultInstanceId
+                || instances.Count(other => other.Driver.Id == instance.Driver.Id) > 1
+                    ? $"{instance.Driver.Name} ({instance.Identity.InstanceId})"
+                    : instance.Driver.Name,
+                "Let WSGM manage graphics settings for matching adapters. Changes apply without restarting WSGM.",
+                instance.Enabled))
+        ]);
     }
 
     private IReadOnlyList<SteamSettingsSection> PluginSections(AppConfig config)
@@ -384,7 +402,7 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
     private IEnumerable<(string PluginId, string InstanceId, string Name, bool Enabled)> PluginInstances(
         AppConfig config)
     {
-        foreach (var package in _installedPlugins())
+        foreach (var package in _installedPlugins().Where(package => !BuiltinGpuDrivers.Contains(package.PluginId)))
         {
             var configured = config.PluginInstances.Where(entry => entry.PluginId == package.PluginId).ToArray();
             if (configured.Length == 0)
@@ -558,7 +576,8 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
             return Invalid();
         }
 
-        if (_installedPlugins().All(package => package.PluginId != pluginId))
+        if (!BuiltinGpuDrivers.Contains(pluginId)
+            && _installedPlugins().All(package => package.PluginId != pluginId))
         {
             return Task.FromResult(new SteamUiCommandResult(false, "This plugin is no longer installed."));
         }

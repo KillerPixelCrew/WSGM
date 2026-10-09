@@ -55,13 +55,14 @@ internal sealed record PublishedCapability(DeviceCapabilityView View, string? Gp
 ///     Beside <see cref="DeviceCoordinator" />, never merged with it: the device router answers "the power
 ///     limit" or "the fan" with exactly one match, and a graphics package must not add a second. It runs
 ///     whatever the device integration switch says and takes no part in the machine-wide device owner. The
-///     plugins' lifecycles belong to <see cref="CommonPluginManager" />; this opens a channel for each one
-///     it starts and drops it when the plugin stops.
+///     built-in drivers' lifecycles belong to <see cref="BuiltinGpuService" />. Independent third-party
+///     publishers retain <see cref="CommonPluginManager" /> ownership. Both use the same profile routers.
 /// </remarks>
 internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposable
 {
     private static readonly TimeSpan CommandTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan SyncBudget = TimeSpan.FromSeconds(15);
+    private readonly Dictionary<PluginInstanceIdentity, PluginHealthPublication> _builtinHealth = [];
 
     private readonly Lock _gate = new();
     private readonly PluginHost _host;
@@ -159,11 +160,52 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
         ICapabilityPlugin plugin)
     {
         ArgumentNullException.ThrowIfNull(manifest);
+        return Open(identity, manifest.Name, manifest.Capabilities, plugin);
+    }
+
+    public void Close(PluginCapabilityChannel channel)
+    {
+        ArgumentNullException.ThrowIfNull(channel);
+        GpuPublisher? publisher;
+        lock (_gate)
+        {
+            publisher = _publishers.FirstOrDefault(candidate => ReferenceEquals(candidate.Channel, channel));
+            if (publisher is not null)
+            {
+                _publishers.Remove(publisher);
+                _builtinHealth.Remove(publisher.Identity);
+                RetirePublisher(publisher);
+            }
+        }
+
+        if (publisher is null)
+        {
+            channel.Dispose();
+            return;
+        }
+
+        Log.Info($"Graphics: {publisher.Identity.PluginId} stopped publishing.");
+        PostChanged();
+    }
+
+    internal PluginCapabilityChannel OpenBuiltin(PluginInstanceIdentity identity, string name,
+        ICapabilityPlugin driver)
+    {
+        return Open(identity, name,
+        [
+            CapabilityRole.GenericToggle, CapabilityRole.GenericChoice, CapabilityRole.GenericRange,
+            CapabilityRole.GenericReadOnly, CapabilityRole.GenericAction, CapabilityRole.VariableRefreshRate
+        ], driver);
+    }
+
+    private PluginCapabilityChannel Open(PluginInstanceIdentity identity, string name,
+        IReadOnlyList<CapabilityRole> declared, ICapabilityPlugin plugin)
+    {
         ArgumentNullException.ThrowIfNull(plugin);
         var key = ProfileSettingKey.GpuPublisher(identity.PluginId);
-        PluginCapabilityChannel channel = new(identity, manifest.Capabilities, plugin);
+        PluginCapabilityChannel channel = new(identity, declared, plugin);
         DeviceCapabilityRouter router = new(_postToUi, key);
-        GpuPublisher publisher = new(this, identity, manifest.Name, key, channel, router);
+        GpuPublisher publisher = new(this, identity, name, key, channel, router);
         var replaced = false;
         lock (_gate)
         {
@@ -191,34 +233,10 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
             Log.Warn($"Graphics: {identity.PluginId} replaced a registration whose channel had already ended.");
         }
 
-        Log.Info($"Graphics: {identity.PluginId} ({manifest.Name}) publishes as {key}, roles "
-                 + $"{string.Join(", ", manifest.Capabilities)}.");
+        Log.Info($"Graphics: {identity.PluginId} ({name}) publishes as {key}, roles "
+                 + $"{string.Join(", ", declared)}.");
         PostChanged();
         return channel;
-    }
-
-    public void Close(PluginCapabilityChannel channel)
-    {
-        ArgumentNullException.ThrowIfNull(channel);
-        GpuPublisher? publisher;
-        lock (_gate)
-        {
-            publisher = _publishers.FirstOrDefault(candidate => ReferenceEquals(candidate.Channel, channel));
-            if (publisher is not null)
-            {
-                _publishers.Remove(publisher);
-                RetirePublisher(publisher);
-            }
-        }
-
-        if (publisher is null)
-        {
-            channel.Dispose();
-            return;
-        }
-
-        Log.Info($"Graphics: {publisher.Identity.PluginId} stopped publishing.");
-        PostChanged();
     }
 
     /// <summary>Stops command and refresh admission while retaining publishers for ordered disposal.</summary>
@@ -280,7 +298,7 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
             publishers = [.. _publishers];
         }
 
-        var health = _host.Snapshot();
+        var health = HealthSnapshot();
         return [.. publishers.Select(publisher => publisher.Describe(health))];
     }
 
@@ -296,7 +314,7 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
 
         var layers = _profiles.Current.Layers;
         return new GpuPublisherSnapshot(
-            publisher.Describe(_host.Snapshot()),
+            publisher.Describe(HealthSnapshot()),
             publisher.Router.Sections,
             [
                 .. publisher.Router.Snapshot()
@@ -463,6 +481,30 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
         }
 
         PostChanged();
+    }
+
+    internal void ReportBuiltinHealth(PluginHealthPublication publication)
+    {
+        lock (_gate)
+        {
+            if (_disposed || _publishers.All(publisher => publisher.Identity != publication.Instance))
+            {
+                return;
+            }
+
+            _builtinHealth[publication.Instance] = publication;
+        }
+
+        PostChanged();
+    }
+
+    private IReadOnlyList<PluginHealthPublication> HealthSnapshot()
+    {
+        var pluginHealth = _host.Snapshot();
+        lock (_gate)
+        {
+            return [.. _builtinHealth.Values, .. pluginHealth];
+        }
     }
 
     /// <summary>Coalesces change notifications into one on the UI dispatcher.</summary>

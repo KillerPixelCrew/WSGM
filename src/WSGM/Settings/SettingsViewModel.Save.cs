@@ -181,7 +181,8 @@ public sealed partial class SettingsViewModel
             SharedValues = WsgmSharedSettings.All.ToDictionary(field => field.Name, field => field.Read(values),
                 StringComparer.Ordinal),
             ForgottenDisplays = [.. _forgottenDisplays],
-            CommonPluginEdits = [.. CommonPlugins.Where(row => row.Edited).Select(row => row.Capture())]
+            CommonPluginEdits =
+                [.. CommonPlugins.Concat(GraphicsDrivers).Where(row => row.Edited).Select(row => row.Capture())]
         };
     }
 
@@ -570,7 +571,7 @@ public sealed partial class SettingsViewModel
     /// </remarks>
     internal void AdvanceSharedBaseline(SaveRequest request)
     {
-        foreach (var row in CommonPlugins)
+        foreach (var row in CommonPlugins.Concat(GraphicsDrivers))
         {
             foreach (var saved in request.CommonPluginEdits)
             {

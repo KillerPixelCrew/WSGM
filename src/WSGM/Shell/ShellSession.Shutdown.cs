@@ -121,6 +121,7 @@ public sealed partial class ShellSession
         Step(failures, "Closing Steam UI admission failed", () => _steamUi?.CloseAdmission());
         Step(failures, "Closing device admission failed", () => _deviceCoordinator?.CloseAdmission());
         Step(failures, "Closing common plugin admission failed", () => _commonPlugins?.CloseAdmission());
+        Step(failures, "Closing GPU driver admission failed", () => _builtinGpu?.CloseAdmission());
         Step(failures, "Closing graphics admission failed", () => _gpu?.CloseAdmission());
         Step(failures, "Cancelling library tab boot sync failed", CancelTabBootSync);
         var libraryTabWork = Task.CompletedTask;
@@ -208,6 +209,12 @@ public sealed partial class ShellSession
 
         if (_gpu is { } gpu)
         {
+            if (_builtinGpu is { } drivers)
+            {
+                await StepAsync(failures, "GPU driver cleanup was unconfirmed",
+                    () => drivers.StopAsync(Deadline.At(ShutdownDeadline))).ConfigureAwait(false);
+            }
+
             await StepAsync(failures, "Graphics capability cleanup failed",
                 () => gpu.DisposeAsync().AsTask()).ConfigureAwait(false);
         }

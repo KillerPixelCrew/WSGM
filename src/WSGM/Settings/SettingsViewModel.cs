@@ -91,6 +91,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         SavedAccentColor = _config.AccentColor;
         RecordSharedBaseline(_config);
         LoadPluginSettings(_config, installedPluginId, filterToInstalledPlugin);
+        LoadGraphicsDrivers();
 
         SteamAutoRelaunch = _config.SteamAutoRelaunch;
         SteamLaunchUnelevated = _config.SteamLaunchUnelevated;

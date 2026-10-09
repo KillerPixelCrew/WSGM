@@ -111,6 +111,12 @@ $newExe = Join-Path $appPublish 'WSGM.exe'
 if (-not (Test-Path -LiteralPath $newExe)) {
     throw "No published WSGM.exe at $newExe - build first or drop -SkipBuild."
 }
+foreach ($required in 'LibGPUDriverInteract.dll', 'LibGPUDriverInteract-LICENSE.txt',
+    'LibGPUDriverInteract-PROVENANCE.md') {
+    if (-not (Test-Path -LiteralPath (Join-Path $appPublish $required) -PathType Leaf)) {
+        throw "No published $required at $appPublish - build first or drop -SkipBuild."
+    }
+}
 
 $sessionId = [Diagnostics.Process]::GetCurrentProcess().SessionId
 # Both wrappers own a live game session: WSGM.Launch holds an input lease and a job over the game
@@ -177,7 +183,7 @@ $copies = [Collections.Generic.List[object]]::new()
 $copies.Add(@{ Source = $newExe; Name = 'WSGM.exe'; Process = '' })
 $copies.Add(@{ Source = $newExe; Name = 'WSGM.ShellAnchor.exe'; Process = 'WSGM.ShellAnchor' })
 foreach ($pattern in 'WSGM.Launch.exe', 'WSGM.PackagedLaunch.exe', '*.dll', 'WSGM.deps.json',
-    'WSGM.runtimeconfig.json') {
+    'WSGM.runtimeconfig.json', 'LibGPUDriverInteract-LICENSE.txt', 'LibGPUDriverInteract-PROVENANCE.md') {
     foreach ($file in @(Get-ChildItem -LiteralPath $appPublish -Filter $pattern -ErrorAction SilentlyContinue)) {
         $copies.Add(@{ Source = $file.FullName; Name = $file.Name; Process = '' })
     }
@@ -242,6 +248,40 @@ foreach ($copy in $request.Copies) {
                 Where-Object SessionId -eq $request.SessionId |
                 Stop-Process -Force -Confirm:$false -ErrorAction SilentlyContinue
             Start-Sleep -Milliseconds 500
+        }
+    }
+}
+# The direct GPU library replaces only these built-in archive identities. Filename prefixes are
+# insufficient: keep unrelated packages and all per-user PluginState recovery journals.
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+if (Test-Path -LiteralPath $request.PluginsRoot -PathType Container) {
+    foreach ($package in @(Get-ChildItem -LiteralPath $request.PluginsRoot -File -Filter '*.wsgmpkg')) {
+        if ($package.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
+        $retired = $false
+        try {
+            $archive = [IO.Compression.ZipFile]::OpenRead($package.FullName)
+            try {
+                $manifests = @($archive.Entries | Where-Object FullName -CEQ 'plugin.wsgm.json')
+                if ($manifests.Count -eq 1 -and $manifests[0].Length -le 1MB) {
+                    $reader = [IO.StreamReader]::new($manifests[0].Open())
+                    try {
+                        $manifest = $reader.ReadToEnd() | ConvertFrom-Json -ErrorAction Stop
+                        $retired = $manifest -is [PSCustomObject] -and $manifest.id -is [string] -and
+                            $manifest.id -cin @('wsgm.gpu.intel', 'wsgm.gpu.amd', 'wsgm.gpu.nvidia')
+                    } finally {
+                        $reader.Dispose()
+                    }
+                }
+            } finally {
+                $archive.Dispose()
+            }
+        } catch [IO.InvalidDataException] {
+            continue
+        } catch [ArgumentException] {
+            continue
+        }
+        if ($retired) {
+            Remove-Item -LiteralPath $package.FullName -Force
         }
     }
 }

@@ -4,8 +4,8 @@
 
 .DESCRIPTION
     Setup carries every accepted plugin and installs only the device plugin whose hardware rules
-    match the machine and the graphics plugins whose display adapters are present, so a release
-    needs each package plus one bundle.json describing them. The
+    match the machine plus the selected common plugins, so a release needs each package and
+    one bundle.json describing them. The GPU backends are an application library, not packages. The
     list of plugins is plugins\curated\*.json, the only place their origin and validation status
     are set.
 
@@ -158,6 +158,8 @@ function Get-OutdatedLog([string]$Message) {
 }
 
 try {
+    # Restore/publish the validator and each selected package through their own project graphs.
+    # Never restore WSGM.slnx here: the community job has no access to private application libraries.
     $deviceLabDestination = Join-Path $temporaryRoot "Tools\DeviceLab"
     Publish-DeviceLab -Root $root -Destination $deviceLabDestination -Configuration $Configuration `
         -RuntimeIdentifier $RuntimeIdentifier -NoRestore:$NoRestore

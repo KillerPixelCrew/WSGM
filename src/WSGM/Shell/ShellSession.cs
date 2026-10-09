@@ -92,6 +92,7 @@ public sealed partial class ShellSession
 
     private AutoTdpService? _autoTdp;
     private NativeQamBrightnessService? _brightness;
+    private BuiltinGpuService? _builtinGpu;
     private CardAcfWatcher? _cardAcfWatcher;
     private CardVolumeMonitor? _cardVolumes;
     private SteamGuideChordMirror? _chordMirror;
@@ -372,6 +373,11 @@ public sealed partial class ShellSession
                 TryStart("graphics capability router", () =>
                     _gpu = new GpuCoordinator(UiThread.Post, _profiles, _pluginHost, DeviceCoordinator.ReadOnAcPower,
                         _applicationProfiles.PersistManualVariableRefresh));
+                if (_gpu is { } graphics)
+                {
+                    _builtinGpu = new BuiltinGpuService(_store, graphics);
+                }
+
                 TryStart("common plugin manager", () =>
                     _commonPlugins = new CommonPluginManager(_pluginHost, InstallLayout.Plugins,
                         Path.Combine(_store.Context.Root, "PluginState"), capabilityChannels: _gpu, store: _store));

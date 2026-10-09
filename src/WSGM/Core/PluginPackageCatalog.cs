@@ -174,6 +174,13 @@ internal sealed record PluginPackageCatalog
             try
             {
                 using var package = PluginPackageFile.Open(file);
+                // These identities now belong to directly linked drivers. An old archive must not
+                // acquire the same driver or become an installable common plugin again.
+                if (package.CommonManifest is not null && BuiltinGpuDrivers.Contains(package.Id))
+                {
+                    continue;
+                }
+
                 if (!PluginPackageFile.IsForThisHost(package.WsgmVersion))
                 {
                     errors.Add($"{Path.GetFileName(file)}: {package.Id} {package.Version} was built for WSGM "

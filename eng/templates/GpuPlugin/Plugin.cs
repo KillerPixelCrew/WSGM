@@ -4,7 +4,8 @@ using WSGM.Plugin.Sdk;
 namespace ExamplePlugin.Gpu;
 
 // Descriptors belong to each CycleGeneration and the roles the manifest declares.
-// src/WSGM.Plugin.IntelGpu shows the full pattern. This example touches no driver.
+// Built-in vendor engines use LibGPUDriverInteract directly; this example is for
+// independent third-party capability publishers and touches no driver.
 public sealed class Plugin : IPlugin, ICapabilityPlugin
 {
     private ICapabilityHost? _capabilities;

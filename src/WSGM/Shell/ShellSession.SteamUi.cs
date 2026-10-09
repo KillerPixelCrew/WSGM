@@ -68,6 +68,11 @@ public sealed partial class ShellSession
 
         _resolutions?.InvalidateOptions();
         _steamUi?.RefreshDisplayState();
+        if (_builtinGpu is { } drivers)
+        {
+            Log.Observe(drivers.ReconcileAsync(_config, _shutdownCancellation.Token),
+                "Graphics adapter topology refresh", true);
+        }
     }
 
     /// <summary>

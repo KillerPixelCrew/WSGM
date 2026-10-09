@@ -774,7 +774,24 @@ internal sealed class SetupEngine : IDisposable
         }
 
         _swapped = true;
+        RetireGpuPackages();
         return true;
+    }
+
+    private void RetireGpuPackages()
+    {
+        if (!Directory.Exists(Plugins))
+        {
+            return;
+        }
+
+        foreach (var path in Directory.EnumerateFiles(Plugins, "*.wsgmpkg"))
+        {
+            if (GpuPackageRetirement.IsRetiredPackage(path))
+            {
+                File.Delete(path);
+            }
+        }
     }
 
     private static void MoveWithRetry(string source, string destination)

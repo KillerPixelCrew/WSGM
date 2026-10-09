@@ -13,9 +13,9 @@ regenerated file would no longer carry the row either.
 `intel-graphics-ui-publication.json` supplies the Intel graphics package's publication for the
 Device > GPU section: a Graphics adapter section (Frame delivery, Image quality, Driver, Live
 status) and a Built-in display section (Refresh, Picture, Colour, Power savings). Ids, labels,
-ranges, profile scopes and apply timings follow the descriptors in `src/WSGM.Plugin.IntelGpu`; the
-values are fixture data, not a hardware reading. Arc Sync uses the Custom profile with variable
-refresh on, so its four range rows are writable. `FixtureGraphicsSource` adds the running game's Low
-latency override and projects the rows through the production Graphics bridge. The Claw captures
-take their Power and thermals variable refresh row from this fixture, as the device bridge does with
-a running graphics package.
+ranges, profile scopes and apply timings follow the descriptors in
+`external/libgpu-driver-interact`; the values are fixture data, not a hardware reading. Arc Sync
+uses the Custom profile with variable refresh on, so its four range rows are writable.
+`FixtureGraphicsSource` adds the running game's Low latency override and projects the rows through
+the production Graphics bridge. The Claw captures take their Power and thermals variable refresh row
+from this fixture, as the device bridge does with a running graphics package.
