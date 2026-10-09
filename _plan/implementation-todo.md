@@ -1084,8 +1084,13 @@ stays inactive during testing. Source priority is HC, then HHD, then OpenGamepad
 - [x] Integrate actual input, motion, haptics, OEM controls, controller transitions and restoration.
 - [x] Deliver model-specific PawnIO/InpOut setup dependencies, pinned KX resources and notices.
 - [x] Complete solution-wide Rider cleanup and warning-free Release compilation; Steam assets match.
-- [ ] Build the complete setup and deploy the established development installation.
+- [x] Build the complete setup and deploy the established development installation.
 - [ ] Maintainer hardware acceptance, followed by deferred automated tests and test-bearing gates.
 
 Concrete source coverage and proof limits: external/libhandheld/inventory/implementation-coverage.md.
 New hardware acceptance is not inferred from source, fixtures, compilation or packaging.
+Delivery snapshot: WSGM f1e212d8, LibHandheld 0499bd0, setup/app 2.1.0.1660. The verified setup is
+Z:\WSGM-Setup-2.1.0.exe, SHA-256 369BAC756D964DF6376FBF076E6049DC413F1C9C5F84CC301218FFC4C5B2B8B2.
+The previous Z: setup was preserved. The desktop deployment restarted WSGM/Steam through the established
+script and six app/library/helper hashes match the staged files. Test execution remains deferred.
+Later tracker-only commits leave this implementation and delivered snapshot unchanged.
