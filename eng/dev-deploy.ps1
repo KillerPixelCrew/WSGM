@@ -288,10 +288,6 @@ $elevated = Start-Process -FilePath 'powershell.exe' `
 if ($elevated.ExitCode -ne 0) {
     throw "Elevated swap failed (exit $($elevated.ExitCode))."
 }
-if ($packageId) {
-    Write-Host "Device plugin $packageId installed." -ForegroundColor Green
-}
-
 if ($NoRestart) {
     Write-Host 'Swap done; Steam and WSGM left stopped (-NoRestart).' -ForegroundColor Yellow
     return
