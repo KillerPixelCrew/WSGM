@@ -97,6 +97,11 @@ original native implementation.
 
 ## Dependencies and generated boundaries
 
+The private `external/libhandheld` and `external/libgpu-driver-interact` submodules contain
+inventories and extraction plans for the
+[device integration rework](../_plan/device-integration-rework.md). They are preparation
+repositories; production device/GPU code still lives in the projects above.
+
 | Boundary                                                                          | Ownership                                                                                                                                                                                                              |
 | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`external/steam-ui-toolkit`](../external/steam-ui-toolkit/README.md)             | Pinned repository for CDP, patches, bridge/modules, typed Steam operations and reusable frontend mechanics. Its C# library and tests are included in `WSGM.slnx`; WSGM owns product surfaces and policy.               |

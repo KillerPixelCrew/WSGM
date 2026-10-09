@@ -26,6 +26,11 @@ Reusable libraries are pinned submodules, with their own source contracts and do
 [WindowsDeviceControl](../external/windows-device-control/README.md). WSGM's guides describe the
 product policy around those APIs; each library describes its own mechanics, outcomes and lifetimes.
 
+The planned device/GPU extraction is on `chore/device-integration-rework`. Its private preparation
+repositories are [LibHandheld](../external/libhandheld/README.md) and
+[LibGPUDriverInteract](../external/libgpu-driver-interact/README.md); see the
+[rework plan](../_plan/device-integration-rework.md). They are not build inputs yet.
+
 ## Implementation skills
 
 The delivered [WSGM skill](../.agents/skills/wsgm/SKILL.md) is the entry point for architecture,

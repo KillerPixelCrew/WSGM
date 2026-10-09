@@ -19,8 +19,14 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          submodules: recursive
+          submodules: false
           persist-credentials: false
+
+      - name: Check out build submodules
+        shell: pwsh
+        run:
+          git submodule update --init --recursive -- external/steam-input-lease
+          external/steam-ui-toolkit external/viiper external/windows-device-control
 
       - name: Set up .NET SDK
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -54,12 +60,16 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # See ci.yml: the release publish ships the gate and FFI DLLs built from
-          # external/steam-input-lease and libviiper built from external/viiper, and links
-          # external/windows-device-control, all submodules.
-          submodules: recursive
+          # Private library inventories are not build inputs yet.
+          submodules: false
           # Full history: the fourth version part is the commit count (eng/wsgm-revision.targets).
           fetch-depth: 0
+
+      - name: Check out build submodules
+        shell: pwsh
+        run:
+          git submodule update --init --recursive -- external/steam-input-lease
+          external/steam-ui-toolkit external/viiper external/windows-device-control
 
       - name: Set up .NET SDK
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0

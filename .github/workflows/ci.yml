@@ -22,9 +22,14 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The reusable libraries, Steam Input, and VIIPER are submodules. Device projects
-          # and their shared SDK are ordinary source in this checkout.
-          submodules: recursive
+          # Private library inventories are not build inputs yet.
+          submodules: false
+
+      - name: Check out build submodules
+        shell: pwsh
+        run:
+          git submodule update --init --recursive -- external/steam-input-lease
+          external/steam-ui-toolkit external/viiper external/windows-device-control
 
       - name: Set up .NET SDK
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -92,8 +97,14 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          submodules: recursive
+          submodules: false
           persist-credentials: false
+
+      - name: Check out build submodules
+        shell: pwsh
+        run:
+          git submodule update --init --recursive -- external/steam-input-lease
+          external/steam-ui-toolkit external/viiper external/windows-device-control
 
       - name: Set up .NET SDK
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -120,7 +131,13 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          submodules: recursive
+          submodules: false
+
+      - name: Check out build submodules
+        shell: pwsh
+        run:
+          git submodule update --init --recursive -- external/steam-input-lease
+          external/steam-ui-toolkit external/viiper external/windows-device-control
 
       # setup-go caches the module download and build caches, keyed on the VIIPER go.sum.
       - name: Set up Go toolchain
