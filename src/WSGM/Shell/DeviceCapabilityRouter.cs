@@ -1461,12 +1461,12 @@ internal static class DeviceCapabilityValidation
             CapabilityRole.GenericAction => kind is CapabilityValueKind.None,
             CapabilityRole.GenericToggle
                 or CapabilityRole.LightingPower
-                or CapabilityRole.VariableRefreshRate
-                or CapabilityRole.ChargeBypass => kind is CapabilityValueKind.Boolean,
+                or CapabilityRole.VariableRefreshRate => kind is CapabilityValueKind.Boolean,
+            CapabilityRole.ChargeBypass or CapabilityRole.ChargeProtectionMode =>
+                kind is CapabilityValueKind.Boolean or CapabilityValueKind.Choice,
             CapabilityRole.GenericChoice
                 or CapabilityRole.ScenarioMode
                 or CapabilityRole.FanMode
-                or CapabilityRole.ChargeProtectionMode
                 or CapabilityRole.LightingEffect
                 or CapabilityRole.ControllerSource
                 or CapabilityRole.MotionSource => kind is CapabilityValueKind.Choice,

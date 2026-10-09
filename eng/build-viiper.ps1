@@ -31,7 +31,8 @@ corresponds to a pushed, pinned commit rather than local edits.
 [CmdletBinding()]
 param(
     [switch] $Validate,
-    [switch] $RequirePinned
+    [switch] $RequirePinned,
+    [switch] $DeferTests
 )
 
 Set-StrictMode -Version Latest
@@ -97,8 +98,10 @@ try {
         # test that drifted from an interface change is caught here rather than never.
         go vet ./...
         if ($LASTEXITCODE -ne 0) { throw "VIIPER go vet failed" }
-        go test ./device/steamdeck/... ./clib/...
-        if ($LASTEXITCODE -ne 0) { throw "VIIPER Steam Deck device or C API tests failed" }
+        if (-not $DeferTests) {
+            go test ./device/steamdeck/... ./clib/...
+            if ($LASTEXITCODE -ne 0) { throw "VIIPER Steam Deck device or C API tests failed" }
+        }
     }
 
     if (Test-Path -LiteralPath $staging) {

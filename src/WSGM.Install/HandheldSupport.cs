@@ -31,6 +31,6 @@ public static class HandheldSupport
             CpuIdentity = identity.CpuIdentity,
             ProcessorName = identity.ProcessorName
         });
-        return definition is null ? null : new HandheldOffer(definition, [SetupComponent.ControllerStack]);
+        return definition is null ? null : new HandheldOffer(definition, SetupComponents.Required(definition));
     }
 }

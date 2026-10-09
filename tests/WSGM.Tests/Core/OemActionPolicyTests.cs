@@ -35,6 +35,7 @@ public sealed class OemActionPolicyTests
     [InlineData(OemAction.ToggleOnScreenKeyboard)]
     [InlineData(OemAction.CyclePerformanceProfile)]
     [InlineData(OemAction.CyclePerformanceOverlayLevel)]
+    [InlineData(OemAction.MouseSecondaryButton)]
     public void WsgmAction_IsAssignableToEitherPhysicalPlacement(OemAction action)
     {
         Assert.True(OemActionRules.IsAssignable(action, OemControlPlacement.Front));
@@ -68,7 +69,8 @@ public sealed class OemActionPolicyTests
             "CyclePerformanceProfile",
             "CyclePerformanceOverlayLevel",
             "VirtualTargetRearButton1",
-            "VirtualTargetRearButton2"
+            "VirtualTargetRearButton2",
+            "MouseSecondaryButton"
         ];
 
         Assert.Equal(

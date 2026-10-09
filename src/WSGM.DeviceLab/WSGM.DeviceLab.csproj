@@ -31,6 +31,7 @@
       Include="..\WSGM.Plugin.Sdk\WSGM.Plugin.Sdk.csproj"/>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="..\Shared\Security\AuthenticodeSignature.cs" Link="Shared\AuthenticodeSignature.cs"/>
     <Compile Include="..\Shared\Interop\Kernel32.cs"
              Link="Shared\Kernel32.cs"/>
     <Compile Include="..\Shared\Process\SessionProtocolNames.cs"

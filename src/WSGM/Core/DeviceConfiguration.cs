@@ -235,7 +235,10 @@ public enum OemAction
     VirtualTargetRearButton2,
 
     /// <summary>Invoke Steam's native Home/Overlay button for the active Steam window.</summary>
-    ToggleSteamOverlay
+    ToggleSteamOverlay,
+
+    /// <summary>Hold the right mouse button until the physical OEM gesture is released.</summary>
+    MouseSecondaryButton
 }
 
 /// <summary>One allowlisted OEM-control assignment.</summary>

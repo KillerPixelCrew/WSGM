@@ -1071,3 +1071,21 @@ check passed. WSGM application tests and live card-swap/eject acceptance remain 
 2.1.0.1649 from source `abae696f` was copied to `Z:\WSGM-Setup-2.1.0.exe`; the previous setup was
 preserved. The copied SHA-256 matches the build:
 `221D82490377C4369CB768021AE757771E24E2FE31C4548ADA9901B37738EE6F`.
+
+## LibHandheld full family port, 2026-10-09
+
+Work branch: `chore/device-integration-rework`. The two extracted libraries remain private and CI
+stays inactive during testing. Source priority is HC, then HHD, then OpenGamepadUI.
+
+- [x] Implement all 201 inventoried source records through 123 runtime definitions, including 11
+      named fallback ranges; retain exact provenance and keep optional external declarations distinct.
+- [x] Share model selection, semantic power/fan/charging/lighting operations and Windows services.
+      Variants reuse profiles; callers use operations such as SetTdpAsync without protocol switches.
+- [x] Integrate actual input, motion, haptics, OEM controls, controller transitions and restoration.
+- [x] Deliver model-specific PawnIO/InpOut setup dependencies, pinned KX resources and notices.
+- [x] Complete solution-wide Rider cleanup and warning-free Release compilation; Steam assets match.
+- [ ] Build the complete setup and deploy the established development installation.
+- [ ] Maintainer hardware acceptance, followed by deferred automated tests and test-bearing gates.
+
+Concrete source coverage and proof limits: external/libhandheld/inventory/implementation-coverage.md.
+New hardware acceptance is not inferred from source, fixtures, compilation or packaging.

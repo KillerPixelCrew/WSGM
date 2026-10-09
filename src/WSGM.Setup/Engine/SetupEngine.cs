@@ -436,6 +436,24 @@ internal sealed class SetupEngine : IDisposable
             steps.Add(new SetupStep("Installing HidHide", "HidHide installed", false, InstallHidHide));
         }
 
+        if (RequiredComponents(choices).Contains(SetupComponent.PawnIo))
+        {
+            steps.Add(new SetupStep("Installing handheld hardware access", "PawnIO installed", true,
+                step =>
+                {
+                    var result = PawnIoInstaller.Install(step);
+                    RestartRequired |= step.Note == "PawnIO installation requires a restart.";
+                    return result;
+                }));
+        }
+
+        if (RequiredComponents(choices).Contains(SetupComponent.InpOut))
+        {
+            steps.Add(new SetupStep("Installing Steam Deck firmware access", "Steam Deck firmware access installed",
+                true,
+                _ => InpOutInstaller.Install(App)));
+        }
+
         // RTSS is the one component setup downloads rather than carries; a failure leaves WSGM working without it.
         if (choices.Answers["features"]?["rtss"]?.GetValue<bool>() == true)
         {

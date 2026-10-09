@@ -102,6 +102,12 @@
           CopyToPublishDirectory="PreserveNewest"/>
   </ItemGroup>
   <ItemGroup>
+    <None Include="..\..\external\kx\KX.exe" Link="Resources\Intel\KX\KX.exe"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"/>
+    <None Include="..\..\external\kx\kx.lock.json" Link="Resources\Intel\KX\kx.lock.json"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"/>
+    <None Include="..\..\external\inpout\*" Link="Resources\InpOut\%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"/>
     <!-- Plugins are loaded dynamically; the shared SDK preserves type identity
          without making the installed package a production project reference. -->
     <ProjectReference Include="..\Avalonia.LiveBackdrop\Avalonia.LiveBackdrop.csproj"/>

@@ -45,9 +45,14 @@
   </ItemGroup>
   <Import Project="..\..\eng\wsgm-revision.targets"/>
   <ItemGroup>
+    <Compile Include="..\Shared\Security\AuthenticodeSignature.cs" Link="Shared\AuthenticodeSignature.cs"/>
     <Compile Include="..\Shared\Process\SessionProtocolNames.cs" Link="Shared\SessionProtocolNames.cs"/>
   </ItemGroup>
   <ItemGroup>
+    <EmbeddedResource Include="..\..\external\pawnio\pawnio.lock.json" LogicalName="WSGM.PawnIO.Pin"/>
+    <EmbeddedResource Include="..\..\artifacts\pawnio\PawnIO_setup.exe"
+                      Condition="Exists('..\..\artifacts\pawnio\PawnIO_setup.exe')"
+                      LogicalName="WSGM.PawnIO.Installer"/>
     <EmbeddedResource Include="..\..\eng\webview2-runtime.lock.json" LogicalName="WSGM.WebView2RuntimePin"/>
   </ItemGroup>
 </Project>

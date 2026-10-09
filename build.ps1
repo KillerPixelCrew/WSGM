@@ -7,12 +7,14 @@
 # eng\build-bundle.ps1 produced elsewhere. The release workflow builds the bundle in a job without
 # secrets, because it compiles community plugin source, and hands it to this build.
 param(
-    [string]$BundleFrom = ""
+    [string]$BundleFrom = "",
+    [switch]$DeferTests
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
 . "$root\eng\build-common.ps1"
+& "$root\eng\acquire-pawnio.ps1"
 
 # The csproj <Version> is the single source of truth; WSGM.Setup reads it from there too.
 $csproj = Get-Content "$root\src\WSGM\WSGM.csproj" -Raw
@@ -48,13 +50,13 @@ Write-Host "== Building Steam Input Lease (Rust) ==" -ForegroundColor Cyan
 # putting an unrelated symbol at XInput's ordinal 104/109 - the stack-corruption case
 # that .def exists to prevent. Without this the shipped DLL is the one artifact never
 # export-checked, since eng\verify.ps1 only validates a separately built copy.
-& "$root\eng\build-steam-input-lease.ps1" -Validate
+& "$root\eng\build-steam-input-lease.ps1" -Validate -DeferTests:$DeferTests
 
 # The virtual controller library is built from the external\viiper submodule. Controller management
 # is a shipped feature, so a release without the library is an incomplete release, not a valid
 # feature-local fallback artifact.
 Write-Host "== Building virtual controller library (Go) ==" -ForegroundColor Cyan
-& "$root\eng\build-viiper.ps1" -Validate -RequirePinned
+& "$root\eng\build-viiper.ps1" -Validate -RequirePinned -DeferTests:$DeferTests
 
 Write-Host "== Publishing WSGM $version (self-contained JIT) ==" -ForegroundColor Cyan
 # Clean first: dotnet publish overlays onto the previous output, so a DLL removed by
@@ -151,6 +153,7 @@ $appFiles = @(
     "WSGM.PackagedLaunch.deps.json", "WSGM.PackagedLaunch.runtimeconfig.json", "SharpCompress-LICENSE.txt",
     "LICENSE.txt", "LibGPUDriverInteract-LICENSE.txt", "LibGPUDriverInteract-PROVENANCE.md",
     "LibHandheld-LICENSE.txt", "LibHandheld-PROVENANCE.md",
+    "LibHandheld-Transports-NOTICES.md", "LibHandheld-Transports-MPL-2.0.txt", "LibHandheld-Transports-LGPL-2.1.txt",
     "LoadingIndicators.Avalonia-UNLICENSE.txt", "Avalonia.Labs-MIT.txt",
     "Avalonia.LiveBackdrop.ThirdParty.txt", "WebView2-LICENSE.txt", "WebView2-NOTICE.txt",
     "Microsoft.Data.Sqlite-MIT.txt", "SQLitePCLRaw-Apache-2.0.txt",
@@ -162,6 +165,7 @@ foreach ($file in $appFiles) {
 # The Explorer recovery owner is the same image under a distinct name, so a force stop of WSGM.exe
 # never ends the process that must restore Explorer.
 Copy-Item -LiteralPath "$appPublish\WSGM.exe" -Destination "$payloadApp\WSGM.ShellAnchor.exe"
+Copy-Item -LiteralPath "$appPublish\Resources" -Destination "$payloadApp\Resources" -Recurse
 Get-ChildItem -LiteralPath $appPublish -File | Where-Object {
     ($_.Extension -eq ".dll" -and $_.Name -notin @("libviiper.dll", "WSGM.Device.Sdk.dll")) -or $_.Name -like "SteamInputLease-*"
 } | Copy-Item -Destination $payloadApp

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "component": {
+    "id": "inpout",
+    "version": "1.5.0.1",
+    "file": "inpoutx64.dll",
+    "sha256": "5F27ED4D5CD58A1EE23DEEB802E09E73F3A1D884CE2135F6E827F67B171269E7",
+    "archiveUrl": "https://dvps.highrez.co.uk/downloads/InpOut32/InpOutBinaries_1501.zip",
+    "archiveSha256": "7B56D19F0B18E5432A6564A5928CE53439DD5A632BCEC1BB52A117BE640B533F",
+    "license": "MIT",
+    "notes": [
+      "Official 1.5.0.1 distribution retains the DLL version resource 1.5.0.0.",
+      "Only setup may load the DLL to install its embedded driver. Runtime requires an existing driver handle before loading.",
+      "The helper is only required by the exact Steam Deck backend. No security settings are changed."
+    ]
+  }
+}

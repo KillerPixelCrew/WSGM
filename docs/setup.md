@@ -23,10 +23,14 @@ the install completes (see [RTSS integration](rtss.md#boundary)). The approved s
 ## What gets installed
 
 Setup reads machine identity (SMBIOS, CPU) and calls the exact LibHandheld detector through
-`HandheldSupport`. A native match offers Device Integration and its controller stack (VIIPER, USB/IP
-and HidHide); the user can decline. No match leaves integration off. The native library ships with
-`App`, so there is no device archive selection or installation. Bundled common plugins are offered
-as checkboxes. Updates and repairs preserve the saved integration intent.
+`HandheldSupport`. A native match offers Device Integration and the detected model's dependencies;
+the user can decline. Physical-controller models require VIIPER, USB/IP and HidHide. CPU-only and
+tablet definitions acquire no virtual controller. Signed PawnIO access is installed for the models
+that require it; Steam Deck's InpOut driver is installed only by its explicit setup step. Runtime
+never installs either driver. Pinned KX and InpOut helpers, signed modules and notices ship with
+App. No match leaves integration off. The native library ships with `App`, so there is no device
+archive selection or installation. Bundled common plugins are offered as checkboxes. Updates and
+repairs preserve the saved integration intent.
 
 Intel, AMD and NVIDIA driver support ships in `App` through the directly referenced
 `LibGPUDriverInteract` library. It works independently of handheld integration and needs no GPU

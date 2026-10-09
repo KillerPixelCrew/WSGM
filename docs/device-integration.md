@@ -1,28 +1,37 @@
 # Device integration
 
-Device Integration is an optional, process-long WSGM subsystem that hosts one device plugin
-in-process. It is independent from Steam and from Desktop/Game Mode transitions: turning it off
-leaves the shell, overlay, Steam Input lease, storage, artwork, launch features, RTSS and core
+Device Integration is an optional, process-long WSGM subsystem that owns one selected LibHandheld
+device in-process. It is independent from Steam and from Desktop/Game Mode transitions: turning it
+off leaves the shell, overlay, Steam Input lease, storage, artwork, launch features, RTSS and core
 recovery usable. With it off, the coordinator still answers the Settings diagnostics read, but runs
-no device cycle, managed controller target, device-package hardware write or AutoTDP. Independent
-common plugins and Windows power-scheme controls retain their own lifecycles. This document records
-the decisions behind the runtime and the device findings that produced them. It does not describe
-the mechanism step by step.
+no device cycle, managed controller target, device hardware write or AutoTDP. Independent common
+plugins and Windows power-scheme controls retain their own lifecycles. This document records the
+decisions behind the runtime and the device findings that produced them. It does not describe the
+mechanism step by step.
 
-DeviceCoordinator owns the sole DevicePluginRuntime, device lifecycle policy and ordered controller
-cleanup; hardware behavior stays in the package. The common PluginHost handles independent common
-plugins and refuses the Device category. Its admission and lifecycle rules are in
-[common plugin contracts](plugin-system.md).
+DeviceCoordinator owns the sole HandheldDeviceRuntime, device lifecycle policy and ordered
+controller cleanup; hardware behavior stays in LibHandheld's family services. Shared semantic
+operations select the current or explicit model and its native power, fan, charging, lighting and
+input implementation. Power-only definitions never acquire a virtual controller. Setup installs the
+model's declared driver dependencies; runtime acquisition reports missing access. The common
+PluginHost handles independent common plugins and refuses the Device category. Its admission and
+lifecycle rules are in [common plugin contracts](plugin-system.md).
 
 Related:
 
 - [device-plugin-system.md](device-plugin-system.md): how each mechanism works, with its budgets,
   boundaries and log lines.
-- `src\WSGM.Device.Sdk\docs\reference.md`: the contract a plugin links against.
+- [LibHandheld API](../external/libhandheld/API.md): direct native contracts and semantic
+  operations.
+- [Adding a device](../external/libhandheld/CONTRIBUTING.md): profiles and reusable native services.
 - [device-plugin-authoring.md](device-plugin-authoring.md): the author workflow and the device
   projects in this repository.
 
-## One plugin slot
+## Historical device package boundary
+
+The device-package catalog below describes the retired loader and the reasons behind its ownership
+rules. Current native device code is a direct library dependency. Common plugin packages, including
+IR, use WSGM.Plugin.Sdk independently; old built-in device archives are retired by setup/deployment.
 
 WSGM runs at most one distinct device package ID. `PluginPackageCatalog.Discover` validates the
 archive metadata without loading code, chooses the highest version of each ID, and reports older

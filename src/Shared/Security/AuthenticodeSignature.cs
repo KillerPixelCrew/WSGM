@@ -4,7 +4,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.Win32.SafeHandles;
 
-namespace WSGM.DeviceLab.Wizard;
+namespace WSGM.Security;
 
 /// <summary>Checks that a file carries a valid Authenticode signature from one exact certificate.</summary>
 /// <remarks>

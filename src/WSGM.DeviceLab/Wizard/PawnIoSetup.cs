@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32;
 using WSGM.DeviceLab.Transports;
+using WSGM.Security;
 using static WSGM.Interop.Kernel32;
 
 namespace WSGM.DeviceLab.Wizard;

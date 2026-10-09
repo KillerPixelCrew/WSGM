@@ -191,10 +191,19 @@ $copies.Add(@{ Source = $newExe; Name = 'WSGM.exe'; Process = '' })
 $copies.Add(@{ Source = $newExe; Name = 'WSGM.ShellAnchor.exe'; Process = 'WSGM.ShellAnchor' })
 foreach ($pattern in 'WSGM.Launch.exe', 'WSGM.PackagedLaunch.exe', '*.dll', 'WSGM.deps.json',
     'WSGM.runtimeconfig.json', 'LibGPUDriverInteract-LICENSE.txt', 'LibGPUDriverInteract-PROVENANCE.md',
-    'LibHandheld-LICENSE.txt', 'LibHandheld-PROVENANCE.md') {
+    'LibHandheld-LICENSE.txt', 'LibHandheld-PROVENANCE.md', 'LibHandheld-Transports-NOTICES.md',
+    'LibHandheld-Transports-MPL-2.0.txt', 'LibHandheld-Transports-LGPL-2.1.txt') {
     foreach ($file in @(Get-ChildItem -LiteralPath $appPublish -Filter $pattern -ErrorAction SilentlyContinue)) {
         $copies.Add(@{ Source = $file.FullName; Name = $file.Name; Process = '' })
     }
+}
+
+foreach ($name in 'Resources\Intel\KX\KX.exe', 'Resources\Intel\KX\kx.lock.json',
+    'Resources\InpOut\inpoutx64.dll', 'Resources\InpOut\LICENSE.txt', 'Resources\InpOut\inpout.lock.json',
+    'Resources\InpOut\UPSTREAM-README.txt') {
+    $source = Join-Path $appPublish $name
+    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw "Missing handheld dependency $source" }
+    $copies.Add(@{ Source = $source; Name = $name; Process = '' })
 }
 
 Write-Host "== Swapping files into $appDirectory (elevation required) ==" -ForegroundColor Cyan
@@ -224,8 +233,10 @@ foreach ($retiredFile in 'WSGM.Device.Sdk.dll', 'WSGM.Device.Sdk.pdb', 'WSGM.Dev
         Remove-Item -LiteralPath $retiredPath -Force
     }
 }
+
 foreach ($copy in $request.Copies) {
     $target = Join-Path $request.AppDirectory $copy.Name
+    [void][IO.Directory]::CreateDirectory((Split-Path -Parent $target))
     for ($attempt = 1; ; $attempt++) {
         try {
             Copy-Item -LiteralPath $copy.Source -Destination $target -Force -ErrorAction Stop

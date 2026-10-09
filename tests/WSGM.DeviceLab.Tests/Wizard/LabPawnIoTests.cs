@@ -1,6 +1,7 @@
 using WSGM.DeviceLab.Inventory;
 using WSGM.DeviceLab.Knowledge;
 using WSGM.DeviceLab.Wizard;
+using WSGM.Security;
 using WSGM.Testing;
 
 namespace WSGM.DeviceLab.Tests.Wizard;

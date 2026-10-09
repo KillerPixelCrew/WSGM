@@ -331,7 +331,8 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
 
     /// <summary>Whether controller management may run in this configuration.</summary>
     internal bool ControllerManagementEnabled =>
-        _config.DeviceIntegration is { ControllerManagementEnabled: true, Enabled: true };
+        _config.DeviceIntegration is { ControllerManagementEnabled: true, Enabled: true }
+        && DeviceDefinition is { HasController: true };
 
     /// <summary>Current saved rumble calibration; callers edit it through the coordinator rather than mutating this reference.</summary>
     internal RumbleCalibrationConfig RumbleCalibration => _config.RumbleCalibration;
@@ -810,10 +811,10 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
 
             var previousConfig = _config;
             var wasEnabled = _config.DeviceIntegration.Enabled;
-            var controllerWasEnabled = _config.DeviceIntegration.ControllerManagementEnabled;
+            var controllerWasEnabled = ControllerManagementEnabled;
             _config = config;
             Controllers.ApplyRumbleCalibration(config.RumbleCalibration);
-            var controllerIsEnabled = config.DeviceIntegration.ControllerManagementEnabled;
+            var controllerIsEnabled = ControllerManagementEnabled;
             ConfigurationChanged?.Invoke();
 
             // Stored settings live in the configuration, so a reload can change what the plugin
@@ -1502,6 +1503,11 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         }
 
         definition = detectedDefinition;
+        if (!definition.HasController)
+        {
+            await Controllers.RecoverPhysicalControllerAsync("power-only device definition", cancellationToken)
+                .ConfigureAwait(false);
+        }
 
         cycleGeneration = Interlocked.Increment(ref _cycleGeneration);
         SetState(DeviceCycleState.Activating);
@@ -1532,7 +1538,8 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             UpdateCapabilityDesiredContext();
             _oemActions.Attach(client);
             UpdateOemConfiguration();
-            var controllerManagement = _config.DeviceIntegration.ControllerManagementEnabled;
+            var controllerManagement =
+                _config.DeviceIntegration.ControllerManagementEnabled && definition.HasController;
             // Before the plugin starts, because the plugin's first job is to find the physical
             // controller and it cannot find one that HidHide is hiding from this process. Doing it
             // afterwards is too late for the cycle that needed it.
@@ -2298,7 +2305,13 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     /// <summary>The controller selection from the device switches and the profile store.</summary>
     private ControllerSelection CurrentControllerSelection()
     {
-        return ControllerSelection.From(_config.DeviceIntegration, Profiles.Current.Config);
+        var selection = ControllerSelection.From(_config.DeviceIntegration, Profiles.Current.Config);
+        return DeviceDefinition is { HasController: false }
+            ? selection with
+            {
+                Enabled = false, DisabledDetail = "This device definition provides hardware controls only."
+            }
+            : selection;
     }
 
     /// <summary>The target chosen for the running application, whether or not one is live.</summary>
@@ -3251,7 +3264,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     {
         _oemActions.UpdateConfiguration(
             _config.DeviceIntegration.OemAssignments,
-            _config.DeviceIntegration.ControllerManagementEnabled,
+            ControllerManagementEnabled,
             ControllerTargetSelection.Resolve(Profiles.Current.Config, _runningApplicationId,
                 _runningExecutable).Target);
     }
