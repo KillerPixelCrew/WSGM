@@ -1312,7 +1312,7 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService :
         : Project(
             _coordinator.ControllerManagementEnabled,
             _coordinator.Controllers.Snapshot(),
-            _coordinator.InstalledPackage is not null,
+            _coordinator.HasDevice,
             _coordinator.Controllers.SupportedTargets,
             _coordinator.ChosenControllerTarget());
 
@@ -1374,7 +1374,7 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService :
     /// <summary>Projects controller state into the menu's closed vocabulary.</summary>
     /// <param name="enabled">Whether controller management may run at all.</param>
     /// <param name="status">The manager's current truthful state.</param>
-    /// <param name="packageInstalled">Whether a device package is installed.</param>
+    /// <param name="packageInstalled">Whether a native handheld definition is available.</param>
     /// <param name="supportedTargets">Targets the backend on this machine can create.</param>
     /// <param name="chosen">The stored choice, shown as selected while no target is live.</param>
     /// <returns>The state the menu renders.</returns>
@@ -1428,7 +1428,8 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService :
         var detail = status.Detail;
         if (available && string.IsNullOrWhiteSpace(detail) && !packageInstalled)
         {
-            detail = "No device package is installed, so no physical controller is being captured.";
+            detail =
+                "This machine has no supported handheld implementation, so no physical controller is being captured.";
         }
 
         // A running game holds the target it was launched with, so a change reaches it only on the

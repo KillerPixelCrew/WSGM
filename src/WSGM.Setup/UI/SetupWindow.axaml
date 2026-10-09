@@ -98,7 +98,7 @@
         <Button Command="{Binding Repair}" MinHeight="150" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
           <StackPanel Spacing="6">
             <TextBlock Classes="row-title" Text="Repair" />
-            <TextBlock Classes="muted" Text="Reinstall WSGM and its plugin, install missing drivers, and review your profile." />
+            <TextBlock Classes="muted" Text="Reinstall WSGM, install missing drivers, and review your profile." />
           </StackPanel>
         </Button>
         <Button Command="{Binding Uninstall}" MinHeight="150" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
@@ -125,7 +125,7 @@
           </StackPanel>
         </Border>
         <!-- Accept or decline. Declining is for Handheld Companion and similar tools that already manage the
-             device; WSGM then installs without a device plugin and the profile starts from Minimal. -->
+             device; WSGM leaves native integration off and the profile starts from Minimal. -->
         <StackPanel Spacing="8" IsVisible="{Binding HasMatch}">
           <RadioButton Classes="choice" GroupName="support" IsChecked="{Binding InstallPlugin}">
             <StackPanel Spacing="4">
@@ -142,20 +142,20 @@
             <StackPanel Spacing="4">
               <TextBlock Classes="row-title" Text="Skip hardware support" />
               <TextBlock Classes="muted"
-                         Text="For Handheld Companion or another tool that already manages this device. WSGM leaves the hardware alone. You can add the plugin later in WSGM Settings, Plugin." />
+                         Text="For Handheld Companion or another tool that already manages this device. WSGM leaves the hardware alone. You can enable device integration later in WSGM Settings." />
             </StackPanel>
           </RadioButton>
         </StackPanel>
-        <TextBlock Classes="section" Text="PLUGIN" IsVisible="{Binding ShowPlugin}" />
+        <TextBlock Classes="section" Text="DEVICE SUPPORT" IsVisible="{Binding ShowPlugin}" />
         <ItemsControl ItemsSource="{Binding Candidates}" IsVisible="{Binding ShowPlugin}">
           <ItemsControl.ItemTemplate>
             <DataTemplate x:DataType="ui:CandidateOption">
-              <RadioButton Classes="choice" GroupName="device" IsChecked="{Binding Selected}" Margin="0,0,0,8">
+              <Border Classes="card" Margin="0,0,0,8">
                 <StackPanel Spacing="4">
                   <TextBlock Classes="row-title" Text="{Binding Name}" />
                   <TextBlock Classes="badges" Text="{Binding Badges}" />
                 </StackPanel>
-              </RadioButton>
+              </Border>
             </DataTemplate>
           </ItemsControl.ItemTemplate>
         </ItemsControl>
@@ -177,9 +177,9 @@
         </Border>
         <Border Classes="banner" IsVisible="{Binding NoMatch}">
           <TextBlock TextWrapping="Wrap"
-                     Text="When a WSGM release includes a plugin for this device, the update installs it for you." />
+                     Text="Native support for more devices is added in WSGM updates." />
         </Border>
-        <!-- Graphics driver plugins for the adapters found, independent of the device plugin choice above. -->
+        <!-- Graphics driver plugins for the adapters found, independent of the native device integration choice above. -->
         <StackPanel Spacing="6" IsVisible="{Binding HasGraphics}">
           <StackPanel Orientation="Horizontal" Spacing="8">
             <TextBlock Classes="section" Text="GRAPHICS" VerticalAlignment="Center" />

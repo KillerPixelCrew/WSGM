@@ -54,7 +54,7 @@ internal sealed class PluginSettingsCoordinator(ConfigStore store) : IDisposable
     private readonly Lock _gate = new();
     private readonly CancellationTokenSource _lifetime = new();
     private readonly HashSet<Task> _work = [];
-    private DevicePluginRuntime? _client;
+    private HandheldDeviceRuntime? _client;
     private AppConfig? _config;
     private string _deviceDefinitionId = string.Empty;
     private bool _disposed;
@@ -137,7 +137,7 @@ internal sealed class PluginSettingsCoordinator(ConfigStore store) : IDisposable
     /// <param name="pluginId">Plugin the values are keyed under.</param>
     /// <param name="config">Current configuration, for stored values.</param>
     internal void Attach(
-        DevicePluginRuntime client,
+        HandheldDeviceRuntime client,
         string deviceDefinitionId,
         string pluginId,
         AppConfig config
@@ -183,7 +183,7 @@ internal sealed class PluginSettingsCoordinator(ConfigStore store) : IDisposable
         PublishAndPush();
     }
 
-    private void OnManifest(DevicePluginRuntime source)
+    private void OnManifest(HandheldDeviceRuntime source)
     {
         string device;
         string plugin;
@@ -285,7 +285,7 @@ internal sealed class PluginSettingsCoordinator(ConfigStore store) : IDisposable
         try
         {
             PluginSettingsManifest? manifest;
-            DevicePluginRuntime? client;
+            HandheldDeviceRuntime? client;
             IReadOnlyList<PluginSettingValue> stored;
             lock (_gate)
             {

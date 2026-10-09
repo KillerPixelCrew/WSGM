@@ -366,13 +366,13 @@ internal sealed class MainWindow : Window
         var output = PathInput(
             "scaffold-output",
             PathSelectionKind.NewFolder,
-            suggestedName: "new-device-plugin");
+            suggestedName: "new-handheld-contribution");
         TextBox usbInstance = new()
         {
             PlaceholderText = "Required when the capture contains multiple exact USB endpoints"
         };
         TextBox fixtureId = new() { PlaceholderText = "Stable fixture ID" };
-        Button scaffold = new() { Content = "Copy minimal plugin template" };
+        Button scaffold = new() { Content = "Create LibHandheld contribution" };
         scaffold.Click += async (_, _) =>
         {
             var capturePath = capture.Text!;
@@ -404,12 +404,13 @@ internal sealed class MainWindow : Window
     }
 
     // A returned .wsgmlab report: review it against the knowledge base, promote the confirmed fields to a
-    // new record file, or scaffold a plugin project from it. The same services as the CLI commands.
+    // new record file, or create a LibHandheld contribution from it. The same services as the CLI commands.
     private TabItem BuildLabReportTab(DeviceLabPathBoundaries boundaries)
     {
         var report = PathInput("lab-report", PathSelectionKind.OpenFile);
         var record = PathInput("lab-record", PathSelectionKind.SaveFile);
-        var project = PathInput("lab-scaffold", PathSelectionKind.NewFolder, suggestedName: "new-device-plugin");
+        var project = PathInput("lab-scaffold", PathSelectionKind.NewFolder,
+            suggestedName: "new-handheld-contribution");
         TextBox fields = new()
             { PlaceholderText = "Field IDs to promote, comma-separated; empty promotes every confirmation" };
         Button review = new() { Content = "Review against the knowledge base" };
@@ -431,7 +432,7 @@ internal sealed class MainWindow : Window
             await RunAsync(token => Task.Run<object?>(
                 () => LabPromote.Run(reportPath, recordPath, selected, boundaries), token));
         };
-        Button scaffold = new() { Content = "Scaffold plugin from report" };
+        Button scaffold = new() { Content = "Create contribution from report" };
         scaffold.Click += async (_, _) =>
         {
             var reportPath = report.Text!;

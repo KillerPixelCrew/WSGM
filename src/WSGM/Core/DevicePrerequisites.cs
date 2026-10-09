@@ -5,8 +5,8 @@ using WSGM.Install;
 
 namespace WSGM.Core;
 
-/// <summary>What a machine has, of the things a device package needs.</summary>
-/// <param name="PackageInstalled">Whether a device package is in the protected Plugins folder.</param>
+/// <summary>Whether the detected handheld and its controller prerequisites are available.</summary>
+/// <param name="HandheldSupported">Whether LibHandheld supports the detected hardware.</param>
 /// <param name="IntegrationEnabled">Whether Device Integration is switched on.</param>
 /// <param name="ControllerLibraryInstalled">Whether the virtual controller library is beside WSGM.</param>
 /// <param name="HidHideInstalled">Whether the HidHide control device answers.</param>
@@ -15,7 +15,7 @@ namespace WSGM.Core;
 ///     <see cref="SetupComponents" />. A package that declares no controller role needs no controller.
 /// </param>
 public sealed record DevicePrerequisiteState(
-    bool PackageInstalled,
+    bool HandheldSupported,
     bool IntegrationEnabled,
     bool ControllerLibraryInstalled,
     bool HidHideInstalled,
@@ -57,7 +57,7 @@ public static class DevicePrerequisites
         ArgumentNullException.ThrowIfNull(state);
         // Nothing is claimed about a machine with no package: an install that never wanted a device
         // is not missing anything, and saying so would be noise on every desktop PC.
-        if (!state.PackageInstalled)
+        if (!state.HandheldSupported)
         {
             return new DevicePrerequisiteAdvice("", false, false);
         }
@@ -72,7 +72,7 @@ public static class DevicePrerequisites
         List<string> lines = [];
         if (!state.IntegrationEnabled)
         {
-            lines.Add("A device package is installed but Device Integration is switched off, "
+            lines.Add("This handheld is supported but Device Integration is switched off, "
                       + "so none of its controls are active.");
         }
 
@@ -81,7 +81,7 @@ public static class DevicePrerequisites
             lines.Add(Missing(state)
                       + " Controller management stays unavailable until it is added. Run Repair from "
                       + "WSGM Settings, Plugins, or from Windows Settings, Apps: setup installs what the "
-                      + "plugin needs. It installs a driver that restarts USB devices and needs a reboot, "
+                      + "handheld needs. It installs a driver that restarts USB devices and needs a reboot, "
                       + "which is why setup is the only place it can happen.");
         }
 

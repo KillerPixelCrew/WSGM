@@ -1,5 +1,4 @@
-using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Sdk.Packaging;
+using System.Text.Json;
 using WSGM.DeviceLab.Application;
 using WSGM.DeviceLab.Gui;
 using WSGM.DeviceLab.Inventory;
@@ -225,12 +224,16 @@ public sealed class LabReviewTests
         var profile = File.ReadAllText(Path.Combine(directory, "DeviceProfile.cs"));
         Assert.Contains("BaseboardProduct = \"MS-1T52\"", profile, StringComparison.Ordinal);
         Assert.Contains("DeviceButtonSource.WmiEvent", profile, StringComparison.Ordinal);
-        Assert.Contains("CapabilityRole.PowerSustainedLimit", profile, StringComparison.Ordinal);
+        Assert.Contains("\"PowerSustainedLimit\"", profile, StringComparison.Ordinal);
         Assert.DoesNotContain("{{", profile, StringComparison.Ordinal);
-        var manifest = PluginManifestReader.Read(File.ReadAllBytes(Path.Combine(directory, "plugin.wsgm.json")));
-        Assert.True(manifest.IsValid);
-        Assert.Equal("MS-1T52", Assert.Single(manifest.Manifest!.Hardware).BaseboardProduct);
-        Assert.Contains(CapabilityRole.HapticSink, manifest.Manifest.Capabilities);
+        using var contribution = JsonDocument.Parse(
+            File.ReadAllText(Path.Combine(directory, "contribution.json")));
+        var metadata = contribution.RootElement;
+        Assert.False(metadata.GetProperty("implemented").GetBoolean());
+        Assert.Equal("MS-1T52", metadata.GetProperty("hardware")[0].GetProperty("baseboardProduct").GetString());
+        Assert.Contains(metadata.GetProperty("observedCapabilities").EnumerateArray(),
+            role => role.GetString() == "HapticSink");
+        Assert.DoesNotContain("WSGM.Device.Sdk", profile, StringComparison.Ordinal);
         Assert.Equal("0DB0", result.Scaffold.Identity.UsbVendorId);
     }
 

@@ -178,22 +178,6 @@ internal static class PluginPackageManager
             return rows;
         }
 
-        var installedDevice = catalog.Device.InstalledPackage?.Manifest?.Id;
-        foreach (var offer in offers.DeviceCandidates.Where(offer => !offer.Installed))
-        {
-            var blocked = installedDevice is not null;
-            rows.Add(new PluginPackageRowState(offer.Plugin.Id, offer.Plugin.Name, PluginPackageSection.Available,
-                true,
-                [
-                    new PluginBadge("For this device", PluginBadgeTone.Info),
-                    .. Facts(offer.Plugin.Version, true, false),
-                    .. Provenance(offer.Plugin, offers.Identity)
-                ],
-                blocked ? $"Remove {installedDevice} first: only one device plugin runs." : Contact(offer.Plugin),
-                blocked ? PluginPackageAction.None : PluginPackageAction.Install,
-                Path.Combine(bundledPackages, offer.Plugin.File)));
-        }
-
         rows.AddRange(offers.Gpu.Where(offer => !offer.Installed).Select(offer => new PluginPackageRowState(
             offer.Plugin.Id, offer.Plugin.Name, PluginPackageSection.Available, false,
             [
@@ -208,12 +192,6 @@ internal static class PluginPackageManager
                 .. Provenance(offer.Plugin, offers.Identity)
             ],
             Contact(offer.Plugin), PluginPackageAction.Install, Path.Combine(bundledPackages, offer.Plugin.File))));
-        rows.AddRange(offers.NotForThisHardware.Select(plugin => new PluginPackageRowState(plugin.Id, plugin.Name,
-            PluginPackageSection.Unavailable, true,
-            [
-                new PluginBadge("Not for this device", PluginBadgeTone.Neutral), .. Facts(plugin.Version, true, false),
-                .. Provenance(plugin, null)
-            ], "", PluginPackageAction.None, "")));
         rows.AddRange(offers.GpuNotForThisHardware
             .Where(plugin => catalog.Common.All(common => common.Manifest.Id != plugin.Id))
             .Select(plugin => new PluginPackageRowState(plugin.Id, plugin.Name, PluginPackageSection.Unavailable,
@@ -242,9 +220,15 @@ internal static class PluginPackageManager
     {
         ArgumentNullException.ThrowIfNull(removals);
         ArgumentNullException.ThrowIfNull(bundle);
-        if (bundle.ByHash(Hash(bundled)) is null)
+        var entry = bundle.ByHash(Hash(bundled));
+        if (entry is null)
         {
             return "The bundled file does not match this release's bundle; run Repair.";
+        }
+
+        if (entry.IsDevice)
+        {
+            return "Handheld support is built into WSGM through LibHandheld; device packages are retired.";
         }
 
         Directory.CreateDirectory(pluginsRoot);

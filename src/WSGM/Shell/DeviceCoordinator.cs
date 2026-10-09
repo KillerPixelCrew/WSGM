@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
+using LibHandheld;
 using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
@@ -17,6 +18,7 @@ using WSGM.Input;
 using WSGM.Install;
 using WSGM.Interop;
 using WSGM.Shared;
+using HandheldDefinition = LibHandheld.Contracts.HandheldDefinition;
 
 namespace WSGM.Shell;
 
@@ -68,13 +70,13 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     private readonly Lock _backgroundGate = new();
     private readonly HashSet<Task> _backgroundTasks = [];
     private readonly Func<DeviceIdentitySnapshot> _collectIdentity;
+    private readonly Func<DeviceIdentitySnapshot, CancellationToken, Task<HandheldDefinition?>> _detectDevice;
     private readonly IAsyncDisposable? _diagnostics;
-    private readonly Func<CancellationToken, Task<DevicePackageDiscovery>> _discoverPackage;
     private readonly PluginHapticSink _hapticSink;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly DeviceLightingRestore _lightingRestore = new();
 
-    private readonly Func<InstalledDevicePackage, long, CancellationToken, string, Task<DevicePluginRuntime>>
+    private readonly Func<HandheldDefinition, long, CancellationToken, string, Task<HandheldDeviceRuntime>>
         _loadRuntime;
 
     private readonly Action<bool> _manualVariableRefresh;
@@ -107,7 +109,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     private readonly ConfigStore _store;
     private readonly SemaphoreSlim _transitionGate = new(1, 1);
     private int _automaticRestartAttempts;
-    private DevicePluginRuntime? _client;
+    private HandheldDeviceRuntime? _client;
     private AppConfig _config;
     private Task _controllerPublication = Task.CompletedTask;
 
@@ -170,8 +172,8 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     /// <param name="powerModes">Shared Windows power-mode owner borrowed by preset application.</param>
     /// <param name="createControllers">Creates the owned controller manager using this coordinator's physical haptic sink.</param>
     /// <param name="collectIdentity">Collects machine identity for device detection and profile addressing.</param>
-    /// <param name="discoverPackage">Discovers and validates the installed device package without starting it.</param>
-    /// <param name="loadRuntime">Loads an owned runtime for the selected package, cycle, and instance state directory.</param>
+    /// <param name="detectDevice">Matches a native definition against the already collected identity without opening hardware.</param>
+    /// <param name="loadRuntime">Constructs an owned runtime for the selected definition, cycle, and family state directory.</param>
     /// <param name="registerPowerModeNotification">
     ///     Registers a wake signal; any returned subscription is disposed during
     ///     shutdown.
@@ -192,8 +194,8 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         WindowsPowerModes powerModes,
         Func<IPhysicalHapticSink, ControllerManager> createControllers,
         Func<DeviceIdentitySnapshot> collectIdentity,
-        Func<CancellationToken, Task<DevicePackageDiscovery>> discoverPackage,
-        Func<InstalledDevicePackage, long, CancellationToken, string, Task<DevicePluginRuntime>> loadRuntime,
+        Func<DeviceIdentitySnapshot, CancellationToken, Task<HandheldDefinition?>> detectDevice,
+        Func<HandheldDefinition, long, CancellationToken, string, Task<HandheldDeviceRuntime>> loadRuntime,
         Func<Action, IDisposable?> registerPowerModeNotification,
         Func<bool?> readOnAcPower,
         Func<TimeSpan, CancellationToken, Task> restartDelay,
@@ -205,7 +207,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         _sessionId = sessionId;
         _ownerMutex = ownerMutex;
         _collectIdentity = collectIdentity;
-        _discoverPackage = discoverPackage;
+        _detectDevice = detectDevice;
         _loadRuntime = loadRuntime;
         _registerPowerModeNotification = registerPowerModeNotification;
         _readOnAcPower = readOnAcPower;
@@ -219,8 +221,8 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         // restores its original limit before the device stops.
         _autoTdpTrace = new AutoTdpTraceRecorder(
             AutoTdpTraceRecorder.DefaultDirectory(_store.Context),
-            () => InstalledPackage?.Manifest is { } manifest
-                ? (manifest.Id, manifest.Version)
+            () => DeviceDefinition is { } definition
+                ? (definition.FamilyId, typeof(HandheldDevice).Assembly.GetName().Version?.ToString())
                 : (null, null),
             new AutoTdpTraceSystemContext());
         AutoTdp = new AutoTdpService(
@@ -244,7 +246,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             () => AutoTdp.OwnsPower);
         PowerAssignments = new DevicePowerAssignments(PowerPresets,
             () => new DevicePowerAssignmentContext(Profiles.Current,
-                InstalledPackage?.Manifest?.Id,
+                DeviceDefinition?.FamilyId,
                 _cycleGeneration, IntegrationEnabled, _readOnAcPower()),
             SavePowerAssignmentAsync,
             () => Volatile.Read(ref _resumeRestore));
@@ -272,17 +274,14 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     /// <summary>Whether the persisted master switch currently exposes the Device surface.</summary>
     internal bool IntegrationEnabled => _config.DeviceIntegration.Enabled;
 
-    /// <summary>The sole installed package, including its validation result.</summary>
-    internal InstalledDevicePackage? InstalledPackage => PackageDiscovery.InstalledPackage;
+    /// <summary>The exact supported model selected without opening native resources.</summary>
+    internal HandheldDefinition? DeviceDefinition { get; private set; }
 
-    /// <summary>The device definition matched by the active plugin cycle.</summary>
+    /// <summary>Whether a native implementation matches this machine.</summary>
+    internal bool HasDevice => DeviceDefinition is not null;
+
+    /// <summary>The device definition matched by the active native cycle.</summary>
     private string? ActiveDeviceDefinitionId { get; set; }
-
-    /// <summary>The latest device package discovery result.</summary>
-    internal DevicePackageDiscovery PackageDiscovery { get; private set; } = new()
-    {
-        Inventory = new DevicePackageInventory { PackageFiles = [] }
-    };
 
     /// <summary>The capability router, for snapshots and change subscriptions.</summary>
     /// <remarks>
@@ -516,7 +515,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (Profiles.Current.Generation != selection.Profiles.Generation
-                || InstalledPackage?.Manifest?.Id != selection.PluginId
+                || DeviceDefinition?.FamilyId != selection.PluginId
                 || IntegrationEnabled != selection.Enabled
                 || Interlocked.Read(ref _cycleGeneration) != selection.Cycle
                 || selection.OnAc != _readOnAcPower())
@@ -707,8 +706,8 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
                 powerModes,
                 sink => ControllerManager.CreateProduction(store.Context.Root, sink),
                 DeviceMachineIdentity.Collect,
-                DiscoverPackageAsync,
-                DevicePluginRuntime.StartAsync,
+                DetectDeviceAsync,
+                HandheldDeviceRuntime.StartAsync,
                 callback => EffectivePowerModeNotification.Register(callback),
                 ReadOnAcPower,
                 Task.Delay,
@@ -1463,13 +1462,13 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
 
         _intentionalStop = false;
         SetState(DeviceCycleState.Detected);
-        InstalledDevicePackage package;
+        HandheldDefinition definition;
         long cycleGeneration;
-        DevicePluginRuntime client;
+        HandheldDeviceRuntime client;
         try
         {
             _identity = _collectIdentity();
-            PackageDiscovery = await _discoverPackage(cancellationToken)
+            DeviceDefinition = await _detectDevice(_identity, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -1480,40 +1479,36 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
             ScheduleStartFault(new InvalidOperationException(
-                "The installed plugin packages could not be discovered.",
+                "The native handheld definition could not be selected.",
                 ex));
             return;
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        var discoveredPackage = InstalledPackage;
+        var detectedDefinition = DeviceDefinition;
         PhysicalGlyphCatalog.ReplacePackageProfiles([]);
-        if (discoveredPackage is null || !discoveredPackage.Valid)
+        if (detectedDefinition is null)
         {
             if (_config.DeviceIntegration.ControllerManagementEnabled)
             {
-                await Controllers.RecoverPhysicalControllerAsync("no usable device package", cancellationToken)
+                await Controllers.RecoverPhysicalControllerAsync("unsupported handheld identity", cancellationToken)
                     .ConfigureAwait(false);
             }
 
             SetState(DeviceCycleState.Passive);
-            var refusal = PackageDiscovery.ErrorCode
-                          ?? discoveredPackage?.RejectionCode
-                          ?? "no-package-installed";
-            Log.Warn(
-                $"Device cycle passive: {refusal}; devicePackages={PackageDiscovery.Inventory.PackageFiles.Count}.");
+            Log.Info("Device cycle passive: unsupported machine identity.");
             cancellationToken.ThrowIfCancellationRequested();
             return;
         }
 
-        package = discoveredPackage;
+        definition = detectedDefinition;
 
         cycleGeneration = Interlocked.Increment(ref _cycleGeneration);
         SetState(DeviceCycleState.Activating);
         try
         {
             client = await _loadRuntime(
-                package,
+                definition,
                 cycleGeneration,
                 cancellationToken,
                 Path.Combine(_store.Context.Root, "DeviceState")).ConfigureAwait(false);
@@ -1563,7 +1558,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
                 SetDeviceDefinitionId(null);
                 SetState(DeviceCycleState.Passive);
                 _automaticRestartAttempts = 0;
-                Log.Info($"Device detection passive: package={package.Manifest?.Id}; runtime retired.");
+                Log.Info($"Device detection passive: package={definition.FamilyId}; runtime retired.");
                 return;
             }
 
@@ -1576,13 +1571,13 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             _pluginSettings.Attach(
                 client,
                 activation.DeviceDefinitionId ?? string.Empty,
-                package.Manifest?.Id ?? string.Empty,
+                definition.FamilyId,
                 _config);
-            LoadPhysicalGlyphProfiles(package);
+            LoadPhysicalGlyphProfiles(client);
             SetState(activation.State);
             _automaticRestartAttempts = 0;
             Log.Info(
-                $"Device cycle active: package={package.Manifest?.Id}, "
+                $"Device cycle active: package={definition.FamilyId}, "
                 + $"cycleGeneration={cycleGeneration}, "
                 + $"state={activation.State}.");
             Observe(ObserveRuntimeCompletionAsync(client), "plugin supervision");
@@ -1672,7 +1667,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         ScheduleStartFault(failure);
     }
 
-    private async Task ObserveRuntimeCompletionAsync(DevicePluginRuntime client)
+    private async Task ObserveRuntimeCompletionAsync(HandheldDeviceRuntime client)
     {
         var exit = await client.Completion.ConfigureAwait(false);
         await _transitionGate.WaitAsync().ConfigureAwait(false);
@@ -1780,7 +1775,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         {
             SetState(DeviceCycleState.Faulted);
             Log.Error(
-                $"Device cycle faulted after restart exhaustion: package={InstalledPackage?.Manifest?.Id}, "
+                $"Device cycle faulted after restart exhaustion: package={DeviceDefinition?.FamilyId}, "
                 + $"the {AutomaticRestartBackoffs.Length} automatic restart attempts were exhausted.");
             Observe(Controllers.ShowPhysicalControllerAsync("the device cycle could not be restarted",
                 CancellationToken.None), "controller hide release");
@@ -1871,7 +1866,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         return new DeviceClientTeardownResult([.. failures]);
     }
 
-    private async ValueTask DisposeRuntimeAsync(DevicePluginRuntime client, Deadline deadline)
+    private async ValueTask DisposeRuntimeAsync(HandheldDeviceRuntime client, Deadline deadline)
     {
         try
         {
@@ -1889,7 +1884,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     ///     Every non-fatal unverified response or exception is retained while later phases continue.
     /// </summary>
     private async Task<DeviceClientTeardownResult> TeardownClientAsync(
-        DevicePluginRuntime client,
+        HandheldDeviceRuntime client,
         PluginStopReason reason,
         Deadline deadline,
         CancellationToken cancellationToken)
@@ -2037,7 +2032,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     }
 
     private void SynchronizeGenerationAfterLifecycleCall(
-        DevicePluginRuntime client,
+        HandheldDeviceRuntime client,
         long previousGeneration)
     {
         var activeGeneration = client.CycleGeneration;
@@ -2109,7 +2104,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         }), "Controller target-loss recovery");
     }
 
-    private void Attach(DevicePluginRuntime client)
+    private void Attach(HandheldDeviceRuntime client)
     {
         // The handler carries its client, so a notification from a client that is no longer current
         // (a stopping one, or one whose caller stopped waiting) is dropped instead of reaching SetState.
@@ -2119,7 +2114,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         client.ControllerSampleReceived += Controllers.Submit;
     }
 
-    private ValueTask DetachAsync(DevicePluginRuntime client)
+    private ValueTask DetachAsync(HandheldDeviceRuntime client)
     {
         if (_lifecycleHandler is { } lifecycleHandler)
         {
@@ -2209,7 +2204,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     ///     that outlives the deadline is logged and the release runs anyway.
     /// </remarks>
     private async Task ReleaseControllerAsync(
-        DevicePluginRuntime client,
+        HandheldDeviceRuntime client,
         HandoffScope scope,
         Deadline deadline,
         CancellationToken cancellationToken,
@@ -3119,7 +3114,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     private PluginSettingsScope? ActivePluginScope(Func<PluginSettingsScope, bool> predicate)
     {
         var device = ActiveDeviceDefinitionId;
-        var plugin = InstalledPackage?.Manifest?.Id;
+        var plugin = DeviceDefinition?.FamilyId;
         if (device is null || plugin is null)
         {
             return null;
@@ -3261,30 +3256,21 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
                 _runningExecutable).Target);
     }
 
-    private void LoadPhysicalGlyphProfiles(InstalledDevicePackage package)
+    private void LoadPhysicalGlyphProfiles(HandheldDeviceRuntime runtime)
     {
         try
         {
-            GlyphPackageImportResult imported;
-            using (var file = PluginPackageFile.Open(package.PackagePath))
-            {
-                imported = GlyphPackageImporter.Import(file);
-            }
-
+            var imported = runtime.Device is { } device
+                ? GlyphPackageImporter.Import(new EmbeddedGlyphSource(device))
+                : new GlyphPackageImportResult([], []);
             PhysicalGlyphCatalog.ReplacePackageProfiles(imported.Profiles);
             foreach (var error in imported.Errors)
             {
                 Log.Warn(
-                    $"Device glyph profile rejected: profile={error.ProfileId}, code={error.Code}, "
-                    + $"path={error.Path}, detail={error.Message}");
+                    $"Device glyph profile rejected: profile={error.ProfileId}, code={error.Code}, path={error.Path}, detail={error.Message}");
             }
-
-            Log.Info(
-                $"Device glyph catalog: package={package.Manifest?.Id}, "
-                + $"profiles={imported.Profiles.Count}, rejected={imported.Errors.Count}.");
         }
-        catch (Exception exception) when (exception is IOException
-                                              or UnauthorizedAccessException
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
                                               or InvalidDataException)
         {
             PhysicalGlyphCatalog.ReplacePackageProfiles([]);
@@ -3292,12 +3278,11 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         }
     }
 
-    private static Task<DevicePackageDiscovery> DiscoverPackageAsync(
+    private static Task<HandheldDefinition?> DetectDeviceAsync(DeviceIdentitySnapshot identity,
         CancellationToken cancellationToken)
     {
-        return Task.Run(
-            () => PluginPackageCatalog.Discover(InstallLayout.Plugins).Device,
-            cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(HandheldDeviceAdapter.Detect(identity));
     }
 
     private DeviceCoordinatorDiagnosticsSnapshot DiagnosticsSnapshot()
@@ -3306,8 +3291,9 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         return new DeviceCoordinatorDiagnosticsSnapshot
         {
             State = State,
-            InstalledPackage = InstalledPackage?.Manifest is { } manifest
-                ? new DeviceInstalledPackageDiagnostic(manifest.Id, manifest.Version)
+            InstalledPackage = DeviceDefinition is { } definition
+                ? new DeviceInstalledPackageDiagnostic(definition.FamilyId,
+                    typeof(HandheldDevice).Assembly.GetName().Version?.ToString() ?? "unknown")
                 : null,
             CycleGeneration = Interlocked.Read(ref _cycleGeneration),
             CapabilityCount = capabilities.Count,
@@ -3323,7 +3309,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         };
     }
 
-    private void OnLifecycleState(DevicePluginRuntime client, DevicePluginState state)
+    private void OnLifecycleState(HandheldDeviceRuntime client, DevicePluginState state)
     {
         // Every stop and fault teardown clears the current client before it starts and sets the
         // deactivating and disabled states itself; a late notification from that client must not
@@ -3464,6 +3450,39 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         lock (_backgroundGate)
         {
             _backgroundTasks.Remove(observed);
+        }
+    }
+
+    private sealed class EmbeddedGlyphSource(HandheldDeviceAdapter device) : IGlyphPackageSource
+    {
+        private readonly HashSet<string> _paths = new(device.GlyphResources, StringComparer.Ordinal);
+
+        public IReadOnlyList<string> EnumerateProfileIds()
+        {
+            return _paths
+                .Where(path =>
+                    path.StartsWith("glyphs/profiles/", StringComparison.Ordinal) &&
+                    path.EndsWith(".json", StringComparison.Ordinal))
+                .Select(path => Path.GetFileNameWithoutExtension(path)).ToArray();
+        }
+
+        public bool TryRead(string relativePath, int maximumBytes, out byte[] bytes)
+        {
+            bytes = [];
+            if (!_paths.Contains(relativePath) || maximumBytes <= 0)
+            {
+                return false;
+            }
+
+            using var stream = device.OpenGlyphResource(relativePath);
+            if (stream.Length <= 0 || stream.Length > maximumBytes)
+            {
+                return false;
+            }
+
+            bytes = new byte[checked((int)stream.Length)];
+            stream.ReadExactly(bytes);
+            return true;
         }
     }
 

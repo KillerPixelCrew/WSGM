@@ -30,15 +30,21 @@ Work branch: `chore/device-integration-rework`.
 The library [plans](../external/libhandheld/PLAN.md) and
 [GPU extraction plan](../external/libgpu-driver-interact/PLAN.md) hold the detailed boundaries.
 LibGPUDriverInteract now contains extracted vendor engines and a direct API, with WSGM integration
-and migrated regression sources. LibHandheld remains the inventory/planning stage. GPU compilation,
-deployment and attended acceptance are recorded with the current delivery; inventory entries alone
-do not establish new hardware validation.
+and migrated regression sources. LibHandheld now contains the independent typed device API and
+the migrated five Claw/four Ally definitions, with direct WSGM integration. WSGM retains profiles,
+AutoTDP, HidHide, virtual input and OEM policy. Separate Device SDK/device package projects are
+removed; common Plugin API 5 retains shared historical namespaces inside its single assembly and
+requires plugin rebuilds. Setup detects native definitions and Device Lab produces library
+contribution source/fixtures. The full 201 HC/HHD source-record target is unchanged and remains
+partially implemented. Build, deployment and attended acceptance belong to the current delivery;
+inventory entries and source migration alone do not establish new hardware validation. New
+automated tests remain deferred until the maintainer's manual acceptance.
 
 ## Private library access
 
 The local development checkout includes both private repositories. The maintainer directed that CI
 remain inactive for `chore/device-integration-rework` while the new libraries are private and
 testing is ongoing. No cross-repository CI key or token was installed. The library build workflow
-is manual-only. LibHandheld remains outside the compiled graph; community bundle and VIIPER jobs
+is manual-only. Both libraries are in the application graph; community bundle and VIIPER jobs
 retain their public dependency graph. Re-enable automatic application CI after testing and once
 the compiled library is accessible to the runner.

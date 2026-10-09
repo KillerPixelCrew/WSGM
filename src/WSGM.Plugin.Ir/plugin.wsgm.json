@@ -3,8 +3,8 @@
   "name": "IR Blaster",
   "version": "0.2.0",
   "category": "wsgm.infrared",
-  "minimumApiVersion": 4,
-  "maximumApiVersion": 4,
+  "minimumApiVersion": 5,
+  "maximumApiVersion": 5,
   "entryAssembly": "WSGM.Plugin.Ir.dll",
   "entryType": "WSGM.Plugin.Ir.IrPlugin",
   "permissions": ["usb.serial"]

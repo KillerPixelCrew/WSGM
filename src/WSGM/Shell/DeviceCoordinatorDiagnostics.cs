@@ -28,9 +28,9 @@ internal sealed record DeviceCoordinatorDiagnosticsSnapshot
     public required DateTimeOffset CapturedAt { get; init; }
 }
 
-/// <summary>Sanitized sole installed-package information for standalone Settings.</summary>
-/// <param name="PackageId">Validated device package identifier; no package path or private state is exposed.</param>
-/// <param name="Version">Installed package version text from its manifest.</param>
+/// <summary>Sanitized direct-library family information for standalone Settings. The legacy wire field remains stable.</summary>
+/// <param name="PackageId">Stable handheld family identifier; no native path or private state is exposed.</param>
+/// <param name="Version">Direct library assembly version.</param>
 internal sealed record DeviceInstalledPackageDiagnostic(
     string PackageId,
     string Version);

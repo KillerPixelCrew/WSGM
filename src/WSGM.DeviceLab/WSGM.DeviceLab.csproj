@@ -28,7 +28,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference
-      Include="..\WSGM.Device.Sdk\WSGM.Device.Sdk.csproj"/>
+      Include="..\WSGM.Plugin.Sdk\WSGM.Plugin.Sdk.csproj"/>
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\Shared\Interop\Kernel32.cs"

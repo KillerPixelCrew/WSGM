@@ -11,7 +11,6 @@
     <AssemblyName>WSGM</AssemblyName>
     <RootNamespace>WSGM</RootNamespace>
     <Version>2.1.0</Version>
-
     <!-- Self-contained JIT publish. The resident process loads the sole installed
          device plugin directly and uses managed Windows APIs where possible. -->
     <SelfContained>true</SelfContained>
@@ -106,12 +105,13 @@
     <!-- Plugins are loaded dynamically; the shared SDK preserves type identity
          without making the installed package a production project reference. -->
     <ProjectReference Include="..\Avalonia.LiveBackdrop\Avalonia.LiveBackdrop.csproj"/>
-    <ProjectReference
-      Include="..\WSGM.Device.Sdk\WSGM.Device.Sdk.csproj"/>
+    
     <ProjectReference Include="..\WSGM.Plugin.Sdk\WSGM.Plugin.Sdk.csproj"/>
     <ProjectReference Include="..\WSGM.Install\WSGM.Install.csproj"/>
     <ProjectReference
       Include="..\..\external\libgpu-driver-interact\src\LibGPUDriverInteract\LibGPUDriverInteract.csproj"/>
+    <ProjectReference
+      Include="..\..\external\libhandheld\src\LibHandheld\LibHandheld.csproj"/>
     <!-- Wi-Fi, Bluetooth, audio endpoint and panel brightness control. Extracted to its own
          repository because nothing in it is specific to WSGM or to gaming; it is pinned as a
          submodule so this branch keeps a known-good revision while the library moves. -->

@@ -169,22 +169,14 @@ internal sealed class MaintainPage(Version version, Action repair, Action uninst
     public override CloseBehaviour OnClose => CloseBehaviour.Close;
 }
 
-/// <summary>One device plugin that matches this machine.</summary>
-/// <param name="offer">Hardware-matched plugin and evidence used for labels; selection initially remains false.</param>
-internal sealed class CandidateOption(PluginOffer offer) : Observable
+/// <summary>The native backend for the exact detected handheld.</summary>
+/// <param name="offer">Pure hardware support metadata.</param>
+internal sealed class CandidateOption(HandheldOffer offer) : Observable
 {
     private bool _selected;
-    public PluginOffer Offer { get; } = offer;
-    public string Name => $"{Offer.Plugin.Name} {Offer.Plugin.Version}";
-
-    public string Badges =>
-        (Offer.Plugin.Community ? "Community" : "First-party") + " · "
-                                                               + (Offer.HardwareTested
-                                                                   ? "Hardware-tested"
-                                                                   : "Blind")
-                                                               + " · " + (Offer.Match?.Fallback == true
-                                                                   ? "Family match"
-                                                                   : "Exact match");
+    public HandheldOffer Offer { get; } = offer;
+    public string Name => Offer.Definition.Name;
+    public string Badges => "Built-in support, exact model";
 
     public bool Selected
     {
@@ -217,10 +209,10 @@ internal sealed class HardwarePage : Page
     {
         Device = device;
         Identity = identity;
-        foreach (var offer in offers.DeviceCandidates)
+        foreach (var offer in offers.Handheld is { } support ? new[] { support } : [])
         {
             CandidateOption option = new(offer)
-                { Selected = offer == (offers.RecommendedDevice ?? offers.DeviceCandidates[0]) };
+                { Selected = true };
             option.PropertyChanged += (_, args) =>
             {
                 if (args.PropertyName == nameof(CandidateOption.Selected) && option.Selected)
@@ -276,7 +268,7 @@ internal sealed class HardwarePage : Page
     }
 
     /// <summary>
-    ///     Declines the plugin, for someone who keeps Handheld Companion or another tool managing the device.
+    ///     Declines native support, for someone who keeps Handheld Companion or another tool managing the device.
     ///     WSGM then leaves the hardware alone and the profile starts from Minimal.
     /// </summary>
     public bool SkipPlugin
@@ -291,32 +283,28 @@ internal sealed class HardwarePage : Page
         }
     }
 
-    /// <summary>Whether the plugin cards and what gets installed are shown.</summary>
+    /// <summary>Whether native support metadata and required components are shown.</summary>
     public bool ShowPlugin => HasMatch && _installPlugin;
 
     /// <summary>What accepting installs, in one line under the choice.</summary>
     public string AcceptDetail => Candidates.Count == 1
-        ? $"Installs {Candidates[0].Name}, so WSGM manages power, fans, lighting and the controller on this device."
-        : "Installs the plugin you pick below, so WSGM manages power, fans, lighting and the controller.";
+        ? $"Enables native support for {Candidates[0].Name}, so WSGM manages power, fans, lighting and the controller on this device."
+        : "";
 
     public override string Eyebrow => "Hardware";
 
     public override string Title =>
-        !HasMatch ? "No hardware support for this device yet"
-        : NeedsChoice ? "More than one plugin supports this device"
-        : "Good news! Your hardware is supported.";
+        !HasMatch
+            ? "No hardware support for this device yet"
+            : "Good news! Your hardware is supported.";
 
     public override string Lead =>
-        !HasMatch ? "WSGM installs and works without it. Power limits, fans and the virtual controller stay off."
-        : NeedsChoice ? "Only one can be installed. The exact match is usually the better choice."
-        : "";
-
-    /// <summary>The blind or community note for the chosen plugin, or empty.</summary>
-    public string Caution =>
-        Chosen?.Offer is { Plugin: var plugin } offer && (!offer.HardwareTested || plugin.Community)
-            ? (offer.HardwareTested ? "" : "Not tested on this hardware by the WSGM team. ")
-              + (plugin.Contact is { } contact ? "Report problems to its developer: " + contact : "")
+        !HasMatch
+            ? "WSGM installs and works without it. Power limits, fans and the virtual controller stay off."
             : "";
+
+    /// <summary>Additional hardware warning, when applicable.</summary>
+    public string Caution => "";
 
     public bool HasCaution => Caution.Length > 0;
 

@@ -1,6 +1,10 @@
 using System.Globalization;
+using System.Text;
 using WSGM.Device.Sdk.Capabilities;
-using Xunit;
+using WSGM.Device.Sdk.Input;
+using WSGM.Device.Sdk.Lifecycle;
+using WSGM.Device.Sdk.Packaging;
+using WSGM.Device.Sdk.Plugin;
 
 namespace WSGM.Plugin.Sdk.Tests;
 
@@ -31,12 +35,21 @@ public sealed class ManifestTests
         Assert.Equal(1, PluginCategoryPolicy.Device.MaximumActive);
         Assert.True(PluginCategoryPolicy.Device.RequiresSelection);
         Assert.Null(PluginCategoryPolicy.Multiple.MaximumActive);
-        // The one WSGM assembly the common contracts lean on is the Device SDK, for its active-time
-        // Deadline; anything else would tie an outside package to WSGM's own code.
-        Assert.Equal(["WSGM.Device.Sdk"],
-            typeof(IPlugin).Assembly.GetReferencedAssemblies()
-                .Select(name => name.Name!)
-                .Where(name => name.StartsWith("WSGM.", StringComparison.Ordinal)));
+        Assert.DoesNotContain(typeof(IPlugin).Assembly.GetReferencedAssemblies(),
+            name => name.Name!.StartsWith("WSGM.", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void SharedContractsHaveOneAssemblyIdentity()
+    {
+        Assert.Equal(5, PluginApi.Version);
+        Assert.Same(typeof(IPlugin).Assembly, typeof(CapabilityDescriptor).Assembly);
+        Assert.Same(typeof(IPlugin).Assembly, typeof(Deadline).Assembly);
+        Assert.Same(typeof(IPlugin).Assembly, typeof(PluginTrace).Assembly);
+        Assert.Same(typeof(IPlugin).Assembly, typeof(CanonicalControllerSample).Assembly);
+        Assert.DoesNotContain("WSGM.Device.Sdk", PluginPackageLayout.HostProvidedAssemblies);
+        Assert.Contains("LibHandheld", PluginPackageLayout.HostProvidedAssemblies);
+        Assert.Contains("LibGPUDriverInteract", PluginPackageLayout.HostProvidedAssemblies);
     }
 
     [Fact]
@@ -102,6 +115,42 @@ public sealed class ManifestTests
         Assert.False(PluginManifestReader.TryRead(json, out var rejected, out var errors));
         Assert.Null(rejected);
         Assert.NotEmpty(errors);
+    }
+
+    [Theory]
+    [InlineData(4, 4)]
+    [InlineData(4, 5)]
+    [InlineData(1, 99)]
+    [InlineData(5, 6)]
+    public void SharedAssemblyIdentityBreakRefusesLegacyOrBroadApiRanges(int minimum, int maximum)
+    {
+        Assert.Contains("Incompatible common Plugin SDK version range.", PluginManifestReader.Validate(Valid with
+        {
+            MinimumApiVersion = minimum, MaximumApiVersion = maximum
+        }));
+        var json = Encoding.UTF8.GetBytes(
+            $$"""
+              {"id":"example.remote","name":"Remote","version":"1.0","category":"example.remote",
+               "entryAssembly":"Remote.dll","entryType":"Example.Remote",
+               "minimumApiVersion":{{minimum}},"maximumApiVersion":{{maximum}}}
+              """);
+        Assert.False(PluginManifestReader.TryRead(json, out var rejected, out var errors));
+        Assert.Null(rejected);
+        Assert.Contains("Incompatible common Plugin SDK version range.", errors);
+    }
+
+    [Fact]
+    public void RebuiltApiFiveManifestIsAccepted()
+    {
+        var json = """
+                   {"id":"example.remote","name":"Remote","version":"1.0","category":"example.remote",
+                    "entryAssembly":"Remote.dll","entryType":"Example.Remote",
+                    "minimumApiVersion":5,"maximumApiVersion":5}
+                   """u8;
+        Assert.True(PluginManifestReader.TryRead(json, out var accepted, out var errors), string.Join("; ", errors));
+        Assert.Empty(errors);
+        Assert.Equal(5, accepted!.MinimumApiVersion);
+        Assert.Equal(5, accepted.MaximumApiVersion);
     }
 
     [Fact]

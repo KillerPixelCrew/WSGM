@@ -66,7 +66,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
     private long _actionGeneration;
     private DeviceOemActionServices? _actions;
     private IReadOnlyList<DeviceOemAssignment> _assignments = [];
-    private DevicePluginRuntime? _client;
+    private HandheldDeviceRuntime? _client;
     private bool _controllerManagementEnabled;
     private bool _disposed;
     private bool _targetHasRearButtons;
@@ -108,7 +108,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
         }
     }
 
-    internal void Attach(DevicePluginRuntime client)
+    internal void Attach(HandheldDeviceRuntime client)
     {
         ArgumentNullException.ThrowIfNull(client);
         lock (_gate)

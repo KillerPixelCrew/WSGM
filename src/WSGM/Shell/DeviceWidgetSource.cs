@@ -26,7 +26,7 @@ internal sealed class DeviceWidgetSource(DeviceCoordinator coordinator, IDeviceO
     public PluginOverlayInstance[] Snapshot()
     {
         var snapshot = overlay.Snapshot();
-        var plugin = coordinator.InstalledPackage?.Manifest?.Id;
+        var plugin = coordinator.DeviceDefinition?.FamilyId;
         var views = coordinator.Capabilities.Snapshot();
         if (!snapshot.Visible || plugin is null || views.Count == 0)
         {

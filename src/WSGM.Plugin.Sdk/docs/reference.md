@@ -1,6 +1,6 @@
 # WSGM.Plugin.Sdk reference
 
-This is the public common-plugin contract, reviewed against API 4. The XML comments on the linked
+This is the public common-plugin contract, reviewed against API 5. The XML comments on the linked
 source define individual members; this guide describes how the types fit together. Host admission,
 package loading, UI projection and session automation are covered in
 [the host guide](../../../docs/plugin-system.md).
@@ -10,8 +10,9 @@ package loading, UI projection and session automation are covered in
 [PluginManifest.cs](../PluginManifest.cs) defines `PluginApi`, `PluginCategories`,
 `PluginCategoryPolicy`, `PluginDependency`, `PluginManifest`, `DisplayAdapterMatch` and
 `PluginFrontendModule`. API compatibility is independent of the package's version. A manifest's
-inclusive `minimumApiVersion` / `maximumApiVersion` range must contain `PluginApi.Version`. Device
-packages instead use the Device SDK's exact API integer and dedicated runtime.
+`minimumApiVersion` / `maximumApiVersion` must both equal `PluginApi.Version`. API 5 refuses broad
+legacy ranges because shared contract types changed their assembly identity. Device packages are no
+longer admitted; WSGM integrates LibHandheld directly.
 
 The manifest identifies the package, its category, root DLL and public entry type, optional numeric
 dependency ranges and WSGM release, declared permissions, GPU adapter rules and capability roles,
@@ -20,12 +21,14 @@ nothing. All admitted code runs in WSGM's process with its authority.
 
 [PluginManifestReader.cs](../PluginManifestReader.cs) reads camel-case JSON, rejects unknown
 members, bounds the document to 256 KiB and depth 16, and validates identifiers, canonical versions,
-entry names, dependencies and frontend paths. Common/device identity rules come from Device SDK
+entry names, dependencies and frontend paths. Common/device identity rules come from shared
 `ManifestRules`. Parsing does not load code, resolve dependencies or prove a package safe. The host
 validates its archive and admitted metadata again when opening the entry assembly.
 
-The SDK references `WSGM.Device.Sdk` and `SteamUiToolkit`. Those types are part of its public
-boundary and must retain the host's assembly identity. It references neither Avalonia nor Windows
+The SDK references only `SteamUiToolkit`. Shared semantic records live in this assembly under
+`Shared`, retaining their `WSGM.Device.Sdk.*` source namespaces. API 5 requires rebuilt plugins for
+the changed assembly type identity. There is no Device SDK assembly or forwarding layer. All plugin
+contracts must retain the host's assembly identity. It references neither Avalonia nor Windows
 Device Control. Package constructors and declaration getters must not acquire external resources.
 
 ## Lifecycle and host callbacks
@@ -122,9 +125,9 @@ appear in the manifest. Completing a publication dispatch does not prove the dow
 accepted the layout or state; inspect validation diagnostics. Command handlers must independently
 revalidate identity, generation, bounds, availability and deadline before a write.
 
-The [Device SDK reference](../../WSGM.Device.Sdk/docs/reference.md) defines capability roles, value
-shapes, command outcomes, profile scope, apply timing and written-versus-verified state. A supported
-write can succeed without readback; uncertain writes are never blindly retried.
+The [shared contract reference](shared-reference.md) defines capability roles, value shapes, command
+outcomes, profile scope, apply timing and written-versus-verified state. A supported write can
+succeed without readback; uncertain writes are never blindly retried.
 
 `SyncApplicationProfilesAsync` receives a complete `ApplicationProfileSync` (revision, capability
 cycle and profiles). Each `ApplicationCapabilityProfile` holds a WSGM profile ID, display name,
@@ -164,6 +167,7 @@ contributions do not turn that separate path into a sandbox. The
 | 2   | Active-time `Deadline` in `PluginContext`.                                                                                |
 | 3   | GPU category, adapter rules, capability declarations and capability/profile-sync interfaces.                              |
 | 4   | Immutable manifests, tracing on every common host, Device SDK `PlainText`, and shared public SteamUiToolkit type closure. |
+| 5   | Shared semantic types moved into the Plugin SDK assembly; Device SDK assembly dependency removed. Rebuild required.       |
 
 The source project generates XML documentation and treats missing public-member/parameter comments
 as errors. Test sources cover contract and manifest behavior with fakes; they do not establish live

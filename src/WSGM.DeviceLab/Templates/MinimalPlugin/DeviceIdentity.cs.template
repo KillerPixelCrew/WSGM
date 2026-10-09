@@ -1,0 +1,26 @@
+using System;
+using System.Linq;
+using LibHandheld.Contracts;
+
+namespace {{ROOT_NAMESPACE}};
+
+// Captured identity is conservative until additional models/firmware are evidenced.
+internal static class DeviceIdentity
+{
+    internal static bool Matches(DeviceIdentitySnapshot identity)
+    {
+        return Equal(identity.SystemManufacturer, "{{MANUFACTURER_CS}}")
+               && Equal(identity.BaseboardProduct, "{{BOARD_CS}}")
+               && Equal(identity.SystemSku, "{{SYSTEM_SKU_CS}}")
+               && Equal(identity.BiosVersion, "{{BIOS_CS}}")
+               && identity.UsbEndpoints.Any(endpoint =>
+                   Equal(endpoint.VendorId, "{{USB_VENDOR_CS}}")
+                   && Equal(endpoint.ProductId, "{{USB_PRODUCT_CS}}")
+                   && Equal(endpoint.DeviceRelease, "{{USB_RELEASE_CS}}"));
+    }
+
+    private static bool Equal(string? actual, string expected)
+    {
+        return string.Equals(actual?.Trim(), expected, StringComparison.OrdinalIgnoreCase);
+    }
+}

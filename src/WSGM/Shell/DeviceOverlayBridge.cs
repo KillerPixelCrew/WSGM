@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
@@ -75,7 +74,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     public DeviceOverlaySnapshot Snapshot()
     {
         var state = _coordinator.State;
-        var package = _coordinator.InstalledPackage;
+        var device = _coordinator.DeviceDefinition;
         var controllerStatus = _coordinator.Controllers.Snapshot();
         var declaredSections = _coordinator.Capabilities.Sections;
         HashSet<string> declaredSectionIds = new(
@@ -134,41 +133,13 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             // reaching WSGM. Offering it otherwise would show a map that can never light up.
             controllerStatus.State is ControllerManagementState.Active);
 
-        if (package is { Valid: false })
-        {
-            capabilities.Add(new DeviceOverlayCapability(
-                $"wsgm.package.rejected.{package.Manifest?.Id ?? "unknown"}",
-                package.Manifest?.Version,
-                DeviceOverlaySection.Diagnostics,
-                DescriptorStatus.Unsupported,
-                package.Manifest?.Id ?? "Invalid device package",
-                package.Detail ?? "The installed package did not pass validation.",
-                package.RejectionCode ?? "INVALID",
-                false));
-        }
-
-        var discovery = _coordinator.PackageDiscovery;
-        if (discovery.Inventory.Cardinality is DevicePackageCardinality.Multiple)
-        {
-            capabilities.AddRange(discovery.Inventory.PackageFiles
-                .Select(packageFile => new DeviceOverlayCapability(
-                    $"wsgm.package.multiple.{Path.GetFileName(packageFile)}",
-                    null,
-                    DeviceOverlaySection.Diagnostics,
-                    DescriptorStatus.Unsupported,
-                    Path.GetFileName(packageFile),
-                    $"{discovery.Detail} Path: {packageFile}",
-                    discovery.ErrorCode ?? "MULTIPLE",
-                    false)));
-        }
-
         // OrderBy is stable, so rows keep their order within a section.
         capabilities = [.. capabilities.OrderBy(capability => capability.Section)];
-        var detail = package is null
+        var detail = device is null
             ? state is DeviceCycleState.Detected or DeviceCycleState.Passive
-                ? "No compatible verified device package is active."
+                ? "No compatible handheld backend is active."
                 : "Device integration is waiting for a compatible handheld."
-            : $"{package.Manifest?.Id} {package.Manifest?.Version}";
+            : device.Name;
         return new DeviceOverlaySnapshot(
             _coordinator.IntegrationEnabled,
             LifecycleLabel(state),

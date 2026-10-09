@@ -30,7 +30,7 @@ internal sealed record LabScaffoldResult
     /// <summary>The promoted record the data came from.</summary>
     public required string RecordId { get; init; }
 
-    /// <summary>Hardware rules in the manifest.</summary>
+    /// <summary>Observed hardware rules in the contribution.</summary>
     public required IReadOnlyList<string> Hardware { get; init; }
 
     /// <summary>Buttons in <c>DeviceProfile.cs</c>.</summary>
@@ -42,7 +42,7 @@ internal sealed record LabScaffoldResult
     /// <summary>Capability roles the evidence supports.</summary>
     public required IReadOnlyList<CapabilityRole> Capabilities { get; init; }
 
-    /// <summary>Fields the review could not settle, for the plugin author to look at.</summary>
+    /// <summary>Fields the review could not settle, for the contributor to look at.</summary>
     public IReadOnlyList<string> Unresolved { get; init; } = [];
 
     /// <summary>Disagreements that were not promoted and so are not in the profile.</summary>
@@ -50,8 +50,8 @@ internal sealed record LabScaffoldResult
 }
 
 /// <summary>
-///     Scaffolds a plugin project from a returned lab report: the minimal template with the exact identity
-///     the report observed, the manifest's hardware and capability lists, and a <c>DeviceProfile.cs</c> of
+///     Scaffolds a LibHandheld contribution from a returned lab report: the minimal template with the exact identity
+///     the report observed, observed hardware and capability data, and a <c>DeviceProfile.cs</c> of
 ///     identity rules, buttons, axis maps and capability roles.
 /// </summary>
 /// <remarks>
@@ -66,10 +66,6 @@ internal static class ScaffoldFromLabProjectWorkflow
 
     private static readonly (string Template, string Output) ProfileTemplate = ("DeviceProfile.cs.template",
         "DeviceProfile.cs");
-
-    // Example roles the minimal template's in-memory example publishes; the host refuses unlisted roles.
-    private static readonly CapabilityRole[] ExampleRoles =
-        [CapabilityRole.GenericToggle, CapabilityRole.GenericReadOnly];
 
     private static readonly JsonSerializerOptions RuleJson = new()
     {
@@ -87,7 +83,7 @@ internal static class ScaffoldFromLabProjectWorkflow
         return path.EndsWith(Extension, StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>Writes a plugin starter prefilled from a lab report.</summary>
+    /// <summary>Writes a native family starter prefilled from a lab report.</summary>
     /// <param name="reportPath">The <c>.wsgmlab</c> report.</param>
     /// <param name="outputDirectory">New explicit output directory.</param>
     /// <param name="boundaries">Filesystem safety boundaries.</param>
@@ -119,7 +115,7 @@ internal static class ScaffoldFromLabProjectWorkflow
         var identity = ExactIdentity(inventory, record, usbEndpoint);
         var observed = review.ObservedIdentity ?? DeviceKnowledgeIdentity.From(inventory);
 
-        // The manifest names this device: the record's exact rules that match what the report observed,
+        // The contribution records this device: the record's exact rules that match what the report observed,
         // or the observed rule when none does.
         HardwareMatchRule[] rules =
         [
@@ -143,13 +139,13 @@ internal static class ScaffoldFromLabProjectWorkflow
             ["BUTTONS_CS"] = string.Join(",\n", buttons.Select(ButtonCode)),
             ["GYROMETER_CS"] = MapCode(record.Motion?.Gyrometer, record.Motion?.Provenance, "gyrometer"),
             ["ACCELEROMETER_CS"] = MapCode(record.Motion?.Accelerometer, record.Motion?.Provenance, "accelerometer"),
-            ["CAPABILITIES_CS"] = string.Join(",\n", roles.Select(role => $"        CapabilityRole.{role}"))
+            ["CAPABILITIES_CS"] = string.Join(",\n", roles.Select(role => $"        {Literal(role.ToString())}"))
         };
         var extras = new PluginScaffoldExtras
         {
             HardwareJson = string.Join(",\n    ", rules.Select(rule => JsonSerializer.Serialize(rule, RuleJson))),
             CapabilitiesJson = "["
-                               + string.Join(", ", roles.Concat(ExampleRoles).Distinct().Select(role => $"\"{role}\""))
+                               + string.Join(", ", roles.Distinct().Select(role => $"\"{role}\""))
                                + "]",
             Templates =
                 [new ScaffoldFromCaptureWorkflow.TemplateFile(ProfileTemplate.Template, ProfileTemplate.Output)],
@@ -256,7 +252,7 @@ internal static class ScaffoldFromLabProjectWorkflow
         };
     }
 
-    // Roles a plugin would publish for what the record and the evidence support.
+    // Roles a native engine would publish for what the record and the evidence support.
     private static IReadOnlyList<CapabilityRole> Roles(DeviceKnowledgeRecord record, LabReviewResult review)
     {
         SortedSet<CapabilityRole> roles = [];

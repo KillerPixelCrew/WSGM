@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using WSGM.Core;
-using WSGM.Device.Sdk;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Identity;
 using WSGM.Device.Sdk.Lifecycle;
@@ -10,7 +9,7 @@ using WSGM.Shell;
 using WSGM.Tests.Builders;
 using WSGM.Tests.Fakes;
 using WSGM.Tests.Input;
-using PluginManifest = WSGM.Device.Sdk.Packaging.PluginManifest;
+using HandheldDefinition = LibHandheld.Contracts.HandheldDefinition;
 
 namespace WSGM.Tests.Shell;
 
@@ -34,19 +33,15 @@ public sealed class DeviceCoordinatorTests
     }
 
     [Fact]
-    public async Task MultiplePackagesLeaveTheOwnerPassiveWithoutLoadingEitherRuntime()
+    public async Task UnsupportedIdentityLeavesTheOwnerPassiveWithoutLoadingRuntime()
     {
         await using Harness harness = new();
-        harness.Discovery = new DevicePackageDiscovery
-        {
-            Inventory = new DevicePackageInventory { PackageFiles = ["one.wsgmpkg", "two.wsgmpkg"] },
-            ErrorCode = "multiple-device-packages"
-        };
+        harness.Definition = null;
 
         await harness.Coordinator.InitializeAsync();
 
         Assert.Equal(DeviceCycleState.Passive, harness.Coordinator.State);
-        Assert.Equal("multiple-device-packages", harness.Coordinator.PackageDiscovery.ErrorCode);
+        Assert.False(harness.Coordinator.HasDevice);
         Assert.Equal(0, harness.Loads);
         Assert.Empty(harness.Calls);
     }
@@ -166,11 +161,6 @@ public sealed class DeviceCoordinatorTests
         Assert.Equal(1, harness.Calls.Count(call => call == "stop"));
         Assert.Equal(1, harness.Calls.Count(call => call == "dispose"));
         Assert.Equal(0, harness.RestartDelays);
-        using (harness.OpenPackageExclusively())
-        {
-            // Disposal released the retired runtime's package handle before the next enable.
-        }
-
         harness.Hook = null;
         await harness.Coordinator.ApplyConfigAsync(harness.Config);
 
@@ -245,11 +235,10 @@ public sealed class DeviceCoordinatorTests
         Assert.Equal(1, harness.OwnerDisposals);
         Assert.Throws<ObjectDisposedException>(() =>
             harness.Coordinator.PhysicalGlyphCatalog.ReplacePackageProfiles([]));
-        using var released = harness.OpenPackageExclusively();
     }
 
     [Fact]
-    public async Task ShutdownRetainsAnInFlightStopAndItsPackageWithoutRetryingIt()
+    public async Task ShutdownRetainsAnInFlightStopAndNativeOwnershipWithoutRetryingIt()
     {
         await using Harness harness = new();
         await harness.Coordinator.InitializeAsync();
@@ -279,10 +268,6 @@ public sealed class DeviceCoordinatorTests
             Assert.DoesNotContain("dispose", harness.Calls);
             Assert.Equal(0, harness.OwnerDisposals);
             Assert.False(harness.Runtime.LateCleanup.IsCompleted);
-            Assert.Throws<IOException>(() =>
-            {
-                using var retained = harness.OpenPackageExclusively();
-            });
         }
         finally
         {
@@ -294,7 +279,6 @@ public sealed class DeviceCoordinatorTests
 
         Assert.Equal(1, harness.Calls.Count(call => call == "stop"));
         Assert.Equal(1, harness.Calls.Count(call => call == "dispose"));
-        using var released = harness.OpenPackageExclusively();
     }
 
     [Fact]
@@ -470,11 +454,10 @@ public sealed class DeviceCoordinatorTests
     {
         internal readonly DeterministicFakeControllerBackend Backend = new();
         internal readonly List<string> Calls = [];
-        private readonly InstalledDevicePackage _package;
         private readonly TemporaryConfigStore _temporary = new();
+        internal HandheldDefinition? Definition;
         internal int DiagnosticsDisposals;
         internal int Discoveries;
-        internal DevicePackageDiscovery Discovery;
         internal Func<string, CancellationToken, Task>? Hook;
         internal DeviceIdentitySnapshot Identity = new();
         internal int Loads;
@@ -483,36 +466,12 @@ public sealed class DeviceCoordinatorTests
         internal int PowerDisposals;
         internal int PowerRegistrations;
         internal int RestartDelays;
-        internal DevicePluginRuntime? Runtime;
+        internal HandheldDeviceRuntime? Runtime;
 
         internal Harness(bool enabled = true)
         {
-            var sourceAssembly = typeof(RuntimeFixturePlugin).Assembly.Location;
-            var entryAssembly = Path.GetFileName(sourceAssembly);
-            PluginManifest manifest = new()
-            {
-                Id = RuntimeFixturePlugin.PackageIdValue,
-                Name = "Runtime fixture",
-                Version = "1.0.0",
-                ApiVersion = DeviceApi.Version,
-                EntryAssembly = entryAssembly,
-                EntryType = typeof(RuntimeFixturePlugin).FullName!,
-                WsgmVersion = PluginPackageBuilders.Host,
-                Capabilities = [CapabilityRole.LightingZoneColor]
-            };
-            var packagePath = PluginPackageBuilders.Write(Path.Combine(_temporary.Context.Root, "runtime.wsgmpkg"),
-                $$"""
-                  {"id":"{{manifest.Id}}","name":"{{manifest.Name}}","version":"{{manifest.Version}}",
-                   "apiVersion":{{manifest.ApiVersion}},"entryAssembly":"{{manifest.EntryAssembly}}",
-                   "entryType":"{{manifest.EntryType}}","wsgmVersion":"{{manifest.WsgmVersion}}",
-                   "hardware":[],"capabilities":["LightingZoneColor"]}
-                  """, (entryAssembly, File.ReadAllBytes(sourceAssembly)));
-            _package = new InstalledDevicePackage { PackagePath = packagePath, Valid = true, Manifest = manifest };
-            Discovery = new DevicePackageDiscovery
-            {
-                Inventory = new DevicePackageInventory { PackageFiles = [packagePath] },
-                InstalledPackage = _package
-            };
+            Definition = new HandheldDefinition(RuntimeFixturePlugin.DeviceDefinitionIdValue,
+                RuntimeFixturePlugin.PackageIdValue, "Runtime fixture", "fixture");
             Config = new AppConfig
             {
                 DeviceIntegration = new DeviceIntegrationConfig
@@ -534,17 +493,18 @@ public sealed class DeviceCoordinatorTests
                     @"C:\WSGM.Tests\WSGM.exe", new ControllerProcessPriority(
                         () => ProcessPriorityClass.Normal, _ => { }, _ => { }, _ => { })),
                 () => Identity,
-                token =>
+                (_, token) =>
                 {
                     token.ThrowIfCancellationRequested();
                     Discoveries++;
-                    return Task.FromResult(Discovery);
+                    return Task.FromResult<HandheldDefinition?>(Definition);
                 },
-                async (package, generation, token, root) =>
+                (definition, generation, token, root) =>
                 {
                     Loads++;
-                    Runtime = await DevicePluginRuntime.StartAsync(package, generation, token, root);
-                    return Runtime;
+                    token.ThrowIfCancellationRequested();
+                    Runtime = new HandheldDeviceRuntime(new RuntimeFixturePlugin(), generation, root);
+                    return Task.FromResult(Runtime);
                 },
                 _ =>
                 {
@@ -582,12 +542,7 @@ public sealed class DeviceCoordinatorTests
         internal string StatePath(string name)
         {
             return Path.Combine(_temporary.Context.Root, "DeviceState",
-                _package.Manifest!.Id, name);
-        }
-
-        internal FileStream OpenPackageExclusively()
-        {
-            return new FileStream(_package.PackagePath, FileMode.Open, FileAccess.Read, FileShare.None);
+                RuntimeFixturePlugin.PackageIdValue, name);
         }
 
         private sealed class Diagnostics(Harness harness) : IAsyncDisposable

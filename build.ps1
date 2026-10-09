@@ -109,6 +109,7 @@ if (-not (Test-Path "$appPublish\WSGM.PackagedLaunch.exe")) { throw "Packaged-ga
 if (-not (Test-Path "$appPublish\WsgmUwpBridge.dll")) { throw "Overlay bridge was not produced" }
 if (-not (Test-Path "$appPublish\WSGM.LogonService.exe")) { throw "Logon service was not produced" }
 if (-not (Test-Path "$appPublish\libviiper.dll")) { throw "VIIPER controller library was not published" }
+if (-not (Test-Path "$appPublish\LibHandheld.dll")) { throw "Handheld library was not published" }
 
 # The USB/IP driver installer the virtual controller attaches through. It is a third-party asset
 # fetched from its pinned release and verified here, on the release machine, against the reviewed
@@ -135,8 +136,8 @@ else {
 }
 
 # The setup payload is an explicit allowlist, the same one the Inno installer shipped: App is what
-# every install gets, Controller is what setup adds only when the installed plugin declares a
-# controller role (VIIPER, the USB/IP driver and HidHide), Packages and bundle.json are every
+# every install gets, Controller holds the optional controller dependencies
+# (VIIPER, the USB/IP driver and HidHide), Packages and bundle.json are every
 # bundled plugin. Anything else in publish\App stays out.
 Write-Host "== Assembling the setup payload ==" -ForegroundColor Cyan
 $payload = "$root\publish\Payload"
@@ -149,6 +150,7 @@ $appFiles = @(
     "WSGM.PackagedLaunch.exe", "WsgmUwpBridge.dll", "MinHook-LICENSE.txt", "WSGM.LogonService.exe",
     "WSGM.PackagedLaunch.deps.json", "WSGM.PackagedLaunch.runtimeconfig.json", "SharpCompress-LICENSE.txt",
     "LICENSE.txt", "LibGPUDriverInteract-LICENSE.txt", "LibGPUDriverInteract-PROVENANCE.md",
+    "LibHandheld-LICENSE.txt", "LibHandheld-PROVENANCE.md",
     "LoadingIndicators.Avalonia-UNLICENSE.txt", "Avalonia.Labs-MIT.txt",
     "Avalonia.LiveBackdrop.ThirdParty.txt", "WebView2-LICENSE.txt", "WebView2-NOTICE.txt",
     "Microsoft.Data.Sqlite-MIT.txt", "SQLitePCLRaw-Apache-2.0.txt",
@@ -161,7 +163,7 @@ foreach ($file in $appFiles) {
 # never ends the process that must restore Explorer.
 Copy-Item -LiteralPath "$appPublish\WSGM.exe" -Destination "$payloadApp\WSGM.ShellAnchor.exe"
 Get-ChildItem -LiteralPath $appPublish -File | Where-Object {
-    ($_.Extension -eq ".dll" -and $_.Name -ne "libviiper.dll") -or $_.Name -like "SteamInputLease-*"
+    ($_.Extension -eq ".dll" -and $_.Name -notin @("libviiper.dll", "WSGM.Device.Sdk.dll")) -or $_.Name -like "SteamInputLease-*"
 } | Copy-Item -Destination $payloadApp
 $controllerAssets = @((Get-Content -LiteralPath "$root\external\controller\controller-components.lock.json" -Raw |
     ConvertFrom-Json).components.asset)

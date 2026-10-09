@@ -5,7 +5,7 @@ using System.Text.Json;
 
 namespace WSGM.Setup.Engine;
 
-/// <summary>Identifies the three former built-in packages replaced by the direct GPU library.</summary>
+/// <summary>Identifies former built-in packages replaced by direct native libraries.</summary>
 internal static class GpuPackageRetirement
 {
     internal static bool IsRetiredPackage(string path)
@@ -24,7 +24,8 @@ internal static class GpuPackageRetirement
             return document.RootElement.ValueKind == JsonValueKind.Object
                    && document.RootElement.TryGetProperty("id", out var id)
                    && id.ValueKind == JsonValueKind.String
-                   && id.GetString() is "wsgm.gpu.intel" or "wsgm.gpu.amd" or "wsgm.gpu.nvidia";
+                   && id.GetString() is "wsgm.gpu.intel" or "wsgm.gpu.amd" or "wsgm.gpu.nvidia"
+                       or "wsgm.device.msi.claw" or "wsgm.device.asus.rog-ally";
         }
         catch (InvalidDataException)
         {

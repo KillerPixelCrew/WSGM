@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Avalonia.Threading;
 using SteamUiToolkit;
 using WSGM.Core;
+using WSGM.Device.Sdk.Capabilities;
 using WSGM.Install;
 using WSGM.Interop;
 using WSGM.Plugin.Sdk;
@@ -90,17 +91,13 @@ public sealed partial class ShellSession
     /// </summary>
     private DevicePrerequisiteState ReadDevicePrerequisiteState()
     {
-        var catalog = PluginPackageCatalog.Discover(InstallLayout.Plugins);
-        foreach (var error in catalog.Errors)
-        {
-            Log.Warn("Reading the Plugins folder for the overlay banner: " + error);
-        }
-
-        var package = catalog.Device.Inventory.PackageFiles.Count > 0;
-        var roles = catalog.Device.InstalledPackage?.Manifest?.Capabilities ?? [];
+        var device = HandheldDeviceAdapter.Detect(DeviceMachineIdentity.Collect());
+        var roles = device is not null
+            ? new[] { CapabilityRole.ControllerSource }
+            : Array.Empty<CapabilityRole>();
 
         return new DevicePrerequisiteState(
-            package,
+            device is not null,
             _config.DeviceIntegration.Enabled,
             DevicePrerequisiteSource.ControllerLibraryInstalled(AppContext.BaseDirectory),
             DevicePrerequisiteSource.HidHideInstalled(),

@@ -48,7 +48,7 @@ internal sealed record SetupOptions
     /// <summary>Uninstall: leave USB/IP and HidHide installed.</summary>
     public bool KeepComponents { get; init; }
 
-    /// <summary>The device plugin to install, <c>none</c> for none, or null to follow hardware detection.</summary>
+    /// <summary>The native handheld definition or family to enable, <c>none</c> to decline, or null to follow detection.</summary>
     public string? Plugin { get; init; }
 
     /// <summary>A payload directory to use instead of the embedded one, for development builds.</summary>

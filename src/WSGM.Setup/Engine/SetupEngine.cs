@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
+using WSGM.Device.Sdk.Identity;
 using WSGM.Install;
 using WSGM.Shared;
 
@@ -78,11 +79,11 @@ internal sealed class SetupStep(string label, string doneLabel, bool fatal, Func
 }
 
 /// <summary>What the user chose for an install, update or repair.</summary>
-/// <param name="DevicePluginId">The device plugin to install, or null for none.</param>
+/// <param name="HandheldDefinitionId">The native handheld model to enable, or null to decline integration.</param>
 /// <param name="CommonPluginIds">Common plugins to install.</param>
 /// <param name="Answers">The setup answers to apply, as exported by WSGM and edited by the pages.</param>
 internal sealed record InstallChoices(
-    string? DevicePluginId,
+    string? HandheldDefinitionId,
     IReadOnlyList<string> CommonPluginIds,
     JsonObject Answers);
 
@@ -276,17 +277,18 @@ internal sealed class SetupEngine : IDisposable
         {
             var adapters = DisplayAdapterInventory.Collect();
             engine.InstalledPluginIds = engine.InstalledIds(payload.Bundle);
-            engine.Offers = PluginOffers.Compute(payload.Bundle, DeviceMachineIdentity.Collect(), adapters,
-                engine.InstalledPluginIds);
+            engine.ReadHardwareOffers(DeviceMachineIdentity.Collect(), adapters);
+            var offers = engine.Offers ??
+                         throw new InvalidOperationException("Payload hardware offers were not computed.");
             SetupLog.Info("Display adapters: "
                           + (adapters.Count == 0
                               ? "none"
                               : string.Join(", ",
                                   adapters.Select(adapter => $"{adapter.PciVendorId}:{adapter.PciDeviceId}")))
                           + "; graphics plugins for them: "
-                          + (engine.Offers.Gpu.Count == 0
+                          + (offers.Gpu.Count == 0
                               ? "none"
-                              : string.Join(", ", engine.Offers.Gpu.Select(offer => offer.Plugin.Id)))
+                              : string.Join(", ", offers.Gpu.Select(offer => offer.Plugin.Id)))
                           + ".");
         }
 
@@ -350,12 +352,12 @@ internal sealed class SetupEngine : IDisposable
     }
 
     /// <summary>Preserves update choices and adds the selected new graphics packages once.</summary>
-    /// <param name="answers">Mutable answers; device integration is disabled here if no installed device matches.</param>
+    /// <param name="answers">Mutable answers; disabled integration is preserved and unavailable native support disables it.</param>
     /// <param name="addedGpuIds">New graphics packages accepted by the caller.</param>
-    /// <returns>Choices retaining installed bundled common packages and the surviving matching device.</returns>
+    /// <returns>Choices retaining installed common packages and the enabled exact native backend.</returns>
     internal InstallChoices KeptChoices(JsonObject answers, IEnumerable<string> addedGpuIds)
     {
-        var device = Offers?.DeviceCandidates.FirstOrDefault(offer => offer.Installed)?.Plugin.Id;
+        var device = answers["deviceIntegration"]?.GetValue<bool>() == true ? Offers?.Handheld?.Definition.Id : null;
         if (device is null)
         {
             answers["deviceIntegration"] = false;
@@ -365,16 +367,28 @@ internal sealed class SetupEngine : IDisposable
             InstalledCommonPluginIds().Concat(addedGpuIds).Distinct(StringComparer.Ordinal).ToArray(), answers);
     }
 
-    /// <summary>The system components the chosen plugins need.</summary>
-    /// <param name="choices">Selected bundled device and common plugin ids.</param>
+    internal void ReadHardwareOffers(DeviceIdentitySnapshot identity,
+        IReadOnlyList<DisplayAdapterIdentity> adapters)
+    {
+        Offers = Payload is { } payload
+            ? PluginOffers.Compute(payload.Bundle, identity, adapters, InstalledPluginIds)
+            : null;
+    }
+
+    /// <summary>The system components the chosen native device and common plugins need.</summary>
+    /// <param name="choices">Selected native device and bundled common plugin ids.</param>
     /// <returns>Distinct required components, or an empty list without a payload.</returns>
     public IReadOnlyList<SetupComponent> RequiredComponents(InstallChoices choices)
     {
-        return Payload?.Bundle.Plugins
-            .Where(plugin => plugin.Id == choices.DevicePluginId || choices.CommonPluginIds.Contains(plugin.Id))
-            .SelectMany(plugin => SetupComponents.Required(plugin.Capabilities))
-            .Distinct()
-            .ToArray() ?? [];
+        var support = Offers?.Handheld;
+        var native = choices.HandheldDefinitionId == support?.Definition.Id
+                     && choices.HandheldDefinitionId is not null
+            ? support!.Components
+            : [];
+        var common = Payload?.Bundle.Plugins
+            .Where(plugin => choices.CommonPluginIds.Contains(plugin.Id))
+            .SelectMany(plugin => SetupComponents.Required(plugin.Capabilities)) ?? [];
+        return native.Concat(common).Distinct().ToArray();
     }
 
     /// <summary>Whether the controller stack must be installed because it is missing.</summary>
@@ -406,7 +420,7 @@ internal sealed class SetupEngine : IDisposable
             step => InstallApplication(step, controller)));
         steps.Add(new SetupStep("Keeping this setup for repair and uninstall", "Setup stored for repair", true,
             _ => StoreSetup(payload)));
-        foreach (var id in new[] { choices.DevicePluginId }.Concat(choices.CommonPluginIds).OfType<string>())
+        foreach (var id in choices.CommonPluginIds)
         {
             var plugin = payload.Bundle.Plugins.First(candidate => candidate.Id == id);
             steps.Add(new SetupStep("Installing " + plugin.Name, $"{plugin.Name} {plugin.Version} installed", true,

@@ -30,7 +30,9 @@ The device/GPU extraction is on `chore/device-integration-rework`. Its private r
 [LibHandheld](../external/libhandheld/README.md) and
 [LibGPUDriverInteract](../external/libgpu-driver-interact/README.md); see the
 [rework plan](../_plan/device-integration-rework.md). LibGPUDriverInteract is directly linked into
-WSGM; LibHandheld is still the inventory/planning stage.
+WSGM. LibHandheld is also directly linked, with the existing five Claw and four Ally definitions
+implemented. The complete HC/HHD inventory remains the support target; those nine definitions do not
+cover it yet.
 
 ## Implementation skills
 
@@ -88,17 +90,23 @@ Intel, NVIDIA and AMD driver engines are provided by the directly linked
 [LibGPUDriverInteract](../external/libgpu-driver-interact/README.md) library. WSGM owns their
 profiles, integration switches and UI through its graphics adapter and coordinator.
 
-| Read                                                             | When you want to understand                                                                                                    |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| [plugin-system.md](plugin-system.md)                             | common plugin contracts, widgets, Steam placements, session automation and the Game Mode entry transaction                     |
-| [device-integration.md](device-integration.md)                   | why the device plugin runtime is shaped the way it is, controller management, authored profiles, HidHide, the device findings  |
-| [device-plugin-system.md](device-plugin-system.md)               | the runtime mechanism: package files, validation, load, cycle, publications, commands, glyphs, Device Lab, the Claw as example |
-| [device-plugin-authoring.md](device-plugin-authoring.md)         | the device projects in this repository, and writing, testing, packing and installing a plugin                                  |
-| [Device SDK reference](../src/WSGM.Device.Sdk/docs/reference.md) | the public SDK contract                                                                                                        |
+Handheld hardware comes from [LibHandheld](../external/libhandheld/README.md), through
+`HandheldAdapter` and `HandheldDeviceRuntime`. WSGM retains profiles, AutoTDP, controller ownership,
+HidHide, virtual input and OEM action policy. The separate Device SDK assembly and installed device
+packages have been removed. The common Plugin SDK remains for IR and independent extensions.
 
-The [Device SDK reference](../src/WSGM.Device.Sdk/docs/reference.md) and
+| Read                                                     | When you want to understand                                                                                |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| [plugin-system.md](plugin-system.md)                     | common plugin contracts, widgets, Steam placements, session automation and the Game Mode entry transaction |
+| [device-integration.md](device-integration.md)           | historical device findings, controller management, authored profiles and HidHide                           |
+| [device-plugin-system.md](device-plugin-system.md)       | historical package-era lifecycle and validation findings; current native API is in LibHandheld             |
+| [device-plugin-authoring.md](device-plugin-authoring.md) | contributing native device implementations and fixtures to LibHandheld                                     |
+| [LibHandheld API](../external/libhandheld/API.md)        | the independent typed device API and native lifetime                                                       |
+
+The [LibHandheld API](../external/libhandheld/API.md) and
 [Plugin SDK guide](../src/WSGM.Plugin.Sdk/README.md) document the public contracts beside their
-declarations.
+declarations. The older device integration/system articles retain historical package-era findings;
+their package loading descriptions are not the current direct-library architecture.
 
 ## How to write these
 

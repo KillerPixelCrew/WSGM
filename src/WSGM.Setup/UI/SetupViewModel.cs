@@ -309,7 +309,7 @@ internal sealed class SetupViewModel : Observable
                 _profile = new ProfilePage(_answers);
             }
 
-            // Full with the device plugin, Minimal without it (declined, or nothing matches).
+            // Full with native device support, Minimal without it (declined, or nothing matches).
             _profile.UseDefaultLevel(_hardware?.Chosen is not null);
             Page = _profile;
         }
@@ -381,7 +381,7 @@ internal sealed class SetupViewModel : Observable
                 NewGraphics().Where(option => option.Checked).Select(option => option.Plugin.Id));
         }
 
-        var device = _hardware.Chosen?.Offer.Plugin.Id;
+        var device = _hardware.Chosen?.Offer.Definition.Id;
         answers["deviceIntegration"] = device is not null;
         return new InstallChoices(device,
         [

@@ -8,6 +8,9 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../eng/templates/**/*.cs" Link="Templates/%(RecursiveDir)%(Filename)%(Extension)"/>
+    <Compile Include="../Shared/PluginManifestFixture.cs" Link="Shared/PluginManifestFixture.cs"/>
+    <Compile Include="../Shared/RepositoryFiles.cs" Link="Shared/RepositoryFiles.cs"/>
+    <Compile Include="../Shared/TemporaryDirectory.cs" Link="Shared/TemporaryDirectory.cs"/>
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1"/>

@@ -683,6 +683,7 @@ internal static class DeviceLabCli
         writer.WriteLine(
             "wsgm-device doctor|inventory|candidates|probe-read|capture|inspect|compare|correlate|fixture|scaffold|glyph|validate|test|pack|report|review|promote");
         writer.WriteLine("test: sample | plugin <dir> --from <inventory>");
+        writer.WriteLine("scaffold creates LibHandheld source and research data; no installable device package.");
         writer.WriteLine("scaffold --from <capture> --out-dir <new-dir> [--usb-instance <exact-id>]");
         writer.WriteLine("scaffold --from <file.wsgmlab> --out-dir <new-dir> [--usb-instance <VID:PID[:release]>]");
         writer.WriteLine("review <file.wsgmlab>");

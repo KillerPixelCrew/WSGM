@@ -1,72 +1,31 @@
 # {{DISPLAY_NAME_MD}}
 
-This starter came from Device Lab's minimal plugin template. It has exact identity detection, the
-package manifest with the captured board as its hardware rule, and safe in-memory examples of partial capability availability,
-cancellation, canonical input and output, diagnostics, and restoring state on stop.
+This is a LibHandheld source contribution, not an installable device plugin. Its identity comes
+from sanitized Device Lab evidence. No hardware transport or supported-device registration is
+generated. `contribution.json` records observed facts, not implemented capabilities.
 
 - Manufacturer: `{{MANUFACTURER_MD}}`
 - Baseboard: `{{BOARD_MD}}`
 - SKU: `{{SYSTEM_SKU_MD}}`
 - BIOS: `{{BIOS_MD}}`
 - USB: `{{USB_MD}}`
-- SDK API: `{{API_VERSION}}`
 
-## What to do next
+Copy C# files into `src/LibHandheld/Families/<family>` in the LibHandheld checkout. The identity
+uses public `LibHandheld.Contracts` types; no WSGM assembly is referenced. A report also produces
+`DeviceProfile.cs`, retaining confirmed buttons, axis maps, observed roles and report provenance
+as research data. Unconfirmed fields remain unconfirmed.
 
-Replace the clearly named `example.*` capability and its in-memory state in `DevicePlugin.cs` with
-real device-owned transports and services. Every write has to snapshot the original value, validate
-the current bounds, read the result back, and restore temporary changes when the plugin deactivates.
+Implement the native engine using `Families/MsiClaw` or `Families/RogAlly` and the internal engine
+contract as examples. Register only a completed engine in `HandheldDevice`, with exact identity
+and capabilities. HC is the Windows authority; cross-check HHD and cite source revisions and
+local evidence. Never infer firmware writes from button observations.
 
-The `example.*` implementation is hardware-free teaching code. It is fine for local detection and
-lifecycle tests, but replace it with verified device behaviour before you install anything. Notice
-that the demo toggle reports `AppliedUnverified`, leaves readback absent and publishes unknown state
-quality, because an in-memory assignment proves nothing about hardware.
+`ReportDecoder.cs` rejects every report until fixture-backed decoding is added. Capture starters
+include recorded `fixtures/` with exact-source SHA-256 metadata. For separate exports use
+`wsgm-device fixture --from <capture> --out-dir <new-directory>`. Add short,
+unknown-ID and valid-report cases under `tests/LibHandheld.Tests`. Keep private captures out of
+the PR; include sanitized evidence and provenance.
 
-The generated project references the exact SDK Device Lab used: a source project when you scaffold
-inside the WSGM checkout, or the shipped SDK assembly otherwise. Keep that reference valid if you
-move the scaffold to another machine.
-
-## Licence
-
-This plugin is your own work and you choose its licence. It links `WSGM.Device.Sdk`, which is MIT,
-so nothing here obliges you to any particular one, and a closed-source vendor plugin is fine. The
-starter ships an MIT `LICENSE.txt` because that constrains you least; put your name in it, or
-replace it outright. WSGM itself is GPL-3.0-or-later, but you are not linking WSGM.
-
-## Build and validate
-
-Build, copy the produced DLL beside `plugin.wsgm.json`, then:
-
-```powershell
-dotnet build {{ROOT_NAMESPACE}}.csproj -c Release -r win-x64
-wsgm-device validate <package-directory>
-wsgm-device test plugin <package-directory> --from <inventory.json>
-wsgm-device pack <package-directory> --out <plugin.wsgmpkg>
-```
-
-The hardware action is separate and always attended:
-
-```powershell
-wsgm-device test hardware <package-directory> --from <inventory.json> --state-dir <new-directory> --action haptic
-```
-
-Use `--action controller`, or
-`--action capability --capability <id> --value <semantic-value> [--instance <id>]`, for the other
-attended actions.
-
-## Installing
-
-Installing makes this package trusted hardware code that may later inherit WSGM's elevation, so
-inspect the exact files before you do it.
-
-Pack the plugin into a `.wsgmpkg`, close WSGM, and copy the file into the protected Plugins folder
-from an elevated PowerShell. WSGM loads it from the file at the next start:
-
-```powershell
-Copy-Item -LiteralPath <plugin.wsgmpkg> -Destination (Join-Path $env:ProgramFiles 'WSGM\Plugins')
-```
-
-Only one device package may be installed; remove any other before starting WSGM.
-
-For the complete workflow and the safety contract, see `docs/device-plugin-authoring.md` in the WSGM
-repository.
+Build and review in the LibHandheld solution. Hardware acceptance remains attended. Submit source,
+fixtures and evidence as a LibHandheld PR; do not pack or install a DLL. Complete the contributor
+placeholder in the included MIT license before submission.

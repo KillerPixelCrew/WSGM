@@ -85,31 +85,6 @@ internal sealed class LoadedPluginPackage<TEntry> where TEntry : class, IAsyncDi
 /// </remarks>
 internal static class PluginLoader
 {
-    /// <summary>Loads the sole valid device package.</summary>
-    /// <param name="package">The package discovery admitted.</param>
-    /// <returns>The loaded plugin and its package.</returns>
-    /// <exception cref="PluginLoadException">The package could not be loaded.</exception>
-    internal static LoadedPluginPackage<IDevicePlugin> LoadDevice(InstalledDevicePackage package)
-    {
-        ArgumentNullException.ThrowIfNull(package);
-        if (!package.Valid || package.Manifest is not { } manifest)
-        {
-            throw new InvalidDataException("The installed device package is not valid.");
-        }
-
-        return Load<IDevicePlugin>(
-            package.PackagePath,
-            new Entry(manifest.Id, manifest.Version, manifest.EntryAssembly, manifest.EntryType,
-                manifest.WsgmVersion),
-            static file => file.DeviceManifest is { } reopened
-                ? new Entry(reopened.Id, reopened.Version, reopened.EntryAssembly, reopened.EntryType,
-                    reopened.WsgmVersion)
-                : null,
-            static _ => null,
-            static plugin => plugin.PackageId,
-            CancellationToken.None);
-    }
-
     /// <summary>Loads a common package off the calling thread.</summary>
     /// <param name="packagePath">The package file.</param>
     /// <param name="admitted">The manifest discovery admitted.</param>

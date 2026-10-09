@@ -174,6 +174,11 @@ internal sealed record PluginPackageCatalog
             try
             {
                 using var package = PluginPackageFile.Open(file);
+                if (package.DeviceManifest is not null)
+                {
+                    continue;
+                }
+
                 // These identities now belong to directly linked drivers. An old archive must not
                 // acquire the same driver or become an installable common plugin again.
                 if (package.CommonManifest is not null && BuiltinGpuDrivers.Contains(package.Id))

@@ -1,0 +1,14 @@
+using System;
+
+namespace {{ROOT_NAMESPACE}};
+
+// No unknown report bytes are interpreted. Add only fixture-backed, reviewed fields here.
+internal static class ReportDecoder
+{
+    internal static bool TryDecode(ReadOnlySpan<byte> report)
+    {
+        // TODO: add confirmed report ID, minimum length, offsets and semantic output.
+        // Unknown/short reports must return false. This starter is not a working driver.
+        return false;
+    }
+}

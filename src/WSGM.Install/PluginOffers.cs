@@ -26,6 +26,9 @@ public sealed record PluginOffer(
 /// </summary>
 public sealed record PluginOffers
 {
+    /// <summary>Exact built-in handheld support; requires no installed device package.</summary>
+    public HandheldOffer? Handheld { get; init; }
+
     /// <summary>Matching device plugins, best first: exact before fallback, tested before blind.</summary>
     public required IReadOnlyList<PluginOffer> DeviceCandidates { get; init; }
 
@@ -92,6 +95,7 @@ public sealed record PluginOffers
         var gpu = bundle.Plugins.Where(plugin => plugin.IsGpu).ToArray();
         return new PluginOffers
         {
+            Handheld = HandheldSupport.Detect(identity),
             DeviceCandidates =
             [
                 .. candidates

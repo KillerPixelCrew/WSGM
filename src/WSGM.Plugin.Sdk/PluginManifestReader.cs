@@ -106,9 +106,9 @@ public static class PluginManifestReader
             errors.Add("The package version must be a canonical dotted numeric version.");
         }
 
-        if (manifest.MinimumApiVersion < 1 || manifest.MaximumApiVersion < manifest.MinimumApiVersion
-                                           || PluginApi.Version < manifest.MinimumApiVersion ||
-                                           PluginApi.Version > manifest.MaximumApiVersion)
+        // API 5 changes shared type assembly identities. A broad legacy range cannot establish
+        // that the package was rebuilt against this assembly rather than the retired Device SDK.
+        if (manifest.MinimumApiVersion != PluginApi.Version || manifest.MaximumApiVersion != PluginApi.Version)
         {
             errors.Add("Incompatible common Plugin SDK version range.");
         }

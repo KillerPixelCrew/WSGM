@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "id": "{{PACKAGE_ID_JSON}}",
+  "name": "{{DISPLAY_NAME_JSON}}",
+  "implemented": false,
+  "hardware": [{{HARDWARE_JSON}}],
+  "observedCapabilities": {{CAPABILITIES_JSON}},
+  "provenance": "Device Lab sanitized capture/report; review confirmed facts before implementing transports"
+}

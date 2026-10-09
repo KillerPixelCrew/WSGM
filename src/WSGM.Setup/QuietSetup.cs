@@ -79,7 +79,7 @@ internal static class QuietSetup
         }
 
         // Every run adds the graphics plugins for the adapters present. An update or repair keeps what is
-        // installed unless /plugin names the device; a fresh install adds no other common plugin.
+        // installed unless /plugin selects native device support; a fresh install adds no other common plugin.
         var newGpu = engine.NewGpuOffers().Select(offer => offer.Plugin.Id).ToArray();
         InstallChoices choices;
         if (!fresh && options.Plugin is null)
@@ -88,7 +88,7 @@ internal static class QuietSetup
         }
         else
         {
-            var device = DevicePlugin(options, engine, fresh);
+            var device = NativeDevice(options, engine, fresh);
             answers["deviceIntegration"] = device is not null;
             choices = new InstallChoices(device, [.. fresh ? [] : engine.InstalledCommonPluginIds(), .. newGpu],
                 answers);
@@ -151,7 +151,7 @@ internal static class QuietSetup
         return succeeded ? Success : Failed;
     }
 
-    private static string? DevicePlugin(SetupOptions options, SetupEngine engine, bool fresh)
+    private static string? NativeDevice(SetupOptions options, SetupEngine engine, bool fresh)
     {
         if (string.Equals(options.Plugin, "none", StringComparison.OrdinalIgnoreCase))
         {
@@ -160,14 +160,14 @@ internal static class QuietSetup
 
         if (options.Plugin is { } id)
         {
-            return engine.Payload!.Bundle.Plugins.Any(plugin => plugin.Id == id && plugin.IsDevice)
-                ? id
-                : throw new ArgumentException($"This setup does not bundle a device plugin named {id}.");
+            return engine.Offers!.Handheld is { } support
+                   && (support.Definition.Id == id || support.Definition.FamilyId == id)
+                ? support.Definition.Id
+                : throw new ArgumentException($"This setup has no native support for this machine named {id}.");
         }
 
-        // An update or repair keeps the device plugin the user has; a fresh install follows detection
-        // and installs nothing when the choice is ambiguous.
-        return engine.Offers!.DeviceCandidates.FirstOrDefault(offer => offer.Installed)?.Plugin.Id
-               ?? (fresh ? engine.Offers.RecommendedDevice?.Plugin.Id : null);
+        return fresh || engine.ExportedAnswers?["deviceIntegration"]?.GetValue<bool>() == true
+            ? engine.Offers!.Handheld?.Definition.Id
+            : null;
     }
 }

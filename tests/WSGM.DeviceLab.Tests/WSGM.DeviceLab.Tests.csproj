@@ -23,7 +23,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\WSGM.DeviceLab\WSGM.DeviceLab.csproj"/>
     <ProjectReference
-      Include="..\..\src\WSGM.Device.Sdk\WSGM.Device.Sdk.csproj"/>
+      Include="..\..\src\WSGM.Plugin.Sdk\WSGM.Plugin.Sdk.csproj"/>
   </ItemGroup>
 
   <ItemGroup>
