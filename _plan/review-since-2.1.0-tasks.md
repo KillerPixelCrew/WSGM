@@ -153,14 +153,14 @@ items record source implementation, not final delivery or a hardware pass.
 
 ## Delivery
 
-- [ ] Finish emulator cancellation fix and enforce real portable mode for all six emulators across
+- [x] Finish emulator cancellation fix and enforce real portable mode for all six emulators across
       install/update/repair/external registration/launch
 - [x] Verify item coverage against the authoritative review and actual final source
 - [x] Complete solution-wide Rider cleanup, formatting and warning-free Release compilation
 - [x] Run allowed validation; record deferred tests and hardware proof explicitly
 - [x] Push each changed submodule before the WSGM gitlinks
-- [ ] Build the full setup and deploy the established development installation
-- [ ] Record final source/package identities and leave task-owned checkouts clean
+- [x] Build the full setup and deploy the established development installation
+- [x] Record final source/package identities and leave task-owned checkouts clean
 
 ## Current source checkpoint
 
@@ -235,18 +235,6 @@ Own-label sandbox screening is removed (LH-19). Definitions intentionally remain
 catalogue for the maintainer's explicit-model consumer API requirement; semantic operation caches
 are used by real host routing and retained under decision 5 (LH-5/12), rather than deleted as dead.
 
-Delivery checkpoint: LibHandheld 61093e497313f23cb5418d34dcea7e3004ccd1ff and LibGPUDriverInteract
-67d7e37ef20cb00dc01050b7ded4ffc4aa1471a3 are pushed privately on the requested branch; CI opt-in
-remains unset. The full build exposed stale Device Lab and UI regression consumers. Lab now owns its
-knowledge rules locally. Production projects compile without warnings; UI source migration remains
-before final whole-solution success. No automated tests or UI captures have run.
-
-Portable corrections are applied across all channels, including native config overrides, actual
-working-directory argument checks, materialized linked data, Dolphin command overrides/GBA saves and
-RetroArch core/content sorting. Existing native sorted paths are preserved; ambiguous conversion
-fails before mutation. One live importer index feeds remount-aware ROM sidecar preservation during
-startup, update and repair. Original data stays intact; no emulator or download was exercised live.
-
 Final source validation: the restored entire WSGM.slnx Release build passed with zero warnings and
 zero errors, including every library/application/test project
 (artifacts/review-solution-release-clean.log). No test execution occurred. Parent and changed child
@@ -254,3 +242,27 @@ Full Cleanup passes plus affected-file repair cleanup ran; Prettier, emitted ass
 dependency pins, PowerShell parsing and no-live- data-path checks passed. UI fixtures now follow
 current layout/withdrawal contracts; images remain for the maintainer's subsequent manual visual
 acceptance. Full setup/deployment remains the next step.
+
+## Completed delivery (2026-10-10)
+
+- Production build source: WSGM f4c4ad0b5d8f26d1a0c6d5de68aca6a298a5c6bf
+  (chore/device-integration-rework), with LibHandheld 61093e497313f23cb5418d34dcea7e3004ccd1ff and
+  LibGPUDriverInteract 67d7e37ef20cb00dc01050b7ded4ffc4aa1471a3; children pushed before the parent
+  gitlinks.
+- Entire solution Release compilation: zero warnings and zero errors; all test projects compiled, no
+  tests executed. Required formatting, source coverage, guidance/assets/pin checks completed.
+- Full build.ps1 -DeferTests setup: Z:\WSGM-Setup-2.1.0.exe, 410294403 bytes, SHA-256
+  7DF0AEABA2867D0EED4566DAA62E09F05587DAC4E71653EF516A33EBD38589BB.
+- Previous setup retained as Z:\WSGM-Setup-2.1.0-before-review-20261010.exe.
+- Development deployment: eng/dev-deploy.ps1 -Desktop -SkipBuild reported Deployed and restarted
+  WSGM/Steam. Installed WSGM 2.1.0.1662 plus native libraries, wrappers, payloads and family notices
+  match publish/App by SHA-256. Wrapper saw a stale native exit code after success; no repeated
+  deploy.
+- Private libraries and inactive CI remain verified. Human _mockup content remains unmodified.
+- Automated tests, refreshed UI baselines, hardware and real emulator/download acceptance remain
+  deferred for the maintainer's manual-first sequence. Startup/process/hash evidence is not that
+  proof.
+
+All 130 implementation items and seven maintainer decisions are accounted for; delivery is complete.
+The final follow-up commit records this evidence and any test-only reference formatting, without
+changing the production source used by the setup above.

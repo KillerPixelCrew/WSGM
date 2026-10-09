@@ -1,3 +1,4 @@
+using LibHandheld.Contracts;
 using WSGM.DeviceLab.Inventory;
 using WSGM.DeviceLab.Knowledge;
 
@@ -216,14 +217,14 @@ public sealed class DeviceKnowledgeTests
         Assert.Equal("hc.gpd-win4", Assert.Single(DeviceKnowledgeMatcher.Match(Knowledge, identity)).RecordId);
     }
 
-    private static LibHandheld.Contracts.DeviceIdentitySnapshot Identity(
+    private static DeviceIdentitySnapshot Identity(
         string manufacturer,
         string product,
         string? processor = null,
         string? model = null,
         string? sku = null)
     {
-        return new LibHandheld.Contracts.DeviceIdentitySnapshot
+        return new DeviceIdentitySnapshot
         {
             BaseboardManufacturer = manufacturer,
             BaseboardProduct = product,
