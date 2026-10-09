@@ -135,7 +135,12 @@ internal sealed class GpuDriverAdapter : ICapabilityPlugin, IAsyncDisposable
 
     private void OnDescriptors(GpuDescriptorSet set)
     {
-        _channel.PublishDescriptorsAsync(new CapabilityDescriptorSet
+        _channel.PublishDescriptorsAsync(ToHost(set), CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    internal static CapabilityDescriptorSet ToHost(GpuDescriptorSet set)
+    {
+        return new CapabilityDescriptorSet
         {
             Generation = set.Generation,
             CycleGeneration = set.CycleGeneration,
@@ -156,7 +161,7 @@ internal sealed class GpuDriverAdapter : ICapabilityPlugin, IAsyncDisposable
                     SortOrder = category.SortOrder
                 }).ToArray()
             }).ToArray()
-        }, CancellationToken.None).GetAwaiter().GetResult();
+        };
     }
 
     private void OnState(GpuState state)
@@ -197,7 +202,7 @@ internal sealed class GpuDriverAdapter : ICapabilityPlugin, IAsyncDisposable
                 Key = descriptor.Role == GpuRole.VariableRefreshRate
                     ? DisplayKey.VariableRefreshRate
                     : DisplayKey.Custom,
-                CustomLabel = descriptor.Label
+                CustomLabel = descriptor.Role == GpuRole.VariableRefreshRate ? null : descriptor.Label
             },
             SectionId = descriptor.SectionId,
             CategoryId = descriptor.CategoryId,
