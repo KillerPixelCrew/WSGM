@@ -8,18 +8,18 @@ automation and the Game Mode entry transaction. The direct LibHandheld runtime i
 
 ## The contract and the host
 
-`src/WSGM.Plugin.Sdk` is the single MIT plugin contract assembly, currently API 5 with accepted
-range 5..5 and package version 0.4.0. Its shared capability/lifecycle helpers retain historical
-`WSGM.Device.Sdk` namespaces, but now belong to this assembly. There is no separate Device SDK
-assembly. Plugins must be rebuilt because the shared types' assembly identity changed. The SDK
-references SteamUiToolkit for typed Steam modules; neither native hardware library depends on a WSGM
-SDK. The resident Shell session owns the common host and a separate device coordinator; `PluginHost`
-refuses the `wsgm.device` category.
+`src/WSGM.Plugin.Sdk` is the single MIT plugin contract assembly, currently API 5 and package
+version 0.4.0. A manifest's API range must start at 5 or later and include the current API version.
+Its shared capability/lifecycle helpers retain historical `WSGM.Device.Sdk` namespaces, but now
+belong to this assembly. There is no separate Device SDK assembly. Plugins must be rebuilt because
+the shared types' assembly identity changed. The SDK references SteamUiToolkit for typed Steam
+modules; neither native hardware library depends on a WSGM SDK. The resident Shell session owns the
+common host and a separate device coordinator; `PluginHost` refuses the `wsgm.device` category.
 
-Categories are stable strings. The host owns category policy: Device permits zero or one selected
-active instance, while independent categories, `wsgm.gpu` among them, can permit multiple instances.
-No Device Plugin is required on a desktop. Plugin manifests cannot grant themselves multiplicity or
-privileges.
+Categories are stable strings. The retired `wsgm.device` category is reserved and refused.
+Independent common categories, `wsgm.gpu` among them, can permit multiple instances; built-in
+hardware integrations run through their library owners. Plugin manifests cannot grant themselves
+multiplicity or privileges.
 
 The common manifest names the assembly, entry type, numeric package version, accepted API range,
 dependencies and declared access requirements. Parsing is bounded and rejects unknown members. The

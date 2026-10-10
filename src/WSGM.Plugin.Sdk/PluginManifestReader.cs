@@ -95,6 +95,10 @@ public static class PluginManifestReader
         {
             errors.Add("Invalid category identity.");
         }
+        else if (manifest.Category == PluginCategories.Device)
+        {
+            errors.Add("The wsgm.device category is retired; handheld support is supplied by LibHandheld.");
+        }
 
         if (!ManifestRules.TryValidateName(manifest.Name, out _))
         {

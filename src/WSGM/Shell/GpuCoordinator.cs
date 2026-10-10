@@ -239,7 +239,7 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
         {
             var existing = _publishers.FirstOrDefault(candidate => candidate.Identity == identity);
             if (_disposed || _lifetime.IsCancellationRequested
-                          || existing is not null && existing.Channel is not { IsClosed: true })
+                          || (existing is not null && existing.Channel is not { IsClosed: true }))
             {
                 RetirePublisher(publisher);
                 throw new InvalidOperationException("The graphics publisher is already open or the session ended.");

@@ -116,10 +116,11 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
     private readonly Action<AppConfig> _applySteamInput;
     private readonly Func<Action<AppConfig>, bool, AppConfig> _commit;
     private readonly Func<AppConfig> _config;
-    private readonly Func<IReadOnlyList<BuiltinGpuDriver>> _detectedGraphics;
 
     private readonly Func<string, string, JsonElement, long, CancellationToken, Task<SteamUiCommandResult>>?
         _configurePlugin;
+
+    private readonly Func<IReadOnlyList<BuiltinGpuDriver>> _detectedGraphics;
 
     private readonly Lock _gate = new();
     private readonly Func<IReadOnlyList<InstalledCommonPlugin>> _installedPlugins;

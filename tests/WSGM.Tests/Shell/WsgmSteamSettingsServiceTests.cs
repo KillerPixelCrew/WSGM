@@ -371,8 +371,8 @@ public sealed class WsgmSteamSettingsServiceTests
         internal readonly List<bool> Boots = [];
         internal readonly List<(string Id, string Key, string Value, long Revision)> PluginWrites = [];
         internal readonly List<AppConfig> SteamInputApplied = [];
-        internal List<InstalledCommonPlugin> Installed = [];
         internal IReadOnlyList<BuiltinGpuDriver> Graphics = BuiltinGpuDrivers.All;
+        internal List<InstalledCommonPlugin> Installed = [];
         internal List<CommonPluginSettingsView> Running = [];
         internal AppConfig Stored = AppConfigRules.Normalize(new AppConfig()).Value;
 

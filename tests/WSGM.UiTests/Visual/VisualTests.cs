@@ -1,6 +1,8 @@
 using Avalonia.Controls;
+using Avalonia.Data;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using WSGM.Core;
 using WSGM.Overlay;
 using WSGM.Settings;
@@ -117,6 +119,17 @@ public sealed class VisualTests
         using UiFixture fixture = new();
         Window window = fixture.Settings(width, height);
         UiFixture.Click(window, UiFixture.Tab(window, page));
+        if (page == 0)
+        {
+            var model = Assert.IsType<SettingsViewModel>(window.DataContext);
+            var updateStatus = Assert.Single(window.GetVisualDescendants().OfType<TextBlock>(),
+                text => text.IsEffectivelyVisible && text.Text == model.UpdateStatusText);
+            // Freeze only sample version data; the production caption and layout still render normally.
+            updateStatus.Bind(TextBlock.TextProperty,
+                new Binding { Source = "WSGM 2.1.0 is current. Not checked yet.", Mode = BindingMode.OneWay });
+            Dispatcher.UIThread.RunJobs();
+        }
+
         Assert.Equal(width, window.ClientSize.Width);
         Assert.Equal(height, window.ClientSize.Height);
         VisualBaseline.Verify(window, name);

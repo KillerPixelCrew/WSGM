@@ -12,12 +12,12 @@ namespace WSGM.UiTests.Overlay;
 public sealed class DevicePrerequisiteBannerTests
 {
     private static DevicePrerequisiteState State(
-        bool package = true,
-        bool integration = false,
+        bool supported = true,
+        bool integration = true,
         bool library = false,
         bool hidHide = false)
     {
-        return new DevicePrerequisiteState(package, integration, library, hidHide, [SetupComponent.ControllerStack]);
+        return new DevicePrerequisiteState(supported, integration, library, hidHide, [SetupComponent.ControllerStack]);
     }
 
     /// <summary>
@@ -36,7 +36,7 @@ public sealed class DevicePrerequisiteBannerTests
     }
 
     [AvaloniaFact]
-    public async Task APackageOnAnInstallWithNoControllerSupportIsExplainedOnTheDevicePage()
+    public async Task AnEnabledSupportedHandheldWithNoControllerSupportIsExplainedOnTheDevicePage()
     {
         using UiFixture fixture = new();
         DevicePrerequisiteSource source = new(() => State(), () => Task.CompletedTask);
@@ -46,15 +46,19 @@ public sealed class DevicePrerequisiteBannerTests
         var banner = UiFixture.Named<Border>(window, "DevicePrerequisiteBanner");
         var detail = UiFixture.Named<TextBlock>(window, "DevicePrerequisiteDetail");
         Assert.True(banner.IsVisible);
-        Assert.Contains("Device Integration is switched off", detail.Text!, StringComparison.Ordinal);
+        Assert.Contains("neither the virtual controller library nor the HidHide driver", detail.Text!,
+            StringComparison.Ordinal);
         Assert.Contains("Run Repair", detail.Text!, StringComparison.Ordinal);
+        Assert.False(UiFixture.Named<Button>(window, "DevicePrerequisiteEnable").IsVisible);
+        Assert.DoesNotContain(
+            window.GetVisualDescendants().OfType<Button>(),
+            button => button.Content is string text && text.Contains("driver", StringComparison.OrdinalIgnoreCase));
     }
 
     [AvaloniaFact]
-    public async Task TheBannerOffersTheHalfWSGMOwnsAndNeverOffersToInstallTheDriver()
+    public async Task DisabledIntegrationStaysQuietAndOffersNoEnableAction()
     {
-        // INV-020: the runtime never installs a driver. The banner may switch Device Integration
-        // on, because that is WSGM's own setting, and must only point at setup for the rest.
+        // Declining the optional integration must not nag about its missing dependencies.
         using UiFixture fixture = new();
         var enabled = false;
         DevicePrerequisiteSource source = new(
@@ -67,23 +71,13 @@ public sealed class DevicePrerequisiteBannerTests
 
         var window = await DeviceAsync(fixture, source);
         var enable = UiFixture.Named<Button>(window, "DevicePrerequisiteEnable");
-        Assert.True(enable.IsVisible);
-        Assert.Equal("Enable Device Integration", enable.Content);
-        Assert.DoesNotContain(
-            window.GetVisualDescendants().OfType<Button>(),
-            button => button.Content is string text && text.Contains("driver", StringComparison.OrdinalIgnoreCase));
-
-        UiFixture.Click(window, enable);
-        await window.DevicePrerequisitesRefresh;
-
-        Assert.True(enabled);
-        // The controller half is still missing, so the banner stays and only the button goes.
-        Assert.True(UiFixture.Named<Border>(window, "DevicePrerequisiteBanner").IsVisible);
+        Assert.False(UiFixture.Named<Border>(window, "DevicePrerequisiteBanner").IsVisible);
         Assert.False(enable.IsVisible);
+        Assert.False(enabled);
     }
 
     [AvaloniaFact]
-    public async Task AnInstallWithNoDevicePackageShowsNothing()
+    public async Task AnUnsupportedHandheldShowsNothing()
     {
         using UiFixture fixture = new();
         DevicePrerequisiteSource source = new(

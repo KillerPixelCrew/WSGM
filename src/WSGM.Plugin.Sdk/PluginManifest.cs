@@ -79,10 +79,10 @@ public sealed record PluginManifest
     /// <summary>Open category identity; category multiplicity is decided by the host.</summary>
     public required string Category { get; init; }
 
-    /// <summary>Minimum SDK revision; must equal <see cref="PluginApi.Version" /> for admission.</summary>
+    /// <summary>Minimum SDK revision; at least 5 and no greater than <see cref="PluginApi.Version" />.</summary>
     public int MinimumApiVersion { get; init; } = PluginApi.Version;
 
-    /// <summary>Maximum SDK revision; must equal <see cref="PluginApi.Version" /> for admission.</summary>
+    /// <summary>Maximum SDK revision; at least <see cref="PluginApi.Version" /> for admission.</summary>
     public int MaximumApiVersion { get; init; } = PluginApi.Version;
 
     /// <summary>Assembly filename at the package root, never an absolute or parent-relative path.</summary>

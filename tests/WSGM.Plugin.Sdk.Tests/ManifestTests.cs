@@ -30,7 +30,15 @@ public sealed class ManifestTests
     public void CommonCategoriesAreOpenAndRetiredDevicePackagesAreRefused()
     {
         Assert.Empty(PluginManifestReader.Validate(Valid));
-        Assert.NotEmpty(PluginManifestReader.Validate(Valid with { Category = PluginCategories.Device }));
+        const string reason = "The wsgm.device category is retired; handheld support is supplied by LibHandheld.";
+        Assert.Contains(reason, PluginManifestReader.Validate(Valid with { Category = PluginCategories.Device }));
+        var retired = """
+                      {"id":"example.remote","name":"Remote","version":"1.0","category":"wsgm.device",
+                       "entryAssembly":"Remote.dll","entryType":"Example.Remote"}
+                      """u8;
+        Assert.False(PluginManifestReader.TryRead(retired, out var rejected, out var errors));
+        Assert.Null(rejected);
+        Assert.Contains(reason, errors);
         Assert.Null(PluginCategoryPolicy.Multiple.MaximumActive);
         Assert.DoesNotContain(typeof(IPlugin).Assembly.GetReferencedAssemblies(),
             name => name.Name!.StartsWith("WSGM.", StringComparison.Ordinal));
@@ -117,8 +125,9 @@ public sealed class ManifestTests
     [InlineData(4, 4)]
     [InlineData(4, 5)]
     [InlineData(1, 99)]
-    [InlineData(5, 6)]
-    public void SharedAssemblyIdentityBreakRefusesLegacyOrBroadApiRanges(int minimum, int maximum)
+    [InlineData(5, 4)]
+    [InlineData(6, 6)]
+    public void SharedAssemblyIdentityBreakRefusesLegacyOrNonContainingApiRanges(int minimum, int maximum)
     {
         Assert.Contains("Incompatible common Plugin SDK version range.", PluginManifestReader.Validate(Valid with
         {
@@ -135,18 +144,26 @@ public sealed class ManifestTests
         Assert.Contains("Incompatible common Plugin SDK version range.", errors);
     }
 
-    [Fact]
-    public void RebuiltApiFiveManifestIsAccepted()
+    [Theory]
+    [InlineData(5, 5)]
+    [InlineData(5, 6)]
+    [InlineData(5, 99)]
+    public void ApiRangesWithTheSharedAssemblyFloorAndCurrentVersionAreAccepted(int minimum, int maximum)
     {
-        var json = """
-                   {"id":"example.remote","name":"Remote","version":"1.0","category":"example.remote",
-                    "entryAssembly":"Remote.dll","entryType":"Example.Remote",
-                    "minimumApiVersion":5,"maximumApiVersion":5}
-                   """u8;
+        Assert.Empty(PluginManifestReader.Validate(Valid with
+        {
+            MinimumApiVersion = minimum, MaximumApiVersion = maximum
+        }));
+        var json = Encoding.UTF8.GetBytes(
+            $$"""
+              {"id":"example.remote","name":"Remote","version":"1.0","category":"example.remote",
+               "entryAssembly":"Remote.dll","entryType":"Example.Remote",
+               "minimumApiVersion":{{minimum}},"maximumApiVersion":{{maximum}}}
+              """);
         Assert.True(PluginManifestReader.TryRead(json, out var accepted, out var errors), string.Join("; ", errors));
         Assert.Empty(errors);
-        Assert.Equal(5, accepted!.MinimumApiVersion);
-        Assert.Equal(5, accepted.MaximumApiVersion);
+        Assert.Equal(minimum, accepted!.MinimumApiVersion);
+        Assert.Equal(maximum, accepted.MaximumApiVersion);
     }
 
     [Fact]
