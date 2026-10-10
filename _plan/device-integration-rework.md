@@ -5,18 +5,20 @@ Work branch: `chore/device-integration-rework`.
 ## Accepted direction
 
 - Windows-first .NET LibHandheld supports the complete HC/HHD device target.
-- Device facts use HC > HHD > OpenGamepadUI, with pinned references and explicit unresolved variants.
+- Device facts use HC > HHD > OpenGamepadUI, with pinned references and explicit unresolved
+  variants.
 - LibHandheld owns handheld hardware; LibGPUDriverInteract owns Intel/AMD/NVIDIA driver mechanics.
 - Generic Windows controls remain in WindowsDeviceControl.
 - WSGM consumes the new libraries directly. Retire the Device SDK/device packages and the three
   first-party GPU packages after functionality is preserved.
 - Keep the common Plugin SDK for independent integrations such as IR and third-party extensions.
-- The two new repositories are private during preparation.
+- The two new repositories are public; CI remains inactive until explicitly enabled.
 
 ## Preparation and implementation sequence
 
 1. Save the complete [handheld inventory](../external/libhandheld/inventory/README.md) and
-   [GPU inventory](../external/libgpu-driver-interact/inventory/README.md) in their own repositories.
+   [GPU inventory](../external/libgpu-driver-interact/inventory/README.md) in their own
+   repositories.
 2. Review variant associations, source differences and the Windows transports required by Linux
    mechanisms. Preserve the full device target rather than narrowing it to existing WSGM models.
 3. Extract current device and GPU implementations into the corresponding library, retaining
@@ -29,22 +31,23 @@ Work branch: `chore/device-integration-rework`.
 
 The library [plans](../external/libhandheld/PLAN.md) and
 [GPU extraction plan](../external/libgpu-driver-interact/PLAN.md) hold the detailed boundaries.
-LibGPUDriverInteract now contains extracted vendor engines and a direct API, with WSGM integration
-and migrated regression sources. LibHandheld now contains the independent typed device API and
-the migrated five Claw/four Ally definitions, with direct WSGM integration. WSGM retains profiles,
-AutoTDP, HidHide, virtual input and OEM policy. Separate Device SDK/device package projects are
-removed; common Plugin API 5 retains shared historical namespaces inside its single assembly and
-requires plugin rebuilds. Setup detects native definitions and Device Lab produces library
-contribution source/fixtures. The full 201 HC/HHD source-record target is unchanged and remains
-partially implemented. Build, deployment and attended acceptance belong to the current delivery;
-inventory entries and source migration alone do not establish new hardware validation. New
-automated tests remain deferred until the maintainer's manual acceptance.
+LibGPUDriverInteract contains a shared runtime and direct vendor API, with WSGM integration and
+migrated regression sources. LibHandheld contains the semantic device API and native family
+providers, with 123 runtime definitions including ranges and direct WSGM integration. WSGM retains
+profiles, AutoTDP, HidHide, virtual input and OEM policy. Separate Device SDK/device package
+projects are removed; common Plugin API 5 retains shared historical namespaces inside its single
+assembly and requires plugin rebuilds. Setup detects native definitions and Device Lab produces
+library contribution source/fixtures. The full 201 HC/HHD source-record target is unchanged; it is
+not a count of independently verified physical devices. Current source coverage and unresolved
+decoder evidence remain in the library inventory. The completed integration/review and
+build/deployment record is [review delivery](review-since-2.1.0-tasks.md). Inventory entries and
+compilation do not establish new hardware validation. PR verification runs under the repository's
+explicit PR gate; attended hardware and emulator acceptance remain separate.
 
-## Private library access
+## Library access and CI
 
-The local development checkout includes both private repositories. The maintainer directed that CI
-remain inactive for `chore/device-integration-rework` while the new libraries are private and
-testing is ongoing. No cross-repository CI key or token was installed. The library build workflow
-is manual-only. Both libraries are in the application graph; community bundle and VIIPER jobs
-retain their public dependency graph. Re-enable automatic application CI after testing and once
-the compiled library is accessible to the runner.
+LibHandheld and LibGPUDriverInteract are public at the maintainer's request. All runners and
+contributors can clone the pinned library sources without a private cross-repository credential. The
+earlier instruction to keep CI inactive remains in effect until explicitly changed. Both libraries
+are in the application graph; the library workflow remains manual-only and WSGM jobs remain gated by
+`WSGM_CI_ENABLED`.

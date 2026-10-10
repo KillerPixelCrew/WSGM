@@ -51,3 +51,6 @@ tests/**/Fixtures/malformed.json
 # The decision record is written Prettier-clean and can be checked explicitly.
 _plan/
 
+# Generated design boards retain the original authored bytes for visual comparison.
+_mockup/
+

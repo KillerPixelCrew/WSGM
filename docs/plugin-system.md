@@ -57,12 +57,13 @@ instance manager described below.
 
 ## Device lifecycle
 
-The common host refuses the Device category. `DeviceCoordinator` drives `HandheldDeviceRuntime` and
-`HandheldAdapter` directly, retaining controller neutralization and release before native stop.
-LibHandheld owns hardware services; WSGM owns profiles, AutoTDP, HidHide, virtual input and OEM
-action policy. Recovery records remain under `DeviceState/<legacy family id>` and resume advances
-the consumer-owned generation. No device package is loaded. The common host serializes each
-independent common instance's lifecycle separately.
+The common host refuses the Device category. `DeviceCoordinator` drives `HandheldDeviceRuntime`
+through the semantic `HandheldDevice` API, retaining controller neutralization and release before
+native stop. LibHandheld owns hardware services; WSGM owns profiles, AutoTDP, HidHide, virtual input
+and OEM action policy. Plain family IDs use fresh state directories and one permissive recovery
+journal. Native lifecycle and command admission use one serialized owner and an active flag; legacy
+device profiles and journals are not migrated. No device package is loaded. The common host
+serializes each independent common instance's lifecycle separately.
 
 ## Configuration and state
 
