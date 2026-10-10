@@ -600,6 +600,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         string? rejected = null;
         var outOfOrder = false;
         var availabilityChanged = false;
+        var stateChanged = false;
         lock (_gate)
         {
             string? error = null;
@@ -619,6 +620,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             }
             else
             {
+                stateChanged = existing is null || !SameState(existing.State, delta.State);
                 _states[key] = delta;
                 availabilityChanged = !_availability.TryGetValue(key, out var previous)
                                       || previous != delta.State.Available;
@@ -645,7 +647,23 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             LogAvailabilityChange(key, delta.State);
         }
 
-        Publish();
+        if (stateChanged)
+        {
+            Publish();
+        }
+    }
+
+    private static bool SameState(CapabilityState left, CapabilityState right)
+    {
+        return left.CapabilityId == right.CapabilityId && left.InstanceId == right.InstanceId
+                                                       && left.Available == right.Available &&
+                                                       left.Quality == right.Quality
+                                                       && left.Reason == right.Reason &&
+                                                       left.ObservedAt == right.ObservedAt
+                                                       && (left.ObservedValue == right.ObservedValue
+                                                           || (left.ObservedValue is { } previous &&
+                                                               right.ObservedValue is { } current
+                                                               && CapabilityValues.Same(previous, current)));
     }
 
     /// <summary>Logs a capability becoming available or unavailable, with the plugin's own reason.</summary>

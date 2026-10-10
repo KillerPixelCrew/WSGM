@@ -464,6 +464,12 @@ available whose state is neither stale nor faulted. Unknown control values remai
 accepted writes supply their state without polling or verification. Only live sensor measurements
 expire; the Settings capability count reports availability rather than readable or verified values.
 
+Control and ownership timestamps change only on accepted writes or real lifecycle transitions.
+Unchanged state advances the transport sequence without rebuilding UI projections. Steam's graphics
+projection reuses its owner revision, so unrelated device measurements do not rebuild and serialize
+unchanged GPU controls. Motion uses ordered report-creation timestamps; delayed or repeated reports
+cannot revive expired motion or overwrite newer measurements.
+
 The optional installer task owns the initial usbip-win2 and HidHide installation. Its USB/IP helper
 is nonfatal but publishes a status file under `%ProgramData%\WSGM`, and setup reads that status
 instead of treating exit code zero as proof that the signed driver registered. A new installation

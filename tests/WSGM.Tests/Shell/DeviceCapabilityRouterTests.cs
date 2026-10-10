@@ -12,6 +12,74 @@ namespace WSGM.Tests.Shell;
 public sealed class DeviceCapabilityRouterTests
 {
     [Fact]
+    public async Task IdenticalStateAdvancesSequenceWithoutNotifyingButRealObservationsStillNotify()
+    {
+        FakeCapabilityPublisher publisher = new(CapabilityRole.GenericToggle);
+        await using DeviceCapabilityRouter router = new(action => action());
+        router.Attach(publisher);
+        publisher.Publish(CapabilityBuilders.Set(1, CapabilityBuilders.Toggle(CapabilityProfileScope.Switched)));
+        var notifications = 0;
+        router.Changed += _ => notifications++;
+        var state = CapabilityBuilders.State(1, CapabilityBuilders.Flag(false)) with
+        {
+            ObservedAt = DateTimeOffset.UnixEpoch
+        };
+        publisher.PublishState(1, state);
+        publisher.PublishState(2, state with { ObservedValue = CapabilityBuilders.Flag(false) });
+        publisher.PublishState(1, state with { ObservedValue = CapabilityBuilders.Flag(true) });
+        Assert.Equal(1, notifications);
+        Assert.False(Assert.Single(router.Snapshot()).Projection.State.ObservedValue!.BooleanValue);
+
+        publisher.PublishState(3, state with { ObservedAt = state.ObservedAt!.Value.AddSeconds(1) });
+        Assert.Equal(2, notifications);
+        publisher.PublishState(4, state with { ObservedValue = CapabilityBuilders.Flag(true) });
+        Assert.Equal(3, notifications);
+        publisher.PublishState(5, state with
+        {
+            Available = false,
+            Reason = new CapabilityReason(CapabilityReasonCode.HostUnavailable, "Owner stopped")
+        });
+        Assert.Equal(4, notifications);
+    }
+
+    [Fact]
+    public async Task RebuiltIdenticalCurvesDoNotNotifyWhileChangedPointsDo()
+    {
+        FakeCapabilityPublisher publisher = new(CapabilityRole.FanCurve);
+        await using DeviceCapabilityRouter router = new(action => action());
+        router.Attach(publisher);
+        publisher.Publish(CapabilityBuilders.Set(1, new CapabilityDescriptor
+        {
+            CapabilityId = "fan.curve", Role = CapabilityRole.FanCurve, ValueKind = CapabilityValueKind.Curve,
+            Display = new CapabilityDisplay { Key = DisplayKey.FanCurve },
+            SupportsRead = true, SupportsWrite = true, Minimum = 0, Maximum = 100,
+            Persistence = CapabilityPersistence.Volatile
+        }));
+        var notifications = 0;
+        router.Changed += _ => notifications++;
+        var state = new CapabilityState
+        {
+            CapabilityId = "fan.curve", Available = true, Quality = HardwareStateQuality.Observed,
+            ObservedAt = DateTimeOffset.UnixEpoch,
+            ObservedValue = new CapabilityValue
+            {
+                Kind = CapabilityValueKind.Curve, CurveValue = [new CurvePoint(0, 20), new CurvePoint(100, 100)]
+            }
+        };
+        publisher.PublishState(1, state);
+        publisher.PublishState(2, state with
+        {
+            ObservedValue = state.ObservedValue with { CurveValue = state.ObservedValue.CurveValue.ToArray() }
+        });
+        Assert.Equal(1, notifications);
+        publisher.PublishState(3, state with
+        {
+            ObservedValue = state.ObservedValue with { CurveValue = [new CurvePoint(0, 30), new CurvePoint(100, 100)] }
+        });
+        Assert.Equal(2, notifications);
+    }
+
+    [Fact]
     public async Task AnEditedValueFromThePreviousRangeIsRefusedAgainstReplacementBounds()
     {
         FakeCapabilityPublisher publisher = new(CapabilityRole.GenericRange);

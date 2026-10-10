@@ -219,7 +219,7 @@ public sealed partial class SettingsViewModel
             // config.json is committed from here on, even when a splash image or the sign-in
             // preference then failed, so what follows it outside the configuration is applied too.
             AdvanceSharedBaseline(request);
-            CompletePersistedSave(result);
+            CompletePersistedSave(result, request);
             var applyFailure = await ApplyAfterSaveAsync(result.Config, result.Changes);
             Raise(nameof(SteamInputShimStatusText));
             StatusText = result.Failure is not null
@@ -321,7 +321,7 @@ public sealed partial class SettingsViewModel
         return new SaveResult(config, failedSlots, failure, changes);
     }
 
-    private void CompletePersistedSave(SaveResult result)
+    private void CompletePersistedSave(SaveResult result, SaveRequest request)
     {
         AdoptMaterializedPaths(result.Config.Splash, result.FailedSlots);
         // The accent this window restores when it closes: the commit happened, even when a splash

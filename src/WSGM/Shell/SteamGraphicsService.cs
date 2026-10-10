@@ -36,7 +36,10 @@ internal sealed class SteamGraphicsService : ISteamSettingsQuickAccessBackend, I
 
     private readonly Lock _gate = new();
     private readonly IGraphicsOverlaySource _source;
+    private SteamSettingsQuickAccessState? _quickAccessState;
     private long _revision = 1;
+    private GraphicsOverlaySnapshot? _snapshot;
+    private SteamSettingsQuickAccessState? _state;
 
     /// <summary>Creates the page's backend over a graphics source it then owns.</summary>
     /// <param name="source">The graphics projection, disposed with this.</param>
@@ -47,7 +50,28 @@ internal sealed class SteamGraphicsService : ISteamSettingsQuickAccessBackend, I
     }
 
     /// <summary>Whether the page has anything to show: at least one graphics package runs.</summary>
-    internal bool Visible => _source.Snapshot().Visible;
+    internal bool Visible
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return CurrentSnapshot().Visible;
+            }
+        }
+    }
+
+    /// <summary>The current graphics projection revision, without reading or rebuilding its rows.</summary>
+    internal long Revision
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _revision;
+            }
+        }
+    }
 
     /// <inheritdoc />
     /// <remarks>Detaches change notifications and disposes the graphics source this service owns.</remarks>
@@ -96,26 +120,21 @@ internal sealed class SteamGraphicsService : ISteamSettingsQuickAccessBackend, I
     /// <returns>The page model.</returns>
     internal SteamSettingsQuickAccessState ReadState()
     {
-        long revision;
         lock (_gate)
         {
-            revision = _revision;
+            return _state ??= new SteamSettingsQuickAccessState(Pages(CurrentSnapshot()), _revision);
         }
-
-        return new SteamSettingsQuickAccessState(Pages(_source.Snapshot()), revision);
     }
 
     /// <summary>Projects the current graphics snapshot into vendor groups for Quick Access.</summary>
     /// <returns>A state snapshot with the current revision and one grouped page per publisher.</returns>
     internal SteamSettingsQuickAccessState ReadQuickAccessState()
     {
-        long revision;
         lock (_gate)
         {
-            revision = _revision;
+            return _quickAccessState ??=
+                new SteamSettingsQuickAccessState(QuickAccessPages(CurrentSnapshot()), _revision);
         }
-
-        return new SteamSettingsQuickAccessState(QuickAccessPages(_source.Snapshot()), revision);
     }
 
     /// <summary>Tells the page something it shows changed.</summary>
@@ -124,9 +143,18 @@ internal sealed class SteamGraphicsService : ISteamSettingsQuickAccessBackend, I
         lock (_gate)
         {
             _revision++;
+            _snapshot = null;
+            _state = null;
+            _quickAccessState = null;
         }
 
         Changed?.Invoke();
+    }
+
+    // Called under _gate, so both Steam projections share one snapshot of this revision.
+    private GraphicsOverlaySnapshot CurrentSnapshot()
+    {
+        return _snapshot ??= _source.Snapshot();
     }
 
     /// <summary>The sidebar's pages for a graphics snapshot.</summary>
