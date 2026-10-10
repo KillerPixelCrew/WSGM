@@ -21,10 +21,16 @@ internal static class EmulatorPortableSetup
     internal static void CopyData(string source, string destination, CancellationToken token,
         bool packagePresent = false,
         IReadOnlySet<string>? excludedNames = null, bool packageResources = false, bool overwriteExisting = true,
-        IReadOnlySet<string>? excludedLinks = null)
+        IReadOnlySet<string>? excludedLinks = null, bool requiredSource = false)
     {
         if (!Directory.Exists(source))
         {
+            if (requiredSource)
+            {
+                throw new InvalidDataException("The configured emulator data directory is unavailable: " + source
+                    + ". Reconnect or restore it before converting to portable storage.");
+            }
+
             if (new DirectoryInfo(source).LinkTarget is not null)
             {
                 _ = EmulatorPortable.PhysicalPath(source);
@@ -161,6 +167,10 @@ internal static class EmulatorPortableSetup
             throw new InvalidDataException("The managed emulator executable is outside its owned installation root.");
         }
 
+        // A disconnected explicit data redirect must not become an empty portable folder.
+        // Check every source before changing any configuration or native portable binding.
+        ValidateDataSources(installed, retainedData, previous, token);
+
         // Resolve removable ROM media before touching the old configuration or its portable aliases.
         var romPaths = installed.DefinitionId == "retroarch"
             ? ReadRetroArchRomPaths(previous ?? installed, knownRomPaths, token)
@@ -172,7 +182,7 @@ internal static class EmulatorPortableSetup
         if (previous is not null)
         {
             EmulatorPrerequisites.EnsureStopped(previous);
-            CopyData(previous.DataPath, retainedData, token);
+            CopyData(previous.DataPath, retainedData, token, requiredSource: true);
         }
 
         Directory.CreateDirectory(retainedData);
@@ -228,7 +238,8 @@ internal static class EmulatorPortableSetup
                 destination = Path.Combine(destination, Path.GetFileName(source));
             }
 
-            CopyPath(source, destination, token);
+            CopyPath(source, destination, token,
+                !EmulatorPortable.IsUnder((previous ?? installed).DataPath, source));
             // Preserve the source and every collision before changing the native directory setting.
             var nativePath = installed.DefinitionId is "eden" or "dolphin" ||
                              (installed.DefinitionId == "duckstation" && section == "MemoryCards" && key != "Directory")
@@ -245,9 +256,17 @@ internal static class EmulatorPortableSetup
             {
                 var file = Path.Combine(installed.DataPath, "vfs.yml");
                 var lines = File.ReadAllLines(file);
+                var root = redirected.FirstOrDefault(path => path.Key == "$(EmulatorDir)").Path
+                           ?? installed.DataPath;
                 foreach (var (key, source, folder) in redirected)
                 {
-                    CopyData(source, Path.Combine(installed.DataPath, folder), token);
+                    var required = folder.Length == 0 || !Same(source, Path.Combine(root, folder));
+                    if (required)
+                    {
+                        RequireDataSource(source);
+                    }
+
+                    CopyData(source, Path.Combine(installed.DataPath, folder), token, requiredSource: required);
                     for (var index = 0; index < lines.Length; index++)
                     {
                         var colon = lines[index].IndexOf(':');
@@ -270,6 +289,130 @@ internal static class EmulatorPortableSetup
         }
 
         return installed;
+    }
+
+    private static void ValidateDataSources(EmulatorInstallation installed, string retainedData,
+        EmulatorInstallation? previous, CancellationToken token)
+    {
+        if (previous is not null)
+        {
+            RequireDataSource(previous.DataPath);
+        }
+
+        var sources = new List<EmulatorInstallation>
+        {
+            previous ?? installed, installed with { DataPath = retainedData }
+        };
+        var alias = installed.DefinitionId switch
+        {
+            "duckstation" => "", "eden" => "user", "rpcs3" => "portable", "dolphin" => "User", _ => null
+        };
+        if (alias is not null)
+        {
+            var native = Path.Combine(Path.GetDirectoryName(installed.ExecutablePath)!, alias);
+            _ = EmulatorPortable.PhysicalPath(native);
+            if (Directory.Exists(native))
+            {
+                sources.Add(installed with { DataPath = native });
+            }
+        }
+
+        foreach (var source in sources.DistinctBy(item => item.DataPath, StringComparer.OrdinalIgnoreCase))
+        {
+            token.ThrowIfCancellationRequested();
+            foreach (var (file, section, key, _) in EmulatorPortable.DataFolders(source.DefinitionId))
+            {
+                var text = ReadOptionalConfig(Path.Combine(source.DataPath, file));
+                var value = text is null ? null : IniFile.ReadTextValue(text, key, section)?.Trim('"');
+                if (!string.IsNullOrWhiteSpace(value))
+                {
+                    RequireRedirect(EmulatorPortable.ResolveSettingPath(source, section, key, value));
+                }
+            }
+
+            if (source.DefinitionId == "rpcs3")
+            {
+                var paths = EmulatorPortable.RpcPaths(source.DataPath).ToArray();
+                var root = paths.FirstOrDefault(path => path.Key == "$(EmulatorDir)").Path ?? source.DataPath;
+                foreach (var (_, path, folder) in paths)
+                {
+                    if (folder.Length == 0 || !Same(path, Path.Combine(root, folder)))
+                    {
+                        RequireRedirect(path);
+                    }
+                }
+            }
+
+            if (source.DefinitionId == "retroarch")
+            {
+                var main = Path.Combine(source.DataPath, "retroarch.cfg");
+                var text = ReadOptionalConfig(main);
+                var setting = text is null ? null : IniFile.ReadTextValue(text, "rgui_config_directory")?.Trim('"');
+                var directory = string.IsNullOrWhiteSpace(setting) || setting == "default"
+                    ? Path.Combine(source.DataPath, "config")
+                    : Path.GetFullPath(Path.Combine(source.DataPath, setting));
+                RequireRedirect(directory);
+                var configs = new[] { main }.Concat(Directory.Exists(directory)
+                    ? EmulatorPortable.ConfigFiles(directory)
+                    : []);
+                foreach (var config in configs)
+                {
+                    text = ReadOptionalConfig(config);
+                    foreach (var key in EmulatorPortable.RetroArchDataPaths)
+                    {
+                        var value = text is null ? null : IniFile.ReadTextValue(text, key)?.Trim('"');
+                        if (!string.IsNullOrWhiteSpace(value) && value != "default")
+                        {
+                            RequireRedirect(Path.GetFullPath(Path.Combine(source.DataPath, value)));
+                        }
+                    }
+                }
+            }
+
+            void RequireRedirect(string path)
+            {
+                if (!EmulatorPortable.IsUnder(source.DataPath, path))
+                {
+                    RequireDataSource(path);
+                }
+            }
+        }
+    }
+
+    private static string? ReadOptionalConfig(string path)
+    {
+        _ = EmulatorPortable.PhysicalPath(path);
+        try
+        {
+            return File.ReadAllText(path);
+        }
+        catch (Exception failure) when (failure is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return null;
+        }
+    }
+
+    private static void RequireDataSource(string path)
+    {
+        try
+        {
+            _ = EmulatorPortable.PhysicalPath(path);
+            if ((File.GetAttributes(path) & FileAttributes.Directory) != 0)
+            {
+                using var entries = Directory.EnumerateFileSystemEntries(path).GetEnumerator();
+                _ = entries.MoveNext();
+            }
+            else
+            {
+                using var data = File.OpenRead(path);
+            }
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException)
+        {
+            throw new InvalidDataException("The configured emulator data source is unavailable: " + path
+                + ". Reconnect or restore it before converting to portable storage. The existing configuration and binding are preserved.",
+                failure);
+        }
     }
 
     private static IReadOnlyCollection<string> ReadRetroArchRomPaths(EmulatorInstallation previous,
@@ -503,7 +646,8 @@ internal static class EmulatorPortableSetup
                 destinations[key] = destination;
                 if (source is not null)
                 {
-                    CopyPath(source, destination, token);
+                    CopyPath(source, destination, token,
+                        !EmulatorPortable.IsUnder(previous?.DataPath ?? installed.DataPath, source));
                 }
             }
 
@@ -778,8 +922,13 @@ internal static class EmulatorPortableSetup
         IniFile.SetValue(config, "SavesInRomPath", "False", "GBA");
     }
 
-    private static void CopyPath(string source, string destination, CancellationToken token)
+    private static void CopyPath(string source, string destination, CancellationToken token, bool required = false)
     {
+        if (required)
+        {
+            RequireDataSource(source);
+        }
+
         if (Same(source, destination))
         {
             return;
@@ -787,7 +936,7 @@ internal static class EmulatorPortableSetup
 
         if (Directory.Exists(source))
         {
-            CopyData(source, destination, token);
+            CopyData(source, destination, token, requiredSource: required);
         }
         else if (File.Exists(source))
         {
@@ -799,6 +948,11 @@ internal static class EmulatorPortableSetup
             }
 
             File.Copy(source, destination, true);
+        }
+        else if (required)
+        {
+            throw new InvalidDataException("The configured emulator data source became unavailable: " + source
+                + ". Reconnect or restore it before converting to portable storage.");
         }
     }
 

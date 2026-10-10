@@ -6,6 +6,260 @@ namespace WSGM.Tests.Core;
 
 public sealed class EmulatorPortableTests
 {
+    [Fact]
+    public void PreviousDataDisappearingAfterPreflightCannotActivateAnEmptyPortableTree()
+    {
+        using var temporary = new TemporaryDirectory();
+        var previous = Installation(temporary.Root, "retroarch", "previous");
+        EmulatorManager.ConfigureData(previous);
+        var config = Path.Combine(previous.DataPath, "retroarch.cfg");
+        IniFile.SetValue(config, "savefiles_in_content_dir", "true");
+        IniFile.SetValue(config, "sort_savefiles_enable", "false");
+        var original = File.ReadAllBytes(config);
+        var rom = Write(temporary.Root, "roms/game.rom", "content");
+        Write(previous.DataPath, "saves/user.srm", "retained progress");
+        var offline = temporary.GetPath("offline-data");
+        var candidate = Installation(temporary.Root, "retroarch", "replacement");
+
+        var failure = Assert.Throws<InvalidDataException>(() => EmulatorPortableSetup.Prepare(candidate,
+            previous.DataPath,
+            previous, CancellationToken.None, true, () =>
+            {
+                Assert.True(StoragePaths.IsUnder(temporary.Root, previous.DataPath));
+                Assert.True(StoragePaths.IsUnder(temporary.Root, offline));
+                Directory.Move(previous.DataPath, offline);
+                return new[] { rom };
+            }));
+        Assert.Contains("configured emulator data directory is unavailable", failure.Message);
+        Assert.Contains(previous.DataPath, failure.Message);
+        Assert.False(Directory.Exists(candidate.DataPath));
+        Assert.Equal(original, File.ReadAllBytes(Path.Combine(offline, "retroarch.cfg")));
+        Assert.False(File.Exists(Path.Combine(Path.GetDirectoryName(candidate.ExecutablePath)!, "retroarch.cfg")));
+
+        Directory.Move(offline, previous.DataPath);
+        var installed = EmulatorPortableSetup.Prepare(candidate, previous.DataPath, previous,
+            CancellationToken.None, true, () => new[] { rom });
+        EmulatorManager.ConfigureData(installed);
+        EmulatorPortable.Verify(installed);
+        Assert.Equal("retained progress", File.ReadAllText(Path.Combine(installed.DataPath, "saves/user.srm")));
+    }
+
+    public static IEnumerable<object[]> RedirectedDataPaths()
+    {
+        foreach (var definition in EmulatorCatalog.LoadBundled().Definitions)
+        {
+            foreach (var (file, section, key, folder) in EmulatorPortable.DataFolders(definition.Id))
+            {
+                var fileSource = (key.StartsWith("Card", StringComparison.Ordinal) &&
+                                  key.EndsWith("Path", StringComparison.Ordinal))
+                                 || key is "WiiSDCardPath" or "MemcardAPath" or "MemcardBPath";
+                yield return [definition.Id, file, section, key, folder, fileSource];
+            }
+
+            if (definition.Id == "retroarch")
+            {
+                foreach (var key in EmulatorPortable.RetroArchDataPaths)
+                {
+                    var template = definition.DataPolicy.ConfigPaths[key];
+                    var fileSource = key is "core_options_path" or "content_history_path" or "content_favorites_path"
+                        or "content_image_history_path" or "content_music_history_path" or "content_video_history_path";
+                    yield return
+                    [
+                        definition.Id, "retroarch.cfg", "", key,
+                        template.Replace("{data}/", "", StringComparison.Ordinal), fileSource
+                    ];
+                }
+            }
+
+            if (definition.Id == "rpcs3")
+            {
+                foreach (var folder in new[] { "", "dev_hdd0", "dev_hdd1", "dev_flash", "dev_flash2", "dev_flash3" })
+                {
+                    yield return
+                    [
+                        definition.Id, "vfs.yml", "", folder.Length == 0 ? "$(EmulatorDir)" : "/" + folder + "/",
+                        folder, false
+                    ];
+                }
+            }
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(RedirectedDataPaths))]
+    public void MissingRedirectDefersConversionWithoutChangingDataOrBindingAndCanBeRetried(
+        string id, string file, string section, string key, string folder, bool fileSource)
+    {
+        using var temporary = new TemporaryDirectory();
+        var previous = Installation(temporary.Root, id, "old") with
+        {
+            DataPath = Path.Combine(temporary.Root, "legacy-data")
+        };
+        Write(previous.DataPath, "untouched.bin", "original user data");
+        var config = Write(previous.DataPath, file, "");
+        var source = Path.Combine(temporary.Root, "offline-storage", fileSource ? "original-save.bin" : "data");
+        if (id == "rpcs3")
+        {
+            File.WriteAllText(config, JsonSerializer.Serialize(key) + ": " + QuotedPath(source) + "\n");
+        }
+        else
+        {
+            IniFile.SetValue(config, key, QuotedPath(source), section.Length == 0 ? null : section);
+        }
+
+        var originalConfig = File.ReadAllBytes(config);
+        var installed = Installation(temporary.Root, id, "replacement");
+        var program = Path.GetDirectoryName(installed.ExecutablePath)!;
+        var marker = Write(program, "portable.txt", "original portable binding");
+        var originalProgram = Directory.EnumerateFileSystemEntries(program).Order().ToArray();
+        var failure = Assert.Throws<InvalidDataException>(() => EmulatorPortableSetup.Prepare(installed,
+            installed.DataPath, previous, CancellationToken.None, true));
+        Assert.Contains(source, failure.Message);
+        Assert.Equal(originalConfig, File.ReadAllBytes(config));
+        Assert.Equal("original user data", File.ReadAllText(Path.Combine(previous.DataPath, "untouched.bin")));
+        Assert.Equal("original portable binding", File.ReadAllText(marker));
+        Assert.Equal(originalProgram, Directory.EnumerateFileSystemEntries(program).Order().ToArray());
+        Assert.False(Directory.Exists(installed.DataPath));
+        Assert.False(Directory.Exists(Path.GetDirectoryName(source)));
+
+        var saved = fileSource
+            ? Write(Path.GetDirectoryName(source)!, Path.GetFileName(source), "reconnected persistent data")
+            : Write(source, "retained.bin", "reconnected persistent data");
+        var converted = EmulatorPortableSetup.Prepare(installed, installed.DataPath, previous,
+            CancellationToken.None, true);
+        EmulatorManager.ConfigureData(converted);
+        EmulatorPortable.Verify(converted);
+        var destination = Path.Combine(converted.DataPath, folder,
+            fileSource && id != "retroarch" ? Path.GetFileName(source) : fileSource ? "" : "retained.bin");
+        Assert.Equal("reconnected persistent data", File.ReadAllText(destination));
+        Assert.Equal("reconnected persistent data", File.ReadAllText(saved));
+        Assert.Equal(originalConfig, File.ReadAllBytes(config));
+        Assert.Equal("original user data", File.ReadAllText(Path.Combine(previous.DataPath, "untouched.bin")));
+    }
+
+    [Theory]
+    [InlineData("duckstation", "settings.ini", "MemoryCards", "Directory", "memcards")]
+    [InlineData("pcsx2", "inis/PCSX2.ini", "Folders", "MemoryCards", "memcards")]
+    [InlineData("retroarch", "retroarch.cfg", "", "savefile_directory", "saves")]
+    [InlineData("rpcs3", "vfs.yml", "", "/dev_hdd0/", "dev_hdd0")]
+    public void AnAbsentOwnedDefaultFolderDoesNotPreventPortableConversion(
+        string id, string file, string section, string key, string folder)
+    {
+        using var temporary = new TemporaryDirectory();
+        var installed = Installation(temporary.Root, id, "current");
+        var config = Write(installed.DataPath, file, "");
+        if (id == "rpcs3")
+        {
+            File.WriteAllText(config, JsonSerializer.Serialize(key) + ": \"$(EmulatorDir)" + folder + "/\"\n");
+        }
+        else
+        {
+            IniFile.SetValue(config, key, QuotedPath(folder), section.Length == 0 ? null : section);
+        }
+
+        Assert.False(Directory.Exists(Path.Combine(installed.DataPath, folder)));
+        var converted = EmulatorPortableSetup.Prepare(installed, installed.DataPath, null,
+            CancellationToken.None, true);
+        EmulatorManager.ConfigureData(converted);
+        EmulatorPortable.Verify(converted);
+    }
+
+    [Theory]
+    [InlineData("core_options_path", "retroarch-core-options.cfg")]
+    [InlineData("content_history_path", "content_history.lpl")]
+    public void NeverCreatedDefaultRetroArchFilesDoNotPreventReplacement(string key, string file)
+    {
+        using var temporary = new TemporaryDirectory();
+        var previous = Installation(temporary.Root, "retroarch", "old") with
+        {
+            DataPath = Path.Combine(temporary.Root, "legacy-data")
+        };
+        var config = Write(previous.DataPath, "retroarch.cfg", key + " = " + QuotedPath(file) + "\n");
+        var originalConfig = File.ReadAllBytes(config);
+        var installed = Installation(temporary.Root, "retroarch", "replacement");
+        var converted = EmulatorPortableSetup.Prepare(installed, installed.DataPath, previous,
+            CancellationToken.None, true);
+        EmulatorManager.ConfigureData(converted);
+        EmulatorPortable.Verify(converted);
+        Assert.False(File.Exists(Path.Combine(previous.DataPath, file)));
+        Assert.False(File.Exists(Path.Combine(converted.DataPath, file)));
+        Assert.Equal(originalConfig, File.ReadAllBytes(config));
+    }
+
+    [Fact]
+    public void AnUnavailableRetroArchOverrideRedirectPreservesEveryConfigBeforeRetry()
+    {
+        using var temporary = new TemporaryDirectory();
+        var installed = Installation(temporary.Root, "retroarch", "current");
+        var available = Write(temporary.Root, "available/main.srm", "main save");
+        var unavailable = Path.Combine(temporary.Root, "offline-save-media", "core-saves");
+        var main = Write(installed.DataPath, "retroarch.cfg",
+            "rgui_config_directory = \"config\"\nsavefile_directory = " +
+            QuotedPath(Path.GetDirectoryName(available)!) + "\n");
+        var first = Write(installed.DataPath, "config/Core/Core.cfg", "savestate_directory = \"states\"\n");
+        var missing = Write(installed.DataPath, "config/Core/game.cfg",
+            "savefile_directory = " + QuotedPath(unavailable) + "\n");
+        var original = new[] { main, first, missing }.ToDictionary(path => path, File.ReadAllBytes);
+        Assert.Throws<InvalidDataException>(() => EmulatorPortableSetup.Prepare(installed,
+            installed.DataPath, null, CancellationToken.None, true));
+        foreach (var (path, contents) in original)
+        {
+            Assert.Equal(contents, File.ReadAllBytes(path));
+        }
+
+        Assert.False(Directory.Exists(Path.Combine(installed.DataPath, "saves")));
+        Assert.False(Directory.Exists(Path.Combine(installed.DataPath, "override-data")));
+        Write(unavailable, "game.srm", "override save");
+        var converted = EmulatorPortableSetup.Prepare(installed, installed.DataPath, null,
+            CancellationToken.None, true);
+        EmulatorManager.ConfigureData(converted);
+        EmulatorPortable.Verify(converted);
+        Assert.Equal("main save", File.ReadAllText(Path.Combine(installed.DataPath, "saves/main.srm")));
+        Assert.Equal("override save",
+            File.ReadAllText(Path.Combine(installed.DataPath, "override-data/Core/game/saves/game.srm")));
+        Assert.Equal("main save", File.ReadAllText(available));
+        Assert.Equal("override save", File.ReadAllText(Path.Combine(unavailable, "game.srm")));
+    }
+
+    [Theory]
+    [InlineData("eden", "user", "config/qt-config.ini", "DataStorage", "nand_directory")]
+    [InlineData("dolphin", "User", "Config/Dolphin.ini", "General", "NANDRootPath")]
+    [InlineData("rpcs3", "portable", "vfs.yml", "", "/dev_hdd0/")]
+    public void AnUnavailableRedirectInTheNativeUserAliasDoesNotRebindIt(
+        string id, string aliasName, string file, string section, string key)
+    {
+        using var temporary = new TemporaryDirectory();
+        var installed = Installation(temporary.Root, id, "current");
+        var originalData = Path.Combine(temporary.Root, "native-user-data");
+        var unavailable = Path.Combine(temporary.Root, "offline-storage", "saves");
+        var config = Write(originalData, file, "");
+        if (id == "rpcs3")
+        {
+            File.WriteAllText(config, JsonSerializer.Serialize(key) + ": " + QuotedPath(unavailable) + "\n");
+        }
+        else
+        {
+            IniFile.SetValue(config, key, QuotedPath(unavailable), section);
+        }
+
+        var originalConfig = File.ReadAllBytes(config);
+        var alias = Path.Combine(Path.GetDirectoryName(installed.ExecutablePath)!, aliasName);
+        EmulatorPortableSetup.CreateAlias(alias, originalData);
+        var target = new DirectoryInfo(alias).LinkTarget;
+        try
+        {
+            Assert.Throws<InvalidDataException>(() => EmulatorPortableSetup.Prepare(installed,
+                installed.DataPath, null, CancellationToken.None, true));
+            Assert.Equal(target, new DirectoryInfo(alias).LinkTarget);
+            Assert.Equal(originalConfig, File.ReadAllBytes(config));
+            Assert.False(Directory.Exists(installed.DataPath));
+        }
+        finally
+        {
+            Directory.Delete(alias);
+        }
+    }
+
     public static IEnumerable<object[]> Channels()
     {
         foreach (var definition in EmulatorCatalog.LoadBundled().Definitions)
@@ -361,7 +615,7 @@ public sealed class EmulatorPortableTests
             DataPath = Path.Combine(temporary.Root, "legacy-retroarch-data")
         };
         var config = Write(previous.DataPath, "retroarch.cfg",
-            "rgui_config_directory = \"config\"\nsavefiles_in_content_dir = true\n");
+            "rgui_config_directory = \"config\"\nsavefiles_in_content_dir = true\nsort_savefiles_enable = false\nsort_savestates_enable = false\n");
         var coreConfig = Write(previous.DataPath, "config/Core/game.cfg", "savestates_in_content_dir = true\n");
         Write(previous.DataPath, "saves/retained.srm", "retained save");
         var originalMain = File.ReadAllText(config);
@@ -380,6 +634,19 @@ public sealed class EmulatorPortableTests
         Assert.Equal(originalOverride, File.ReadAllText(coreConfig));
         Assert.False(Directory.Exists(installed.DataPath));
         Assert.Equal("retained save", File.ReadAllText(Path.Combine(previous.DataPath, "saves/retained.srm")));
+        var rom = Write(media, "game.rom", "reconnected ROM");
+        Write(media, "game.srm", "reconnected content save");
+        Write(media, "game.state", "reconnected content state");
+        var converted = EmulatorPortableSetup.Prepare(installed, installed.DataPath, previous,
+            CancellationToken.None, true, () => new[] { rom });
+        EmulatorManager.ConfigureData(converted);
+        EmulatorPortable.Verify(converted);
+        Assert.Equal("reconnected content save", File.ReadAllText(Path.Combine(converted.DataPath, "saves/game.srm")));
+        Assert.Equal("reconnected content state",
+            File.ReadAllText(Path.Combine(converted.DataPath, "override-data/Core/game/states/game.state")));
+        Assert.Equal(originalMain, File.ReadAllText(config));
+        Assert.Equal(originalOverride, File.ReadAllText(coreConfig));
+        Assert.Equal("reconnected content save", File.ReadAllText(Path.ChangeExtension(rom, ".srm")));
     }
 
     [Theory]

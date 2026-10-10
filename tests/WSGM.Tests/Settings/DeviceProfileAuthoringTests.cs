@@ -1,3 +1,4 @@
+using LibHandheld;
 using LibHandheld.Contracts;
 using WSGM.Core;
 using WSGM.Settings;
@@ -50,6 +51,88 @@ public sealed class DeviceProfileAuthoringTests
                 new AuthoredCurvePoint { Input = 100, Output = 90 }
             ]
         };
+    }
+
+    [Theory]
+    [InlineData("Micro-Star International Co., Ltd.", "MS-1T52")]
+    [InlineData("ASUSTeK COMPUTER INC.", "RC72LA")]
+    public void ExactModelMetadataPermitsProfileAuthoringWhileDeviceIntegrationIsDisabled(
+        string manufacturer, string board)
+    {
+        var definition = Assert.IsType<HandheldDefinition>(HandheldDevice.Detect(new DeviceIdentitySnapshot
+        {
+            BaseboardManufacturer = manufacturer, BaseboardProduct = board
+        }));
+        var config = new AppConfig
+        {
+            DeviceIntegration = new DeviceIntegrationConfig { Enabled = false }
+        };
+        var viewModel = new SettingsViewModel(config, SettingsTestServices.Inert(config), definition);
+
+        viewModel.AddDeviceProfile("thermal.fan-curve");
+        var request = viewModel.CaptureSaveRequest();
+        SettingsSaveMerge.Apply(config, request, request.Splash);
+
+        Assert.False(viewModel.DeviceIntegrationEnabled);
+        Assert.True(viewModel.DeviceProfilesAvailable);
+        Assert.False(config.DeviceIntegration.Enabled);
+        var scope = Assert.Single(config.DeviceIntegration.DeviceProfiles);
+        Assert.Equal(definition.Id, scope.DeviceDefinitionId);
+        Assert.Equal(definition.FamilyId, scope.FamilyId);
+        Assert.Single(scope.Profiles);
+    }
+
+    [Fact]
+    public void EnablingIntegrationWhileSettingsIsOpenKeepsTheOfflineProfileDraftAndExactScope()
+    {
+        var config = Config(Stored("quiet", "Quiet"));
+        config.DeviceIntegration.Enabled = false;
+        var viewModel = Model(config);
+        var profile = Assert.Single(viewModel.DeviceProfiles);
+        profile.Name = "Silent";
+        viewModel.DeviceIntegrationEnabled = true;
+
+        var request = viewModel.CaptureSaveRequest();
+        SettingsSaveMerge.Apply(config, request, request.Splash);
+
+        Assert.True(config.DeviceIntegration.Enabled);
+        Assert.True(viewModel.DeviceProfilesAvailable);
+        Assert.Same(profile, viewModel.SelectedDeviceProfile);
+        var scope = Assert.Single(config.DeviceIntegration.DeviceProfiles);
+        Assert.Equal(Device, scope.DeviceDefinitionId);
+        Assert.Equal(Family, scope.FamilyId);
+        Assert.Equal("Silent", Assert.Single(scope.Profiles).Name);
+
+        viewModel.AdvanceSharedBaseline(request);
+        viewModel.DeviceIntegrationEnabled = false;
+        profile.Name = "Offline";
+        request = viewModel.CaptureSaveRequest();
+        SettingsSaveMerge.Apply(config, request, request.Splash);
+
+        Assert.False(config.DeviceIntegration.Enabled);
+        Assert.True(viewModel.DeviceProfilesAvailable);
+        Assert.Same(profile, viewModel.SelectedDeviceProfile);
+        Assert.Equal("Offline", Assert.Single(scope.Profiles).Name);
+    }
+
+    [Fact]
+    public void UnsupportedIdentityCannotAuthorProfilesEvenWhenIntegrationIsEnabled()
+    {
+        var config = new AppConfig
+        {
+            DeviceIntegration = new DeviceIntegrationConfig { Enabled = true }
+        };
+        var definition = HandheldDevice.Detect(new DeviceIdentitySnapshot
+        {
+            BaseboardManufacturer = "Unknown", BaseboardProduct = "MS-1T52"
+        });
+        var viewModel = new SettingsViewModel(config, SettingsTestServices.Inert(config), definition);
+
+        viewModel.AddDeviceProfile("thermal.fan-curve");
+
+        Assert.Null(definition);
+        Assert.False(viewModel.DeviceProfilesAvailable);
+        Assert.Empty(viewModel.DeviceProfiles);
     }
 
     [Fact]

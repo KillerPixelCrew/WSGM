@@ -5,7 +5,7 @@
     "format:check": "prettier --check .",
     "steam-assets:build": "node eng/build-steam-assets.mjs",
     "steam-assets:check": "node eng/build-steam-assets.mjs --check",
-    "steam-assets:claims": "node external/steam-ui-toolkit/eng/run-checks.mjs src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js && node eng/check-steam-module-discovery.mjs"
+    "steam-assets:claims": "node external/steam-ui-toolkit/eng/run-checks.mjs src/WSGM/Core/SteamUiAssets/NativeQamBootstrap.js && node eng/check-steam-module-discovery.mjs && node eng/check-emulator-navigation.mjs"
   },
   "devDependencies": {
     "prettier": "3.9.9",

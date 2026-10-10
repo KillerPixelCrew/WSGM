@@ -351,16 +351,4 @@ public sealed partial class SettingsViewModel
         SelectedDeviceProfile = DeviceProfiles.FirstOrDefault();
         _deviceProfilesEdited = false;
     }
-
-    internal void UpdateDeviceDefinition(HandheldDefinition? definition)
-    {
-        if (_deviceProfilesEdited || _deviceProfileDefinition == definition?.Id)
-        {
-            return;
-        }
-
-        LoadDeviceProfiles(definition);
-        Raise(nameof(DeviceProfilesAvailable));
-        Raise(nameof(DeviceProfilesEmptyReason));
-    }
 }

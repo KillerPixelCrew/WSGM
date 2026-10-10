@@ -404,6 +404,10 @@ targets. Retired version contents are preserved under
 `EmulatorData/<installation>/.portable-snapshots` before pruning or removal. Previously managed
 native DuckStation/Eden data is copied without deleting the original.
 
+Conversion waits when an explicitly redirected data source is unavailable. Existing configuration
+and portable bindings remain intact until that storage is reconnected; absent owned defaults may
+still be created during conversion.
+
 External registration requires the actual portable layout and refuses global Documents/AppData
 fallbacks with instructions for preparing the external folder. It does not change or move external
 files. Fresh launches verify the native marker or directory binding and portable launch arguments,
@@ -418,6 +422,13 @@ surfaces show update/setup status, search by emulator or system, grouped install
 core filters for search matches, missing files and absent metadata. System defaults lists native
 emulator/core editors by console family; changing them leaves existing ROM libraries and overrides
 alone. Y checks for updates in the Overlay and Steam page.
+
+The Steam page registers its responsive cards, wrapped tabs/actions and split columns with native
+navigation containers. Grids accept both directional axes; each detail column keeps its vertical
+controls together. Opening a tab or detail mounts its native focus owner, while ordinary state and
+progress publications retain that owner. `node eng/check-emulator-navigation.mjs` checks the emitted
+page's navigation topology and route transitions offline; physical controller acceptance remains a
+manual Big Picture check.
 
 BIOS & firmware uses one persisted EmuDeck-layout folder, defaulting to `WSGM/Emulation/bios` under
 the user's data root. Add files or a folder copies local dumps into the known system paths, checks
