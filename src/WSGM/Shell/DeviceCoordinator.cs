@@ -3141,12 +3141,7 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
                     HandheldDeviceRuntime.SourceVersion)
                 : null,
             CapabilityCount = capabilities.Count,
-            HealthyCapabilityCount = capabilities.Count(capability =>
-                capability.Projection.State is
-                {
-                    Available: true,
-                    Quality: HardwareStateQuality.Observed or HardwareStateQuality.Verified
-                }),
+            AvailableCapabilityCount = capabilities.Count(capability => capability.Projection.State.Available),
             FaultedCapabilityCount = capabilities.Count(capability =>
                 capability.Projection.State.Quality is HardwareStateQuality.Faulted),
             CapturedAt = DateTimeOffset.UtcNow

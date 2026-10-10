@@ -339,7 +339,13 @@ public sealed partial class SettingsViewModel
             return;
         }
 
-        _services.Report("Settings saved.", null);
+        var graphicsEdits = request.CommonPluginEdits.Where(edit => BuiltinGpuDrivers.Contains(edit.PluginId))
+            .Select(edit => $"{edit.PluginId}={edit.Enabled}");
+        _services.Report($"Settings saved. Shared changes=[{string.Join(',', request.SharedEdits)}], "
+                         + $"graphics changes=[{string.Join(',', graphicsEdits)}], "
+                         + $"device integration={result.Config.DeviceIntegration.Enabled}, "
+                         + $"controller management={result.Config.DeviceIntegration.ControllerManagementEnabled}.",
+            null);
     }
 
     /// <summary>

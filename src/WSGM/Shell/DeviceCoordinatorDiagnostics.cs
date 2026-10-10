@@ -19,7 +19,7 @@ internal sealed record DeviceCoordinatorDiagnosticsSnapshot
 
     public required int CapabilityCount { get; init; }
 
-    public required int HealthyCapabilityCount { get; init; }
+    public required int AvailableCapabilityCount { get; init; }
 
     public required int FaultedCapabilityCount { get; init; }
 

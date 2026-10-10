@@ -70,6 +70,8 @@ internal sealed class BuiltinGpuService : IAsyncDisposable
 
             var installed = await Task.Run(GpuDriver.DetectVendors, linked.Token).ConfigureAwait(false);
             var desired = configured.Where(installed.Contains).ToArray();
+            Log.Change("graphics.activation",
+                $"Graphics drivers: detected=[{string.Join(',', installed)}], configured=[{string.Join(',', configured)}], admitted=[{string.Join(',', desired)}].");
             Entry[] retiring;
             lock (_registration)
             {

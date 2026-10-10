@@ -7,7 +7,7 @@ namespace WSGM.Tests.Settings;
 public sealed class SettingsViewModelGraphicsTests
 {
     [Fact]
-    public void LegacyMigrationRequiresAnExplicitEnabledDriverAndKeepsCommonPlugins()
+    public void LegacyMigrationPreservesDefaultOnAndExplicitChoicesAndKeepsCommonPlugins()
     {
         var config = new AppConfig
         {
@@ -21,7 +21,7 @@ public sealed class SettingsViewModelGraphicsTests
         BuiltinGpuDrivers.Normalize(config);
         Assert.True(config.GpuDrivers!.Intel);
         Assert.False(config.GpuDrivers.Amd);
-        Assert.False(config.GpuDrivers.Nvidia);
+        Assert.True(config.GpuDrivers.Nvidia);
         Assert.Equal("vendor.plugin", Assert.Single(config.PluginInstances).PluginId);
     }
 

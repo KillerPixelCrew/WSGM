@@ -460,8 +460,9 @@ dropped, so an old pulse can neither stop a replacement target nor leave the Cla
 running. An action-only haptic sink has availability but no readback; the overlay treats it as
 `Ready` with a `RUN` action and permits its bounded preview. The same holds for every capability:
 the router, overlay, native QAM, power presets and AutoTDP command anything the plugin reports
-available whose state is neither stale nor faulted, and show a value that was never read back as
-"Ready · no readback" instead of disabling it.
+available whose state is neither stale nor faulted. Unknown control values remain ready, and
+accepted writes supply their state without polling or verification. Only live sensor measurements
+expire; the Settings capability count reports availability rather than readable or verified values.
 
 The optional installer task owns the initial usbip-win2 and HidHide installation. Its USB/IP helper
 is nonfatal but publishes a status file under `%ProgramData%\WSGM`, and setup reads that status

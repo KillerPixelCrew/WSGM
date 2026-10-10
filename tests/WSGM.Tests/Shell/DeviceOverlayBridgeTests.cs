@@ -133,7 +133,7 @@ public sealed class DeviceOverlayBridgeTests
         Assert.Equal(DescriptorStatus.Available, capability.Status);
         Assert.True(capability.CanInvoke);
         Assert.Equal("RUN", capability.TrailingText);
-        Assert.Equal("Ready · action has no readback", capability.Description);
+        Assert.Equal("Ready", capability.Description);
     }
 
     [Fact]

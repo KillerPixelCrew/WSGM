@@ -33,9 +33,9 @@ internal static class BuiltinGpuDrivers
     {
         config.GpuDrivers ??= new GpuDriverConfig
         {
-            Intel = config.PluginInstances.Any(instance => instance.PluginId == "wsgm.gpu.intel" && instance.Enabled),
-            Amd = config.PluginInstances.Any(instance => instance.PluginId == "wsgm.gpu.amd" && instance.Enabled),
-            Nvidia = config.PluginInstances.Any(instance => instance.PluginId == "wsgm.gpu.nvidia" && instance.Enabled)
+            Intel = LegacyEnabled(config, "wsgm.gpu.intel"),
+            Amd = LegacyEnabled(config, "wsgm.gpu.amd"),
+            Nvidia = LegacyEnabled(config, "wsgm.gpu.nvidia")
         };
         config.PluginInstances.RemoveAll(instance => Contains(instance.PluginId));
     }
@@ -45,7 +45,7 @@ internal static class BuiltinGpuDrivers
         if (config.GpuDrivers is null)
         {
             var id = All.First(driver => driver.Vendor == vendor).Id;
-            return config.PluginInstances.Any(instance => instance.PluginId == id && instance.Enabled);
+            return LegacyEnabled(config, id);
         }
 
         return vendor switch
@@ -55,6 +55,14 @@ internal static class BuiltinGpuDrivers
             GpuVendor.Nvidia => config.GpuDrivers.Nvidia,
             _ => throw new ArgumentOutOfRangeException(nameof(vendor))
         };
+    }
+
+    private static bool LegacyEnabled(AppConfig config, string id)
+    {
+        // Setup left matching GPU packages unconfigured because they ran by default.
+        // Preserve that default, and the explicit opt-out of a configured package.
+        return config.PluginInstances.All(instance => instance.PluginId != id)
+               || config.PluginInstances.Any(instance => instance.PluginId == id && instance.Enabled);
     }
 
     internal static void SetEnabled(AppConfig config, string id, bool enabled)

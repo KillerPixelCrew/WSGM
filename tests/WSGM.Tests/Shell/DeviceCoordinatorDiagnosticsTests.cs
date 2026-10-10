@@ -50,7 +50,7 @@ public sealed class DeviceCoordinatorDiagnosticsTests
         {
             State = DeviceCycleState.Active,
             CapabilityCount = 3,
-            HealthyCapabilityCount = 2,
+            AvailableCapabilityCount = 2,
             FaultedCapabilityCount = 1,
             CapturedAt = DateTimeOffset.UnixEpoch
         };

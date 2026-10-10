@@ -833,7 +833,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             _ when projection.DesiredValueOutOfRange =>
                 "Saved value is outside the current firmware range",
             _ when state.Reason is not null => state.Reason.Detail,
-            _ when actionOnlyReady => "Ready · action has no readback",
+            _ when actionOnlyReady => "Ready",
             // A healthy value has nothing to explain; the row shows it without a caption.
             _ when state.Quality is HardwareStateQuality.Verified or HardwareStateQuality.Observed => string.Empty,
             _ => $"{QualityLabel(state.Quality)} · {PersistenceLabel(descriptor.Persistence)}"
@@ -1219,7 +1219,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         {
             HardwareStateQuality.Stale => "Stale",
             HardwareStateQuality.Faulted => "Faulted",
-            _ => "Ready · no readback"
+            _ => "Ready"
         };
     }
 
