@@ -16,10 +16,10 @@ using WSGM.Install;
 using WSGM.Interop;
 using WSGM.Shared;
 using DeviceIdentitySnapshot = LibHandheld.Contracts.DeviceIdentitySnapshot;
-using PhysicalDeviceIdentity = LibHandheld.Contracts.PhysicalDeviceIdentity;
+using HandheldDefinition = LibHandheld.Contracts.HandheldDefinition;
 using HapticCapabilities = LibHandheld.Contracts.HapticCapabilities;
 using HapticOutputFrame = LibHandheld.Contracts.HapticOutputFrame;
-using HandheldDefinition = LibHandheld.Contracts.HandheldDefinition;
+using PhysicalDeviceIdentity = LibHandheld.Contracts.PhysicalDeviceIdentity;
 
 namespace WSGM.Shell;
 

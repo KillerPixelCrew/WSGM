@@ -1,7 +1,7 @@
 using System.Threading;
 using System.Threading.Tasks;
-using HapticOutputFrame = LibHandheld.Contracts.HapticOutputFrame;
 using HapticCapabilities = LibHandheld.Contracts.HapticCapabilities;
+using HapticOutputFrame = LibHandheld.Contracts.HapticOutputFrame;
 
 namespace WSGM.Input;
 

@@ -3,8 +3,8 @@ using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
 using WSGM.Core;
-using HapticOutputFrame = LibHandheld.Contracts.HapticOutputFrame;
 using HapticCapabilities = LibHandheld.Contracts.HapticCapabilities;
+using HapticOutputFrame = LibHandheld.Contracts.HapticOutputFrame;
 using OutputChannelSupport = LibHandheld.Contracts.OutputChannelSupport;
 
 namespace WSGM.Input;

@@ -1,8 +1,8 @@
 using WSGM.Core;
 using WSGM.Shell;
 using OemControlDescriptor = LibHandheld.Contracts.OemControlDescriptor;
-using OemControlPlacement = LibHandheld.Contracts.OemControlPlacement;
 using OemControlEvent = LibHandheld.Contracts.OemControlEvent;
+using OemControlPlacement = LibHandheld.Contracts.OemControlPlacement;
 
 namespace WSGM.Tests.Core;
 
