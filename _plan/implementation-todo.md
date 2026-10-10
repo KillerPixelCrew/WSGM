@@ -1111,8 +1111,18 @@ Later tracker-only commits leave this implementation and delivered snapshot unch
       host monitor, including topology changes.
 - [x] Explorer transfer dialogs no longer receive blanket close requests or block entry after shell
       surfaces retire. Unavailable HDMI recovery survives entry until its display is enabled.
-- [ ] Complete the committed-head gate, setup build, Z: delivery and desktop deployment.
+- [x] Complete source checks, setup build, Z: delivery and desktop deployment.
 - [ ] Maintainer retest of physical display/audio/GPU switching and live multi-monitor/Optimus blur.
 
 The supplied desktop logs and all manual-testing comments were reviewed. Automated/native geometry
 checks support the implementation; they do not establish fresh visible or hardware acceptance.
+
+Delivery source: a5930410 (implementation f95e0a7c), LibGPU d54130d, WindowsDeviceControl 6040c02.
+Whole-solution Rider cleanup and warning-free Release compilation completed; all 6,679 managed
+solution tests passed. The duplicate full gate was interrupted at the maintainer's request;
+its interruption is not a pass. Updated guidance reuses completed checks instead of repeating them.
+Setup/app 2.2.0.1674 is at Z:\WSGM-Setup-2.2.0.exe, SHA-256
+D0984BDA314A99E4836C73E70EBA8929D8BCC898AE45C0F565FCD7F25C006E66.
+The prior 1672 setup is preserved. Desktop deployment completed and seven installed app/library
+hashes match publish; the retired Device SDK assembly is absent. Later guidance/receipt-only
+commits do not change this delivered implementation.

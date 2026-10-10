@@ -2,6 +2,7 @@
 
 The maintainer's current instructions win over guides, plans and skills. A nearer AGENTS.md adds
 domain rules. Deliver the requested implementation and honest proof; process must shorten delivery.
+The validation budget below overrides older gate recipes in skills and documentation.
 
 ## Delivery
 
