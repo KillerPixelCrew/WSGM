@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using WSGM.Device.Sdk.Identity;
+using LibHandheld.Contracts;
 using WSGM.DeviceLab.Inventory;
 using WSGM.DeviceLab.Knowledge;
 using WSGM.DeviceLab.Wizard;
@@ -55,7 +55,7 @@ internal sealed record LabCapabilityProposal(string Capability) : LabReviewPropo
 
 /// <summary>Confirms the identity, or adds the observed identity rule.</summary>
 /// <param name="Rule">The rule to add, or null when an existing rule matched exactly.</param>
-internal sealed record LabIdentityProposal(HardwareMatchRule? Rule) : LabReviewProposal;
+internal sealed record LabIdentityProposal(DeviceKnowledgeIdentityRule? Rule) : LabReviewProposal;
 
 /// <summary>One comparison between the lab evidence and the knowledge record.</summary>
 internal sealed record LabReviewItem
@@ -248,7 +248,7 @@ internal static partial class LabReview
     /// <summary>The identity rule the observed machine gives: board manufacturer, board product and SKU.</summary>
     /// <param name="identity">Observed identity.</param>
     /// <returns>The rule, or null when the identity is too thin to name the device.</returns>
-    internal static HardwareMatchRule? ObservedRule(DeviceIdentitySnapshot? identity)
+    internal static DeviceKnowledgeIdentityRule? ObservedRule(DeviceIdentitySnapshot? identity)
     {
         if (identity is null)
         {
@@ -261,7 +261,7 @@ internal static partial class LabReview
         var sku = CleanIdentity(identity.SystemSku);
         if (manufacturer is not null && product is not null)
         {
-            return new HardwareMatchRule
+            return new DeviceKnowledgeIdentityRule
             {
                 BaseboardManufacturer = manufacturer,
                 BaseboardProduct = product,
@@ -271,13 +271,14 @@ internal static partial class LabReview
 
         return model is null
             ? null
-            : new HardwareMatchRule { BaseboardManufacturer = manufacturer, SystemModel = model, SystemSku = sku };
+            : new DeviceKnowledgeIdentityRule
+                { BaseboardManufacturer = manufacturer, SystemModel = model, SystemSku = sku };
     }
 
     /// <summary>Describes a rule in one line.</summary>
     /// <param name="rule">Rule.</param>
     /// <returns>The set fields.</returns>
-    internal static string DescribeRule(HardwareMatchRule rule)
+    internal static string DescribeRule(DeviceKnowledgeIdentityRule rule)
     {
         List<string> parts = [];
         foreach (var (name, value) in new[]
@@ -403,7 +404,7 @@ internal static partial class LabReview
         }
         else
         {
-            var match = HardwareMatcher.Match(record.Identity, identity);
+            var match = DeviceKnowledgeMatcher.Match(record.Identity, identity);
             item = match switch
             {
                 { Fallback: false } => new LabReviewItem

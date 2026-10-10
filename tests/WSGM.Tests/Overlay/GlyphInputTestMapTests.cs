@@ -1,7 +1,8 @@
 using WSGM.Device.Sdk.Glyphs;
-using WSGM.Device.Sdk.Input;
 using WSGM.Overlay;
 using static WSGM.Tests.Builders.ControllerSamples;
+using CanonicalButtons = LibHandheld.Contracts.CanonicalButtons;
+using CanonicalControllerSample = LibHandheld.Contracts.CanonicalControllerSample;
 
 namespace WSGM.Tests.Overlay;
 

@@ -6,16 +6,14 @@ using WSGM.Core;
 
 namespace WSGM.Shell;
 
-/// <summary>Generation and profile context captured before resolving or saving a device power assignment.</summary>
+/// <summary>Profile context captured before resolving or saving a device power assignment.</summary>
 /// <param name="Profiles">Saved layers and application selection used for the edit.</param>
 /// <param name="PluginId">Current package identifier, or null when no package is selected.</param>
-/// <param name="Cycle">Current device lifecycle generation.</param>
 /// <param name="Enabled">Whether device integration is enabled.</param>
 /// <param name="OnAc">True on AC, false on battery, or null when the source is unknown.</param>
 internal sealed record DevicePowerAssignmentContext(
     ProfileSnapshot Profiles,
     string? PluginId,
-    long Cycle,
     bool Enabled,
     bool? OnAc)
 {
@@ -66,7 +64,7 @@ internal sealed class DevicePowerAssignments(
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private bool _applied;
-    private (long Cycle, string? Application, bool Ac, DevicePowerPresetReference? Assignment)? _attempted;
+    private (string? Application, bool Ac, DevicePowerPresetReference? Assignment)? _attempted;
     private string _status = string.Empty;
 
     /// <summary>Whether integration is enabled and the known power source resolves an assignment for this package.</summary>
@@ -119,8 +117,7 @@ internal sealed class DevicePowerAssignments(
             var confirmed = context();
             if (current.Profiles.Generation != confirmed.Profiles.Generation
                 || current.ApplicationId != confirmed.ApplicationId
-                || current.PluginId != confirmed.PluginId ||
-                current.Cycle != confirmed.Cycle
+                || current.PluginId != confirmed.PluginId
                 || current.Enabled != confirmed.Enabled ||
                 current.OnAc != confirmed.OnAc)
             {
@@ -211,7 +208,7 @@ internal sealed class DevicePowerAssignments(
         }
 
         var assignment = current.Resolve(ac).Value;
-        var key = (current.Cycle, current.ApplicationId, ac, assignment);
+        var key = (current.ApplicationId, ac, assignment);
         var alreadyAttempted = _attempted == key;
         if (alreadyAttempted && !_applied)
         {
@@ -246,9 +243,10 @@ internal sealed class DevicePowerAssignments(
         }
 
         var confirmed = context();
-        if (!confirmed.Enabled || confirmed.Cycle != current.Cycle || confirmed.OnAc != current.OnAc
-            || confirmed.ApplicationId != current.ApplicationId || confirmed.PluginId != current.PluginId
-            || confirmed.Profiles.Generation != current.Profiles.Generation)
+        if (!confirmed.Enabled || confirmed.OnAc != current.OnAc
+                               || confirmed.ApplicationId != current.ApplicationId ||
+                               confirmed.PluginId != current.PluginId
+                               || confirmed.Profiles.Generation != current.Profiles.Generation)
         {
             return;
         }
@@ -267,7 +265,7 @@ internal sealed class DevicePowerAssignments(
             var customAssignment = new DevicePowerPresetReference
                 { PluginId = current.PluginId!, PresetId = "custom", CustomValues = values };
             await save(current, ac, customAssignment).ConfigureAwait(false);
-            _attempted = (current.Cycle, current.ApplicationId, ac, customAssignment);
+            _attempted = (current.ApplicationId, ac, customAssignment);
             _status = string.Empty;
             return;
         }
@@ -275,7 +273,6 @@ internal sealed class DevicePowerAssignments(
         // Reuse a successful matching assignment across application switches on the same device cycle/source.
         if (_applied
             && _attempted is { } previous
-            && previous.Cycle == current.Cycle
             && previous.Ac == ac
             && previous.Assignment == assignment
             && (assignment.CustomValues is { } customValues

@@ -19,6 +19,7 @@ internal sealed class SettingsSurface
     private readonly Func<ManagedUiPad?> _managedPad;
     private readonly SteamInputBlocker _steamInput;
     private readonly ConfigStore _store;
+    private bool _closed;
     private Task<ConfigReadResult>? _reading;
     private SettingsWindow? _window;
 
@@ -46,6 +47,11 @@ internal sealed class SettingsSurface
     /// <returns>The window now on screen.</returns>
     internal async Task<Window> OpenAsync()
     {
+        if (_closed)
+        {
+            throw new OperationCanceledException("The resident Settings owner is closed.");
+        }
+
         if (_window is null)
         {
             // Requests made while the configuration is being read share that read and the one window.
@@ -58,6 +64,12 @@ internal sealed class SettingsSurface
             finally
             {
                 _reading = null;
+            }
+
+            if (_closed)
+            {
+                throw new OperationCanceledException(
+                    "The resident Settings owner closed during configuration loading.");
             }
 
             if (_window is null)
@@ -106,6 +118,7 @@ internal sealed class SettingsSurface
     /// <summary>Closes the window, if one is open. A save in progress finishes first.</summary>
     internal void Close()
     {
+        _closed = true;
         _window?.Close();
     }
 

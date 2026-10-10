@@ -46,7 +46,7 @@ internal sealed record DeviceCapabilityView(
 }
 
 /// <summary>
-///     Validates and projects the semantic capability stream owned by one plugin generation.
+///     Validates and projects the semantic capability stream owned by one active publisher.
 /// </summary>
 /// <remarks>
 ///     One router per publisher: the device package has one, and so does each graphics package. They are
@@ -71,7 +71,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     /// <summary>Observers of late command completions, joined by <see cref="DisposeAsync" />.</summary>
     private readonly HashSet<Task> _lateObservers = [];
 
-    private readonly Dictionary<DeviceCapabilityKey, (Guid Id, long Cycle, long Descriptors)> _latestCommands = [];
+    private readonly Dictionary<DeviceCapabilityKey, Guid> _latestCommands = [];
 
     /// <summary>Stops waiting for late completions once the router is disposed.</summary>
     /// <remarks>
@@ -93,8 +93,8 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     /// <remarks>
     ///     The high-rate state channel does not promise ordering, and a delayed older sample overwriting
     ///     a newer one is not cosmetic: it can restore a "fresh" reading the device has already moved
-    ///     past, and the UI would then command against it. Sequence numbers are per cycle generation, so
-    ///     stale-generation publications are refused by validation before they reach this map.
+    ///     past, and the UI would then command against it. Sequence numbers order observations from
+    ///     the currently attached publisher; detaching clears its observations.
     /// </remarks>
     private readonly Dictionary<DeviceCapabilityKey, CapabilityStateDelta> _states = [];
 
@@ -102,9 +102,6 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 
     private ICapabilityPublisher? _client;
     private bool _connected;
-    private long _cycleGeneration;
-
-    private long _descriptorGeneration;
     private bool _disposed;
 
     // The stored profile values per capability instance, one index per layer, rebuilt when the profiles or
@@ -196,16 +193,14 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     internal event Action<IReadOnlyList<DeviceCapabilityView>>? Changed;
 
     /// <summary>
-    ///     Raised on the publishing thread after a descriptor set was accepted, with its cycle and
-    ///     descriptor generations.
+    ///     Raised on the publishing thread after a complete descriptor set was accepted.
     /// </summary>
-    internal event Action<long, long>? DescriptorsAccepted;
+    internal event Action? DescriptorsAccepted;
 
     /// <summary>Replaces the borrowed publisher and clears all descriptors, observations, and command projections.</summary>
     /// <param name="client">Publisher whose events are subscribed until detach or disposal; ownership is not transferred.</param>
-    /// <param name="cycleGeneration">Current lifecycle generation required on subsequent publications.</param>
     /// <exception cref="ObjectDisposedException">The router has been disposed.</exception>
-    internal void Attach(ICapabilityPublisher client, long cycleGeneration)
+    internal void Attach(ICapabilityPublisher client)
     {
         ArgumentNullException.ThrowIfNull(client);
         lock (_gate)
@@ -213,8 +208,6 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             ObjectDisposedException.ThrowIf(_disposed, this);
             DetachUnderGate();
             _client = client;
-            _cycleGeneration = cycleGeneration;
-            _descriptorGeneration = 0;
             _descriptors.Clear();
             _orderedDescriptors = [];
             _states.Clear();
@@ -235,7 +228,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 
     /// <summary>Whether the publisher has reported a state for a capability of the accepted descriptor set.</summary>
     /// <param name="descriptor">The capability.</param>
-    /// <returns>True once a state for it was accepted in the current descriptor generation.</returns>
+    /// <returns>True once a state for it was accepted in the current descriptor set.</returns>
     internal bool HasState(CapabilityDescriptor descriptor)
     {
         ArgumentNullException.ThrowIfNull(descriptor);
@@ -246,13 +239,12 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     }
 
     /// <summary>Whether every capability of one descriptor set has reported a state.</summary>
-    /// <param name="descriptorGeneration">The descriptor set asked about.</param>
     /// <returns>False while that set is not the accepted one or any of its capabilities has no state yet.</returns>
-    internal bool HasStateForEveryDescriptor(long descriptorGeneration)
+    internal bool HasStateForEveryDescriptor()
     {
         lock (_gate)
         {
-            if (!_connected || _descriptorGeneration != descriptorGeneration)
+            if (!_connected || _client is not { IsActive: true })
             {
                 return false;
             }
@@ -292,8 +284,6 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     /// <param name="instanceId">Exact instance identifier, or null for an uninstanced capability.</param>
     /// <param name="value">Requested value, or null for an action-only capability.</param>
     /// <param name="timeout">Budget assigned after per-capability admission; nonpositive values use five seconds.</param>
-    /// <param name="expectedCycle">Optional generation observed by the caller; a mismatch refuses dispatch.</param>
-    /// <param name="expectedDescriptors">Optional descriptor generation observed by the caller.</param>
     /// <param name="applyPowerPair">Whether to carry the host-computed paired power value with this request.</param>
     /// <param name="cancellationToken">
     ///     Cancels lane waiting or dispatch; cancellation after dispatch can mean uncertain
@@ -308,7 +298,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         string? instanceId,
         CapabilityValue? value,
         TimeSpan timeout,
-        long? expectedCycle = null, long? expectedDescriptors = null, bool applyPowerPair = false,
+        bool applyPowerPair = false,
         CancellationToken cancellationToken = default)
     {
         DeviceCapabilityKey key = new(capabilityId, instanceId);
@@ -326,8 +316,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         await commandGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var refusal = PrepareCommand(key, value, timeout, out var command, out var client, expectedCycle,
-                expectedDescriptors, applyPowerPair);
+            var refusal = PrepareCommand(key, value, timeout, out var command, out var client, applyPowerPair);
             if (refusal is not null)
             {
                 ReconcileResult(key, refusal);
@@ -353,7 +342,6 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                     TrackLateObserver(ObserveLateCommandAsync(
                         key,
                         command.CommandId,
-                        command.ExpectedCycleGeneration,
                         client,
                         dispatch.LateCompletion));
                 }
@@ -380,35 +368,6 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         {
             return BuildSnapshotUnderGate(_utcNow());
         }
-    }
-
-    /// <summary>Invalidates prior-generation observations and command results while retaining descriptor presentation.</summary>
-    /// <param name="cycleGeneration">New lifecycle generation; an unchanged value leaves current state intact.</param>
-    internal void MarkCycleGenerationChanged(long cycleGeneration)
-    {
-        lock (_gate)
-        {
-            AdvanceCycleUnderGate(cycleGeneration);
-        }
-
-        Publish();
-    }
-
-    private void AdvanceCycleUnderGate(long cycleGeneration)
-    {
-        if (cycleGeneration == _cycleGeneration)
-        {
-            return;
-        }
-
-        _cycleGeneration = cycleGeneration;
-        _descriptorGeneration = 0;
-        _states.Clear();
-        _pendingValues.Clear();
-        _latestCommands.Clear();
-        _lastResults.Clear();
-        _lastCommandValues.Clear();
-        _availability.Clear();
     }
 
     /// <summary>Marks this publisher disconnected so queued/new requests cannot dispatch.</summary>
@@ -444,7 +403,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         TimeSpan timeout,
         out CapabilityCommand command,
         out ICapabilityPublisher client,
-        long? expectedCycle = null, long? expectedDescriptors = null, bool applyPowerPair = false)
+        bool applyPowerPair = false)
     {
         var now = _utcNow();
         var commandId = Guid.NewGuid();
@@ -456,13 +415,11 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 CapabilityId = key.CapabilityId,
                 InstanceId = key.InstanceId,
                 RequestedValue = value,
-                ExpectedDescriptorGeneration = _descriptorGeneration,
-                ExpectedCycleGeneration = _cycleGeneration,
                 Deadline = Deadline.After(timeout > TimeSpan.Zero ? timeout : TimeSpan.FromSeconds(5))
             };
-            _latestCommands[key] = (commandId, _cycleGeneration, _descriptorGeneration);
+            _latestCommands[key] = commandId;
 
-            if (!_connected || _client is null)
+            if (!_connected || _client is not { IsActive: true })
             {
                 client = null!;
                 return Reject(command, CapabilityReasonCode.HostUnavailable,
@@ -472,13 +429,6 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             }
 
             client = _client;
-            if ((expectedCycle is not null && expectedCycle != _cycleGeneration)
-                || (expectedDescriptors is not null && expectedDescriptors != _descriptorGeneration))
-            {
-                return Reject(command, CapabilityReasonCode.HostUnavailable,
-                    "The power preset belongs to an earlier device or descriptor generation.");
-            }
-
             if (!_descriptors.TryGetValue(key, out var descriptor))
             {
                 return Reject(command, CapabilityReasonCode.Unsupported,
@@ -496,8 +446,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                                                      is { } peerDescriptor)
             {
                 if (!_states.TryGetValue(Key(peerDescriptor), out var peer)
-                    || !CanCommand(EvaluateFreshness(peer.State, FreshnessFor(peerDescriptor.Role), now,
-                        _cycleGeneration)))
+                    || !CanCommand(EvaluateFreshness(peer.State, FreshnessFor(peerDescriptor.Role), now)))
                 {
                     return Reject(command, CapabilityReasonCode.ObservationExpired,
                         "The paired power limit is not available.");
@@ -519,8 +468,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             var state = EvaluateFreshness(
                 rawState.State,
                 FreshnessFor(descriptor.Role),
-                now,
-                _cycleGeneration);
+                now);
             if (!CanCommand(state))
             {
                 return Reject(
@@ -582,12 +530,11 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 
     private void OnDescriptorSet(CapabilityDescriptorSet descriptors)
     {
-        long acceptedCycle;
         string? error;
         bool accepted;
         lock (_gate)
         {
-            accepted = AcceptDescriptorSetUnderGate(descriptors, out acceptedCycle, out error);
+            accepted = AcceptDescriptorSetUnderGate(descriptors, out error);
         }
 
         if (!accepted)
@@ -597,26 +544,15 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         }
 
         Publish();
-        DescriptorsAccepted?.Invoke(acceptedCycle, descriptors.Generation);
+        DescriptorsAccepted?.Invoke();
     }
 
     private bool AcceptDescriptorSetUnderGate(CapabilityDescriptorSet descriptors,
-        out long acceptedCycle, out string? error)
+        out string? error)
     {
-        acceptedCycle = _cycleGeneration;
         error = null;
-        // Resume publishes inside the lifecycle call, before the coordinator can synchronize.
-        // Only the attached runtime may advance the cycle; a plugin-supplied number cannot.
-        if (_client is { } client && client.CycleGeneration > _cycleGeneration
-                                  && descriptors.CycleGeneration == client.CycleGeneration)
-        {
-            AdvanceCycleUnderGate(client.CycleGeneration);
-        }
-
         if (!DeviceCapabilityValidation.TryValidateDescriptorSet(
                 descriptors,
-                _cycleGeneration,
-                _descriptorGeneration,
                 out error))
         {
             return false;
@@ -633,7 +569,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             return false;
         }
 
-        _descriptorGeneration = descriptors.Generation;
+
         _sections = DeviceSectionLayout.IncludePredefined(descriptors.Sections);
         _descriptors.Clear();
         foreach (var descriptor in descriptors.Descriptors)
@@ -654,7 +590,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         _lastResults.Clear();
         _lastCommandValues.Clear();
         _availability.Clear();
-        acceptedCycle = _cycleGeneration;
+
         return true;
     }
 
@@ -664,6 +600,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         string? rejected = null;
         var outOfOrder = false;
         var availabilityChanged = false;
+        var stateChanged = false;
         lock (_gate)
         {
             string? error = null;
@@ -672,8 +609,6 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
                 || !DeviceCapabilityValidation.TryValidateState(
                     delta.State,
                     descriptor,
-                    _descriptorGeneration,
-                    _cycleGeneration,
                     out error))
             {
                 rejected = error ?? "invalid sequence or key";
@@ -685,6 +620,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             }
             else
             {
+                stateChanged = existing is null || !SameState(existing.State, delta.State);
                 _states[key] = delta;
                 availabilityChanged = !_availability.TryGetValue(key, out var previous)
                                       || previous != delta.State.Available;
@@ -711,7 +647,23 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             LogAvailabilityChange(key, delta.State);
         }
 
-        Publish();
+        if (stateChanged)
+        {
+            Publish();
+        }
+    }
+
+    private static bool SameState(CapabilityState left, CapabilityState right)
+    {
+        return left.CapabilityId == right.CapabilityId && left.InstanceId == right.InstanceId
+                                                       && left.Available == right.Available &&
+                                                       left.Quality == right.Quality
+                                                       && left.Reason == right.Reason &&
+                                                       left.ObservedAt == right.ObservedAt
+                                                       && (left.ObservedValue == right.ObservedValue
+                                                           || (left.ObservedValue is { } previous &&
+                                                               right.ObservedValue is { } current
+                                                               && CapabilityValues.Same(previous, current)));
     }
 
     /// <summary>Logs a capability becoming available or unavailable, with the plugin's own reason.</summary>
@@ -764,7 +716,6 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     private async Task ObserveLateCommandAsync(
         DeviceCapabilityKey key,
         Guid commandId,
-        long cycleGeneration,
         ICapabilityPublisher client,
         Task<CapabilityCommandResult> completion)
     {
@@ -790,14 +741,13 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
         {
             ignore = !_connected
                      || !ReferenceEquals(_client, client)
-                     || _cycleGeneration != cycleGeneration
                      || result.CommandId != commandId;
         }
 
         if (ignore)
         {
             Log.Warn($"Late {_label} command result ignored: command={result.CommandId}, expected={commandId}; "
-                     + "the runtime or generation changed.");
+                     + "the active publisher or control layout changed.");
             return;
         }
 
@@ -811,9 +761,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     {
         lock (_gate)
         {
-            if (!_latestCommands.TryGetValue(key, out var latest) || latest.Id != result.CommandId
-                                                                  || latest.Cycle != _cycleGeneration ||
-                                                                  latest.Descriptors != _descriptorGeneration)
+            if (!_latestCommands.TryGetValue(key, out var latest) || latest != result.CommandId)
             {
                 return;
             }
@@ -834,7 +782,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             $"{ChangeKey("command")}/{key}",
             $"{_label} command: capability={key}, outcome={result.Outcome}, "
             + $"rollback={result.Rollback}.",
-            result.Outcome is CommandOutcome.AppliedVerified ? LogLevel.Info : LogLevel.Warn);
+            result.Outcome.IsApplied() || result.Outcome == CommandOutcome.Accepted ? LogLevel.Info : LogLevel.Warn);
         Publish();
     }
 
@@ -905,8 +853,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             state = EvaluateFreshness(
                 state,
                 FreshnessFor(descriptor.Role),
-                now,
-                _cycleGeneration);
+                now);
         }
 
         var desired = ResolveDesired(key, descriptor.ProfileScope);
@@ -986,8 +933,6 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
             InstanceId = key.InstanceId,
             Available = false,
             Quality = HardwareStateQuality.Unknown,
-            DescriptorGeneration = _descriptorGeneration,
-            CycleGeneration = _cycleGeneration,
             Reason = new CapabilityReason(
                 CapabilityReasonCode.ObservationExpired,
                 "No state has been published for this descriptor.",
@@ -1081,7 +1026,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 
         return result?.Outcome switch
         {
-            CommandOutcome.AppliedVerified or CommandOutcome.AppliedUnverified =>
+            CommandOutcome.Applied or CommandOutcome.AppliedVerified or CommandOutcome.AppliedUnverified =>
                 CommandProgress.Completed,
             CommandOutcome.TimedOut or CommandOutcome.Indeterminate => CommandProgress.Uncertain,
             CommandOutcome.Rejected => CommandProgress.Failed,
@@ -1107,22 +1052,13 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
     private static CapabilityState EvaluateFreshness(
         CapabilityState state,
         TimeSpan? maxAge,
-        DateTimeOffset now,
-        long currentCycleGeneration)
+        DateTimeOffset now)
     {
         // A faulted capability is already saying something stronger than "old". Downgrading it to
         // stale would lose the fault.
         if (state.Quality is HardwareStateQuality.Faulted or HardwareStateQuality.Unknown)
         {
             return state;
-        }
-
-        // A generation change invalidates the observation outright, regardless of age: the handles
-        // and the hardware state it described belong to a device that no longer exists.
-        if (state.CycleGeneration != currentCycleGeneration)
-        {
-            return Stale(state, CapabilityReasonCode.GenerationChanged,
-                "Observed under a previous process/reconnect cycle.");
         }
 
         if (maxAge is { } limit && (state.ObservedAt is not { } observedAt || now - observedAt > limit))
@@ -1212,24 +1148,14 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 /// <summary>Structural and semantic validation applied before plugin data enters WSGM state.</summary>
 internal static class DeviceCapabilityValidation
 {
-    /// <summary>Validates generation, unique identities, layout, power presets, and power-pair structure.</summary>
+    /// <summary>Validates unique identities, layout, power presets, and power-pair structure.</summary>
     /// <param name="set">Complete replacement descriptor set supplied by the current publisher.</param>
-    /// <param name="cycleGeneration">Current lifecycle generation the set must match.</param>
-    /// <param name="previousGeneration">Last accepted descriptor generation; the new one must be greater.</param>
     /// <param name="error">Null on success, otherwise the first structural or semantic rejection reason.</param>
     /// <returns>Whether the set may enter host state; this does not test hardware support or native transport.</returns>
     internal static bool TryValidateDescriptorSet(
         CapabilityDescriptorSet set,
-        long cycleGeneration,
-        long previousGeneration,
         out string? error)
     {
-        if (set.Generation <= previousGeneration || set.CycleGeneration != cycleGeneration)
-        {
-            error = "Descriptor or device generation is stale.";
-            return false;
-        }
-
         var sections = DeviceSections.All.ToDictionary(section => section.SectionId, StringComparer.Ordinal);
         HashSet<string> declaredIds = new(StringComparer.Ordinal);
         foreach (var section in set.Sections)
@@ -1276,27 +1202,16 @@ internal static class DeviceCapabilityValidation
                && DevicePowerPair.TryValidate(set.Descriptors, out error);
     }
 
-    /// <summary>Checks generation and observed-value compatibility before accepting a capability state.</summary>
+    /// <summary>Checks identity and observed-value compatibility before accepting a capability state.</summary>
     /// <param name="state">Candidate observation; verified quality requires a nonnull readback value.</param>
     /// <param name="descriptor">Accepted descriptor defining the value shape and range.</param>
-    /// <param name="descriptorGeneration">Descriptor generation the state must match.</param>
-    /// <param name="cycleGeneration">Lifecycle generation the state must match.</param>
     /// <param name="error">Null on success, otherwise the rejection reason.</param>
     /// <returns>Whether these structural checks pass; the publisher still owns the evidence behind its quality.</returns>
     internal static bool TryValidateState(
         CapabilityState state,
         CapabilityDescriptor descriptor,
-        long descriptorGeneration,
-        long cycleGeneration,
         out string? error)
     {
-        if (state.DescriptorGeneration != descriptorGeneration
-            || state.CycleGeneration != cycleGeneration)
-        {
-            error = "State generation does not match the current descriptor and cycle.";
-            return false;
-        }
-
         if (state.ObservedValue is not null
             && !CapabilityValueValidation.ValueMatches(state.ObservedValue, descriptor, out error))
         {
@@ -1461,12 +1376,12 @@ internal static class DeviceCapabilityValidation
             CapabilityRole.GenericAction => kind is CapabilityValueKind.None,
             CapabilityRole.GenericToggle
                 or CapabilityRole.LightingPower
-                or CapabilityRole.VariableRefreshRate
-                or CapabilityRole.ChargeBypass => kind is CapabilityValueKind.Boolean,
+                or CapabilityRole.VariableRefreshRate => kind is CapabilityValueKind.Boolean,
+            CapabilityRole.ChargeBypass or CapabilityRole.ChargeProtectionMode =>
+                kind is CapabilityValueKind.Boolean or CapabilityValueKind.Choice,
             CapabilityRole.GenericChoice
                 or CapabilityRole.ScenarioMode
                 or CapabilityRole.FanMode
-                or CapabilityRole.ChargeProtectionMode
                 or CapabilityRole.LightingEffect
                 or CapabilityRole.ControllerSource
                 or CapabilityRole.MotionSource => kind is CapabilityValueKind.Choice,

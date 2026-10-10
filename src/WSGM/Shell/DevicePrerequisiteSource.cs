@@ -1,18 +1,15 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
+using Microsoft.Win32;
 using WSGM.Core;
 using WSGM.Interop;
 
 namespace WSGM.Shell;
 
 /// <summary>
-///     Reads what a device package on this install is missing, and switches on the half WSGM
-///     owns.
-///     The two halves are answered by looking at the machine rather than at what a package declares: a
-///     device manifest names no prerequisites, and what matters is whether this install has the bytes
-///     at all. Setup's Minimal and Desktop modes carry no controller support, and the protected package
-///     slot is a directory an administrator can copy into afterwards.
+///     Reads optional component availability for the current exact handheld definition.
+///     Dependency advice is quiet when Device Integration is disabled. Only Setup installs drivers.
 /// </summary>
 /// <param name="readState">Reads the machine's current state.</param>
 /// <param name="enableIntegration">Switches Device Integration on.</param>
@@ -77,5 +74,12 @@ internal sealed class DevicePrerequisiteSource(
 
         handle.Dispose();
         return true;
+    }
+
+    internal static bool HardwareDriverInstalled(string service)
+    {
+        using var registration =
+            Registry.LocalMachine.OpenSubKey($@"SYSTEM\CurrentControlSet\Services\{service}", false);
+        return registration is not null;
     }
 }

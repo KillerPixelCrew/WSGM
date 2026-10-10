@@ -23,6 +23,14 @@ internal sealed class DeviceLightingRestore
     private readonly Dictionary<DeviceCapabilityKey, Attempt> _attempts = [];
     private readonly Lock _gate = new();
 
+    internal void Reset()
+    {
+        lock (_gate)
+        {
+            _attempts.Clear();
+        }
+    }
+
     internal static bool IsLighting(CapabilityRole role)
     {
         return role is
@@ -53,7 +61,7 @@ internal sealed class DeviceLightingRestore
 
             var key = Key(view);
             var count = _attempts.TryGetValue(key, out var previous) ? previous.Count + 1 : 1;
-            _attempts[key] = new Attempt(view.Projection.State.CycleGeneration, view.Projection.DesiredValue!, count,
+            _attempts[key] = new Attempt(view.Projection.DesiredValue!, count,
                 true, false);
             return count;
         }
@@ -86,8 +94,7 @@ internal sealed class DeviceLightingRestore
         // A profile may change to a value the firmware already holds. Observe that transition
         // too, so returning to the previous profile is a new restore opportunity.
         if (_attempts.TryGetValue(key, out var attempt)
-            && (attempt.Cycle != projection.State.CycleGeneration
-                || projection.DesiredValue is not { } current
+            && (projection.DesiredValue is not { } current
                 || !CapabilityValues.Same(attempt.Value, current)))
         {
             _attempts.Remove(key);
@@ -102,5 +109,5 @@ internal sealed class DeviceLightingRestore
                || (!existing.InFlight && !existing.Done && existing.Count < MaxAttempts);
     }
 
-    private readonly record struct Attempt(long Cycle, CapabilityValue Value, int Count, bool InFlight, bool Done);
+    private readonly record struct Attempt(CapabilityValue Value, int Count, bool InFlight, bool Done);
 }

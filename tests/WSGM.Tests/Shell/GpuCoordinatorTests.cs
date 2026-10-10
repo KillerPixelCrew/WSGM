@@ -35,13 +35,13 @@ public sealed class GpuCoordinatorTests
     private static async Task PublishAsync(PluginCapabilityChannel channel, CapabilityDescriptor descriptor,
         bool withState = true)
     {
-        channel.BeginCycle(channel.CycleGeneration + 1);
-        await channel.PublishDescriptorsAsync(Set(1, descriptor) with { CycleGeneration = channel.CycleGeneration },
+        channel.Open();
+        await channel.PublishDescriptorsAsync(Set(1, descriptor),
             CancellationToken.None);
         if (withState)
         {
             await channel.PublishCapabilityStateAsync(
-                State(1, Flag(false)) with { CycleGeneration = channel.CycleGeneration }, CancellationToken.None);
+                State(1, Flag(false)), CancellationToken.None);
         }
     }
 
@@ -257,6 +257,8 @@ public sealed class GpuCoordinatorTests
         await using var coordinator = Coordinator(Profiles());
         var live = coordinator.Open(GpuInstance, Manifest(), plugin);
 
+        Assert.Throws<InvalidOperationException>(() => coordinator.Open(GpuInstance, Manifest(), plugin));
+        live.Open();
         Assert.Throws<InvalidOperationException>(() => coordinator.Open(GpuInstance, Manifest(), plugin));
 
         live.Dispose();

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
-using WSGM.Device.Sdk.Windows;
+using WSGM.DeviceLab.Windows;
 
 namespace WSGM.DeviceLab.Wizard;
 

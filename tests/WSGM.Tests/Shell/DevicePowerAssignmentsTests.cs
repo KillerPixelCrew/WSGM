@@ -261,6 +261,8 @@ public sealed class DevicePowerAssignmentsTests
     {
         AppConfig config = new()
         {
+            DeviceIntegration =
+                { PreferencesSchemaVersion = DeviceIntegrationConfig.CurrentPreferencesSchemaVersion },
             Profiles =
             {
                 Global =
@@ -287,7 +289,7 @@ public sealed class DevicePowerAssignmentsTests
     [Theory]
     [InlineData("application")]
     [InlineData("plugin")]
-    [InlineData("cycle")]
+    [InlineData("configuration")]
     [InlineData("enabled")]
     [InlineData("source")]
     public async Task ScopeChangesDuringReadRejectAssignmentBeforeSaving(string change)
@@ -299,7 +301,7 @@ public sealed class DevicePowerAssignmentsTests
             {
                 case "application": rig.Application = "steam:42"; break;
                 case "plugin": rig.Plugin = "replacement"; break;
-                case "cycle": rig.Cycle++; break;
+                case "configuration": rig.Config = new ProfileConfig { Global = rig.Config.Global }; break;
                 case "enabled": rig.Enabled = false; break;
                 case "source": rig.Device.OnAc = false; break;
             }
@@ -334,6 +336,8 @@ public sealed class DevicePowerAssignmentsTests
     {
         AppConfig config = new()
         {
+            DeviceIntegration =
+                { PreferencesSchemaVersion = DeviceIntegrationConfig.CurrentPreferencesSchemaVersion },
             Profiles =
             {
                 Global = { AcPowerPreset = new DevicePowerPresetReference { PluginId = plugin, PresetId = preset } }
@@ -357,7 +361,11 @@ public sealed class DevicePowerAssignmentsTests
     [InlineData(200, 200)]
     public void AssignmentIdentifiersSurviveTrimmingAndReloadWithoutLengthCaps(int pluginLength, int presetLength)
     {
-        AppConfig config = new();
+        AppConfig config = new()
+        {
+            DeviceIntegration =
+                { PreferencesSchemaVersion = DeviceIntegrationConfig.CurrentPreferencesSchemaVersion }
+        };
         config.Profiles.Games.Add(new GameProfile
         {
             Id = "steam:42",
@@ -549,7 +557,6 @@ public sealed class DevicePowerAssignmentsTests
                 { AcPowerPreset = Reference("extreme"), BatteryPowerPreset = Reference("battery") }
         };
 
-        internal long Cycle = 1;
         internal bool Enabled = true;
         internal string Plugin = "fixture";
         internal int Saves;
@@ -560,7 +567,7 @@ public sealed class DevicePowerAssignmentsTests
         {
             var presets = Device.Create(() => AutoTdpOwnsPower);
             return new DevicePowerAssignments(presets,
-                () => new DevicePowerAssignmentContext(Snapshot(), Plugin, Cycle, Enabled, Device.OnAc),
+                () => new DevicePowerAssignmentContext(Snapshot(), Plugin, Enabled, Device.OnAc),
                 (context, ac, reference) =>
                 {
                     Saves++;

@@ -183,7 +183,7 @@ public sealed partial class ShellSession
     private void QueueDevicePowerTransition(bool suspend, string reason, bool systemSleep = false)
     {
         var coordinator = _deviceCoordinator;
-        if (coordinator is null && _commonPlugins is null)
+        if (coordinator is null && _commonPlugins is null && _builtinGpu is null)
         {
             Log.Info(
                 $"Device cycle {(suspend ? "suspend" : "resume")} skipped ({reason}): no "
@@ -280,6 +280,11 @@ public sealed partial class ShellSession
     {
         try
         {
+            if (_builtinGpu is { } graphics)
+            {
+                await graphics.PowerTransitionAsync(suspend, _shutdownCancellation.Token).ConfigureAwait(false);
+            }
+
             if (_commonPlugins is { } manager)
             {
                 await manager.PowerTransitionAsync(suspend, _shutdownCancellation.Token).ConfigureAwait(false);

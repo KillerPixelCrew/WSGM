@@ -1,3 +1,5 @@
+using System.Text.Json;
+using SteamUiToolkit;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
@@ -10,6 +12,103 @@ namespace WSGM.Tests.Shell;
 public sealed class DeviceCapabilityRouterTests
 {
     [Fact]
+    public async Task IdenticalStateAdvancesSequenceWithoutNotifyingButRealObservationsStillNotify()
+    {
+        FakeCapabilityPublisher publisher = new(CapabilityRole.GenericToggle);
+        await using DeviceCapabilityRouter router = new(action => action());
+        router.Attach(publisher);
+        publisher.Publish(CapabilityBuilders.Set(1, CapabilityBuilders.Toggle(CapabilityProfileScope.Switched)));
+        var notifications = 0;
+        router.Changed += _ => notifications++;
+        var state = CapabilityBuilders.State(1, CapabilityBuilders.Flag(false)) with
+        {
+            ObservedAt = DateTimeOffset.UnixEpoch
+        };
+        publisher.PublishState(1, state);
+        publisher.PublishState(2, state with { ObservedValue = CapabilityBuilders.Flag(false) });
+        publisher.PublishState(1, state with { ObservedValue = CapabilityBuilders.Flag(true) });
+        Assert.Equal(1, notifications);
+        Assert.False(Assert.Single(router.Snapshot()).Projection.State.ObservedValue!.BooleanValue);
+
+        publisher.PublishState(3, state with { ObservedAt = state.ObservedAt!.Value.AddSeconds(1) });
+        Assert.Equal(2, notifications);
+        publisher.PublishState(4, state with { ObservedValue = CapabilityBuilders.Flag(true) });
+        Assert.Equal(3, notifications);
+        publisher.PublishState(5, state with
+        {
+            Available = false,
+            Reason = new CapabilityReason(CapabilityReasonCode.HostUnavailable, "Owner stopped")
+        });
+        Assert.Equal(4, notifications);
+    }
+
+    [Fact]
+    public async Task RebuiltIdenticalCurvesDoNotNotifyWhileChangedPointsDo()
+    {
+        FakeCapabilityPublisher publisher = new(CapabilityRole.FanCurve);
+        await using DeviceCapabilityRouter router = new(action => action());
+        router.Attach(publisher);
+        publisher.Publish(CapabilityBuilders.Set(1, new CapabilityDescriptor
+        {
+            CapabilityId = "fan.curve", Role = CapabilityRole.FanCurve, ValueKind = CapabilityValueKind.Curve,
+            Display = new CapabilityDisplay { Key = DisplayKey.FanCurve },
+            SupportsRead = true, SupportsWrite = true, Minimum = 0, Maximum = 100,
+            Persistence = CapabilityPersistence.Volatile
+        }));
+        var notifications = 0;
+        router.Changed += _ => notifications++;
+        var state = new CapabilityState
+        {
+            CapabilityId = "fan.curve", Available = true, Quality = HardwareStateQuality.Observed,
+            ObservedAt = DateTimeOffset.UnixEpoch,
+            ObservedValue = new CapabilityValue
+            {
+                Kind = CapabilityValueKind.Curve, CurveValue = [new CurvePoint(0, 20), new CurvePoint(100, 100)]
+            }
+        };
+        publisher.PublishState(1, state);
+        publisher.PublishState(2, state with
+        {
+            ObservedValue = state.ObservedValue with { CurveValue = state.ObservedValue.CurveValue.ToArray() }
+        });
+        Assert.Equal(1, notifications);
+        publisher.PublishState(3, state with
+        {
+            ObservedValue = state.ObservedValue with { CurveValue = [new CurvePoint(0, 30), new CurvePoint(100, 100)] }
+        });
+        Assert.Equal(2, notifications);
+    }
+
+    [Fact]
+    public async Task AnEditedValueFromThePreviousRangeIsRefusedAgainstReplacementBounds()
+    {
+        FakeCapabilityPublisher publisher = new(CapabilityRole.GenericRange);
+        await using DeviceCapabilityRouter router = new(action => action());
+        var original = new CapabilityDescriptor
+        {
+            CapabilityId = "limit", Role = CapabilityRole.GenericRange, ValueKind = CapabilityValueKind.Integer,
+            Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Limit" },
+            SupportsRead = true, SupportsWrite = true, Persistence = CapabilityPersistence.Volatile,
+            Minimum = 0, Maximum = 40, Step = 1
+        };
+        router.Attach(publisher);
+        publisher.Publish(CapabilityBuilders.Set(1, original));
+        publisher.PublishState(1,
+            CapabilityBuilders.State(1, CapabilityValue.Integer(10)) with { CapabilityId = "limit" });
+        var editedRow = new SteamSettingsRow("limit", SteamSettingsRowKind.Range,
+            "Limit", Minimum: 0, Maximum: 40, Step: 1);
+        Assert.True(SteamNativeSettingsService.ValidValue(editedRow, JsonSerializer.SerializeToElement(30)));
+
+        publisher.Publish(CapabilityBuilders.Set(2, original with { Maximum = 20 }));
+        publisher.PublishState(2,
+            CapabilityBuilders.State(2, CapabilityValue.Integer(10)) with { CapabilityId = "limit" });
+        var result = await router.ExecuteAsync("limit", null, CapabilityValue.Integer(30), TimeSpan.FromSeconds(1));
+
+        Assert.Equal(CommandOutcome.Rejected, result.Outcome);
+        Assert.Empty(publisher.Commands);
+    }
+
+    [Fact]
     public async Task ALateOldResultCannotClearTheNewCommandsPendingValueOrReplaceItsResult()
     {
         await using DeviceCapabilityRouter router = new(action => action());
@@ -21,7 +120,7 @@ public sealed class DeviceCapabilityRouterTests
         publisher.Dispatch = (command, _) => publisher.Commands.Count == 1
             ? Task.FromResult(new DeviceCommandDispatch(Result(command, CommandOutcome.TimedOut), oldCompletion.Task))
             : newDispatch.Task;
-        router.Attach(publisher, 1);
+        router.Attach(publisher);
         publisher.Publish(CapabilityBuilders.Set(1, CapabilityBuilders.Toggle(CapabilityProfileScope.Switched)));
         publisher.PublishState(1, CapabilityBuilders.State(1, CapabilityBuilders.Flag(false)));
         await router.ExecuteAsync("graphics.toggle", null, CapabilityBuilders.Flag(true), TimeSpan.FromSeconds(1));
@@ -61,7 +160,7 @@ public sealed class DeviceCapabilityRouterTests
         TaskCompletionSource<CapabilityCommandResult> late = new(TaskCreationOptions.RunContinuationsAsynchronously);
         publisher.Dispatch = (command, _) => Task.FromResult(
             new DeviceCommandDispatch(Result(command, CommandOutcome.TimedOut), late.Task));
-        router.Attach(publisher, 1);
+        router.Attach(publisher);
         publisher.Publish(CapabilityBuilders.Set(1, CapabilityBuilders.Toggle(CapabilityProfileScope.Switched)));
         publisher.PublishState(1, CapabilityBuilders.State(1, CapabilityBuilders.Flag(false)));
         await router.ExecuteAsync("graphics.toggle", null, CapabilityBuilders.Flag(true), TimeSpan.FromSeconds(1));
@@ -197,13 +296,9 @@ public sealed class DeviceCapabilityRouterTests
         return DeviceCapabilityValidation.TryValidateDescriptorSet(
             new CapabilityDescriptorSet
             {
-                Generation = 1,
-                CycleGeneration = 1,
                 Sections = sections,
                 Descriptors = [descriptor]
             },
-            1,
-            0,
             out error);
     }
 
@@ -330,20 +425,18 @@ public sealed class DeviceCapabilityRouterTests
     }
 
     [Fact]
-    public void DescriptorValidationRejectsDuplicateAndStaleShapes()
+    public void DescriptorValidationRejectsDuplicatesAndAcceptsAReplacementShape()
     {
         var descriptor = Descriptor();
         CapabilityDescriptorSet duplicated = new()
         {
-            Generation = 2,
-            CycleGeneration = 3,
             Descriptors = [descriptor, descriptor]
         };
 
         Assert.False(DeviceCapabilityValidation.TryValidateDescriptorSet(
-            duplicated, 3, 1, out _));
-        Assert.False(DeviceCapabilityValidation.TryValidateDescriptorSet(
-            duplicated with { Descriptors = [descriptor], Generation = 1 }, 3, 1, out _));
+            duplicated, out _));
+        Assert.True(DeviceCapabilityValidation.TryValidateDescriptorSet(
+            duplicated with { Descriptors = [descriptor] }, out _));
     }
 
     // A curve can be written straight through ExecuteCapabilityAsync without passing an authored
@@ -438,7 +531,7 @@ public sealed class DeviceCapabilityRouterTests
     {
         FakeCapabilityPublisher publisher = new(CapabilityRole.GenericToggle);
         await using DeviceCapabilityRouter router = new(action => action(), CapabilityBuilders.GpuPublisher);
-        router.Attach(publisher, 1);
+        router.Attach(publisher);
         publisher.Publish(CapabilityBuilders.Set(1,
             CapabilityBuilders.Toggle(CapabilityProfileScope.Switched, "switched"),
             CapabilityBuilders.Toggle(CapabilityProfileScope.GlobalOnly, "global") with
@@ -477,7 +570,7 @@ public sealed class DeviceCapabilityRouterTests
     {
         FakeCapabilityPublisher publisher = new(CapabilityRole.GenericToggle);
         await using DeviceCapabilityRouter router = new(action => action(), CapabilityBuilders.GpuPublisher);
-        router.Attach(publisher, 1);
+        router.Attach(publisher);
         publisher.Publish(CapabilityBuilders.Set(1, CapabilityBuilders.Toggle(CapabilityProfileScope.Switched)));
         ProfileValues global = new();
         global.SetDevice("gpu:wsgm.other", "graphics.toggle", null, CapabilityBuilders.Flag(true));
@@ -494,8 +587,8 @@ public sealed class DeviceCapabilityRouterTests
         FakeCapabilityPublisher publisher = new(CapabilityRole.GenericToggle);
         await using DeviceCapabilityRouter router = new(action => action(), CapabilityBuilders.GpuPublisher);
         var accepted = 0;
-        router.DescriptorsAccepted += (_, _) => accepted++;
-        router.Attach(publisher, 1);
+        router.DescriptorsAccepted += () => accepted++;
+        router.Attach(publisher);
 
         publisher.Publish(CapabilityBuilders.Set(1,
             CapabilityBuilders.Toggle(CapabilityProfileScope.Switched),
@@ -506,13 +599,13 @@ public sealed class DeviceCapabilityRouterTests
     }
 
     [Fact]
-    public async Task ACommandReachesAnyPublisherWithItsGenerations()
+    public async Task ACommandReachesTheActivePublisherWithItsValidatedValue()
     {
         FakeCapabilityPublisher publisher = new(CapabilityRole.GenericToggle);
         await using DeviceCapabilityRouter router = new(action => action(), CapabilityBuilders.GpuPublisher);
         var accepted = 0;
-        router.DescriptorsAccepted += (_, _) => accepted++;
-        router.Attach(publisher, 1);
+        router.DescriptorsAccepted += () => accepted++;
+        router.Attach(publisher);
         publisher.Publish(CapabilityBuilders.Set(1, CapabilityBuilders.Toggle(CapabilityProfileScope.Switched)));
         publisher.PublishState(1, CapabilityBuilders.State(1, CapabilityBuilders.Flag(false)));
 
@@ -522,8 +615,6 @@ public sealed class DeviceCapabilityRouterTests
         Assert.Equal(1, accepted);
         Assert.Equal(CommandOutcome.AppliedVerified, result.Outcome);
         var command = Assert.Single(publisher.Commands);
-        Assert.Equal(1, command.ExpectedCycleGeneration);
-        Assert.Equal(1, command.ExpectedDescriptorGeneration);
         Assert.True(command.RequestedValue!.BooleanValue);
     }
 }

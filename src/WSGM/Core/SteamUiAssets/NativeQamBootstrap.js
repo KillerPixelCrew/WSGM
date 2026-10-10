@@ -14495,8 +14495,13 @@
         { disabled: idle && progress.busy, onClick: run },
         label,
       );
+    // These rows wrap on handheld widths; Steam must use their geometry on both axes.
     const actions = (...children) =>
-      h(importUi.focusable, { className: "wsgm-emu-actions", "flow-children": "row" }, ...children);
+      h(
+        importUi.focusable,
+        { className: "wsgm-emu-actions", "flow-children": "grid" },
+        ...children,
+      );
     const fact = (label, value) =>
       h("div", { className: "wsgm-emu-fact" }, h("span", {}, label), h("span", {}, value || "—"));
     const box = (label, ...children) => renderSteamUiBox(react, label, ...children);
@@ -14542,7 +14547,7 @@
     const canBack = route.kind !== "list" || !!biosReturn || typeof onBack === "function";
     const tabs = h(
       importUi.focusable,
-      { className: "wsgm-emu-tabs", "flow-children": "row" },
+      { className: "wsgm-emu-tabs", "flow-children": "grid" },
       ...[
         ["installed", `Installed ${installed.length}`],
         ["available", `Available ${available.length}`],
@@ -14619,11 +14624,11 @@
             .filter((core) => coreFilter !== "files" || needFiles(core))
             .filter((core) => coreFilter !== "metadata" || core.metadataMissing);
           content = h(
-            "div",
-            { className: "wsgm-emu-split" },
+            importUi.focusable,
+            { className: "wsgm-emu-split", "flow-children": "grid" },
             h(
-              "div",
-              { className: "wsgm-emu-column" },
+              importUi.focusable,
+              { className: "wsgm-emu-column", "flow-children": "column" },
               h("h2", {}, `${entry.name} · Installed cores ${cores.length}`),
               h(importUi.textField, {
                 label: "Search cores or systems",
@@ -14689,8 +14694,8 @@
               ),
             ),
             h(
-              "div",
-              { className: "wsgm-emu-column" },
+              importUi.focusable,
+              { className: "wsgm-emu-column", "flow-children": "column" },
               box(
                 "RetroArch",
                 fact("Installed", `${entry.version} · ${entry.channel} · ${cores.length} cores`),
@@ -14708,11 +14713,11 @@
           );
         } else {
           content = h(
-            "div",
-            { className: "wsgm-emu-split" },
+            importUi.focusable,
+            { className: "wsgm-emu-split", "flow-children": "grid" },
             h(
-              "div",
-              { className: "wsgm-emu-column" },
+              importUi.focusable,
+              { className: "wsgm-emu-column", "flow-children": "column" },
               h("h2", {}, entry.name),
               fact(
                 "Installed",
@@ -14737,8 +14742,8 @@
                 : null,
             ),
             h(
-              "div",
-              { className: "wsgm-emu-column" },
+              importUi.focusable,
+              { className: "wsgm-emu-column", "flow-children": "column" },
               box(
                 offer?.releaseId && offer.releaseId !== entry.releaseId
                   ? "Update available"
@@ -14788,11 +14793,11 @@
             item.architecture === state.architecture,
         );
         content = h(
-          "div",
-          { className: "wsgm-emu-split" },
+          importUi.focusable,
+          { className: "wsgm-emu-split", "flow-children": "grid" },
           h(
-            "div",
-            { className: "wsgm-emu-column" },
+            importUi.focusable,
+            { className: "wsgm-emu-column", "flow-children": "column" },
             h("h2", {}, definition.name),
             fact("Source", definition.source),
             fact("Systems", definition.systems.map(systemName).join(" · ")),
@@ -14804,8 +14809,8 @@
             ),
           ),
           h(
-            "div",
-            { className: "wsgm-emu-column" },
+            importUi.focusable,
+            { className: "wsgm-emu-column", "flow-children": "column" },
             box(
               "Install",
               renderSteamUiChoice(importUi, {
@@ -14872,8 +14877,8 @@
         (groups[group] ??= []).push(system);
       }
       content = h(
-        "div",
-        { className: "wsgm-emu-column" },
+        importUi.focusable,
+        { className: "wsgm-emu-column", "flow-children": "column" },
         h(
           "p",
           {},
@@ -14892,7 +14897,7 @@
               const selected = choices.find((item) => item.id === preference?.installationId);
               return h(
                 importUi.focusable,
-                { key: system.id, className: "wsgm-emu-default", "flow-children": "row" },
+                { key: system.id, className: "wsgm-emu-default", "flow-children": "grid" },
                 h("span", {}, system.name),
                 renderSteamUiChoice(importUi, {
                   label: `${system.name} emulator`,
@@ -14938,11 +14943,11 @@
     } else if (tab === "bios") {
       const selected = bios.systems.find((item) => item.id === biosId) ?? bios.systems[0];
       content = h(
-        "div",
-        { className: "wsgm-emu-column" },
+        importUi.focusable,
+        { className: "wsgm-emu-column", "flow-children": "column" },
         h(
-          "div",
-          { className: "wsgm-emu-toolbar" },
+          importUi.focusable,
+          { className: "wsgm-emu-toolbar", "flow-children": "grid" },
           fact("BIOS folder", bios.folder),
           button("Change folder…", () => pick("Choose BIOS folder", "folder", "setBiosFolder")),
           button("Add files…", () =>
@@ -14960,11 +14965,11 @@
         ),
         !bios.checked ? h("p", {}, "Choose Verify files to check your BIOS folder.") : null,
         h(
-          "div",
-          { className: "wsgm-emu-split" },
+          importUi.focusable,
+          { className: "wsgm-emu-split", "flow-children": "grid" },
           h(
-            "div",
-            { className: "wsgm-emu-column" },
+            importUi.focusable,
+            { className: "wsgm-emu-column", "flow-children": "column" },
             box(
               "Systems your emulators run",
               ...bios.systems.map((system) =>
@@ -14983,8 +14988,8 @@
           ),
           selected
             ? h(
-                "div",
-                { className: "wsgm-emu-column" },
+                importUi.focusable,
+                { className: "wsgm-emu-column", "flow-children": "column" },
                 h("h2", {}, selected.name),
                 box(
                   "Files in the BIOS folder",
@@ -15051,11 +15056,11 @@
         matches(search, `${entry.name} ${(entry.systems ?? []).map(systemName).join(" ")}`),
       );
       content = h(
-        "div",
-        { className: "wsgm-emu-column" },
+        importUi.focusable,
+        { className: "wsgm-emu-column", "flow-children": "column" },
         h(
-          "div",
-          { className: "wsgm-emu-toolbar" },
+          importUi.focusable,
+          { className: "wsgm-emu-toolbar", "flow-children": "grid" },
           h(
             "div",
             { className: "wsgm-emu-search" },
@@ -15073,7 +15078,7 @@
         ),
         h(
           importUi.focusable,
-          { className: "wsgm-emu-grid", "flow-children": "row" },
+          { className: "wsgm-emu-grid", "flow-children": "grid" },
           ...visible.map((entry) => {
             const label = labelFor(entry);
             const card = renderSteamUiCard(importUi, {
@@ -15153,6 +15158,14 @@
           : null,
       );
     }
+    // A route removes its old focus target. Mount the new native navigation subtree once per
+    // route, so Steam enters it; ordinary state/progress updates retain the same focus owner.
+    if (content.type === importUi.focusable) {
+      content = react.cloneElement(content, {
+        key: `${tab}:${route.kind}:${route.id}`,
+        autoFocus: true,
+      });
+    }
     return renderSteamUiLevel(
       importUi,
       { className: "wsgm-emu-content", onBack: canBack ? back : undefined },
@@ -15164,7 +15177,7 @@
         importUi.focusable,
         {
           className: "wsgm-emu-toolbar",
-          "flow-children": "row",
+          "flow-children": "grid",
           onOptionsButton: () => !progress.busy && void emulatorAct("refreshEmulators"),
           onOptionsActionDescription: "Check for updates",
         },

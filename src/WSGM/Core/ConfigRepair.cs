@@ -7,7 +7,6 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization.Metadata;
 using Microsoft.Win32;
 using WindowsDeviceControl;
-using WSGM.Device.Sdk.Settings;
 
 namespace WSGM.Core;
 
@@ -191,13 +190,6 @@ internal static class ConfigRepair
 
     private static bool NormalizeObject(object value, Type type, object? template, HashSet<object> visited)
     {
-        // Cached SDK declarations are immutable snapshots. DeviceConfigurationRules validates
-        // the whole declaration and drops malformed ones without discarding saved settings.
-        if (value is PluginSettingsManifest)
-        {
-            return false;
-        }
-
         type = Nullable.GetUnderlyingType(type) ?? type;
         if (!visited.Add(value) || ConfigJsonContext.Tolerant.GetTypeInfo(type) is not { } metadata)
         {

@@ -12,10 +12,12 @@ namespace WSGM.Settings;
 public sealed class AudioProfileEditor : ObservableObject
 {
     private readonly Action _changed;
+    private readonly Action<Action> _postToUi;
     private readonly Func<string?, AudioDiscovery> _read;
     private bool _applyMute;
 
     private bool _applyVolume;
+    private bool _closed;
 
     // The last observation the editor drew from, and the read that produced it. Core Audio can
     // block on a wedged driver, so nothing here reads it on the dispatcher: the editor opens on
@@ -37,10 +39,11 @@ public sealed class AudioProfileEditor : ObservableObject
     private SpatialAudioOption? _spatial;
     private int _volumePercent = 50;
 
-    internal AudioProfileEditor(Action changed, Func<string?, AudioDiscovery> read)
+    internal AudioProfileEditor(Action changed, Func<string?, AudioDiscovery> read, Action<Action> postToUi)
     {
         _changed = changed;
         _read = read ?? throw new ArgumentNullException(nameof(read));
+        _postToUi = postToUi ?? throw new ArgumentNullException(nameof(postToUi));
     }
 
     /// <summary>Playback endpoint choices, with a null entry meaning leave unchanged.</summary>
@@ -61,7 +64,7 @@ public sealed class AudioProfileEditor : ObservableObject
         get => _output;
         set
         {
-            if (!SetFieldIfChanged(ref _output, value, nameof(Output)))
+            if (_loading || !SetFieldIfChanged(ref _output, value, nameof(Output)))
             {
                 return;
             }
@@ -79,7 +82,7 @@ public sealed class AudioProfileEditor : ObservableObject
         get => _input;
         set
         {
-            if (SetFieldIfChanged(ref _input, value, nameof(Input)))
+            if (!_loading && SetFieldIfChanged(ref _input, value, nameof(Input)))
             {
                 Edited();
             }
@@ -145,7 +148,7 @@ public sealed class AudioProfileEditor : ObservableObject
         get => _format;
         set
         {
-            if (!SetFieldIfChanged(ref _format, value, nameof(PlaybackFormat)))
+            if (_loading || !SetFieldIfChanged(ref _format, value, nameof(PlaybackFormat)))
             {
                 return;
             }
@@ -161,7 +164,7 @@ public sealed class AudioProfileEditor : ObservableObject
         get => _spatial;
         set
         {
-            if (!SetFieldIfChanged(ref _spatial, value, nameof(SpatialFormat)))
+            if (_loading || !SetFieldIfChanged(ref _spatial, value, nameof(SpatialFormat)))
             {
                 return;
             }
@@ -178,14 +181,42 @@ public sealed class AudioProfileEditor : ObservableObject
     /// <returns>Completion of the read and of the publication that follows it.</returns>
     public async Task RefreshEndpointsAsync()
     {
+        if (_closed)
+        {
+            return;
+        }
+
         var generation = ++_discoveryGeneration;
         var endpointId = _output?.Id;
-        var discovered = await Task.Run(() => _read(endpointId)).ConfigureAwait(true);
-        // A newer read is already on its way, and it was started against a newer selection.
-        if (generation == _discoveryGeneration)
+        var discovered = await Task.Run(() => _read(endpointId)).ConfigureAwait(false);
+        TaskCompletionSource completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        _postToUi(() =>
         {
-            Publish(discovered);
-        }
+            // Collection changes and two-way selections belong to the dispatcher, even when
+            // the caller has no synchronization context. A stale endpoint read cannot replace
+            // a newer selection or a profile loaded while that read was in flight.
+            try
+            {
+                if (!_closed && generation == _discoveryGeneration)
+                {
+                    Publish(discovered);
+                }
+
+                completion.SetResult();
+            }
+            catch (Exception ex)
+            {
+                completion.SetException(ex);
+            }
+        });
+        await completion.Task.ConfigureAwait(false);
+    }
+
+    /// <summary>Ends publication when the owning Settings window closes; a pending native read is not repeated.</summary>
+    internal void StopDiscovery()
+    {
+        _closed = true;
+        ++_discoveryGeneration;
     }
 
     private void Publish(AudioDiscovery discovered)
@@ -193,27 +224,33 @@ public sealed class AudioProfileEditor : ObservableObject
         _discovered = discovered;
         var preferredOutput = _output?.Id;
         var preferredInput = _input?.Id;
-        OutputChoices.Clear();
-        InputChoices.Clear();
-        foreach (var option in discovered.Outputs)
-        {
-            OutputChoices.Add(option);
-        }
-
-        foreach (var option in discovered.Inputs)
-        {
-            InputChoices.Add(option);
-        }
-
         _loading = true;
-        // A saved endpoint that is not enumerated right now keeps its entry and stays selected. It
-        // is a preference for a device that is off or unplugged, not a value to discard.
-        _output = Keep(OutputChoices, preferredOutput, _output);
-        _input = Keep(InputChoices, preferredInput, _input);
-        _loading = false;
-        RefreshPlaybackCapabilities(true);
-        Raise(nameof(Output));
-        Raise(nameof(Input));
+        try
+        {
+            OutputChoices.Clear();
+            InputChoices.Clear();
+            foreach (var option in discovered.Outputs)
+            {
+                OutputChoices.Add(option);
+            }
+
+            foreach (var option in discovered.Inputs)
+            {
+                InputChoices.Add(option);
+            }
+
+            // Clearing a bound ItemsSource sends SelectedItem=null back through Avalonia's
+            // two-way binding. Ignore that publication feedback for the entire rebuild.
+            _output = Keep(OutputChoices, preferredOutput, _output);
+            _input = Keep(InputChoices, preferredInput, _input);
+            RefreshPlaybackCapabilities(true);
+            Raise(nameof(Output));
+            Raise(nameof(Input));
+        }
+        finally
+        {
+            _loading = false;
+        }
     }
 
     private static AudioEndpointOption? Keep(
@@ -244,6 +281,7 @@ public sealed class AudioProfileEditor : ObservableObject
     /// <param name="preference">Saved draft to load; null clears optional choices without changing live audio.</param>
     internal void Load(AudioProfilePreference? preference)
     {
+        ++_discoveryGeneration;
         _loading = true;
         var output = preference?.Output;
         var input = preference?.Input;
@@ -318,36 +356,45 @@ public sealed class AudioProfileEditor : ObservableObject
             _savedSpatial = null;
         }
 
-        FormatChoices.Clear();
-        SpatialChoices.Clear();
-        _format = null;
-        _spatial = null;
-        // Only the endpoint the last observation actually read has capabilities to offer. Another
-        // one has none yet, which is a pending read rather than an endpoint without choices.
-        if (_output?.Id is { } endpointId && _discovered.EndpointId == endpointId)
+        var loading = _loading;
+        _loading = true;
+        try
         {
-            foreach (var format in _discovered.Formats ?? [])
+            FormatChoices.Clear();
+            SpatialChoices.Clear();
+            _format = null;
+            _spatial = null;
+            // Only the endpoint the last observation actually read has capabilities to offer. Another
+            // one has none yet, which is a pending read rather than an endpoint without choices.
+            if (_discovered.EndpointId is { } endpointId && (_output is null || _output.Id == endpointId))
             {
-                FormatChoices.Add(new AudioFormatOption(format));
-            }
-
-            if (_discovered.SpatialFormats is { } spatial)
-            {
-                SpatialChoices.Add(new SpatialAudioOption(CoreAudio.SpatialAudioFormats.Off, "Off"));
-                foreach (var format in spatial)
+                foreach (var format in _discovered.Formats ?? [])
                 {
-                    SpatialChoices.Add(new SpatialAudioOption(format, SpatialAudioNames.For(format)));
+                    FormatChoices.Add(new AudioFormatOption(format));
                 }
+
+                if (_discovered.SpatialFormats is { } spatial)
+                {
+                    SpatialChoices.Add(new SpatialAudioOption(CoreAudio.SpatialAudioFormats.Off, "Off"));
+                    foreach (var format in spatial)
+                    {
+                        SpatialChoices.Add(new SpatialAudioOption(format, SpatialAudioNames.For(format)));
+                    }
+                }
+
+                _format = FormatChoices.FirstOrDefault(choice => Same(choice.Format, _savedFormat));
+                _spatial = _savedSpatial is { } savedSpatial
+                    ? SpatialChoices.FirstOrDefault(choice => choice.Format == savedSpatial)
+                    : null;
             }
 
-            _format = FormatChoices.FirstOrDefault(choice => Same(choice.Format, _savedFormat));
-            _spatial = _savedSpatial is { } savedSpatial
-                ? SpatialChoices.FirstOrDefault(choice => choice.Format == savedSpatial)
-                : null;
+            Raise(nameof(PlaybackFormat));
+            Raise(nameof(SpatialFormat));
         }
-
-        Raise(nameof(PlaybackFormat));
-        Raise(nameof(SpatialFormat));
+        finally
+        {
+            _loading = loading;
+        }
     }
 
     private void Edited()

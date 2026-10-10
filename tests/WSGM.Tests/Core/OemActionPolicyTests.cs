@@ -1,6 +1,8 @@
 using WSGM.Core;
-using WSGM.Device.Sdk.Input;
 using WSGM.Shell;
+using OemControlDescriptor = LibHandheld.Contracts.OemControlDescriptor;
+using OemControlEvent = LibHandheld.Contracts.OemControlEvent;
+using OemControlPlacement = LibHandheld.Contracts.OemControlPlacement;
 
 namespace WSGM.Tests.Core;
 
@@ -35,6 +37,7 @@ public sealed class OemActionPolicyTests
     [InlineData(OemAction.ToggleOnScreenKeyboard)]
     [InlineData(OemAction.CyclePerformanceProfile)]
     [InlineData(OemAction.CyclePerformanceOverlayLevel)]
+    [InlineData(OemAction.MouseSecondaryButton)]
     public void WsgmAction_IsAssignableToEitherPhysicalPlacement(OemAction action)
     {
         Assert.True(OemActionRules.IsAssignable(action, OemControlPlacement.Front));
@@ -68,7 +71,8 @@ public sealed class OemActionPolicyTests
             "CyclePerformanceProfile",
             "CyclePerformanceOverlayLevel",
             "VirtualTargetRearButton1",
-            "VirtualTargetRearButton2"
+            "VirtualTargetRearButton2",
+            "MouseSecondaryButton"
         ];
 
         Assert.Equal(

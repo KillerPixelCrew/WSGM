@@ -1,12 +1,14 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using WSGM.Device.Sdk.Settings;
 
 namespace WSGM.Core;
 
 /// <summary>Source-generated JSON metadata for the persisted <see cref="AppConfig" /> contract.</summary>
 [JsonSerializable(typeof(AppConfig))]
+[JsonSerializable(typeof(GpuDriverConfig))]
 [JsonSerializable(typeof(GameModeLaunchRecovery))]
+[JsonSerializable(typeof(DisplayGpuPreference))]
+[JsonSerializable(typeof(DisplayGpuCapability))]
 [JsonSerializable(typeof(CefConfig))]
 [JsonSerializable(typeof(SplashConfig))]
 [JsonSerializable(typeof(LaunchWrapperConfig))]
@@ -14,11 +16,7 @@ namespace WSGM.Core;
 [JsonSerializable(typeof(CustomTabConfig))]
 [JsonSerializable(typeof(NativeTabConfig))]
 [JsonSerializable(typeof(DeviceIntegrationConfig))]
-[JsonSerializable(typeof(PluginSettingsScope))]
-// The SDK's own manifest types, so the cached declaration keeps one shape owned by the SDK rather
-// than a WSGM-side copy that would have to be kept in step with it.
-[JsonSerializable(typeof(PluginSettingsManifest))]
-[JsonSerializable(typeof(PluginSettingValue))]
+[JsonSerializable(typeof(DeviceProfileScope))]
 [JsonSerializable(typeof(DeviceAuthoredProfile))]
 [JsonSerializable(typeof(AuthoredCurvePoint))]
 [JsonSerializable(typeof(PerformanceConfig))]

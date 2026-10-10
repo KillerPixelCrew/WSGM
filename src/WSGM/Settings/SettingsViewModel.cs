@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia.Threading;
+using LibHandheld;
+using LibHandheld.Contracts;
 using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Install;
@@ -27,15 +30,13 @@ public sealed partial class SettingsViewModel : ObservableObject
     ///     The configuration this view model edits. It is taken over, not copied: the save path loads
     ///     fresh configuration and merges before persisting anyway.
     /// </param>
-    /// <param name="installedPluginId">Installed package ID, or null when the slot is empty or invalid.</param>
-    /// <param name="filterToInstalledPlugin">Whether the Plugin page shows only the installed package's settings.</param>
+    /// <param name="definition">Cached exact handheld metadata; null leaves device-profile authoring unavailable.</param>
     /// <param name="services">Every machine read and write the window uses; a test supplies inert ones.</param>
     /// <param name="store">The persistence owner, for the log folder and the update check; null in tests.</param>
     internal SettingsViewModel(
         AppConfig config,
-        string? installedPluginId,
-        bool filterToInstalledPlugin,
         SettingsServices services,
+        HandheldDefinition? definition = null,
         ConfigStore? store = null)
     {
         _store = store;
@@ -49,8 +50,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         TakeOverOtherManagersCommand = new AsyncRelayCommand(TakeOverOtherManagersAsync);
         GameLayout = new DisplayLayoutEditor(RefreshLaunchSummary);
         DesktopLayout = new DisplayLayoutEditor(RefreshLaunchSummary);
-        GameAudioProfile = new AudioProfileEditor(RefreshLaunchSummary, _services.ReadAudio);
-        DesktopAudioProfile = new AudioProfileEditor(RefreshLaunchSummary, _services.ReadAudio);
+        GameAudioProfile = new AudioProfileEditor(RefreshLaunchSummary, _services.ReadAudio, _services.PostToUi);
+        DesktopAudioProfile = new AudioProfileEditor(RefreshLaunchSummary, _services.ReadAudio, _services.PostToUi);
         ActionLists =
         [
             new PluginActionListEditor("Entering Game Mode", RefreshLaunchSummary),
@@ -90,7 +91,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         SavedAccentColor = _config.AccentColor;
         RecordSharedBaseline(_config);
-        LoadPluginSettings(_config, installedPluginId, filterToInstalledPlugin);
+        LoadDeviceProfiles(definition);
 
         SteamAutoRelaunch = _config.SteamAutoRelaunch;
         SteamLaunchUnelevated = _config.SteamLaunchUnelevated;
@@ -215,14 +216,22 @@ public sealed partial class SettingsViewModel : ObservableObject
     ///     The actions the running plugins declare: the resident session's own source, or an empty list for a
     ///     standalone Settings process, which then shows saved steps read-only.
     /// </param>
+    /// <param name="definition">Exact handheld metadata captured by the caller before constructing the UI.</param>
+    /// <param name="readDisplayGpu">
+    ///     Read-only capabilities from existing resident graphics owners; standalone Settings uses
+    ///     its saved catalog.
+    /// </param>
     /// <returns>A UI-thread model with explicit production services and any configuration-read problem retained for display.</returns>
     internal static SettingsViewModel FromLoadedConfig(ConfigReadResult read, ConfigStore store,
-        SteamInputShim steamInputShim, Func<IReadOnlyList<PluginActionOption>> readPluginActions)
+        SteamInputShim steamInputShim, Func<IReadOnlyList<PluginActionOption>> readPluginActions,
+        HandheldDefinition? definition = null,
+        Func<IReadOnlyList<DisplayGpuCapability>>? readDisplayGpu = null)
     {
-        // The installed plugin is not known until the Plugins folder is read on a worker; the plugin
-        // settings page fills in when that read lands.
-        var viewModel = new SettingsViewModel(read.Config ?? new AppConfig(), null, true,
-            SettingsServices.Windows(store, steamInputShim, readPluginActions), store);
+        var viewModel = new SettingsViewModel(read.Config ?? new AppConfig(),
+            SettingsServices.Windows(store, steamInputShim, readPluginActions) with
+            {
+                ReadDisplayGpu = readDisplayGpu ?? (() => [])
+            }, definition, store);
         Log.Observe(viewModel.LoadPluginPackagesAsync(), "Settings plugin packages");
         viewModel.ShowConfigReadProblem(read);
         return viewModel;
@@ -270,6 +279,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// <param name="DetectOtherManagers">Detects conflicting manager installations/startup owners.</param>
     /// <param name="ApplyOtherManagers">Applies the user's explicit takeover choice.</param>
     /// <param name="LoadPersisted">Strictly reloads persisted configuration for merge/check workflows.</param>
+    /// <param name="ReadInventory">Reads pure handheld and GPU metadata without opening native owners, on a worker.</param>
+    /// <param name="PostToUi">Publishes worker snapshots through the surface's UI dispatcher.</param>
     internal sealed record SettingsServices(
         Func<DisplayArrangement> CaptureDisplays,
         Func<DisplayTargetIdentity, DisplayCatalogFacts?> ReadDisplayFacts,
@@ -296,8 +307,13 @@ public sealed partial class SettingsViewModel : ObservableObject
         Func<UpdateState> ReadUpdates,
         Func<IReadOnlyList<DetectedManager>> DetectOtherManagers,
         Func<IReadOnlyList<DetectedManager>, OtherManagersResult> ApplyOtherManagers,
-        Func<AppConfig> LoadPersisted)
+        Func<AppConfig> LoadPersisted,
+        Func<SettingsInventory> ReadInventory,
+        Action<Action> PostToUi)
     {
+        /// <summary>Reads current display driver descriptors from existing enabled session owners only.</summary>
+        internal Func<IReadOnlyList<DisplayGpuCapability>> ReadDisplayGpu { get; init; } = () => [];
+
         /// <summary>Composes production delegates around the caller's persistence and shim owners.</summary>
         /// <param name="store">Borrowed configuration store.</param>
         /// <param name="steamInputShim">Borrowed process shim reconciler.</param>
@@ -362,7 +378,10 @@ public sealed partial class SettingsViewModel : ObservableObject
                 () => UpdateChecker.ReadState(UpdateChecker.StatePath(store.Context)),
                 () => OtherManagers.Detect(),
                 detected => OtherManagers.Apply(store, detected, true),
-                () => store.Read().RequireConfig());
+                () => store.Read().RequireConfig(),
+                () => new SettingsInventory(HandheldDevice.Detect(DeviceMachineIdentity.Collect()),
+                    BuiltinGpuDrivers.Detect()),
+                action => Dispatcher.UIThread.Post(action));
         }
     }
 }

@@ -11,8 +11,7 @@
 # This script is for the attended dev loop only. It is not part of any release path, CI never
 # calls it, and it deliberately does not touch WSGM.LogonService.exe (it changes rarely, and the
 # service holds it). WSGM lives under %ProgramFiles%\WSGM\App, so the swap runs behind one
-# elevation prompt. Unless -SkipPlugin or -Desktop is given, the same prompt also drops a freshly
-# built Claw device package into %ProgramFiles%\WSGM\Plugins.
+# elevation prompt. Handheld and GPU drivers are delivered with the application.
 [CmdletBinding()]
 param(
     # Skip the publish and swap whatever publish\App already holds, for iterating on the swap
@@ -27,15 +26,14 @@ param(
     # Leave Steam and WSGM stopped after the swap instead of restarting them.
     [switch]$NoRestart,
 
-    # Skip refreshing the installed device plugin. The plugin rebuild + one elevation prompt only
-    # matter when the SDK or the built-in package changed; a pure WSGM code loop can skip both.
-    [switch]$SkipPlugin,
-
     # Deploy to the maintainer's desktop (MS-7E16) instead of the reference Claw. The desktop runs
     # WSGM desktop-resident beside Explorer and has no device package, so this restarts WSGM with
-    # --shell --desktop-resident unless -WsgmArguments is given, and implies -SkipPlugin.
+    # --shell --desktop-resident unless -WsgmArguments is given.
     [switch]$Desktop
 )
+
+# Read the exact package IDs shared with setup and runtime discovery.
+$retiredPackageIds = @([regex]::Matches((Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\src\WSGM.Install\NeutralLibraryRetirement.cs') -Raw), '"(wsgm\.[^"]+)"') | ForEach-Object { $_.Groups[1].Value })
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -50,7 +48,6 @@ if (-not ($expectedBoard | Where-Object { $board -like "*($_)" -or $board -eq $_
     throw "dev-deploy refused: this machine reports board '$board', not the $machine ($expectedBoard)."
 }
 if ($Desktop) {
-    $SkipPlugin = $true
     if (-not $PSBoundParameters.ContainsKey('WsgmArguments')) {
         $WsgmArguments = @('--shell', '--desktop-resident')
     }
@@ -108,8 +105,35 @@ if (-not $SkipBuild) {
 }
 
 $newExe = Join-Path $appPublish 'WSGM.exe'
+# Keep family licences and glyph notices readable in the established development install too.
+foreach ($family in 'MsiClaw', 'RogAlly') {
+    $familySource = Join-Path $root "external\libhandheld\src\LibHandheld\Families\$family"
+    foreach ($notice in 'THIRD_PARTY_NOTICES.md', 'PROVENANCE.md', 'LICENSE') {
+        Copy-Item -LiteralPath (Join-Path $familySource $notice) `
+            -Destination (Join-Path $appPublish "LibHandheld-$family-$notice") -Force
+    }
+}
 if (-not (Test-Path -LiteralPath $newExe)) {
     throw "No published WSGM.exe at $newExe - build first or drop -SkipBuild."
+}
+foreach ($required in 'LibGPUDriverInteract.dll', 'LibGPUDriverInteract-LICENSE.txt',
+    'LibGPUDriverInteract-PROVENANCE.md', 'LibHandheld.dll', 'LibHandheld-LICENSE.txt',
+    'LibHandheld-PROVENANCE.md') {
+    if (-not (Test-Path -LiteralPath (Join-Path $appPublish $required) -PathType Leaf)) {
+        throw "No published $required at $appPublish - build first or drop -SkipBuild."
+    }
+}
+
+# Publish overlays an existing output directory. Retire only the former SDK files before
+# enumerating the application payload so an old assembly cannot enter the new install.
+foreach ($retiredFile in 'WSGM.Device.Sdk.dll', 'WSGM.Device.Sdk.pdb', 'WSGM.Device.Sdk.xml') {
+    $retiredPath = [IO.Path]::GetFullPath((Join-Path $appPublish $retiredFile))
+    if ([IO.Path]::GetDirectoryName($retiredPath) -cne [IO.Path]::GetFullPath($appPublish)) {
+        throw "Retired SDK path escaped the publish App directory: $retiredPath"
+    }
+    if (Test-Path -LiteralPath $retiredPath -PathType Leaf) {
+        Remove-Item -LiteralPath $retiredPath -Force
+    }
 }
 
 $sessionId = [Diagnostics.Process]::GetCurrentProcess().SessionId
@@ -177,34 +201,21 @@ $copies = [Collections.Generic.List[object]]::new()
 $copies.Add(@{ Source = $newExe; Name = 'WSGM.exe'; Process = '' })
 $copies.Add(@{ Source = $newExe; Name = 'WSGM.ShellAnchor.exe'; Process = 'WSGM.ShellAnchor' })
 foreach ($pattern in 'WSGM.Launch.exe', 'WSGM.PackagedLaunch.exe', '*.dll', 'WSGM.deps.json',
-    'WSGM.runtimeconfig.json') {
+    'WSGM.runtimeconfig.json', 'LibGPUDriverInteract-LICENSE.txt', 'LibGPUDriverInteract-PROVENANCE.md',
+    'LibHandheld-LICENSE.txt', 'LibHandheld-PROVENANCE.md', 'LibHandheld-Transports-NOTICES.md',
+    'LibHandheld-MsiClaw-*', 'LibHandheld-RogAlly-*',
+    'LibHandheld-Transports-MPL-2.0.txt', 'LibHandheld-Transports-LGPL-2.1.txt') {
     foreach ($file in @(Get-ChildItem -LiteralPath $appPublish -Filter $pattern -ErrorAction SilentlyContinue)) {
         $copies.Add(@{ Source = $file.FullName; Name = $file.Name; Process = '' })
     }
 }
 
-$packageFile = ''
-$packageId = ''
-if (-not $SkipPlugin) {
-    # The device plugin is a separate package file the App swap never touches, so a dev loop that
-    # changes the SDK leaves a stale plugin the running host rejects as api-incompatible (device
-    # features silently gone). Rebuild it from the device projects in this checkout exactly as the
-    # release bundle does.
-    Write-Host '== Packing the device plugin from WSGM source ==' -ForegroundColor Cyan
-    $pluginStage = Join-Path $root 'publish\DevDeviceComponents'
-    Remove-Item -LiteralPath $pluginStage -Recurse -Force -ErrorAction SilentlyContinue
-    # The bundle script fails by throwing; $LASTEXITCODE after a script call only repeats its last
-    # native command. A run that returns without a package is caught by the count below.
-    & "$root\eng\build-bundle.ps1" -OutputRoot $pluginStage -Only 'wsgm.device.msi.claw' `
-        -SkipTools -SkipCommunity
-
-    $packagesRoot = Join-Path $pluginStage 'Packages'
-    $stagedPackage = @(Get-ChildItem -LiteralPath $packagesRoot -File -Filter '*.wsgmpkg')
-    if ($stagedPackage.Count -ne 1) {
-        throw "Expected exactly one staged package under $packagesRoot; found $($stagedPackage.Count)."
-    }
-    $packageFile = $stagedPackage[0].FullName
-    $packageId = ($stagedPackage[0].BaseName -replace '-[0-9][0-9.]*$', '')
+foreach ($name in 'Resources\Intel\KX\KX.exe', 'Resources\Intel\KX\kx.lock.json',
+    'Resources\InpOut\inpoutx64.dll', 'Resources\InpOut\LICENSE.txt', 'Resources\InpOut\inpout.lock.json',
+    'Resources\InpOut\UPSTREAM-README.txt') {
+    $source = Join-Path $appPublish $name
+    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw "Missing handheld dependency $source" }
+    $copies.Add(@{ Source = $source; Name = $name; Process = '' })
 }
 
 Write-Host "== Swapping files into $appDirectory (elevation required) ==" -ForegroundColor Cyan
@@ -214,22 +225,31 @@ $request = Join-Path $root 'publish\dev-deploy-request.json'
     AppDirectory = $appDirectory
     Copies = $copies
     PluginsRoot = $pluginsRoot
-    PackageFile = $packageFile
-    PackageId = $packageId
+    RetiredPackageIds = $retiredPackageIds
 } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $request -Encoding UTF8
 
 # WSGM has exited by now, so a locked WSGM.exe fails the swap. A desktop session keeps a live anchor
 # process (Explorer's launch parent) that holds its image; it is inert once Explorer is up, so it is
 # stopped rather than left stale, and its copy retries briefly because a stopped process releases its
-# image lock a beat after the process object dies. The plugin is copied beside its target and
-# renamed so the folder never holds a half-written package, then every other build of that id,
-# which a dev deploy owns, is removed. Nothing else in the folder is touched.
+# image lock a beat after the process object dies. Retired first-party packages are removed by
+# exact manifest identity; other packages and their state remain untouched.
 $swap = @'
 param([string]$RequestPath)
 $ErrorActionPreference = 'Stop'
 $request = Get-Content -LiteralPath $RequestPath -Raw | ConvertFrom-Json
+foreach ($retiredFile in 'WSGM.Device.Sdk.dll', 'WSGM.Device.Sdk.pdb', 'WSGM.Device.Sdk.xml') {
+    $retiredPath = [IO.Path]::GetFullPath((Join-Path $request.AppDirectory $retiredFile))
+    if ([IO.Path]::GetDirectoryName($retiredPath) -cne [IO.Path]::GetFullPath($request.AppDirectory)) {
+        throw "Retired SDK path escaped the installed App directory: $retiredPath"
+    }
+    if (Test-Path -LiteralPath $retiredPath -PathType Leaf) {
+        Remove-Item -LiteralPath $retiredPath -Force
+    }
+}
+
 foreach ($copy in $request.Copies) {
     $target = Join-Path $request.AppDirectory $copy.Name
+    [void][IO.Directory]::CreateDirectory((Split-Path -Parent $target))
     for ($attempt = 1; ; $attempt++) {
         try {
             Copy-Item -LiteralPath $copy.Source -Destination $target -Force -ErrorAction Stop
@@ -245,15 +265,42 @@ foreach ($copy in $request.Copies) {
         }
     }
 }
-if ($request.PackageFile) {
-    New-Item -ItemType Directory -Path $request.PluginsRoot -Force | Out-Null
-    $target = Join-Path $request.PluginsRoot (Split-Path -Leaf $request.PackageFile)
-    $incoming = "$target.incoming"
-    Copy-Item -LiteralPath $request.PackageFile -Destination $incoming -Force
-    Get-ChildItem -LiteralPath $request.PluginsRoot -File -Filter "$($request.PackageId)-*.wsgmpkg" |
-        Where-Object { $_.FullName -ne $target } |
-        Remove-Item -Force
-    Move-Item -LiteralPath $incoming -Destination $target -Force
+# The direct libraries replace only these built-in archive identities. Filename prefixes are
+# insufficient: keep unrelated packages and all per-user DeviceState/PluginState journals.
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+if (Test-Path -LiteralPath $request.PluginsRoot -PathType Container) {
+    foreach ($package in @(Get-ChildItem -LiteralPath $request.PluginsRoot -File -Filter '*.wsgmpkg')) {
+        if ($package.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
+        $retired = $false
+        try {
+            $archive = [IO.Compression.ZipFile]::OpenRead($package.FullName)
+            try {
+                $manifests = @($archive.Entries | Where-Object FullName -CEQ 'plugin.wsgm.json')
+                if ($manifests.Count -eq 1 -and $manifests[0].Length -le 1MB) {
+                    $reader = [IO.StreamReader]::new($manifests[0].Open())
+                    try {
+                        $manifest = $reader.ReadToEnd() | ConvertFrom-Json -ErrorAction Stop
+                        $retired = $manifest -is [PSCustomObject] -and $manifest.id -is [string] -and
+                            $manifest.id -cin $request.RetiredPackageIds
+                    } finally {
+                        $reader.Dispose()
+                    }
+                }
+            } finally {
+                $archive.Dispose()
+            }
+        } catch [IO.InvalidDataException] {
+            continue
+        } catch [ArgumentException] {
+            continue
+        } catch [System.Management.Automation.RuntimeException] {
+            # Invalid JSON or a missing identity cannot prove this is a retired package.
+            continue
+        }
+        if ($retired) {
+            Remove-Item -LiteralPath $package.FullName -Force
+        }
+    }
 }
 '@
 $swapScript = Join-Path $root 'publish\dev-deploy-swap.ps1'
@@ -264,10 +311,6 @@ $elevated = Start-Process -FilePath 'powershell.exe' `
 if ($elevated.ExitCode -ne 0) {
     throw "Elevated swap failed (exit $($elevated.ExitCode))."
 }
-if ($packageId) {
-    Write-Host "Device plugin $packageId installed." -ForegroundColor Green
-}
-
 if ($NoRestart) {
     Write-Host 'Swap done; Steam and WSGM left stopped (-NoRestart).' -ForegroundColor Yellow
     return

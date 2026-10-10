@@ -58,11 +58,17 @@ client area; it does not implement independent panel masks, rounded cutouts or l
   companion follows physical client bounds, visibility, minimization, foreground and stacking
   changes.
 - One D3D11/DirectComposition session combines shared application visuals with Progman/WorkerW shell
-  thumbnails below them and applies one Gaussian effect. Window events coalesce for 16 ms; desktop
-  pixels themselves remain compositor-driven. There is no refresh timer running while idle.
-- Shell identity/bounds are compared on refresh and thumbnails rebuilt when they change. Display
-  changes update virtual-desktop coordinates. All windows of the consumer process are excluded to
-  prevent recursive sampling, including its popup windows and other library instances.
+  thumbnails below them and applies one Gaussian effect. Both sources use the host's physical client
+  rectangle and the same local coordinates. D3D11 uses the DXGI adapter whose attached output owns
+  the host monitor. Window events coalesce for 16 ms; desktop pixels themselves remain
+  compositor-driven. There is no refresh timer running while idle.
+- Shell identity/bounds and the sampled client rectangle are compared on refresh and thumbnails
+  rebuilt when they change. A monitor, adapter or output topology transition retires the old helper
+  and compositor resources together before creating the replacement at the new physical bounds.
+  During a client move/resize, the helper is repositioned and its new source is committed before it
+  becomes visible; unchanged refreshes never hide it or wait for a composition commit. All windows
+  of the consumer process are excluded to prevent recursive sampling, including its popup windows
+  and other library instances. Companion window events do not trigger other instances' refreshes.
 - The host temporarily receives `WS_EX_TOOLWINDOW` and loses `WS_EX_APPWINDOW`. Chromium's occlusion
   tracker otherwise stops Steam web content under a visually transparent covering window. Original
   values of those two bits are restored on detach, while other style bits are preserved. The host
@@ -139,3 +145,10 @@ native create/update/destroy and HWND seams to exercise attachment ownership, hi
 retry and stale callbacks. These are managed lifecycle checks. Use the
 [standalone sample](../../tools/LiveBackdropSample/README.md) for attended compositor verification,
 and follow the repository's manual-first test timing.
+
+[`NativeGeometryTests.cpp`](../../tests/Avalonia.LiveBackdrop.Tests/NativeGeometryTests.cpp) checks
+the native physical-pixel crop contract for negative origins, partial shell intersections, a client
+spanning outputs and movement between outputs. From an x64 Visual Studio developer prompt, compile
+with `cl /nologo /std:c++17 /EHsc /W4 /WX NativeGeometryTests.cpp /link user32.lib` in its
+directory, then run the resulting executable after the manual test. These checks do not validate
+visible blur, Optimus presentation or actual DPI virtualization on a live window.

@@ -22,40 +22,43 @@ the install completes (see [RTSS integration](rtss.md#boundary)). The approved s
 
 ## What gets installed
 
-Setup reads the machine identity (SMBIOS, CPU) and matches it against the hardware rules of every
-bundled device plugin (`PluginOffers`). A match installs that plugin and switches Device Integration
-on; exact rules rank above fallbacks, and remaining ties are shown for the user to pick one. No
-match installs plain WSGM with integration off. The installed plugin's declared capabilities decide
-the components (`SetupComponents`): a controller role (`ControllerSource`, `MotionSource`,
-`HapticSink`) brings VIIPER, USB/IP and HidHide. Bundled common plugins are offered as checkboxes.
+Setup reads machine identity (SMBIOS, CPU) and calls the exact LibHandheld detector through
+`HandheldSupport`. A native match offers Device Integration and the detected model's dependencies;
+the user can decline. Physical-controller models require VIIPER, USB/IP and HidHide. CPU-only and
+tablet definitions acquire no virtual controller. Signed PawnIO access is installed for the models
+that require it; Steam Deck's InpOut driver is installed only by its explicit setup step. An
+optional driver failure is reported and the rest of setup continues. Setup records the drivers it
+installed and offers only those for removal at uninstall. Runtime never installs either driver.
+Pinned KX and InpOut helpers, signed modules and notices ship with App. No match leaves integration
+off. The native library ships with `App`, so there is no device archive selection or installation.
+Bundled common plugins are offered as checkboxes. Updates and repairs preserve the saved integration
+intent.
 
-Graphics driver plugins (`wsgm.gpu`) are matched separately, against the PCI vendor of every present
-display adapter (`DisplayAdapterInventory`) and the package's `displayAdapters`. Every match is
-offered under Graphics, recommended and checked, so a hybrid laptop gets its Intel and its NVIDIA
-plugin together; a package for an adapter the machine lacks is not offered. They are independent of
-the device plugin choice, including Skip hardware support, and need no system components. Setup
-installs them like any common plugin and logs the adapters it found. Every run adds the matched
-graphics plugins that are not installed yet: a fresh install on the hardware page, an update on the
-update page (both checked by default), a repair and every quiet run without asking. An update has
-to, because controls move between packages; the Claw plugin's Intel controls moved to
-`wsgm.gpu.intel`. A quiet fresh install adds no other common plugin. An update or repair keeps every
-installed common and graphics plugin, including one whose adapter is absent at the time (an
-unplugged external GPU). WSGM enables a matched graphics package by default. The Plugins page in
-Settings offers a matched one that is not installed and lists the others as not for this PC's
-graphics.
+Intel, AMD and NVIDIA driver support ships in `App` through the directly referenced
+`LibGPUDriverInteract` library. It works independently of handheld integration and needs no GPU
+package installation. WSGM discovers the installed drivers and exposes their supported controls
+through the existing overlay and Steam graphics surfaces.
+
+An install, update or repair retires installed archives whose root `plugin.wsgm.json` declares
+exactly `wsgm.gpu.intel`, `wsgm.gpu.amd`, `wsgm.gpu.nvidia`, `wsgm.device.msi.claw` or
+`wsgm.device.asus.rog-ally` or the legacy `wsgm.device.msi.claw-8-a2vm`. It reads the archive
+identity rather than relying on the filename. The existing setup file transaction backs those
+archives up and restores them if the installation rolls back. Other packages and per-user
+`PluginState` recovery records stay in place; direct integrations retain existing vendor journal and
+handheld family recovery identities.
 
 The Profile page asks Full or Minimal, Steam first or Desktop first, start at sign-in and consent to
 take over Steam's autostart. Customize is a separate following step in installs, updates and
 repairs, with a description for each integration switch. A fresh install starts with Full when a
-device plugin is selected and Minimal without one, until the user explicitly chooses a level or
-edits a switch. Setup passes the choices as setup answers (`--setup --answers=<file>`,
+native handheld integration is selected and Minimal without it, until the user explicitly chooses a
+level or edits a switch. Setup passes the choices as setup answers (`--setup --answers=<file>`,
 `Core\SetupAnswers.cs`). An update or repair starts from the values WSGM exports
 (`--export-setup-answers`), so it never silently undoes Settings. A quiet fresh install never takes
 over Steam's autostart; a quiet update keeps an accepted takeover. Quick Setup is retired, and WSGM
 Settings changes the choices afterwards.
 
 On a fresh installation, selecting Device Integration also enables controller management so the
-installed device plugin can supply controller input. Updates and repairs preserve the saved
+native handheld engine can supply controller input. Updates and repairs preserve the saved
 controller-management choice. Setup logs the resulting value alongside the applied answers.
 
 Full also turns on RTSS performance controls (`Performance.Enabled`), and setup installs RTSS when
@@ -119,18 +122,13 @@ through the `--disable-other-managers` one-shot with one prompt otherwise. Press
 takeover was accepted, it names what it found and asks to save first, and a save with the takeover
 accepted applies it again, like the Steam autostart takeover.
 
-## A device package on an install that has no room for it
+## Native handheld support without the controller prerequisites
 
-The Plugins folder is one an administrator can copy a package file into, so a device package can
-arrive on a Minimal or Desktop install long after setup ran. That combination is otherwise silent:
-the package loads, controller management reports itself unavailable, and nothing says why.
-
-`Core\DevicePrerequisites` answers it by looking at the machine rather than at the package, because
-a device manifest declares no prerequisites: is a device package in the Plugins folder, is Device
-Integration on, is `libviiper.dll` beside WSGM, does the HidHide control device answer. When
-something is missing, the overlay's Device page carries a banner naming it: the overlay because it
-is the surface a person opens, and the Device page because that is where someone whose device is not
-working goes.
+The directly linked library can recognize a handheld on a Minimal or Desktop install even when the
+controller stack was not installed. `Core\DevicePrerequisites` checks native handheld availability,
+Device Integration, `libviiper.dll` beside WSGM and the HidHide control device. When something is
+missing, the overlay's Device page carries a banner naming it: the overlay because it is the surface
+a person opens, and the Device page because that is where someone whose device is not working goes.
 
 The banner offers **Enable Device Integration** and nothing else, and the split is not cosmetic.
 Device Integration is WSGM's own setting. The virtual controller needs a kernel driver, and INV-020
@@ -218,7 +216,7 @@ block: after the update the new WSGM refuses that file for its `wsgmVersion`.
 **Update** asks for confirmation, because the setup closes Steam and WSGM. It then downloads the
 setup to `%ProgramData%\WSGM\Updates`, compares it with the release's `.sha256` file, deletes it on
 a mismatch, and runs `WSGM.Setup.exe /quiet /update`. The quiet update keeps the user's answers and
-device plugin, and restarts WSGM in the mode it was running in.
+native integration intent, and restarts WSGM in the mode it was running in.
 
 A quiet update that rolls back says so. Setup shows an error box naming the failed step, writes the
 same text to `%ProgramData%\WSGM\update-failed.txt`, and removes that file after the next successful
@@ -319,7 +317,7 @@ that uses WSGM.
 | `/update`, `/repair`, `/uninstall` | Select the maintenance workflow; uninstall alone accepts `/removedata` and `/keepcomponents`       |
 | `/finishdrivers`                   | Complete the scheduled driver-install boot and re-enable the sign-in service                       |
 | `/answers=<file>`                  | Supply setup answers instead of the exported/default answers in a quiet install                    |
-| `/plugin=<id>` or `/plugin=none`   | Select a bundled device package or no device package in a quiet install                            |
+| `/plugin=<id>` or `/plugin=none`   | Select the detected native model/family ID, or decline handheld integration with `none`            |
 | `/removedata`                      | Uninstall settings/data as well, except recovery ledgers that must remain                          |
 | `/keepcomponents`                  | Leave WSGM-installed USB/IP and HidHide installed on uninstall                                     |
 | `/payload=<dir>`                   | Use an expanded payload directory for a development setup executable built without an embedded ZIP |

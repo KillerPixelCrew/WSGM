@@ -5,23 +5,26 @@ using WSGM.Install;
 
 namespace WSGM.Core;
 
-/// <summary>What a machine has, of the things a device package needs.</summary>
-/// <param name="PackageInstalled">Whether a device package is in the protected Plugins folder.</param>
+/// <summary>Whether the detected handheld and its controller prerequisites are available.</summary>
+/// <param name="HandheldSupported">Whether LibHandheld supports the detected hardware.</param>
 /// <param name="IntegrationEnabled">Whether Device Integration is switched on.</param>
 /// <param name="ControllerLibraryInstalled">Whether the virtual controller library is beside WSGM.</param>
 /// <param name="HidHideInstalled">Whether the HidHide control device answers.</param>
 /// <param name="RequiredComponents">
-///     What the installed package's declared capability roles need, from
-///     <see cref="SetupComponents" />. A package that declares no controller role needs no controller.
+///     What the exact handheld definition needs, from <see cref="SetupComponents" />.
 /// </param>
+/// <param name="PawnIoInstalled">Whether the required PawnIO driver is registered.</param>
+/// <param name="InpOutInstalled">Whether the required InpOut driver is registered.</param>
 public sealed record DevicePrerequisiteState(
-    bool PackageInstalled,
+    bool HandheldSupported,
     bool IntegrationEnabled,
     bool ControllerLibraryInstalled,
     bool HidHideInstalled,
-    IReadOnlyList<SetupComponent> RequiredComponents);
+    IReadOnlyList<SetupComponent> RequiredComponents,
+    bool PawnIoInstalled = true,
+    bool InpOutInstalled = true);
 
-/// <summary>What the user can do about a package whose prerequisites are missing.</summary>
+/// <summary>What the user can do about an enabled handheld whose prerequisites are missing.</summary>
 /// <param name="Detail">
 ///     One paragraph naming what is missing and what to do, or empty when nothing
 ///     is.
@@ -35,13 +38,9 @@ public sealed record DevicePrerequisiteAdvice(string Detail, bool CanEnableInteg
 }
 
 /// <summary>
-///     Explains a device package that cannot do its job on this install.
-///     Setup installs the virtual controller only when the plugin it installs declares a controller
-///     role, and a device package can arrive afterwards: an administrator can copy a package file into
-///     the Plugins folder. That combination is otherwise silent — the package loads, controller
-///     management reports itself unavailable, and nothing says why or what would fix it.
-///     The split between the two halves is not cosmetic. Device Integration is WSGM's own setting and
-///     WSGM can turn it on. The virtual controller needs a kernel driver, and INV-020 forbids the
+///     Explains missing dependencies for an enabled exact handheld definition.
+///     Setup installs optional controller and hardware components for the selected definition.
+///     The virtual controller needs a kernel driver, and INV-020 forbids the
 ///     runtime from installing one whatever its provenance: the USB/IP install restarts every USB 3.0
 ///     hub, which drops the built-in controller, the touch digitiser and the keyboard. Underneath a
 ///     running Game Mode that leaves a person with no input and no way back, so it happens only while
@@ -55,37 +54,39 @@ public static class DevicePrerequisites
     public static DevicePrerequisiteAdvice Describe(DevicePrerequisiteState state)
     {
         ArgumentNullException.ThrowIfNull(state);
-        // Nothing is claimed about a machine with no package: an install that never wanted a device
-        // is not missing anything, and saying so would be noise on every desktop PC.
-        if (!state.PackageInstalled)
+        // A disabled integration has no missing dependency to report.
+        if (!state.HandheldSupported || !state.IntegrationEnabled)
         {
             return new DevicePrerequisiteAdvice("", false, false);
         }
 
         var controllerMissing = state.RequiredComponents.Contains(SetupComponent.ControllerStack)
                                 && (!state.ControllerLibraryInstalled || !state.HidHideInstalled);
-        if (state.IntegrationEnabled && !controllerMissing)
+        var pawnIoMissing = state.RequiredComponents.Contains(SetupComponent.PawnIo) && !state.PawnIoInstalled;
+        var inpOutMissing = state.RequiredComponents.Contains(SetupComponent.InpOut) && !state.InpOutInstalled;
+        if (!controllerMissing && !pawnIoMissing && !inpOutMissing)
         {
             return new DevicePrerequisiteAdvice("", false, false);
         }
 
         List<string> lines = [];
-        if (!state.IntegrationEnabled)
-        {
-            lines.Add("A device package is installed but Device Integration is switched off, "
-                      + "so none of its controls are active.");
-        }
-
         if (controllerMissing)
         {
             lines.Add(Missing(state)
                       + " Controller management stays unavailable until it is added. Run Repair from "
                       + "WSGM Settings, Plugins, or from Windows Settings, Apps: setup installs what the "
-                      + "plugin needs. It installs a driver that restarts USB devices and needs a reboot, "
+                      + "handheld needs. It installs a driver that restarts USB devices and needs a reboot, "
                       + "which is why setup is the only place it can happen.");
         }
 
-        return new DevicePrerequisiteAdvice(string.Join(" ", lines), !state.IntegrationEnabled, controllerMissing);
+        if (pawnIoMissing || inpOutMissing)
+        {
+            var missing = pawnIoMissing && inpOutMissing ? "PawnIO and InpOut" : pawnIoMissing ? "PawnIO" : "InpOut";
+            lines.Add(
+                $"{missing} hardware access is missing. Run Setup Repair to add the selected handheld components.");
+        }
+
+        return new DevicePrerequisiteAdvice(string.Join(" ", lines), false, true);
     }
 
     private static string Missing(DevicePrerequisiteState state)

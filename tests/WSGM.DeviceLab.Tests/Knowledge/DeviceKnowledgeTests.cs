@@ -1,4 +1,4 @@
-using WSGM.Device.Sdk.Identity;
+using LibHandheld.Contracts;
 using WSGM.DeviceLab.Inventory;
 using WSGM.DeviceLab.Knowledge;
 
@@ -242,7 +242,7 @@ public sealed class DeviceKnowledgeTests
             Id = id,
             DisplayName = id,
             Status = status,
-            Identity = [new HardwareMatchRule { BaseboardManufacturer = "Contoso" }]
+            Identity = [new DeviceKnowledgeIdentityRule { BaseboardManufacturer = "Contoso" }]
         };
     }
 }

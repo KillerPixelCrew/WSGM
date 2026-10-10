@@ -90,18 +90,15 @@ public sealed class DeviceLightingRestoreTests
     }
 
     [Fact]
-    public void ReconnectAndResumeCanRestoreTheSavedValueInANewCycle()
+    public void OwnerResetForReconnectAndResumeReopensTheSavedValueAttempt()
     {
         DeviceLightingRestore restore = new();
-        var first = View();
-        Assert.True(Begin(restore, first));
-        var next = first with
-        {
-            Projection = first.Projection with { State = first.Projection.State with { CycleGeneration = 2 } }
-        };
-
-        Assert.True(Begin(restore, next));
-        Assert.False(Begin(restore, next));
+        var view = View();
+        Assert.True(Begin(restore, view));
+        Assert.False(Begin(restore, view));
+        restore.Reset();
+        Assert.True(Begin(restore, view));
+        Assert.False(Begin(restore, view));
     }
 
     [Fact]
@@ -247,8 +244,6 @@ public sealed class DeviceLightingRestoreTests
                     InstanceId = "left-ring",
                     Available = true,
                     Quality = HardwareStateQuality.Observed,
-                    CycleGeneration = 1,
-                    DescriptorGeneration = 1,
                     ObservedValue = Color(0xFFFFFF)
                 }
             }, null);

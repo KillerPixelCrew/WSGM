@@ -281,19 +281,19 @@ internal sealed class ProfilePage : Page
     }
 
     /// <summary>
-    ///     On a fresh install, starts the level from the hardware choice: Full with the device plugin, Minimal
+    ///     On a fresh install, starts the level from the hardware choice: Full with the native device support, Minimal
     ///     without it. It follows that choice until the user picks a level or changes a switch; an update or
     ///     repair always keeps the current settings.
     /// </summary>
-    /// <param name="withDevicePlugin">
+    /// <param name="withDeviceSupport">
     ///     True selects Full and false Minimal, only while the fresh-install defaults remain
     ///     unedited.
     /// </param>
-    public void UseDefaultLevel(bool withDevicePlugin)
+    public void UseDefaultLevel(bool withDeviceSupport)
     {
         if (!FromCurrent && !_edited)
         {
-            ApplyPreset(withDevicePlugin ? "full" : "minimal");
+            ApplyPreset(withDeviceSupport ? "full" : "minimal");
         }
     }
 

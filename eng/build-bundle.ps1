@@ -3,15 +3,14 @@
     Builds every bundled plugin package, the bundle manifest and Device Lab from this checkout.
 
 .DESCRIPTION
-    Setup carries every accepted plugin and installs only the device plugin whose hardware rules
-    match the machine and the graphics plugins whose display adapters are present, so a release
-    needs each package plus one bundle.json describing them. The
+    Setup carries every accepted common plugin and installs the selected packages, so a release
+    needs each package and one bundle.json describing them. Handheld and GPU backends are
+    application libraries, not packages. The
     list of plugins is plugins\curated\*.json, the only place their origin and validation status
     are set.
 
-    First-party plugins are packed from this checkout: device packages through pack-device.ps1,
-    which validates them with the Device Lab built here, and common packages through
-    package-plugin.ps1. A community plugin is built from the exact commit its curated file pins,
+    First-party plugins are packed from this checkout through package-plugin.ps1.
+    A community plugin is built from the exact commit its curated file pins,
     against this checkout's SDK packed into a local feed. A pinned commit that no longer builds is
     recorded in bundle.json as outdated instead of failing the release; -SkipCommunity leaves
     community plugins out entirely, for offline local builds.
@@ -61,7 +60,6 @@ if (-not ($outputFull + [IO.Path]::DirectorySeparatorChar).StartsWith(
 
 $wsgmVersion = Get-WsgmVersion -Root $root
 $curatedRoot = Join-Path $root "plugins\curated"
-$packDevice = Join-Path $PSScriptRoot "pack-device.ps1"
 $packCommon = Join-Path $PSScriptRoot "package-plugin.ps1"
 
 # Temporary work lives in a fresh directory of this run, removed afterwards.
@@ -72,34 +70,20 @@ function Read-Manifest([string]$Path) {
     return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json -Depth 32
 }
 
-function Build-FirstPartyPackage([string]$ProjectDirectory, [string]$Validator, [string]$Destination,
+function Build-FirstPartyPackage([string]$ProjectDirectory, [string]$Destination,
     [string[]]$MsBuildArgument = @()) {
     $manifest = Read-Manifest (Join-Path $ProjectDirectory "plugin.wsgm.json")
     $archive = Join-Path $Destination ("{0}-{1}.wsgmpkg" -f $manifest.id, $manifest.version)
-    if ($manifest.PSObject.Properties.Name -contains "category") {
-        $projects = @(Get-ChildItem -LiteralPath $ProjectDirectory -Filter "*.csproj" -File)
-        if ($projects.Count -ne 1) {
-            throw "Expected exactly one project in $ProjectDirectory."
-        }
-        & $packCommon -Project $projects[0].FullName -Archive $archive -WsgmVersion $wsgmVersion `
-            -MsBuildArgument $MsBuildArgument | Out-Host
+    if (-not ($manifest.PSObject.Properties.Name -contains "category") -or
+        $manifest.category -eq "wsgm.device") {
+        throw "Device packages are retired; $($manifest.id) must use the common Plugin SDK."
     }
-    else {
-        $packArguments = @{
-            Source = $ProjectDirectory
-            RequireGlyphs = (Test-Path -LiteralPath (Join-Path $ProjectDirectory "glyphs") -PathType Container)
-            OutputRoot = $Destination
-            Configuration = $Configuration
-            RuntimeIdentifier = $RuntimeIdentifier
-            DeviceLabExecutable = $Validator
-            WsgmVersion = $wsgmVersion
-            MsBuildArgument = $MsBuildArgument
-        }
-        if ($NoRestore -and $MsBuildArgument.Count -eq 0) {
-            $packArguments.NoRestore = $true
-        }
-        & $packDevice @packArguments | Out-Host
+    $projects = @(Get-ChildItem -LiteralPath $ProjectDirectory -Filter "*.csproj" -File)
+    if ($projects.Count -ne 1) {
+        throw "Expected exactly one project in $ProjectDirectory."
     }
+    & $packCommon -Project $projects[0].FullName -Archive $archive -WsgmVersion $wsgmVersion `
+        -MsBuildArgument $MsBuildArgument | Out-Host
     if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) {
         throw "Packing $($manifest.id) did not produce $archive."
     }
@@ -112,7 +96,7 @@ function Get-SdkFeed {
         return $script:sdkFeed
     }
     $feed = Join-Path $temporaryRoot "sdk-feed"
-    foreach ($sdk in @("src\WSGM.Device.Sdk\WSGM.Device.Sdk.csproj", "src\WSGM.Plugin.Sdk\WSGM.Plugin.Sdk.csproj")) {
+    foreach ($sdk in @("src\WSGM.Plugin.Sdk\WSGM.Plugin.Sdk.csproj")) {
         & dotnet pack (Join-Path $root $sdk) --configuration $Configuration --output $feed "-p:Version=$wsgmVersion" | Out-Host
         if ($LASTEXITCODE -ne 0) {
             throw "Packing $sdk into the local SDK feed failed."
@@ -122,7 +106,6 @@ function Get-SdkFeed {
     Set-Content -LiteralPath $targets -Encoding utf8 -Value @"
 <Project>
   <ItemGroup>
-    <PackageReference Update="WSGM.Device.Sdk" Version="$wsgmVersion" />
     <PackageReference Update="WSGM.Plugin.Sdk" Version="$wsgmVersion" />
   </ItemGroup>
 </Project>
@@ -131,7 +114,7 @@ function Get-SdkFeed {
     return $script:sdkFeed
 }
 
-function Build-CommunityPackage($Curated, [string]$Validator, [string]$Destination) {
+function Build-CommunityPackage($Curated, [string]$Destination) {
     $source = $Curated.source
     if ([string]$source.commit -notmatch '^[0-9a-f]{40}$') {
         throw "$($Curated.id) must pin a full commit SHA."
@@ -147,7 +130,7 @@ function Build-CommunityPackage($Curated, [string]$Validator, [string]$Destinati
     if (-not $projectDirectory.StartsWith($clone, [StringComparison]::OrdinalIgnoreCase)) {
         throw "$($Curated.id) names a project outside its repository."
     }
-    return Build-FirstPartyPackage $projectDirectory $Validator $Destination (Get-SdkFeed)
+    return Build-FirstPartyPackage $projectDirectory $Destination (Get-SdkFeed)
 }
 
 function Get-OutdatedLog([string]$Message) {
@@ -158,18 +141,21 @@ function Get-OutdatedLog([string]$Message) {
 }
 
 try {
-    $deviceLabDestination = Join-Path $temporaryRoot "Tools\DeviceLab"
-    Publish-DeviceLab -Root $root -Destination $deviceLabDestination -Configuration $Configuration `
-        -RuntimeIdentifier $RuntimeIdentifier -NoRestore:$NoRestore
-    $validator = Join-Path $deviceLabDestination "wsgm-device.exe"
-    foreach ($requiredToolFile in @(
-        $validator,
-        (Join-Path $deviceLabDestination "THIRD_PARTY_NOTICES.md"),
-        (Join-Path $deviceLabDestination "DotNetRuntime-LICENSE.txt"),
-        (Join-Path $deviceLabDestination "DotNetRuntime-THIRD-PARTY-NOTICES.txt")
-    )) {
-        if (-not (Test-Path -LiteralPath $requiredToolFile -PathType Leaf)) {
-            throw "Device Lab publish is missing required content: $requiredToolFile"
+    # Publish optional tooling and each selected package through their own project graphs.
+    # Never restore WSGM.slnx here: the community job has no access to private application libraries.
+    if (-not $SkipTools) {
+        $deviceLabDestination = Join-Path $temporaryRoot "Tools\DeviceLab"
+        Publish-DeviceLab -Root $root -Destination $deviceLabDestination -Configuration $Configuration `
+            -RuntimeIdentifier $RuntimeIdentifier -NoRestore:$NoRestore
+        foreach ($requiredToolFile in @(
+            (Join-Path $deviceLabDestination "wsgm-device.exe"),
+            (Join-Path $deviceLabDestination "THIRD_PARTY_NOTICES.md"),
+            (Join-Path $deviceLabDestination "DotNetRuntime-LICENSE.txt"),
+            (Join-Path $deviceLabDestination "DotNetRuntime-THIRD-PARTY-NOTICES.txt")
+        )) {
+            if (-not (Test-Path -LiteralPath $requiredToolFile -PathType Leaf)) {
+                throw "Device Lab publish is missing required content: $requiredToolFile"
+            }
         }
     }
 
@@ -200,7 +186,7 @@ try {
                 continue
             }
             try {
-                $archive = Build-CommunityPackage $curated $validator $packed
+                $archive = Build-CommunityPackage $curated $packed
             }
             catch {
                 Write-Warning "Community plugin $($curated.id) is outdated for WSGM ${wsgmVersion}: $_"
@@ -209,7 +195,7 @@ try {
             }
         }
         else {
-            $archive = Build-FirstPartyPackage (Join-Path $root ([string]$curated.project)) $validator $packed
+            $archive = Build-FirstPartyPackage (Join-Path $root ([string]$curated.project)) $packed
         }
 
         # Check the exact archive before it enters the bundle.
@@ -225,13 +211,6 @@ try {
         }
         if (-not (Test-Path -LiteralPath (Join-Path $expanded "LICENSE.txt") -PathType Leaf)) {
             throw "$($curated.id) ships no LICENSE.txt."
-        }
-        $isDevice = -not ($manifest.PSObject.Properties.Name -contains "category")
-        if ($isDevice) {
-            $validation = @(& $validator validate $expanded 2>&1)
-            if ($LASTEXITCODE -ne 0) {
-                throw "Offline validation failed for $($curated.id):`n$($validation -join [Environment]::NewLine)"
-            }
         }
 
         $file = Split-Path -Leaf $archive
@@ -257,7 +236,7 @@ try {
             id = [string]$manifest.id
             name = [string]$manifest.name
             version = [string]$manifest.version
-            category = if ($isDevice) { "wsgm.device" } else { [string]$manifest.category }
+            category = [string]$manifest.category
             origin = [string]$curated.origin
             validation = [string]$curated.validation
             testedHardware = $testedHardware

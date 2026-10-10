@@ -1,23 +1,21 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
-using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
-using WSGM.Device.Sdk;
-using WSGM.Device.Sdk.Packaging;
 using WSGM.DeviceLab.Application;
 using WSGM.DeviceLab.Capture;
+using WSGM.DeviceLab.Fixtures;
 using WSGM.DeviceLab.Inventory;
 using WSGM.DeviceLab.Preflight;
 
 namespace WSGM.DeviceLab.Scaffolding;
 
-/// <summary>Exact identity copied into a new minimal plugin starter.</summary>
+/// <summary>Exact identity copied into a new LibHandheld contribution starter.</summary>
 internal sealed record PluginScaffoldIdentity
 {
     /// <summary>Required SMBIOS system manufacturer.</summary>
@@ -42,16 +40,16 @@ internal sealed record PluginScaffoldIdentity
     public required string UsbDeviceRelease { get; init; }
 }
 
-/// <summary>Files written by token replacement from the checked-in minimal plugin template.</summary>
+/// <summary>Files written by token replacement from the checked-in LibHandheld contribution template.</summary>
 internal sealed record PluginScaffoldResult
 {
     /// <summary>New absolute output directory.</summary>
     public required string OutputDirectory { get; init; }
 
-    /// <summary>Stable starter package ID.</summary>
-    public required string PackageId { get; init; }
+    /// <summary>Stable contribution ID.</summary>
+    public required string ContributionId { get; init; }
 
-    /// <summary>Root namespace and assembly name.</summary>
+    /// <summary>Native family namespace.</summary>
     public required string RootNamespace { get; init; }
 
     /// <summary>Exact copied device identity.</summary>
@@ -61,16 +59,16 @@ internal sealed record PluginScaffoldResult
     public IReadOnlyList<string> Files { get; init; } = [];
 }
 
-/// <summary>Copies the checked-in minimal plugin template and replaces exact identity tokens.</summary>
+/// <summary>Copies the checked-in LibHandheld contribution template and replaces exact identity tokens.</summary>
 internal static partial class ScaffoldFromCaptureWorkflow
 {
     private const string ResourcePrefix = "WSGM.DeviceLab.Templates.MinimalPlugin.";
 
     private static readonly IReadOnlyList<TemplateFile> Templates =
     [
-        new("plugin.wsgm.json.template", "plugin.wsgm.json"),
-        new("Plugin.csproj.template", "{rootNamespace}.csproj"),
-        new("DevicePlugin.cs.template", "DevicePlugin.cs"),
+        new("contribution.json.template", "contribution.json"),
+        new("DeviceIdentity.cs.template", "DeviceIdentity.cs"),
+        new("ReportDecoder.cs.template", "ReportDecoder.cs"),
         new("README.md.template", "README.md"),
         new("LICENSE.txt.template", "LICENSE.txt")
     ];
@@ -102,15 +100,22 @@ internal static partial class ScaffoldFromCaptureWorkflow
         }
 
         var identity = SelectExactIdentity(read.Bundle, usbInstanceId);
-        return Write(identity, outputDirectory, boundaries, null, cancellationToken);
+        capture.Position = 0;
+        var sourceHash = Convert.ToHexStringLower(SHA256.HashData(capture));
+        cancellationToken.ThrowIfCancellationRequested();
+        return Write(identity, outputDirectory, boundaries, new PluginScaffoldExtras
+        {
+            SourceCapture = read.Bundle,
+            SourceCaptureSha256 = sourceHash
+        }, cancellationToken);
     }
 
-    /// <summary>Renders the minimal plugin template for an exact identity and publishes it as a new directory.</summary>
+    /// <summary>Renders the LibHandheld contribution template for an exact identity and publishes it as a new directory.</summary>
     /// <param name="identity">Exact identity the generated detection matches.</param>
     /// <param name="outputDirectory">New explicit output directory.</param>
     /// <param name="boundaries">Filesystem safety boundaries.</param>
     /// <param name="extras">
-    ///     Extra templates and tokens, and the manifest's hardware and capability lists; null renders the
+    ///     Extra templates and tokens, and the contribution's hardware and observed-role lists; null renders the
     ///     captured board as the one hardware rule and no capabilities.
     /// </param>
     /// <param name="cancellationToken">Cancels rendering or publication.</param>
@@ -123,23 +128,19 @@ internal static partial class ScaffoldFromCaptureWorkflow
         CancellationToken cancellationToken)
     {
         var slug = Slug(identity.BaseboardProduct);
-        var rootNamespace = $"WSGM.Device.Scaffold.{Identifier(slug)}";
-        var packageId = $"wsgm.device.scaffold.{slug}";
-        var deviceDefinitionId = $"scaffold.{slug}";
-        var displayName = $"{identity.SystemManufacturer} {identity.BaseboardProduct} Device Plugin";
+        var rootNamespace = $"LibHandheld.Families.{Identifier(slug)}";
+        var packageId = $"libhandheld.{slug}";
+        var displayName = $"{identity.SystemManufacturer} {identity.BaseboardProduct} Handheld Contribution";
         var tokens = Tokens(
-            boundaries,
             rootNamespace,
             packageId,
-            deviceDefinitionId,
             displayName,
             identity);
         tokens["HARDWARE_JSON"] = extras?.HardwareJson
                                   ??
                                   $"{{ \"baseboardProduct\": \"{tokens["BOARD_JSON"]}\", \"systemSku\": \"{tokens["SYSTEM_SKU_JSON"]}\" }}";
-        // The template publishes a toggle and a read-only value, and the host refuses roles the manifest
-        // does not declare.
-        tokens["CAPABILITIES_JSON"] = extras?.CapabilitiesJson ?? "[\"GenericToggle\", \"GenericReadOnly\"]";
+        // Observed roles are evidence only; the contribution registers no native capabilities.
+        tokens["CAPABILITIES_JSON"] = extras?.CapabilitiesJson ?? "[]";
         foreach (var (key, value) in extras?.Tokens ?? new Dictionary<string, string>())
         {
             tokens.Add(key, value);
@@ -154,12 +155,7 @@ internal static partial class ScaffoldFromCaptureWorkflow
             rendered.Add((path, Normalize(content)));
         }
 
-        var manifest = PluginManifestReader.Read(
-            Encoding.UTF8.GetBytes(rendered.Single(file => file.Path == "plugin.wsgm.json").Content));
-        if (!manifest.IsValid)
-        {
-            throw new InvalidDataException(string.Join(" ", manifest.Errors.Select(error => error.Message)));
-        }
+        using var metadata = JsonDocument.Parse(rendered.Single(file => file.Path == "contribution.json").Content);
 
         var output = DeviceLabOutputPathPolicy.Evaluate(
             outputDirectory,
@@ -197,6 +193,17 @@ internal static partial class ScaffoldFromCaptureWorkflow
                 DurableFile.WriteNew(path, file => file.Write(Encoding.UTF8.GetBytes(content)));
             }
 
+            if (extras?.SourceCapture is { } sourceCapture)
+            {
+                FixtureExtractionWorkflow.Extract(sourceCapture, extras.SourceCaptureSha256!, "libhandheld-capture",
+                    Path.Combine(temporary, "fixtures"), boundaries, cancellationToken);
+                foreach (var fixture in Directory.EnumerateFiles(Path.Combine(temporary, "fixtures"), "*",
+                             SearchOption.AllDirectories))
+                {
+                    rendered.Add((Path.GetRelativePath(temporary, fixture), string.Empty));
+                }
+            }
+
             cancellationToken.ThrowIfCancellationRequested();
             if (Directory.Exists(output.FullPath) || File.Exists(output.FullPath))
             {
@@ -214,7 +221,7 @@ internal static partial class ScaffoldFromCaptureWorkflow
         return new PluginScaffoldResult
         {
             OutputDirectory = output.FullPath,
-            PackageId = packageId,
+            ContributionId = packageId,
             RootNamespace = rootNamespace,
             Identity = identity,
             Files = [.. rendered.Select(file => file.Path).Order(StringComparer.Ordinal)]
@@ -294,10 +301,8 @@ internal static partial class ScaffoldFromCaptureWorkflow
     }
 
     private static Dictionary<string, string> Tokens(
-        DeviceLabPathBoundaries boundaries,
         string rootNamespace,
         string packageId,
-        string deviceDefinitionId,
         string displayName,
         PluginScaffoldIdentity identity)
     {
@@ -308,9 +313,6 @@ internal static partial class ScaffoldFromCaptureWorkflow
             ["PACKAGE_ID_CS"] = CSharp(packageId),
             ["DISPLAY_NAME_JSON"] = Json(displayName),
             ["DISPLAY_NAME_MD"] = Markdown(displayName),
-            ["DEVICE_ID_CS"] = CSharp(deviceDefinitionId),
-            ["API_VERSION"] = DeviceApi.Version.ToString(CultureInfo.InvariantCulture),
-            ["SDK_REFERENCE_XML"] = SdkReferenceXml(boundaries),
             ["MANUFACTURER_CS"] = CSharp(identity.SystemManufacturer),
             ["MANUFACTURER_MD"] = Markdown(identity.SystemManufacturer),
             ["BOARD_CS"] = CSharp(identity.BaseboardProduct),
@@ -328,56 +330,11 @@ internal static partial class ScaffoldFromCaptureWorkflow
         };
     }
 
-    /// <summary>Returns a buildable reference to the exact SDK used by this Device Lab process.</summary>
-    /// <remarks>
-    ///     A checkout gets a project reference for normal source development. The installed tool is not
-    ///     inside a checkout, so its scaffold instead records the absolute path of the exact SDK assembly
-    ///     shipped beside it. An unresolved MSBuild property is never emitted.
-    /// </remarks>
-    /// <param name="boundaries">Filesystem boundaries identifying the source checkout, when one is available.</param>
-    /// <returns>An XML-escaped MSBuild project or assembly reference; throws when no exact SDK reference can be resolved.</returns>
-    [UnconditionalSuppressMessage("SingleFile", "IL3000",
-        Justification =
-            "The portable single-file build has no SDK assembly on disk; the empty location is refused below with an explanation, and a checkout still scaffolds through the project reference.")]
-    internal static string SdkReferenceXml(DeviceLabPathBoundaries boundaries)
-    {
-        ArgumentNullException.ThrowIfNull(boundaries);
-        if (boundaries.RepositoryRoot is { Length: > 0 } root)
-        {
-            var candidate = Path.GetFullPath(Path.Combine(
-                root, "src", "WSGM.Device.Sdk",
-                "WSGM.Device.Sdk.csproj"));
-            if (File.Exists(candidate))
-            {
-                return $"<ProjectReference Include=\"{Xml(candidate)}\" />";
-            }
-        }
-
-        var sdkAssembly = typeof(DeviceApi).Assembly.Location;
-        if (string.IsNullOrWhiteSpace(sdkAssembly)
-            || !File.Exists(sdkAssembly)
-            || !string.Equals(
-                Path.GetFileName(sdkAssembly),
-                "WSGM.Device.Sdk.dll",
-                StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidDataException(
-                "The exact WSGM.Device.Sdk assembly is unavailable. Run Device Lab from a complete "
-                + "installation or a WSGM source checkout.");
-        }
-
-        var resolved = Path.GetFullPath(sdkAssembly);
-        return "<Reference Include=\"WSGM.Device.Sdk\">\n"
-               + $"      <HintPath>{Xml(resolved)}</HintPath>\n"
-               + "      <Private>false</Private>\n"
-               + "    </Reference>";
-    }
-
     private static string ReadTemplate(string name)
     {
         var assembly = typeof(ScaffoldFromCaptureWorkflow).Assembly;
         using var stream = assembly.GetManifestResourceStream(ResourcePrefix + name)
-                           ?? throw new InvalidDataException($"Checked-in plugin template '{name}' is missing.");
+                           ?? throw new InvalidDataException($"Checked-in contribution template '{name}' is missing.");
         using StreamReader reader = new(stream, Encoding.UTF8, true);
         return reader.ReadToEnd();
     }
@@ -409,7 +366,9 @@ internal static partial class ScaffoldFromCaptureWorkflow
             builder.Append(char.ToUpperInvariant(segment[0])).Append(segment.AsSpan(1));
         }
 
-        return builder.Length == 0 ? "UnknownDevice" : builder.ToString();
+        return builder.Length == 0 ? "UnknownDevice"
+            : char.IsDigit(builder[0]) ? "Device" + builder
+            : builder.ToString();
     }
 
     internal static string CSharp(string value)
@@ -424,15 +383,6 @@ internal static partial class ScaffoldFromCaptureWorkflow
     private static string Json(string identity)
     {
         return JsonEncodedText.Encode(identity).ToString();
-    }
-
-    private static string Xml(string value)
-    {
-        return value
-            .Replace("&", "&amp;", StringComparison.Ordinal)
-            .Replace("\"", "&quot;", StringComparison.Ordinal)
-            .Replace("<", "&lt;", StringComparison.Ordinal)
-            .Replace(">", "&gt;", StringComparison.Ordinal);
     }
 
     private static string Markdown(string value)
@@ -460,14 +410,20 @@ internal static partial class ScaffoldFromCaptureWorkflow
     internal sealed record TemplateFile(string ResourceName, string OutputPath);
 }
 
-/// <summary>What another scaffold source adds to the minimal plugin template.</summary>
+/// <summary>What another scaffold source adds to the LibHandheld contribution template.</summary>
 internal sealed record PluginScaffoldExtras
 {
-    /// <summary>The manifest's hardware rules as JSON objects, joined by a comma.</summary>
-    public required string HardwareJson { get; init; }
+    /// <summary>Validated sanitized capture for recorded decoder fixtures.</summary>
+    public SanitizedCaptureBundle? SourceCapture { get; init; }
 
-    /// <summary>The manifest's capability roles as a JSON array.</summary>
-    public required string CapabilitiesJson { get; init; }
+    /// <summary>Hash computed from the same retained capture handle.</summary>
+    public string? SourceCaptureSha256 { get; init; }
+
+    /// <summary>The contribution's observed hardware rules as JSON objects, joined by a comma.</summary>
+    public string? HardwareJson { get; init; }
+
+    /// <summary>The contribution's observed capability roles as a JSON array.</summary>
+    public string? CapabilitiesJson { get; init; }
 
     /// <summary>Templates rendered in addition to the minimal ones.</summary>
     public IReadOnlyList<ScaffoldFromCaptureWorkflow.TemplateFile> Templates { get; init; } = [];

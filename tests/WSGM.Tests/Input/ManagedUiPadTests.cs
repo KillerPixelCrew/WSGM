@@ -1,6 +1,7 @@
-using WSGM.Device.Sdk.Input;
 using WSGM.Input;
 using WSGM.Shell;
+using CanonicalButtons = LibHandheld.Contracts.CanonicalButtons;
+using CanonicalControllerSample = LibHandheld.Contracts.CanonicalControllerSample;
 
 namespace WSGM.Tests.Input;
 

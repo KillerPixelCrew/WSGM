@@ -27,7 +27,29 @@ internal static class AppConfigRules
         ConfigRepair.NormalizeEnums(config);
         config.StartupApps ??= [];
         config.PluginInstances = [.. (config.PluginInstances ?? []).Where(static instance => instance is not null)];
+        BuiltinGpuDrivers.Normalize(config);
         config.DeviceIntegration ??= new DeviceIntegrationConfig();
+        config.Profiles ??= new ProfileConfig();
+        if (config.DeviceIntegration.PreferencesSchemaVersion !=
+            DeviceIntegrationConfig.CurrentPreferencesSchemaVersion)
+        {
+            foreach (var values in new[] { config.Profiles.Global }.Concat((config.Profiles.Games ?? [])
+                             .Where(game => game is not null).Select(game => game.Values))
+                         .Where(values => values is not null))
+            {
+                values.TdpUnified = null;
+                values.UnifiedWatts = null;
+                values.SustainedWatts = null;
+                values.AcPowerPreset = null;
+                values.BatteryPowerPreset = null;
+                values.FanCurveProfileId = null;
+                values.LightingProfileId = null;
+                values.ControllerTarget = null;
+                values.Device?.RemoveAll(entry =>
+                    entry is null || !ProfileSettingKey.IsGpuPublisher(entry.DeviceIdentityKey));
+            }
+        }
+
         diagnostics.AddRange(DeviceConfigurationRules.Normalize(config.DeviceIntegration));
         config.Performance ??= new PerformanceConfig();
         config.Profiles ??= new ProfileConfig();

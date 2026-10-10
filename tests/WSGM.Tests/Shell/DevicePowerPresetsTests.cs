@@ -36,7 +36,7 @@ public sealed class DevicePowerPresetsTests
         DevicePowerAssignments assignments = new(service,
             () => new DevicePowerAssignmentContext(new ProfileSnapshot(config, ActiveProfile.None, generation),
                 "fixture",
-                1, true, true),
+                true, true),
             (_, ac, reference) =>
             {
                 generation++;
@@ -80,8 +80,6 @@ public sealed class DevicePowerPresetsTests
                     Available = true,
                     Quality = HardwareStateQuality.Verified,
                     ObservedValue = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = watts },
-                    CycleGeneration = 1,
-                    DescriptorGeneration = 1,
                     ObservedAt = DateTimeOffset.UtcNow
                 }
             }, null);
@@ -167,9 +165,10 @@ public sealed class DevicePowerPresetsTests
     }
 
     [Fact]
-    public async Task NewDeviceGenerationStopsBeforeAnotherWrite()
+    public async Task LossOfTheCurrentCapabilitiesStopsBeforeAnotherWrite()
     {
-        Rig rig = new() { ReplaceGeneration = true };
+        Rig rig = new();
+        rig.AfterDeviceWrite = _ => rig.Views = [];
         Assert.False((await rig.Create().ApplyAsync("battery", CancellationToken.None)).Succeeded);
         Assert.Single(rig.Calls);
         Assert.Equal(0, rig.Api.Writes);
@@ -462,15 +461,13 @@ public sealed class DevicePowerPresetsTests
         rig.AddScenarios();
         CapabilityDescriptorSet set = new()
         {
-            Generation = 1,
-            CycleGeneration = 1,
             Descriptors = [.. rig.Views.Select(view => view.Descriptor)]
         };
-        Assert.True(DeviceCapabilityValidation.TryValidateDescriptorSet(set, 1, 0, out var error), error);
+        Assert.True(DeviceCapabilityValidation.TryValidateDescriptorSet(set, out var error), error);
         Assert.False(DeviceCapabilityValidation.TryValidateDescriptorSet(set with
         {
             Descriptors = [.. set.Descriptors.Take(2)]
-        }, 1, 0, out _));
+        }, out _));
     }
 
     internal sealed class ModeApi : IPowerModeApi
@@ -523,7 +520,6 @@ public sealed class DevicePowerPresetsTests
         internal string? LastScenario;
         internal bool? OnAc = true;
         internal Action<int>? OnWriteEntered;
-        internal bool ReplaceGeneration;
 
         internal DeviceCapabilityView[] Views =
             [View(CapabilityRole.PowerSustainedLimit, 17), View(CapabilityRole.PowerSlowLimit, 18)];
@@ -532,11 +528,9 @@ public sealed class DevicePowerPresetsTests
 
         internal DevicePowerPresets Create(Func<bool>? automaticPowerOwner = null)
         {
-            return new DevicePowerPresets(() => Views, async (id, value, cycle, generation, persist, token) =>
+            return new DevicePowerPresets(() => Views, async (id, value, persist, token) =>
                 {
                     var watts = value.IntegerValue ?? 0;
-                    Assert.Equal(1, cycle);
-                    Assert.Equal(1, generation);
                     Calls.Add((id, watts));
                     Persistence.Add(persist);
                     OnWriteEntered?.Invoke(Calls.Count);
@@ -559,8 +553,7 @@ public sealed class DevicePowerPresetsTests
                         {
                             State = Views[index].Projection.State with
                             {
-                                ObservedValue = value,
-                                CycleGeneration = ReplaceGeneration ? 2 : 1
+                                ObservedValue = value
                             }
                         }
                     };

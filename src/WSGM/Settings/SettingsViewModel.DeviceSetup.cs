@@ -88,9 +88,8 @@ public sealed partial class SettingsViewModel
                     TimeSpan.FromMilliseconds(750));
             DeviceOwnerStatusText = snapshot is null
                 ? "No running device coordinator detected. Saved changes apply at the next shell start."
-                : $"{snapshot.State} · {snapshot.InstalledPackage?.PackageId ?? "no package"} · "
-                  + $"{snapshot.HealthyCapabilityCount}/{snapshot.CapabilityCount} healthy · "
-                  + $"cycle {snapshot.CycleGeneration}";
+                : $"{snapshot.State} · {snapshot.Handheld?.FamilyId ?? "no supported handheld"} · "
+                  + $"{snapshot.AvailableCapabilityCount}/{snapshot.CapabilityCount} available";
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

@@ -901,9 +901,7 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : ISteamDe
             return new SteamUiCommandResult(false, "Device Integration is not active in this session.");
         }
 
-        var matches = _coordinator.Capabilities.Snapshot()
-            .Where(view => view.Descriptor.Role == role)
-            .ToArray();
+        var matches = PrimaryRanges(_coordinator.Capabilities.Snapshot(), role);
         if (matches.Length != 1 || !WritableRange(matches[0], role, out _, out _, out _))
         {
             Log.Warn($"Native QAM device range refused: role={role}, matches={matches.Length}.");
@@ -991,13 +989,18 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : ISteamDe
         return new SteamDeviceControlsState(charge, brightness, zones);
     }
 
+    private static DeviceCapabilityView[] PrimaryRanges(IReadOnlyList<DeviceCapabilityView> views, CapabilityRole role)
+    {
+        var all = views.Where(view => view.Descriptor.Role == role).ToArray();
+        var primary = all.Where(view => view.Descriptor.InstanceId is null).ToArray();
+        return primary.Length > 0 ? primary : all;
+    }
+
     private static SteamDeviceRangeState? ProjectUniqueRange(
         IReadOnlyList<DeviceCapabilityView> views,
         CapabilityRole role)
     {
-        var matches = views
-            .Where(view => view.Descriptor.Role == role)
-            .ToArray();
+        var matches = PrimaryRanges(views, role);
         if (matches.Length == 0)
         {
             return null;
@@ -1312,7 +1315,7 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService :
         : Project(
             _coordinator.ControllerManagementEnabled,
             _coordinator.Controllers.Snapshot(),
-            _coordinator.InstalledPackage is not null,
+            _coordinator.HasDevice,
             _coordinator.Controllers.SupportedTargets,
             _coordinator.ChosenControllerTarget());
 
@@ -1374,7 +1377,7 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService :
     /// <summary>Projects controller state into the menu's closed vocabulary.</summary>
     /// <param name="enabled">Whether controller management may run at all.</param>
     /// <param name="status">The manager's current truthful state.</param>
-    /// <param name="packageInstalled">Whether a device package is installed.</param>
+    /// <param name="packageInstalled">Whether a native handheld definition is available.</param>
     /// <param name="supportedTargets">Targets the backend on this machine can create.</param>
     /// <param name="chosen">The stored choice, shown as selected while no target is live.</param>
     /// <returns>The state the menu renders.</returns>
@@ -1428,7 +1431,8 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService :
         var detail = status.Detail;
         if (available && string.IsNullOrWhiteSpace(detail) && !packageInstalled)
         {
-            detail = "No device package is installed, so no physical controller is being captured.";
+            detail =
+                "This machine has no supported handheld implementation, so no physical controller is being captured.";
         }
 
         // A running game holds the target it was launched with, so a change reaches it only on the

@@ -95,6 +95,95 @@ public sealed class GameModeEntryTransactionTests
     }
 
     [Fact]
+    public async Task LayoutDriverPreferencesAreAppliedBeforeHdmiAudioAndDoNotBlockSteamOnRefusal()
+    {
+        Backend backend = new() { GraphicsWarning = "The output rejected 10-bit color." };
+        var launch = Custom();
+        launch.GameDisplayGpu =
+        [
+            new DisplayGpuPreference
+            {
+                Target = Tv, PluginId = "wsgm.gpu.nvidia", CapabilityId = "display.color-depth",
+                Value = new PluginValue(Text: "10")
+            }
+        ];
+        launch.GameAudio = new AudioProfilePreference { Output = new AudioEndpointPreference { Id = "hdmi" } };
+
+        var result = await new GameModeEntryTransaction(backend, launch).RunAsync(CancellationToken.None);
+
+        Assert.Equal(GameModeEntryOutcome.Entered, result.Outcome);
+        Assert.Contains("rejected 10-bit", result.Warning!, StringComparison.Ordinal);
+        Assert.True(backend.Calls.IndexOf("capture-display-gpu") < backend.Calls.IndexOf("exit-explorer"));
+        Assert.True(backend.Calls.IndexOf("apply-layout") < backend.Calls.IndexOf("apply-display-gpu"));
+        Assert.True(backend.Calls.IndexOf("apply-display-gpu") < backend.Calls.IndexOf("apply-audio"));
+        Assert.True(backend.Calls.IndexOf("apply-audio") < backend.Calls.IndexOf("big-picture"));
+    }
+
+    [Fact]
+    public async Task APreviouslyAbsentTvOriginalIsPersistedBeforeItsFirstWriteWithoutReplacingEarlierOriginals()
+    {
+        var globalOriginal = new DisplayGpuPreference
+        {
+            PluginId = "wsgm.gpu.nvidia", CapabilityId = "graphics.gsync", Value = new PluginValue(true)
+        };
+        var globalAfterLayout = new DisplayGpuPreference
+        {
+            PluginId = globalOriginal.PluginId, CapabilityId = globalOriginal.CapabilityId,
+            Value = new PluginValue(false)
+        };
+        var tvOriginal = new DisplayGpuPreference
+        {
+            Target = Tv, PluginId = "wsgm.gpu.nvidia", CapabilityId = "display.color-depth",
+            Value = new PluginValue(Text: "8")
+        };
+        Backend backend = new()
+        {
+            CapturedGraphics = [globalOriginal], LateCapturedGraphics = [globalAfterLayout, tvOriginal]
+        };
+        var launch = Custom();
+        launch.GameDisplayGpu =
+        [
+            globalAfterLayout, new DisplayGpuPreference
+            {
+                Target = Tv, PluginId = tvOriginal.PluginId, CapabilityId = tvOriginal.CapabilityId,
+                Value = new PluginValue(Text: "10")
+            }
+        ];
+
+        var result = await new GameModeEntryTransaction(backend, launch).RunAsync(CancellationToken.None);
+
+        Assert.Equal(GameModeEntryOutcome.Entered, result.Outcome);
+        Assert.Equal(2, backend.PersistedGraphics.Count);
+        var originals = backend.PersistedGraphics[1];
+        Assert.Equal(2, originals.Count);
+        Assert.Same(globalOriginal, originals[0]);
+        Assert.Same(tvOriginal, originals[1]);
+        Assert.True(backend.Calls.IndexOf("apply-layout") < backend.Calls.IndexOf("capture-display-gpu-late"));
+        Assert.True(backend.Calls.LastIndexOf("persist-return") < backend.Calls.IndexOf("apply-display-gpu"));
+    }
+
+    [Fact]
+    public async Task UnreadableGpuOriginalsDoNotGateTheRequestedWrite()
+    {
+        Backend backend = new();
+        var launch = Custom();
+        launch.GameDisplayGpu =
+        [
+            new DisplayGpuPreference
+            {
+                Target = Tv, PluginId = "wsgm.gpu.nvidia", CapabilityId = "display.color-depth",
+                Value = new PluginValue(Text: "10")
+            }
+        ];
+
+        var result = await new GameModeEntryTransaction(backend, launch).RunAsync(CancellationToken.None);
+
+        Assert.Equal(GameModeEntryOutcome.Entered, result.Outcome);
+        Assert.Contains("apply-display-gpu", backend.Calls);
+        Assert.All(backend.PersistedGraphics, originals => Assert.Empty(originals));
+    }
+
+    [Fact]
     public async Task BigPictureWaitsUntilSplashDetectionIsArmed()
     {
         TaskCompletionSource armed = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -305,6 +394,10 @@ public sealed class GameModeEntryTransactionTests
         internal bool ExitExplorer { get; init; } = true;
 
         internal bool MissingOnRecheck { get; init; }
+        internal string? GraphicsWarning { get; init; }
+        internal IReadOnlyList<DisplayGpuPreference> CapturedGraphics { get; init; } = [];
+        internal IReadOnlyList<DisplayGpuPreference> LateCapturedGraphics { get; init; } = [];
+        internal List<IReadOnlyList<DisplayGpuPreference>> PersistedGraphics { get; } = [];
 
         internal DisplayLayoutOutcome LayoutOutcome { get; init; } = DisplayLayoutOutcome.Applied;
 
@@ -368,6 +461,21 @@ public sealed class GameModeEntryTransactionTests
             });
         }
 
+        public Task<string?> ApplyDisplayGpuAsync(IReadOnlyList<DisplayGpuPreference> preferences,
+            CancellationToken cancellationToken)
+        {
+            Calls.Add("apply-display-gpu");
+            return Task.FromResult(GraphicsWarning);
+        }
+
+        public Task<IReadOnlyList<DisplayGpuPreference>> CaptureDisplayGpuAsync(
+            IReadOnlyList<DisplayGpuPreference> preferences, CancellationToken cancellationToken,
+            bool refreshTopology = false)
+        {
+            Calls.Add(refreshTopology ? "capture-display-gpu-late" : "capture-display-gpu");
+            return Task.FromResult(refreshTopology ? LateCapturedGraphics : CapturedGraphics);
+        }
+
         public Task<AudioProfileApplyResult> ApplyAudioAsync(
             AudioProfilePreference? preference,
             CancellationToken cancellationToken)
@@ -376,9 +484,15 @@ public sealed class GameModeEntryTransactionTests
             return Task.FromResult(new AudioProfileApplyResult([]));
         }
 
-        public Task PersistPendingReturnAsync(DisplayLayout? layout, AudioProfilePreference? audio)
+        public Task PersistPendingReturnAsync(DisplayLayout? layout, AudioProfilePreference? audio,
+            IReadOnlyList<DisplayGpuPreference>? graphics = null)
         {
             Calls.Add(layout is null ? "clear-return" : "persist-return");
+            if (graphics is not null)
+            {
+                PersistedGraphics.Add([.. graphics]);
+            }
+
             PersistedReturns.Add(layout is null ? null
                 : layout.Outputs[0].Target.FriendlyName == "Desk" ? "desk" : "captured");
             return Task.CompletedTask;
@@ -440,6 +554,11 @@ public sealed class GameModeEntryTransactionTests
         public Task<string?> ApplyReturnAudioAsync()
         {
             Calls.Add("return-audio");
+            return Task.FromResult<string?>(null);
+        }
+
+        public Task<string?> ApplyReturnDisplayGpuAsync()
+        {
             return Task.FromResult<string?>(null);
         }
 

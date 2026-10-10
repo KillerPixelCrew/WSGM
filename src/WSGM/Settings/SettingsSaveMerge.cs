@@ -28,6 +28,7 @@ internal static class SettingsSaveMerge
         var config = fresh;
         var values = ConfigJson.Clone(request.Values, ConfigJsonContext.Tolerant.AppConfig);
         var discoveredDisplays = fresh.GameModeLaunch.KnownDisplays;
+        var discoveredGpuCapabilities = fresh.GameModeLaunch.KnownGpuCapabilities;
         var shimWas = fresh.SteamInputManagementEnabled;
         var autostartWas = fresh.SteamAutostartTakeoverAccepted;
         var managersWas = fresh.OtherManagersTakeoverAccepted;
@@ -55,12 +56,34 @@ internal static class SettingsSaveMerge
         config.GameModeLaunch.DesktopLayout = values.GameModeLaunch.DesktopLayout;
         config.GameModeLaunch.GameAudio = values.GameModeLaunch.GameAudio;
         config.GameModeLaunch.DesktopAudio = values.GameModeLaunch.DesktopAudio;
+        config.GameModeLaunch.GameDisplayGpu = values.GameModeLaunch.GameDisplayGpu;
+        config.GameModeLaunch.DesktopDisplayGpu = values.GameModeLaunch.DesktopDisplayGpu;
+        config.GameModeLaunch.KnownGpuCapabilities = values.GameModeLaunch.KnownGpuCapabilities;
         config.GameModeLaunch.WaitForDisplay = values.GameModeLaunch.WaitForDisplay;
         config.GameModeLaunch.EnterActions = values.GameModeLaunch.EnterActions;
         config.GameModeLaunch.LeaveActions = values.GameModeLaunch.LeaveActions;
         config.GameModeLaunch.DesktopStartupActions = values.GameModeLaunch.DesktopStartupActions;
         config.GameModeLaunch.DesktopWakeActions = values.GameModeLaunch.DesktopWakeActions;
         config.GameModeLaunch.KnownDisplays = values.GameModeLaunch.KnownDisplays;
+        foreach (var discovered in discoveredGpuCapabilities)
+        {
+            if (discovered.Target is { } identity && request.ForgottenDisplays.Any(target => target.Matches(identity)))
+            {
+                continue;
+            }
+
+            if (!config.GameModeLaunch.KnownGpuCapabilities.Any(edited => edited.PluginId == discovered.PluginId
+                                                                          && edited.Descriptor?.CapabilityId ==
+                                                                          discovered.Descriptor?.CapabilityId
+                                                                          && (discovered.Target is null
+                                                                              ? edited.Target is null
+                                                                              : edited.Target?.Matches(
+                                                                                  discovered.Target) == true)))
+            {
+                config.GameModeLaunch.KnownGpuCapabilities.Add(discovered);
+            }
+        }
+
         config.Artwork.SteamGridDbApiKey = values.Artwork.SteamGridDbApiKey;
         config.Artwork.ScreenscraperEnabled = values.Artwork.ScreenscraperEnabled;
         config.Artwork.ScreenscraperUser = values.Artwork.ScreenscraperUser;
@@ -100,6 +123,12 @@ internal static class SettingsSaveMerge
 
         foreach (var edit in request.CommonPluginEdits)
         {
+            if (BuiltinGpuDrivers.Contains(edit.PluginId))
+            {
+                BuiltinGpuDrivers.SetEnabled(config, edit.PluginId, edit.Enabled);
+                continue;
+            }
+
             var failure = edit.SteamCefReloadRequested
                 ? null
                 : config.PluginInstances.FirstOrDefault(entry =>
@@ -138,32 +167,33 @@ internal static class SettingsSaveMerge
                 edited.Modes = [.. edited.Modes.Concat(discovered.Modes).Distinct()];
                 edited.HdrSupported |= discovered.HdrSupported;
                 edited.MaximumDpiPercent = Math.Max(edited.MaximumDpiPercent, discovered.MaximumDpiPercent);
+                foreach (var capability in discovered.GpuCapabilities)
+                {
+                    if (!edited.GpuCapabilities.Any(existing => existing.PluginId == capability.PluginId
+                                                                && existing.Descriptor?.CapabilityId ==
+                                                                capability.Descriptor?.CapabilityId))
+                    {
+                        edited.GpuCapabilities.Add(capability);
+                    }
+                }
             }
         }
 
-        if ((request.PluginEdits.Count > 0 || request.DeviceProfiles is not null)
-            && request.PluginDevice.Length > 0
-            && request.PluginId.Length > 0)
+        if (request.DeviceProfiles is not null
+            && request.DeviceDefinitionId.Length > 0
+            && request.FamilyId.Length > 0)
         {
-            var scope = FindOrAddSaveScope(config, request.PluginDevice, request.PluginId);
-            foreach (var (settingId, value) in request.PluginEdits)
+            var scope = FindOrAddSaveScope(config, request.DeviceDefinitionId, request.FamilyId);
+            // A deleted profile is removed from every layer that selected it.
+            foreach (var removed in scope.Profiles.Select(profile => profile.ProfileId)
+                         .Except(request.DeviceProfiles.Select(profile => profile.ProfileId),
+                             StringComparer.Ordinal).ToArray())
             {
-                PluginSettingsResolver.Store(scope, settingId, value);
+                ProfileEdits.RemoveFanCurveReferences(config.Profiles, removed);
+                ProfileEdits.RemoveLightingProfileReferences(config.Profiles, removed);
             }
 
-            if (request.DeviceProfiles is not null)
-            {
-                // A deleted profile is also removed from every layer that selected it, so that layer
-                // falls back to the one below instead of naming nothing.
-                foreach (var removed in scope.Profiles.Select(profile => profile.ProfileId)
-                             .Except(request.DeviceProfiles.Select(profile => profile.ProfileId),
-                                 StringComparer.Ordinal).ToArray())
-                {
-                    ProfileEdits.RemoveFanCurveReferences(config.Profiles, removed);
-                }
-
-                scope.Profiles = [.. request.DeviceProfiles];
-            }
+            scope.Profiles = [.. request.DeviceProfiles];
         }
 
         config.Splash = preparedSplash;
@@ -173,25 +203,25 @@ internal static class SettingsSaveMerge
             !managersWas && config.OtherManagersTakeoverAccepted));
     }
 
-    private static PluginSettingsScope FindOrAddSaveScope(
+    private static DeviceProfileScope FindOrAddSaveScope(
         AppConfig config,
         string deviceDefinitionId,
-        string pluginId)
+        string familyId)
     {
-        var scope = config.DeviceIntegration.PluginSettings.FirstOrDefault(candidate =>
+        var scope = config.DeviceIntegration.DeviceProfiles.FirstOrDefault(candidate =>
             string.Equals(candidate.DeviceDefinitionId, deviceDefinitionId, StringComparison.Ordinal)
-            && string.Equals(candidate.PluginId, pluginId, StringComparison.Ordinal));
+            && string.Equals(candidate.FamilyId, familyId, StringComparison.Ordinal));
         if (scope is not null)
         {
             return scope;
         }
 
-        scope = new PluginSettingsScope
+        scope = new DeviceProfileScope
         {
             DeviceDefinitionId = deviceDefinitionId,
-            PluginId = pluginId
+            FamilyId = familyId
         };
-        config.DeviceIntegration.PluginSettings.Add(scope);
+        config.DeviceIntegration.DeviceProfiles.Add(scope);
         return scope;
     }
 }

@@ -1,6 +1,8 @@
 using Avalonia.Controls;
+using Avalonia.Data;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using WSGM.Core;
 using WSGM.Overlay;
 using WSGM.Settings;
@@ -117,14 +119,25 @@ public sealed class VisualTests
         using UiFixture fixture = new();
         Window window = fixture.Settings(width, height);
         UiFixture.Click(window, UiFixture.Tab(window, page));
+        if (page == 0)
+        {
+            var model = Assert.IsType<SettingsViewModel>(window.DataContext);
+            var updateStatus = Assert.Single(window.GetVisualDescendants().OfType<TextBlock>(),
+                text => text.IsEffectivelyVisible && text.Text == model.UpdateStatusText);
+            // Freeze only sample version data; the production caption and layout still render normally.
+            updateStatus.Bind(TextBlock.TextProperty,
+                new Binding { Source = "WSGM 2.1.0 is current. Not checked yet.", Mode = BindingMode.OneWay });
+            Dispatcher.UIThread.RunJobs();
+        }
+
         Assert.Equal(width, window.ClientSize.Width);
         Assert.Equal(height, window.ClientSize.Height);
         VisualBaseline.Verify(window, name);
     }
 
-    // The Plugins tab with one card for every badge tone: an installed hardware-tested device plugin, an
-    // installed local build, a blind community plugin to install, another device's plugin and a community
-    // plugin this release could not build.
+    // The Plugins tab with one common-plugin card for every badge tone: an installed tested plugin, an
+    // installed local build, a blind community plugin to install, an unavailable first-party plugin and a
+    // community plugin this release could not build.
     [AvaloniaTheory]
     [InlineData("settings-plugins-1024", 1024, 700)]
     [InlineData("settings-plugins-1280", 1280, 800)]
@@ -157,33 +170,32 @@ public sealed class VisualTests
 
         return
         [
-            new PluginPackageRowState("wsgm.device.msi.claw", "MSI Claw 8 AI+ A2VM",
-                PluginPackageSection.Installed, true,
+            new PluginPackageRowState("example.shortcuts", "Game shortcuts",
+                PluginPackageSection.Installed,
                 [
                     Badge("Installed", PluginBadgeTone.Good), Badge("v1.2.0", PluginBadgeTone.Neutral),
-                    Badge("Device", PluginBadgeTone.Neutral), Badge("First-party", PluginBadgeTone.Accent),
+                    Badge("Integration", PluginBadgeTone.Neutral), Badge("First-party", PluginBadgeTone.Accent),
                     Badge("Hardware-tested", PluginBadgeTone.Good)
-                ], "", PluginPackageAction.Remove, "claw.wsgmpkg"),
-            new PluginPackageRowState("wsgm.ir", "IR Blaster", PluginPackageSection.Installed, false,
+                ], "", PluginPackageAction.Remove, "shortcuts.wsgmpkg"),
+            new PluginPackageRowState("wsgm.ir", "IR Blaster", PluginPackageSection.Installed,
             [
                 Badge("Removing", PluginBadgeTone.Warn), Badge("v0.2.0", PluginBadgeTone.Neutral),
                 Badge("Integration", PluginBadgeTone.Neutral), Badge("Local build", PluginBadgeTone.Neutral)
             ], "Removed at the next start.", PluginPackageAction.None, "ir.wsgmpkg"),
-            new PluginPackageRowState("example.rgb", "RGB Sync", PluginPackageSection.Available, false,
+            new PluginPackageRowState("example.rgb", "RGB Sync", PluginPackageSection.Available,
             [
                 Badge("Available", PluginBadgeTone.Info), Badge("v0.4.1", PluginBadgeTone.Neutral),
                 Badge("Integration", PluginBadgeTone.Neutral), Badge("Community", PluginBadgeTone.Community),
                 Badge("Blind", PluginBadgeTone.Warn)
             ], "Developer: rgb-dev@example.com", PluginPackageAction.Install, "rgb.wsgmpkg"),
-            new PluginPackageRowState("wsgm.device.asus.rog-ally", "ASUS ROG Ally family",
+            new PluginPackageRowState("example.capture", "Capture controls",
                 PluginPackageSection.Unavailable,
-                true,
                 [
-                    Badge("Not for this device", PluginBadgeTone.Neutral), Badge("v0.2.0", PluginBadgeTone.Neutral),
-                    Badge("Device", PluginBadgeTone.Neutral), Badge("First-party", PluginBadgeTone.Accent),
+                    Badge("Unavailable", PluginBadgeTone.Neutral), Badge("v0.2.0", PluginBadgeTone.Neutral),
+                    Badge("Integration", PluginBadgeTone.Neutral), Badge("First-party", PluginBadgeTone.Accent),
                     Badge("Blind", PluginBadgeTone.Warn)
                 ], "", PluginPackageAction.None, ""),
-            new PluginPackageRowState("example.fans", "example.fans", PluginPackageSection.Unavailable, false,
+            new PluginPackageRowState("example.fans", "example.fans", PluginPackageSection.Unavailable,
                 [Badge("Outdated", PluginBadgeTone.Bad), Badge("Community", PluginBadgeTone.Community)],
                 "No build for WSGM 2.0.0. Developer: fans-dev@example.com", PluginPackageAction.None, "")
         ];

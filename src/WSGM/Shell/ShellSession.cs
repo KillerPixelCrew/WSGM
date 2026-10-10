@@ -31,6 +31,7 @@ public sealed partial class ShellSession
     // The one owner of the display-off timeouts: the overlay's Power page and the rows WSGM adds to
     // Steam's Screensaver settings both edit through it, and it hears Steam's screensaver timeout.
     private readonly DisplayTimeouts _displayTimeouts;
+    private readonly ImportStateStore _libraryImportState;
 
     /// <summary>
     ///     The one owner of removable-library registration for this session, shared by the card
@@ -92,6 +93,7 @@ public sealed partial class ShellSession
 
     private AutoTdpService? _autoTdp;
     private NativeQamBrightnessService? _brightness;
+    private BuiltinGpuService? _builtinGpu;
     private CardAcfWatcher? _cardAcfWatcher;
     private CardVolumeMonitor? _cardVolumes;
     private SteamGuideChordMirror? _chordMirror;
@@ -195,6 +197,7 @@ public sealed partial class ShellSession
     private RunningApplicationCoordinator? _runningApplicationTargets;
     private RunningApplicationMonitor? _runningApplications;
     private SettingsActivation? _settingsActivation;
+
     private SettingsSurface? _settingsSurface;
     private volatile bool _shutdownRequested;
     private SoundPackService? _sounds;
@@ -251,6 +254,7 @@ public sealed partial class ShellSession
     {
         _config = config;
         _store = store ?? throw new ArgumentNullException(nameof(store));
+        _libraryImportState = new ImportStateStore(_store.Context);
         _steamInput = steamInput ?? throw new ArgumentNullException(nameof(steamInput));
         _displayTimeouts = new DisplayTimeouts(_power.Timeouts);
         _powerProfiles = new NativeQamPowerProfileService(_power.Schemes, id =>
@@ -372,6 +376,11 @@ public sealed partial class ShellSession
                 TryStart("graphics capability router", () =>
                     _gpu = new GpuCoordinator(UiThread.Post, _profiles, _pluginHost, DeviceCoordinator.ReadOnAcPower,
                         _applicationProfiles.PersistManualVariableRefresh));
+                if (_gpu is { } graphics)
+                {
+                    _builtinGpu = new BuiltinGpuService(_store, graphics);
+                }
+
                 TryStart("common plugin manager", () =>
                     _commonPlugins = new CommonPluginManager(_pluginHost, InstallLayout.Plugins,
                         Path.Combine(_store.Context.Root, "PluginState"), capabilityChannels: _gpu, store: _store));
@@ -399,7 +408,8 @@ public sealed partial class ShellSession
             {
                 try
                 {
-                    _emulators = await Task.Run(() => new EmulatorManager(_store.Context), _shutdownCancellation.Token)
+                    _emulators = await Task.Run(() => new EmulatorManager(_store.Context, null, _libraryImportState),
+                            _shutdownCancellation.Token)
                         .ConfigureAwait(false);
                     _emulatorTool = new EmulatorService(_emulators, url => AppLauncher.Open(url));
                 }
@@ -446,19 +456,22 @@ public sealed partial class ShellSession
     ///     restore while the session has none (before its services start, after they stop).
     /// </summary>
     /// <param name="cancellationToken">Stops waiting for the restore.</param>
+    /// <param name="requireAudio">Whether unavailable audio holds recovery pending; entry preflight may proceed without it.</param>
     /// <returns>Whether everything recorded was restored.</returns>
-    private async Task<bool> RestorePendingDesktopAsync(CancellationToken cancellationToken)
+    private async Task<bool> RestorePendingDesktopAsync(CancellationToken cancellationToken, bool requireAudio = true)
     {
         if (_audioProfiles is { } live)
         {
-            return await GameModeReturnRecovery.RestorePendingAsync(_store, cancellationToken, live)
+            return await GameModeReturnRecovery.RestorePendingAsync(_store, cancellationToken, live,
+                    applyGraphics: RestorePendingDisplayGpuAsync, requireAudio: requireAudio)
                 .ConfigureAwait(false);
         }
 
         var recoveryAudio = new AudioProfileService(new CoreAudioProfileOperations());
         try
         {
-            return await GameModeReturnRecovery.RestorePendingAsync(_store, cancellationToken, recoveryAudio)
+            return await GameModeReturnRecovery.RestorePendingAsync(_store, cancellationToken, recoveryAudio,
+                    applyGraphics: RestorePendingDisplayGpuAsync, requireAudio: requireAudio)
                 .ConfigureAwait(false);
         }
         finally
@@ -933,10 +946,7 @@ public sealed partial class ShellSession
             () => _pluginSteamUi?.ReadSettings() ?? [],
             (id, key, value, revision, token) => _pluginSteamUi is { } source
                 ? source.ConfigureAsync(id, key, value, revision, token)
-                : Task.FromResult(new SteamUiCommandResult(false, "Plugins are not available.")),
-            // The Plugins folder as the common plugin manager last read it, which includes the device
-            // package; a package installed since applies at the next start anyway.
-            () => _commonPlugins?.Catalog.InstalledDevicePluginId));
+                : Task.FromResult(new SteamUiCommandResult(false, "Plugins are not available."))));
 
         ReleaseAbandonedPackageExemptions();
 
@@ -964,7 +974,7 @@ public sealed partial class ShellSession
                     new AtLauncherSource()
                 ],
                 UninstallEntries.Read,
-                new ImportStateStore(_store.Context),
+                _libraryImportState,
                 () => new SteamShortcutWriter(
                     AddShortcutAsync,
                     async (appId, fields, token) =>
@@ -1161,7 +1171,8 @@ public sealed partial class ShellSession
         // alike; the overlay test keeps its sheet's Settings row too. It runs in this process, so its action
         // lists offer what is actually running.
         var settings = _settingsSurface = new SettingsSurface(
-            read => SettingsViewModel.FromLoadedConfig(read, _store, _steamInput.Shim, ReadPluginActionOptions),
+            read => SettingsViewModel.FromLoadedConfig(read, _store, _steamInput.Shim, ReadPluginActionOptions,
+                readDisplayGpu: () => _gpu?.DisplayCapabilities() ?? []),
             _store,
             _steamInput,
             () => _inGameMode,

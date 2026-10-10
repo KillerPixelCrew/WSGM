@@ -8,8 +8,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
 using WSGM.Core;
-using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Sdk.Settings;
 using WSGM.Plugin.Sdk;
 
 namespace WSGM.Shell;
@@ -60,7 +58,6 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
 
     private const string PluginEnabledPrefix = "plugins.enabled:";
     private const string PluginSettingPrefix = "plugins.setting:";
-    private const string DeviceSettingPrefix = "device.setting:";
     private const string StartModeKey = "startup.mode";
     private const string ShimStateKey = "steamInput.shim";
 
@@ -123,8 +120,9 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
     private readonly Func<string, string, JsonElement, long, CancellationToken, Task<SteamUiCommandResult>>?
         _configurePlugin;
 
+    private readonly Func<IReadOnlyList<BuiltinGpuDriver>> _detectedGraphics;
+
     private readonly Lock _gate = new();
-    private readonly Func<string?> _installedDevicePlugin;
     private readonly Func<IReadOnlyList<InstalledCommonPlugin>> _installedPlugins;
     private readonly Func<IReadOnlyList<CommonPluginSettingsView>> _pluginSettings;
     private readonly Func<string> _shimStatus;
@@ -132,8 +130,6 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
     // One shim apply at a time, and always of the latest save: two quick toggles would otherwise run
     // in either order and could leave the shim matching the older one.
     private readonly SemaphoreSlim _steamInputGate = new(1, 1);
-    private string? _devicePluginId;
-    private bool _devicePluginRead;
     private AppConfig? _pendingSteamInput;
     private long _revision = 1;
 
@@ -153,7 +149,7 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
     /// <param name="installedPlugins">The installed common plugin packages.</param>
     /// <param name="pluginSettings">Every running plugin's declared settings.</param>
     /// <param name="configurePlugin">Changes one running plugin's setting, or null without plugins.</param>
-    /// <param name="installedDevicePlugin">The installed device plugin's id, or null when none is installed.</param>
+    /// <param name="detectedGraphics">Reads the matching built-in graphics drivers.</param>
     internal WsgmSteamSettingsService(
         Func<AppConfig> config,
         Func<Action<AppConfig>, bool, AppConfig> commit,
@@ -163,9 +159,8 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
         Func<IReadOnlyList<CommonPluginSettingsView>>? pluginSettings = null,
         Func<string, string, JsonElement, long, CancellationToken, Task<SteamUiCommandResult>>? configurePlugin =
             null,
-        Func<string?>? installedDevicePlugin = null)
+        Func<IReadOnlyList<BuiltinGpuDriver>>? detectedGraphics = null)
     {
-        _installedDevicePlugin = installedDevicePlugin ?? (() => null);
         _config = config;
         _commit = commit;
         _applySteamInput = applySteamInput;
@@ -173,6 +168,7 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
         _installedPlugins = installedPlugins ?? (() => []);
         _pluginSettings = pluginSettings ?? (() => []);
         _configurePlugin = configurePlugin;
+        _detectedGraphics = detectedGraphics ?? BuiltinGpuDrivers.Detect;
     }
 
     /// <summary>The route the page is served at.</summary>
@@ -232,9 +228,7 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
             return SetPluginSettingAsync(key[PluginSettingPrefix.Length..], value, cancellationToken);
         }
 
-        return key.StartsWith(DeviceSettingPrefix, StringComparison.Ordinal)
-            ? SetDeviceSettingAsync(key[DeviceSettingPrefix.Length..], value, cancellationToken)
-            : Task.FromResult(new SteamUiCommandResult(false, "This setting is no longer available."));
+        return Task.FromResult(new SteamUiCommandResult(false, "This setting is no longer available."));
     }
 
     /// <summary>Raised when what the page shows may have changed.</summary>
@@ -266,7 +260,6 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
             _written = null;
             // A package change is not a config change, but it comes with one: the device cycle that
             // follows it rewrites the cached declaration. Read the slot again then.
-            _devicePluginRead = false;
             _revision++;
         }
 
@@ -289,7 +282,7 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
 
         return new WsgmSteamSettingsState(
         [
-            new SteamSettingsPage("steam", "Steam integration",
+            new SteamSettingsPage("steam", "Integration",
             [
                 new SteamSettingsSection(null, [Row("cef.enabled", config)]),
                 new SteamSettingsSection("Library",
@@ -302,7 +295,8 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
                 [
                     Row("cef.wifiIndicator", config), Row("cef.nativeQuickAccess", config),
                     Row("cef.downloadKeepAwake", config), Row("cef.downloadQueueSort", config)
-                ])
+                ]),
+                BuiltinGraphicsSection(config)
             ], PageGlyphs.Integration),
             new SteamSettingsPage("startup", "Startup",
             [
@@ -341,6 +335,20 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
             toggle.Read(config), Confirm: toggle.Confirm);
     }
 
+    private SteamSettingsSection BuiltinGraphicsSection(AppConfig config)
+    {
+        var drivers = _detectedGraphics();
+        return new SteamSettingsSection("Built-in graphics drivers",
+        [
+            .. drivers.Select(driver => new SteamSettingsRow(
+                PluginEnabledPrefix + driver.Id + "/" + CommonPluginEnablement.DefaultInstanceId,
+                SteamSettingsRowKind.Boolean,
+                driver.Name,
+                "Let WSGM manage graphics settings for matching adapters. Changes apply without restarting WSGM.",
+                BuiltinGpuDrivers.Enabled(config, driver.Vendor)))
+        ]);
+    }
+
     private IReadOnlyList<SteamSettingsSection> PluginSections(AppConfig config)
     {
         List<SteamSettingsSection> sections = [];
@@ -367,7 +375,6 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
             sections.Add(new SteamSettingsSection(title, rows));
         }
 
-        sections.AddRange(DeviceSections(config));
         if (sections.Count == 0)
         {
             sections.Add(new SteamSettingsSection(null,
@@ -386,6 +393,11 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
     {
         foreach (var package in _installedPlugins())
         {
+            if (BuiltinGpuDrivers.Contains(package.PluginId))
+            {
+                continue;
+            }
+
             var configured = config.PluginInstances.Where(entry => entry.PluginId == package.PluginId).ToArray();
             if (configured.Length == 0)
             {
@@ -436,111 +448,6 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
         ];
     }
 
-    /// <summary>The installed device plugin's scope, when it has a cached declaration.</summary>
-    /// <remarks>
-    ///     A declaration is cached in configuration and outlives its package: removing the plugin, or a
-    ///     replacement failing before it publishes, leaves the old one behind. So the scope is the one
-    ///     belonging to the installed device plugin, as in WSGM Settings, and with none installed
-    ///     there is nothing to draw or accept.
-    /// </remarks>
-    private PluginSettingsScope? ActiveDeviceScope(AppConfig config)
-    {
-        if (InstalledDevicePlugin() is not { } pluginId)
-        {
-            return null;
-        }
-
-        return config.DeviceIntegration.PluginSettings.LastOrDefault(scope =>
-            scope.Declaration is not null && string.Equals(scope.PluginId, pluginId, StringComparison.Ordinal));
-    }
-
-    /// <summary>The installed device plugin's id, read from the Plugins folder once per configuration.</summary>
-    private string? InstalledDevicePlugin()
-    {
-        lock (_gate)
-        {
-            if (_devicePluginRead)
-            {
-                return _devicePluginId;
-            }
-        }
-
-        var pluginId = _installedDevicePlugin();
-        lock (_gate)
-        {
-            _devicePluginId = pluginId;
-            _devicePluginRead = true;
-        }
-
-        return pluginId;
-    }
-
-    private IEnumerable<SteamSettingsSection> DeviceSections(AppConfig config)
-    {
-        if (ActiveDeviceScope(config) is not { Declaration: { } declaration } scope)
-        {
-            yield break;
-        }
-
-        var view = PluginSettingsCoordinator.Project(declaration,
-            PluginSettingsResolver.Resolve(declaration, scope.Values));
-        foreach (var section in view.Sections)
-        {
-            if (!view.Settings.TryGetValue(section.SectionId, out var settings))
-            {
-                continue;
-            }
-
-            yield return new SteamSettingsSection(
-                "Device: " + SectionTitle(section),
-                [.. settings.Select(setting => ProjectDeviceSetting(setting.Descriptor, setting.Value))]);
-        }
-    }
-
-    private static string SectionTitle(PluginSettingSection section)
-    {
-        if (section.SectionId == PluginSettingsCoordinator.FallbackSectionId)
-        {
-            return "Other";
-        }
-
-        return section.Key is SettingSectionKey.Custom
-            ? section.CustomTitle ?? section.SectionId
-            : section.Key.ToString();
-    }
-
-    private static SteamSettingsRow ProjectDeviceSetting(PluginSettingDescriptor descriptor, CapabilityValue value)
-    {
-        var key = DeviceSettingPrefix + descriptor.SettingId;
-        var label = CapabilityDisplayLabels.For(descriptor.Display, descriptor.SettingId);
-        return descriptor.ValueKind switch
-        {
-            CapabilityValueKind.Boolean => new SteamSettingsRow(key, SteamSettingsRowKind.Boolean, label,
-                Checked: value.BooleanValue ?? false),
-            CapabilityValueKind.Integer when descriptor is { Minimum: { } minimum, Maximum: { } maximum } =>
-                new SteamSettingsRow(key, SteamSettingsRowKind.Range, label, Number: value.IntegerValue ?? minimum,
-                    Minimum: minimum, Maximum: maximum, Step: descriptor.Step ?? 1),
-            CapabilityValueKind.Integer => new SteamSettingsRow(key, SteamSettingsRowKind.Text, label,
-                Text: value.IntegerValue?.ToString(CultureInfo.InvariantCulture) ?? string.Empty),
-            CapabilityValueKind.Choice => new SteamSettingsRow(key, SteamSettingsRowKind.Choice, label,
-                Text: value.ChoiceValue ?? string.Empty,
-                Choices:
-                [
-                    .. descriptor.Choices.Select(choice =>
-                        new SteamSettingsChoice(choice.Value,
-                            CapabilityDisplayLabels.For(choice.Display, choice.Value)))
-                ]),
-            CapabilityValueKind.Text => new SteamSettingsRow(key, SteamSettingsRowKind.Text, label,
-                Text: value.TextValue ?? string.Empty,
-                MaximumLength: descriptor.MaximumLength),
-            CapabilityValueKind.Color => new SteamSettingsRow(key, SteamSettingsRowKind.Text, label,
-                "A colour as #RRGGBB.",
-                Text: value.ColorValue is { } color ? "#" + color.ToString("X6", CultureInfo.InvariantCulture) : "",
-                MaximumLength: 7),
-            _ => new SteamSettingsRow(key, SteamSettingsRowKind.Note, label, Text: "Change this in WSGM Settings.")
-        };
-    }
-
     private Task<SteamUiCommandResult> SetPluginEnabledAsync(
         string identity, JsonElement value, CancellationToken cancellationToken)
     {
@@ -558,12 +465,24 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
             return Invalid();
         }
 
-        if (_installedPlugins().All(package => package.PluginId != pluginId))
+        if (!BuiltinGpuDrivers.Contains(pluginId)
+            && _installedPlugins().All(package => package.PluginId != pluginId))
         {
             return Task.FromResult(new SteamUiCommandResult(false, "This plugin is no longer installed."));
         }
 
         var enabled = value.GetBoolean();
+        if (BuiltinGpuDrivers.Contains(pluginId))
+        {
+            if (instanceId != CommonPluginEnablement.DefaultInstanceId)
+            {
+                return Invalid();
+            }
+
+            return CommitAsync(config => BuiltinGpuDrivers.SetEnabled(config, pluginId, enabled), false, false,
+                cancellationToken);
+        }
+
         return CommitAsync(config =>
         {
             var instance = config.PluginInstances.FirstOrDefault(entry =>
@@ -637,71 +556,6 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
             default:
                 converted = value.Clone();
                 return true;
-        }
-    }
-
-    private Task<SteamUiCommandResult> SetDeviceSettingAsync(
-        string settingId, JsonElement value, CancellationToken cancellationToken)
-    {
-        var config = CurrentConfig();
-        if (ActiveDeviceScope(config) is not { Declaration: { } declaration } scope
-            || declaration.Settings.FirstOrDefault(setting => setting.SettingId == settingId) is not { } descriptor)
-        {
-            return Task.FromResult(new SteamUiCommandResult(false, "The device setting is no longer available."));
-        }
-
-        if (!TryDeviceValue(descriptor, value, out var candidate)
-            || !descriptor.TryValidateValue(candidate, out _))
-        {
-            return Task.FromResult(new SteamUiCommandResult(false, "The device setting value is invalid."));
-        }
-
-        var (device, plugin) = (scope.DeviceDefinitionId, scope.PluginId);
-        return CommitAsync(persisted =>
-        {
-            // Found again in the fresh copy the store loaded: the scope object above belongs to a
-            // snapshot that is never written.
-            if (persisted.DeviceIntegration.PluginSettings.FirstOrDefault(candidateScope =>
-                    candidateScope.DeviceDefinitionId == device && candidateScope.PluginId == plugin) is { } fresh)
-            {
-                PluginSettingsResolver.Store(fresh, settingId, candidate);
-            }
-        }, false, false, cancellationToken);
-    }
-
-    private static bool TryDeviceValue(PluginSettingDescriptor descriptor, JsonElement value,
-        out CapabilityValue candidate)
-    {
-        candidate = CapabilityValue.None();
-        switch (descriptor.ValueKind)
-        {
-            case CapabilityValueKind.Boolean when value.ValueKind is JsonValueKind.True or JsonValueKind.False:
-                candidate = new CapabilityValue
-                    { Kind = CapabilityValueKind.Boolean, BooleanValue = value.GetBoolean() };
-                return true;
-            case CapabilityValueKind.Integer when value.ValueKind == JsonValueKind.Number
-                                                  && value.TryGetInt32(out var integer):
-                candidate = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = integer };
-                return true;
-            case CapabilityValueKind.Integer when value.ValueKind == JsonValueKind.String
-                                                  && int.TryParse(value.GetString(), NumberStyles.Integer,
-                                                      CultureInfo.InvariantCulture, out var typed):
-                candidate = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = typed };
-                return true;
-            case CapabilityValueKind.Choice when value.ValueKind == JsonValueKind.String:
-                candidate = new CapabilityValue { Kind = CapabilityValueKind.Choice, ChoiceValue = value.GetString() };
-                return true;
-            case CapabilityValueKind.Text when value.ValueKind == JsonValueKind.String:
-                candidate = new CapabilityValue { Kind = CapabilityValueKind.Text, TextValue = value.GetString() };
-                return true;
-            case CapabilityValueKind.Color when value.ValueKind == JsonValueKind.String
-                                                && value.GetString() is { Length: 7 } hex && hex[0] == '#'
-                                                && int.TryParse(hex.AsSpan(1), NumberStyles.HexNumber,
-                                                    CultureInfo.InvariantCulture, out var color):
-                candidate = new CapabilityValue { Kind = CapabilityValueKind.Color, ColorValue = color };
-                return true;
-            default:
-                return false;
         }
     }
 

@@ -47,18 +47,20 @@ public sealed class ManagedContentStorageTests
         File.WriteAllText(executable, "fixture executable");
         File.WriteAllText(corePath, "fixture core");
         File.WriteAllText(romPath, "fixture content");
+        var installed = new EmulatorInstallation
+        {
+            Id = "installed", DefinitionId = "retroarch", ExecutablePath = executable, DataPath = temporary.Root,
+            DataPolicy = EmulatorCatalog.LoadBundled().Definitions.Single(definition => definition.Id == "retroarch")
+                .DataPolicy,
+            LaunchArguments = ["-L", "{core}", "{rom}"],
+            Cores = [new EmulatorCore { Id = "selected-core", Path = corePath, Systems = ["genesis"] }]
+        };
+        IniFile.SetValues(Path.Combine(temporary.Root, "retroarch.cfg"),
+            installed.DataPolicy.ConfigPaths.ToDictionary(pair => pair.Key, pair =>
+                '"' + pair.Value.Replace("{program}", temporary.Root).Replace("{data}", temporary.Root) + '"'));
         EmulatorStore store = new()
         {
-            Installations =
-            [
-                new EmulatorInstallation
-                {
-                    Id = "installed", ExecutablePath = executable, DataPath = temporary.Root,
-                    DataPolicy = new EmulatorDataPolicy { HasCores = true },
-                    LaunchArguments = ["-L", "{core}", "{rom}"],
-                    Cores = [new EmulatorCore { Id = "selected-core", Path = corePath, Systems = ["genesis"] }]
-                }
-            ],
+            Installations = [installed],
             SystemPreferences =
             [
                 new EmulatorSystemPreference
@@ -78,7 +80,8 @@ public sealed class ManagedContentStorageTests
         Assert.Equal("installed", result.Content!.EmulatorInstallationId);
         Assert.Equal("selected-core", result.Content.CoreId);
         Assert.Equal(executable, result.Launch!.Executable);
-        Assert.Equal(["-L", corePath, romPath], result.Launch.Arguments);
+        Assert.Equal(["-c", Path.Combine(temporary.Root, "retroarch.cfg"), "-L", corePath, romPath],
+            result.Launch.Arguments);
         Assert.Empty(content.EmulatorInstallationId);
         Assert.Empty(content.CoreId);
     }

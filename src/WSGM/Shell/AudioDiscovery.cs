@@ -24,8 +24,8 @@ internal sealed record AudioDiscovery(
     /// <summary>Nothing observed, which is what a machine without Core Audio offers.</summary>
     internal static AudioDiscovery Empty { get; } = new([], [], null, null, null);
 
-    /// <summary>Reads Windows' endpoints, and one endpoint's capabilities when one is named.</summary>
-    /// <param name="endpointId">The endpoint whose capabilities to read, or null for none.</param>
+    /// <summary>Reads Windows' endpoints and the selected or current default playback endpoint's capabilities.</summary>
+    /// <param name="endpointId">The selected endpoint, or null to inspect the current default without selecting it.</param>
     /// <returns>The observation. Every call here is a blocking Core Audio read.</returns>
     internal static AudioDiscovery Read(string? endpointId)
     {
@@ -34,8 +34,10 @@ internal sealed record AudioDiscovery(
             return Empty;
         }
 
-        var outputs = Endpoints(CoreAudio.AudioDirection.Render);
+        var outputRead = CoreAudio.ListEndpoints(CoreAudio.AudioDirection.Render, out var playback);
+        var outputs = outputRead >= 0 ? Options(playback) : [];
         var inputs = Endpoints(CoreAudio.AudioDirection.Capture);
+        endpointId ??= playback.FirstOrDefault(endpoint => endpoint.IsDefault).Id;
         if (endpointId is null)
         {
             return new AudioDiscovery(outputs, inputs, null, null, null);
@@ -53,12 +55,17 @@ internal sealed record AudioDiscovery(
     private static IReadOnlyList<AudioEndpointOption> Endpoints(CoreAudio.AudioDirection direction)
     {
         return CoreAudio.ListEndpoints(direction, out var endpoints) >= 0
-            ?
-            [
-                .. endpoints.Select(static endpoint =>
-                    new AudioEndpointOption(endpoint.Id, AudioEndpointText.Name(endpoint)))
-            ]
+            ? Options(endpoints)
             : [];
+    }
+
+    private static IReadOnlyList<AudioEndpointOption> Options(IReadOnlyList<CoreAudio.AudioEndpoint> endpoints)
+    {
+        return
+        [
+            .. endpoints.Select(static endpoint =>
+                new AudioEndpointOption(endpoint.Id, AudioEndpointText.Name(endpoint)))
+        ];
     }
 }
 

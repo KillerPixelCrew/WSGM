@@ -1,7 +1,7 @@
+using LibHandheld.Contracts;
 using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Device.Sdk.Glyphs;
-using WSGM.Device.Sdk.Input;
 using WSGM.Overlay;
 using WSGM.Shell;
 
@@ -34,32 +34,6 @@ internal sealed class FakeDevice : IDeviceOverlaySource
         {
             _changed -= value;
             Subscribers--;
-        }
-    }
-
-    public event Action<CanonicalControllerSample>? PhysicalSampleReceived
-    {
-        add
-        {
-            if (SampleSource is not null)
-            {
-                SampleSource.PhysicalSampleReceived += value;
-            }
-            else
-            {
-                throw new InvalidOperationException("Unexpected physical input subscription");
-            }
-        }
-        remove
-        {
-            if (SampleSource is not null)
-            {
-                SampleSource.PhysicalSampleReceived -= value;
-            }
-            else
-            {
-                throw new InvalidOperationException("Unexpected physical input subscription removal");
-            }
         }
     }
 
@@ -124,6 +98,32 @@ internal sealed class FakeDevice : IDeviceOverlaySource
     public void Dispose()
     {
         Assert.Equal(0, Subscribers);
+    }
+
+    public event Action<CanonicalControllerSample>? PhysicalSampleReceived
+    {
+        add
+        {
+            if (SampleSource is not null)
+            {
+                SampleSource.PhysicalSampleReceived += value;
+            }
+            else
+            {
+                throw new InvalidOperationException("Unexpected physical input subscription");
+            }
+        }
+        remove
+        {
+            if (SampleSource is not null)
+            {
+                SampleSource.PhysicalSampleReceived -= value;
+            }
+            else
+            {
+                throw new InvalidOperationException("Unexpected physical input subscription removal");
+            }
+        }
     }
 
     internal void Notify()

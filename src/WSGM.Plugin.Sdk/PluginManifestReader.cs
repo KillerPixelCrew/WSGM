@@ -95,6 +95,10 @@ public static class PluginManifestReader
         {
             errors.Add("Invalid category identity.");
         }
+        else if (manifest.Category == PluginCategories.Device)
+        {
+            errors.Add("The wsgm.device category is retired; handheld support is supplied by LibHandheld.");
+        }
 
         if (!ManifestRules.TryValidateName(manifest.Name, out _))
         {
@@ -106,9 +110,12 @@ public static class PluginManifestReader
             errors.Add("The package version must be a canonical dotted numeric version.");
         }
 
-        if (manifest.MinimumApiVersion < 1 || manifest.MaximumApiVersion < manifest.MinimumApiVersion
-                                           || PluginApi.Version < manifest.MinimumApiVersion ||
-                                           PluginApi.Version > manifest.MaximumApiVersion)
+        // API 5 is the first shared Plugin SDK assembly identity. A compatible declared range
+        // may also include future additive versions without requiring every package to be rebuilt.
+        if (manifest.MinimumApiVersion < 5
+            || manifest.MinimumApiVersion > PluginApi.Version
+            || manifest.MaximumApiVersion < PluginApi.Version
+            || manifest.MinimumApiVersion > manifest.MaximumApiVersion)
         {
             errors.Add("Incompatible common Plugin SDK version range.");
         }

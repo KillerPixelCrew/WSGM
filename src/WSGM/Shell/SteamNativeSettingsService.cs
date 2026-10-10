@@ -11,6 +11,7 @@ using SteamUiToolkit;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Settings;
+using WSGM.Overlay;
 
 namespace WSGM.Shell;
 
@@ -486,6 +487,30 @@ internal sealed class SteamNativeSettingsService(
             return;
         }
 
+        if (coordinator.LightingProfileSelection() is { } lightingSelection)
+        {
+            var descriptor = DeviceOverlayBridge.LightingProfileView(lightingSelection.Profiles,
+                lightingSelection.Selected,
+                coordinator.LightingProfileDetail, coordinator.LightingProfileStatus);
+            var choices = new[] { new SteamSettingsChoice(string.Empty, profile.EditsGame ? "Use Global" : "None") }
+                .Concat(lightingSelection.Profiles.Select(item => new SteamSettingsChoice(item.ProfileId, item.Name)))
+                .ToArray();
+            var key = ProfileKey(DeviceHostRowIds.LightingProfile, profile.Active, profile.EditsGame);
+            var row = new SteamSettingsRow(key, SteamSettingsRowKind.Choice, descriptor.Title, descriptor.Description,
+                Text: lightingSelection.Selected.Value ?? string.Empty, Choices: choices,
+                Disabled: !descriptor.CanInvoke,
+                Accent: lightingSelection.Selected.IsGameOverride);
+            Section(controller, "Lighting", "device/lighting-profile", [row]);
+            offered.Add(key, new Offered(row, async (value, token) =>
+            {
+                await coordinator.SelectLightingProfileAsync(EmptyToNull(value.GetString()), token)
+                    .ConfigureAwait(false);
+                return coordinator.LightingProfileStatus == DescriptorStatus.Warning
+                    ? new SteamUiCommandResult(false, coordinator.LightingProfileDetail)
+                    : SteamUiCommandResult.Applied;
+            }, profile.Active, profile.EditsGame));
+        }
+
         var declarations = DeviceOverlayBridge.ProjectSections(coordinator.Capabilities.Sections);
         HashSet<string> declared = new(declarations.Select(section => section.SectionId), StringComparer.Ordinal);
         var capabilities = coordinator.Capabilities.Snapshot()
@@ -542,8 +567,7 @@ internal sealed class SteamNativeSettingsService(
     internal static SteamSettingsRow DeviceRow(DeviceOverlayCapability capability)
     {
         var key = "device/" + capability.CapabilityId +
-                  (capability.InstanceId is { } instance ? "#" + instance : string.Empty)
-                  + "/" + capability.CycleGeneration + "/" + capability.DescriptorGeneration;
+                  (capability.InstanceId is { } instance ? "#" + instance : string.Empty);
         var row = capability switch
         {
             { Writable: true, ValueKind: CapabilityValueKind.Color } => new SteamSettingsRow(key,
@@ -568,9 +592,7 @@ internal sealed class SteamNativeSettingsService(
         if (coordinator is not { IntegrationEnabled: true }
             || coordinator.Capabilities.Snapshot().FirstOrDefault(view =>
                 view.Descriptor.CapabilityId == seen.CapabilityId
-                && view.Descriptor.InstanceId == seen.InstanceId) is not { } current
-            || current.Projection.State.CycleGeneration != seen.CycleGeneration
-            || current.Projection.State.DescriptorGeneration != seen.DescriptorGeneration)
+                && view.Descriptor.InstanceId == seen.InstanceId) is not { } current)
         {
             return new SteamUiCommandResult(false, "The device capability changed while you were choosing.");
         }
@@ -590,8 +612,7 @@ internal sealed class SteamNativeSettingsService(
         }
 
         var result = await coordinator.ExecuteCapabilityAsync(seen.CapabilityId, seen.InstanceId, candidate,
-            NativeQamUi.CommandTimeout, expectedCycle: seen.CycleGeneration,
-            expectedDescriptors: seen.DescriptorGeneration,
+            NativeQamUi.CommandTimeout,
             cancellationToken: cancellationToken).ConfigureAwait(false);
         return NativeQamUi.CommandResult(result, "The device refused the setting.");
     }

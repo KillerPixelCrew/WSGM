@@ -17,9 +17,6 @@ namespace WSGM.Plugin.Sdk;
 /// </remarks>
 public interface ICapabilityHost
 {
-    /// <summary>Current capability cycle generation. It changes on start and on every resume.</summary>
-    long CycleGeneration { get; }
-
     /// <summary>Publishes an immutable replacement descriptor set for the current cycle.</summary>
     /// <param name="descriptors">Complete descriptor set; roles must be declared in the manifest.</param>
     /// <param name="cancellationToken">Cancels publication.</param>
@@ -77,11 +74,9 @@ public interface ICapabilityPlugin
 
 /// <summary>The complete per-application state WSGM wants the driver to hold.</summary>
 /// <param name="Revision">Increasing revision; a plugin may skip a sync older than one it applied.</param>
-/// <param name="CycleGeneration">Capability cycle the values were resolved against.</param>
 /// <param name="Profiles">Every game with at least one executable and one native override.</param>
 public sealed record ApplicationProfileSync(
     long Revision,
-    long CycleGeneration,
     IReadOnlyList<ApplicationCapabilityProfile> Profiles);
 
 /// <summary>One game's native overrides.</summary>

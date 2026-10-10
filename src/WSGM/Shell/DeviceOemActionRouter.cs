@@ -5,7 +5,15 @@ using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Sdk.Input;
+using WSGM.Device.Sdk.Lifecycle;
+using WSGM.Interop;
+using HapticCapabilities = LibHandheld.Contracts.HapticCapabilities;
+using OemControlDescriptor = LibHandheld.Contracts.OemControlDescriptor;
+using OemControlEdge = LibHandheld.Contracts.OemControlEdge;
+using OemControlEvent = LibHandheld.Contracts.OemControlEvent;
+using OemControlPlacement = LibHandheld.Contracts.OemControlPlacement;
+using OemDefaultActionHint = LibHandheld.Contracts.OemControlDefaultActionHint;
+using PhysicalDeviceIdentity = LibHandheld.Contracts.PhysicalDeviceIdentity;
 
 namespace WSGM.Shell;
 
@@ -61,15 +69,28 @@ internal sealed class DeviceOemActionRouter : IDisposable
     private readonly Dictionary<string, OemControlDescriptor> _controls = new(StringComparer.Ordinal);
     private readonly HashSet<Task> _dispatches = [];
     private readonly Lock _gate = new();
+
+    private readonly Dictionary<string, (string PressId, DateTimeOffset Timestamp)> _heldMouseControls =
+        new(StringComparer.Ordinal);
+
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Dictionary<string, DateTimeOffset> _recentEvents = new(StringComparer.Ordinal);
+    private readonly Func<bool, bool> _setSecondaryButton;
     private long _actionGeneration;
     private DeviceOemActionServices? _actions;
     private IReadOnlyList<DeviceOemAssignment> _assignments = [];
-    private DevicePluginRuntime? _client;
+    private HandheldDeviceRuntime? _client;
     private bool _controllerManagementEnabled;
     private bool _disposed;
+    private Action<HandheldRuntimeState>? _lifecycleHandler;
+    private bool _mouseAdmission = true;
+    private bool _secondaryButtonDown;
     private bool _targetHasRearButtons;
+
+    internal DeviceOemActionRouter(Func<bool, bool>? setSecondaryButton = null)
+    {
+        _setSecondaryButton = setSecondaryButton ?? MouseInput.SetSecondaryButton;
+    }
 
     internal Task Completion
     {
@@ -108,7 +129,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
         }
     }
 
-    internal void Attach(DevicePluginRuntime client)
+    internal void Attach(HandheldDeviceRuntime client)
     {
         ArgumentNullException.ThrowIfNull(client);
         lock (_gate)
@@ -116,9 +137,13 @@ internal sealed class DeviceOemActionRouter : IDisposable
             ObjectDisposedException.ThrowIf(_disposed, this);
             DetachUnderGate();
             _client = client;
+            _mouseAdmission = false;
             ResetUnderGate();
             client.OemControlsReceived += OnControls;
             client.OemEventReceived += OnEvent;
+            client.PhysicalIdentitiesReceived += OnPhysicalDevices;
+            _lifecycleHandler = state => OnLifecycle(client, state);
+            client.LifecycleStateReceived += _lifecycleHandler;
         }
     }
 
@@ -154,7 +179,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
         }
     }
 
-    private void OnControls(IReadOnlyList<OemControlDescriptor> controls)
+    internal void OnControls(IReadOnlyList<OemControlDescriptor> controls)
     {
         lock (_gate)
         {
@@ -177,7 +202,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
         }
     }
 
-    private void OnEvent(OemControlEvent input)
+    internal void OnEvent(OemControlEvent input)
     {
         OemAction action;
         DeviceOemActionServices? actions;
@@ -190,6 +215,21 @@ internal sealed class DeviceOemActionRouter : IDisposable
             }
 
             cancellationToken = _lifetime.Token;
+            // A release belongs to the press admitted earlier, even if configuration or availability
+            // has changed. It executes in this owner before any later press can send another edge.
+            if (input.Edge is OemControlEdge.Released
+                && _heldMouseControls.TryGetValue(input.ControlId, out var heldPress)
+                && string.Equals(heldPress.PressId, input.DeduplicationId, StringComparison.Ordinal))
+            {
+                _heldMouseControls.Remove(input.ControlId);
+                if (_heldMouseControls.Count == 0)
+                {
+                    ReleaseSecondaryButtonUnderGate();
+                }
+
+                return;
+            }
+
             if (!_controls.TryGetValue(input.ControlId, out var control)
                 || string.IsNullOrWhiteSpace(input.DeduplicationId)
                 || input.Timestamp > DateTimeOffset.UtcNow.AddSeconds(5)
@@ -201,7 +241,6 @@ internal sealed class DeviceOemActionRouter : IDisposable
 
             if (input.Edge is OemControlEdge.Released)
             {
-                Log.Info($"Device OEM release observed: control={input.ControlId}; actions run on press only.");
                 return;
             }
 
@@ -220,6 +259,35 @@ internal sealed class DeviceOemActionRouter : IDisposable
                 || (control.RequiresControllerAcquisition && !_controllerManagementEnabled))
             {
                 Log.Warn($"Device OEM action unavailable: control={control.ControlId}, action={action}.");
+                return;
+            }
+
+            if (action is OemAction.MouseSecondaryButton)
+            {
+                if (!_mouseAdmission)
+                {
+                    return;
+                }
+
+                if (!_heldMouseControls.TryGetValue(input.ControlId, out var previousPress))
+                {
+                    if (_heldMouseControls.Count == 0 && !PressSecondaryButtonUnderGate())
+                    {
+                        if (_secondaryButtonDown)
+                        {
+                            _heldMouseControls.Add(input.ControlId, (input.DeduplicationId, input.Timestamp));
+                        }
+
+                        return;
+                    }
+
+                    _heldMouseControls.Add(input.ControlId, (input.DeduplicationId, input.Timestamp));
+                }
+                else if (input.Timestamp >= previousPress.Timestamp)
+                {
+                    _heldMouseControls[input.ControlId] = (input.DeduplicationId, input.Timestamp);
+                }
+
                 return;
             }
 
@@ -338,10 +406,17 @@ internal sealed class DeviceOemActionRouter : IDisposable
 
     /// <summary>What an unassigned control does.</summary>
     /// <param name="control">Published OEM control declaration, including placement and companion-application role.</param>
-    /// <returns>Toggle WSGM for a front companion-application button; disabled for every other unassigned control.</returns>
+    /// <returns>Right mouse button for the tablet touchpad gesture, WSGM for a companion button, otherwise disabled.</returns>
     internal static OemAction DefaultAction(OemControlDescriptor control)
     {
-        return control is { CompanionApplication: true, Placement: OemControlPlacement.Front }
+        if (control.DefaultActionHint == OemDefaultActionHint.MouseSecondaryButton &&
+            control.Placement is OemControlPlacement.Front)
+        {
+            return OemAction.MouseSecondaryButton;
+        }
+
+        return control is
+            { DefaultActionHint: OemDefaultActionHint.CompanionApplication, Placement: OemControlPlacement.Front }
             ? OemAction.ToggleWsgmOverlay
             : OemAction.Disabled;
     }
@@ -359,7 +434,85 @@ internal sealed class DeviceOemActionRouter : IDisposable
 
     private void ResetUnderGate()
     {
+        _heldMouseControls.Clear();
+        ReleaseSecondaryButtonUnderGate();
         _recentEvents.Clear();
+    }
+
+    private bool PressSecondaryButtonUnderGate()
+    {
+        if (_secondaryButtonDown)
+        {
+            ReleaseSecondaryButtonUnderGate();
+            if (_secondaryButtonDown)
+            {
+                return false;
+            }
+        }
+
+        _secondaryButtonDown = true;
+        try
+        {
+            if (_setSecondaryButton(true))
+            {
+                return true;
+            }
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            Log.Error("OEM right mouse button press failed", exception);
+        }
+
+        ReleaseSecondaryButtonUnderGate();
+        return false;
+    }
+
+    private void ReleaseSecondaryButtonUnderGate()
+    {
+        if (!_secondaryButtonDown)
+        {
+            return;
+        }
+
+        try
+        {
+            if (_setSecondaryButton(false))
+            {
+                _secondaryButtonDown = false;
+            }
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            Log.Error("OEM right mouse button release failed", exception);
+        }
+    }
+
+    private void OnPhysicalDevices(
+        (IReadOnlyList<PhysicalDeviceIdentity> Devices, HapticCapabilities? Output) notification)
+    {
+        lock (_gate)
+        {
+            _mouseAdmission = notification.Devices.Count > 0 && _client?.IsActive == true;
+            if (!_mouseAdmission)
+            {
+                ResetUnderGate();
+            }
+        }
+    }
+
+    private void OnLifecycle(HandheldDeviceRuntime client, HandheldRuntimeState state)
+    {
+        lock (_gate)
+        {
+            if (ReferenceEquals(_client, client))
+            {
+                _mouseAdmission = state.State is DeviceCycleState.Active or DeviceCycleState.Degraded;
+                if (!_mouseAdmission)
+                {
+                    ResetUnderGate();
+                }
+            }
+        }
     }
 
     private void DetachUnderGate()
@@ -368,15 +521,23 @@ internal sealed class DeviceOemActionRouter : IDisposable
         {
             _client.OemControlsReceived -= OnControls;
             _client.OemEventReceived -= OnEvent;
+            _client.PhysicalIdentitiesReceived -= OnPhysicalDevices;
+            if (_lifecycleHandler is { } lifecycleHandler)
+            {
+                _client.LifecycleStateReceived -= lifecycleHandler;
+            }
         }
 
         _client = null;
+        _mouseAdmission = false;
+        _lifecycleHandler = null;
         _controls.Clear();
     }
 
     private static bool ValidControl(OemControlDescriptor control)
     {
         return PlainText.IsIdentifier(control.ControlId)
+               && Enum.IsDefined(control.DefaultActionHint)
                && control.Display.TryValidate(out _);
     }
 }

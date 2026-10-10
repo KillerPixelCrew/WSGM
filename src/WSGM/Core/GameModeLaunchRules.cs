@@ -28,11 +28,16 @@ internal static class GameModeLaunchRules
         launch.DesktopLayout = NormalizeLayout(launch.DesktopLayout, nameof(launch.DesktopLayout), diagnostics);
         launch.GameAudio = NormalizeAudioProfile(launch.GameAudio);
         launch.DesktopAudio = NormalizeAudioProfile(launch.DesktopAudio);
+        launch.GameDisplayGpu = NormalizeGpuPreferences(launch.GameDisplayGpu);
+        launch.DesktopDisplayGpu = NormalizeGpuPreferences(launch.DesktopDisplayGpu);
         launch.EnterActions = NormalizeSteps(launch.EnterActions);
         launch.LeaveActions = NormalizeSteps(launch.LeaveActions);
         launch.DesktopStartupActions = NormalizeSteps(launch.DesktopStartupActions);
         launch.DesktopWakeActions = NormalizeSteps(launch.DesktopWakeActions);
         launch.KnownDisplays ??= [];
+        launch.KnownGpuCapabilities ??= [];
+        launch.KnownGpuCapabilities.RemoveAll(static capability => capability?.Descriptor is null
+                                                                   || string.IsNullOrWhiteSpace(capability.PluginId));
         launch.KnownDisplays.RemoveAll(static display => display?.Target is null);
         foreach (var display in launch.KnownDisplays)
         {
@@ -43,9 +48,23 @@ internal static class GameModeLaunchRules
                 .Distinct()
             ];
             display.MaximumDpiPercent = Math.Clamp(display.MaximumDpiPercent, 0, 500);
+            display.GpuCapabilities ??= [];
+            display.GpuCapabilities.RemoveAll(static capability => capability?.Descriptor is null
+                                                                   || string.IsNullOrWhiteSpace(capability.PluginId));
         }
 
         return diagnostics;
+    }
+
+    private static List<DisplayGpuPreference> NormalizeGpuPreferences(List<DisplayGpuPreference>? preferences)
+    {
+        preferences ??= [];
+        // A disconnected monitor and an unavailable provider remain configured. Only incomplete
+        // identities are malformed; the current driver owns range and value validation at apply time.
+        preferences.RemoveAll(static preference => preference is null
+                                                   || string.IsNullOrWhiteSpace(preference.PluginId)
+                                                   || string.IsNullOrWhiteSpace(preference.CapabilityId));
+        return preferences;
     }
 
     /// <summary>
@@ -78,7 +97,7 @@ internal static class GameModeLaunchRules
         return layout;
     }
 
-    /// <summary>Repairs endpoint identities and audio ranges, dropping fields that lack a target output.</summary>
+    /// <summary>Repairs endpoint identities and audio ranges; no selected output means the current playback default.</summary>
     /// <param name="profile">Preference to mutate, or null for no preference.</param>
     /// <returns>The same repaired instance, or null when no actionable field remains.</returns>
     internal static AudioProfilePreference? NormalizeAudioProfile(AudioProfilePreference? profile)
@@ -92,12 +111,6 @@ internal static class GameModeLaunchRules
         profile.Input = NormalizeAudioEndpoint(profile.Input);
         profile.VolumePercent = profile.VolumePercent is { } volume and >= 0 and <= 100 ? volume : null;
         profile.PlaybackFormat = NormalizeAudioFormat(profile.PlaybackFormat);
-        if (profile.Output is null)
-        {
-            profile.PlaybackFormat = null;
-            profile.SpatialFormat = null;
-        }
-
         return profile.Output is not null
                || profile.Input is not null
                || profile.VolumePercent is not null

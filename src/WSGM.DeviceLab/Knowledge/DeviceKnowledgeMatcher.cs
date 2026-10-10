@@ -2,18 +2,18 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using WSGM.Device.Sdk.Identity;
+using LibHandheld.Contracts;
 using WSGM.DeviceLab.Inventory;
 using WSGM.DeviceLab.Probes;
 
 namespace WSGM.DeviceLab.Knowledge;
 
-/// <summary>Builds the SDK identity snapshot a knowledge rule is matched against.</summary>
+/// <summary>Builds the library identity snapshot a knowledge rule is matched against.</summary>
 internal static class DeviceKnowledgeIdentity
 {
     /// <summary>Reads the identity fields out of an inventory.</summary>
     /// <param name="inventory">Observed machine inventory.</param>
-    /// <returns>The identity, in the SDK shape WSGM and setup match against too.</returns>
+    /// <returns>The public identity shape used by WSGM and setup.</returns>
     public static DeviceIdentitySnapshot From(MachineInventory inventory)
     {
         ArgumentNullException.ThrowIfNull(inventory);
@@ -24,7 +24,14 @@ internal static class DeviceKnowledgeIdentity
             SystemProduct = inventory.Firmware.SystemProduct,
             SystemSku = inventory.Firmware.SystemSku,
             ProcessorName = inventory.Processor?.Name,
-            BaseboardVersion = inventory.Firmware.BaseboardVersion
+            BaseboardVersion = inventory.Firmware.BaseboardVersion,
+            WmiProviderSignatures =
+            [
+                .. inventory.WmiClasses
+                    .Where(provider => provider.Access is WmiAccess.Available or WmiAccess.AccessDenied)
+                    .Select(provider => $"{provider.Namespace}:{provider.ClassName}")
+                    .Order(StringComparer.Ordinal)
+            ]
         };
     }
 }
@@ -47,6 +54,12 @@ internal sealed record DeviceKnowledgeMatch
     /// <summary>One line per compared field of the matching rule.</summary>
     public IReadOnlyList<string> Explanations { get; init; } = [];
 }
+
+/// <summary>The first matching knowledge rule, preferring an exact rule over a fallback.</summary>
+/// <param name="Index">Zero-based index in the record's identity rules.</param>
+/// <param name="Fallback">Whether the matching rule is HC's default branch.</param>
+/// <param name="Explanations">Compared fields of the matching rule.</param>
+internal sealed record DeviceKnowledgeIdentityMatch(int Index, bool Fallback, IReadOnlyList<string> Explanations);
 
 /// <summary>Matches a machine's identity against the knowledge base.</summary>
 internal static class DeviceKnowledgeMatcher
@@ -92,7 +105,7 @@ internal static class DeviceKnowledgeMatcher
 
     private static DeviceKnowledgeMatch? BestRule(DeviceKnowledgeRecord record, DeviceIdentitySnapshot identity)
     {
-        var match = HardwareMatcher.Match(record.Identity, identity);
+        var match = Match(record.Identity, identity);
         return match is null
             ? null
             : new DeviceKnowledgeMatch
@@ -103,6 +116,38 @@ internal static class DeviceKnowledgeMatcher
                 Fallback = match.Fallback,
                 Explanations = match.Explanations
             };
+    }
+
+    /// <summary>Finds a matching knowledge rule, with exact rules taking precedence over fallbacks.</summary>
+    /// <param name="rules">Alternative identity evidence from one knowledge record.</param>
+    /// <param name="identity">Observed machine identity.</param>
+    /// <returns>The first exact match, otherwise the first fallback match, or null.</returns>
+    internal static DeviceKnowledgeIdentityMatch? Match(
+        IReadOnlyList<DeviceKnowledgeIdentityRule> rules,
+        DeviceIdentitySnapshot identity)
+    {
+        ArgumentNullException.ThrowIfNull(rules);
+        ArgumentNullException.ThrowIfNull(identity);
+        DeviceKnowledgeIdentityMatch? fallback = null;
+        for (var index = 0; index < rules.Count; index++)
+        {
+            var rule = rules[index];
+            List<string> explanations = [];
+            if (!DeviceKnowledgeAssessor.RuleMatches(rule, identity, explanations))
+            {
+                continue;
+            }
+
+            var match = new DeviceKnowledgeIdentityMatch(index, rule.Fallback, explanations);
+            if (!rule.Fallback)
+            {
+                return match;
+            }
+
+            fallback ??= match;
+        }
+
+        return fallback;
     }
 }
 
@@ -192,7 +237,7 @@ internal static class DeviceKnowledgeAssessor
         foreach (var family in families)
         {
             if (Record(knowledge, family).Identity.Any(rule =>
-                    !rule.Fallback && HardwareMatcher.Matches(rule, identity, [])))
+                    !rule.Fallback && RuleMatches(rule, identity, [])))
             {
                 return family.DeviceId;
             }
@@ -244,7 +289,13 @@ internal static class DeviceKnowledgeAssessor
         return false;
     }
 
-    private static bool RuleMatches(HardwareMatchRule rule, DeviceIdentitySnapshot identity, List<string> explanations)
+    /// <summary>Compares one knowledge rule and explains each specified field.</summary>
+    /// <param name="rule">Identity evidence to compare.</param>
+    /// <param name="identity">Observed machine identity.</param>
+    /// <param name="explanations">Receives pass or mismatch details for the specified fields.</param>
+    /// <returns>Whether every specified field matched.</returns>
+    internal static bool RuleMatches(DeviceKnowledgeIdentityRule rule, DeviceIdentitySnapshot identity,
+        List<string> explanations)
     {
         var matched = Field("SMBIOS baseboard manufacturer", rule.BaseboardManufacturer,
             identity.BaseboardManufacturer, explanations);

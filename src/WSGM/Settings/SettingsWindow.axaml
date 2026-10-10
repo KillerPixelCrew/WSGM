@@ -39,7 +39,8 @@
         <pages:DisplayPage x:Name="PageDisplay" IsVisible="False" />
         <pages:AppearancePage x:Name="PageAppearance" IsVisible="False" />
         <pages:AboutPage x:Name="PageAbout" IsVisible="False" />
-        <pages:PluginSettingsPage x:Name="PagePluginSettings" IsVisible="False" />
+        <pages:PluginsPage x:Name="PagePlugins" IsVisible="False" />
+        <pages:DeviceProfilesPage x:Name="PageDeviceProfiles" IsVisible="False" />
       </Grid>
 
       <Border Grid.Row="2" Classes="hc-footer">

@@ -473,7 +473,7 @@ public sealed class AutoTdpServiceTests
         {
             Projection = power.Projection with
             {
-                State = power.Projection.State with { CycleGeneration = 2 }
+                State = power.Projection.State
             }
         };
 
@@ -689,7 +689,7 @@ public sealed class AutoTdpServiceTests
             {
                 Projection = views[i].Projection with
                 {
-                    State = views[i].Projection.State with { CycleGeneration = 2 }
+                    State = views[i].Projection.State
                 }
             };
         }
@@ -800,19 +800,17 @@ public sealed class AutoTdpServiceTests
     }
 
     [Fact]
-    public async Task CompanionFromAnEarlierCycleCannotSupplyTheRestoreSnapshot()
+    public async Task AnInstanceScopedCompanionCannotSupplyTheUnscopedRestoreSnapshot()
     {
         var primary = View("primary", 12, true);
-        primary = primary with
+        var companion = View("boost", 17, false);
+        companion = companion with
         {
-            Projection = primary.Projection with
-            {
-                State = primary.Projection.State with { CycleGeneration = 2 }
-            }
+            Descriptor = companion.Descriptor with { InstanceId = "another-instance" }
         };
         await using AutoTdpService service = new(
             new FakeFrametimeSource { Live = [new RtssFrametimeSample(1, "game.exe", 22, 60, 100)] },
-            () => [primary, View("boost", 17, false)],
+            () => [primary, companion],
             (_, _, _, _) => throw new InvalidOperationException("No command was requested."), () => 16.6);
         Assert.False(service.Availability.Available);
     }
@@ -841,8 +839,6 @@ public sealed class AutoTdpServiceTests
                     CapabilityId = id,
                     Available = true,
                     Quality = HardwareStateQuality.Verified,
-                    DescriptorGeneration = 1,
-                    CycleGeneration = 1,
                     ObservedValue = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = watts }
                 }
             }, null);
@@ -996,9 +992,7 @@ public sealed class AutoTdpServiceTests
                         {
                             Kind = CapabilityValueKind.Integer,
                             IntegerValue = watts
-                        },
-                        DescriptorGeneration = 1,
-                        CycleGeneration = 1
+                        }
                     }
                 },
                 null);

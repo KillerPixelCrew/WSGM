@@ -219,7 +219,9 @@ internal sealed class SetupViewModel : Observable
         _flow.AddRange(["uninstall", "progress", "summary"]);
         _uninstall = new UninstallPage(SetupEngine.Display(engine.InstalledVersion ?? engine.ThisVersion),
             engine.Components.Usbip && InstalledComponents.UsbipPresent(),
-            engine.Components.HidHide && InstalledComponents.HidHidePresent());
+            engine.Components.HidHide && InstalledComponents.HidHidePresent(),
+            engine.Components.PawnIo && PawnIoInstaller.IsPresent(),
+            engine.Components.InpOut && InpOutInstaller.IsInstalled());
         GoTo(0);
     }
 
@@ -309,7 +311,7 @@ internal sealed class SetupViewModel : Observable
                 _profile = new ProfilePage(_answers);
             }
 
-            // Full with the device plugin, Minimal without it (declined, or nothing matches).
+            // Full with native device support, Minimal without it (declined, or nothing matches).
             _profile.UseDefaultLevel(_hardware?.Chosen is not null);
             Page = _profile;
         }
@@ -381,7 +383,7 @@ internal sealed class SetupViewModel : Observable
                 NewGraphics().Where(option => option.Checked).Select(option => option.Plugin.Id));
         }
 
-        var device = _hardware.Chosen?.Offer.Plugin.Id;
+        var device = _hardware.Chosen?.Offer.Definition.Id;
         answers["deviceIntegration"] = device is not null;
         return new InstallChoices(device,
         [
@@ -406,7 +408,7 @@ internal sealed class SetupViewModel : Observable
         {
             steps = uninstall
                 ? engine.PlanUninstall(new UninstallChoices(_uninstall!.KeepData, _uninstall.RemoveUsbip,
-                    _uninstall.RemoveHidHide))
+                    _uninstall.RemoveHidHide, _uninstall.RemovePawnIo, _uninstall.RemoveInpOut))
                 : FinishingDrivers
                     ? engine.PlanFinishDrivers()
                     : engine.PlanInstall(Choices());
@@ -554,8 +556,6 @@ internal sealed class SetupViewModel : Observable
                 return;
             case UninstallPage { Confirming: false } page:
                 page.Confirming = true;
-                return;
-            case HardwarePage hardware when hardware.NeedsChoice && hardware.InstallPlugin && hardware.Chosen is null:
                 return;
         }
 

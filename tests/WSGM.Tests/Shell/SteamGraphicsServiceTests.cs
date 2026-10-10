@@ -315,6 +315,74 @@ public sealed class SteamGraphicsServiceTests
     }
 
     [Fact]
+    public void BothSteamProjectionsReuseOneSnapshotUntilTheGraphicsSourceChanges()
+    {
+        FakeSource source = new(Snapshot(Placed(Range("graphics.sharpen", CapabilityProfileScope.Switched),
+            CapabilityValue.Integer(40))));
+        using SteamGraphicsService service = new(source);
+        var revision = service.Revision;
+        Assert.Equal(0, source.SnapshotCalls);
+
+        var settings = service.ReadState();
+        var quickAccess = service.ReadQuickAccessState();
+        Assert.True(service.Visible);
+        Assert.Same(settings, service.ReadState());
+        Assert.Same(quickAccess, service.ReadQuickAccessState());
+        Assert.Equal(revision, service.Revision);
+        Assert.Equal(1, source.SnapshotCalls);
+
+        source.Current = Snapshot(Placed(Range("graphics.sharpen", CapabilityProfileScope.Switched),
+            CapabilityValue.Integer(60)));
+        source.Raise();
+
+        Assert.True(service.Revision > revision);
+        Assert.Equal(1, source.SnapshotCalls);
+        var changedSettings = service.ReadState();
+        var changedQuickAccess = service.ReadQuickAccessState();
+        Assert.NotSame(settings, changedSettings);
+        Assert.NotSame(quickAccess, changedQuickAccess);
+        Assert.Equal(service.Revision, changedSettings.Revision);
+        Assert.Equal(service.Revision, changedQuickAccess.Revision);
+        Assert.Equal(60d, Row(changedSettings.Pages, "wsgm.test-gpu/graphics.sharpen").Number);
+        Assert.Equal(60d, Row(changedQuickAccess.Pages, "wsgm.test-gpu/graphics.sharpen").Number);
+        Assert.Equal(2, source.SnapshotCalls);
+    }
+
+    [Fact]
+    public void RemovingThePublisherClearsBothCachedSteamProjections()
+    {
+        FakeSource source = new(Snapshot(Placed(Toggle(CapabilityProfileScope.Switched))));
+        using SteamGraphicsService service = new(source);
+        Assert.NotEmpty(service.ReadState().Pages);
+        Assert.NotEmpty(service.ReadQuickAccessState().Pages);
+        var revision = service.Revision;
+
+        source.Current = GraphicsOverlaySnapshot.Empty;
+        source.Raise();
+
+        Assert.False(service.Visible);
+        Assert.Empty(service.ReadState().Pages);
+        Assert.Empty(service.ReadQuickAccessState().Pages);
+        Assert.True(service.Revision > revision);
+        Assert.Equal(2, source.SnapshotCalls);
+    }
+
+    [Fact]
+    public async Task AWriteValidatesFreshSourceStateRatherThanTheCachedRow()
+    {
+        FakeSource source = new(Snapshot(Placed(Toggle(CapabilityProfileScope.Switched))));
+        using SteamGraphicsService service = new(source);
+        Assert.NotEmpty(service.ReadQuickAccessState().Pages);
+        source.Current = GraphicsOverlaySnapshot.Empty;
+
+        var result = await service.SetAsync("wsgm.test-gpu/graphics.toggle", Json("true"), CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Empty(source.Writes);
+        Assert.Equal(2, source.SnapshotCalls);
+    }
+
+    [Fact]
     public void TheSourceChangingRepublishesThePage()
     {
         FakeSource source = new(GraphicsOverlaySnapshot.Empty);
@@ -338,6 +406,8 @@ public sealed class SteamGraphicsServiceTests
 
     private sealed class FakeSource(GraphicsOverlaySnapshot snapshot) : IGraphicsOverlaySource
     {
+        internal GraphicsOverlaySnapshot Current { get; set; } = snapshot;
+        internal int SnapshotCalls { get; private set; }
         internal List<(DeviceOverlayCapability Capability, CapabilityValue? Value)> Writes { get; } = [];
         internal List<string> Cleared { get; } = [];
         internal CommandOutcome Outcome { get; init; } = CommandOutcome.AppliedVerified;
@@ -346,7 +416,8 @@ public sealed class SteamGraphicsServiceTests
 
         public GraphicsOverlaySnapshot Snapshot()
         {
-            return snapshot;
+            SnapshotCalls++;
+            return Current;
         }
 
         public Task<CapabilityCommandResult?> WriteAsync(DeviceOverlayCapability capability, CapabilityValue? value,

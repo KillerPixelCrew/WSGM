@@ -1,6 +1,10 @@
 using WSGM.Core;
-using WSGM.Device.Sdk.Input;
 using WSGM.Input;
+using CanonicalButtons = LibHandheld.Contracts.CanonicalButtons;
+using CanonicalControllerSample = LibHandheld.Contracts.CanonicalControllerSample;
+using HapticCapabilities = LibHandheld.Contracts.HapticCapabilities;
+using HapticOutputFrame = LibHandheld.Contracts.HapticOutputFrame;
+using OutputChannelSupport = LibHandheld.Contracts.OutputChannelSupport;
 
 namespace WSGM.Tests.Input;
 

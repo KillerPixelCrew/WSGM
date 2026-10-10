@@ -8,7 +8,6 @@ using System.Threading.Tasks;
 using SteamUiToolkit;
 using WinRT;
 using WSGM.Core;
-using WSGM.Device.Sdk.Plugin;
 using WSGM.Plugin.Sdk;
 using WinRtPoint = Windows.Foundation.Point;
 
@@ -85,31 +84,6 @@ internal sealed class LoadedPluginPackage<TEntry> where TEntry : class, IAsyncDi
 /// </remarks>
 internal static class PluginLoader
 {
-    /// <summary>Loads the sole valid device package.</summary>
-    /// <param name="package">The package discovery admitted.</param>
-    /// <returns>The loaded plugin and its package.</returns>
-    /// <exception cref="PluginLoadException">The package could not be loaded.</exception>
-    internal static LoadedPluginPackage<IDevicePlugin> LoadDevice(InstalledDevicePackage package)
-    {
-        ArgumentNullException.ThrowIfNull(package);
-        if (!package.Valid || package.Manifest is not { } manifest)
-        {
-            throw new InvalidDataException("The installed device package is not valid.");
-        }
-
-        return Load<IDevicePlugin>(
-            package.PackagePath,
-            new Entry(manifest.Id, manifest.Version, manifest.EntryAssembly, manifest.EntryType,
-                manifest.WsgmVersion),
-            static file => file.DeviceManifest is { } reopened
-                ? new Entry(reopened.Id, reopened.Version, reopened.EntryAssembly, reopened.EntryType,
-                    reopened.WsgmVersion)
-                : null,
-            static _ => null,
-            static plugin => plugin.PackageId,
-            CancellationToken.None);
-    }
-
     /// <summary>Loads a common package off the calling thread.</summary>
     /// <param name="packagePath">The package file.</param>
     /// <param name="admitted">The manifest discovery admitted.</param>
@@ -247,7 +221,6 @@ internal static class PluginLoader
         // SDK identity and CsWinRT's process-global ComWrappers registration require a single host copy.
         private static readonly Dictionary<string, Assembly> HostOwned = new(StringComparer.Ordinal)
         {
-            [typeof(IDevicePlugin).Assembly.GetName().Name!] = typeof(IDevicePlugin).Assembly,
             [typeof(IPlugin).Assembly.GetName().Name!] = typeof(IPlugin).Assembly,
             [typeof(ISteamUiModule).Assembly.GetName().Name!] = typeof(ISteamUiModule).Assembly,
             [typeof(IWinRTObject).Assembly.GetName().Name!] = typeof(IWinRTObject).Assembly,

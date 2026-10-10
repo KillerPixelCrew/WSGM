@@ -15,7 +15,8 @@ building. Both eng\verify.ps1 and build.ps1 pass this switch.
 #>
 [CmdletBinding()]
 param(
-    [switch]$Validate
+    [switch]$Validate,
+    [switch]$DeferTests
 )
 
 Set-StrictMode -Version Latest
@@ -34,8 +35,10 @@ if ($Validate) {
     cargo clippy --manifest-path $manifest --workspace --all-targets -- -D warnings
     if ($LASTEXITCODE -ne 0) { throw "Steam Input Lease clippy check failed" }
 
-    cargo test --manifest-path $manifest --workspace
-    if ($LASTEXITCODE -ne 0) { throw "Steam Input Lease tests failed" }
+    if (-not $DeferTests) {
+        cargo test --manifest-path $manifest --workspace
+        if ($LASTEXITCODE -ne 0) { throw "Steam Input Lease tests failed" }
+    }
 }
 
 cargo build --manifest-path $manifest --workspace --release

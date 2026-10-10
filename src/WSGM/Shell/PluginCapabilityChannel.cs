@@ -14,11 +14,9 @@ namespace WSGM.Shell;
 ///     stream its capability router reads.
 /// </summary>
 /// <remarks>
-///     The plugin registration owns the cycle: it begins a new cycle generation before the plugin starts
-///     and before every resume, and closes command admission before a suspend or a stop. The channel checks
-///     what the plugin publishes the way the device runtime's adapter does, generations and declared roles
-///     first, before any of it reaches WSGM state, and it is the one path commands and per-application
-///     syncs reach the plugin by.
+///     The plugin registration opens and closes admission around its serialized lifecycle.
+///     Publications must use declared roles. Commands and per-application syncs reach the plugin
+///     through this owned channel; capability generations are not part of the contract.
 /// </remarks>
 internal sealed class PluginCapabilityChannel : ICapabilityHost, ICapabilityPublisher, IDisposable
 {
@@ -27,8 +25,8 @@ internal sealed class PluginCapabilityChannel : ICapabilityHost, ICapabilityPubl
     private readonly CancellationTokenSource _lifetime = new();
     private readonly ICapabilityPlugin _plugin;
     private bool _closed;
-    private long _cycleGeneration;
-    private long _descriptorGeneration;
+
+
     private bool _open;
     private long _stateSequence;
 
@@ -76,18 +74,6 @@ internal sealed class PluginCapabilityChannel : ICapabilityHost, ICapabilityPubl
     }
 
     /// <inheritdoc />
-    public long CycleGeneration
-    {
-        get
-        {
-            lock (_gate)
-            {
-                return _cycleGeneration;
-            }
-        }
-    }
-
-    /// <inheritdoc />
     public ValueTask PublishDescriptorsAsync(CapabilityDescriptorSet descriptors, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(descriptors);
@@ -95,12 +81,6 @@ internal sealed class PluginCapabilityChannel : ICapabilityHost, ICapabilityPubl
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_closed, this);
-            if (descriptors.CycleGeneration != _cycleGeneration
-                || descriptors.Generation <= _descriptorGeneration)
-            {
-                throw new InvalidOperationException("Descriptor generations must be current and monotonic.");
-            }
-
             // The manifest's capability list is what setup offered the package for, so a role it does
             // not declare is a package defect and the set is refused whole.
             if (descriptors.Descriptors.FirstOrDefault(descriptor => !_declared.Contains(descriptor.Role)) is
@@ -110,8 +90,6 @@ internal sealed class PluginCapabilityChannel : ICapabilityHost, ICapabilityPubl
                     $"Capability {undeclared.CapabilityId} uses role {undeclared.Role}, which the package "
                     + "manifest does not declare.");
             }
-
-            _descriptorGeneration = descriptors.Generation;
         }
 
         Raise(DescriptorSetReceived, descriptors, "descriptor set");
@@ -127,17 +105,14 @@ internal sealed class PluginCapabilityChannel : ICapabilityHost, ICapabilityPubl
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_closed, this);
-            if (state.CycleGeneration != _cycleGeneration || state.DescriptorGeneration != _descriptorGeneration)
-            {
-                throw new InvalidOperationException("Capability state belongs to a stale generation.");
-            }
-
             sequence = ++_stateSequence;
         }
 
         Raise(CapabilityStateReceived, new CapabilityStateDelta(sequence, state), "capability state");
         return ValueTask.CompletedTask;
     }
+
+    public bool IsActive => IsOpen;
 
     /// <inheritdoc />
     public IReadOnlyList<CapabilityRole> DeclaredCapabilities { get; }
@@ -160,12 +135,6 @@ internal sealed class PluginCapabilityChannel : ICapabilityHost, ICapabilityPubl
             {
                 return new DeviceCommandDispatch(Refused(command, CapabilityReasonCode.Quiescing,
                     "The graphics plugin is not accepting commands."));
-            }
-
-            if (command.ExpectedCycleGeneration != _cycleGeneration)
-            {
-                return new DeviceCommandDispatch(Refused(command, CapabilityReasonCode.GenerationChanged,
-                    "The command belongs to an earlier cycle."));
             }
 
             lifetime = _lifetime.Token;
@@ -209,31 +178,22 @@ internal sealed class PluginCapabilityChannel : ICapabilityHost, ICapabilityPubl
         _lifetime.Dispose();
     }
 
-    /// <summary>Raised on the lifecycle lane when a new cycle generation began, before the plugin runs.</summary>
-    internal event Action<long>? CycleStarted;
+    /// <summary>Raised when the owned publisher opens before the plugin runs.</summary>
+    internal event Action? Opened;
 
-    /// <summary>Raised when command admission closed for a suspend, a stop or the channel's end.</summary>
+    /// <summary>Raised when command admission closes.</summary>
     internal event Action? AdmissionClosed;
 
-    /// <summary>Begins a new cycle generation and opens command admission.</summary>
-    /// <param name="generation">The new generation; it must exceed the current one.</param>
-    internal void BeginCycle(long generation)
+    internal void Open()
     {
         lock (_gate)
         {
             ObjectDisposedException.ThrowIf(_closed, this);
-            if (generation <= _cycleGeneration)
-            {
-                throw new InvalidOperationException("Cycle generation must increase before the plugin republishes.");
-            }
-
-            _cycleGeneration = generation;
-            _descriptorGeneration = 0;
             _stateSequence = 0;
             _open = true;
         }
 
-        CycleStarted?.Invoke(generation);
+        Opened?.Invoke();
     }
 
     /// <summary>Closes command admission until the next cycle begins.</summary>

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace WSGM.Core;
 
-/// <summary>Repairs device settings scopes, profiles, glyph selection, and OEM assignments without opening plugin code.</summary>
+/// <summary>Repairs authored device profiles, glyph selection and OEM assignments without opening hardware.</summary>
 internal static class DeviceConfigurationRules
 {
     /// <summary>
@@ -12,38 +12,30 @@ internal static class DeviceConfigurationRules
     /// <param name="device">The section to normalize in place.</param>
     /// <remarks>
     ///     Performs structural repair only; live capability bounds are validated separately against
-    ///     the installed plugin declaration. No files or hardware are read.
+    ///     the active device descriptor. No files or hardware are read.
     /// </remarks>
-    /// <returns>Diagnostics for discarded cached declarations or curves; the supplied configuration is mutated in place.</returns>
+    /// <returns>Diagnostics for discarded authored curves; the supplied configuration is mutated in place.</returns>
     internal static IReadOnlyList<string> Normalize(DeviceIntegrationConfig device)
     {
         List<string> diagnostics = [];
         device.ManualGlyphProfileId = string.IsNullOrWhiteSpace(device.ManualGlyphProfileId)
             ? null
             : device.ManualGlyphProfileId.Trim();
-        // A scope with no device, no plugin, or no values keys nothing and can never be matched, so
-        // it would sit in the file forever growing it. Values are only shape-checked here; whether
-        // one still satisfies its declared bounds is decided against the live manifest on load,
-        // because a plugin update can narrow a range after the value was stored.
-        device.PluginSettings ??= [];
-        device.PluginSettings.RemoveAll(static scope => scope is null
+        device.OemAssignments ??= [];
+        if (device.PreferencesSchemaVersion != DeviceIntegrationConfig.CurrentPreferencesSchemaVersion)
+        {
+            device.OemAssignments.Clear();
+            device.PreferencesSchemaVersion = DeviceIntegrationConfig.CurrentPreferencesSchemaVersion;
+        }
+
+        device.DeviceProfiles ??= [];
+        device.DeviceProfiles.RemoveAll(static scope => scope is null
                                                         || string.IsNullOrWhiteSpace(scope.DeviceDefinitionId)
-                                                        || string.IsNullOrWhiteSpace(scope.PluginId));
-        foreach (var scope in device.PluginSettings)
+                                                        || string.IsNullOrWhiteSpace(scope.FamilyId));
+        foreach (var scope in device.DeviceProfiles)
         {
             scope.DeviceDefinitionId = scope.DeviceDefinitionId.Trim();
-            scope.PluginId = scope.PluginId.Trim();
-
-            // Settings renders the cached declaration without activating plugin code. Drop malformed
-            // declarations so every rendered control has the bounds required by the SDK contract.
-            if (scope.Declaration is { } declaration && !declaration.TryValidate(out var reason))
-            {
-                diagnostics.Add(
-                    $"Plugin settings: cached declaration for {scope.PluginId} on "
-                    + $"{scope.DeviceDefinitionId} was dropped: {reason}");
-                scope.Declaration = null;
-            }
-
+            scope.FamilyId = scope.FamilyId.Trim();
             // A profile with no id keys nothing and can never be selected, and one whose curve is
             // not strictly ascending is refused by the device router on apply — keeping either
             // would leave the user a profile that silently does nothing when chosen.
@@ -86,21 +78,10 @@ internal static class DeviceConfigurationRules
 
                 return false;
             });
-            scope.Values ??= [];
-            scope.Values.RemoveAll(static value => value is null
-                                                   || string.IsNullOrWhiteSpace(value.SettingId));
-            HashSet<string> settingIds = new(StringComparer.Ordinal);
-            scope.Values.RemoveAll(value => !settingIds.Add(value.SettingId.Trim()));
-            foreach (var value in scope.Values)
-            {
-                value.SettingId = value.SettingId.Trim();
-            }
         }
 
-        HashSet<(string DeviceDefinitionId, string PluginId)> scopeKeys = [];
-        device.PluginSettings.RemoveAll(scope => !scopeKeys.Add((scope.DeviceDefinitionId, scope.PluginId)));
-
-        device.OemAssignments ??= [];
+        HashSet<(string DeviceDefinitionId, string FamilyId)> scopeKeys = [];
+        device.DeviceProfiles.RemoveAll(scope => !scopeKeys.Add((scope.DeviceDefinitionId, scope.FamilyId)));
         device.OemAssignments.RemoveAll(static assignment => assignment is null
                                                              || string.IsNullOrWhiteSpace(assignment.ControlId)
                                                              || !Enum.IsDefined(assignment.Action));

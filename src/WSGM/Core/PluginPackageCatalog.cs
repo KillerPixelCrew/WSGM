@@ -2,135 +2,29 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using WSGM.Device.Sdk;
 using CommonManifest = WSGM.Plugin.Sdk.PluginManifest;
-using DeviceManifest = WSGM.Device.Sdk.Packaging.PluginManifest;
 
 namespace WSGM.Core;
 
-/// <summary>How many different device packages the Plugins folder offers.</summary>
-internal enum DevicePackageCardinality
-{
-    /// <summary>No device package is installed; core WSGM remains available without Device Integration.</summary>
-    Empty,
-
-    /// <summary>Exactly one device package id is present and may be validated.</summary>
-    Single,
-
-    /// <summary>More than one device package id is present; device integration refuses all of them.</summary>
-    Multiple
-}
-
-/// <summary>The device package files found in the Plugins folder.</summary>
-internal sealed record DevicePackageInventory
-{
-    /// <summary>The selected file for every distinct device package id, sorted by path.</summary>
-    public required IReadOnlyList<string> PackageFiles { get; init; }
-
-    /// <summary>The cardinality derived solely from <see cref="PackageFiles" />.</summary>
-    public DevicePackageCardinality Cardinality => PackageFiles.Count switch
-    {
-        0 => DevicePackageCardinality.Empty,
-        1 => DevicePackageCardinality.Single,
-        _ => DevicePackageCardinality.Multiple
-    };
-}
-
-/// <summary>The sole installed device package after structural, API and architecture validation.</summary>
-internal sealed record InstalledDevicePackage
-{
-    /// <summary>Canonical path of the package file.</summary>
-    public required string PackagePath { get; init; }
-
-    /// <summary>Parsed manifest when structural validation succeeded.</summary>
-    public DeviceManifest? Manifest { get; init; }
-
-    /// <summary>Whether this sole package may be activated.</summary>
-    public required bool Valid { get; init; }
-
-    /// <summary>Stable rejection code, or null when eligible.</summary>
-    public string? RejectionCode { get; init; }
-
-    /// <summary>Sanitized diagnostic detail.</summary>
-    public string? Detail { get; init; }
-
-    /// <summary>The SHA-256 of the package file as upper-case hex, read when it was discovered.</summary>
-    public string Sha256 { get; init; } = "";
-}
-
-/// <summary>The device side of one Plugins folder read.</summary>
-internal sealed record DevicePackageDiscovery
-{
-    /// <summary>The device package files considered.</summary>
-    public required DevicePackageInventory Inventory { get; init; }
-
-    /// <summary>The sole installed package, including its validation failure when invalid.</summary>
-    public InstalledDevicePackage? InstalledPackage { get; init; }
-
-    /// <summary>The folder-level failure code used when several device packages were found.</summary>
-    public string? ErrorCode { get; init; }
-
-    /// <summary>Sanitized folder-level failure detail.</summary>
-    public string? Detail { get; init; }
-}
-
-/// <summary>One installed non-device package, admitted by metadata only.</summary>
-/// <param name="PackagePath">Canonical package file path selected by catalog version ordering.</param>
-/// <param name="Manifest">Validated common-plugin metadata; no plugin code has been loaded.</param>
+/// <summary>One metadata-validated independent plugin package.</summary>
 internal sealed record CommonInstalledPlugin(string PackagePath, CommonManifest Manifest)
 {
-    /// <summary>The SHA-256 of the package file as upper-case hex, read when it was discovered.</summary>
     public string Sha256 { get; init; } = "";
 }
 
-/// <summary>One package file that was not selected, and why.</summary>
-/// <param name="PackagePath">Unselected package file, retained on disk.</param>
-/// <param name="Id">Package identity shared with the selected winner.</param>
-/// <param name="Reason">Human-readable selection reason.</param>
+/// <summary>One unselected package retained on disk, with its reason.</summary>
 internal sealed record PluginPackageNotice(string PackagePath, string Id, string Reason);
 
-/// <summary>Everything one read of the Plugins folder found. Discovery never loads plugin code.</summary>
+/// <summary>Metadata-only discovery of independent plugins; hardware libraries have no package slot.</summary>
 internal sealed record PluginPackageCatalog
 {
-    /// <summary>The device package, if any, and why it may or may not run.</summary>
-    public required DevicePackageDiscovery Device { get; init; }
-
-    /// <summary>The selected non-device packages.</summary>
     public required IReadOnlyList<CommonInstalledPlugin> Common { get; init; }
-
-    /// <summary>Files that lost to a newer version of the same id. They are listed, never deleted.</summary>
     public required IReadOnlyList<PluginPackageNotice> Superseded { get; init; }
-
-    /// <summary>Files that could not be read or failed validation, with the reason.</summary>
     public required IReadOnlyList<string> Errors { get; init; }
 
-    /// <summary>Shared empty inventory; use a record copy to attach folder-read errors.</summary>
     internal static PluginPackageCatalog Empty { get; } = new()
-    {
-        Device = new DevicePackageDiscovery { Inventory = new DevicePackageInventory { PackageFiles = [] } },
-        Common = [],
-        Superseded = [],
-        Errors = []
-    };
+        { Common = [], Superseded = [], Errors = [] };
 
-    /// <summary>The id of the installed, valid device plugin, or null when there is none.</summary>
-    /// <remarks>
-    ///     A settings declaration is cached in configuration and outlives its package, so every surface
-    ///     that draws device plugin settings keeps to the scope of the plugin actually installed.
-    /// </remarks>
-    internal string? InstalledDevicePluginId =>
-        Device.InstalledPackage is { Valid: true, Manifest: { } manifest } ? manifest.Id : null;
-
-    /// <summary>Reads every <c>.wsgmpkg</c> directly in <paramref name="pluginsRoot" />.</summary>
-    /// <param name="pluginsRoot">The folder holding package files.</param>
-    /// <returns>The selected device and common packages, superseded files and errors.</returns>
-    /// <remarks>
-    ///     For each id the highest version wins; older files stay on disk and are reported, because WSGM
-    ///     never deletes a file it did not place. Two different device package ids refuse device
-    ///     integration entirely rather than choose between them. Reading changes nothing on disk: pending
-    ///     removals are applied once at startup, and every package is opened and hashed here, so call it
-    ///     off the UI thread.
-    /// </remarks>
     internal static PluginPackageCatalog Discover(string pluginsRoot)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(pluginsRoot);
@@ -139,41 +33,34 @@ internal sealed record PluginPackageCatalog
         try
         {
             var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(pluginsRoot));
-            FileAttributes attributes;
-            try
-            {
-                attributes = File.GetAttributes(root);
-            }
-            catch (Exception ex) when (ex is DirectoryNotFoundException or FileNotFoundException)
+            if (!Directory.Exists(root))
             {
                 return Empty;
             }
 
-            if ((attributes & FileAttributes.Directory) == 0 || (attributes & FileAttributes.ReparsePoint) != 0)
+            if ((File.GetAttributes(root) & FileAttributes.ReparsePoint) != 0)
             {
-                throw new InvalidDataException("The Plugins folder must be a plain directory.");
+                return Empty with { Errors = ["The Plugins folder must not be a reparse point."] };
             }
 
-            files =
-            [
-                .. Directory.EnumerateFiles(root, "*" + PluginPackageFile.Extension, SearchOption.TopDirectoryOnly)
-                    .Where(path => string.Equals(Path.GetExtension(path), PluginPackageFile.Extension,
-                        StringComparison.OrdinalIgnoreCase))
-                    .Order(StringComparer.OrdinalIgnoreCase)
-            ];
+            files = Directory.GetFiles(root, "*" + PluginPackageFile.Extension, SearchOption.TopDirectoryOnly);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException
-                                       or ArgumentException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
         {
-            return Empty with { Errors = [ex.Message] };
+            return Empty with { Errors = ["The Plugins folder could not be read: " + exception.Message] };
         }
 
         List<Candidate> candidates = [];
-        foreach (var file in files)
+        foreach (var file in files.Order(StringComparer.OrdinalIgnoreCase))
         {
             try
             {
                 using var package = PluginPackageFile.Open(file);
+                if (BuiltinGpuDrivers.Contains(package.Id))
+                {
+                    continue;
+                }
+
                 if (!PluginPackageFile.IsForThisHost(package.WsgmVersion))
                 {
                     errors.Add($"{Path.GetFileName(file)}: {package.Id} {package.Version} was built for WSGM "
@@ -181,95 +68,37 @@ internal sealed record PluginPackageCatalog
                     continue;
                 }
 
-                candidates.Add(new Candidate(package.Path, package.Id, ParseVersion(package.Version),
-                    package.DeviceManifest, package.CommonManifest, package.EntryIsX64Assembly, package.HashFile()));
+                candidates.Add(new Candidate(package.Path, package.CommonManifest, package.HashFile()));
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException
-                                           or ArgumentException)
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException
+                                                  or InvalidDataException or ArgumentException)
             {
-                errors.Add($"{Path.GetFileName(file)}: {ex.Message}");
+                errors.Add($"{Path.GetFileName(file)}: {exception.Message}");
             }
         }
 
+        List<CommonInstalledPlugin> selected = [];
         List<PluginPackageNotice> superseded = [];
-        List<Candidate> selected = [];
-        foreach (var group in candidates.GroupBy(candidate => candidate.Id, StringComparer.Ordinal))
+        foreach (var group in candidates.GroupBy(candidate => candidate.Manifest.Id, StringComparer.Ordinal))
         {
-            var ordered = group
-                .OrderByDescending(candidate => candidate.Version)
-                .ThenBy(candidate => candidate.Path, StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-            selected.Add(ordered[0]);
-            superseded.AddRange(ordered.Skip(1).Select(loser => new PluginPackageNotice(loser.Path, loser.Id,
-                $"Superseded by version {ordered[0].Version} in {Path.GetFileName(ordered[0].Path)}.")));
+            var ordered = group.OrderByDescending(candidate => Version.TryParse(candidate.Manifest.Version,
+                    out var version)
+                    ? version
+                    : new Version(0, 0))
+                .ThenBy(candidate => candidate.Path, StringComparer.OrdinalIgnoreCase).ToArray();
+            var winner = ordered[0];
+            selected.Add(new CommonInstalledPlugin(winner.Path, winner.Manifest) { Sha256 = winner.Sha256 });
+            superseded.AddRange(ordered.Skip(1).Select(loser => new PluginPackageNotice(loser.Path,
+                loser.Manifest.Id,
+                $"Superseded by version {winner.Manifest.Version} in {Path.GetFileName(winner.Path)}.")));
         }
 
-        var devices = selected.Where(candidate => candidate.Device is not null)
-            .OrderBy(candidate => candidate.Path, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
         return new PluginPackageCatalog
         {
-            Device = DeviceDiscovery(devices),
-            Common =
-            [
-                .. selected.Where(candidate => candidate.Common is not null)
-                    .OrderBy(candidate => candidate.Id, StringComparer.Ordinal)
-                    .Select(candidate => new CommonInstalledPlugin(candidate.Path, candidate.Common!)
-                    {
-                        Sha256 = candidate.Sha256
-                    })
-            ],
-            Superseded = superseded.AsReadOnly(),
-            Errors = errors.AsReadOnly()
+            Common = selected.OrderBy(plugin => plugin.Manifest.Id, StringComparer.Ordinal).ToArray(),
+            Superseded = superseded.AsReadOnly(), Errors = errors.AsReadOnly()
         };
     }
 
-    private static DevicePackageDiscovery DeviceDiscovery(Candidate[] devices)
-    {
-        DevicePackageInventory inventory = new() { PackageFiles = [.. devices.Select(device => device.Path)] };
-        return inventory.Cardinality switch
-        {
-            DevicePackageCardinality.Empty => new DevicePackageDiscovery { Inventory = inventory },
-            DevicePackageCardinality.Multiple => new DevicePackageDiscovery
-            {
-                Inventory = inventory,
-                ErrorCode = "multiple-device-packages",
-                Detail = "Device integration refuses every device package while more than one is installed. "
-                         + "Remove all but one from the Plugins folder."
-            },
-            _ => new DevicePackageDiscovery { Inventory = inventory, InstalledPackage = Validate(devices[0]) }
-        };
-    }
-
-    private static InstalledDevicePackage Validate(Candidate device)
-    {
-        var (code, detail) = device.Device!.ApiVersion != DeviceApi.Version
-            ? ("api-incompatible", "Package API version does not equal this runtime.")
-            : !device.EntryIsX64Assembly
-                ? ("architecture-unsupported", "Plugin entry point is not an x64 managed assembly.")
-                : (null, null);
-        return new InstalledDevicePackage
-        {
-            PackagePath = device.Path,
-            Manifest = device.Device,
-            Valid = code is null,
-            RejectionCode = code,
-            Detail = detail,
-            Sha256 = device.Sha256
-        };
-    }
-
-    private static Version ParseVersion(string version)
-    {
-        return Version.TryParse(version, out var parsed) ? parsed : new Version(0, 0);
-    }
-
-    private sealed record Candidate(
-        string Path,
-        string Id,
-        Version Version,
-        DeviceManifest? Device,
-        CommonManifest? Common,
-        bool EntryIsX64Assembly,
-        string Sha256);
+    private sealed record Candidate(string Path, CommonManifest Manifest, string Sha256);
 }

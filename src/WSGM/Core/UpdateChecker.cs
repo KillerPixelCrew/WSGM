@@ -332,8 +332,7 @@ public static class UpdateChecker
         var catalog = PluginPackageCatalog.Discover(InstallLayout.Plugins);
         return
         [
-            .. catalog.Common.Select(package => package.Manifest.Id),
-            .. catalog.Device.InstalledPackage?.Manifest is { } device ? [device.Id] : Array.Empty<string>()
+            .. catalog.Common.Select(package => package.Manifest.Id)
         ];
     }
 

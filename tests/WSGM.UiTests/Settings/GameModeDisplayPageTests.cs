@@ -7,8 +7,10 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using WindowsDeviceControl;
 using WSGM.Core;
+using WSGM.Device.Sdk.Capabilities;
 using WSGM.Plugin.Sdk;
 using WSGM.Settings;
+using WSGM.Shell;
 using WSGM.Testing;
 using WSGM.UiTests.Infrastructure;
 
@@ -21,6 +23,115 @@ public sealed class GameModeDisplayPageTests
 
     private static readonly DisplayTargetIdentity Desk =
         new(@"\\?\DISPLAY#DESK01", null, null, "Desk monitor", 0, 0, 4);
+
+    [AvaloniaFact]
+    public async Task CachedDriverDisplayControlsShowExactChoicesWhileEditingADisconnectedDisplay()
+    {
+        using UiFixture fixture = new();
+        fixture.Saved.GameModeLaunch.Kind = GameModeLaunchKind.Custom;
+        fixture.Saved.GameModeLaunch.KnownDisplays =
+        [
+            new KnownDisplay
+            {
+                Target = Tv, Modes = [new DisplayMode(3840, 2160, 120)],
+                GpuCapabilities =
+                [
+                    new DisplayGpuCapability
+                    {
+                        Target = Tv, PluginId = "wsgm.gpu.nvidia",
+                        Descriptor = new CapabilityDescriptor
+                        {
+                            CapabilityId = "display.color.depth", InstanceId = "tv-output",
+                            Role = CapabilityRole.GenericChoice, ValueKind = CapabilityValueKind.Choice,
+                            Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Color depth" },
+                            SupportsWrite = true, Persistence = CapabilityPersistence.DevicePersistent,
+                            Choices =
+                            [
+                                new CapabilityChoice("8",
+                                    new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "8-bit" }),
+                                new CapabilityChoice("10",
+                                    new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "10-bit" })
+                            ]
+                        }
+                    }
+                ]
+            }
+        ];
+        var window = Open(fixture);
+        var model = Model(window);
+        await ExecuteDisplayCommandAsync(model.RefreshDisplaysCommand);
+        Dispatcher.UIThread.RunJobs();
+        var row = Assert.Single(model.GameLayout.Rows);
+        var control = Assert.Single(row.GpuControls);
+        var picker = window.GetVisualDescendants().OfType<ComboBox>()
+            .Single(choice => ReferenceEquals(choice.ItemsSource, control.Choices));
+        Assert.False(row.Present);
+        Assert.True(picker.IsEffectivelyVisible);
+        Assert.Equal(2, picker.ItemCount);
+        Assert.Empty(model.GameLayout.BuildGpuPreferences());
+        control.UseSetting = true;
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(picker.IsEffectivelyEnabled);
+        UiFixture.Click(window, picker);
+        UiFixture.Key(window, Key.Down);
+        UiFixture.Key(window, Key.Enter);
+        Assert.Equal("10", Assert.Single(model.GameLayout.BuildGpuPreferences()).Value.Text);
+    }
+
+    [AvaloniaFact]
+    public async Task AudioDropdownsRetainTheirSelectionsAcrossRepeatedBoundRefreshes()
+    {
+        using UiFixture fixture = new();
+        var format = CoreAudio.AudioDeviceFormat.Pcm(6, 48000, 24);
+        fixture.Saved.GameModeLaunch.Kind = GameModeLaunchKind.Custom;
+        fixture.Saved.GameModeLaunch.GameAudio = new AudioProfilePreference
+        {
+            Output = new AudioEndpointPreference { Id = "tv-audio", Name = "TV" },
+            PlaybackFormat = AudioProfileService.ToPreference(format),
+            SpatialFormat = CoreAudio.SpatialAudioFormats.WindowsSonic
+        };
+        fixture.Audio = new AudioDiscovery([new AudioEndpointOption("tv-audio", "TV")], [], "tv-audio",
+            [format], [CoreAudio.SpatialAudioFormats.WindowsSonic]);
+        var window = Open(fixture);
+        var model = Model(window);
+        var audio = window.GetVisualDescendants().OfType<Expander>()
+            .Single(control => Equals(control.Header, "Audio configuration"));
+        audio.IsExpanded = true;
+        Dispatcher.UIThread.RunJobs();
+
+        await model.GameAudioProfile.RefreshEndpointsAsync();
+        await model.GameAudioProfile.RefreshEndpointsAsync();
+        Dispatcher.UIThread.RunJobs();
+
+        var formatPicker = window.GetVisualDescendants().OfType<ComboBox>()
+            .Single(control => ReferenceEquals(control.ItemsSource, model.GameAudioProfile.FormatChoices));
+        var spatialPicker = window.GetVisualDescendants().OfType<ComboBox>()
+            .Single(control => ReferenceEquals(control.ItemsSource, model.GameAudioProfile.SpatialChoices));
+        Assert.Equal(format, Assert.IsType<AudioFormatOption>(formatPicker.SelectedItem).Format);
+        Assert.Equal(CoreAudio.SpatialAudioFormats.WindowsSonic,
+            Assert.IsType<SpatialAudioOption>(spatialPicker.SelectedItem).Format);
+        Assert.Equal("tv-audio", model.GameAudioProfile.Output?.Id);
+        Assert.Single(model.GameAudioProfile.FormatChoices);
+        Assert.Equal(2, model.GameAudioProfile.SpatialChoices.Count);
+        Assert.Equal(6, model.SnapshotForPreview().GameModeLaunch.GameAudio?.PlaybackFormat?.Channels);
+    }
+
+    [AvaloniaFact]
+    public async Task DefaultPlaybackFormatsAreShownWhileEndpointPreferenceRemainsUnchanged()
+    {
+        using UiFixture fixture = new();
+        fixture.Saved.GameModeLaunch.Kind = GameModeLaunchKind.Custom;
+        fixture.Audio = new AudioDiscovery([new AudioEndpointOption("speakers", "Speakers")], [], "speakers",
+            [CoreAudio.AudioDeviceFormat.Pcm(2, 48000, 16)], []);
+        var window = Open(fixture);
+        var model = Model(window);
+        await model.GameAudioProfile.RefreshEndpointsAsync();
+
+        Assert.Null(model.GameAudioProfile.Output);
+        Assert.Single(model.GameAudioProfile.FormatChoices);
+        Assert.Equal(CoreAudio.SpatialAudioFormats.Off, Assert.Single(model.GameAudioProfile.SpatialChoices).Format);
+        Assert.Null(model.SnapshotForPreview().GameModeLaunch.GameAudio);
+    }
 
     [AvaloniaFact]
     public async Task DriverUpdateRebindsTheUniqueEdidModelAndKeepsTheDraftAndSavedCatalog()

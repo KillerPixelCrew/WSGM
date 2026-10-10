@@ -17,6 +17,6 @@ internal static class CommandOutcomeExtensions
     /// </remarks>
     internal static bool IsApplied(this CommandOutcome outcome)
     {
-        return outcome is CommandOutcome.AppliedVerified or CommandOutcome.AppliedUnverified;
+        return outcome is CommandOutcome.Applied or CommandOutcome.AppliedVerified or CommandOutcome.AppliedUnverified;
     }
 }

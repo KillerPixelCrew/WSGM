@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 
+using LibHandheld.Contracts;
 using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Settings;
@@ -72,7 +73,9 @@ internal static class SettingsTestServices
             {
                 calls?.Add("load-persisted");
                 return ConfigJson.Clone(current, ConfigJsonContext.Tolerant.AppConfig);
-            });
+            },
+            () => new SettingsInventory(null, []),
+            action => action());
     }
 
     /// <summary>A view model over <paramref name="config" /> with inert services, showing every plugin's settings.</summary>
@@ -80,15 +83,15 @@ internal static class SettingsTestServices
     /// <returns>The view model.</returns>
     internal static SettingsViewModel Model(AppConfig config)
     {
-        return new SettingsViewModel(config, null, false, Inert(config));
+        return new SettingsViewModel(config, Inert(config));
     }
 
     /// <summary>A view model over <paramref name="config" /> with inert services, selecting the installed plugin.</summary>
     /// <param name="config">The configuration the model edits, which is also what config.json holds.</param>
-    /// <param name="installedPluginId">Installed package ID, or null when the slot is empty or invalid.</param>
+    /// <param name="definition">The current exact model, or null when the machine is unsupported.</param>
     /// <returns>The view model.</returns>
-    internal static SettingsViewModel Model(AppConfig config, string? installedPluginId)
+    internal static SettingsViewModel Model(AppConfig config, HandheldDefinition? definition)
     {
-        return new SettingsViewModel(config, installedPluginId, true, Inert(config));
+        return new SettingsViewModel(config, Inert(config), definition);
     }
 }

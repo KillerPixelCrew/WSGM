@@ -483,6 +483,7 @@ public static class EmulatorStorage
 
         void CheckInstallation()
         {
+            EmulatorPortable.Verify(installation);
             if (!File.Exists(installation.ExecutablePath))
             {
                 throw new FileNotFoundException("The selected emulator executable is missing. Use Repair.",
@@ -541,9 +542,11 @@ public static class EmulatorStorage
                     StringComparison.Ordinal);
         }
 
+        var arguments = EmulatorPortable.BindArguments(installation,
+            (launchArguments ?? installation.LaunchArguments).Select(Expand).ToArray());
         return new EmulatorResolvedLaunch(installation.ExecutablePath,
             Path.GetDirectoryName(installation.ExecutablePath)!,
-            (launchArguments ?? installation.LaunchArguments).Select(Expand).ToArray(),
+            arguments,
             installation.Environment.ToDictionary(pair => pair.Key, pair => Expand(pair.Value),
                 StringComparer.Ordinal));
     }

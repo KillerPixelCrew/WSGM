@@ -631,8 +631,9 @@ already in `System32`; IGCL initialises at v1.1. The internal panel reports
 restoring the saved parameter struct both succeed, and the read-back confirms each.
 
 The graphics driver drives the panel's adaptive sync, so the transport belongs to the Intel graphics
-package (`src\WSGM.Plugin.IntelGpu`, `wsgm.gpu.intel`), which moved out of the Claw device package
-on 2026-09-29. WSGM only projects the capability.
+engine in `external/libgpu-driver-interact`. Its saved WSGM publisher identity remains
+`wsgm.gpu.intel`, preserving existing profiles and pins. WSGM projects the capability and owns its
+application policy.
 
 Four facts that cost real time to establish:
 

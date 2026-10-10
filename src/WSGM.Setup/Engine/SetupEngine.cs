@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
+using LibHandheld.Contracts;
 using WSGM.Install;
 using WSGM.Shared;
 
@@ -78,11 +79,11 @@ internal sealed class SetupStep(string label, string doneLabel, bool fatal, Func
 }
 
 /// <summary>What the user chose for an install, update or repair.</summary>
-/// <param name="DevicePluginId">The device plugin to install, or null for none.</param>
+/// <param name="HandheldDefinitionId">The native handheld model to enable, or null to decline integration.</param>
 /// <param name="CommonPluginIds">Common plugins to install.</param>
 /// <param name="Answers">The setup answers to apply, as exported by WSGM and edited by the pages.</param>
 internal sealed record InstallChoices(
-    string? DevicePluginId,
+    string? HandheldDefinitionId,
     IReadOnlyList<string> CommonPluginIds,
     JsonObject Answers);
 
@@ -90,7 +91,14 @@ internal sealed record InstallChoices(
 /// <param name="KeepData">Whether per-user data should remain; unresolved recovery data is retained regardless.</param>
 /// <param name="RemoveUsbip">Whether to remove a USB/IP installation recorded as WSGM-owned.</param>
 /// <param name="RemoveHidHide">Whether to remove a HidHide installation recorded as WSGM-owned.</param>
-internal sealed record UninstallChoices(bool KeepData, bool RemoveUsbip, bool RemoveHidHide);
+/// <param name="RemovePawnIo">Whether to remove a PawnIO installation recorded as WSGM-owned.</param>
+/// <param name="RemoveInpOut">Whether to remove an InpOut installation recorded as WSGM-owned.</param>
+internal sealed record UninstallChoices(
+    bool KeepData,
+    bool RemoveUsbip,
+    bool RemoveHidHide,
+    bool RemovePawnIo = false,
+    bool RemoveInpOut = false);
 
 /// <summary>Owns setup plans, runtime shutdown, file rollback and component/recovery obligations.</summary>
 internal sealed class SetupEngine : IDisposable
@@ -276,17 +284,18 @@ internal sealed class SetupEngine : IDisposable
         {
             var adapters = DisplayAdapterInventory.Collect();
             engine.InstalledPluginIds = engine.InstalledIds(payload.Bundle);
-            engine.Offers = PluginOffers.Compute(payload.Bundle, DeviceMachineIdentity.Collect(), adapters,
-                engine.InstalledPluginIds);
+            engine.ReadHardwareOffers(DeviceMachineIdentity.Collect(), adapters);
+            var offers = engine.Offers ??
+                         throw new InvalidOperationException("Payload hardware offers were not computed.");
             SetupLog.Info("Display adapters: "
                           + (adapters.Count == 0
                               ? "none"
                               : string.Join(", ",
                                   adapters.Select(adapter => $"{adapter.PciVendorId}:{adapter.PciDeviceId}")))
                           + "; graphics plugins for them: "
-                          + (engine.Offers.Gpu.Count == 0
+                          + (offers.Gpu.Count == 0
                               ? "none"
-                              : string.Join(", ", engine.Offers.Gpu.Select(offer => offer.Plugin.Id)))
+                              : string.Join(", ", offers.Gpu.Select(offer => offer.Plugin.Id)))
                           + ".");
         }
 
@@ -335,7 +344,7 @@ internal sealed class SetupEngine : IDisposable
     public IReadOnlyList<string> InstalledCommonPluginIds()
     {
         return Payload?.Bundle.Plugins
-            .Where(plugin => !plugin.IsDevice && InstalledPluginIds.Contains(plugin.Id))
+            .Where(plugin => InstalledPluginIds.Contains(plugin.Id))
             .Select(plugin => plugin.Id)
             .ToArray() ?? [];
     }
@@ -350,12 +359,12 @@ internal sealed class SetupEngine : IDisposable
     }
 
     /// <summary>Preserves update choices and adds the selected new graphics packages once.</summary>
-    /// <param name="answers">Mutable answers; device integration is disabled here if no installed device matches.</param>
+    /// <param name="answers">Mutable answers; disabled integration is preserved and unavailable native support disables it.</param>
     /// <param name="addedGpuIds">New graphics packages accepted by the caller.</param>
-    /// <returns>Choices retaining installed bundled common packages and the surviving matching device.</returns>
+    /// <returns>Choices retaining installed common packages and the enabled exact native backend.</returns>
     internal InstallChoices KeptChoices(JsonObject answers, IEnumerable<string> addedGpuIds)
     {
-        var device = Offers?.DeviceCandidates.FirstOrDefault(offer => offer.Installed)?.Plugin.Id;
+        var device = answers["deviceIntegration"]?.GetValue<bool>() == true ? Offers?.Handheld?.Definition.Id : null;
         if (device is null)
         {
             answers["deviceIntegration"] = false;
@@ -365,20 +374,29 @@ internal sealed class SetupEngine : IDisposable
             InstalledCommonPluginIds().Concat(addedGpuIds).Distinct(StringComparer.Ordinal).ToArray(), answers);
     }
 
-    /// <summary>The system components the chosen plugins need.</summary>
-    /// <param name="choices">Selected bundled device and common plugin ids.</param>
+    internal void ReadHardwareOffers(DeviceIdentitySnapshot identity,
+        IReadOnlyList<DisplayAdapterIdentity> adapters)
+    {
+        Offers = Payload is { } payload
+            ? PluginOffers.Compute(payload.Bundle, identity, adapters, InstalledPluginIds)
+            : null;
+    }
+
+    /// <summary>The system components the chosen native handheld definition needs.</summary>
+    /// <param name="choices">Selected native device and bundled common plugin ids.</param>
     /// <returns>Distinct required components, or an empty list without a payload.</returns>
     public IReadOnlyList<SetupComponent> RequiredComponents(InstallChoices choices)
     {
-        return Payload?.Bundle.Plugins
-            .Where(plugin => plugin.Id == choices.DevicePluginId || choices.CommonPluginIds.Contains(plugin.Id))
-            .SelectMany(plugin => SetupComponents.Required(plugin.Capabilities))
-            .Distinct()
-            .ToArray() ?? [];
+        var support = Offers?.Handheld;
+        var native = choices.HandheldDefinitionId == support?.Definition.Id
+                     && choices.HandheldDefinitionId is not null
+            ? support!.Components
+            : [];
+        return native;
     }
 
     /// <summary>Whether the controller stack must be installed because it is missing.</summary>
-    /// <param name="choices">Chosen plugins whose roles determine the stack requirement.</param>
+    /// <param name="choices">Chosen native definition whose controller flag determines the stack requirement.</param>
     /// <returns>Whether the stack is required and USB/IP or HidHide is absent; installed versions are not checked here.</returns>
     public bool NeedsDrivers(InstallChoices choices)
     {
@@ -406,7 +424,7 @@ internal sealed class SetupEngine : IDisposable
             step => InstallApplication(step, controller)));
         steps.Add(new SetupStep("Keeping this setup for repair and uninstall", "Setup stored for repair", true,
             _ => StoreSetup(payload)));
-        foreach (var id in new[] { choices.DevicePluginId }.Concat(choices.CommonPluginIds).OfType<string>())
+        foreach (var id in choices.CommonPluginIds)
         {
             var plugin = payload.Bundle.Plugins.First(candidate => candidate.Id == id);
             steps.Add(new SetupStep("Installing " + plugin.Name, $"{plugin.Name} {plugin.Version} installed", true,
@@ -420,6 +438,53 @@ internal sealed class SetupEngine : IDisposable
         {
             steps.Add(UsbipStep(false));
             steps.Add(new SetupStep("Installing HidHide", "HidHide installed", false, InstallHidHide));
+        }
+
+        if (RequiredComponents(choices).Contains(SetupComponent.PawnIo))
+        {
+            steps.Add(new SetupStep("Installing handheld hardware access", "PawnIO installed", false,
+                step =>
+                {
+                    var present = PawnIoInstaller.IsPresent();
+                    var result = PawnIoInstaller.Install();
+                    RestartRequired |= result.RestartRequired;
+                    if (result.Installed && !present)
+                    {
+                        Components = Components with { PawnIo = true };
+                        Components.Write(ComponentsFile);
+                    }
+
+                    if (result.RestartRequired)
+                    {
+                        step.Note = "PawnIO installation requires a restart.";
+                    }
+
+                    if (result.Succeeded && !result.Installed)
+                    {
+                        step.DoneLabel = "PawnIO already installed";
+                        step.State = StepState.Skipped;
+                    }
+
+                    return Fail(step, result.Succeeded, result.Error ?? "PawnIO is unavailable.");
+                }));
+        }
+
+        if (RequiredComponents(choices).Contains(SetupComponent.InpOut))
+        {
+            steps.Add(new SetupStep("Installing Steam Deck firmware access", "Steam Deck firmware access installed",
+                false,
+                _ =>
+                {
+                    var present = InpOutInstaller.IsInstalled();
+                    var installed = InpOutInstaller.Install(App);
+                    if (installed && !present)
+                    {
+                        Components = Components with { InpOut = true };
+                        Components.Write(ComponentsFile);
+                    }
+
+                    return installed;
+                }));
         }
 
         // RTSS is the one component setup downloads rather than carries; a failure leaves WSGM working without it.
@@ -473,6 +538,22 @@ internal sealed class SetupEngine : IDisposable
         {
             steps.Add(new SetupStep("Removing HidHide", "HidHide removed", false,
                 step => RemoveComponent(step, "HidHide", () => Registration.FindUninstallCommand("HidHide"))));
+        }
+
+        if (choices.RemovePawnIo && Components.PawnIo)
+        {
+            steps.Add(new SetupStep("Removing PawnIO", "PawnIO removed", false, step =>
+            {
+                var result = PawnIoInstaller.Uninstall();
+                RestartRequired |= result.RestartRequired;
+                return Fail(step, result.Succeeded, result.Error ?? "PawnIO could not be removed.");
+            }));
+        }
+
+        if (choices.RemoveInpOut && Components.InpOut)
+        {
+            steps.Add(new SetupStep("Removing Steam Deck firmware access", "Steam Deck firmware access removed", false,
+                step => Fail(step, InpOutInstaller.Uninstall(_runtime), "InpOut could not be removed.")));
         }
 
         steps.Add(new SetupStep("Deleting program files", "Program files deleted", false, DeleteProgramFiles));
@@ -774,7 +855,24 @@ internal sealed class SetupEngine : IDisposable
         }
 
         _swapped = true;
+        RetireGpuPackages();
         return true;
+    }
+
+    private void RetireGpuPackages()
+    {
+        if (!Directory.Exists(Plugins))
+        {
+            return;
+        }
+
+        foreach (var path in Directory.EnumerateFiles(Plugins, "*.wsgmpkg"))
+        {
+            if (NeutralLibraryPackageRetirement.IsRetiredPackage(path))
+            {
+                File.Delete(path);
+            }
+        }
     }
 
     private static void MoveWithRetry(string source, string destination)
@@ -821,7 +919,7 @@ internal sealed class SetupEngine : IDisposable
     {
         Directory.CreateDirectory(Plugins);
         // Setup owns the ids it bundles: every other build of this id goes, and so does every build of
-        // an id it replaced, since two device packages refuse to load. A local build of another id stays.
+        // an id it replaced, while unrelated common packages remain installed. A local build of another id stays.
         foreach (var id in (IEnumerable<string>)[plugin.Id, .. plugin.Replaces])
         {
             foreach (var old in Directory.EnumerateFiles(Plugins, "*.wsgmpkg")

@@ -5,7 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using Microsoft.Win32.SafeHandles;
-using WSGM.Device.Sdk.Windows;
+using WSGM.DeviceLab.Windows;
 using WSGM.DeviceLab.Wizard;
 using WSGM.DeviceLab.Worker;
 

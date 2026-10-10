@@ -1,6 +1,6 @@
 using System.Text;
 using System.Text.Json;
-using WSGM.Device.Sdk.Windows;
+using WSGM.DeviceLab.Windows;
 using WSGM.DeviceLab.Wizard;
 
 namespace WSGM.DeviceLab.Tests.Wizard;

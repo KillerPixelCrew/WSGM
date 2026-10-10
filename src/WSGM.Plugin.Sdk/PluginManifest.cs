@@ -6,7 +6,7 @@ namespace WSGM.Plugin.Sdk;
 /// <summary>Compatibility boundary for the common plugin contracts.</summary>
 public static class PluginApi
 {
-    /// <summary>Current common contract revision, independent of Device SDK revisions.</summary>
+    /// <summary>Current plugin contract revision.</summary>
     /// <remarks>
     ///     Version 2 made <c>PluginContext.Deadline</c> an active-time <c>Deadline</c>. Version 3 adds the
     ///     <c>wsgm.gpu</c> category, the manifest's <c>displayAdapters</c> and <c>capabilities</c>, and
@@ -15,8 +15,10 @@ public static class PluginApi
     ///     <see cref="IPluginHost" /> so every common plugin can log, replaces <c>PluginText</c> with the Device
     ///     SDK's <see cref="PlainText" />, and takes in the SteamUiToolkit types reachable from
     ///     <see cref="SteamUiToolkit.ISteamUiModule" />, which every plugin shares with the host.
+    ///     Version 5 consolidates the shared semantic contracts in this assembly; plugins must rebuild
+    ///     against the new type identities rather than reference the retired Device SDK assembly.
     /// </remarks>
-    public const int Version = 4;
+    public const int Version = 5;
 }
 
 /// <summary>Known categories. Other stable category strings remain valid.</summary>
@@ -77,10 +79,10 @@ public sealed record PluginManifest
     /// <summary>Open category identity; category multiplicity is decided by the host.</summary>
     public required string Category { get; init; }
 
-    /// <summary>Inclusive minimum accepted common SDK revision; defaults to <see cref="PluginApi.Version" />.</summary>
+    /// <summary>Minimum SDK revision; at least 5 and no greater than <see cref="PluginApi.Version" />.</summary>
     public int MinimumApiVersion { get; init; } = PluginApi.Version;
 
-    /// <summary>Inclusive maximum accepted common SDK revision; defaults to <see cref="PluginApi.Version" />.</summary>
+    /// <summary>Maximum SDK revision; at least <see cref="PluginApi.Version" /> for admission.</summary>
     public int MaximumApiVersion { get; init; } = PluginApi.Version;
 
     /// <summary>Assembly filename at the package root, never an absolute or parent-relative path.</summary>

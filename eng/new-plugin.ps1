@@ -9,7 +9,8 @@ written. No package is installed, enabled, or executed by this command.
 
 -Category wsgm.gpu creates a graphics driver plugin instead: it takes -PciVendorId, the adapter
 vendor it serves (8086 Intel, 10DE NVIDIA, 1002 AMD), declares one generic toggle and implements
-ICapabilityPlugin without publishing anything yet. src/WSGM.Plugin.IntelGpu is the worked example.
+ICapabilityPlugin without publishing anything yet. Built-in vendor engines use LibGPUDriverInteract
+directly; this template remains for independent third-party capability publishers.
 #>
 [CmdletBinding()]
 param(

@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   pull_request:
   push:
+    branches: ["**"]
 
 permissions:
   contents: read
@@ -16,15 +17,23 @@ concurrency:
 
 jobs:
   verify:
+    # Opt in only after local validation and access to every pinned submodule.
+    if: vars.WSGM_CI_ENABLED == 'true'
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The reusable libraries, Steam Input, and VIIPER are submodules. Device projects
-          # and their shared SDK are ordinary source in this checkout.
-          submodules: recursive
+          # Initialize application dependencies explicitly when library access is available.
+          submodules: false
+
+      - name: Check out build submodules
+        shell: pwsh
+        run:
+          git submodule update --init --recursive -- external/steam-input-lease
+          external/steam-ui-toolkit external/viiper external/windows-device-control
+          external/libgpu-driver-interact external/libhandheld
 
       - name: Set up .NET SDK
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -84,6 +93,8 @@ jobs:
   # token and no secrets, and a community plugin that stops building shows up here as
   # outdated long before a release.
   bundle:
+    # Opt in only after local validation and access to every pinned submodule.
+    if: vars.WSGM_CI_ENABLED == 'true'
     runs-on: windows-latest
     timeout-minutes: 30
     permissions:
@@ -92,8 +103,14 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          submodules: recursive
+          submodules: false
           persist-credentials: false
+
+      - name: Check out build submodules
+        shell: pwsh
+        run:
+          git submodule update --init --recursive -- external/steam-input-lease
+          external/steam-ui-toolkit external/viiper external/windows-device-control
 
       - name: Set up .NET SDK
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -114,13 +131,21 @@ jobs:
   # this job a broken pin stayed green here and failed only inside the tag-triggered release
   # job, after a public tag already existed.
   viiper:
+    # Opt in only after local validation and access to every pinned submodule.
+    if: vars.WSGM_CI_ENABLED == 'true'
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          submodules: recursive
+          submodules: false
+
+      - name: Check out build submodules
+        shell: pwsh
+        run:
+          git submodule update --init --recursive -- external/steam-input-lease
+          external/steam-ui-toolkit external/viiper external/windows-device-control
 
       # setup-go caches the module download and build caches, keyed on the VIIPER go.sum.
       - name: Set up Go toolchain

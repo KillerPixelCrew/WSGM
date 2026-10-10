@@ -5,7 +5,6 @@ using WSGM.DeviceLab.Cli;
 using WSGM.DeviceLab.Gui;
 using WSGM.DeviceLab.Preflight;
 using WSGM.DeviceLab.Probes;
-using WSGM.DeviceLab.Testing;
 using WSGM.DeviceLab.Wizard;
 using WSGM.DeviceLab.Worker;
 
@@ -38,9 +37,7 @@ internal static class Program
             return ReadProbeWorker.Run(args[1..]);
         }
 
-        return string.Equals(args[0], PluginTestWorker.Mode, StringComparison.Ordinal)
-            ? PluginTestWorker.Run(args[1..])
-            : DeviceLabCli.RunAsync(args, DeviceLabRepositoryLocator.ForThisProcess()).GetAwaiter().GetResult();
+        return DeviceLabCli.RunAsync(args, DeviceLabRepositoryLocator.ForThisProcess()).GetAwaiter().GetResult();
     }
 
     // The wizard needs an administrator token for HidHide, PawnIO and the hardware stages. It asks

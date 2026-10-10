@@ -13,7 +13,6 @@ using WSGM.DeviceLab.Preflight;
 using WSGM.DeviceLab.Probes;
 using WSGM.DeviceLab.Reports;
 using WSGM.DeviceLab.Scaffolding;
-using WSGM.DeviceLab.Testing;
 
 namespace WSGM.DeviceLab.Cli;
 
@@ -64,10 +63,6 @@ internal static class DeviceLabCli
                 "correlate" => RunCorrelate(args.AsSpan(1)),
                 "fixture" => RunFixture(application, args.AsSpan(1)),
                 "scaffold" => RunScaffold(application, args.AsSpan(1)),
-                "glyph" => RunGlyph(args.AsSpan(1)),
-                "validate" => RunValidate(args.AsSpan(1)),
-                "test" => await RunTestAsync(application, args[1..]).ConfigureAwait(false),
-                "pack" => RunPack(application, args.AsSpan(1)),
                 "report" => RunReport(args.AsSpan(1)),
                 "review" => RunReview(args.AsSpan(1)),
                 "promote" => RunPromote(application, args.AsSpan(1)),
@@ -418,160 +413,6 @@ internal static class DeviceLabCli
         return Success;
     }
 
-    private static int RunValidate(ReadOnlySpan<string> args)
-    {
-        if (args.Length != 1)
-        {
-            return UsageError("validate requires one package directory.");
-        }
-
-        var report = DeviceLabApplication.ValidateOffline(args[0]);
-        WriteJson(report);
-        return report.Valid ? Success : Failed;
-    }
-
-    private static async Task<int> RunTestAsync(DeviceLabApplication application, string[] args)
-    {
-        if (args is ["sample"])
-        {
-            var report = await DeviceLabApplication.TestSyntheticPluginAsync(CancellationToken.None)
-                .ConfigureAwait(false);
-            WriteJson(report);
-            return report.Passed ? Success : Failed;
-        }
-
-        if (args.Length < 2 || args[0] is not ("plugin" or "hardware"))
-        {
-            return UsageError(
-                "test requires 'sample', 'plugin <dir> --from <inventory>', or 'hardware <dir> --from <inventory> --state-dir <new-directory> --action capability|haptic|controller'.");
-        }
-
-        if (args[0] is "plugin")
-        {
-            var package = args[1];
-            ReadOnlySpan<string> options = args.AsSpan(2);
-            var inventory = Option(options, "--from", "-f");
-            if (inventory is null)
-            {
-                return UsageError("test plugin requires --from <inventory.json>.");
-            }
-
-            var report = await DeviceLabApplication.TestPluginAsync(
-                package,
-                inventory,
-                CancellationToken.None).ConfigureAwait(false);
-            WriteJson(report);
-            return report.Passed ? Success : Failed;
-        }
-
-        if (!HardwareTestCliArguments.TryParse(args.AsSpan(1), out var parsed,
-                out var parseError))
-        {
-            return UsageError(parseError);
-        }
-
-        var hardwareArguments = parsed!;
-        var action = hardwareArguments.Action;
-
-        if (Console.IsInputRedirected || Console.IsOutputRedirected || !Environment.UserInteractive
-            || DeviceLabEnvironment.IsContinuousIntegration())
-        {
-            await Console.Error.WriteLineAsync("test hardware refused: a local interactive terminal is mandatory.")
-                .ConfigureAwait(false);
-            return Failed;
-        }
-
-        await Console.Error.WriteLineAsync($"Selected action: {DescribeHardwareAction(action)}.").ConfigureAwait(false);
-        await Console.Error
-            .WriteLineAsync("This loads the selected local plugin and may access or change matched hardware.")
-            .ConfigureAwait(false);
-        await Console.Error
-            .WriteLineAsync("WSGM Device Integration must be stopped. Cleanup runs immediately after activation.")
-            .ConfigureAwait(false);
-        await Console.Error.WriteAsync("Type RUN HARDWARE to continue: ").ConfigureAwait(false);
-        var confirmed = string.Equals(Console.ReadLine(), "RUN HARDWARE", StringComparison.Ordinal);
-        if (!confirmed)
-        {
-            await Console.Error.WriteLineAsync("Hardware action cancelled before plugin activation.")
-                .ConfigureAwait(false);
-            return Failed;
-        }
-
-        PluginTestReport hardware;
-        try
-        {
-            hardware = await RunWithConsoleCancellationAsync(token =>
-                application.RunAttendedPluginAsync(
-                    hardwareArguments.PackageDirectory,
-                    hardwareArguments.InventoryPath,
-                    hardwareArguments.StateDirectory,
-                    action,
-                    true,
-                    token)).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            await Console.Error.WriteLineAsync("Hardware action cancelled after plugin cleanup completed.")
-                .ConfigureAwait(false);
-            return Failed;
-        }
-
-        WriteJson(hardware);
-        return hardware.Passed ? Success : Failed;
-    }
-
-    private static async Task<T> RunWithConsoleCancellationAsync<T>(
-        Func<CancellationToken, Task<T>> operation)
-    {
-        using CancellationTokenSource cancellation = new();
-
-        void handler(object? _, ConsoleCancelEventArgs eventArgs)
-        {
-            eventArgs.Cancel = true;
-            // ReSharper disable once AccessToDisposedClosure
-            cancellation.Cancel();
-        }
-
-        Console.CancelKeyPress += handler;
-        try
-        {
-            return await operation(cancellation.Token).ConfigureAwait(false);
-        }
-        finally
-        {
-            Console.CancelKeyPress -= handler;
-        }
-    }
-
-    private static int RunGlyph(ReadOnlySpan<string> args)
-    {
-        if (args.Length != 2 || args[0] is not "import")
-        {
-            return UsageError("glyph import requires one package directory.");
-        }
-
-        var report = DeviceLabApplication.ImportGlyphs(args[1]);
-        WriteJson(report);
-        return report.Valid ? Success : Failed;
-    }
-
-    private static int RunPack(DeviceLabApplication application, ReadOnlySpan<string> args)
-    {
-        if (args.Length < 3 || Option(args[1..], "--out", "-o") is not { } output)
-        {
-            return UsageError("pack requires <package-directory> --out <new-package.wsgmpkg>.");
-        }
-
-        var report = application.Pack(args[0], output);
-        WriteJson(new
-        {
-            validation = report,
-            output = report.Valid ? Path.GetFullPath(output) : null
-        });
-        return report.Valid ? Success : Failed;
-    }
-
-
     /// <summary>Rejects misspelled options before any workflow can observe their absence.</summary>
     /// <param name="args">Complete CLI arguments, including the command.</param>
     /// <returns>A usage error for the first unknown token, or null when the command owns every token.</returns>
@@ -592,12 +433,8 @@ internal static class DeviceLabCli
             "correlate" => UnknownToken(tail, 1, [], ["--action", "--sources"]),
             "fixture" => UnknownToken(tail, 1, [], ["--from", "-f", "--id", "--out-dir", "-o"]),
             "scaffold" => UnknownToken(tail, 0, [], ["--from", "-f", "--out-dir", "-o", "--usb-instance"]),
-            "pack" => UnknownToken(tail, 1, [], ["--out", "-o"]),
             "review" => UnknownToken(tail, 1, [], []),
             "promote" => UnknownToken(tail, 1, [], ["--out", "-o", "--field"]),
-            "test" when tail.Length > 0 && tail[0] is "hardware" => null,
-            "test" when tail.Length > 0 && tail[0] is "plugin" =>
-                UnknownToken(tail, 2, [], ["--from", "-f"]),
             _ => null
         };
     }
@@ -681,38 +518,11 @@ internal static class DeviceLabCli
     private static void WriteUsage(TextWriter writer)
     {
         writer.WriteLine(
-            "wsgm-device doctor|inventory|candidates|probe-read|capture|inspect|compare|correlate|fixture|scaffold|glyph|validate|test|pack|report|review|promote");
-        writer.WriteLine("test: sample | plugin <dir> --from <inventory>");
+            "wsgm-device doctor|inventory|candidates|probe-read|capture|inspect|compare|correlate|fixture|scaffold|report|review|promote");
+        writer.WriteLine("scaffold creates LibHandheld source and research data; no installable device package.");
         writer.WriteLine("scaffold --from <capture> --out-dir <new-dir> [--usb-instance <exact-id>]");
         writer.WriteLine("scaffold --from <file.wsgmlab> --out-dir <new-dir> [--usb-instance <VID:PID[:release]>]");
         writer.WriteLine("review <file.wsgmlab>");
         writer.WriteLine("promote <file.wsgmlab> --out <new-record.json> [--field <id>...]");
-        writer.WriteLine(
-            "test hardware <dir> --from <inventory> --state-dir <new-dir> --action capability --capability <id> [--instance <id>] --value <value>");
-        writer.WriteLine(
-            "test hardware <dir> --from <inventory> --state-dir <new-dir> --action haptic|haptic-sweep|controller [--instance <id>]");
-        writer.WriteLine(
-            "Only 'test hardware' may access or change hardware, and it requires immediate local confirmation.");
-    }
-
-    private static string DescribeHardwareAction(AttendedPluginActionRequest action)
-    {
-        return action.Kind switch
-        {
-            AttendedPluginActionKind.CapabilityValue => action.InstanceId is null
-                ? $"capability value {action.CapabilityId}={action.ValueText}"
-                : $"capability value {action.CapabilityId}/{action.InstanceId}={action.ValueText}",
-            AttendedPluginActionKind.HapticPulse => action.InstanceId is null
-                ? "one fixed 250 ms haptic pulse with zero-output cleanup"
-                : $"one fixed 250 ms haptic pulse on {action.InstanceId} with zero-output cleanup",
-            AttendedPluginActionKind.ControllerManagement =>
-                action.InstanceId is null
-                    ? "one controller-management acquisition with verified topology release"
-                    : $"one controller-management acquisition for {action.InstanceId} with verified topology release",
-            AttendedPluginActionKind.HapticSweep => action.InstanceId is null
-                ? "the interactive A/B-stepped haptic calibration sweep with zero-output cleanup"
-                : $"the interactive A/B-stepped haptic calibration sweep on {action.InstanceId} with zero-output cleanup",
-            _ => action.Kind.ToString()
-        };
     }
 }

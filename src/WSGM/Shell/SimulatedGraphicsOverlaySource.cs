@@ -172,9 +172,7 @@ internal sealed class SimulatedGraphicsOverlaySource : IGraphicsOverlaySource
                         : new CapabilityReason(CapabilityReasonCode.PrerequisiteMissing, unavailable),
                     ObservedValue = observed,
                     Quality = HardwareStateQuality.Verified,
-                    ObservedAt = DateTimeOffset.UtcNow,
-                    DescriptorGeneration = 1,
-                    CycleGeneration = 1
+                    ObservedAt = DateTimeOffset.UtcNow
                 },
                 DesiredValue = game ?? observed,
                 DesiredSource = game is null ? ProfileSource.Global : ProfileSource.Game,

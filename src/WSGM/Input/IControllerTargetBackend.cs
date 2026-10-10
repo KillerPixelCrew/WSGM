@@ -3,7 +3,8 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
-using WSGM.Device.Sdk.Input;
+using CanonicalControllerSample = LibHandheld.Contracts.CanonicalControllerSample;
+using HapticOutputFrame = LibHandheld.Contracts.HapticOutputFrame;
 
 namespace WSGM.Input;
 

@@ -971,6 +971,7 @@ public sealed class SessionModes
         {
             DisplayScale.ApplyDesktopMode(modes.Store, modes.Store.Read().RequireConfig());
             var services = hooks.Entry;
+            var restored = true;
             if (layout is not null)
             {
                 var result = await services.ApplyLayoutAsync(layout, CancellationToken.None)
@@ -980,16 +981,25 @@ public sealed class SessionModes
                     warnings.Add("Desktop display layout: " + DisplayText.Layout(result));
                 }
 
-                return result.Applied;
+                restored = result.Applied;
             }
-
-            var warning = await services.ApplyReturnLayoutAsync().ConfigureAwait(false);
-            if (warning is not null)
+            else
             {
-                warnings.Add(warning);
+                var warning = await services.ApplyReturnLayoutAsync().ConfigureAwait(false);
+                if (warning is not null)
+                {
+                    warnings.Add(warning);
+                    restored = false;
+                }
             }
 
-            return warning is null;
+            var graphicsWarning = await services.ApplyReturnDisplayGpuAsync().ConfigureAwait(false);
+            if (graphicsWarning is not null)
+            {
+                warnings.Add(graphicsWarning);
+            }
+
+            return restored && graphicsWarning is null;
         }
 
         public async Task<bool> RestoreAudioAsync()

@@ -170,6 +170,26 @@ public static class ProfileEdits
         return changed;
     }
 
+    /// <summary>Clears every lighting reference to a deleted authored profile.</summary>
+    /// <param name="config">The store being mutated.</param>
+    /// <param name="profileId">The deleted profile.</param>
+    /// <returns>Whether anything changed.</returns>
+    public static bool RemoveLightingProfileReferences(ProfileConfig config, string profileId)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        var changed = false;
+        foreach (var values in config.Games.Select(game => game.Values).Prepend(config.Global))
+        {
+            if (string.Equals(values.LightingProfileId, profileId, StringComparison.Ordinal))
+            {
+                values.LightingProfileId = null;
+                changed = true;
+            }
+        }
+
+        return changed;
+    }
+
     /// <summary>Creates or updates a game profile's name, activation processes and switch.</summary>
     /// <param name="config">The store being mutated.</param>
     /// <param name="id">The profile id, or null to create a named profile.</param>

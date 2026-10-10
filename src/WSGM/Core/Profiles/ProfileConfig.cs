@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Text.Json.Serialization;
 using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Core;
@@ -69,10 +68,6 @@ public sealed class ProfileValues
     /// <summary>Sustained power limit in watts.</summary>
     public int? SustainedWatts { get; set; }
 
-    /// <summary>Legacy PL2 awaiting migration to the active device entry; never used for reconciliation.</summary>
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public int? BoostWatts { get; set; }
-
     /// <summary>Variable refresh.</summary>
     public bool? VariableRefreshRate { get; set; }
 
@@ -87,6 +82,9 @@ public sealed class ProfileValues
 
     /// <summary>Authored fan-curve profile.</summary>
     public string? FanCurveProfileId { get; set; }
+
+    /// <summary>Authored lighting color profile, inherited from Global when unset.</summary>
+    public string? LightingProfileId { get; set; }
 
     /// <summary>Managed-controller target.</summary>
     public ManagedControllerTarget? ControllerTarget { get; set; }

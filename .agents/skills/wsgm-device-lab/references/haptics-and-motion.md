@@ -125,13 +125,13 @@ The reference A2VM uses the ST LSM6DSO behind Intel ISS `VID_8087&PID_0AC2`:
   it changes.
 - Gyro minimum interval is 10 ms and accelerometer minimum is 2 ms. The gyrometer asks for its own
   minimum and the accelerometer for the gyrometer's interval; each old interval is restored only if
-  nobody else changed it. The SDK's `LegacyMotionSensors` (in `WSGM.Device.Sdk.Windows`) registers a
-  Sensor API event sink, pairs each fresh gyro report with the latest accelerometer report, and
-  `LegacyMotionStream` hands the reading straight to the plugin's callback with no queue. Where a
-  sink cannot be registered, one dedicated thread polls every 2 ms on a `PrecisionTicker`, checking
-  the gyro counter first and reading the accelerometer only after a fresh gyro report. No shared
-  thread-pool timer drives acquisition, and no host signal starts or stops it: the motion service
-  runs with the device cycle.
+  nobody else changed it. The SDK's `LegacyMotionSensors` (in `LibHandheld.Internal.Windows`)
+  registers a Sensor API event sink, pairs each fresh gyro report with the latest accelerometer
+  report, and `LegacyMotionStream` hands the reading straight to the plugin's callback with no
+  queue. Where a sink cannot be registered, one dedicated thread polls every 2 ms on a
+  `PrecisionTicker`, checking the gyro counter first and reading the accelerometer only after a
+  fresh gyro report. No shared thread-pool timer drives acquisition, and no host signal starts or
+  stops it: the motion service runs with the device cycle.
 - Motion reaches controller frames through `GyroFrameResampler`, which reports the average angular
   velocity since the previous frame. A reading older than 50 ms (`MotionService.MaximumMotionAge`)
   stops contributing, so a quiet sensor decays to zero rather than repeating its last value.
@@ -175,7 +175,7 @@ Key implementation/evidence paths:
 - `tests/WSGM.Tests/Input/SteamDeckNeptuneReportTests.cs`, `DualShock4ReportTests.cs`,
   `ControllerDependencyAdapterTests.cs` (feedback decode and router),
   `ManagedControllerRouterTests.cs`
-- SDK motion tests (`tests/WSGM.Device.Sdk.Tests/Input`): `StationaryGyroBiasCalibratorTests`,
+- SDK motion tests (`external/libhandheld/tests`): `StationaryGyroBiasCalibratorTests`,
   `GyroFrameResamplerTests`
 - Claw motion tests: `MotionFreshnessReportingTests`, `WindowsMotionSourceTests`
 
@@ -183,6 +183,6 @@ Hardware-free validation, run after the maintainer's manual test as the root val
 requires:
 
 ```powershell
-dotnet test tests/WSGM.Device.Msi.Claw.Tests/WSGM.Device.Msi.Claw.Tests.csproj --configuration Release
+dotnet test external/libhandheld/tests/LibHandheld.Tests.csproj --configuration Release
 dotnet test tests/WSGM.Tests/WSGM.Tests.csproj --configuration Release --filter "FullyQualifiedName~SteamDeckNeptuneReportTests|FullyQualifiedName~DualShock4ReportTests|FullyQualifiedName~ControllerDependencyAdapterTests|FullyQualifiedName~ManagedControllerRouterTests"
 ```

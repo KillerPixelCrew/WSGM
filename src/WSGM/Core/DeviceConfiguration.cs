@@ -1,12 +1,14 @@
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
-using WSGM.Device.Sdk.Settings;
 
 namespace WSGM.Core;
 
 /// <summary>Persisted settings for the optional production device platform.</summary>
 public sealed class DeviceIntegrationConfig
 {
+    /// <summary>The current device preference schema; retired package preferences are not migrated.</summary>
+    public const int CurrentPreferencesSchemaVersion = 1;
+
     /// <summary>Master ownership switch. Older configurations default off.</summary>
     public bool Enabled { get; set; }
 
@@ -41,55 +43,23 @@ public sealed class DeviceIntegrationConfig
     /// <summary>Allowlisted assignments for logical OEM controls.</summary>
     public List<DeviceOemAssignment> OemAssignments { get; set; } = [];
 
-    /// <summary>Stored values for the settings a plugin declares for itself.</summary>
-    /// <remarks>
-    ///     Keyed by device definition and plugin, so a value authored for one plugin never reaches
-    ///     another that happens to reuse the setting identifier. Values are revalidated against the
-    ///     current manifest on load, because a plugin update can narrow a range or drop an option.
-    /// </remarks>
-    public List<PluginSettingsScope> PluginSettings { get; set; } = [];
+    /// <summary>Schema last applied to device preferences; absent legacy values begin at zero.</summary>
+    public int PreferencesSchemaVersion { get; set; }
+
+    /// <summary>Authored fan and lighting profiles keyed by exact device definition and family.</summary>
+    public List<DeviceProfileScope> DeviceProfiles { get; set; } = [];
 }
 
-/// <summary>The stored settings of one plugin on one device definition.</summary>
-public sealed class PluginSettingsScope
+/// <summary>The authored profiles of one exact built-in handheld definition.</summary>
+public sealed class DeviceProfileScope
 {
-    /// <summary>Device definition the values were authored against.</summary>
+    /// <summary>Exact model definition the profiles were authored for.</summary>
     public string DeviceDefinitionId { get; set; } = string.Empty;
 
-    /// <summary>Plugin that declared the settings.</summary>
-    public string PluginId { get; set; } = string.Empty;
+    /// <summary>Plain built-in family identity.</summary>
+    public string FamilyId { get; set; } = string.Empty;
 
-    /// <summary>The values, one per declared setting the user has changed.</summary>
-    public List<PluginSettingValue> Values { get; set; } = [];
-
-    /// <summary>
-    ///     The manifest the plugin published when it last ran, or null when none has been seen.
-    /// </summary>
-    /// <remarks>
-    ///     Cached because Settings has to draw the page without activating device hardware. The
-    ///     declaration is published by plugin code rather than stored in <c>plugin.wsgm.json</c>, so
-    ///     there is nothing equivalent to read from the installed package at rest.
-    ///     <para>
-    ///         It is a cache and never the authority. The shell replaces it whenever a running plugin
-    ///         publishes, and stored values are still reconciled against the live declaration when one
-    ///         exists — this only decides what can be <em>drawn</em> when no plugin is running, never what
-    ///         is legal to send one.
-    ///     </para>
-    ///     <para>
-    ///         Stale by construction: a plugin uninstalled or downgraded between sessions leaves a manifest
-    ///         describing settings that no longer exist. That is why it is dropped when it fails its own
-    ///         validation on load, and why the page it produces is editable but the values still go through
-    ///         reconciliation before they reach a plugin.
-    ///     </para>
-    /// </remarks>
-    public PluginSettingsManifest? Declaration { get; set; }
-
-    /// <summary>Named fan curves and lighting profiles the user authored for this device.</summary>
-    /// <remarks>
-    ///     Device-keyed and stored beside the plugin's settings because they are authored the same way
-    ///     and become meaningless against a different device. Authoring lives in Settings; choosing
-    ///     which one is in force is the overlay's job (D22b), so nothing here records a selection.
-    /// </remarks>
+    /// <summary>Named fan curves and lighting profiles; selection belongs to the global/per-game profile.</summary>
     public List<DeviceAuthoredProfile> Profiles { get; set; } = [];
 }
 
@@ -134,33 +104,6 @@ public sealed class AuthoredCurvePoint
 
     /// <summary>The output, for a fan curve a duty percentage.</summary>
     public int Output { get; set; }
-}
-
-/// <summary>One stored plugin setting value.</summary>
-/// <remarks>
-///     Mirrors the value shapes the SDK allows a setting to take. There is no curve field: a curve is
-///     authored as a named profile with its own storage, so a curve-shaped setting is refused at
-///     declaration rather than given a second home here.
-/// </remarks>
-public sealed class PluginSettingValue
-{
-    /// <summary>Which declared setting this is the value of.</summary>
-    public string SettingId { get; set; } = string.Empty;
-
-    /// <summary>Value of a boolean setting.</summary>
-    public bool? Boolean { get; set; }
-
-    /// <summary>Value of an integer setting.</summary>
-    public int? Integer { get; set; }
-
-    /// <summary>Selected option of a choice setting.</summary>
-    public string? Choice { get; set; }
-
-    /// <summary>Packed 24-bit RGB of a colour setting.</summary>
-    public int? Color { get; set; }
-
-    /// <summary>Value of a text setting.</summary>
-    public string? Text { get; set; }
 }
 
 /// <summary>Controller identity exposed to applications while management is active.</summary>
@@ -235,7 +178,10 @@ public enum OemAction
     VirtualTargetRearButton2,
 
     /// <summary>Invoke Steam's native Home/Overlay button for the active Steam window.</summary>
-    ToggleSteamOverlay
+    ToggleSteamOverlay,
+
+    /// <summary>Hold the right mouse button until the physical OEM gesture is released.</summary>
+    MouseSecondaryButton
 }
 
 /// <summary>One allowlisted OEM-control assignment.</summary>

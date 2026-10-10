@@ -39,6 +39,21 @@ public sealed class CommonPluginEnablementTests
         Assert.Empty(CommonPluginEnablement.Desired(configured, [IntelPackage], [IntelAdapter]));
     }
 
+    [Theory]
+    [InlineData("wsgm.gpu.intel")]
+    [InlineData("wsgm.gpu.amd")]
+    [InlineData("wsgm.gpu.nvidia")]
+    public void BuiltinDriversNeverEnterTheCommonPluginHost(string id)
+    {
+        var retired = Package(id, PluginCategories.Gpu, "8086");
+        CommonPluginInstanceConfig[] configured = [new() { PluginId = id, Enabled = true }];
+
+        Assert.False(CommonPluginEnablement.EnabledByDefault(retired.Manifest, [IntelAdapter]));
+        Assert.Empty(CommonPluginEnablement.Desired(configured, [], [IntelAdapter]));
+        Assert.Empty(CommonPluginEnablement.Desired(configured, [retired], [IntelAdapter]));
+        Assert.Empty(CommonPluginEnablement.Desired([], [retired], [IntelAdapter]));
+    }
+
     [Fact]
     public void OtherPackagesStillNeedAnExplicitEnable()
     {

@@ -3,9 +3,8 @@
              xmlns:s="using:WSGM.Settings"
              x:Class="WSGM.Settings.Pages.IntegrationPage"
              x:DataType="s:SettingsViewModel">
-  <!-- Everything WSGM injects into the running Steam client over its debug
-         port. Keep new CEF features here rather than growing another page's
-         column; the page scrolls once it outgrows the 1024x640 layout floor. -->
+  <!-- WSGM integration preferences. The page scrolls once it outgrows the
+       1024x640 layout floor. Graphics drivers are independent of Steam CEF. -->
   <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
     <Border Padding="16,10,16,10">
       <Grid ColumnDefinitions="*,24,*">
@@ -91,6 +90,28 @@
               <ToggleSwitch Grid.Column="1" IsChecked="{Binding CefCarouselShowUninstalled}" VerticalAlignment="Center" />
             </Grid>
           </Border>
+
+          <Border Classes="section-header">
+            <TextBlock Text="BUILT-IN GRAPHICS DRIVERS" />
+          </Border>
+          <TextBlock
+            Text="Let WSGM manage graphics settings for matching adapters. Changes apply after Save without restarting WSGM."
+            Classes="caption" TextWrapping="Wrap" Margin="12,4,12,8" />
+          <ItemsControl ItemsSource="{Binding GraphicsDrivers}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="s:CommonPluginInstanceRow">
+                <Border Classes="setting-row">
+                  <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                    <StackPanel VerticalAlignment="Center" Spacing="1">
+                      <TextBlock Text="{Binding Name}" Classes="setting-title" />
+                      <TextBlock Text="{Binding Detail}" Classes="caption" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <ToggleSwitch Grid.Column="1" IsChecked="{Binding Enabled}" VerticalAlignment="Center" />
+                  </Grid>
+                </Border>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
 
           <Border Classes="section-header">
             <TextBlock Text="PERFORMANCE" />

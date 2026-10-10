@@ -22,18 +22,16 @@ The target is .NET 10 on Windows; release publishing is self-contained `win-x64`
 `./eng/publish-device-lab.ps1` only when a publish artifact is requested. The project version in
 `WSGM.DeviceLab.csproj` is authoritative. Do not tag, release, or publish unless explicitly asked.
 
-`src/WSGM.Device.Sdk` is the shared contract in this WSGM repository. Update the SDK and its consumers in the same pull
-request. Scaffolding references the checked-out SDK project in a source checkout, or the exact SDK assembly beside the
-running tool otherwise.
+`external/libhandheld/src/LibHandheld/Contracts` is the shared handheld contract. Update the library and its consumers together. Scaffolding emits a LibHandheld source contribution with exact identity, decoder research, fixtures and provenance.
 
 ## Command and application contract
 
 - No arguments and `wizard` start the tester wizard, which relaunches itself elevated once
   (`--elevated-relaunch` prevents a loop) and opens without elevation if the prompt is declined.
   `gui` starts the developer tabs as-invoker. Normal CLI commands are `doctor`, `inventory`, `candidates`,
-  `probe-read`, `capture`, `inspect`, `compare`, `correlate`, `fixture`, `scaffold`, `glyph`,
-  `validate`, `test`, `pack`, `report`, `review` and `promote` (the last three read a returned `.wsgmlab`; `scaffold --from` also takes one).
-- `__read-probe` and `__plugin-test` are authenticated internal worker modes, not public commands.
+  `probe-read`, `capture`, `inspect`, `compare`, `correlate`, `fixture`, `scaffold`,
+  `report`, `review` and `promote` (the last three read a returned `.wsgmlab`; `scaffold --from` also takes one).
+- `__read-probe` and the wizard hardware worker are authenticated internal worker modes, not public commands.
 - Use stdout for result JSON and stderr for diagnostics. Preserve exit codes: `0` success, `64`
   usage error, `70` operational failure.
 - Keep long work cancellable and off the UI thread. Reject duplicate GUI operations, and do not erase the last
@@ -48,16 +46,8 @@ untrusted evidence; use static validation until plugin code has been deliberatel
 - Compiled read probes require an exact live device and endpoint match, typed expectations and cross-checks, strict
   time/read limits, an authenticated one-use worker, and process-tree termination at the deadline. They must not write
   hardware or durable state.
-- `test plugin` loads, constructs, and calls arbitrary plugin code with the user's authority. Its authenticated worker
-  and job object contain crashes and deadlines; they are not a security sandbox or hardware-access boundary.
-- `test hardware` is the only built-in workflow that intentionally requests a plugin mutation. It must be a local
-  attended session, reject CI and non-interactive use, reject every form of `--yes`, require immediate confirmation of
-  one explicit semantic action, recollect live identity, and use a new explicit state directory. Preserve the static
-  refusal path before plugin code is loaded, while remembering that a malicious plugin can ignore the SDK contract once
-  executed.
-- Reserve the unowned `Global\WSGM.DeviceOwner` mutex before loading a hardware plugin. Hold it through cleanup and
-  disposal; never wait on or release it across `await`. If construction, package identity, stop, or disposal is
-  unverified, retain ownership for the process lifetime.
+- Retired plugin loading, validation, testing and packing commands are absent. The attended wizard owns hardware mutation; keep its exact identity checks, checkpoint protocol, deadlines and cleanup.
+- Reserve the unowned Global\WSGM.DeviceOwner mutex for the attended wizard. Hold it through cleanup and disposal; never wait on or release a mutex across await.
 - A hardware action must capture original state, apply one action, verify readback, and restore/zero output/release
   before success. An unverified cleanup is a failure.
 - Observe-only capture requires hash-bound approval of the local interactive observation scope, then a separate approval
@@ -66,7 +56,7 @@ untrusted evidence; use static validation until plugin code has been deliberatel
 ## Tester wizard
 
 The wizard (`Wizard/`, `Gui/WizardWindow.cs`) is the one workflow that changes machine state
-without a plugin; see the 2026-09-24 entry in `docs/decisions.md`.
+through its compiled worker; see the 2026-09-24 entry in `docs/decisions.md`.
 
 - Record every machine change in `LabMachineState` before making it, and clear the record only
   after a readback shows the change undone. The next wizard start undoes whatever a killed session
@@ -186,16 +176,14 @@ without a plugin; see the 2026-09-24 entry in `docs/decisions.md`.
 - The parser rejects unknown members. Extend `DeviceKnowledge.cs` and bump the schema version rather
   than loosening it.
 
-## Package and scaffold rules
+## Source contribution rules
 
-- Package validation is static and must never load plugin code. Keep manifest/layout, managed-x64 PE, file-size,
-  aggregate-size, and prohibited-file checks bounded and fail closed. Take the byte bounds, entry-name rule and
-  native-image check from the Device SDK's `PluginPackageLayout`, which WSGM applies too; add no count cap.
-- Retain opened input handles through validation and packing so validated bytes are the bytes published. Keep packages
-  deterministic.
-- Generated projects, manifests, tests, glyph profiles, and documentation must agree on package ID, API version, target
-  framework, and SDK reference.
-
+- Scaffolding emits exact identity, decoder research, observed fixtures and provenance for a
+  LibHandheld source contribution. Generated output must agree with current public contracts.
+- Device Lab does not load, validate or pack retired device plugin assemblies. Hardware writes
+  remain in the attended wizard and its authenticated, checkpointed worker only.
+- Keep input handles and deterministic publication for captured evidence. Never turn imported
+  recipes or observations into arbitrary executable HID/WMI/register commands.
 ## Change discipline
 
 Prefer semantic records and deterministic services over device-specific special cases. Keep hardware policy out of UI

@@ -72,7 +72,7 @@ public sealed class DevicePageCaptureTests
         using PerformanceOverlayBridge performanceBridge = new(performance, profiles);
         using UiFixture fixture = new();
         var presets = new DevicePowerPresets(() => views,
-            (_, _, _, _, _, _) => throw new InvalidOperationException("Unexpected hardware write"),
+            (_, _, _, _) => throw new InvalidOperationException("Unexpected hardware write"),
             new WindowsPowerModes(new PowerSchemes(new FakePower()), new ReadOnlyPowerModeApi()), () => true);
         ProfileConfig config = new()
         {
@@ -83,7 +83,7 @@ public sealed class DevicePageCaptureTests
             }
         };
         var assignments = new DevicePowerAssignments(presets,
-            () => new DevicePowerAssignmentContext(new ProfileSnapshot(config, ActiveProfile.None, 1), "claw", 7,
+            () => new DevicePowerAssignmentContext(new ProfileSnapshot(config, ActiveProfile.None, 1), "claw",
                 true, true),
             (_, _, _) => throw new InvalidOperationException("Unexpected assignment save"));
         using DevicePowerPresetSelection selection = new(presets, false, assignments);

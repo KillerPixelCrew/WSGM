@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.Globalization;
-using WSGM.Device.Sdk.Identity;
 
 namespace WSGM.DeviceLab.Knowledge;
 
@@ -43,6 +42,34 @@ internal sealed record DeviceKnowledgeProvenance
     public string? Note { get; init; }
 }
 
+/// <summary>Identity evidence in a knowledge record, not a LibHandheld runtime model predicate.</summary>
+internal sealed record DeviceKnowledgeIdentityRule
+{
+    /// <summary>SMBIOS baseboard manufacturer.</summary>
+    public string? BaseboardManufacturer { get; init; }
+
+    /// <summary>SMBIOS baseboard product.</summary>
+    public string? BaseboardProduct { get; init; }
+
+    /// <summary>SMBIOS system product name.</summary>
+    public string? SystemModel { get; init; }
+
+    /// <summary>SMBIOS system SKU.</summary>
+    public string? SystemSku { get; init; }
+
+    /// <summary>Exact processor brand string.</summary>
+    public string? ProcessorName { get; init; }
+
+    /// <summary>Required substring of the processor brand string.</summary>
+    public string? ProcessorNameContains { get; init; }
+
+    /// <summary>SMBIOS baseboard version.</summary>
+    public string? BaseboardVersion { get; init; }
+
+    /// <summary>Whether this is HC's default branch rather than an exact model rule.</summary>
+    public bool Fallback { get; init; }
+}
+
 /// <summary>
 ///     One known handheld: how to recognise it and what its hardware is believed to do.
 /// </summary>
@@ -75,7 +102,7 @@ internal sealed record DeviceKnowledgeRecord
     public IReadOnlyList<string> Supersedes { get; init; } = [];
 
     /// <summary>Alternative identity rules; any one matching identifies the device.</summary>
-    public IReadOnlyList<HardwareMatchRule> Identity { get; init; } = [];
+    public IReadOnlyList<DeviceKnowledgeIdentityRule> Identity { get; init; } = [];
 
     /// <summary>Power ranges the vendor or HC declares.</summary>
     public DevicePowerKnowledge? Power { get; init; }

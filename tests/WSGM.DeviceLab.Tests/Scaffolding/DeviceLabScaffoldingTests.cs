@@ -1,15 +1,7 @@
-using System.Diagnostics;
-using System.Runtime.Loader;
-using System.Xml.Linq;
-using WSGM.Device.Sdk;
-using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Sdk.Identity;
-using WSGM.Device.Sdk.Lifecycle;
-using WSGM.Device.Sdk.Plugin;
-using WSGM.Device.Sdk.Testing;
+using System.Security.Cryptography;
+using System.Text.Json;
 using WSGM.DeviceLab.Capture;
 using WSGM.DeviceLab.Inventory;
-using WSGM.DeviceLab.Packaging;
 using WSGM.DeviceLab.Preflight;
 using WSGM.DeviceLab.Scaffolding;
 using WSGM.Testing;
@@ -19,47 +11,7 @@ namespace WSGM.DeviceLab.Tests.Scaffolding;
 public sealed class DeviceLabScaffoldingTests
 {
     [Fact]
-    public void SdkReference_InWsgmCheckout_UsesTheSharedSdkProject()
-    {
-        var root = RepositoryFiles.Root;
-        DeviceLabPathBoundaries boundaries = new()
-        {
-            RepositoryRoot = root,
-            LiveDataDirectory = Path.Combine(Path.GetTempPath(), "never-live-wsgm"),
-            BroadHomeDirectories = []
-        };
-
-        var reference = XElement.Parse(ScaffoldFromCaptureWorkflow.SdkReferenceXml(boundaries));
-
-        Assert.Equal("ProjectReference", reference.Name.LocalName);
-        Assert.Equal(
-            Path.Combine(root, "src", "WSGM.Device.Sdk", "WSGM.Device.Sdk.csproj"),
-            (string?)reference.Attribute("Include"));
-    }
-
-    [Fact]
-    public void SdkReference_OutsideCheckout_UsesTheExactShippedAssemblyWithoutAnUndefinedProperty()
-    {
-        DeviceLabPathBoundaries boundaries = new()
-        {
-            LiveDataDirectory = Path.Combine(Path.GetTempPath(), "never-live-wsgm"),
-            BroadHomeDirectories = []
-        };
-
-        var reference = ScaffoldFromCaptureWorkflow.SdkReferenceXml(boundaries);
-        var element = XElement.Parse(reference);
-
-        Assert.Equal("Reference", element.Name.LocalName);
-        Assert.Equal("WSGM.Device.Sdk", (string?)element.Attribute("Include"));
-        Assert.Equal("false", (string?)element.Element("Private"));
-        var hintPath = Assert.IsType<string>((string?)element.Element("HintPath"));
-        Assert.Equal(Path.GetFullPath(typeof(DeviceApi).Assembly.Location), hintPath);
-        Assert.True(File.Exists(hintPath));
-        Assert.DoesNotContain("$(WsgmRepositoryRoot)", reference, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public async Task Scaffold_OutsideCheckout_BuildsAgainstTheExactShippedSdkAssembly()
+    public async Task Scaffold_OutsideCheckout_ProducesLibrarySourceWithoutPluginDependencies()
     {
         using TemporaryDirectory temporary = new();
         var capturePath = temporary.GetPath("source.wsgmcap");
@@ -68,183 +20,36 @@ public sealed class DeviceLabScaffoldingTests
             CaptureBundleWriter.Write(capture, Capture());
         }
 
-        DeviceLabPathBoundaries boundaries = new()
-        {
-            LiveDataDirectory = temporary.GetPath("never-live-wsgm"),
-            BroadHomeDirectories = []
-        };
-
-        var result = ScaffoldFromCaptureWorkflow.Run(
-            capturePath,
-            temporary.GetPath("scaffold"),
-            boundaries);
-
-        var projectPath = Directory.EnumerateFiles(result.OutputDirectory, "*.csproj").Single();
-        var project = XDocument.Load(projectPath);
-        var reference = Assert.Single(project.Descendants("Reference"));
-        var hintPath = Assert.IsType<string>((string?)reference.Element("HintPath"));
-        Assert.Equal(Path.GetFullPath(typeof(DeviceApi).Assembly.Location), hintPath);
-        Assert.True(File.Exists(hintPath));
-        Assert.Equal("x64", Assert.Single(project.Descendants("PlatformTarget")).Value);
-        Assert.DoesNotContain("$(WsgmRepositoryRoot)", await File.ReadAllTextAsync(projectPath),
-            StringComparison.Ordinal);
-        Assert.Contains(
-            project.Descendants("None"),
-            item => string.Equals((string?)item.Attribute("Update"), "LICENSE.txt", StringComparison.Ordinal)
-                    && string.Equals((string?)item.Attribute("CopyToOutputDirectory"), "PreserveNewest",
-                        StringComparison.Ordinal)
-                    && string.Equals((string?)item.Attribute("CopyToPublishDirectory"), "PreserveNewest",
-                        StringComparison.Ordinal));
-        Assert.Contains("LICENSE.txt", result.Files);
-        Assert.True(File.Exists(Path.Combine(result.OutputDirectory, "LICENSE.txt")));
-        // A scaffolded plugin links the MIT SDK, never WSGM, so its author picks its licence. The
-        // starter ships MIT with a placeholder rather than stamping the plugin with WSGM's GPL-3
-        // and this project's copyright holder, which claimed something untrue about their work.
-        var scaffoldedLicense =
-            (await File.ReadAllTextAsync(Path.Combine(result.OutputDirectory, "LICENSE.txt"))).TrimStart();
-        Assert.StartsWith("MIT License", scaffoldedLicense, StringComparison.Ordinal);
-        Assert.Contains("<your name here>", scaffoldedLicense, StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "GNU GENERAL PUBLIC LICENSE", scaffoldedLicense, StringComparison.Ordinal);
-        Assert.DoesNotContain(
-            "SPDX-License-Identifier",
-            await File.ReadAllTextAsync(Path.Combine(result.OutputDirectory, "DevicePlugin.cs")),
-            StringComparison.Ordinal);
-
-        ProcessStartInfo startInfo = new()
-        {
-            FileName = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet",
-            WorkingDirectory = result.OutputDirectory,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            Environment =
+        var result = ScaffoldFromCaptureWorkflow.Run(capturePath, temporary.GetPath("contribution"),
+            new DeviceLabPathBoundaries
             {
-                ["DOTNET_CLI_HOME"] = temporary.GetPath("dotnet-home"),
-                ["DOTNET_SKIP_FIRST_TIME_EXPERIENCE"] = "1",
-                ["DOTNET_NOLOGO"] = "1",
-                // Without this the SDK's first run in a fresh CLI home appends
-                // "<home>\.dotnet\tools" to the USER's persisted PATH — not just this child process's.
-                // DOTNET_SKIP_FIRST_TIME_EXPERIENCE stopped suppressing that in .NET 6, so every run of
-                // this test left one more dead temp path behind: 55 of them had accumulated on the
-                // development machine, taking PATH past 6.8 KB and breaking VsDevCmd.bat, which is what
-                // both build.ps1 and eng\verify.ps1 use to export-check the Steam Input gate.
-                ["DOTNET_ADD_GLOBAL_TOOLS_TO_PATH"] = "false",
-                ["NUGET_PACKAGES"] = temporary.GetPath("nuget-packages")
-            },
-            ArgumentList =
-            {
-                "build",
-                projectPath,
-                "--configuration",
-                "Release",
-                "--runtime",
-                "win-x64",
-                "--no-self-contained",
-                "--disable-build-servers",
-                "--nologo",
-                "--verbosity",
-                "quiet",
-                "--property:RestoreIgnoreFailedSources=true",
-                "--property:NuGetAudit=false"
-            }
-        };
-
-        using var process = Process.Start(startInfo)
-                            ?? throw new InvalidOperationException("The .NET SDK process did not start.");
-        var output = process.StandardOutput.ReadToEndAsync();
-        var error = process.StandardError.ReadToEndAsync();
-        using CancellationTokenSource timeout = new(TimeSpan.FromMinutes(1));
-        try
-        {
-            await process.WaitForExitAsync(timeout.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            const string message = "The generated plugin project did not build within one minute.";
-            if (process.HasExited)
-            {
-                throw new TimeoutException(message);
-            }
-
-            process.Kill(true);
-            await process.WaitForExitAsync(CancellationToken.None);
-            throw new TimeoutException(message);
-        }
-
-        var diagnostic = await output + Environment.NewLine + await error;
-        if (process.ExitCode != 0)
-        {
-            Assert.Fail(diagnostic);
-        }
-
-        var buildOutput = Path.Combine(
-            result.OutputDirectory,
-            "bin",
-            "Release",
-            "net10.0-windows",
-            "win-x64");
-        Assert.True(File.Exists(Path.Combine(buildOutput, $"{result.RootNamespace}.dll")), diagnostic);
-        Assert.True(File.Exists(Path.Combine(buildOutput, "LICENSE.txt")), diagnostic);
-        Assert.False(File.Exists(Path.Combine(buildOutput, "WSGM.Device.Sdk.dll")));
-        var validation = PluginPackageWorkflow.ValidateOffline(buildOutput);
-        Assert.True(
-            validation.Valid,
-            string.Join("; ", validation.Issues.Select(issue => $"{issue.Path}: {issue.Message}")));
-
-        AssemblyLoadContext loader = new("scaffold-command-test", true);
-        try
-        {
-            await using var assemblyBytes = File.OpenRead(Path.Combine(buildOutput, $"{result.RootNamespace}.dll"));
-            var assembly = loader.LoadFromStream(assemblyBytes);
-            await using var plugin = Assert.IsType<IDevicePlugin>(
-                Activator.CreateInstance(assembly.GetType($"{result.RootNamespace}.DevicePlugin", true)!), false);
-            var detection = await plugin.DetectAsync(new PluginDetectionContext
-            {
-                Identity = new DeviceIdentitySnapshot
-                {
-                    SystemManufacturer = result.Identity.SystemManufacturer,
-                    BaseboardProduct = result.Identity.BaseboardProduct,
-                    SystemSku = result.Identity.SystemSku,
-                    BiosVersion = result.Identity.BiosVersion,
-                    UsbEndpoints =
-                    [
-                        new UsbEndpointObservation
-                        {
-                            VendorId = result.Identity.UsbVendorId,
-                            ProductId = result.Identity.UsbProductId,
-                            DeviceRelease = result.Identity.UsbDeviceRelease
-                        }
-                    ]
-                }
-            }, CancellationToken.None);
-            Assert.True(detection.Matched);
-            await plugin.StartAsync(new PluginStartContext
-            {
-                Host = new TestPluginHostAdapter(1),
-                CycleGeneration = 1,
-                DeviceDefinitionId = detection.DeviceDefinitionId!,
-                StateDirectory = temporary.GetPath("test-state"),
-                ControllerManagementEnabled = false
-            }, CancellationToken.None);
-            var commandResult = await plugin.ExecuteCommandAsync(new CapabilityCommand
-            {
-                CommandId = Guid.NewGuid(),
-                CapabilityId = "example.integration-toggle",
-                RequestedValue = CapabilityValue.Boolean(true),
-                ExpectedCycleGeneration = 1,
-                ExpectedDescriptorGeneration = 1,
-                Deadline = Deadline.After(TimeSpan.FromSeconds(2))
-            }, CancellationToken.None);
-
-            Assert.Equal(CommandOutcome.AppliedUnverified, commandResult.Outcome);
-            Assert.Null(commandResult.ReadbackValue);
-        }
-        finally
-        {
-            loader.Unload();
-        }
+                LiveDataDirectory = temporary.GetPath("never-live-wsgm"), BroadHomeDirectories = []
+            });
+        Assert.StartsWith("LibHandheld.Families.", result.RootNamespace, StringComparison.Ordinal);
+        Assert.Contains("DeviceIdentity.cs", result.Files);
+        Assert.Contains("ReportDecoder.cs", result.Files);
+        Assert.Contains("contribution.json", result.Files);
+        Assert.Contains(result.Files, path => path.StartsWith("fixtures", StringComparison.Ordinal));
+        Assert.DoesNotContain("plugin.wsgm.json", result.Files);
+        Assert.Empty(Directory.EnumerateFiles(result.OutputDirectory, "*.csproj"));
+        var identity = await File.ReadAllTextAsync(Path.Combine(result.OutputDirectory, "DeviceIdentity.cs"));
+        Assert.Contains("using LibHandheld.Contracts;", identity, StringComparison.Ordinal);
+        Assert.Contains("BOARD-X1", identity, StringComparison.Ordinal);
+        Assert.DoesNotContain("WSGM.Device.Sdk", identity, StringComparison.Ordinal);
+        Assert.DoesNotContain("{{", identity, StringComparison.Ordinal);
+        using var metadata = JsonDocument.Parse(
+            await File.ReadAllTextAsync(Path.Combine(result.OutputDirectory, "contribution.json")));
+        Assert.False(metadata.RootElement.GetProperty("implemented").GetBoolean());
+        Assert.Empty(metadata.RootElement.GetProperty("observedCapabilities").EnumerateArray());
+        using var fixture = JsonDocument.Parse(
+            await File.ReadAllTextAsync(Path.Combine(result.OutputDirectory, "fixtures", "fixture.json")));
+        var sourceHash = Convert.ToHexStringLower(SHA256.HashData(
+            await File.ReadAllBytesAsync(capturePath)));
+        Assert.Equal(sourceHash, fixture.RootElement.GetProperty("sourceCaptureSha256").GetString());
+        Assert.Equal("SimulatorOnly", fixture.RootElement.GetProperty("replayPolicy").GetString());
+        var decoder = await File.ReadAllTextAsync(Path.Combine(result.OutputDirectory, "ReportDecoder.cs"));
+        Assert.Contains("return false;", decoder, StringComparison.Ordinal);
+        Assert.Contains("not a working driver", decoder, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -317,24 +122,6 @@ public sealed class DeviceLabScaffoldingTests
         Assert.Contains("Select one exact instance ID", ambiguous.Message, StringComparison.Ordinal);
         Assert.Equal("CAFE", selected.Identity.UsbVendorId);
         Assert.True(Directory.Exists(selected.OutputDirectory));
-    }
-
-    [Fact]
-    public void MinimalTemplate_DemonstratesPartialStateCanonicalIoCancellationDiagnosticsAndRestore()
-    {
-        var assembly = typeof(ScaffoldFromCaptureWorkflow).Assembly;
-        using var stream = Assert.IsType<Stream>(assembly.GetManifestResourceStream(
-            "WSGM.DeviceLab.Templates.MinimalPlugin.DevicePlugin.cs.template"), false);
-        using StreamReader reader = new(stream);
-        var template = reader.ReadToEnd();
-
-        Assert.Contains("Available = false", template, StringComparison.Ordinal);
-        Assert.Contains("PluginOperationalState.Degraded", template, StringComparison.Ordinal);
-        Assert.Contains("cancellationToken.ThrowIfCancellationRequested()", template, StringComparison.Ordinal);
-        Assert.Contains("PublishControllerSampleAsync", template, StringComparison.Ordinal);
-        Assert.Contains("ApplyHapticOutputAsync", template, StringComparison.Ordinal);
-        Assert.Contains("GetDiagnosticsAsync", template, StringComparison.Ordinal);
-        Assert.Contains("_exampleValue = _capturedExampleValue", template, StringComparison.Ordinal);
     }
 
     private static SanitizedCaptureBundle Capture()

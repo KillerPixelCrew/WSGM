@@ -2,22 +2,24 @@
 
 The MIT common plugin SDK, the resident host that admits its packages, and everything WSGM builds on
 them: configuration and state, named actions and declared UI, widgets, Steam placements, session
-automation and the Game Mode entry transaction. The Device runtime keeps its own contracts and is
-owned directly by `DeviceCoordinator`; its mechanism is in
-[device plugin system](device-plugin-system.md).
+automation and the Game Mode entry transaction. The direct LibHandheld runtime is owned by
+`DeviceCoordinator`; its independent contracts are documented in the
+[library API](../external/libhandheld/API.md).
 
 ## The contract and the host
 
-`src/WSGM.Plugin.Sdk` is the MIT common contract assembly, currently API 4. It references the Device
-SDK for deadlines, capabilities, text validation and tracing, and SteamUiToolkit for typed Steam
-modules. The host shares those assembly identities with every package. `WSGM.Device.Sdk` remains the
-dependency-free hardware contract. The resident Shell session owns the common host and a separate
-device coordinator; `PluginHost` refuses the `wsgm.device` category.
+`src/WSGM.Plugin.Sdk` is the single MIT plugin contract assembly, currently API 5 and package
+version 0.4.0. A manifest's API range must start at 5 or later and include the current API version.
+Its shared capability/lifecycle helpers retain historical `WSGM.Device.Sdk` namespaces, but now
+belong to this assembly. There is no separate Device SDK assembly. Plugins must be rebuilt because
+the shared types' assembly identity changed. The SDK references SteamUiToolkit for typed Steam
+modules; neither native hardware library depends on a WSGM SDK. The resident Shell session owns the
+common host and a separate device coordinator; `PluginHost` refuses the `wsgm.device` category.
 
-Categories are stable strings. The host owns category policy: Device permits zero or one selected
-active instance, while independent categories, `wsgm.gpu` among them, can permit multiple instances.
-No Device Plugin is required on a desktop. Plugin manifests cannot grant themselves multiplicity or
-privileges.
+Categories are stable strings. The retired `wsgm.device` category is reserved and refused.
+Independent common categories, `wsgm.gpu` among them, can permit multiple instances; built-in
+hardware integrations run through their library owners. Plugin manifests cannot grant themselves
+multiplicity or privileges.
 
 The common manifest names the assembly, entry type, numeric package version, accepted API range,
 dependencies and declared access requirements. Parsing is bounded and rejects unknown members. The
@@ -55,11 +57,13 @@ instance manager described below.
 
 ## Device lifecycle
 
-The common host refuses the Device category. `DeviceCoordinator` drives the sole
-`DevicePluginRuntime` directly and keeps controller neutralization and release before plugin stop.
-The runtime retains its private state directory and advances its generation on resume. The common
-host serializes each independent common instance's lifecycle separately. Device ownership and
-recovery are described in [device-plugin-system.md](device-plugin-system.md).
+The common host refuses the Device category. `DeviceCoordinator` drives `HandheldDeviceRuntime`
+through the semantic `HandheldDevice` API, retaining controller neutralization and release before
+native stop. LibHandheld owns hardware services; WSGM owns profiles, AutoTDP, HidHide, virtual input
+and OEM action policy. Plain family IDs use fresh state directories and one permissive recovery
+journal. Native lifecycle and command admission use one serialized owner and an active flag; legacy
+device profiles and journals are not migrated. No device package is loaded. The common host
+serializes each independent common instance's lifecycle separately.
 
 ## Configuration and state
 
@@ -72,8 +76,8 @@ An explicit edit includes the revision the UI read. `CommonPluginSettings` valid
 persists only those changed keys through `ConfigStore.Update`, then dispatches the complete
 requested configuration. A stale revision or failed save prevents dispatch. Defaults are not saved
 implicitly. Application failure does not erase desired preferences; a mismatched confirmation
-remains unconfirmed. There is no automatic configuration retry. Device settings use their own
-runtime's settings manifest and apply path.
+remains unconfirmed. There is no automatic configuration retry. Native handheld controls use the
+direct library's descriptors and WSGM's existing device policy/projection path.
 
 `PluginStatePublication` carries instance, lifecycle generation, increasing sequence, origin and
 optional configuration/action correlation. It describes effective state only and cannot reach the
@@ -109,17 +113,17 @@ startup.
 
 `Shell\PluginLoader` loads a common package's public parameterless `IPlugin` entry type with a
 matching ID, after checking that the reopened `plugin.wsgm.json` still equals the admitted one. It
-rejects Device-category packages, which retain their dedicated installation slot and runtime.
+rejects Device-category packages; native handheld integration uses the directly linked library.
 Package roots and entry/manifest files cannot be reparse points. Package constructors must not
 acquire external resources.
 
-The device package and common packages share that loader and its `PluginLoadContext`, including
-host-owned Device/common SDK type identity, shared WinRT process state, host-first dependencies and
-collectible package-local fallbacks. The host works on the plugin instance itself, so a plugin that
-does not implement `IConfigurablePlugin` has no settings and is never sent a configuration. The
-plugin is disposed once by its current owner, and its code is unloaded only after that disposal
-completed: a failed or unfinished disposal keeps the context loaded and the instance reserved. The
-caller must retain ownership of loading tasks that ignore cancellation.
+Common packages use that loader and its `PluginLoadContext`, including host-owned common SDK type
+identity, shared WinRT process state, host-first dependencies and collectible package-local
+fallbacks. The host works on the plugin instance itself, so a plugin that does not implement
+`IConfigurablePlugin` has no settings and is never sent a configuration. The plugin is disposed once
+by its current owner, and its code is unloaded only after that disposal completed: a failed or
+unfinished disposal keeps the context loaded and the instance reserved. The caller must retain
+ownership of loading tasks that ignore cancellation.
 
 `CommonPluginDependencyPlan` orders enabled packages before their consumers. Missing, duplicate,
 incompatible and cyclic dependencies reject affected packages while preserving independent ones.
@@ -161,11 +165,18 @@ access based on manifest declarations.
 
 ## Graphics packages (`wsgm.gpu`)
 
-The bundled vendor packages are [Intel](../src/WSGM.Plugin.IntelGpu/README.md),
-[NVIDIA](../src/WSGM.Plugin.NvidiaGpu/README.md) and [AMD](../src/WSGM.Plugin.AmdGpu/README.md).
-NVIDIA uses DRS-native application values; AMD's documented ADLX 3D APIs use the host's Switched
-scope. Their package provenance records API sources and the remaining driver acceptance. Curated
-`blind` status does not claim hardware validation.
+Intel, NVIDIA and AMD are built-in driver integrations using
+[LibGPUDriverInteract](../external/libgpu-driver-interact/README.md). Their native sessions,
+discovery, support checks, journals and command outcomes belong to the library; WSGM owns profiles
+and both UI surfaces. `BuiltinGpuService` drives their lifetime and `GpuDriverAdapter` translates
+library records into the existing `GpuCoordinator` routers. Settings Integration and Steam
+Integration expose runtime enable/disable, preserving the existing saved instance choices,
+`gpu:wsgm.gpu.<vendor>` profile keys, pins and `PluginState/<id>/<instance hash>` journals.
+
+The exact old vendor package IDs are excluded from common-plugin admission and retired by setup and
+development deployment, preventing a second native driver owner. Other common plugins and
+third-party `wsgm.gpu` contributions retain the contract below. NVIDIA uses native application
+profiles; AMD's GPU-wide controls use WSGM's switched profile policy.
 
 A graphics package exposes a vendor driver's controls (variable refresh, sharpening, colour, latency
 and the like) as Device SDK capabilities. Several run at once, one per vendor, beside the device
@@ -218,7 +229,7 @@ command backend. Steam Display groups the sections by adapter, display and decla
 Variable refresh is published by a graphics package, per display. The Quick Access switch, the
 Device page's Power and thermals row and the per-application restore all use
 `VariableRefreshCapabilities`, which picks the only VRR capability when there is one, otherwise the
-built-in panel's (an instance id starting with `internal`), then the device package's.
+built-in panel's (an instance id starting with `internal`), then the native handheld projection's.
 
 The initial execution model remains trusted in-process code. Collectible load contexts isolate
 dependencies, not security or crashes. A process boundary would require separately designed and
@@ -253,10 +264,11 @@ manifest adds two lists that only this category may carry, and it must carry bot
 `displayAdapters` holds distinct PCI vendor ids of four hexadecimal digits, read back uppercase;
 setup offers the package, and WSGM runs it, only where a present adapter matches. `capabilities`
 holds distinct `CapabilityRole` names the package may publish. The controller, motion, haptic and
-OEM roles belong to the device package and are refused, so a graphics package never brings VIIPER,
-USB/IP or HidHide. `eng/build-bundle.ps1` copies both lists into the package's `bundle.json` entry,
-where setup and the Plugins page read them without loading code. A first-party graphics package is
-bundled like any other through its `plugins/curated` file.
+OEM roles belong to the native handheld engine and are refused, so a graphics package never brings
+VIIPER, USB/IP or HidHide. `eng/build-bundle.ps1` copies both lists into the package's `bundle.json`
+entry, where setup and the Plugins page read them without loading code. Third-party graphics
+packages can be bundled through `plugins/curated`; WSGM's Intel, AMD and NVIDIA engines are linked
+directly.
 
 Packaging publishes the project for `win-x64`, validates the manifest with this checkout's
 `PluginManifestReader` through `eng/plugin-manifest.cs`, checks the entry file, creates a new
@@ -514,18 +526,18 @@ separate from #52's carrier measurement and real-remote acceptance.
 
 ## Source routes
 
-| Boundary                                                    | Owning source                                                                                                                                                                                                                    |
-| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Public types and interface semantics                        | [Common SDK reference](../src/WSGM.Plugin.Sdk/docs/reference.md)                                                                                                                                                                 |
-| Archive admission and version selection                     | [PluginPackageFile](../src/WSGM/Core/PluginPackageFile.cs), [PluginPackageCatalog](../src/WSGM/Core/PluginPackageCatalog.cs)                                                                                                     |
-| Instance activation and dependency order                    | [CommonPluginManager](../src/WSGM/Shell/CommonPluginManager.cs), [CommonPluginDependencyPlan](../src/WSGM/Shell/CommonPluginDependencyPlan.cs)                                                                                   |
-| Collectible loading and shared assembly identity            | [PluginLoader](../src/WSGM/Shell/PluginLoader.cs)                                                                                                                                                                                |
-| Lifecycle serialization, generations and retained ownership | [PluginHost / PluginRegistration](../src/WSGM/Shell/PluginHost.cs)                                                                                                                                                               |
-| Desired configuration and effective state                   | [CommonPluginSettings](../src/WSGM/Shell/CommonPluginSettings.cs) and the registration's publication handlers                                                                                                                    |
-| Named actions and session sequences                         | [CommonPluginActions](../src/WSGM/Shell/CommonPluginActions.cs), [PluginActionSequence](../src/WSGM/Shell/PluginActionSequence.cs)                                                                                               |
-| Overlay and Steam projections                               | [CommonPluginOverlaySource](../src/WSGM/Shell/CommonPluginOverlaySource.cs), [CommonPluginSteamUiSource](../src/WSGM/Shell/CommonPluginSteamUiSource.cs)                                                                         |
-| GPU capability admission and profile routing                | [PluginCapabilityChannel](../src/WSGM/Shell/PluginCapabilityChannel.cs), [GpuCoordinator](../src/WSGM/Shell/GpuCoordinator.cs)                                                                                                   |
-| Shared AMD/NVIDIA runtime                                   | [DriverRuntime](../src/Shared/Gpu/DriverRuntime.cs), [DriverDescriptors](../src/Shared/Gpu/DriverDescriptors.cs), [WriteAdmission](../src/Shared/Gpu/WriteAdmission.cs), [DriverStateFile](../src/Shared/Gpu/DriverStateFile.cs) |
+| Boundary                                                    | Owning source                                                                                                                                                                        |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Public types and interface semantics                        | [Common SDK reference](../src/WSGM.Plugin.Sdk/docs/reference.md)                                                                                                                     |
+| Archive admission and version selection                     | [PluginPackageFile](../src/WSGM/Core/PluginPackageFile.cs), [PluginPackageCatalog](../src/WSGM/Core/PluginPackageCatalog.cs)                                                         |
+| Instance activation and dependency order                    | [CommonPluginManager](../src/WSGM/Shell/CommonPluginManager.cs), [CommonPluginDependencyPlan](../src/WSGM/Shell/CommonPluginDependencyPlan.cs)                                       |
+| Collectible loading and shared assembly identity            | [PluginLoader](../src/WSGM/Shell/PluginLoader.cs)                                                                                                                                    |
+| Lifecycle serialization, generations and retained ownership | [PluginHost / PluginRegistration](../src/WSGM/Shell/PluginHost.cs)                                                                                                                   |
+| Desired configuration and effective state                   | [CommonPluginSettings](../src/WSGM/Shell/CommonPluginSettings.cs) and the registration's publication handlers                                                                        |
+| Named actions and session sequences                         | [CommonPluginActions](../src/WSGM/Shell/CommonPluginActions.cs), [PluginActionSequence](../src/WSGM/Shell/PluginActionSequence.cs)                                                   |
+| Overlay and Steam projections                               | [CommonPluginOverlaySource](../src/WSGM/Shell/CommonPluginOverlaySource.cs), [CommonPluginSteamUiSource](../src/WSGM/Shell/CommonPluginSteamUiSource.cs)                             |
+| GPU capability admission and profile routing                | [PluginCapabilityChannel](../src/WSGM/Shell/PluginCapabilityChannel.cs), [GpuCoordinator](../src/WSGM/Shell/GpuCoordinator.cs)                                                       |
+| Built-in vendor driver library                              | [LibGPUDriverInteract](../external/libgpu-driver-interact/README.md), [public API](../external/libgpu-driver-interact/API.md), [WSGM adapter](../src/WSGM/Shell/GpuDriverAdapter.cs) |
 
 The common host serializes an instance's lifecycle/actions. Capability channels delegate hardware
 serialization to each GPU runtime; the AMD/NVIDIA shared runtime and Intel runtime keep their own

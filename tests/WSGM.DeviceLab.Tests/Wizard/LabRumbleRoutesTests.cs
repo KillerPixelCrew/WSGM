@@ -1,8 +1,8 @@
 using System.Text.Json;
-using WSGM.Device.Sdk.Windows;
 using WSGM.DeviceLab.Capture.Live;
 using WSGM.DeviceLab.Knowledge;
 using WSGM.DeviceLab.Transports;
+using WSGM.DeviceLab.Windows;
 using WSGM.DeviceLab.Wizard;
 
 namespace WSGM.DeviceLab.Tests.Wizard;

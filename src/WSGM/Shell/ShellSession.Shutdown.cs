@@ -7,7 +7,6 @@ using Avalonia;
 using Avalonia.Threading;
 using WSGM.Core;
 using WSGM.Device.Sdk.Lifecycle;
-using WSGM.Device.Sdk.Plugin;
 
 namespace WSGM.Shell;
 
@@ -86,16 +85,16 @@ public sealed partial class ShellSession
         }
     }
 
-    private static PluginStopReason DeviceShutdownReason(ApplicationShutdownReason reason)
+    private static HandheldStopReason DeviceShutdownReason(ApplicationShutdownReason reason)
     {
         return ApplicationShutdownRequest.SessionEnding
-            ? PluginStopReason.SessionEnding
+            ? HandheldStopReason.SessionEnding
             : reason switch
             {
-                ApplicationShutdownReason.Update => PluginStopReason.Updating,
-                ApplicationShutdownReason.SessionEnd => PluginStopReason.SessionEnding,
-                ApplicationShutdownReason.Uninstall => PluginStopReason.Uninstalling,
-                _ => PluginStopReason.WsgmExiting
+                ApplicationShutdownReason.Update => HandheldStopReason.Updating,
+                ApplicationShutdownReason.SessionEnd => HandheldStopReason.SessionEnding,
+                ApplicationShutdownReason.Uninstall => HandheldStopReason.Uninstalling,
+                _ => HandheldStopReason.WsgmExiting
             };
     }
 
@@ -121,6 +120,7 @@ public sealed partial class ShellSession
         Step(failures, "Closing Steam UI admission failed", () => _steamUi?.CloseAdmission());
         Step(failures, "Closing device admission failed", () => _deviceCoordinator?.CloseAdmission());
         Step(failures, "Closing common plugin admission failed", () => _commonPlugins?.CloseAdmission());
+        Step(failures, "Closing GPU driver admission failed", () => _builtinGpu?.CloseAdmission());
         Step(failures, "Closing graphics admission failed", () => _gpu?.CloseAdmission());
         Step(failures, "Cancelling library tab boot sync failed", CancelTabBootSync);
         var libraryTabWork = Task.CompletedTask;
@@ -208,6 +208,12 @@ public sealed partial class ShellSession
 
         if (_gpu is { } gpu)
         {
+            if (_builtinGpu is { } drivers)
+            {
+                await StepAsync(failures, "GPU driver cleanup was unconfirmed",
+                    () => drivers.StopAsync(Deadline.At(ShutdownDeadline))).ConfigureAwait(false);
+            }
+
             await StepAsync(failures, "Graphics capability cleanup failed",
                 () => gpu.DisposeAsync().AsTask()).ConfigureAwait(false);
         }

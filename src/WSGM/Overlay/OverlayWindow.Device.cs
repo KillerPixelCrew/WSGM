@@ -16,8 +16,8 @@ using WSGM.Controls;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Glyphs;
-using WSGM.Device.Sdk.Input;
 using WSGM.Shell;
+using CanonicalControllerSample = LibHandheld.Contracts.CanonicalControllerSample;
 
 namespace WSGM.Overlay;
 
@@ -590,6 +590,17 @@ public partial class OverlayWindow
                 if (string.Equals(DeviceHostRowIds.AuthoredProfile, focusedKey, StringComparison.Ordinal))
                 {
                     restoreFocus = authoredRow;
+                }
+
+                break;
+            }
+            case DeviceOverlaySection.LightingAndFeatures when snapshot.LightingProfile is { } lighting:
+            {
+                var lightingRow = CreateHostDeviceRow(snapshot, lighting);
+                target.Children.Add(lightingRow);
+                if (string.Equals(DeviceHostRowIds.LightingProfile, focusedKey, StringComparison.Ordinal))
+                {
+                    restoreFocus = lightingRow;
                 }
 
                 break;

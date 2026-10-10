@@ -13,37 +13,37 @@ in [boot and shell](boot-and-shell.md), installation in [setup](setup.md), ordin
 
 ## Solution and ownership
 
-| Project or source group                                                                                                                                                                       | Owns                                                                                                                            | Read next                                                                                         |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| [`src/WSGM`](../src/WSGM)                                                                                                                                                                     | Process startup, user configuration, Avalonia UI, session policy and integration composition                                    | [Boot/session source map](boot-and-shell.md#startup-and-lifetime-source-map)                      |
-| [`WSGM.Install`](../src/WSGM.Install)                                                                                                                                                         | Shared install paths, bundle models, hardware offers, account identity and component selection                                  | [Setup source ownership](setup.md#source-ownership)                                               |
-| [`WSGM.Setup`](../src/WSGM.Setup)                                                                                                                                                             | Elevated install/update/repair/uninstall and embedded payload                                                                   | [Setup](setup.md)                                                                                 |
-| [`WSGM.LogonService`](../src/WSGM.LogonService)                                                                                                                                               | Minimal SYSTEM service, per-session user-token launch and Explorer watchdog                                                     | [Logon service](boot-and-shell.md#logon-service-and-boot-flow)                                    |
-| [`WSGM.Launch`](../src/WSGM.Launch)                                                                                                                                                           | Console wrapper for de-elevation and process-tree Steam Input leases                                                            | [Elevation](elevation.md)                                                                         |
-| [`WSGM.PackagedLaunch`](../src/WSGM.PackagedLaunch)                                                                                                                                           | Package activation, optional overlay routes, lifetime recovery and external-launcher following                                  | [Packaged launcher](packaged-game-launcher.md)                                                    |
-| [`WSGM.Plugin.Sdk`](../src/WSGM.Plugin.Sdk)                                                                                                                                                   | Common plugin contracts and extension vocabulary                                                                                | [Plugin system](plugin-system.md)                                                                 |
-| [`WSGM.Device.Sdk`](../src/WSGM.Device.Sdk)                                                                                                                                                   | Device contracts, lifecycle, capabilities, controller data and package layout                                                   | [Device plugin system](device-plugin-system.md)                                                   |
-| [`WSGM.Device.Msi.Claw`](../src/WSGM.Device.Msi.Claw), [`WSGM.Device.Asus.RogAlly`](../src/WSGM.Device.Asus.RogAlly), [`WSGM.Device.HandheldCompanion`](../src/WSGM.Device.HandheldCompanion) | Machine-specific behavior packaged separately from host policy; each README records implementation and hardware-evidence status | [Device authoring](device-plugin-authoring.md)                                                    |
-| [`WSGM.Plugin.IntelGpu`](../src/WSGM.Plugin.IntelGpu), [`WSGM.Plugin.NvidiaGpu`](../src/WSGM.Plugin.NvidiaGpu), [`WSGM.Plugin.AmdGpu`](../src/WSGM.Plugin.AmdGpu)                             | Vendor graphics-driver capability providers                                                                                     | [Plugin system](plugin-system.md) and package READMEs                                             |
-| [`WSGM.Plugin.Ir`](../src/WSGM.Plugin.Ir)                                                                                                                                                     | IR session-action plugin and its firmware/protocol                                                                              | [IR README](../src/WSGM.Plugin.Ir/README.md)                                                      |
-| [`WSGM.DeviceLab`](../src/WSGM.DeviceLab)                                                                                                                                                     | Package validation, authoring support and attended hardware diagnostics                                                         | [Device Lab README](../src/WSGM.DeviceLab/README.md)                                              |
-| [`Avalonia.LiveBackdrop`](../src/Avalonia.LiveBackdrop)                                                                                                                                       | Reusable live-backdrop rendering implementation                                                                                 | [LiveBackdrop README](../src/Avalonia.LiveBackdrop/README.md)                                     |
-| [`external/steam-ui-toolkit`](../external/steam-ui-toolkit)                                                                                                                                   | Reusable CEF/CDP transport, Steam UI ownership and generated browser-side foundation                                            | [Toolkit README](../external/steam-ui-toolkit/README.md), [WSGM integration](steam-cef-system.md) |
-| [`external/windows-device-control`](../external/windows-device-control)                                                                                                                       | Reusable Windows audio, radio, display, device and power mechanisms                                                             | [Library README](../external/windows-device-control/README.md)                                    |
-| [`src/Shared`](../src/Shared)                                                                                                                                                                 | Source-linked contracts/primitives used by multiple executables or plugin assemblies                                            | Shared boundaries below                                                                           |
-| [`tests`](../tests) and external library test projects                                                                                                                                        | Isolated policy, protocol, UI and library verification                                                                          | Validation policy below                                                                           |
+| Project or source group                                                 | Owns                                                                                                              | Read next                                                                                         |
+| ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| [`src/WSGM`](../src/WSGM)                                               | Process startup, user configuration, Avalonia UI, session policy and integration composition                      | [Boot/session source map](boot-and-shell.md#startup-and-lifetime-source-map)                      |
+| [`WSGM.Install`](../src/WSGM.Install)                                   | Shared install paths, bundle models, hardware offers, account identity and component selection                    | [Setup source ownership](setup.md#source-ownership)                                               |
+| [`WSGM.Setup`](../src/WSGM.Setup)                                       | Elevated install/update/repair/uninstall and embedded payload                                                     | [Setup](setup.md)                                                                                 |
+| [`WSGM.LogonService`](../src/WSGM.LogonService)                         | Minimal SYSTEM service, per-session user-token launch and Explorer watchdog                                       | [Logon service](boot-and-shell.md#logon-service-and-boot-flow)                                    |
+| [`WSGM.Launch`](../src/WSGM.Launch)                                     | Console wrapper for de-elevation and process-tree Steam Input leases                                              | [Elevation](elevation.md)                                                                         |
+| [`WSGM.PackagedLaunch`](../src/WSGM.PackagedLaunch)                     | Package activation, optional overlay routes, lifetime recovery and external-launcher following                    | [Packaged launcher](packaged-game-launcher.md)                                                    |
+| [`WSGM.Plugin.Sdk`](../src/WSGM.Plugin.Sdk)                             | Common plugin contracts and extension vocabulary                                                                  | [Plugin system](plugin-system.md)                                                                 |
+| [`LibHandheld`](../external/libhandheld)                                | Native model families, shared Windows transports, semantic controls, input and recovery; independent of WSGM SDKs | [Library API](../external/libhandheld/API.md)                                                     |
+| [`LibGPUDriverInteract`](../external/libgpu-driver-interact)            | Direct Intel, AMD and NVIDIA driver backends, native profiles, supported controls and caller-owned restoration    | [Library API](../external/libgpu-driver-interact/API.md)                                          |
+| [`WSGM.Plugin.Ir`](../src/WSGM.Plugin.Ir)                               | IR session-action plugin and its firmware/protocol                                                                | [IR README](../src/WSGM.Plugin.Ir/README.md)                                                      |
+| [`WSGM.DeviceLab`](../src/WSGM.DeviceLab)                               | Package validation, authoring support and attended hardware diagnostics                                           | [Device Lab README](../src/WSGM.DeviceLab/README.md)                                              |
+| [`Avalonia.LiveBackdrop`](../src/Avalonia.LiveBackdrop)                 | Reusable live-backdrop rendering implementation                                                                   | [LiveBackdrop README](../src/Avalonia.LiveBackdrop/README.md)                                     |
+| [`external/steam-ui-toolkit`](../external/steam-ui-toolkit)             | Reusable CEF/CDP transport, Steam UI ownership and generated browser-side foundation                              | [Toolkit README](../external/steam-ui-toolkit/README.md), [WSGM integration](steam-cef-system.md) |
+| [`external/windows-device-control`](../external/windows-device-control) | Reusable Windows audio, radio, display, device and power mechanisms                                               | [Library README](../external/windows-device-control/README.md)                                    |
+| [`src/Shared`](../src/Shared)                                           | Source-linked contracts/primitives used by multiple executables or plugin assemblies                              | Shared boundaries below                                                                           |
+| [`tests`](../tests) and external library test projects                  | Isolated policy, protocol, UI and library verification                                                            | Validation policy below                                                                           |
 
 Inside WSGM, `Program.cs` owns entry ordering and `App.axaml.cs` composes the selected lifetime.
 `Core` holds configuration, persistence and application policy; `Shell` owns long-lived services and
 session orchestration; `Overlay` and `Settings` project those owners into their respective UI;
 `Input` translates controller and hotkey activity; `Interop` contains native declarations;
 `Controls` and `Themes` contain presentation primitives. Device-specific writes belong to the
-selected device package, graphics-driver writes to their plugin, and reusable Windows mechanisms to
-WindowsDeviceControl. The SDK assemblies define contracts rather than host policy.
+selected LibHandheld engine, graphics-driver writes to LibGPUDriverInteract, and reusable Windows
+mechanisms to WindowsDeviceControl. The common Plugin SDK defines extension contracts rather than
+host policy.
 
-The SDKs are MIT-licensed so external packages can implement them. The product has its own GPL
-license; licenses and notices for vendored code remain with their respective components. See each
-project's license before reusing its source.
+The common Plugin SDK and extracted libraries are MIT-licensed so external packages can implement
+them. The product has its own GPL license; licenses and notices for vendored code remain with their
+respective components. See each project's license before reusing its source.
 
 ## Shared boundaries and generated files
 
@@ -60,7 +60,7 @@ runtime copies of a type.
 | `Process/ParentProcessStart.cs`, `Process/Win32Common.cs`           | Process-start primitives used by WSGM and the packaged launcher; service also links the common native declarations   |
 | `Process/SteamControllerExclusion.cs`, `Process/RotatingFileLog.cs` | Launcher environment sanitization and rotating diagnostics; service shares the rotating logger                       |
 | `Launch/PackagedLaunchCommand.cs`                                   | Library shortcut composer and packaged launcher share parse/compose vocabulary                                       |
-| `Interop` and `Gpu`                                                 | Explicitly linked native and graphics implementation primitives; `.csproj` includes define their consumers           |
+| `Interop`                                                           | Explicitly linked native implementation primitives; `.csproj` includes define their consumers                        |
 
 The Steam browser payload is also composed from one set of owning sources.
 [`eng/build-steam-assets.mjs`](../eng/build-steam-assets.mjs) combines the toolkit fragment list
@@ -119,8 +119,8 @@ dotnet build WSGM.slnx -c Release --no-restore --warnaserror -p:SkipNativeArtifa
 `Directory.Build.props` enables Windows targeting for restore/analysis on non-Windows hosts. Windows
 desktop execution, native MSVC builds, service behavior and hardware verification still require
 Windows. `SkipNativeArtifacts` omits staged native content; it does not produce a complete runtime
-or validate a plugin/controller/installer scenario. Both managed-library submodules and the linked
-Steam Input binding sources must still be present.
+or validate a plugin/controller/installer scenario. The Steam UI toolkit, WindowsDeviceControl,
+LibGPUDriverInteract submodules and the linked Steam Input binding sources must still be present.
 
 Compilation includes project XML documentation according to the shared/project properties. Public
 API documentation belongs beside declarations and must explain contracts, results and ownership.
@@ -185,14 +185,16 @@ directory outside the root `publish` tree, which this script clears. The release
 community plugins in a separate job without secrets, then passes its bundle into the final build.
 [`plugins/curated`](../plugins/curated) is the source of package origin and pinned community
 commits; [`eng/build-bundle.ps1`](../eng/build-bundle.ps1) is the producer of `.wsgmpkg` files and
-the bundle manifest. An optional local bundle build is:
+the bundle manifest. It restores only Device Lab and the selected package projects, so the community
+job needs no access to the private GPU library or the application graph. An optional local bundle
+build is:
 
 ```powershell
 .\eng\build-bundle.ps1 -OutputRoot artifacts/local-bundle -SkipCommunity -SkipTools
 ```
 
 `-SkipTools` omits Device Lab from the output; it still builds Device Lab temporarily to validate
-device packages. `-SkipCommunity` omits community source builds. Package assembly and inspection do
+common packages. `-SkipCommunity` omits community source builds. Package assembly and inspection do
 not activate hardware. Community builds execute third-party MSBuild code and belong in an
 environment without secrets, as required by the engineering guide.
 

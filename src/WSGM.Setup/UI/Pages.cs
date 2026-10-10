@@ -169,22 +169,17 @@ internal sealed class MaintainPage(Version version, Action repair, Action uninst
     public override CloseBehaviour OnClose => CloseBehaviour.Close;
 }
 
-/// <summary>One device plugin that matches this machine.</summary>
-/// <param name="offer">Hardware-matched plugin and evidence used for labels; selection initially remains false.</param>
-internal sealed class CandidateOption(PluginOffer offer) : Observable
+/// <summary>The native backend for the exact detected handheld.</summary>
+/// <param name="offer">Pure hardware support metadata.</param>
+internal sealed class CandidateOption(HandheldOffer offer) : Observable
 {
     private bool _selected;
-    public PluginOffer Offer { get; } = offer;
-    public string Name => $"{Offer.Plugin.Name} {Offer.Plugin.Version}";
+    public HandheldOffer Offer { get; } = offer;
+    public string Name => Offer.Definition.Name;
 
-    public string Badges =>
-        (Offer.Plugin.Community ? "Community" : "First-party") + " · "
-                                                               + (Offer.HardwareTested
-                                                                   ? "Hardware-tested"
-                                                                   : "Blind")
-                                                               + " · " + (Offer.Match?.Fallback == true
-                                                                   ? "Family match"
-                                                                   : "Exact match");
+    public string Badges => Offer.Definition.HardwareVerified
+        ? "Built-in support, exact model, hardware verified"
+        : "Built-in support, exact model, hardware unverified";
 
     public bool Selected
     {
@@ -217,10 +212,10 @@ internal sealed class HardwarePage : Page
     {
         Device = device;
         Identity = identity;
-        foreach (var offer in offers.DeviceCandidates)
+        foreach (var offer in offers.Handheld is { } support ? new[] { support } : [])
         {
             CandidateOption option = new(offer)
-                { Selected = offer == (offers.RecommendedDevice ?? offers.DeviceCandidates[0]) };
+                { Selected = true };
             option.PropertyChanged += (_, args) =>
             {
                 if (args.PropertyName == nameof(CandidateOption.Selected) && option.Selected)
@@ -257,7 +252,6 @@ internal sealed class HardwarePage : Page
     public bool HasGraphics => Graphics.Count > 0;
     public bool HasMatch => Candidates.Count > 0;
     public bool NoMatch => !HasMatch;
-    public bool NeedsChoice => Candidates.Count > 1;
     public bool HasCommons => Commons.Count > 0;
     public CandidateOption? Chosen => InstallPlugin ? Candidates.FirstOrDefault(candidate => candidate.Selected) : null;
 
@@ -276,7 +270,7 @@ internal sealed class HardwarePage : Page
     }
 
     /// <summary>
-    ///     Declines the plugin, for someone who keeps Handheld Companion or another tool managing the device.
+    ///     Declines native support, for someone who keeps Handheld Companion or another tool managing the device.
     ///     WSGM then leaves the hardware alone and the profile starts from Minimal.
     /// </summary>
     public bool SkipPlugin
@@ -291,32 +285,32 @@ internal sealed class HardwarePage : Page
         }
     }
 
-    /// <summary>Whether the plugin cards and what gets installed are shown.</summary>
+    /// <summary>Whether native support metadata and required components are shown.</summary>
     public bool ShowPlugin => HasMatch && _installPlugin;
 
     /// <summary>What accepting installs, in one line under the choice.</summary>
     public string AcceptDetail => Candidates.Count == 1
-        ? $"Installs {Candidates[0].Name}, so WSGM manages power, fans, lighting and the controller on this device."
-        : "Installs the plugin you pick below, so WSGM manages power, fans, lighting and the controller.";
+        ? Candidates[0].Offer.Definition.HasController
+            ? $"Enables the controls implemented for {Candidates[0].Name}, including controller management."
+            : $"Enables the controls implemented for {Candidates[0].Name}. Controller management is unavailable for this model."
+        : "";
 
     public override string Eyebrow => "Hardware";
 
     public override string Title =>
-        !HasMatch ? "No hardware support for this device yet"
-        : NeedsChoice ? "More than one plugin supports this device"
-        : "Good news! Your hardware is supported.";
+        !HasMatch
+            ? "No hardware support for this device yet"
+            : "Good news! Your hardware is supported.";
 
     public override string Lead =>
-        !HasMatch ? "WSGM installs and works without it. Power limits, fans and the virtual controller stay off."
-        : NeedsChoice ? "Only one can be installed. The exact match is usually the better choice."
-        : "";
-
-    /// <summary>The blind or community note for the chosen plugin, or empty.</summary>
-    public string Caution =>
-        Chosen?.Offer is { Plugin: var plugin } offer && (!offer.HardwareTested || plugin.Community)
-            ? (offer.HardwareTested ? "" : "Not tested on this hardware by the WSGM team. ")
-              + (plugin.Contact is { } contact ? "Report problems to its developer: " + contact : "")
+        !HasMatch
+            ? "WSGM installs and works without it. Power limits, fans and the virtual controller stay off."
             : "";
+
+    /// <summary>Additional hardware warning, when applicable.</summary>
+    public string Caution => Candidates.Count == 1 && !Candidates[0].Offer.Definition.HardwareVerified
+        ? "This exact model matches, but its support has not been verified on hardware. Try its controls carefully and report problems."
+        : "";
 
     public bool HasCaution => Caution.Length > 0;
 
@@ -521,12 +515,19 @@ internal sealed class RestartPage(IReadOnlyList<StepRow> steps, bool resumes) : 
             : "Run this setup again after that restart.");
 }
 
-internal sealed class UninstallPage(string version, bool usbipOwned, bool hidHideOwned) : Page
+internal sealed class UninstallPage(
+    string version,
+    bool usbipOwned,
+    bool hidHideOwned,
+    bool pawnIoOwned = false,
+    bool inpOutOwned = false) : Page
 {
     private bool _confirming;
     private bool _custom;
     private bool _keepData = true;
     private bool _removeHidHide = hidHideOwned;
+    private bool _removeInpOut;
+    private bool _removePawnIo;
     private bool _removeUsbip = usbipOwned;
 
     public override string Eyebrow => $"WSGM {version}";
@@ -538,7 +539,21 @@ internal sealed class UninstallPage(string version, bool usbipOwned, bool hidHid
 
     public bool CanRemoveUsbip { get; } = usbipOwned;
     public bool CanRemoveHidHide { get; } = hidHideOwned;
-    public bool HasOwnedComponents => CanRemoveUsbip || CanRemoveHidHide;
+    public bool CanRemovePawnIo { get; } = pawnIoOwned;
+    public bool CanRemoveInpOut { get; } = inpOutOwned;
+    public bool HasOwnedComponents => CanRemoveUsbip || CanRemoveHidHide || CanRemovePawnIo || CanRemoveInpOut;
+
+    public bool RemovePawnIo
+    {
+        get => _removePawnIo;
+        set => Set(ref _removePawnIo, value);
+    }
+
+    public bool RemoveInpOut
+    {
+        get => _removeInpOut;
+        set => Set(ref _removeInpOut, value);
+    }
 
     public bool KeepData
     {
@@ -589,7 +604,9 @@ internal sealed class UninstallPage(string version, bool usbipOwned, bool hidHid
         "WSGM and its plugins are removed",
         KeepData ? "Your settings and data are kept" : "Your settings and data are deleted",
         CanRemoveUsbip ? RemoveUsbip ? "The USB/IP driver is removed" : "The USB/IP driver stays" : "",
-        CanRemoveHidHide ? RemoveHidHide ? "HidHide is removed" : "HidHide stays" : ""
+        CanRemoveHidHide ? RemoveHidHide ? "HidHide is removed" : "HidHide stays" : "",
+        CanRemovePawnIo ? RemovePawnIo ? "PawnIO is removed" : "PawnIO stays" : "",
+        CanRemoveInpOut ? RemoveInpOut ? "InpOut is removed" : "InpOut stays" : ""
     ];
 
     public override string Primary => _confirming ? "Uninstall" : "Continue";

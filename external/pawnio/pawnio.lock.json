@@ -43,6 +43,45 @@
         "PawnIO verifies the module signature when it loads it; Device Lab also checks this digest first.",
         "LibreHardwareMonitorLib 0.9.6 embeds an older RyzenSMU.bin (SHA-256 0CF0FE12...D8AA) without the SMU command function; Device Lab uses that copy only through LHM's own read calls."
       ]
+    },
+    {
+      "id": "LpcIO",
+      "repository": "https://github.com/namazso/PawnIO.Modules",
+      "tag": "0.2.11",
+      "archive": "release_0_2_11.zip",
+      "archiveUrl": "https://github.com/namazso/PawnIO.Modules/releases/download/0.2.11/release_0_2_11.zip",
+      "archiveSha256": "43608CB89BC84247FEF1368A139013F7D043E17DB6D6C8DFC9B46BF0905A81F4",
+      "member": "LpcIO.bin",
+      "memberSha256": "B3896A1CAB0D808FCA31FE2EBCAE045D59DAC690DA87B17C858BB8DA357EB45E",
+      "notes": [
+        "Signed upstream module pinned independently of LibreHardwareMonitor. PawnIO verifies its module signature on load; acquisition also checks its SHA-256."
+      ]
+    },
+    {
+      "id": "LpcACPIEC",
+      "repository": "https://github.com/namazso/PawnIO.Modules",
+      "tag": "0.2.11",
+      "archive": "release_0_2_11.zip",
+      "archiveUrl": "https://github.com/namazso/PawnIO.Modules/releases/download/0.2.11/release_0_2_11.zip",
+      "archiveSha256": "43608CB89BC84247FEF1368A139013F7D043E17DB6D6C8DFC9B46BF0905A81F4",
+      "member": "LpcACPIEC.bin",
+      "memberSha256": "C38FD116E7AFF4D1FDB0A494E296BE0A6708E5A22FC72F14587442FB7F8F7906",
+      "notes": [
+        "Signed upstream module pinned independently of LibreHardwareMonitor. PawnIO verifies its module signature on load; acquisition also checks its SHA-256."
+      ]
+    },
+    {
+      "id": "IntelMSR",
+      "repository": "https://github.com/namazso/PawnIO.Modules",
+      "tag": "0.2.11",
+      "archive": "release_0_2_11.zip",
+      "archiveUrl": "https://github.com/namazso/PawnIO.Modules/releases/download/0.2.11/release_0_2_11.zip",
+      "archiveSha256": "43608CB89BC84247FEF1368A139013F7D043E17DB6D6C8DFC9B46BF0905A81F4",
+      "member": "IntelMSR.bin",
+      "memberSha256": "D6ED85D65AB17A22F813EF98207D6D537155EE2DED5976A21CB48413C9B92E5F",
+      "notes": [
+        "Signed upstream module pinned independently of LibreHardwareMonitor. PawnIO verifies its module signature on load; acquisition also checks its SHA-256."
+      ]
     }
   ]
 }

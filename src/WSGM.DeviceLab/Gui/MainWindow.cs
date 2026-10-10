@@ -17,7 +17,6 @@ using WSGM.DeviceLab.Capture;
 using WSGM.DeviceLab.Preflight;
 using WSGM.DeviceLab.Reports;
 using WSGM.DeviceLab.Scaffolding;
-using WSGM.DeviceLab.Testing;
 
 namespace WSGM.DeviceLab.Gui;
 
@@ -59,7 +58,7 @@ internal sealed class MainWindow : Window
 
         _mode = new ComboBox
         {
-            ItemsSource = new[] { "Hardware Owner", "Plugin Developer" },
+            ItemsSource = new[] { "Hardware Owner", "Library Developer" },
             SelectedIndex = 0,
             Width = 190
         };
@@ -72,10 +71,9 @@ internal sealed class MainWindow : Window
         var capture = BuildCaptureTab();
         var workbench = BuildWorkbenchTab();
         var scaffold = BuildScaffoldTab();
-        var package = BuildPackageTab();
         var labReport = BuildLabReportTab(boundaries);
         _ownerTabs = [safety, candidates, capture, workbench];
-        _developerTabs = [safety, candidates, capture, workbench, scaffold, package, labReport];
+        _developerTabs = [safety, candidates, capture, workbench, scaffold, labReport];
         _tabs = new TabControl { ItemsSource = _ownerTabs };
 
         _result = new TextBox
@@ -366,13 +364,13 @@ internal sealed class MainWindow : Window
         var output = PathInput(
             "scaffold-output",
             PathSelectionKind.NewFolder,
-            suggestedName: "new-device-plugin");
+            suggestedName: "new-handheld-contribution");
         TextBox usbInstance = new()
         {
             PlaceholderText = "Required when the capture contains multiple exact USB endpoints"
         };
         TextBox fixtureId = new() { PlaceholderText = "Stable fixture ID" };
-        Button scaffold = new() { Content = "Copy minimal plugin template" };
+        Button scaffold = new() { Content = "Create LibHandheld contribution" };
         scaffold.Click += async (_, _) =>
         {
             var capturePath = capture.Text!;
@@ -404,12 +402,13 @@ internal sealed class MainWindow : Window
     }
 
     // A returned .wsgmlab report: review it against the knowledge base, promote the confirmed fields to a
-    // new record file, or scaffold a plugin project from it. The same services as the CLI commands.
+    // new record file, or create a LibHandheld contribution from it. The same services as the CLI commands.
     private TabItem BuildLabReportTab(DeviceLabPathBoundaries boundaries)
     {
         var report = PathInput("lab-report", PathSelectionKind.OpenFile);
         var record = PathInput("lab-record", PathSelectionKind.SaveFile);
-        var project = PathInput("lab-scaffold", PathSelectionKind.NewFolder, suggestedName: "new-device-plugin");
+        var project = PathInput("lab-scaffold", PathSelectionKind.NewFolder,
+            suggestedName: "new-handheld-contribution");
         TextBox fields = new()
             { PlaceholderText = "Field IDs to promote, comma-separated; empty promotes every confirmation" };
         Button review = new() { Content = "Review against the knowledge base" };
@@ -431,7 +430,7 @@ internal sealed class MainWindow : Window
             await RunAsync(token => Task.Run<object?>(
                 () => LabPromote.Run(reportPath, recordPath, selected, boundaries), token));
         };
-        Button scaffold = new() { Content = "Scaffold plugin from report" };
+        Button scaffold = new() { Content = "Create contribution from report" };
         scaffold.Click += async (_, _) =>
         {
             var reportPath = report.Text!;
@@ -450,199 +449,6 @@ internal sealed class MainWindow : Window
             Buttons(promote),
             Labeled("New plugin directory", project),
             Buttons(scaffold));
-    }
-
-    private TabItem BuildPackageTab()
-    {
-        var packageDirectory = PathInput("plugin-package", PathSelectionKind.Folder);
-        var packageOutput = PathInput("plugin-package-output", PathSelectionKind.SaveFile);
-        var inventory = PathInput("plugin-inventory", PathSelectionKind.OpenFile);
-        var stateDirectory = PathInput(
-            "plugin-state",
-            PathSelectionKind.NewFolder,
-            suggestedName: "new-plugin-state");
-        ComboBox hardwareAction = new()
-        {
-            ItemsSource = new[] { "Capability value", "Haptic pulse", "Controller management" },
-            SelectedIndex = 0
-        };
-        TextBox capabilityId = new() { PlaceholderText = "For example power.sustained-limit" };
-        TextBox capabilityInstance = new() { PlaceholderText = "Optional exact instance ID" };
-        TextBox capabilityValue = new()
-        {
-            PlaceholderText = "true | 24 | choice | #RRGGBB | 40:20,70:60 | plain text"
-        };
-        hardwareAction.SelectionChanged += (_, _) => ApplyHardwareActionSelection();
-        ApplyHardwareActionSelection();
-        Button validate = new() { Content = "Validate offline" };
-        validate.Click += async (_, _) =>
-        {
-            var packagePath = packageDirectory.Text!;
-            await RunAsync(token =>
-                Task.Run<object?>(() => DeviceLabApplication.ValidateOffline(packagePath, token), token));
-        };
-        Button pack = new() { Content = "Validate and pack" };
-        pack.Click += async (_, _) =>
-        {
-            var packagePath = packageDirectory.Text!;
-            var outputPath = packageOutput.Text!;
-            await RunAsync(token => Task.Run<object?>(() => _application.Pack(packagePath, outputPath, token), token));
-        };
-        Button generateGlyphs = new() { Content = "Import glyphs" };
-        generateGlyphs.Click += async (_, _) =>
-        {
-            var packagePath = packageDirectory.Text!;
-            await RunAsync(token =>
-                Task.Run<object?>(() => DeviceLabApplication.ImportGlyphs(packagePath, token), token));
-        };
-        Button testSample = new() { Content = "Test synthetic sample" };
-        testSample.Click += async (_, _) =>
-        {
-            await RunAsync(async token =>
-                await DeviceLabApplication.TestSyntheticPluginAsync(token).ConfigureAwait(false));
-        };
-        Button testPlugin = new() { Content = "Test plugin detection" };
-        testPlugin.Click += async (_, _) =>
-        {
-            var packagePath = packageDirectory.Text!;
-            var inventoryPath = inventory.Text!;
-            await RunAsync(async token => await DeviceLabApplication.TestPluginAsync(
-                packagePath,
-                inventoryPath,
-                token).ConfigureAwait(false));
-        };
-        Button runHardware = new() { Content = "Run attended hardware action" };
-        runHardware.Click += async (_, _) =>
-        {
-            var action = hardwareAction.SelectedIndex switch
-            {
-                1 => new AttendedPluginActionRequest
-                {
-                    Kind = AttendedPluginActionKind.HapticPulse,
-                    InstanceId = string.IsNullOrWhiteSpace(capabilityInstance.Text)
-                        ? null
-                        : capabilityInstance.Text
-                },
-                2 => new AttendedPluginActionRequest
-                {
-                    Kind = AttendedPluginActionKind.ControllerManagement,
-                    InstanceId = string.IsNullOrWhiteSpace(capabilityInstance.Text)
-                        ? null
-                        : capabilityInstance.Text
-                },
-                _ => new AttendedPluginActionRequest
-                {
-                    Kind = AttendedPluginActionKind.CapabilityValue,
-                    CapabilityId = capabilityId.Text,
-                    InstanceId = string.IsNullOrWhiteSpace(capabilityInstance.Text)
-                        ? null
-                        : capabilityInstance.Text,
-                    ValueText = capabilityValue.Text
-                }
-            };
-            if (action.Kind is AttendedPluginActionKind.CapabilityValue
-                && (string.IsNullOrWhiteSpace(action.CapabilityId)
-                    || string.IsNullOrWhiteSpace(action.ValueText)))
-            {
-                ApplyDisplayState(_displayState.Failed(
-                    "Capability value actions require an exact capability ID and value before confirmation."));
-                return;
-            }
-
-            if (_operation is not null || !await ConfirmHardwareActionAsync(action))
-            {
-                return;
-            }
-
-            var packagePath = packageDirectory.Text!;
-            var inventoryPath = inventory.Text!;
-            var statePath = stateDirectory.Text!;
-            await RunAsync(async token => await _application.RunAttendedPluginAsync(
-                packagePath,
-                inventoryPath,
-                statePath,
-                action,
-                true,
-                token).ConfigureAwait(false));
-        };
-        return Tab(
-            "Test, validate & pack",
-            "Validation, synthetic testing, local detection, glyph import, packing, and the one explicit attended hardware action.",
-            Labeled("Package directory", packageDirectory),
-            Labeled("Current inventory JSON", inventory),
-            Labeled("New .wsgmpkg path", packageOutput),
-            Labeled("New plugin state directory", stateDirectory),
-            Labeled("Attended action", hardwareAction),
-            Labeled("Capability ID (capability value only)", capabilityId),
-            Labeled("Exact capability/controller instance", capabilityInstance),
-            Labeled("Capability value (capability value only)", capabilityValue),
-            Buttons(validate, testSample, testPlugin),
-            Buttons(generateGlyphs, pack),
-            Buttons(runHardware));
-
-        void ApplyHardwareActionSelection()
-        {
-            var capabilitySelected = hardwareAction.SelectedIndex == 0;
-            capabilityId.IsEnabled = capabilitySelected;
-            capabilityInstance.IsEnabled = true;
-            capabilityValue.IsEnabled = capabilitySelected;
-        }
-    }
-
-    private async Task<bool> ConfirmHardwareActionAsync(AttendedPluginActionRequest action)
-    {
-        TextBox confirmation = new() { PlaceholderText = "Type RUN HARDWARE" };
-        Button run = new() { Content = "Run once" };
-        Button cancel = new() { Content = "Cancel" };
-        Window dialog = new()
-        {
-            Title = "Confirm attended hardware action",
-            Width = 520,
-            Height = 260,
-            CanResize = false,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Content = new StackPanel
-            {
-                Margin = new Thickness(20),
-                Spacing = 12,
-                Children =
-                {
-                    new TextBlock
-                    {
-                        Text =
-                            $"Selected action: {DescribeHardwareAction(action)}. This loads the selected plugin on the exact target and may access or change hardware. Device Integration must be stopped. Type RUN HARDWARE for this run only.",
-                        TextWrapping = TextWrapping.Wrap
-                    },
-                    confirmation,
-                    Buttons(cancel, run)
-                }
-            }
-        };
-        cancel.Click += (_, _) => dialog.Close(false);
-        run.Click += (_, _) => dialog.Close(string.Equals(
-            confirmation.Text,
-            "RUN HARDWARE",
-            StringComparison.Ordinal));
-        return await dialog.ShowDialog<bool>(this);
-    }
-
-    private static string DescribeHardwareAction(AttendedPluginActionRequest action)
-    {
-        return action.Kind switch
-        {
-            AttendedPluginActionKind.CapabilityValue => action.InstanceId is null
-                ? $"set {action.CapabilityId} to {action.ValueText}, verify it, and restore its original value"
-                : $"set {action.CapabilityId}/{action.InstanceId} to {action.ValueText}, verify it, and restore its original value",
-            AttendedPluginActionKind.HapticPulse =>
-                action.InstanceId is null
-                    ? "send one fixed 250 ms haptic pulse, stop output, and restore controller topology"
-                    : $"send one fixed 250 ms haptic pulse to {action.InstanceId}, stop output, and restore controller topology",
-            AttendedPluginActionKind.ControllerManagement =>
-                action.InstanceId is null
-                    ? "acquire controller management once and restore its verified topology"
-                    : $"acquire controller instance {action.InstanceId} once and restore its verified topology",
-            _ => action.Kind.ToString()
-        };
     }
 
     private async Task RunAsync(

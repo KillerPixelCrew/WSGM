@@ -1,5 +1,3 @@
-using Xunit;
-
 namespace WSGM.Plugin.Sdk.Tests;
 
 public sealed class PluginValueTests

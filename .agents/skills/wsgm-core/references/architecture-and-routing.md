@@ -4,9 +4,9 @@
 
 WSGM is a self-contained managed-JIT `net10.0-windows10.0.19041.0` x64 CoreCLR application.
 Supporting projects that need no WinRT/WindowsDeviceControl API use `net10.0-windows`. With Device
-Integration enabled, WSGM loads the sole installed device plugin in-process through a collectible
-`AssemblyLoadContext`. NativeAOT and the old out-of-process DeviceHost/IPC design are retired; do
-not resurrect them from historical plans.
+Integration enabled, WSGM creates the exact detected LibHandheld definition using one captured
+identity snapshot. NativeAOT and the old out-of-process DeviceHost/IPC design are retired; do not
+resurrect them from historical plans.
 
 The current high-level flow is:
 
@@ -31,12 +31,13 @@ WSGM.Setup + WSGM.Install
 ```
 
 The installer, logon service, launchers, resident UI, native Steam Input shim, reusable submodules
-and device packages are different authority and lifetime boundaries. `BootManifest` is the untrusted
-same-user projection the service consumes. WSGM starts with the interactive user token, using its
-linked elevated token only when requested by the manifest and available; the unlinked token is
-retained for Explorer recovery. The watchdog owns the process handle, waits for the shell-anchor
-grace, may launch Explorer once after dirty/unknown exit, and never relaunches WSGM. Do not collapse
-these boundaries for convenience or reject service boot merely because Explorer exists initially.
+and built-in hardware libraries are different authority and lifetime boundaries. `BootManifest` is
+the untrusted same-user projection the service consumes. WSGM starts with the interactive user
+token, using its linked elevated token only when requested by the manifest and available; the
+unlinked token is retained for Explorer recovery. The watchdog owns the process handle, waits for
+the shell-anchor grace, may launch Explorer once after dirty/unknown exit, and never relaunches
+WSGM. Do not collapse these boundaries for convenience or reject service boot merely because
+Explorer exists initially.
 
 ## Application directories
 
@@ -94,23 +95,23 @@ parity review.
 
 ## Project ownership
 
-| Concern                                                  | Repository/path                                                           |
-| -------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Semantic device-plugin contract                          | `src/WSGM.Device.Sdk`                                                     |
-| Common plugin contract, instances and extension surfaces | `src/WSGM.Plugin.Sdk`                                                     |
-| Hardware authoring/evidence tool                         | `src/WSGM.DeviceLab`                                                      |
-| Handheld Companion scaffold (unfinished)                 | `src/WSGM.Device.HandheldCompanion`                                       |
-| MSI Claw device behavior                                 | `src/WSGM.Device.Msi.Claw`                                                |
-| ROG Ally device behavior and recorded evidence status    | `src/WSGM.Device.Asus.RogAlly`                                            |
-| Graphics driver plugins                                  | `src/WSGM.Plugin.IntelGpu`, `WSGM.Plugin.NvidiaGpu`, `WSGM.Plugin.AmdGpu` |
-| IR session actions and firmware                          | `src/WSGM.Plugin.Ir`                                                      |
-| Reusable live-backdrop rendering                         | `src/Avalonia.LiveBackdrop`                                               |
-| Reusable Steam CEF transport/patch/surfaces              | `external/steam-ui-toolkit`                                               |
-| Reusable Windows radio/audio/brightness/power primitives | `external/windows-device-control`                                         |
-| Native Steam Input shim/lease                            | `external/steam-input-lease`                                              |
-| VIIPER virtual controller library                        | `external/viiper`                                                         |
-| Vendored LoadingIndicators.Avalonia source               | `external/LoadingIndicators.Avalonia`                                     |
-| Controller dependency lock, licences, and VIIPER notes   | `external/controller`                                                     |
+| Concern                                                  | Repository/path                                                             |
+| -------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Semantic device-plugin contract                          | `external/libhandheld/src/LibHandheld/Contracts`                            |
+| Common plugin contract, instances and extension surfaces | `src/WSGM.Plugin.Sdk`                                                       |
+| Hardware authoring/evidence tool                         | `src/WSGM.DeviceLab`                                                        |
+| Handheld Companion scaffold (unfinished)                 | `src/WSGM.Device.HandheldCompanion`                                         |
+| MSI Claw device behavior                                 | `external/libhandheld/src/LibHandheld/Families/MsiClaw`                     |
+| ROG Ally device behavior and recorded evidence status    | `external/libhandheld/src/LibHandheld/Families/RogAlly`                     |
+| Built-in graphics driver engines                         | `external/libgpu-driver-interact`; WSGM adapter and coordinator in `Shell/` |
+| IR session actions and firmware                          | `src/WSGM.Plugin.Ir`                                                        |
+| Reusable live-backdrop rendering                         | `src/Avalonia.LiveBackdrop`                                                 |
+| Reusable Steam CEF transport/patch/surfaces              | `external/steam-ui-toolkit`                                                 |
+| Reusable Windows radio/audio/brightness/power primitives | `external/windows-device-control`                                           |
+| Native Steam Input shim/lease                            | `external/steam-input-lease`                                                |
+| VIIPER virtual controller library                        | `external/viiper`                                                           |
+| Vendored LoadingIndicators.Avalonia source               | `external/LoadingIndicators.Avalonia`                                       |
+| Controller dependency lock, licences, and VIIPER notes   | `external/controller`                                                       |
 
 WSGM owns policy, orchestration, session state, and adapters. Device projects share this repository
 and one SDK project reference. Keep them separate assemblies. Only the reusable libraries, Steam

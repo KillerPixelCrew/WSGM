@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -10,7 +10,8 @@
     <Description>Install layout, bundled plugin manifest, hardware offers and setup components shared by WSGM and its setup.</Description>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\WSGM.Device.Sdk\WSGM.Device.Sdk.csproj"/>
+    <ProjectReference Include="..\WSGM.Plugin.Sdk\WSGM.Plugin.Sdk.csproj"/>
+    <ProjectReference Include="..\..\external\libhandheld\src\LibHandheld\LibHandheld.csproj"/>
     <InternalsVisibleTo Include="WSGM.Tests"/>
   </ItemGroup>
   <ItemGroup>

@@ -6,16 +6,13 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using WSGM.Device.Sdk.Identity;
 using WSGM.DeviceLab.Capture;
 using WSGM.DeviceLab.Fixtures;
 using WSGM.DeviceLab.Inventory;
 using WSGM.DeviceLab.Knowledge;
-using WSGM.DeviceLab.Packaging;
 using WSGM.DeviceLab.Preflight;
 using WSGM.DeviceLab.Probes;
 using WSGM.DeviceLab.Scaffolding;
-using WSGM.DeviceLab.Testing;
 
 namespace WSGM.DeviceLab.Application;
 
@@ -400,100 +397,6 @@ internal sealed class DeviceLabApplication(
             cancellationToken);
     }
 
-    /// <summary>Runs the built-in hardware-free synthetic plugin fixture.</summary>
-    /// <param name="cancellationToken">Cancels the fixture.</param>
-    /// <returns>Named public-API checks.</returns>
-    public static Task<SyntheticPluginFixtureReport> TestSyntheticPluginAsync(
-        CancellationToken cancellationToken)
-    {
-        return SyntheticPluginFixture.RunAsync(cancellationToken);
-    }
-
-    /// <summary>Loads one local plugin and runs only its exact detector.</summary>
-    /// <param name="packageDirectory">Validated local package directory.</param>
-    /// <param name="inventoryPath">Inventory JSON whose identity is supplied to detection.</param>
-    /// <param name="cancellationToken">Cancels the detection test.</param>
-    /// <returns>Local load and detection result.</returns>
-    public static Task<PluginTestReport> TestPluginAsync(
-        string packageDirectory,
-        string inventoryPath,
-        CancellationToken cancellationToken)
-    {
-        return PluginTestWorkflow.TestDetectionAsync(
-            packageDirectory,
-            ToPluginIdentity(ReadInventory(inventoryPath, cancellationToken)),
-            cancellationToken);
-    }
-
-    /// <summary>Runs one explicitly confirmed plugin activation and mandatory cleanup.</summary>
-    /// <param name="packageDirectory">Validated local package directory.</param>
-    /// <param name="inventoryPath">
-    ///     Operator-reviewed inventory JSON. The action recollects live identity and never uses this
-    ///     imported document as its activation identity.
-    /// </param>
-    /// <param name="stateDirectory">New explicit package state directory.</param>
-    /// <param name="action">One explicit semantic action selected by the local operator.</param>
-    /// <param name="confirmed">Immediate operator confirmation for this run.</param>
-    /// <param name="cancellationToken">Cancels the attended lifecycle.</param>
-    /// <returns>Detection, gate, activation, cleanup, and publication result.</returns>
-    public Task<PluginTestReport> RunAttendedPluginAsync(
-        string packageDirectory,
-        string inventoryPath,
-        string stateDirectory,
-        AttendedPluginActionRequest action,
-        bool confirmed,
-        CancellationToken cancellationToken)
-    {
-        // The imported inventory is useful operator context but cannot authorize a hardware action:
-        // it may describe another machine or an earlier topology. Validate its shape, then recollect
-        // identity from the machine that will actually run the plugin.
-        _ = ReadInventory(inventoryPath, cancellationToken);
-        var liveIdentity = ToPluginIdentity(_collectInventory(cancellationToken));
-        return PluginTestWorkflow.RunAttendedAsync(
-            packageDirectory,
-            liveIdentity,
-            stateDirectory,
-            action,
-            confirmed,
-            Boundaries,
-            cancellationToken);
-    }
-
-    /// <summary>Runs offline package validation without loading plugin code.</summary>
-    /// <param name="packageDirectory">Package source directory.</param>
-    /// <param name="cancellationToken">Cancels bounded source capture or validation.</param>
-    /// <returns>Offline validation report.</returns>
-    public static PluginPackageValidationReport ValidateOffline(
-        string packageDirectory,
-        CancellationToken cancellationToken = default)
-    {
-        return PluginPackageWorkflow.ValidateOffline(packageDirectory, cancellationToken);
-    }
-
-    /// <summary>Validates and deterministically packs a plugin.</summary>
-    /// <param name="packageDirectory">Package source directory.</param>
-    /// <param name="outputPath">New package archive path.</param>
-    /// <param name="cancellationToken">Cancels validation or atomic archive publication.</param>
-    /// <returns>The offline validation report for the packed source.</returns>
-    public PluginPackageValidationReport Pack(
-        string packageDirectory,
-        string outputPath,
-        CancellationToken cancellationToken = default)
-    {
-        return PluginPackageWorkflow.Pack(packageDirectory, outputPath, Boundaries, cancellationToken);
-    }
-
-    /// <summary>Directly imports every package glyph profile through the SDK loader.</summary>
-    /// <param name="packageDirectory">Package source containing profiles, artwork, and notices.</param>
-    /// <param name="cancellationToken">Cancels bounded source capture or glyph import.</param>
-    /// <returns>Accepted profiles and deterministic import failures.</returns>
-    public static GlyphPackageImportReport ImportGlyphs(
-        string packageDirectory,
-        CancellationToken cancellationToken = default)
-    {
-        return GlyphPackageImportWorkflow.Import(packageDirectory, cancellationToken);
-    }
-
     private static MachineInventory ReadInventory(string path, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -549,42 +452,6 @@ internal sealed class DeviceLabApplication(
         {
             throw new InvalidDataException($"Capture rejected ({read.Failure}): {read.Detail}");
         }
-    }
-
-    internal static DeviceIdentitySnapshot ToPluginIdentity(MachineInventory inventory)
-    {
-        return new DeviceIdentitySnapshot
-        {
-            SystemManufacturer = IdentityText.Normalize(inventory.Firmware.SystemManufacturer),
-            SystemProduct = IdentityText.Normalize(inventory.Firmware.SystemProduct),
-            SystemSku = IdentityText.Normalize(inventory.Firmware.SystemSku),
-            SystemFamily = IdentityText.Normalize(inventory.Firmware.SystemFamily),
-            BaseboardProduct = IdentityText.Normalize(inventory.Firmware.BaseboardProduct),
-            BaseboardVersion = IdentityText.Normalize(inventory.Firmware.BaseboardVersion),
-            BiosVersion = IdentityText.Normalize(inventory.Firmware.BiosVersion),
-            EcFirmwareVersion = IdentityText.Normalize(inventory.Firmware.EmbeddedControllerVersion),
-            CpuIdentity = IdentityText.Normalize(inventory.Processor?.NormalizedIdentity),
-            UsbEndpoints =
-            [
-                .. inventory.UsbInterfaces
-                    .Where(endpoint => endpoint is { Present: true, VendorId: not null, ProductId: not null })
-                    .Select(endpoint => new UsbEndpointObservation
-                    {
-                        VendorId = endpoint.VendorId!,
-                        ProductId = endpoint.ProductId!,
-                        InterfaceNumber = endpoint.InterfaceNumber,
-                        DeviceRelease = endpoint.DeviceRelease,
-                        LocationPath = endpoint.LocationPath
-                    })
-            ],
-            WmiProviderSignatures =
-            [
-                .. inventory.WmiClasses
-                    .Where(provider => provider.Access is WmiAccess.Available or WmiAccess.AccessDenied)
-                    .Select(provider => $"{provider.Namespace}:{provider.ClassName}")
-                    .Order(StringComparer.Ordinal)
-            ]
-        };
     }
 
     private static bool ProbeFamilyMatches(string familyId, string targetDeviceId)

@@ -1125,7 +1125,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         if (_graphics is { } graphics)
         {
             modules.Add(SteamSettingsQuickAccessRow.Module(Enabled,
-                () => new ValueTask<SteamSettingsQuickAccessState?>(graphics.ReadQuickAccessState()), graphics));
+                () => new ValueTask<SteamSettingsQuickAccessState?>(graphics.ReadQuickAccessState()), graphics,
+                () => graphics.Revision));
         }
 
         modules.Add(SteamNativeSettingsSurface.Module(HostSteamUiEnabled, _nativeSettings.ReadAsync, _nativeSettings));

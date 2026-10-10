@@ -200,7 +200,6 @@ public sealed class SettingsSaveMergeTests
         var request = new SettingsViewModel.SaveRequest(
             values,
             values.Splash,
-            new Dictionary<string, CapabilityValue>(),
             null,
             "",
             "")
@@ -267,7 +266,7 @@ public sealed class SettingsSaveMergeTests
         fresh.SteamInputLeaseEnabled = false;
 
         var request = new SettingsViewModel.SaveRequest(
-            values, values.Splash, new Dictionary<string, CapabilityValue>(), null, "", "")
+            values, values.Splash, null, "", "")
         {
             // Only the start mode was changed in the window.
             SharedEdits = ["StartMode"]
@@ -325,70 +324,34 @@ public sealed class SettingsSaveMergeTests
     }
 
     [Fact]
-    public void WorkerSnapshotMergesOnlyEditedPluginValuesAndProfilesIntoTheFreshScope()
+    public void WorkerSnapshotReplacesOnlyTheEditedDeviceProfileScopeAndClearsDeletedSelections()
     {
         var values = AppConfigRules.Normalize(new AppConfig()).Value;
         values.DeviceIntegration.AutoTdpEnabled = true;
-        values.Profiles.Global.ControllerTarget = ManagedControllerTarget.DualShock4;
-        values.DeviceIntegration.GlyphSelection = DeviceGlyphSelection.ManualReviewedProfile;
-
         var fresh = AppConfigRules.Normalize(new AppConfig()).Value;
-        fresh.DeviceIntegration.PluginSettings.Add(new PluginSettingsScope
+        fresh.DeviceIntegration.DeviceProfiles.Add(new DeviceProfileScope
         {
-            DeviceDefinitionId = "device",
-            PluginId = "plugin",
-            Values =
-            [
-                new PluginSettingValue { SettingId = "edited", Integer = 1 },
-                new PluginSettingValue { SettingId = "runtime-only", Text = "keep" }
-            ],
-            Profiles = [new DeviceAuthoredProfile { ProfileId = "old", Name = "Old" }]
+            DeviceDefinitionId = "device", FamilyId = "family",
+            Profiles = [new DeviceAuthoredProfile { ProfileId = "old", CapabilityId = CapabilityIds.FanCurve }]
+        });
+        fresh.DeviceIntegration.DeviceProfiles.Add(new DeviceProfileScope
+        {
+            DeviceDefinitionId = "other", FamilyId = "family",
+            Profiles = [new DeviceAuthoredProfile { ProfileId = "other", CapabilityId = CapabilityIds.FanCurve }]
         });
         fresh.Profiles.Global.FanCurveProfileId = "old";
-        fresh.Profiles.Games =
-            [new GameProfile { Id = "game", Values = new ProfileValues { FanCurveProfileId = "old" } }];
-
-        var edits = new Dictionary<string, CapabilityValue>
+        var request = new SettingsViewModel.SaveRequest(values, values.Splash,
+            [new DeviceAuthoredProfile { ProfileId = "new", Name = "New", CapabilityId = CapabilityIds.FanCurve }],
+            "device", "family")
         {
-            ["edited"] = new()
-            {
-                Kind = CapabilityValueKind.Color,
-                ColorValue = 0xAABBCC
-            }
-        };
-        DeviceAuthoredProfile[] profiles =
-        [
-            new() { ProfileId = "new", Name = "New" }
-        ];
-        var request = new SettingsViewModel.SaveRequest(
-            values,
-            values.Splash,
-            edits,
-            profiles,
-            "device",
-            "plugin")
-        {
-            SharedEdits =
-            [
-                "DeviceIntegration.AutoTdpEnabled", "Profiles.Global.ControllerTarget",
-                "DeviceIntegration.GlyphSelection"
-            ]
+            SharedEdits = ["DeviceIntegration.AutoTdpEnabled"]
         };
 
         var (merged, _) = SettingsSaveMerge.Apply(fresh, request, values.Splash);
 
-        var scope = Assert.Single(merged.DeviceIntegration.PluginSettings);
-        Assert.Equal("keep", scope.Values.Single(value => value.SettingId == "runtime-only").Text);
-        var edited = scope.Values.Single(value => value.SettingId == "edited");
-        Assert.Equal(0xAABBCC, edited.Color);
-        Assert.Null(edited.Integer);
-        Assert.Equal("new", Assert.Single(scope.Profiles).ProfileId);
+        Assert.Equal("new", Assert.Single(merged.DeviceIntegration.DeviceProfiles[0].Profiles).ProfileId);
+        Assert.Equal("other", Assert.Single(merged.DeviceIntegration.DeviceProfiles[1].Profiles).ProfileId);
         Assert.Null(merged.Profiles.Global.FanCurveProfileId);
-        Assert.Null(Assert.Single(merged.Profiles.Games).Values.FanCurveProfileId);
         Assert.True(merged.DeviceIntegration.AutoTdpEnabled);
-        Assert.Equal(ManagedControllerTarget.DualShock4, merged.Profiles.Global.ControllerTarget);
-        Assert.Equal(
-            DeviceGlyphSelection.ManualReviewedProfile,
-            merged.DeviceIntegration.GlyphSelection);
     }
 }

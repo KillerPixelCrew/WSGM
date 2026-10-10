@@ -346,9 +346,7 @@ public sealed partial class NativeQamSemanticServicesTests
             Available = true,
             ObservedValue = CapabilityValue.Integer(17),
             Quality = HardwareStateQuality.Verified,
-            ObservedAt = DateTimeOffset.UtcNow,
-            DescriptorGeneration = 4,
-            CycleGeneration = 3
+            ObservedAt = DateTimeOffset.UtcNow
         };
         return new DeviceCapabilityView(
             descriptor,
@@ -426,9 +424,7 @@ public sealed partial class NativeQamSemanticServicesTests
             Available = true,
             ObservedValue = observed,
             Quality = HardwareStateQuality.Verified,
-            ObservedAt = DateTimeOffset.UtcNow,
-            DescriptorGeneration = 4,
-            CycleGeneration = 3
+            ObservedAt = DateTimeOffset.UtcNow
         };
         return new DeviceCapabilityView(
             descriptor,
@@ -710,9 +706,9 @@ public sealed partial class NativeQamSemanticServicesTests
     }
 
     [Fact]
-    public void AMissingDevicePackageIsExplainedRatherThanLeftBlank()
+    public void AnUnsupportedHandheldIsExplainedRatherThanLeftBlank()
     {
-        // Controller management runs without a plugin, but with nothing capturing the physical
+        // Controller management runs without a supported handheld, but with nothing capturing the physical
         // controller the result is a target that never moves. That is worth saying.
         var state = ProjectTarget(
             true,
@@ -720,7 +716,7 @@ public sealed partial class NativeQamSemanticServicesTests
             false);
 
         Assert.True(state.Available);
-        Assert.Contains("No device package", state.StatusText, StringComparison.Ordinal);
+        Assert.Contains("no supported handheld implementation", state.StatusText, StringComparison.Ordinal);
     }
 
     [Theory]

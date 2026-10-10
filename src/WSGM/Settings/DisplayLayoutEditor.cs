@@ -49,6 +49,12 @@ public sealed class DisplayLayoutEditorRow : ObservableObject
     /// <summary>Gets remembered driver modes and timings advertised by the monitor EDID.</summary>
     public IReadOnlyList<DisplayMode> Modes { get; private set; }
 
+    /// <summary>Gets driver-declared settings belonging to this exact physical display.</summary>
+    public ObservableCollection<DisplayGpuEditorRow> GpuControls { get; } = [];
+
+    /// <summary>Gets whether this display has remembered or live graphics controls.</summary>
+    public bool HasGpuControls => GpuControls.Count > 0;
+
     /// <summary>Gets whether any mode is known, so the picker has something to offer.</summary>
     public bool HasModes => Modes.Count > 0 || Mode is not null;
 
@@ -202,6 +208,17 @@ public sealed class DisplayLayoutEditorRow : ObservableObject
         set => HdrEnabled = value == 1;
     }
 
+    internal void PublishGpuControls(IEnumerable<DisplayGpuEditorRow> controls)
+    {
+        GpuControls.Clear();
+        foreach (var control in controls)
+        {
+            GpuControls.Add(control);
+        }
+
+        Raise(nameof(HasGpuControls));
+    }
+
     /// <summary>Raised after any edit, so the owner can revalidate the whole layout.</summary>
     internal event Action? Edited;
 
@@ -349,10 +366,12 @@ public sealed class DisplayLayoutEditorRow : ObservableObject
 public sealed class DisplayLayoutEditor : ObservableObject
 {
     private readonly Action _changed;
-    private readonly Stack<RowState[]> _undo = new();
+    private readonly Stack<EditorState> _undo = new();
+    private IReadOnlyList<DisplayGpuCapability> _gpuCapabilities = [];
     private bool _loading;
-    private RowState[] _previous = [];
+    private EditorState _previous = new([], []);
     private DisplayLayoutEditorRow? _requestedPrimary;
+    private List<DisplayGpuPreference> _unrepresentedGpu = [];
 
     internal DisplayLayoutEditor(Action changed)
     {
@@ -361,6 +380,12 @@ public sealed class DisplayLayoutEditor : ObservableObject
 
     /// <summary>Gets one row per remembered display.</summary>
     public ObservableCollection<DisplayLayoutEditorRow> Rows { get; } = [];
+
+    /// <summary>Gets driver-wide controls, whose scope is explicitly separate from individual displays.</summary>
+    public ObservableCollection<DisplayGpuEditorRow> GlobalGpuControls { get; } = [];
+
+    /// <summary>Gets whether drivers publish settings that apply to every output.</summary>
+    public bool HasGlobalGpuControls => GlobalGpuControls.Count > 0;
 
     /// <summary>Gets or sets the display whose settings are being edited.</summary>
     public DisplayLayoutEditorRow? Selected
@@ -471,6 +496,7 @@ public sealed class DisplayLayoutEditor : ObservableObject
                    ?? Rows.FirstOrDefault(row => row.IsPrimary) ?? Rows.FirstOrDefault();
         _undo.Clear();
         Revalidate();
+        RefreshGpuCapabilities([.. catalog.SelectMany(display => display.GpuCapabilities)]);
         _previous = CaptureRows();
         Raise(nameof(HasDisplays));
         Raise(nameof(CanUndo));
@@ -492,6 +518,10 @@ public sealed class DisplayLayoutEditor : ObservableObject
     internal void Forget(DisplayLayoutEditorRow row)
     {
         Detach(row);
+        _unrepresentedGpu.RemoveAll(preference => preference.Target is { } target
+                                                  && row.Target is { } forgotten
+                                                  && string.Equals(target.DevicePath, forgotten.DevicePath,
+                                                      StringComparison.OrdinalIgnoreCase));
         Rows.Remove(row);
         if (Selected == row)
         {
@@ -567,13 +597,12 @@ public sealed class DisplayLayoutEditor : ObservableObject
         _changed();
     }
 
-    private RowState[] CaptureRows()
+    private EditorState CaptureRows()
     {
-        return
-        [
+        return new EditorState([
             .. Rows.Select(row => new RowState(row, row.Active, row.IsPrimary,
                 row.X, row.Y, row.Mode, row.DpiPercent, row.HdrEnabled))
-        ];
+        ], BuildGpuPreferences());
     }
 
     /// <summary>Refreshes discovery facts without replacing rows or losing draft edits.</summary>
@@ -645,6 +674,8 @@ public sealed class DisplayLayoutEditor : ObservableObject
 
         Selected ??= Rows.FirstOrDefault();
         Revalidate();
+        RefreshGpuCapabilities(
+            catalog.SelectMany(display => display.GpuCapabilities).Concat(_gpuCapabilities).ToArray());
         _previous = CaptureRows();
         Raise(nameof(HasDisplays));
     }
@@ -660,7 +691,7 @@ public sealed class DisplayLayoutEditor : ObservableObject
         _loading = true;
         try
         {
-            foreach (var state in previous)
+            foreach (var state in previous.Rows)
             {
                 state.Row.Active = state.Active;
                 state.Row.IsPrimary = state.Primary;
@@ -670,6 +701,8 @@ public sealed class DisplayLayoutEditor : ObservableObject
                 state.Row.DpiPercent = state.Scale;
                 state.Row.HdrEnabled = state.Hdr;
             }
+
+            LoadGpuPreferences(previous.GpuPreferences);
         }
         finally
         {
@@ -842,6 +875,129 @@ public sealed class DisplayLayoutEditor : ObservableObject
             : "";
     }
 
+    /// <summary>Loads saved driver values into this draft without changing Windows or driver state.</summary>
+    /// <param name="preferences">Saved values, including those whose provider or display is currently unavailable.</param>
+    internal void LoadGpuPreferences(IReadOnlyList<DisplayGpuPreference> preferences)
+    {
+        _unrepresentedGpu = [.. preferences.Select(CopyPreference)];
+        PublishGpuControls(preferences);
+        _previous = CaptureRows();
+    }
+
+    /// <summary>Projects an admitted capability snapshot while preserving every draft value.</summary>
+    /// <param name="capabilities">Current driver descriptors with physical output identities or explicit global scope.</param>
+    internal void RefreshGpuCapabilities(IReadOnlyList<DisplayGpuCapability> capabilities)
+    {
+        var preferences = BuildGpuPreferences();
+        _gpuCapabilities = capabilities.Where(capability => capability.Descriptor is not null
+                                                            && !string.IsNullOrWhiteSpace(capability.PluginId))
+            .DistinctBy(capability => (capability.PluginId, capability.Descriptor!.CapabilityId,
+                Instance: capability.Target is null ? capability.Descriptor.InstanceId : null,
+                capability.Target?.DevicePath)).ToArray();
+        PublishGpuControls(preferences);
+    }
+
+    /// <summary>Builds detached per-output and driver-global preferences, retaining unavailable saved controls.</summary>
+    /// <returns>Only explicit selected settings; observing a value never makes it a preference.</returns>
+    internal List<DisplayGpuPreference> BuildGpuPreferences()
+    {
+        return
+        [
+            .. _unrepresentedGpu.Select(CopyPreference),
+            .. Rows.SelectMany(row => row.GpuControls).Concat(GlobalGpuControls)
+                .Select(control => control.Build()).OfType<DisplayGpuPreference>()
+        ];
+    }
+
+    private void PublishGpuControls(IReadOnlyList<DisplayGpuPreference> preferences)
+    {
+        var loading = _loading;
+        _loading = true;
+        try
+        {
+            List<DisplayGpuPreference> remaining = [.. preferences.Select(CopyPreference)];
+            foreach (var row in Rows)
+            {
+                row.PublishGpuControls(_gpuCapabilities.Where(capability => capability.Target is { } target
+                                                                            && MatchesTarget(row.Target, target))
+                    .Select(Create));
+            }
+
+            GlobalGpuControls.Clear();
+            foreach (var capability in _gpuCapabilities.Where(capability => capability.Target is null))
+            {
+                GlobalGpuControls.Add(Create(capability));
+            }
+
+            _unrepresentedGpu = remaining;
+            Raise(nameof(HasGlobalGpuControls));
+
+            return;
+
+            DisplayGpuEditorRow Create(DisplayGpuCapability capability)
+            {
+                var saved = remaining.FirstOrDefault(preference => preference.PluginId == capability.PluginId
+                                                                   && preference.CapabilityId ==
+                                                                   capability.Descriptor!.CapabilityId
+                                                                   && MatchesTarget(preference.Target,
+                                                                       capability.Target)
+                                                                   && (capability.Target is not null ||
+                                                                       preference.InstanceId ==
+                                                                       capability.Descriptor.InstanceId
+                                                                       || _gpuCapabilities.Count(other =>
+                                                                           other.Target is null &&
+                                                                           other.PluginId == capability.PluginId
+                                                                           && other.Descriptor?.CapabilityId ==
+                                                                           capability.Descriptor.CapabilityId) == 1));
+                if (saved is not null)
+                {
+                    remaining.Remove(saved);
+                }
+
+                return new DisplayGpuEditorRow(capability, saved, OnRowEdited);
+            }
+        }
+        finally
+        {
+            _loading = loading;
+        }
+    }
+
+    private bool MatchesTarget(DisplayTargetIdentity? first, DisplayTargetIdentity? second)
+    {
+        if (first is null || second is null)
+        {
+            return first is null && second is null;
+        }
+
+        // A reused connector path cannot override conflicting physical monitor identities.
+        // Exact paths disambiguate only monitors accepted by the same rule as runtime apply.
+        if (!first.Matches(second))
+        {
+            return false;
+        }
+
+        if (first.DevicePath.Length > 0 && string.Equals(first.DevicePath, second.DevicePath,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return Rows.Count(row => row.Target?.Matches(second) == true) == 1;
+    }
+
+    private static DisplayGpuPreference CopyPreference(DisplayGpuPreference preference)
+    {
+        return new DisplayGpuPreference
+        {
+            Target = preference.Target,
+            PluginId = preference.PluginId,
+            CapabilityId = preference.CapabilityId,
+            InstanceId = preference.InstanceId,
+            Value = preference.Value
+        };
+    }
+
     private sealed record RowState(
         DisplayLayoutEditorRow Row,
         bool Active,
@@ -851,4 +1007,6 @@ public sealed class DisplayLayoutEditor : ObservableObject
         DisplayMode? Mode,
         int Scale,
         bool Hdr);
+
+    private sealed record EditorState(RowState[] Rows, IReadOnlyList<DisplayGpuPreference> GpuPreferences);
 }

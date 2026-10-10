@@ -457,30 +457,29 @@ public sealed class ExplorerShellPolicyTests
 
     [Theory]
     // Shell still up, or not yet stably gone: wait.
-    [InlineData(true, false, 30000, false, 0)]
-    [InlineData(false, true, 1499, false, 0)]
+    [InlineData(true, false, 30000, 0)]
+    [InlineData(false, true, 1499, 0)]
     // Gone and exited: complete.
-    [InlineData(false, true, 1500, false, 2)]
-    // Retired process lingering: ask its windows to close once, never terminate.
-    [InlineData(false, false, 2999, false, 0)]
-    [InlineData(false, false, 3000, false, 1)]
-    [InlineData(false, false, 5000, true, 0)]
-    // It owns no shell, so entry proceeds beside it after the linger limit.
-    [InlineData(false, false, 10000, true, 2)]
-    public void ExplorerIsOnlyEverAskedToLeave(bool present, bool exited, int absentMs, bool asked, int expected)
+    [InlineData(false, true, 1500, 1)]
+    // Retired windows, extension dialogs and file transfers are independent of the absent shell.
+    [InlineData(false, false, 1499, 0)]
+    [InlineData(false, false, 1500, 1)]
+    [InlineData(false, false, 3000, 1)]
+    [InlineData(false, false, 10000, 1)]
+    public void LingeringExplorerWindowsDoNotBlockAnAbsentDesktop(bool present, bool exited, int absentMs, int expected)
     {
         Assert.Equal((ExplorerExitAction)expected,
-            ExplorerExitPolicy.Decide(present, exited, TimeSpan.FromMilliseconds(absentMs), asked));
+            ExplorerExitPolicy.Decide(present, exited, TimeSpan.FromMilliseconds(absentMs)));
     }
 
     [Theory]
     // An unclean exit is what Winlogon respawns: wait out the respawn grace before calling the shell gone.
     [InlineData(1500, 0)]
     [InlineData(7999, 0)]
-    [InlineData(8000, 2)]
+    [InlineData(8000, 1)]
     public void AnUncleanExitWaitsForWinlogonsReplacement(int absentMs, int expected)
     {
         Assert.Equal((ExplorerExitAction)expected,
-            ExplorerExitPolicy.Decide(false, true, TimeSpan.FromMilliseconds(absentMs), false, true));
+            ExplorerExitPolicy.Decide(false, true, TimeSpan.FromMilliseconds(absentMs), true));
     }
 }

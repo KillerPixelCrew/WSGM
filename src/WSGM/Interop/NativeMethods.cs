@@ -18,6 +18,9 @@ internal static partial class NativeMethods
 
     // ---- Synthetic keyboard input (Steam Big Picture's own Ctrl+1/Ctrl+2 shortcuts) ----
     internal const uint InputKeyboard = 1;
+    internal const uint InputMouse = 0;
+    internal const uint MouseEventRightDown = 0x0008;
+    internal const uint MouseEventRightUp = 0x0010;
     internal const uint KeyEventKeyUp = 0x0002;
     internal const ushort VkControl = 0x11;
     internal const short KeyDownState = unchecked((short)0x8000);
@@ -715,6 +718,18 @@ internal static partial class NativeMethods
     internal struct InputUnion
     {
         [FieldOffset(0)] public KeyboardInputData keyboard;
+        [FieldOffset(0)] public MouseInputData mouse;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct MouseInputData
+    {
+        public int x;
+        public int y;
+        public uint mouseData;
+        public uint flags;
+        public uint time;
+        public nuint extraInfo;
     }
 
     [StructLayout(LayoutKind.Sequential)]

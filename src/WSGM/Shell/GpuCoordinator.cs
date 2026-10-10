@@ -3,8 +3,11 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using LibGPUDriverInteract;
+using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
+using WSGM.Device.Sdk.Lifecycle;
 using WSGM.Plugin.Sdk;
 
 namespace WSGM.Shell;
@@ -55,8 +58,8 @@ internal sealed record PublishedCapability(DeviceCapabilityView View, string? Gp
 ///     Beside <see cref="DeviceCoordinator" />, never merged with it: the device router answers "the power
 ///     limit" or "the fan" with exactly one match, and a graphics package must not add a second. It runs
 ///     whatever the device integration switch says and takes no part in the machine-wide device owner. The
-///     plugins' lifecycles belong to <see cref="CommonPluginManager" />; this opens a channel for each one
-///     it starts and drops it when the plugin stops.
+///     built-in drivers' lifecycles belong to <see cref="BuiltinGpuService" />. Independent third-party
+///     publishers retain <see cref="CommonPluginManager" /> ownership. Both use the same profile routers.
 /// </remarks>
 internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposable
 {
@@ -159,42 +162,7 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
         ICapabilityPlugin plugin)
     {
         ArgumentNullException.ThrowIfNull(manifest);
-        ArgumentNullException.ThrowIfNull(plugin);
-        var key = ProfileSettingKey.GpuPublisher(identity.PluginId);
-        PluginCapabilityChannel channel = new(identity, manifest.Capabilities, plugin);
-        DeviceCapabilityRouter router = new(_postToUi, key);
-        GpuPublisher publisher = new(this, identity, manifest.Name, key, channel, router);
-        var replaced = false;
-        lock (_gate)
-        {
-            var existing = _publishers.FirstOrDefault(candidate => candidate.Identity == identity);
-            if (_disposed || _lifetime.IsCancellationRequested || existing is { Channel.IsClosed: false })
-            {
-                RetirePublisher(publisher);
-                throw new InvalidOperationException("The graphics publisher is already open or the session ended.");
-            }
-
-            // A registration whose channel already ended is no longer attached to any plugin: its owner
-            // lost it without closing it here. It must not keep the instance from starting again.
-            if (existing is not null)
-            {
-                _publishers.Remove(existing);
-                RetirePublisher(existing);
-                replaced = true;
-            }
-
-            _publishers.Add(publisher);
-        }
-
-        if (replaced)
-        {
-            Log.Warn($"Graphics: {identity.PluginId} replaced a registration whose channel had already ended.");
-        }
-
-        Log.Info($"Graphics: {identity.PluginId} ({manifest.Name}) publishes as {key}, roles "
-                 + $"{string.Join(", ", manifest.Capabilities)}.");
-        PostChanged();
-        return channel;
+        return Open(identity, manifest.Name, manifest.Capabilities, plugin);
     }
 
     public void Close(PluginCapabilityChannel channel)
@@ -219,6 +187,86 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
 
         Log.Info($"Graphics: {publisher.Identity.PluginId} stopped publishing.");
         PostChanged();
+    }
+
+    internal void OpenBuiltin(GpuDriverPublisher driver)
+    {
+        var identity = new PluginInstanceIdentity(driver.Definition.Id, CommonPluginEnablement.DefaultInstanceId);
+        var key = ProfileSettingKey.GpuPublisher(driver.Definition.Id);
+        var router = new DeviceCapabilityRouter(_postToUi, key);
+        var publisher = new GpuPublisher(this, identity, driver.Definition.Name, key, driver, router,
+            driver: driver);
+        lock (_gate)
+        {
+            if (_disposed || _lifetime.IsCancellationRequested || _publishers.Any(item => item.Identity == identity))
+            {
+                RetirePublisher(publisher);
+                throw new InvalidOperationException("The graphics driver already has a native owner.");
+            }
+
+            _publishers.Add(publisher);
+        }
+
+        PostChanged();
+    }
+
+    internal void CloseBuiltin(GpuDriverPublisher driver)
+    {
+        lock (_gate)
+        {
+            var publisher = _publishers.FirstOrDefault(item => ReferenceEquals(item.Driver, driver));
+            if (publisher is null)
+            {
+                return;
+            }
+
+            _publishers.Remove(publisher);
+            RetirePublisher(publisher);
+        }
+
+        PostChanged();
+    }
+
+    private PluginCapabilityChannel Open(PluginInstanceIdentity identity, string name,
+        IReadOnlyList<CapabilityRole> declared, ICapabilityPlugin plugin)
+    {
+        ArgumentNullException.ThrowIfNull(plugin);
+        var key = ProfileSettingKey.GpuPublisher(identity.PluginId);
+        PluginCapabilityChannel channel = new(identity, declared, plugin);
+        DeviceCapabilityRouter router = new(_postToUi, key);
+        GpuPublisher publisher = new(this, identity, name, key, channel, router, channel);
+        var replaced = false;
+        lock (_gate)
+        {
+            var existing = _publishers.FirstOrDefault(candidate => candidate.Identity == identity);
+            if (_disposed || _lifetime.IsCancellationRequested
+                          || (existing is not null && existing.Channel is not { IsClosed: true }))
+            {
+                RetirePublisher(publisher);
+                throw new InvalidOperationException("The graphics publisher is already open or the session ended.");
+            }
+
+            // A registration whose channel already ended is no longer attached to any plugin: its owner
+            // lost it without closing it here. It must not keep the instance from starting again.
+            if (existing is not null)
+            {
+                _publishers.Remove(existing);
+                RetirePublisher(existing);
+                replaced = true;
+            }
+
+            _publishers.Add(publisher);
+        }
+
+        if (replaced)
+        {
+            Log.Warn($"Graphics: {identity.PluginId} replaced a registration whose channel had already ended.");
+        }
+
+        Log.Info($"Graphics: {identity.PluginId} ({name}) publishes as {key}, roles "
+                 + $"{string.Join(", ", declared)}.");
+        PostChanged();
+        return channel;
     }
 
     /// <summary>Stops command and refresh admission while retaining publishers for ordered disposal.</summary>
@@ -280,7 +328,7 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
             publishers = [.. _publishers];
         }
 
-        var health = _host.Snapshot();
+        var health = HealthSnapshot();
         return [.. publishers.Select(publisher => publisher.Describe(health))];
     }
 
@@ -296,7 +344,7 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
 
         var layers = _profiles.Current.Layers;
         return new GpuPublisherSnapshot(
-            publisher.Describe(_host.Snapshot()),
+            publisher.Describe(HealthSnapshot()),
             publisher.Router.Sections,
             [
                 .. publisher.Router.Snapshot()
@@ -320,6 +368,100 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
             .. publishers.SelectMany(publisher => publisher.Router.Snapshot().Where(predicate)
                 .Select(view => new PublishedCapability(view, publisher.Identity.PluginId)))
         ];
+    }
+
+    /// <summary>Refreshes the enabled session-owned graphics drivers after a display layout change.</summary>
+    internal async Task RefreshDisplayTopologyAsync(CancellationToken cancellationToken)
+    {
+        GpuPublisher[] publishers;
+        lock (_gate)
+        {
+            publishers = [.. _publishers.Where(publisher => publisher.Driver is not null)];
+        }
+
+        using var admission = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
+        foreach (var publisher in publishers)
+        {
+            admission.Token.ThrowIfCancellationRequested();
+            await publisher.Driver!.RefreshTopologyAsync(admission.Token).ConfigureAwait(false);
+            var published = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _postToUi(published.SetResult);
+            await published.Task.WaitAsync(admission.Token).ConfigureAwait(false);
+            // Descriptor replacement schedules the existing profile restoration. Let that finish
+            // before layout-specific values are written, so an older profile cannot overwrite them.
+            await publisher.WaitForRefreshesAsync(admission.Token).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Reads detached display-control metadata from enabled owners without creating a native driver.</summary>
+    internal IReadOnlyList<DisplayGpuCapability> DisplayCapabilities()
+    {
+        GpuPublisher[] publishers;
+        lock (_gate)
+        {
+            publishers = [.. _publishers];
+        }
+
+        List<DisplayGpuCapability> capabilities = [];
+        foreach (var publisher in publishers)
+        {
+            var outputs = publisher.Driver?.DisplayTargets;
+            foreach (var view in publisher.Router.Snapshot())
+            {
+                var descriptor = view.Descriptor;
+                DisplayTargetIdentity? target = null;
+                if (descriptor.SectionId is { } section && outputs?.TryGetValue(section, out var output) == true)
+                {
+                    if (string.IsNullOrEmpty(output.DevicePath) && string.IsNullOrEmpty(output.EdidIdentity))
+                    {
+                        // Native output IDs and friendly names do not identify a saved physical monitor.
+                        continue;
+                    }
+
+                    target = new DisplayTargetIdentity(output.DevicePath ?? "", null, null,
+                        publisher.Router.Sections.FirstOrDefault(item => item.SectionId == section)?.CustomTitle
+                        ?? "Display", output.AdapterLowPart ?? 0, output.AdapterHighPart ?? 0, output.TargetId ?? 0)
+                    {
+                        EdidIdentity = output.EdidIdentity
+                    };
+                }
+                else if (descriptor.Role is not CapabilityRole.VariableRefreshRate || !descriptor.SupportsWrite)
+                {
+                    continue;
+                }
+
+                capabilities.Add(new DisplayGpuCapability
+                {
+                    PluginId = publisher.Identity.PluginId,
+                    Target = target,
+                    Descriptor = descriptor,
+                    ObservedValue = DisplayGpuProfileService.ToPreferenceValue(view.Projection.State.ObservedValue)
+                });
+            }
+        }
+
+        return capabilities;
+    }
+
+    /// <summary>Applies a layout's value to the freshly matched output without creating a per-game override.</summary>
+    internal Task<CapabilityCommandResult> ExecuteDisplayPreferenceAsync(DisplayGpuPreference preference,
+        CancellationToken cancellationToken)
+    {
+        var current = DisplayGpuProfileService.Resolve(preference, DisplayCapabilities());
+        if (current?.Descriptor is not { SupportsWrite: true } descriptor
+            || DisplayGpuProfileService.ToCapabilityValue(preference.Value, descriptor) is not { } value)
+        {
+            return Task.FromResult(new CapabilityCommandResult
+            {
+                CommandId = Guid.NewGuid(), Outcome = CommandOutcome.Rejected,
+                Reason = new CapabilityReason(CapabilityReasonCode.HostUnavailable,
+                    "The configured display control is unavailable, ambiguous or no longer accepts this value.", true),
+                CompletedAt = DateTimeOffset.UtcNow
+            });
+        }
+
+        return ExecuteAsync(current.PluginId!, descriptor.CapabilityId, descriptor.InstanceId, value,
+            CapabilityCommandOrigin.ProfileRestore, cancellationToken);
     }
 
     /// <summary>Writes one graphics capability and, for a user's write, remembers it by its profile scope.</summary>
@@ -465,6 +607,16 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
         PostChanged();
     }
 
+    internal void BuiltinChanged()
+    {
+        PostChanged();
+    }
+
+    private IReadOnlyList<PluginHealthPublication> HealthSnapshot()
+    {
+        return _host.Snapshot();
+    }
+
     /// <summary>Coalesces change notifications into one on the UI dispatcher.</summary>
     private void PostChanged()
     {
@@ -507,8 +659,8 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
     /// <summary>One running graphics publisher: its channel, router and sync record.</summary>
     private sealed class GpuPublisher : IAsyncDisposable
     {
-        private readonly Action<long> _cycleStarted;
-        private readonly Action<long, long> _descriptorsAccepted;
+        private readonly Action _descriptorsAccepted;
+        private readonly Action _opened;
         private readonly GpuCoordinator _owner;
         private readonly SemaphoreSlim _refreshGate = new(1, 1);
         private readonly List<Task> _refreshWork = [];
@@ -523,31 +675,45 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
         private volatile bool _syncRequired = true;
 
         internal GpuPublisher(GpuCoordinator owner, PluginInstanceIdentity identity, string name, string profileKey,
-            PluginCapabilityChannel channel, DeviceCapabilityRouter router)
+            ICapabilityPublisher source, DeviceCapabilityRouter router, PluginCapabilityChannel? channel = null,
+            GpuDriverPublisher? driver = null)
         {
             _owner = owner;
             Identity = identity;
             Name = name;
             ProfileKey = profileKey;
+            Source = source;
             Channel = channel;
+            Driver = driver;
             Router = router;
-            _cycleStarted = OnCycleStarted;
+            _opened = OnOpened;
             _descriptorsAccepted = OnDescriptorsAccepted;
             _routerChanged = _ =>
             {
                 owner.RaiseChangedOnUi();
                 TryRestoreWithStates();
             };
-            Channel.CycleStarted += _cycleStarted;
-            Channel.AdmissionClosed += Router.CloseCommandAdmission;
+            if (Channel is not null)
+            {
+                Channel.Opened += _opened;
+                Channel.AdmissionClosed += Router.CloseCommandAdmission;
+            }
+
             Router.DescriptorsAccepted += _descriptorsAccepted;
             Router.Changed += _routerChanged;
+            if (Driver is not null)
+            {
+                Router.Attach(Source);
+                UpdateContext(owner._profiles.Current);
+            }
         }
 
         internal PluginInstanceIdentity Identity { get; }
         internal string Name { get; }
         internal string ProfileKey { get; }
-        internal PluginCapabilityChannel Channel { get; }
+        internal ICapabilityPublisher Source { get; }
+        internal PluginCapabilityChannel? Channel { get; }
+        internal GpuDriverPublisher? Driver { get; }
         internal DeviceCapabilityRouter Router { get; }
 
         public async ValueTask DisposeAsync()
@@ -560,11 +726,15 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
                 _refreshWork.Clear();
             }
 
-            Channel.CycleStarted -= _cycleStarted;
-            Channel.AdmissionClosed -= Router.CloseCommandAdmission;
+            if (Channel is not null)
+            {
+                Channel.Opened -= _opened;
+                Channel.AdmissionClosed -= Router.CloseCommandAdmission;
+            }
+
             Router.DescriptorsAccepted -= _descriptorsAccepted;
             Router.Changed -= _routerChanged;
-            Channel.Dispose();
+            Channel?.Dispose();
             Router.Detach();
             try
             {
@@ -588,8 +758,33 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
             }
         }
 
+        internal Task WaitForRefreshesAsync(CancellationToken cancellationToken)
+        {
+            Task[] work;
+            lock (_owner._gate)
+            {
+                work = [.. _refreshWork];
+            }
+
+            return Task.WhenAll(work).WaitAsync(cancellationToken);
+        }
+
         internal GpuPublisherView Describe(IReadOnlyList<PluginHealthPublication> health)
         {
+            if (Driver is { } driver)
+            {
+                var status = driver.Status;
+                return new GpuPublisherView(Identity, Name, ProfileKey, !driver.IsActive
+                    ? PluginHealth.Unavailable
+                    : status.Health switch
+                    {
+                        GpuHealth.Ready => PluginHealth.Ready,
+                        GpuHealth.Unavailable => PluginHealth.Unavailable,
+                        GpuHealth.Failed => PluginHealth.Failed,
+                        _ => throw new ArgumentOutOfRangeException(nameof(status))
+                    }, status.Detail);
+            }
+
             var current = health.FirstOrDefault(publication => publication.Instance == Identity);
             return new GpuPublisherView(Identity, Name, ProfileKey, current?.Health ?? PluginHealth.Unavailable,
                 current?.Detail);
@@ -608,7 +803,7 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
             await _refreshGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                if (_closed || _owner._lifetime.IsCancellationRequested || !Channel.IsOpen)
+                if (_closed || _owner._lifetime.IsCancellationRequested || !Source.IsActive)
                 {
                     return;
                 }
@@ -644,8 +839,6 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
                 view.Descriptor.InstanceId,
                 desired,
                 CommandTimeout,
-                view.Projection.State.CycleGeneration,
-                view.Projection.State.DescriptorGeneration,
                 cancellationToken: _owner._lifetime.Token).ConfigureAwait(false);
         }
 
@@ -680,12 +873,23 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
             // Forgotten until the plugin confirms this set, so a sync that failed, timed out or was refused
             // in part never lets a later pass skip the same set as already applied.
             _lastSyncFingerprint = null;
-            ApplicationProfileSync sync = new(Interlocked.Increment(ref _owner._syncRevision), Channel.CycleGeneration,
+            ApplicationProfileSync sync = new(Interlocked.Increment(ref _owner._syncRevision),
                 profiles);
             try
             {
-                var result = await Channel.SyncApplicationProfilesAsync(sync, SyncBudget, cancellationToken)
-                    .ConfigureAwait(false);
+                ApplicationProfileSyncResult? result;
+                if (Driver is { } driver)
+                {
+                    using var budget = Deadline.After(SyncBudget)
+                        .CreateCancellationSource(cancellationToken);
+                    result = await driver.SyncApplicationProfilesAsync(sync, budget.Token).ConfigureAwait(false);
+                }
+                else
+                {
+                    result = await Channel!.SyncApplicationProfilesAsync(sync, SyncBudget, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+
                 if (result is null)
                 {
                     // Admission closed under the pass; the next cycle's descriptors ask again.
@@ -703,8 +907,15 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
                          + $"refused={result.Failures.Count}.");
                 foreach (var failure in result.Failures)
                 {
-                    Log.Warn($"Graphics {ProfileKey}: {failure.CapabilityId} for {failure.Executable} "
-                             + $"(game {failure.ProfileId}) was refused: {failure.Detail}");
+                    if (string.IsNullOrEmpty(failure.ProfileId) && string.IsNullOrEmpty(failure.Executable))
+                    {
+                        Log.Warn($"Graphics {ProfileKey}: application profile sync was refused: {failure.Detail}");
+                    }
+                    else
+                    {
+                        Log.Warn($"Graphics {ProfileKey}: {failure.CapabilityId} for {failure.Executable} "
+                                 + $"(game {failure.ProfileId}) was refused: {failure.Detail}");
+                    }
                 }
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -718,7 +929,7 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
             }
         }
 
-        private void OnCycleStarted(long generation)
+        private void OnOpened()
         {
             // Runs on the lifecycle lane before the plugin starts or resumes, so the router is connected
             // to the new cycle before the first descriptor set of it arrives.
@@ -729,7 +940,7 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
                     return;
                 }
 
-                Router.Attach(Channel, generation);
+                Router.Attach(Source);
             }
 
             if (_owner._lifetime.IsCancellationRequested)
@@ -739,16 +950,16 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
 
             UpdateContext(_owner._profiles.Current);
             _syncRequired = true;
-            Log.Info($"Graphics {ProfileKey}: capability cycle {generation} began.");
+            Log.Info($"Graphics {ProfileKey}: capability publisher opened.");
         }
 
-        private void OnDescriptorsAccepted(long cycleGeneration, long descriptorGeneration)
+        private void OnDescriptorsAccepted()
         {
             // A new set arrives with no state at all, so restoring now would find every capability
             // unknown and restore nothing. The restore runs when the last of the set's first states
             // arrives; the plugin reports every capability in the observation that follows the set.
             _syncRequired = true;
-            Volatile.Write(ref _pendingRestore, new PendingRestore(cycleGeneration, descriptorGeneration));
+            Volatile.Write(ref _pendingRestore, new PendingRestore());
             TryRestoreWithStates();
         }
 
@@ -756,7 +967,7 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
         private void TryRestoreWithStates()
         {
             if (Volatile.Read(ref _pendingRestore) is not { } restore
-                || !Router.HasStateForEveryDescriptor(restore.DescriptorGeneration)
+                || !Router.HasStateForEveryDescriptor()
                 || !ReferenceEquals(Interlocked.CompareExchange(ref _pendingRestore, null, restore), restore))
             {
                 return;
@@ -796,11 +1007,9 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
         }
 
         /// <summary>A descriptor set's restore, waiting for the set's first states.</summary>
-        private sealed class PendingRestore(long cycleGeneration, long descriptorGeneration)
+        private sealed class PendingRestore
         {
-            internal long DescriptorGeneration { get; } = descriptorGeneration;
-
-            internal string Reason { get; } = $"cycle {cycleGeneration}, descriptors {descriptorGeneration}";
+            internal string Reason => "capability replacement";
         }
     }
 }

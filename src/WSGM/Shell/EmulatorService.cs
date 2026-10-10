@@ -69,6 +69,7 @@ internal interface IEmulatorBackend : IChangeSource
 internal sealed class EmulatorService : IEmulatorBackend, IDisposable
 {
     private readonly Lock _gate = new();
+    private readonly CancellationTokenSource _lifetime = new();
     private readonly EmulatorManager _manager;
     private readonly Action<string> _openUrl;
     private EmulatorBiosState? _bios;
@@ -76,6 +77,9 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
     private long _choicesRevision;
     private EmulatorCoreStatus[] _coreStatus = [];
     private EmulatorDependencyCount[] _dependencies = [];
+    private bool _disposed;
+    private Task? _operation;
+    private CancellationTokenSource? _operationCancellation;
     private EmulatorPageState? _pageState;
     private EmulatorProgressState _progress = new(false, "");
     private long _progressRevision;
@@ -96,8 +100,36 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
     internal long ProgressRevision => Interlocked.Read(ref _progressRevision);
     internal long ChoicesRevision => Interlocked.Read(ref _choicesRevision);
 
+    /// <summary>The session's admitted operation, including cancellation and staging cleanup.</summary>
+    internal Task OperationCompletion
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _operation ?? Task.CompletedTask;
+            }
+        }
+    }
+
     public void Dispose()
     {
+        Task operation;
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            operation = _operation ?? Task.CompletedTask;
+        }
+
+        _lifetime.Cancel();
+        _manager.Cancel();
+        operation.ContinueWith(_ => _lifetime.Dispose(), CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default).ObserveFaults();
         _manager.Changed -= OnChanged;
         _manager.InstallationsChanged -= OnInstallationsChanged;
     }
@@ -137,13 +169,18 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
     public Task<SteamUiCommandResult> CancelAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        lock (_gate)
+        {
+            _operationCancellation?.Cancel();
+        }
+
         _manager.Cancel();
         return Task.FromResult(SteamUiCommandResult.Applied);
     }
 
     public Task<SteamUiCommandResult> RefreshEmulatorsAsync(CancellationToken cancellationToken)
     {
-        return Run(() => _manager.RefreshAsync(cancellationToken));
+        return StartOperation("release refresh", token => _manager.RefreshAsync(token), cancellationToken);
     }
 
     public Task<SteamUiCommandResult> SetBiosFolderAsync(string path, CancellationToken cancellationToken)
@@ -170,17 +207,20 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
     public Task<SteamUiCommandResult> InstallEmulatorAsync(string definitionId, string channel,
         CancellationToken cancellationToken)
     {
-        return Run(() => _manager.InstallAsync(definitionId, channel, cancellationToken));
+        return StartOperation("install " + definitionId + "/" + channel,
+            token => _manager.InstallAsync(definitionId, channel, token), cancellationToken);
     }
 
     public Task<SteamUiCommandResult> UpdateEmulatorAsync(string installationId, CancellationToken cancellationToken)
     {
-        return Run(() => _manager.UpdateAsync(installationId, cancellationToken));
+        return StartOperation("update " + installationId,
+            token => _manager.UpdateAsync(installationId, token), cancellationToken);
     }
 
     public Task<SteamUiCommandResult> RepairEmulatorAsync(string installationId, CancellationToken cancellationToken)
     {
-        return Run(() => _manager.RepairAsync(installationId, cancellationToken));
+        return StartOperation("repair " + installationId,
+            token => _manager.RepairAsync(installationId, token), cancellationToken);
     }
 
     public Task<SteamUiCommandResult> UseExternalEmulatorAsync(string definitionId, string executable,
@@ -325,6 +365,64 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
         Changed?.Invoke();
     }
 
+    internal Task<SteamUiCommandResult> StartOperation(string name, Func<CancellationToken, Task> operation,
+        CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return Task.FromResult(new SteamUiCommandResult(false, "Emulator manager is stopping."));
+            }
+
+            if (_operation is { IsCompleted: false } || _manager.GetSnapshot().Busy)
+            {
+                return Task.FromResult(new SteamUiCommandResult(false,
+                    "An emulator operation is already running. Wait for it to finish or cancel it."));
+            }
+
+            // The bridge stops waiting after five seconds. Admission transfers ownership to this
+            // session backend, shared with Overlay; explicit Cancel and manager disposal still stop work.
+            var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+            _operationCancellation = cancellation;
+            var ownedToken = cancellation.Token;
+            // Always enter the completion wrapper, even if Cancel wins before this worker starts.
+            _operation = Task.Run(() => CompleteOperationAsync(name, () => operation(ownedToken), cancellation));
+            _operation.ObserveFaults();
+            return Task.FromResult(SteamUiCommandResult.Applied);
+        }
+    }
+
+    private async Task CompleteOperationAsync(string name, Func<Task> operation, CancellationTokenSource cancellation)
+    {
+        try
+        {
+            var result = await Run(operation).ConfigureAwait(false);
+            if (!result.Succeeded)
+            {
+                if (result.Error is { } error && _manager.GetSnapshot().Status != error)
+                {
+                    _manager.SetStatus(error);
+                }
+
+                Log.Warn($"Emulator {name}: {result.Error}");
+            }
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                if (ReferenceEquals(_operationCancellation, cancellation))
+                {
+                    _operationCancellation = null;
+                }
+            }
+
+            cancellation.Dispose();
+        }
+    }
+
     private static async Task<SteamUiCommandResult> Run(Func<Task> operation)
     {
         try
@@ -334,7 +432,7 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
         }
         catch (OperationCanceledException)
         {
-            return new SteamUiCommandResult(false, "Emulator operation stopped.");
+            return new SteamUiCommandResult(false, "Emulator operation cancelled. The active version is preserved.");
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

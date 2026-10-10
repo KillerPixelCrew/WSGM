@@ -340,6 +340,7 @@ internal static class DeviceOverlaySectionPages
         // The authored fan curve sits with power and thermals: it is a decision about how the device
         // cools, and the per-game switch that scopes it is the toggle on the Device root.
         yield return (DeviceOverlaySection.PowerAndThermals, snapshot.AuthoredProfile);
+        yield return (DeviceOverlaySection.LightingAndFeatures, snapshot.LightingProfile);
         yield return (DeviceOverlaySection.ControllerAndMotion, snapshot.Controller);
         // Glyph selection sits with the controller it draws, not on a page of its own.
         yield return (DeviceOverlaySection.ControllerAndMotion, snapshot.GlyphSelection);

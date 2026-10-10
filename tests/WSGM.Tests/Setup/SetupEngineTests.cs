@@ -1,9 +1,54 @@
+using WSGM.Setup;
 using WSGM.Setup.Engine;
 
 namespace WSGM.Tests.Setup;
 
 public sealed class SetupEngineTests
 {
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void QuietUninstallIncludesEveryOwnedDriverUnlessComponentsAreKept(bool keepComponents, bool owned)
+    {
+        using SetupTestInstallation installation = new();
+        installation.Engine.Components = new InstalledComponents
+        {
+            Usbip = owned, HidHide = owned, PawnIo = owned, InpOut = owned
+        };
+        var choices = QuietSetup.CreateUninstallChoices(new SetupOptions
+        {
+            Mode = SetupMode.Uninstall, Quiet = true, KeepComponents = keepComponents
+        });
+        var plan = installation.Engine.PlanUninstall(choices);
+        foreach (var label in new[]
+                 {
+                     "Removing the USB/IP driver", "Removing HidHide", "Removing PawnIO",
+                     "Removing Steam Deck firmware access"
+                 })
+        {
+            Assert.Equal(owned && !keepComponents, plan.Any(step => step.Label == label));
+        }
+
+        Assert.True(choices.KeepData);
+        Assert.Equal(owned, installation.Engine.Components.PawnIo);
+        Assert.Equal(owned, installation.Engine.Components.InpOut);
+        Assert.Empty(installation.Runtime.Calls);
+    }
+
+    [Fact]
+    public void QuietUninstallOnlyRemovesUserDataWhenExplicitlyRequested()
+    {
+        var choices = QuietSetup.CreateUninstallChoices(new SetupOptions
+        {
+            Mode = SetupMode.Uninstall, Quiet = true, RemoveData = true, KeepComponents = true
+        });
+        Assert.False(choices.KeepData);
+        Assert.False(choices.RemovePawnIo);
+        Assert.False(choices.RemoveInpOut);
+    }
+
     [Fact]
     public void InstallPlanKeepsRegistrationFailureNonfatalAndCommitsTheAppliedProfile()
     {

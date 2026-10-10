@@ -15,24 +15,22 @@ internal sealed record DeviceCoordinatorDiagnosticsSnapshot
 {
     public required DeviceCycleState State { get; init; }
 
-    public DeviceInstalledPackageDiagnostic? InstalledPackage { get; init; }
-
-    public required long CycleGeneration { get; init; }
+    public HandheldDiagnostic? Handheld { get; init; }
 
     public required int CapabilityCount { get; init; }
 
-    public required int HealthyCapabilityCount { get; init; }
+    public required int AvailableCapabilityCount { get; init; }
 
     public required int FaultedCapabilityCount { get; init; }
 
     public required DateTimeOffset CapturedAt { get; init; }
 }
 
-/// <summary>Sanitized sole installed-package information for standalone Settings.</summary>
-/// <param name="PackageId">Validated device package identifier; no package path or private state is exposed.</param>
-/// <param name="Version">Installed package version text from its manifest.</param>
-internal sealed record DeviceInstalledPackageDiagnostic(
-    string PackageId,
+/// <summary>Sanitized direct-library family information for standalone Settings.</summary>
+/// <param name="FamilyId">Stable handheld family identifier; no native path or private state is exposed.</param>
+/// <param name="Version">Direct library assembly version.</param>
+internal sealed record HandheldDiagnostic(
+    string FamilyId,
     string Version);
 
 /// <summary>The snapshot's wire format, shared by the server and the client.</summary>

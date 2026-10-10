@@ -451,6 +451,9 @@ internal sealed record RtssOsdMetrics(
     /// <summary>No available sensor values, with AC state unset to false.</summary>
     internal static readonly RtssOsdMetrics Empty = new(
         null, null, null, null, null, null, null, null, null, null, null, null, null, false);
+
+    /// <summary>When the shared sensor snapshot was read; cached reads retain this time.</summary>
+    internal DateTimeOffset CapturedAt { get; init; }
 }
 
 /// <summary>What the richer OSD levels show about the sustained power limit and AutoTDP.</summary>
@@ -971,6 +974,7 @@ internal sealed class RtssOsdMetricsSource : IDisposable
         var (percent, minutes, onAc) = SampleBattery();
         _cached = metrics with
         {
+            CapturedAt = DateTimeOffset.UtcNow,
             BatteryPercent = percent,
             BatteryWatts = percent is null ? null : SampleBatteryWatts(now),
             BatteryMinutesRemaining = minutes,

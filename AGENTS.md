@@ -1,109 +1,105 @@
 # WSGM contributor guide
 
-A nearer AGENTS.md adds rules for its subtree. The maintainer's task instructions win over every
-guide, plan and skill. The maintainer works alone on this repository and reviews commits on master.
+The maintainer's current instructions win over guides, plans and skills. A nearer AGENTS.md adds
+domain rules. Deliver the requested implementation and honest proof; process must shorten delivery.
+The validation budget below overrides older gate recipes in skills and documentation.
 
-## Where things are
+## Delivery
 
-- Start cross-project implementation work with `.agents/skills/wsgm/SKILL.md`; it maps architecture,
-  ownership, reusable elements and the specialist skills. The `.claude/skills` entries are aliases
-  of those canonical skills.
-- Tracked files and WSGM.slnx are the topology; retired projects survive only under untracked
-  output. Documentation starts at docs/README.md, product decisions are in docs/decisions.md, and
-  `_plan/implementation-todo.md` is the progress tracker. `_plan/2.0-decisions.md` is outdated.
-- `_ref` holds local reference sources, searched with `rg --hidden --no-ignore`; it is evidence, not
-  build input. `_ref/HandheldCompanion` is a decompiled Handheld Companion (HC) 1.3.1.6 build,
-  newer than HC's public source. For the ROG Ally family HC is the primary reference, buttons
-  included, and HHD the cross-check for what HC does not cover.
-- `src/WSGM` is the application; `WSGM.Launch` de-elevates and holds input leases;
-  `WSGM.PackagedLaunch` is the shortcut target for imported packaged games, a sibling of
-  WSGM.Launch; `WSGM.LogonService` starts WSGM at logon; `WSGM.Setup` installs. `external/` holds
-  the pinned submodules (steam-input-lease, steam-ui-toolkit, viiper, windows-device-control) and
-  vendored code. `WSGM.Plugin.Sdk` and `WSGM.Device.Sdk` are the plugin contracts, MIT on purpose so
-  outside packages can implement them; the product stays GPL. `WSGM.DeviceLab` is the hardware
-  validation tool, `WSGM.Device.Msi.Claw` the reference package (every MSI Claw, hardware-tested on the Claw 8 AI+ A2VM, the rest from HC), `WSGM.Device.Asus.RogAlly`
-  the Ally package built blind and awaiting Device Lab evidence, `WSGM.Device.HandheldCompanion` a
-  scaffold. `WSGM.Plugin.Ir` is under development; read its README and protocol.md first.
-- Projects target `net10.0-windows`; a project moves to `net10.0-windows10.0.19041.0` only when it
-  uses WinRT or references WindowsDeviceControl.
-- A dated hardware note in the docs is evidence from that day. Never present one as a fresh live
-  pass unless you ran the scenario.
+- Finish the requested backend, controls, runtime transitions, dependencies and both UI surfaces.
+  Plans, metadata and fixtures are not implemented features. Correct the responsible owner;
+  reuse existing services and avoid speculative frameworks or repeated review handoffs.
+- Preserve unrelated changes. Give workers separate writable paths and bounded outcomes. One owner
+  runs shared formatting, builds and deployment; do not run those concurrently.
+- Continue an already authorized task branch. Otherwise commit and push to `master` here and
+  `wsgm` in external/viiper. Create no branch, worktree, clone or PR without direction. Push changed
+  submodules before recording their gitlinks.
+- An approved implementation needs no second permission round. For an authorized development
+  deployment use eng/dev-deploy.ps1; it owns stopping WSGM/Steam, swapping files and restarting.
+  Do not ask the maintainer to close WSGM manually or overwrite a running application's files.
+- "Publish a release" means building the full setup locally with build.ps1. GitHub tags/releases
+  need an explicit request. Report applied code, actual checks, delivered artifacts and remaining
+  acceptance briefly. Builds and fixtures do not prove live Steam, visible UI or hardware behavior.
 
-## Product rules
+## Source and ownership
 
-- WSGM runs exactly one installed device package. With device integration off there is no device
-  lifecycle, controller target, hardware write or AutoTDP, and everything else keeps working.
-- Policy and orchestration live in WSGM, contracts in the SDKs, machine-specific behaviour in the
-  device package.
-- WSGM Settings configures WSGM itself. Controls for Windows or other external state go on the
-  overlay's relevant page or Steam's Quick Access; the two recorded exceptions are in
-  docs/decisions.md.
-- Every feature added to Steam Big Picture must also be available in the WSGM overlay, with the
-  same capabilities, actions and state. Share the owning backend and policy; use each surface's
-  existing controls and styles. Keep changes focused, reusable and straightforward to maintain.
-- An uncertain device write is never retried automatically: re-read state or require a user action.
-  Never gate a write or a control on readback; write as HC does and publish the written value as
-  observed.
-- High-rate input and telemetry paths allocate nothing and log nothing per sample.
-- Remote testers are ordinary users. Diagnose from wsgm.log and the HC source; never ask them to run
-  probes.
+- Start cross-project work with `.agents/skills/wsgm/SKILL.md`; it maps owners, reusable elements
+  and specialist skills. `.claude/skills` aliases those canonical files. Tracked files and WSGM.slnx
+  define the topology; retired projects under untracked output are not source.
+- docs/README.md starts documentation, docs/decisions.md owns product decisions, and
+  `_plan/implementation-todo.md` tracks progress. `_plan/2.0-decisions.md` is outdated.
+- `src/WSGM` owns application policy/UI. Launch de-elevates and holds input leases; PackagedLaunch
+  launches imported packaged games; LogonService starts WSGM at logon; Setup installs.
+  WSGM.Plugin.Sdk is the common MIT extension contract. Read IR's README/protocol.md before editing it.
+- LibHandheld owns exact detection, protocols and physical input; LibGPUDriverInteract owns GPU
+  drivers; WindowsDeviceControl owns Windows primitives; SteamUiToolkit owns Steam UI mechanics.
+  These and other pinned/vendored dependencies live in `external/`. Keep WSGM adapters/policy in WSGM.
+- Device Lab collects evidence and scaffolds LibHandheld contributions. Its read-only
+  LibreHardwareMonitor telemetry is separate from runtime handheld control.
+- Search `_ref` with `rg --hidden --no-ignore`; it is evidence, not build input. Its decompiled HC
+  1.3.1.6 is newer than public source. HC is primary for Windows and ROG Ally, buttons included;
+  HHD cross-checks gaps. Dated hardware notes are historical evidence, never fresh passes.
+- Target `net10.0-windows`; use `net10.0-windows10.0.19041.0` only for WinRT or WindowsDeviceControl.
+  When moving a feature, account for every declaration in its old home.
 
-## How the maintainer works
+## Product invariants
 
-- Commit directly to the default branch and push: `master` here, `wsgm` in external/viiper. No task
-  branch, worktree, clone or pull request unless asked in the current task. Commit and push a
-  submodule child before recording its gitlink.
-- Once an implementation is approved and a plan exists, implement it; do not ask for another review.
-- "Publish a release" means building the setup locally with build.ps1, never a GitHub tag or
-  release. Do not add tags, releases or compatibility layers unless asked.
-- Prose is natural and concise, without canned AI phrasing or em dashes. Run `npm run format`
-  before committing anything Prettier owns (Markdown, JSON, YAML, CSS, JavaScript); it is the first
-  thing eng/verify.ps1 checks.
-- Rider's Full Cleanup profile is the C# layout authority (expanded braces, `var` for locals, no
-  trailing commas in multiline lists, explicit types on `new` when the target type is not evident).
-  eng/verify.ps1 runs it over src and tests and fails on any diff; `-Fix` applies it.
-  Rider inspection overrides live in `.editorconfig` (`resharper_*_highlighting`);
-  WSGM.slnx.DotSettings is the solution settings layer `jb cleanupcode` reads. Keep named arguments
-  on literal values.
-- CLAUDE.md files are symlinks to their sibling AGENTS.md. Edit AGENTS.md only and run
-  eng/check-agent-guidance.ps1 after adding or moving a scope.
-- When moving a feature between projects, enumerate what the old home declared and account for each
-  item; a dissolved file is where losses hide.
+- Run at most one exact LibHandheld definition. Device Integration off means no device lifecycle,
+  controller target, hardware writes or AutoTDP; independent features keep working.
+- Never gate writable controls or commands on readback. Write as HC does and publish accepted
+  values. Never automatically retry an uncertain write; resolve its state or require a user action.
+- High-rate input and telemetry allocate and log nothing per sample. Remote testers are ordinary
+  users: diagnose from wsgm.log and reference source, never ask them for developer probes.
+- Settings configures WSGM. Windows/external-state controls belong in Overlay and Steam Quick
+  Access, subject to the two exceptions in docs/decisions.md. Every Big Picture feature has Overlay
+  parity through the same backend, actions and state, using each surface's established controls.
 
-## Safety
+## Validation budget
 
-- Opening Settings and `--overlay-test` are safe. The early restore-shell path must work without
-  config, logging, Avalonia or GPU initialization.
-- Shell and boot modes, plugin install or removal, service installation, Device Lab hardware actions
-  and eng/dev-deploy.ps1 change the live machine: only with explicit direction.
-- The Steam CEF tools connect to the live Steam session. Inspect known modules by literal id when
-  asked; never sweep the module registry, instantiate unknown exports or evaluate arbitrary
-  JavaScript. tools/WsgmLibTest scripts and close_page mutate live Steam and are attended tools.
-- Before any attended CEF debugging connection or live tool call, confirm from the current run's
-  Steam logs that Steam and Big Picture have fully started. A reachable endpoint or visible window
-  alone is not sufficient. Connecting earlier can hang the entire Steam UI and require Steam to be
-  force-closed. If the log evidence is incomplete, do not connect; this does not authorize force-closing
-  Steam. Follow .agents/skills/wsgm-steam-cef-debugging/SKILL.md for the preflight.
+- Manual testing comes first: build, perform the authorized deployment and let the maintainer try
+  it. Tests/coverage wait for that report unless requested sooner. A manual regression report
+  already satisfies this condition for its fix.
+- Choose one useful batch from the diff: warning-free Release compilation, relevant tests and
+  affected asset/UI checks. Reuse successful results while their inputs are unchanged. Committing,
+  pushing or a documentation-only edit does not invalidate code checks.
+- Do not automatically run eng/verify.ps1 for an initial feature, follow-up, PR or push. The full
+  gate needs an explicit request, or a change to shared validation infrastructure that requires it.
+  Name that concrete reason before starting; "there is a PR" or "broad impact" alone is insufficient.
+- A requested full gate owns formatting, compilation, tests and coverage. Never precede it with a
+  separate solution-wide cleanup and another complete build/test batch. If those checks already
+  passed on the same source, reuse that proof instead of launching a duplicate gate merely for
+  a committed-head result. Fix isolated failures and rerun only their affected checks.
+- Rider Full Cleanup remains the C# authority. Keep the whole project clean and formatted, but
+  do not launch cleanupcode for every small edit. When whole-project cleanup is requested, run it
+  once over src/tests for the coherent increment; do not repeat it inside another validation pass
+  on unchanged C#. Ordinary work does not implicitly request it. Match existing style for tiny fixes.
+- C#: expanded braces, `var` locals, no trailing commas in multiline lists, explicit `new` types
+  when the target is not evident, named arguments on literals. Overrides live in .editorconfig;
+  WSGM.slnx.DotSettings supplies Rider's profile settings.
+- Format changed Prettier-owned files before committing. Avoid repository-wide formatting for a
+  small Markdown/JSON/JS edit. Instruction-only edits need no Rider, compilation or full gate.
+- For changed UI layout, render affected cases, review images, promote only named baselines with
+  eng/update-ui-baselines.ps1, then rerun those cases. VIIPER changes require
+  eng/build-viiper.ps1 -Validate; build scripts retain their required native validation.
+- Do not enable or poll CI. Long commands get one tracked execution and bounded completion waits;
+  retain raw output in artifacts and return compact results. Do not repeatedly read unchanged log
+  tails, narrate polls or spend reasoning tokens waiting. Delegate a long build/check batch when
+  useful so the main chat stays available. A slow command gets one targeted health check.
+- Record source/artifact identities and proof limits once. State deferred tests; never call an
+  interrupted check a pass or lower an acceptance requirement to fit a budget.
 
-## Validation
+## Live safety and maintenance
 
-Manual testing comes first: build, deploy when asked, and let the maintainer try the change.
-Automated tests, coverage and every test-bearing gate wait until the maintainer reports having
-tested manually, unless asked sooner; compilation, asset drift, formatting and guidance checks may
-run before. Say which tests were deferred.
-
-After the manual test, iterate with the narrowest filtered test
-(`dotnet test tests\WSGM.Tests\WSGM.Tests.csproj --filter "FullyQualifiedName~Area"`), then run
-`.\eng\verify.ps1` once for the initial implementation. Follow-ups run only what the diff affects;
-once told to skip the gate, later pushes skip the Rider cleanup and tests too. The full gate repeats
-only for broad impact, shared build or test infrastructure, dependency versions, or a failure that
-cannot be isolated, and you say why first. VIIPER changes need `eng/build-viiper.ps1 -Validate`.
-
-When a pull request is asked for: one complete PR. CI runs the gate on every push, so before
-creating it or pushing code changes, run the solution-wide Rider cleanup, `npm run format`, a
-warning-free Release build and `.\eng\verify.ps1` on the committed head. Refresh UI baselines with
-`eng\update-ui-baselines.ps1` after overlay layout changes and review the images. Do not poll CI.
-
-build.ps1 stages a full release setup. The Version in src/WSGM/WSGM.csproj is the release version;
-the fourth part is the commit count, so prerelease builds update each other. Never bump the Version
-for a test build.
+- Opening Settings and --overlay-test are safe. Early restore-shell must work without config,
+  logging, Avalonia or GPU initialization. Shell/boot changes, plugin/service installation,
+  Device Lab actions and deployment require the maintainer's direction; authorization persists.
+- Before a live CEF connection, confirm from this run's Steam logs that Steam and Big Picture fully
+  started. Endpoint reachability/a visible window is insufficient. Follow the Steam debugging skill;
+  an incomplete preflight authorizes neither connecting nor force-closing Steam.
+- Inspect known Steam modules by literal ID. Never sweep the registry, instantiate unknown exports
+  or evaluate arbitrary JS. tools/WsgmLibTest scripts and close_page are attended mutations.
+- CLAUDE.md symlinks to its sibling AGENTS.md. Edit AGENTS.md only and run the lightweight
+  eng/check-agent-guidance.ps1 after guidance changes.
+- build.ps1 stages the complete setup. src/WSGM/WSGM.csproj owns the release Version; its fourth
+  component is the commit count so prerelease installers update each other. Never bump Version
+  for a test build. Write natural, concise prose without canned AI phrasing or em dashes.

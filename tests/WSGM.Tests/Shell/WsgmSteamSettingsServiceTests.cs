@@ -1,8 +1,6 @@
 using System.Text.Json;
 using SteamUiToolkit;
 using WSGM.Core;
-using WSGM.Device.Sdk.Capabilities;
-using WSGM.Device.Sdk.Settings;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
 using WSGM.Testing;
@@ -178,46 +176,61 @@ public sealed class WsgmSteamSettingsServiceTests
     }
 
     [Fact]
-    public async Task ADeviceSettingIsValidatedAgainstItsDeclarationAndStoredInItsScope()
+    public async Task BuiltinGraphicsCanBeDisabledAndReenabledWithoutAnInstalledPackage()
     {
         Harness harness = new();
-        harness.Stored.DeviceIntegration.PluginSettings =
-        [
-            new PluginSettingsScope
-            {
-                DeviceDefinitionId = "device",
-                PluginId = "plugin",
-                Declaration = new PluginSettingsManifest
-                {
-                    Sections = [new PluginSettingSection { SectionId = "power", Key = SettingSectionKey.Power }],
-                    Settings =
-                    [
-                        new PluginSettingDescriptor
-                        {
-                            SettingId = "limit",
-                            ValueKind = CapabilityValueKind.Integer,
-                            Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Limit" },
-                            Default = new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = 10 },
-                            Minimum = 5,
-                            Maximum = 20,
-                            Step = 1,
-                            SectionId = "power"
-                        }
-                    ]
-                }
-            }
-        ];
+        harness.Stored.GpuDrivers!.Intel = true;
         var service = harness.Create();
+        const string key = "plugins.enabled:wsgm.gpu.intel/default";
+        var integration = service.ReadState().Pages.Single(page => page.Id == "steam");
+        var graphics = integration.Sections.Single(section => section.Title == "Built-in graphics drivers");
+        Assert.Equal(3, graphics.Rows.Count);
+        Assert.True(Row(service.ReadState(), key).Checked);
 
-        var row = Row(service.ReadState(), "device.setting:limit");
-        var outOfRange = await service.SetAsync("device.setting:limit", Json("99"), CancellationToken.None);
-        var saved = await service.SetAsync("device.setting:limit", Json("12"), CancellationToken.None);
+        var disabled = await service.SetAsync(key, Json("false"), CancellationToken.None);
+        Assert.True(disabled.Succeeded);
+        Assert.False(Row(service.ReadState(), key).Checked);
+        var enabled = await service.SetAsync(key, Json("true"), CancellationToken.None);
 
-        Assert.Equal(SteamSettingsRowKind.Range, row.Kind);
-        Assert.Equal((5d, 20d), (row.Minimum, row.Maximum));
-        Assert.False(outOfRange.Succeeded);
-        Assert.True(saved.Succeeded);
-        Assert.Equal(12, Assert.Single(harness.Stored.DeviceIntegration.PluginSettings[0].Values).Integer);
+        Assert.True(enabled.Succeeded);
+        Assert.True(harness.Stored.GpuDrivers!.Intel);
+        Assert.Empty(harness.Stored.PluginInstances);
+        Assert.Empty(harness.Installed);
+    }
+
+    [Fact]
+    public void BuiltinGraphicsCollapseLegacyInstancesAndDoNotBecomePluginSections()
+    {
+        Harness harness = new();
+        harness.Stored.PluginInstances =
+        [
+            new CommonPluginInstanceConfig { PluginId = "wsgm.gpu.intel", InstanceId = "custom", Enabled = false }
+        ];
+        harness.Stored.GpuDrivers = null;
+        harness.Stored = AppConfigRules.Normalize(harness.Stored).Value;
+        // A stale installed inventory must not duplicate a built-in driver in the Plugins page.
+        harness.Installed = [new InstalledCommonPlugin("wsgm.gpu.intel", "Old Intel package")];
+
+        var state = harness.Create().ReadState();
+
+        var intel = Row(state, "plugins.enabled:wsgm.gpu.intel/default");
+        Assert.Equal("Intel graphics", intel.Label);
+        Assert.False(intel.Checked);
+        Assert.Empty(harness.Stored.PluginInstances);
+        Assert.DoesNotContain(
+            state.Pages.Single(page => page.Id == "plugins").Sections.SelectMany(section => section.Rows),
+            row => row.Key.StartsWith("plugins.enabled:wsgm.gpu.", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void BuiltinGraphicsListOnlyTheDetectedDrivers()
+    {
+        Harness harness = new() { Graphics = [BuiltinGpuDrivers.All[0], BuiltinGpuDrivers.All[2]] };
+
+        var graphics = harness.Create().ReadState().Pages.Single(page => page.Id == "steam")
+            .Sections.Single(section => section.Title == "Built-in graphics drivers");
+
+        Assert.Equal(["Intel graphics", "NVIDIA graphics"], graphics.Rows.Select(row => row.Label));
     }
 
     [Fact]
@@ -313,48 +326,6 @@ public sealed class WsgmSteamSettingsServiceTests
     }
 
     [Fact]
-    public void ADeviceDeclarationLeftBehindByARemovedPluginIsNotOffered()
-    {
-        // Removing a device plugin leaves its cached declaration in configuration.
-        Harness harness = new() { InstalledDevicePlugin = null };
-        harness.Stored.DeviceIntegration.PluginSettings =
-        [
-            new PluginSettingsScope
-            {
-                DeviceDefinitionId = "device", PluginId = "plugin",
-                Declaration = new PluginSettingsManifest
-                {
-                    Settings =
-                    [
-                        new PluginSettingDescriptor
-                        {
-                            SettingId = "flag", ValueKind = CapabilityValueKind.Boolean,
-                            Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Flag" },
-                            Default = new CapabilityValue { Kind = CapabilityValueKind.Boolean, BooleanValue = false }
-                        }
-                    ]
-                }
-            }
-        ];
-
-        var removed = harness.Create().ReadState();
-        harness.InstalledDevicePlugin = "another.plugin";
-        var replaced = harness.Create().ReadState();
-        harness.InstalledDevicePlugin = "plugin";
-        var installed = harness.Create().ReadState();
-
-        static bool Offers(WsgmSteamSettingsState state)
-        {
-            return state.Pages.SelectMany(page => page.Sections).SelectMany(section => section.Rows)
-                .Any(row => row.Key == "device.setting:flag");
-        }
-
-        Assert.False(Offers(removed));
-        Assert.False(Offers(replaced));
-        Assert.True(Offers(installed));
-    }
-
-    [Fact]
     public void InstancesOfOnePackageAreToldApart()
     {
         Harness harness = new();
@@ -400,8 +371,8 @@ public sealed class WsgmSteamSettingsServiceTests
         internal readonly List<bool> Boots = [];
         internal readonly List<(string Id, string Key, string Value, long Revision)> PluginWrites = [];
         internal readonly List<AppConfig> SteamInputApplied = [];
+        internal IReadOnlyList<BuiltinGpuDriver> Graphics = BuiltinGpuDrivers.All;
         internal List<InstalledCommonPlugin> Installed = [];
-        internal string? InstalledDevicePlugin = "plugin";
         internal List<CommonPluginSettingsView> Running = [];
         internal AppConfig Stored = AppConfigRules.Normalize(new AppConfig()).Value;
 
@@ -427,7 +398,7 @@ public sealed class WsgmSteamSettingsServiceTests
                     PluginWrites.Add((id, key, value.GetRawText(), revision));
                     return Task.FromResult(SteamUiCommandResult.Applied);
                 },
-                () => InstalledDevicePlugin);
+                () => Graphics);
         }
     }
 }

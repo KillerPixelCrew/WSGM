@@ -6,73 +6,54 @@ namespace WSGM.Tests.Boundaries;
 public sealed class DeviceBoundaryTests
 {
     [Fact]
-    public void WsgmLoadsThePluginDynamicallyWithoutReferencingItsProject()
+    public void WsgmUsesTheHandheldLibraryAndSinglePluginSdkDirectly()
     {
         var references = ProjectReferences("src/WSGM/WSGM.csproj").ToArray();
 
-        // The SDK is the only device reference the application may hold: it is the type identity
-        // the host and a plugin agree on. The solution builds the tool and package from their
-        // source projects, but the application still discovers the installed plugin dynamically.
-        Assert.Contains("WSGM.Device.Sdk", references);
-        Assert.DoesNotContain("WSGM.Device.Msi.Claw", references);
+        Assert.Contains("LibHandheld", references);
+        Assert.Contains("LibGPUDriverInteract", references);
+        Assert.Contains("WSGM.Plugin.Sdk", references);
+        Assert.DoesNotContain(references, reference => reference.StartsWith("WSGM.Device.", StringComparison.Ordinal));
         Assert.DoesNotContain("WSGM.DeviceLab", references);
-        Assert.DoesNotContain("WSGM.Device.HandheldCompanion", references);
     }
 
     [Fact]
-    public void SolutionBuildsTheDeviceProjectsWithOneSharedSdk()
+    public void SolutionRetiresDevicePackagesAndTheirSeparateSdk()
     {
         var projects = SolutionProjects().ToArray();
 
-        Assert.Contains(
-            "src/WSGM.DeviceLab/WSGM.DeviceLab.csproj",
-            projects);
-        Assert.Contains(
-            "src/WSGM.Device.Msi.Claw/WSGM.Device.Msi.Claw.csproj",
-            projects);
-        Assert.Contains(
-            "src/WSGM.Device.HandheldCompanion/WSGM.Device.HandheldCompanion.csproj",
-            projects);
-        Assert.Equal(
-            "src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj",
-            Assert.Single(projects, path => Path.GetFileName(path) == "WSGM.Device.Sdk.csproj"));
-
-        var sdkPath = Path.GetFullPath(Path.Combine(
-            RepositoryFiles.Root, "src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj"));
-        foreach (var projectPath in projects)
-        {
-            var projectDirectory = Path.GetDirectoryName(Path.Combine(RepositoryFiles.Root, projectPath))!;
-            foreach (var reference in RepositoryFiles.LoadProject(projectPath).Descendants("ProjectReference"))
-            {
-                var include = (string)reference.Attribute("Include")!;
-                if (Path.GetFileName(include) == "WSGM.Device.Sdk.csproj")
-                {
-                    Assert.Equal(sdkPath, Path.GetFullPath(Path.Combine(projectDirectory, include)));
-                }
-            }
-        }
+        Assert.Contains("src/WSGM.DeviceLab/WSGM.DeviceLab.csproj", projects);
+        Assert.Contains("external/libhandheld/src/LibHandheld/LibHandheld.csproj", projects);
+        Assert.Equal("src/WSGM.Plugin.Sdk/WSGM.Plugin.Sdk.csproj",
+            Assert.Single(projects, path => Path.GetFileName(path) == "WSGM.Plugin.Sdk.csproj"));
+        Assert.DoesNotContain(projects, project =>
+            Path.GetFileName(project).StartsWith("WSGM.Device.", StringComparison.Ordinal));
     }
 
     [Fact]
-    public void DeviceSdkHasNoProjectOrPackageDependencies()
+    public void HandheldLibraryIsIndependentOfWsgmProjects()
     {
-        // The SDK is the shared type-identity boundary. Any dependency added here would be
-        // handed to every plugin built against it.
-        var sdk = RepositoryFiles.LoadProject(
-            "src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj");
+        var library = RepositoryFiles.LoadProject("external/libhandheld/src/LibHandheld/LibHandheld.csproj");
 
-        Assert.Empty(sdk.Descendants("ProjectReference"));
-        Assert.Empty(sdk.Descendants("PackageReference"));
+        Assert.Empty(library.Descendants("ProjectReference"));
+        var packages = library.Descendants("PackageReference")
+            .ToDictionary(package => (string)package.Attribute("Include")!,
+                package => (string)package.Attribute("Version")!);
+        Assert.Equal("10.0.12", packages["System.Management"]);
+        Assert.Equal("10.0.3", packages["System.IO.Ports"]);
+        Assert.Equal(2, packages.Count);
     }
 
     [Fact]
     public void ProjectsReferenceOnlyWhatTheirLayerAllows()
     {
-        const string deviceSdk = "src/WSGM.Device.Sdk/WSGM.Device.Sdk.csproj";
         const string pluginSdk = "src/WSGM.Plugin.Sdk/WSGM.Plugin.Sdk.csproj";
         const string toolkit = "external/steam-ui-toolkit/src/SteamUiToolkit/SteamUiToolkit.csproj";
         const string deviceControl =
             "external/windows-device-control/src/WindowsDeviceControl/WindowsDeviceControl.csproj";
+        const string gpuLibrary =
+            "external/libgpu-driver-interact/src/LibGPUDriverInteract/LibGPUDriverInteract.csproj";
+        const string handheldLibrary = "external/libhandheld/src/LibHandheld/LibHandheld.csproj";
         List<string> problems = [];
         foreach (var project in SolutionProjects())
         {
@@ -83,22 +64,27 @@ public sealed class DeviceBoundaryTests
                 {
                     // Reusable libraries and the small executables stand alone: the launchers and the
                     // logon service must not pull in WSGM, Avalonia or any other first-party assembly.
-                    "WindowsDeviceControl" or "SteamUiToolkit" or "WSGM.Device.Sdk" or "WSGM.Launch"
+                    "WindowsDeviceControl" or "SteamUiToolkit" or "LibHandheld" or "WSGM.Launch"
                         or "WSGM.LogonService" or "WSGM.PackagedLaunch" => [],
-                    "WSGM.Plugin.Sdk" => [toolkit, deviceSdk],
-                    "WSGM.Plugin.NvidiaGpu" => [pluginSdk, deviceControl],
-                    "WSGM.DeviceLab" => [deviceSdk],
+                    "WSGM.Plugin.Sdk" => [toolkit],
+                    "LibGPUDriverInteract" =>
+                    [
+                        deviceControl,
+                        "external/libgpu-driver-interact/external/windows-device-control/src/WindowsDeviceControl/WindowsDeviceControl.csproj"
+                    ],
+                    "WSGM.DeviceLab" => [handheldLibrary],
+                    "WSGM.Install" => [pluginSdk, handheldLibrary],
                     "WSGM" =>
                     [
                         "src/Avalonia.LiveBackdrop/Avalonia.LiveBackdrop.csproj",
                         "src/WSGM.Install/WSGM.Install.csproj",
                         pluginSdk,
-                        deviceSdk,
+                        handheldLibrary,
                         toolkit,
-                        deviceControl
+                        deviceControl,
+                        gpuLibrary
                     ],
                     _ when name.StartsWith("WSGM.Plugin.", StringComparison.Ordinal) => [pluginSdk],
-                    _ when name.StartsWith("WSGM.Device.", StringComparison.Ordinal) => [deviceSdk],
                     _ => null
                 };
             if (allowed is not null)
@@ -121,7 +107,7 @@ public sealed class DeviceBoundaryTests
                 .Select(source => $"{project} compiles {source}"));
         }
 
-        string[] pluginSdkReferences = [toolkit, deviceSdk];
+        string[] pluginSdkReferences = [toolkit];
         Assert.Equal(pluginSdkReferences, ResolvedProjectReferences(pluginSdk).Order(StringComparer.Ordinal));
         Assert.Empty(problems);
     }
@@ -135,11 +121,11 @@ public sealed class DeviceBoundaryTests
             (string?)resource.Attribute("LogicalName") == "WSGM.DeviceLab.Help.LICENSE");
         Assert.Equal("LICENSE", Assert.Single(Resolved("src/WSGM.DeviceLab/WSGM.DeviceLab.csproj", [license])));
 
-        foreach (var project in new[] { "WSGM.Device.Sdk", "WSGM.Plugin.Sdk" })
-        {
-            var sdk = RepositoryFiles.LoadProject($"src/{project}/{project}.csproj");
-            Assert.Equal("MIT", Assert.Single(sdk.Descendants("PackageLicenseExpression")).Value);
-        }
+        var sdk = RepositoryFiles.LoadProject("src/WSGM.Plugin.Sdk/WSGM.Plugin.Sdk.csproj");
+        Assert.Equal("MIT", Assert.Single(sdk.Descendants("PackageLicenseExpression")).Value);
+        Assert.Equal("0.4.0", Assert.Single(sdk.Descendants("Version")).Value);
+        var handheld = RepositoryFiles.LoadProject("external/libhandheld/src/LibHandheld/LibHandheld.csproj");
+        Assert.Equal("MIT", Assert.Single(handheld.Descendants("PackageLicenseExpression")).Value);
     }
 
     [Fact]
@@ -173,7 +159,21 @@ public sealed class DeviceBoundaryTests
 
     private static IEnumerable<string> ResolvedProjectReferences(string project)
     {
-        return Resolved(project, RepositoryFiles.LoadProject(project).Descendants("ProjectReference"));
+        var document = RepositoryFiles.LoadProject(project);
+        var references = document.Descendants("ProjectReference").Select(reference => new XElement(reference))
+            .ToArray();
+        foreach (var reference in references.Where(reference =>
+                     (string?)reference.Attribute("Include") == "$(WindowsDeviceControlProject)"))
+        {
+            var paths = document.Descendants("WindowsDeviceControlProject").Select(property => property.Value)
+                .ToArray();
+            Assert.NotEmpty(paths);
+            Assert.All(paths, path => Assert.EndsWith("/src/WindowsDeviceControl/WindowsDeviceControl.csproj", path));
+            reference.SetAttributeValue("Include", paths.First(path => File.Exists(Path.GetFullPath(Path.Combine(
+                Path.GetDirectoryName(Path.Combine(RepositoryFiles.Root, project))!, path)))));
+        }
+
+        return Resolved(project, references);
     }
 
     /// <summary>Compile items whose path leaves the project's own folder, repository-relative.</summary>

@@ -102,7 +102,7 @@ exception does not skip later cleanup. Preserve this established dependency orde
 
 1. close command admission and cancel work, then join startup and device-power work;
 2. let `DeviceCoordinator.ShutdownAsync` restore AutoTDP through its still-open capability path,
-   release the controller/show the physical pad, and stop the device package;
+   release the controller/show the physical pad, and stop the handheld lifetime;
 3. stop common plugins and then the graphics router; join session-transition, boot and Steam
    transport-gate work;
 4. retire WSGM's tray before Explorer recovery, and retain the shell anchor if desktop verification

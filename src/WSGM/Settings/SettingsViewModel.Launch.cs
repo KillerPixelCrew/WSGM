@@ -9,6 +9,7 @@ namespace WSGM.Settings;
 
 public sealed partial class SettingsViewModel
 {
+    private readonly List<DisplayGpuCapability> _knownGpuCapabilities = [];
     private DisplayLayout? _desktopLayout;
     private List<PluginActionStep> _desktopStartupActions = [];
     private List<PluginActionStep> _desktopWakeActions = [];
@@ -155,6 +156,15 @@ public sealed partial class SettingsViewModel
 
         // Connected displays are read on a worker once the Settings window has opened.
         RefreshLaunchRows();
+        _knownGpuCapabilities.Clear();
+        GameLayout.LoadGpuPreferences(launch.GameDisplayGpu);
+        DesktopLayout.LoadGpuPreferences(launch.DesktopDisplayGpu);
+        // Each remembered display retains its own capabilities for offline editing. The shared
+        // cache also carries driver-wide controls; neither cache may erase the other on load.
+        MergeGpuCapabilities([
+            .. KnownDisplays.SelectMany(display => display.GpuCapabilities),
+            .. launch.KnownGpuCapabilities
+        ]);
         _launchLoaded = true;
     }
 
@@ -228,6 +238,7 @@ public sealed partial class SettingsViewModel
         if (row.Target is { } forgotten)
         {
             _forgottenDisplays.Add(forgotten);
+            _knownGpuCapabilities.RemoveAll(capability => capability.Target?.Matches(forgotten) == true);
         }
 
         if (_waitForDisplay is { } wait && row.Target?.Matches(wait) == true)
@@ -435,6 +446,9 @@ public sealed partial class SettingsViewModel
         launch.DesktopLayout = DesktopLayout.Build();
         launch.GameAudio = GameAudioProfile.Build();
         launch.DesktopAudio = DesktopAudioProfile.Build();
+        launch.GameDisplayGpu = [.. GameLayout.BuildGpuPreferences()];
+        launch.DesktopDisplayGpu = [.. DesktopLayout.BuildGpuPreferences()];
+        launch.KnownGpuCapabilities = [.. _knownGpuCapabilities];
         launch.WaitForDisplay = WaitForDisplayIndex > 0 && WaitForDisplayIndex <= KnownDisplays.Count
             ? KnownDisplays[WaitForDisplayIndex - 1].Target
             : null;
@@ -443,5 +457,52 @@ public sealed partial class SettingsViewModel
         launch.DesktopStartupActions = ActionLists[2].Build();
         launch.DesktopWakeActions = ActionLists[3].Build();
         launch.KnownDisplays = [.. KnownDisplays];
+    }
+
+    private void MergeGpuCapabilities(IReadOnlyList<DisplayGpuCapability> capabilities)
+    {
+        foreach (var capability in capabilities)
+        {
+            if (capability.Descriptor is null)
+            {
+                continue;
+            }
+
+            var matching = _knownGpuCapabilities.Where(existing => existing.PluginId == capability.PluginId
+                                                                   && existing.Descriptor?.CapabilityId ==
+                                                                   capability.Descriptor.CapabilityId
+                                                                   && (capability.Target is null
+                                                                       ? existing.Target is null
+                                                                       : existing.Target?.Matches(capability.Target) ==
+                                                                         true)).ToArray();
+            var exact = capability.Target is { DevicePath.Length: > 0 } liveTarget
+                ? matching.Where(existing => string.Equals(existing.Target?.DevicePath, liveTarget.DevicePath,
+                    StringComparison.OrdinalIgnoreCase)).ToArray()
+                : [];
+            foreach (var replaced in exact.Length > 0 ? exact : matching.Length == 1 ? matching : [])
+            {
+                _knownGpuCapabilities.Remove(replaced);
+            }
+
+            _knownGpuCapabilities.Add(capability);
+            if (capability.Target is not { } target)
+            {
+                continue;
+            }
+
+            var displays = KnownDisplays.Where(display => display.Target?.Matches(target) == true).ToArray();
+            var exactDisplays = displays.Where(display => string.Equals(display.Target?.DevicePath, target.DevicePath,
+                StringComparison.OrdinalIgnoreCase)).ToArray();
+            foreach (var display in exactDisplays.Length > 0 ? exactDisplays : displays.Length == 1 ? displays : [])
+            {
+                display.GpuCapabilities.RemoveAll(existing => existing.PluginId == capability.PluginId
+                                                              && existing.Descriptor?.CapabilityId ==
+                                                              capability.Descriptor.CapabilityId);
+                display.GpuCapabilities.Add(capability);
+            }
+        }
+
+        GameLayout.RefreshGpuCapabilities(_knownGpuCapabilities);
+        DesktopLayout.RefreshGpuCapabilities(_knownGpuCapabilities);
     }
 }

@@ -113,6 +113,7 @@ internal sealed class UiFixture : IDisposable
         // Inert by default, so nothing here reads this machine; the fixture's own seams on top.
         var services = SettingsTestServices.Inert(Saved, Calls) with
         {
+            PostToUi = action => Dispatcher.UIThread.Post(action),
             CaptureDisplays = () => ReadDisplays?.Invoke() ?? Displays,
             ReadDisplayFacts = target => DisplayFacts.GetValueOrDefault(target.DevicePath),
             ReadPluginActions = () => PluginActions,
@@ -143,7 +144,7 @@ internal sealed class UiFixture : IDisposable
             ReadAudio = _ => Audio
         };
         var model = new SettingsViewModel(ConfigJson.Clone(Saved, ConfigJsonContext.Default.AppConfig),
-            null, false, services, Store);
+            services, store: Store);
         var windowServices = new SettingsWindowServices(new GamepadService(),
             () => Calls.Add("input-start"), () => Calls.Add("input-stop"),
             () => Calls.Add("window-import-begin"), () => Calls.Add("window-import-end"),

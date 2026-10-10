@@ -82,29 +82,25 @@ public sealed partial class ShellSession
     }
 
     /// <summary>
-    ///     What this install has, of the things a device package needs.
-    ///     Read live rather than cached: the Plugins folder is one an administrator can copy a
-    ///     package into while WSGM is running, which is the whole case this exists for. An unreadable
-    ///     folder is not evidence of a package, so the banner does not guess. The overlay calls it on a
-    ///     worker.
+    ///     Optional component availability for the already detected exact handheld.
+    ///     An integration the user disabled is quiet and opens no device or driver handles here.
     /// </summary>
     private DevicePrerequisiteState ReadDevicePrerequisiteState()
     {
-        var catalog = PluginPackageCatalog.Discover(InstallLayout.Plugins);
-        foreach (var error in catalog.Errors)
+        var device = _deviceCoordinator?.DeviceDefinition;
+        if (!_config.DeviceIntegration.Enabled || device is null)
         {
-            Log.Warn("Reading the Plugins folder for the overlay banner: " + error);
+            return new DevicePrerequisiteState(device is not null, _config.DeviceIntegration.Enabled, false, false, []);
         }
 
-        var package = catalog.Device.Inventory.PackageFiles.Count > 0;
-        var roles = catalog.Device.InstalledPackage?.Manifest?.Capabilities ?? [];
-
         return new DevicePrerequisiteState(
-            package,
+            device is not null,
             _config.DeviceIntegration.Enabled,
             DevicePrerequisiteSource.ControllerLibraryInstalled(AppContext.BaseDirectory),
             DevicePrerequisiteSource.HidHideInstalled(),
-            SetupComponents.Required(roles));
+            device is null ? [] : SetupComponents.Required(device),
+            DevicePrerequisiteSource.HardwareDriverInstalled("PawnIO"),
+            DevicePrerequisiteSource.HardwareDriverInstalled("inpoutx64"));
     }
 
     private async Task EnableDeviceIntegrationAsync()

@@ -5,18 +5,21 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
+using LibHandheld;
 using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Glyphs;
-using WSGM.Device.Sdk.Identity;
-using WSGM.Device.Sdk.Input;
 using WSGM.Device.Sdk.Lifecycle;
-using WSGM.Device.Sdk.Plugin;
 using WSGM.Input;
 using WSGM.Install;
 using WSGM.Interop;
 using WSGM.Shared;
+using DeviceIdentitySnapshot = LibHandheld.Contracts.DeviceIdentitySnapshot;
+using HandheldDefinition = LibHandheld.Contracts.HandheldDefinition;
+using HapticCapabilities = LibHandheld.Contracts.HapticCapabilities;
+using HapticOutputFrame = LibHandheld.Contracts.HapticOutputFrame;
+using PhysicalDeviceIdentity = LibHandheld.Contracts.PhysicalDeviceIdentity;
 
 namespace WSGM.Shell;
 
@@ -43,7 +46,7 @@ internal enum CapabilityCommandOrigin
     /// </summary>
     /// <remarks>
     ///     Not <see cref="User" />: the value is already the user's saved preference, so persisting it
-    ///     again is redundant and — on a release-to-ceiling or a fall back to the global layer — would
+    ///     again is redundant and â€” on a release-to-ceiling or a fall back to the global layer â€” would
     ///     write the wrong value into the layer the funnel resolves. The transition path pauses or
     ///     resumes AutoTDP itself, so this origin deliberately skips the funnel.
     /// </remarks>
@@ -54,12 +57,12 @@ internal enum CapabilityCommandOrigin
 }
 
 /// <summary>Authoritative process-long owner of the machine-wide hardware cycle.</summary>
-internal sealed class DeviceCoordinator : IAsyncDisposable
+internal sealed partial class DeviceCoordinator : IAsyncDisposable
 {
     /// <summary>Machine-wide named marker preventing simultaneous production device owners.</summary>
     internal const string ProductionOwnerName = SessionProtocolNames.DeviceOwner;
 
-    /// <summary>The delay before each automatic restart of a faulted plugin; its length is the restart budget.</summary>
+    /// <summary>The delay before each automatic restart of a faulted handheld; its length is the restart budget.</summary>
     private static readonly TimeSpan[] AutomaticRestartBackoffs = [TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(4)];
 
     private static readonly TimeSpan CanceledStartCleanupBudget = TimeSpan.FromSeconds(5);
@@ -68,19 +71,19 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     private readonly Lock _backgroundGate = new();
     private readonly HashSet<Task> _backgroundTasks = [];
     private readonly Func<DeviceIdentitySnapshot> _collectIdentity;
+    private readonly Func<DeviceIdentitySnapshot, CancellationToken, Task<HandheldDefinition?>> _detectDevice;
     private readonly IAsyncDisposable? _diagnostics;
-    private readonly Func<CancellationToken, Task<DevicePackageDiscovery>> _discoverPackage;
     private readonly PluginHapticSink _hapticSink;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly DeviceLightingRestore _lightingRestore = new();
 
-    private readonly Func<InstalledDevicePackage, long, CancellationToken, string, Task<DevicePluginRuntime>>
+    private readonly Func<HandheldDefinition, DeviceIdentitySnapshot, CancellationToken, string,
+            Task<HandheldDeviceRuntime>>
         _loadRuntime;
 
     private readonly Action<bool> _manualVariableRefresh;
     private readonly DeviceOemActionRouter _oemActions = new();
     private readonly IDisposable _ownerMutex;
-    private readonly PluginSettingsCoordinator _pluginSettings;
 
     /// <summary>
     ///     Wakes the power-assignment reconcile. One pending signal stands for any number of changes,
@@ -107,21 +110,20 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     private readonly ConfigStore _store;
     private readonly SemaphoreSlim _transitionGate = new(1, 1);
     private int _automaticRestartAttempts;
-    private DevicePluginRuntime? _client;
+    private HandheldDeviceRuntime? _client;
     private AppConfig _config;
     private Task _controllerPublication = Task.CompletedTask;
 
     /// <summary>Cancels the controller-management start the last publication began.</summary>
     private CancellationTokenSource _controllerStartCancellation = new();
 
-    private long _cycleGeneration;
     private volatile bool _disposed;
     private bool _faultRecoveryPending;
     private DeviceIdentitySnapshot? _identity;
     private bool _intentionalStop;
 
     /// <summary>The lifecycle handler of the attached client, which carries that client.</summary>
-    private Action<DevicePluginState>? _lifecycleHandler;
+    private Action<HandheldRuntimeState>? _lifecycleHandler;
 
     private int _lightingRestoreScheduled;
 
@@ -170,8 +172,8 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     /// <param name="powerModes">Shared Windows power-mode owner borrowed by preset application.</param>
     /// <param name="createControllers">Creates the owned controller manager using this coordinator's physical haptic sink.</param>
     /// <param name="collectIdentity">Collects machine identity for device detection and profile addressing.</param>
-    /// <param name="discoverPackage">Discovers and validates the installed device package without starting it.</param>
-    /// <param name="loadRuntime">Loads an owned runtime for the selected package, cycle, and instance state directory.</param>
+    /// <param name="detectDevice">Matches a native definition against the already collected identity without opening hardware.</param>
+    /// <param name="loadRuntime">Constructs an owned runtime for the selected definition, cycle, and family state directory.</param>
     /// <param name="registerPowerModeNotification">
     ///     Registers a wake signal; any returned subscription is disposed during
     ///     shutdown.
@@ -192,8 +194,9 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         WindowsPowerModes powerModes,
         Func<IPhysicalHapticSink, ControllerManager> createControllers,
         Func<DeviceIdentitySnapshot> collectIdentity,
-        Func<CancellationToken, Task<DevicePackageDiscovery>> discoverPackage,
-        Func<InstalledDevicePackage, long, CancellationToken, string, Task<DevicePluginRuntime>> loadRuntime,
+        Func<DeviceIdentitySnapshot, CancellationToken, Task<HandheldDefinition?>> detectDevice,
+        Func<HandheldDefinition, DeviceIdentitySnapshot, CancellationToken, string, Task<HandheldDeviceRuntime>>
+            loadRuntime,
         Func<Action, IDisposable?> registerPowerModeNotification,
         Func<bool?> readOnAcPower,
         Func<TimeSpan, CancellationToken, Task> restartDelay,
@@ -205,22 +208,22 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         _sessionId = sessionId;
         _ownerMutex = ownerMutex;
         _collectIdentity = collectIdentity;
-        _discoverPackage = discoverPackage;
+        _detectDevice = detectDevice;
         _loadRuntime = loadRuntime;
         _registerPowerModeNotification = registerPowerModeNotification;
         _readOnAcPower = readOnAcPower;
         _restartDelay = restartDelay;
         _manualVariableRefresh = manualVariableRefresh;
+        InitializeFanCurves(autoTdpMetrics);
         Capabilities = new DeviceCapabilityRouter(postToUi);
         Capabilities.Changed += OnLightingStateChanged;
         Capabilities.Changed += OnPowerControlsChanged;
-        Capabilities.DescriptorsAccepted += OnPowerDescriptorsAccepted;
         // AutoTDP writes through the same power lane as every other power write, and this owner
         // restores its original limit before the device stops.
         _autoTdpTrace = new AutoTdpTraceRecorder(
             AutoTdpTraceRecorder.DefaultDirectory(_store.Context),
-            () => InstalledPackage?.Manifest is { } manifest
-                ? (manifest.Id, manifest.Version)
+            () => DeviceDefinition is { } definition
+                ? (definition.FamilyId, HandheldDeviceRuntime.SourceVersion)
                 : (null, null),
             new AutoTdpTraceSystemContext());
         AutoTdp = new AutoTdpService(
@@ -232,8 +235,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
                 value,
                 TimeSpan.FromSeconds(5),
                 CapabilityCommandOrigin.AutoTdp,
-                power.Projection.State.CycleGeneration,
-                power.Projection.State.DescriptorGeneration, pair, token),
+                pair, token),
             autoTdpTargetFrametimeMs,
             _autoTdpTrace,
             autoTdpMetrics);
@@ -244,11 +246,10 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             () => AutoTdp.OwnsPower);
         PowerAssignments = new DevicePowerAssignments(PowerPresets,
             () => new DevicePowerAssignmentContext(Profiles.Current,
-                InstalledPackage?.Manifest?.Id,
-                _cycleGeneration, IntegrationEnabled, _readOnAcPower()),
+                DeviceDefinition?.FamilyId,
+                IntegrationEnabled, _readOnAcPower()),
             SavePowerAssignmentAsync,
             () => Volatile.Read(ref _resumeRestore));
-        _pluginSettings = new PluginSettingsCoordinator(_store);
         _hapticSink = new PluginHapticSink(ApplyHapticOutputAsync);
         Controllers = createControllers(_hapticSink);
         Controllers.ApplyRumbleCalibration(config.RumbleCalibration);
@@ -261,7 +262,9 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     internal AutoTdpService AutoTdp { get; }
 
     /// <summary>The stable key device values are stored under, or null before the machine is identified.</summary>
-    internal string? DeviceIdentityKey => _identity is null ? null : DeviceMachineIdentity.StableKey(_identity);
+    internal string? DeviceIdentityKey => _identity is null || DeviceDefinition is null
+        ? null
+        : $"{DeviceDefinition.FamilyId}:{DeviceMachineIdentity.StableKey(_identity)}";
 
     /// <summary>The profile owner every per-game value is read from and written to.</summary>
     internal ProfileService Profiles { get; }
@@ -272,17 +275,14 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     /// <summary>Whether the persisted master switch currently exposes the Device surface.</summary>
     internal bool IntegrationEnabled => _config.DeviceIntegration.Enabled;
 
-    /// <summary>The sole installed package, including its validation result.</summary>
-    internal InstalledDevicePackage? InstalledPackage => PackageDiscovery.InstalledPackage;
+    /// <summary>The exact supported model selected without opening native resources.</summary>
+    internal HandheldDefinition? DeviceDefinition { get; private set; }
 
-    /// <summary>The device definition matched by the active plugin cycle.</summary>
+    /// <summary>Whether a native implementation matches this machine.</summary>
+    internal bool HasDevice => DeviceDefinition is not null;
+
+    /// <summary>The device definition matched by the active native cycle.</summary>
     private string? ActiveDeviceDefinitionId { get; set; }
-
-    /// <summary>The latest device package discovery result.</summary>
-    internal DevicePackageDiscovery PackageDiscovery { get; private set; } = new()
-    {
-        Inventory = new DevicePackageInventory { PackageFiles = [] }
-    };
 
     /// <summary>The capability router, for snapshots and change subscriptions.</summary>
     /// <remarks>
@@ -332,7 +332,8 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
 
     /// <summary>Whether controller management may run in this configuration.</summary>
     internal bool ControllerManagementEnabled =>
-        _config.DeviceIntegration is { ControllerManagementEnabled: true, Enabled: true };
+        _config.DeviceIntegration is { ControllerManagementEnabled: true, Enabled: true }
+        && DeviceDefinition is { HasController: true };
 
     /// <summary>Current saved rumble calibration; callers edit it through the coordinator rather than mutating this reference.</summary>
     internal RumbleCalibrationConfig RumbleCalibration => _config.RumbleCalibration;
@@ -364,7 +365,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     public ValueTask DisposeAsync()
     {
         return ShutdownAsync(
-            PluginStopReason.WsgmExiting,
+            HandheldStopReason.WsgmExiting,
             NormalShutdownDeadline());
     }
 
@@ -486,7 +487,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     }
 
     private async Task<CapabilityCommandResult> ExecutePresetCapabilityAsync(
-        string id, CapabilityValue value, long cycle, long generation, bool persist, CancellationToken token)
+        string id, CapabilityValue value, bool persist, CancellationToken token)
     {
         if (_disposed)
         {
@@ -497,7 +498,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             persist && value.Kind == CapabilityValueKind.Integer
                 ? CapabilityCommandOrigin.User
                 : CapabilityCommandOrigin.AutomaticControl,
-            cycle, generation, false, token).ConfigureAwait(false);
+            false, token).ConfigureAwait(false);
         if (!persist && value.IntegerValue is { } watts && result.Outcome.IsApplied()
             && FindDescriptor(id, null)?.Role == CapabilityRole.PowerSustainedLimit)
         {
@@ -516,9 +517,8 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
             if (Profiles.Current.Generation != selection.Profiles.Generation
-                || InstalledPackage?.Manifest?.Id != selection.PluginId
+                || DeviceDefinition?.FamilyId != selection.PluginId
                 || IntegrationEnabled != selection.Enabled
-                || Interlocked.Read(ref _cycleGeneration) != selection.Cycle
                 || selection.OnAc != _readOnAcPower())
             {
                 throw new InvalidOperationException(
@@ -558,6 +558,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
 
         UpdateCapabilityDesiredContext();
         RequestPowerAssignmentReconcile();
+        ReplayLightingAfterTransition("power source changed");
     }
 
     private void RequestPowerAssignmentReconcile()
@@ -599,28 +600,6 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
 
         _powerControls = reading;
         RequestPowerAssignmentReconcile();
-    }
-
-    private void OnPowerDescriptorsAccepted(long cycle, long generation)
-    {
-        if (_disposed || _identity is null || cycle != _cycleGeneration)
-        {
-            return;
-        }
-
-        var config = Profiles.Current.Config;
-        if (config.Global.BoostWatts is null && config.Games.All(game => game.Values.BoostWatts is null))
-        {
-            return;
-        }
-
-        var boost = Capabilities.Snapshot().FirstOrDefault(view =>
-            view.Descriptor is { Role: CapabilityRole.PowerSlowLimit, SupportsWrite: true });
-        if (boost is not null)
-        {
-            Observe(Profiles.MigrateLegacyBoostAsync(DeviceIdentityKey!, boost.Descriptor.CapabilityId,
-                boost.Descriptor.InstanceId, _lifetime.Token), "legacy PL2 migration");
-        }
     }
 
     /// <summary>
@@ -707,8 +686,8 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
                 powerModes,
                 sink => ControllerManager.CreateProduction(store.Context.Root, sink),
                 DeviceMachineIdentity.Collect,
-                DiscoverPackageAsync,
-                DevicePluginRuntime.StartAsync,
+                DetectDeviceAsync,
+                HandheldDeviceRuntime.CreateAsync,
                 callback => EffectivePowerModeNotification.Register(callback),
                 ReadOnAcPower,
                 Task.Delay,
@@ -811,15 +790,14 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
 
             var previousConfig = _config;
             var wasEnabled = _config.DeviceIntegration.Enabled;
-            var controllerWasEnabled = _config.DeviceIntegration.ControllerManagementEnabled;
+            var controllerWasEnabled = ControllerManagementEnabled;
             _config = config;
             Controllers.ApplyRumbleCalibration(config.RumbleCalibration);
-            var controllerIsEnabled = config.DeviceIntegration.ControllerManagementEnabled;
+            var controllerIsEnabled = ControllerManagementEnabled;
             ConfigurationChanged?.Invoke();
 
-            // Stored settings live in the configuration, so a reload can change what the plugin
-            // should be running with even though the plugin itself never changed.
-            _pluginSettings.ApplyConfig(config);
+            // Stored settings live in the configuration, so a reload can change what the handheld
+            // should be running with even though the handheld itself never changed.
             UpdateCapabilityDesiredContext();
             UpdateOemConfiguration();
             await Controllers.ApplySelectionAsync(
@@ -831,6 +809,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             {
                 case false when config.DeviceIntegration.Enabled:
                     _automaticRestartAttempts = 0;
+                    await RearmLightingProfilesAsync(cancellationToken).ConfigureAwait(false);
                     try
                     {
                         await StartCycleUnderGateAsync(cancellationToken).ConfigureAwait(false);
@@ -851,7 +830,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
                     // AutoTDP hands its original limit back while the power limit is still writable.
                     await RestoreAutoTdpBeforeStopAsync(cancellationToken).ConfigureAwait(false);
                     var teardown = await StopCycleUnderGateAsync(
-                        PluginStopReason.IntegrationDisabled,
+                        HandheldStopReason.IntegrationDisabled,
                         NormalShutdownDeadline(),
                         cancellationToken).ConfigureAwait(false);
                     PhysicalGlyphCatalog.ReplacePackageProfiles([]);
@@ -897,8 +876,8 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         }
     }
 
-    /// <summary>Quiesces the active plugin for suspend or session lock.</summary>
-    /// <param name="cancellationToken">Cancels transition waiting and the bounded plugin suspension.</param>
+    /// <summary>Quiesces the active handheld for suspend or session lock.</summary>
+    /// <param name="cancellationToken">Cancels transition waiting and the bounded handheld suspension.</param>
     /// <returns>Suspension completion; the virtual target and physical hiding are retained while forwarding is blocked.</returns>
     internal async Task SuspendAsync(CancellationToken cancellationToken = default)
     {
@@ -918,23 +897,25 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             var client = _client;
             if (client is null)
             {
-                Log.Info("Device suspend skipped: no active plugin cycle exists.");
+                Log.Info("Device suspend skipped: no active handheld cycle exists.");
                 return;
             }
 
             var deadline = Deadline.After(TimeSpan.FromSeconds(5));
             // A controller start still attaching (it retries for seconds after a wake) would otherwise
-            // finish after this decision and bring a target up under a suspended plugin.
+            // finish after this decision and bring a target up under a suspended handheld.
             await CancelControllerStartAsync().ConfigureAwait(false);
             if (Controllers.State is ControllerManagementState.Active)
             {
                 // As HC does: the virtual controller and the hidden pad stay exactly as they are across
-                // a sleep, and only forwarding stops. The plugin closes its own device below and opens it
+                // a sleep, and only forwarding stops. The handheld closes its own device below and opens it
                 // again on wake, and the kept target then resumes forwarding.
                 await Controllers.BlockForwardingAsync("system sleep", cancellationToken).ConfigureAwait(false);
                 Log.Info("Controller forwarding paused for suspend; the virtual controller is kept.");
             }
 
+            await _fanCurves.SuspendAsync().ConfigureAwait(false);
+            await _chargeLimits.StopAsync().ConfigureAwait(false);
             var state = await client.SuspendAsync(deadline, cancellationToken).ConfigureAwait(false);
             _oemActions.Reset();
             SetState(state.State);
@@ -985,14 +966,11 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
                     return;
             }
 
-            _identity = _collectIdentity();
             var deadline = Deadline.After(TimeSpan.FromSeconds(5));
-            var previousGeneration = Interlocked.Read(ref _cycleGeneration);
-            var requestedGeneration = Interlocked.Increment(ref _cycleGeneration);
             Exception? failure = null;
             try
             {
-                await client!.ResumeAsync(requestedGeneration, deadline, cancellationToken).ConfigureAwait(false);
+                await client!.ResumeAsync(deadline, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException && !cancellationToken.IsCancellationRequested)
             {
@@ -1000,7 +978,8 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             }
             finally
             {
-                SynchronizeGenerationAfterLifecycleCall(client!, previousGeneration);
+                UpdateCapabilityDesiredContext();
+                _oemActions.Reset();
             }
 
             if (_disposed)
@@ -1017,6 +996,9 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             }
 
             SetState(client!.LifecycleState);
+            await _fanCurves.ResumeAsync().ConfigureAwait(false);
+            await ReconcileChargeLimitAsync().ConfigureAwait(false);
+            ReplayLightingAfterTransition(afterSystemSleep ? "system wake" : "session unlock");
             await Controllers.ResumeForwardingAsync(afterSystemSleep ? "system wake" : "session unlock",
                 cancellationToken).ConfigureAwait(false);
         }
@@ -1030,9 +1012,9 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     private async Task RestartCycleUnderGateAsync(bool allowUnverifiedTeardown, CancellationToken cancellationToken)
     {
         Log.Warn($"Device resume: starting a fresh cycle (state={State}, "
-                 + $"plugin={_client?.LifecycleState.ToString() ?? "none"}).");
+                 + $"handheld={_client?.LifecycleState.ToString() ?? "none"}).");
         var repair = await StopCycleUnderGateAsync(
-            PluginStopReason.RuntimeFault,
+            HandheldStopReason.RuntimeFault,
             NormalShutdownDeadline(),
             cancellationToken).ConfigureAwait(false);
         if (allowUnverifiedTeardown)
@@ -1054,14 +1036,14 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     }
 
     /// <summary>Decides a resume. Pure, so every case is testable.</summary>
-    /// <param name="hasCycle">Whether a plugin cycle exists.</param>
+    /// <param name="hasCycle">Whether a handheld cycle exists.</param>
     /// <param name="state">The coordinator's cycle state.</param>
-    /// <param name="lifecycleState">The plugin runtime's last published state.</param>
+    /// <param name="lifecycleState">The handheld runtime's last published state.</param>
     /// <param name="afterSystemSleep">Whether the machine slept rather than the session unlocking.</param>
     /// <param name="integrationWanted">Whether device integration is on and WSGM is not shutting down.</param>
     /// <returns>The action.</returns>
     /// <remarks>
-    ///     Only a cleanly suspended plugin is resumed; the runtime refuses every other state, and a
+    ///     Only a cleanly suspended handheld is resumed; the runtime refuses every other state, and a
     ///     suspend or a resume cut off by the freeze leaves exactly those. A cycle that is gone is
     ///     started again only after a sleep and only when it faulted, which is how the runtime ends
     ///     when the pad re-enumerates on wake.
@@ -1114,11 +1096,12 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
 
             if (State is not DeviceCycleState.Faulted)
             {
-                Log.Info($"Device plugin retry ignored because state is {State}.");
+                Log.Info($"Handheld retry ignored because state is {State}.");
                 return false;
             }
 
             _automaticRestartAttempts = 0;
+            await RearmLightingProfilesAsync(cancellationToken).ConfigureAwait(false);
             await StartCycleUnderGateAsync(cancellationToken).ConfigureAwait(false);
             return true;
         }
@@ -1147,14 +1130,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         }
         finally
         {
-            try
-            {
-                _pluginSettings.Dispose();
-            }
-            finally
-            {
-                _lifetime.CancelAsync().ObserveFaults();
-            }
+            _lifetime.CancelAsync().ObserveFaults();
         }
     }
 
@@ -1162,7 +1138,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     /// <param name="reason">Stop reason used by the first shutdown request.</param>
     /// <param name="deadline">Outer cleanup/wait budget; repeated calls share the first shutdown operation.</param>
     /// <returns>Completion after shutdown finishes or this wait's deadline expires; unfinished owners remain retained.</returns>
-    internal ValueTask ShutdownAsync(PluginStopReason reason, Deadline deadline)
+    internal ValueTask ShutdownAsync(HandheldStopReason reason, Deadline deadline)
     {
         try
         {
@@ -1253,9 +1229,11 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         }
     }
 
-    private async Task ShutdownCoreAsync(PluginStopReason reason, Deadline deadline)
+    private async Task ShutdownCoreAsync(HandheldStopReason reason, Deadline deadline)
     {
         using var bounded = deadline.CreateCancellationSource();
+        await _fanCurves.StopAsync().ConfigureAwait(false);
+        await _chargeLimits.StopAsync().ConfigureAwait(false);
         // First, while the power limit is still writable: AutoTDP hands back the limit it took over
         // from. Exiting with its last automatic wattage latched leaves the handheld on a value the
         // user never chose.
@@ -1300,7 +1278,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         lock (_backgroundGate)
         {
             background =
-                [.. _backgroundTasks, _powerAssignmentTask, _oemActions.Completion, _pluginSettings.Completion];
+                [.. _backgroundTasks, _powerAssignmentTask, _oemActions.Completion];
         }
 
         var backgroundStopped =
@@ -1322,6 +1300,8 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         CleanupProvider("power notifications", () => _powerModeNotification?.Dispose());
         var diagnosticsStopped = await FinishStepAsync("diagnostics",
             _diagnostics?.DisposeAsync().AsTask() ?? Task.CompletedTask).ConfigureAwait(false);
+        await FinishStepAsync("software fan curves", _fanCurves.DisposeAsync().AsTask()).ConfigureAwait(false);
+        await FinishStepAsync("software charge limits", _chargeLimits.DisposeAsync().AsTask()).ConfigureAwait(false);
         var capabilitiesStopped = await FinishStepAsync("capabilities", Capabilities.DisposeAsync().AsTask())
             .ConfigureAwait(false);
         if (diagnosticsStopped && capabilitiesStopped && !bounded.IsCancellationRequested)
@@ -1356,7 +1336,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
                 }
 
                 // A failed restore or subscriber is still reported above, but cannot keep the
-                // remaining owners alive once plugin code and its deferred disposal have retired.
+                // remaining owners alive once handheld code and its deferred disposal have retired.
                 return _runtimeRetirement.IsCompleted;
             }
             finally
@@ -1463,13 +1443,12 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
 
         _intentionalStop = false;
         SetState(DeviceCycleState.Detected);
-        InstalledDevicePackage package;
-        long cycleGeneration;
-        DevicePluginRuntime client;
+        HandheldDefinition definition;
+        HandheldDeviceRuntime client;
         try
         {
             _identity = _collectIdentity();
-            PackageDiscovery = await _discoverPackage(cancellationToken)
+            DeviceDefinition = await _detectDevice(_identity, cancellationToken)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -1480,41 +1459,44 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
             ScheduleStartFault(new InvalidOperationException(
-                "The installed plugin packages could not be discovered.",
+                "The native handheld definition could not be selected.",
                 ex));
             return;
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        var discoveredPackage = InstalledPackage;
+        var detectedDefinition = DeviceDefinition;
         PhysicalGlyphCatalog.ReplacePackageProfiles([]);
-        if (discoveredPackage is null || !discoveredPackage.Valid)
+        if (detectedDefinition is null)
         {
             if (_config.DeviceIntegration.ControllerManagementEnabled)
             {
-                await Controllers.RecoverPhysicalControllerAsync("no usable device package", cancellationToken)
+                await Controllers.RecoverPhysicalControllerAsync("unsupported handheld identity", cancellationToken)
                     .ConfigureAwait(false);
             }
 
             SetState(DeviceCycleState.Passive);
-            var refusal = PackageDiscovery.ErrorCode
-                          ?? discoveredPackage?.RejectionCode
-                          ?? "no-package-installed";
             Log.Warn(
-                $"Device cycle passive: {refusal}; devicePackages={PackageDiscovery.Inventory.PackageFiles.Count}.");
+                $"Handheld unsupported: code={CapabilityReasonCode.Unsupported}, manufacturer={_identity?.SystemManufacturer ?? "unknown"}, "
+                + $"model={_identity?.SystemProduct ?? "unknown"}, board={_identity?.BaseboardProduct ?? "unknown"}, "
+                + $"bios={_identity?.BiosVersion ?? "unknown"}, source={HandheldDeviceRuntime.SourceVersion}.");
             cancellationToken.ThrowIfCancellationRequested();
             return;
         }
 
-        package = discoveredPackage;
+        definition = detectedDefinition;
+        if (!definition.HasController)
+        {
+            await Controllers.RecoverPhysicalControllerAsync("power-only device definition", cancellationToken)
+                .ConfigureAwait(false);
+        }
 
-        cycleGeneration = Interlocked.Increment(ref _cycleGeneration);
         SetState(DeviceCycleState.Activating);
         try
         {
             client = await _loadRuntime(
-                package,
-                cycleGeneration,
+                definition,
+                _identity!,
                 cancellationToken,
                 Path.Combine(_store.Context.Root, "DeviceState")).ConfigureAwait(false);
         }
@@ -1530,20 +1512,23 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         }
 
         _client = client;
+        client.ApplySoftwareFanCurveAsync = (curve, _) => ConfigureFanCurveAsync(curve, true);
+        client.ApplySoftwareChargeLimitAsync = (percent, _) => ConfigureChargeLimitAsync(percent, true);
         try
         {
             Attach(client);
-            Capabilities.Attach(client, cycleGeneration);
+            Capabilities.Attach(client);
             UpdateCapabilityDesiredContext();
             _oemActions.Attach(client);
             UpdateOemConfiguration();
-            var controllerManagement = _config.DeviceIntegration.ControllerManagementEnabled;
-            // Before the plugin starts, because the plugin's first job is to find the physical
+            var controllerManagement =
+                _config.DeviceIntegration.ControllerManagementEnabled && definition.HasController;
+            // Before the handheld starts, because the handheld's first job is to find the physical
             // controller and it cannot find one that HidHide is hiding from this process. Doing it
             // afterwards is too late for the cycle that needed it.
             await Controllers.EnsureHidHideReadableAsync(controllerManagement, cancellationToken)
                 .ConfigureAwait(false);
-            var activation = await client.StartAsync(_identity!, cycleGeneration, controllerManagement,
+            var activation = await client.StartAsync(controllerManagement,
                 cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             if (activation.State is DeviceCycleState.Passive)
@@ -1556,14 +1541,17 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
 
                 await DetachAsync(client).ConfigureAwait(false);
                 var passiveDeadline = NormalShutdownDeadline();
-                await client.StopAsync(PluginStopReason.IntegrationDisabled, passiveDeadline, cancellationToken)
+                await client.StopAsync(passiveDeadline, cancellationToken)
                     .ConfigureAwait(false);
                 await DisposeRuntimeAsync(client, passiveDeadline).ConfigureAwait(false);
                 _client = null;
                 SetDeviceDefinitionId(null);
                 SetState(DeviceCycleState.Passive);
                 _automaticRestartAttempts = 0;
-                Log.Info($"Device detection passive: package={package.Manifest?.Id}; runtime retired.");
+                Log.Warn($"Handheld passive: family={definition.FamilyId}, model={definition.Id}, "
+                         + $"code={activation.Reason?.Code.ToString() ?? "Unknown"}, detail={activation.Reason?.Detail ?? "No native service acquired"}, "
+                         + $"manufacturer={_identity?.SystemManufacturer ?? "unknown"}, board={_identity?.BaseboardProduct ?? "unknown"}, "
+                         + $"bios={_identity?.BiosVersion ?? "unknown"}, source={HandheldDeviceRuntime.SourceVersion}; runtime retired.");
                 return;
             }
 
@@ -1573,19 +1561,13 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
 
             // Attached after the definition is known, because stored values are keyed by it and by
             // the package: a value authored for one device must never be handed to another.
-            _pluginSettings.Attach(
-                client,
-                activation.DeviceDefinitionId ?? string.Empty,
-                package.Manifest?.Id ?? string.Empty,
-                _config);
-            LoadPhysicalGlyphProfiles(package);
+            LoadPhysicalGlyphProfiles(client);
             SetState(activation.State);
             _automaticRestartAttempts = 0;
             Log.Info(
-                $"Device cycle active: package={package.Manifest?.Id}, "
-                + $"cycleGeneration={cycleGeneration}, "
+                $"Device cycle active: package={definition.FamilyId}, "
                 + $"state={activation.State}.");
-            Observe(ObserveRuntimeCompletionAsync(client), "plugin supervision");
+            Observe(ObserveRuntimeCompletionAsync(client), "handheld supervision");
             cancellationToken.ThrowIfCancellationRequested();
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -1594,12 +1576,12 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         }
         catch (OperationCanceledException ex)
         {
-            // The runtime owns a bounded start deadline. If it expires after the plugin entered
+            // The runtime owns a bounded start deadline. If it expires after the handheld entered
             // StartAsync, hardware may already be acquired even though the caller token is live;
             // run the same bounded cleanup path used by caller cancellation.
             await ScheduleStartFaultAfterCleanupAsync(
                 ex,
-                PluginStopReason.StartCanceled,
+                HandheldStopReason.StartCanceled,
                 cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
@@ -1607,7 +1589,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             cancellationToken.ThrowIfCancellationRequested();
             await ScheduleStartFaultAfterCleanupAsync(
                 ex,
-                PluginStopReason.StartFailed,
+                HandheldStopReason.StartFailed,
                 cancellationToken).ConfigureAwait(false);
         }
     }
@@ -1623,10 +1605,10 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         // the bounded handoff. An independent caller cancellation runs its own fresh bounded teardown.
         return _lifetime.IsCancellationRequested
             ? ValueTask.CompletedTask
-            : new ValueTask(CleanupAbortedStartAsync(PluginStopReason.StartCanceled));
+            : new ValueTask(CleanupAbortedStartAsync(HandheldStopReason.StartCanceled));
     }
 
-    private async Task CleanupAbortedStartAsync(PluginStopReason reason)
+    private async Task CleanupAbortedStartAsync(HandheldStopReason reason)
     {
         var teardownVerified = false;
         try
@@ -1650,7 +1632,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
 
     private async Task ScheduleStartFaultAfterCleanupAsync(
         Exception startFailure,
-        PluginStopReason reason,
+        HandheldStopReason reason,
         CancellationToken startCancellationToken)
     {
         var failure = startFailure;
@@ -1672,7 +1654,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         ScheduleStartFault(failure);
     }
 
-    private async Task ObserveRuntimeCompletionAsync(DevicePluginRuntime client)
+    private async Task ObserveRuntimeCompletionAsync(HandheldDeviceRuntime client)
     {
         var exit = await client.Completion.ConfigureAwait(false);
         await _transitionGate.WaitAsync().ConfigureAwait(false);
@@ -1687,7 +1669,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             var cleanupDeadline = NormalShutdownDeadline();
             using var cleanupCancellation = cleanupDeadline.CreateCancellationSource();
             var cleanup = await TeardownClientAsync(
-                client, PluginStopReason.RuntimeFault, cleanupDeadline,
+                client, HandheldStopReason.RuntimeFault, cleanupDeadline,
                 cleanupCancellation.Token).ConfigureAwait(false);
 
             // An unverified step is logged, never a reason to stay down: HC's Close ignores its results,
@@ -1695,7 +1677,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             // sleep whenever a release write failed because the pad had already dropped.
             if (!cleanup.Verified)
             {
-                Log.Warn($"Device plugin fault cleanup had unverified steps; restarting anyway: "
+                Log.Warn($"Handheld fault cleanup had unverified steps; restarting anyway: "
                          + $"{cleanup.ToException().Message}");
             }
 
@@ -1710,7 +1692,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             }
 
             Log.Warn(
-                $"Device plugin fault: generation={_cycleGeneration}, reason={exit.Reason}, "
+                $"Handheld fault: reason={exit.Reason}, "
                 + $"detail={exit.Detail}.");
             ScheduleFaultRecovery();
         }
@@ -1720,7 +1702,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         catch (Exception ex)
         {
             SetState(DeviceCycleState.Faulted);
-            Log.Error("Device plugin restart failed; cycle faulted", ex);
+            Log.Error("Handheld restart failed; cycle faulted", ex);
         }
         finally
         {
@@ -1733,7 +1715,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         if (_faultRecoveryPending || _disposed || !_config.DeviceIntegration.Enabled)
         {
             Log.Warn(
-                "Device plugin start fault recovery suppressed: "
+                "Handheld start fault recovery suppressed: "
                 + $"pending={_faultRecoveryPending}, disposed={_disposed}, "
                 + $"integrationEnabled={_config.DeviceIntegration.Enabled}, "
                 + $"failure={exception.Message}");
@@ -1741,8 +1723,8 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         }
 
         _faultRecoveryPending = true;
-        Log.Error("Device plugin start failed", exception);
-        Observe(HandleStartFaultAsync(), "plugin start fault recovery");
+        Log.Error("Handheld start failed", exception);
+        Observe(HandleStartFaultAsync(), "handheld start recovery");
     }
 
     private async Task HandleStartFaultAsync()
@@ -1752,7 +1734,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         {
             if (!_faultRecoveryPending)
             {
-                Log.Info("Device plugin start-fault worker stopped: recovery is no longer pending.");
+                Log.Info("Handheld start-fault worker stopped: recovery is no longer pending.");
                 return;
             }
 
@@ -1760,7 +1742,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             if (_disposed || !_config.DeviceIntegration.Enabled || _client is not null)
             {
                 Log.Info(
-                    "Device plugin start-fault worker stopped: "
+                    "Handheld start-fault worker stopped: "
                     + $"disposed={_disposed}, integrationEnabled={_config.DeviceIntegration.Enabled}, "
                     + $"runtimePresent={_client is not null}.");
                 return;
@@ -1780,7 +1762,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         {
             SetState(DeviceCycleState.Faulted);
             Log.Error(
-                $"Device cycle faulted after restart exhaustion: package={InstalledPackage?.Manifest?.Id}, "
+                $"Device cycle faulted after restart exhaustion: package={DeviceDefinition?.FamilyId}, "
                 + $"the {AutomaticRestartBackoffs.Length} automatic restart attempts were exhausted.");
             Observe(Controllers.ShowPhysicalControllerAsync("the device cycle could not be restarted",
                 CancellationToken.None), "controller hide release");
@@ -1790,9 +1772,9 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         var backoff = AutomaticRestartBackoffs[_automaticRestartAttempts++];
         SetState(DeviceCycleState.Activating);
         Log.Warn(
-            $"Device plugin restart {_automaticRestartAttempts}/{AutomaticRestartBackoffs.Length} scheduled in "
+            $"Handheld restart {_automaticRestartAttempts}/{AutomaticRestartBackoffs.Length} scheduled in "
             + $"{backoff.TotalSeconds:0.#} s.");
-        Observe(RestartAfterDelayAsync(backoff), "delayed plugin restart");
+        Observe(RestartAfterDelayAsync(backoff), "delayed handheld restart");
     }
 
     private async Task RestartAfterDelayAsync(TimeSpan backoff)
@@ -1805,17 +1787,19 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         }
 
         Log.Info(
-            "Device plugin delayed restart skipped: "
+            "Handheld delayed restart skipped: "
             + $"disposed={_disposed}, integrationEnabled={_config.DeviceIntegration.Enabled}, "
             + $"runtimePresent={_client is not null}.");
     }
 
     private async Task<DeviceClientTeardownResult> StopCycleUnderGateAsync(
-        PluginStopReason reason,
+        HandheldStopReason reason,
         Deadline deadline,
         CancellationToken cancellationToken)
     {
         _intentionalStop = true;
+        await _fanCurves.StopAsync().ConfigureAwait(false);
+        await _chargeLimits.StopAsync().ConfigureAwait(false);
         var client = _client;
         _client = null;
         if (client is null)
@@ -1871,7 +1855,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         return new DeviceClientTeardownResult([.. failures]);
     }
 
-    private async ValueTask DisposeRuntimeAsync(DevicePluginRuntime client, Deadline deadline)
+    private async ValueTask DisposeRuntimeAsync(HandheldDeviceRuntime client, Deadline deadline)
     {
         try
         {
@@ -1885,12 +1869,12 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     }
 
     /// <summary>
-    ///     Attempts controller and plugin cleanup before detaching and disposing the runtime.
+    ///     Attempts controller and handheld cleanup before detaching and disposing the runtime.
     ///     Every non-fatal unverified response or exception is retained while later phases continue.
     /// </summary>
     private async Task<DeviceClientTeardownResult> TeardownClientAsync(
-        DevicePluginRuntime client,
-        PluginStopReason reason,
+        HandheldDeviceRuntime client,
+        HandheldStopReason reason,
         Deadline deadline,
         CancellationToken cancellationToken)
     {
@@ -1900,7 +1884,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             try
             {
                 await ReleaseControllerAsync(client, HandoffScope.FullDeactivation, deadline,
-                    cancellationToken, reason is PluginStopReason.RuntimeFault).ConfigureAwait(false);
+                    cancellationToken, reason is HandheldStopReason.RuntimeFault).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OutOfMemoryException)
             {
@@ -1910,7 +1894,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
 
             try
             {
-                var stopped = await client.StopAsync(reason, deadline, cancellationToken)
+                var stopped = await client.StopAsync(deadline, cancellationToken)
                     .ConfigureAwait(false);
                 if (stopped.State is DeviceCycleState.Disabled && stopped.Reason is null)
                 {
@@ -1998,7 +1982,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
                 .ConfigureAwait(false);
             Log.Info("Controller management disabled.");
 
-            // After the release, and never instead of it: the plugin remembers its acquisition policy
+            // After the release, and never instead of it: the handheld remembers its acquisition policy
             // across suspend/resume.
             try
             {
@@ -2010,10 +1994,10 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 Log.Warn(
-                    "The plugin did not acknowledge controller management being disabled; "
-                    + $"restarting the plugin with the persisted policy: {ex.Message}");
+                    "The handheld did not acknowledge controller management being disabled; "
+                    + $"restarting the handheld with the persisted policy: {ex.Message}");
                 var teardown = await StopCycleUnderGateAsync(
-                    PluginStopReason.RuntimeFault,
+                    HandheldStopReason.RuntimeFault,
                     NormalShutdownDeadline(),
                     cancellationToken).ConfigureAwait(false);
                 ReportDeviceTeardown(teardown, cancellationToken);
@@ -2023,7 +2007,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             return;
         }
 
-        // Before the plugin is asked to acquire, exactly as at cycle start: it cannot discover an
+        // Before the handheld is asked to acquire, exactly as at cycle start: it cannot discover an
         // interface another application's HidHide allowlist is hiding from WSGM, and adding
         // the allowance afterwards does nothing for the acquisition that already failed.
         await Controllers.EnsureHidHideReadableAsync(true, cancellationToken).ConfigureAwait(false);
@@ -2036,33 +2020,17 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         Log.Info("Controller management enabled.");
     }
 
-    private void SynchronizeGenerationAfterLifecycleCall(
-        DevicePluginRuntime client,
-        long previousGeneration)
-    {
-        var activeGeneration = client.CycleGeneration;
-        Interlocked.Exchange(ref _cycleGeneration, activeGeneration);
-        if (activeGeneration == previousGeneration)
-        {
-            return;
-        }
 
-        Capabilities.MarkCycleGenerationChanged(activeGeneration);
-        UpdateCapabilityDesiredContext();
-        _oemActions.Reset();
-    }
-
-    /// <summary>Has the plugin let go after its virtual target was lost, and shows the physical pad.</summary>
+    /// <summary>Has the handheld let go after its virtual target was lost, and shows the physical pad.</summary>
     /// <param name="detail">Why the target was lost.</param>
     /// <remarks>
-    ///     The plugin conversation runs only for the cycle that lost the target. When it is skipped (a newer
+    ///     The handheld conversation runs only for the cycle that lost the target. When it is skipped (a newer
     ///     cycle, shutdown) or the transition gate is not reached in time, a manager still Faulted has no
     ///     virtual pad driving anything, so the physical pad is shown anyway rather than left hidden.
     /// </remarks>
     private void OnControllerTargetLost(string detail)
     {
         var client = _client;
-        var generation = Interlocked.Read(ref _cycleGeneration);
         Observe(Task.Run(async () =>
         {
             var released = false;
@@ -2073,7 +2041,6 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
                 try
                 {
                     if (_disposed || client is null || !ReferenceEquals(_client, client)
-                        || generation != Interlocked.Read(ref _cycleGeneration)
                         || Controllers.State is not ControllerManagementState.Faulted)
                     {
                         return;
@@ -2085,7 +2052,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
                         return;
                     }
 
-                    // The release shows the physical pad in its own cleanup, whatever the plugin does, and
+                    // The release shows the physical pad in its own cleanup, whatever the handheld does, and
                     // ends Faulted with this detail.
                     released = true;
                     await ReleaseControllerAsync(client, HandoffScope.ControllerOnly,
@@ -2109,7 +2076,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         }), "Controller target-loss recovery");
     }
 
-    private void Attach(DevicePluginRuntime client)
+    private void Attach(HandheldDeviceRuntime client)
     {
         // The handler carries its client, so a notification from a client that is no longer current
         // (a stopping one, or one whose caller stopped waiting) is dropped instead of reaching SetState.
@@ -2119,7 +2086,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         client.ControllerSampleReceived += Controllers.Submit;
     }
 
-    private ValueTask DetachAsync(DevicePluginRuntime client)
+    private ValueTask DetachAsync(HandheldDeviceRuntime client)
     {
         if (_lifecycleHandler is { } lifecycleHandler)
         {
@@ -2128,20 +2095,19 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
 
         client.PhysicalIdentitiesReceived -= OnPhysicalIdentities;
         client.ControllerSampleReceived -= Controllers.Submit;
-        // The plugin no longer owns the controller: no frame goes to it from here on.
+        // The handheld no longer owns the controller: no frame goes to it from here on.
         _hapticSink.Withdraw();
         Capabilities.Detach();
-        _pluginSettings.Detach();
         _oemActions.Detach();
         return ValueTask.CompletedTask;
     }
 
     /// <summary>
-    ///     Starts WSGM-side controller management for the controller the plugin just took.
+    ///     Starts WSGM-side controller management for the controller the handheld just took.
     /// </summary>
     /// <remarks>
     ///     Driven by the publication rather than by cycle start: WSGM may only hide a device and create
-    ///     a virtual target once the plugin has actually acquired the physical one, and the plugin
+    ///     a virtual target once the handheld has actually acquired the physical one, and the handheld
     ///     republishes after a controller-management re-enable and after resume.
     /// </remarks>
     private void OnPhysicalIdentities(
@@ -2205,11 +2171,11 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     /// <param name="faultDetail">When set, the release ends Faulted with this detail instead of Idle.</param>
     /// <remarks>
     ///     A start still attaching would otherwise take the manager's transition after the release and
-    ///     raise a virtual target over a plugin that has let go, with the physical pad hidden. A start
+    ///     raise a virtual target over a handheld that has let go, with the physical pad hidden. A start
     ///     that outlives the deadline is logged and the release runs anyway.
     /// </remarks>
     private async Task ReleaseControllerAsync(
-        DevicePluginRuntime client,
+        HandheldDeviceRuntime client,
         HandoffScope scope,
         Deadline deadline,
         CancellationToken cancellationToken,
@@ -2230,7 +2196,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
 
         await Controllers.ReleaseAsync(
             scope,
-            token => client.ReleaseControllerAsync(scope, deadline, token),
+            token => client.ReleaseControllerAsync(deadline, token),
             deadline,
             cancellationToken,
             keepPhysicalHidden,
@@ -2292,7 +2258,6 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
 
         // Applied after the per-capability values so an explicitly selected fan profile wins for the
         // capability it covers, rather than the order deciding at random.
-        await ApplyAuthoredProfilesAsync(snapshot, cancellationToken).ConfigureAwait(false);
         await Controllers.ApplySelectionAsync(
             CurrentControllerSelection(),
             _runningApplicationId,
@@ -2303,7 +2268,13 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     /// <summary>The controller selection from the device switches and the profile store.</summary>
     private ControllerSelection CurrentControllerSelection()
     {
-        return ControllerSelection.From(_config.DeviceIntegration, Profiles.Current.Config);
+        var selection = ControllerSelection.From(_config.DeviceIntegration, Profiles.Current.Config);
+        return DeviceDefinition is { HasController: false }
+            ? selection with
+            {
+                Enabled = false, DisabledDetail = "This device definition provides hardware controls only."
+            }
+            : selection;
     }
 
     /// <summary>The target chosen for the running application, whether or not one is live.</summary>
@@ -2456,7 +2427,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     /// <returns>The controller state after the change was applied.</returns>
     /// <remarks>
     ///     The stored setting is changed and then the manager is asked to re-resolve, in that order, so
-    ///     the persisted value and the running target cannot disagree if the apply fails — the setting
+    ///     the persisted value and the running target cannot disagree if the apply fails â€” the setting
     ///     is what the next reload and the Settings checkbox both read. Like every other setting it lands
     ///     in the running game's profile while that is on, and in Global otherwise.
     /// </remarks>
@@ -2511,19 +2482,15 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     /// <param name="value">The requested value, or null for an action.</param>
     /// <param name="timeout">How long the command may take.</param>
     /// <param name="origin">Who asked for it, which decides whether AutoTDP steps aside.</param>
-    /// <param name="expectedCycle">Optional cycle captured by a restore operation.</param>
-    /// <param name="expectedDescriptors">Optional descriptor generation captured by a restore.</param>
     /// <param name="applyPowerPair">Whether both limits of the declared sustained/boost pair move to this target.</param>
     /// <param name="cancellationToken">Cancels the command.</param>
-    /// <returns>The command result reported by the plugin.</returns>
+    /// <returns>The command result reported by the handheld.</returns>
     internal async Task<CapabilityCommandResult> ExecuteCapabilityAsync(
         string capabilityId,
         string? instanceId,
         CapabilityValue? value,
         TimeSpan timeout,
         CapabilityCommandOrigin origin = CapabilityCommandOrigin.User,
-        long? expectedCycle = null,
-        long? expectedDescriptors = null,
         bool applyPowerPair = false,
         CancellationToken cancellationToken = default)
     {
@@ -2552,7 +2519,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         try
         {
             return await ExecuteCapabilityCoreAsync(capabilityId, instanceId, value, timeout, origin,
-                    expectedCycle, expectedDescriptors, applyPowerPair, cancellationToken)
+                    applyPowerPair, cancellationToken)
                 .ConfigureAwait(false);
         }
         finally
@@ -2696,7 +2663,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         var result = await ExecuteCapabilityCoreAsync(power.Descriptor.CapabilityId, power.Descriptor.InstanceId,
             new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = watts },
             TimeSpan.FromSeconds(5), CapabilityCommandOrigin.ProfileRestore,
-            state.CycleGeneration, state.DescriptorGeneration, paired, cancellationToken).ConfigureAwait(false);
+            paired, cancellationToken).ConfigureAwait(false);
         var applied = result.Outcome.IsApplied();
         if (!applied)
         {
@@ -2726,7 +2693,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         var pair = await ExecuteCapabilityCoreAsync(primary.Descriptor.CapabilityId, primary.Descriptor.InstanceId,
             new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = sustained },
             TimeSpan.FromSeconds(5), CapabilityCommandOrigin.ProfileRestore,
-            state.CycleGeneration, state.DescriptorGeneration, true, cancellationToken).ConfigureAwait(false);
+            true, cancellationToken).ConfigureAwait(false);
         if (!pair.Outcome.IsApplied())
         {
             return false;
@@ -2736,7 +2703,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         var result = await ExecuteCapabilityCoreAsync(peerId!, null,
             new CapabilityValue { Kind = CapabilityValueKind.Integer, IntegerValue = boost },
             TimeSpan.FromSeconds(5), CapabilityCommandOrigin.ProfileRestore,
-            state.CycleGeneration, state.DescriptorGeneration, false, cancellationToken).ConfigureAwait(false);
+            false, cancellationToken).ConfigureAwait(false);
         return result.Outcome.IsApplied();
     }
 
@@ -2768,7 +2735,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
 
     private async Task<CapabilityCommandResult> ExecuteCapabilityCoreAsync(
         string capabilityId, string? instanceId, CapabilityValue? value, TimeSpan timeout,
-        CapabilityCommandOrigin origin, long? expectedCycle, long? expectedDescriptors, bool applyPowerPair,
+        CapabilityCommandOrigin origin, bool applyPowerPair,
         CancellationToken cancellationToken)
     {
         if (_disposed && origin is not CapabilityCommandOrigin.AutoTdp)
@@ -2789,12 +2756,17 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
                 && FindCapability(capabilityId, instanceId) is { } view)
             {
                 var handled = await CapabilityUserWrites.HandleUserWriteAsync(Profiles,
-                    DeviceMachineIdentity.StableKey(_identity), view, value, async () =>
+                    DeviceIdentityKey!, view, value, async () =>
                     {
                         var written = await Capabilities.ExecuteAsync(capabilityId, instanceId, value, timeout,
-                            expectedCycle, expectedDescriptors, applyPowerPair,
+                            applyPowerPair,
                             cancellationToken).ConfigureAwait(false);
                         NotifyManualPowerChange(capabilityId, instanceId, value, written);
+                        if (written.Outcome.IsApplied() && view.Descriptor.Role == CapabilityRole.LightingZoneColor)
+                        {
+                            await ManualLightingOverrideAsync(cancellationToken).ConfigureAwait(false);
+                        }
+
                         return written;
                     }, _manualVariableRefresh, cancellationToken).ConfigureAwait(false);
                 UpdateCapabilityDesiredContext();
@@ -2806,7 +2778,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
                 instanceId,
                 value,
                 timeout,
-                expectedCycle, expectedDescriptors, applyPowerPair, cancellationToken).ConfigureAwait(false);
+                applyPowerPair, cancellationToken).ConfigureAwait(false);
             // ReSharper disable once SwitchStatementMissingSomeEnumCasesNoDefault
             switch (origin)
             {
@@ -2916,7 +2888,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     /// <param name="capabilityId">The capability that was commanded.</param>
     /// <param name="instanceId">Its instance, or null for a single-instance capability.</param>
     /// <param name="value">The requested value, or null for an action.</param>
-    /// <param name="result">What the plugin reported.</param>
+    /// <param name="result">What the handheld reported.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
     /// <returns>A task completing once the value is stored, or immediately when it is not.</returns>
     /// <remarks>
@@ -2927,7 +2899,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     ///         Applied after the device took the value, not before: recording a preference the hardware
     ///         refused would restore a value on the next launch that the device never accepted. An
     ///         unverified write still counts, because the desired state is what the user asked for and the
-    ///         plugin reports that it wrote it.
+    ///         handheld reports that it wrote it.
     ///     </para>
     /// </remarks>
     private async Task PersistUserCapabilityValueAsync(
@@ -2961,7 +2933,12 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
 
         // Restores never reach persistence. A user control landing back on the desired value
         // also needs no configuration write.
-        if (await CapabilityUserWrites.PersistAsync(Profiles, DeviceMachineIdentity.StableKey(_identity), view,
+        if (view.Descriptor.Role == CapabilityRole.LightingZoneColor)
+        {
+            await ManualLightingOverrideAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        if (await CapabilityUserWrites.PersistAsync(Profiles, DeviceIdentityKey!, view,
                 value, cancellationToken).ConfigureAwait(false))
         {
             UpdateCapabilityDesiredContext();
@@ -2987,150 +2964,6 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         _oemActions.ConfigureActions(actions);
     }
 
-    /// <summary>The authored fan profiles for the active device, the choice in force, and its scope.</summary>
-    /// <returns>Null when the device has no authored profiles at all.</returns>
-    /// <remarks>
-    ///     Read on every snapshot rather than cached: the answer follows both a configuration reload
-    ///     and a change of running application, and it is a handful of list lookups against objects
-    ///     already in memory.
-    /// </remarks>
-    internal (IReadOnlyList<DeviceAuthoredProfile> Profiles, Resolved<string?> Selected)?
-        AuthoredProfileSelection()
-    {
-        var scope = ActivePluginScope(candidate => candidate.Profiles.Count > 0);
-        if (scope is null)
-        {
-            return null;
-        }
-
-        var profiles = scope.Profiles
-            .Where(profile => profile.CapabilityId == CapabilityIds.FanCurve)
-            .ToArray();
-        return profiles.Length == 0
-            ? null
-            : (profiles, Profiles.Current.Layers.Reference(values => values.FanCurveProfileId));
-    }
-
-    /// <summary>Advances the authored fan profile and applies the new choice.</summary>
-    /// <param name="cancellationToken">Cancels the change.</param>
-    /// <returns>A task completing once the selection is persisted and applied.</returns>
-    /// <remarks>
-    ///     Scoped to the running application when there is one and global otherwise, because that is
-    ///     what a user means by changing this row: mid-game they are changing it for what they are
-    ///     playing, and on the desktop there is no per-game scope to mean.
-    ///     <para>
-    ///         Persisted first, then applied. The reverse order leaves the device running a profile the
-    ///         configuration does not name if the save fails, which survives into the next session as a
-    ///         device state nothing explains.
-    ///     </para>
-    /// </remarks>
-    internal Task CycleAuthoredProfileAsync(CancellationToken cancellationToken = default)
-    {
-        var selection = AuthoredProfileSelection();
-        return SelectAuthoredProfileAsync(selection is { } current
-            ? ProfileEdits.NextAuthoredProfile(current.Profiles.Select(profile => profile.ProfileId).ToArray(),
-                current.Selected.Value)
-            : null, cancellationToken);
-    }
-
-    /// <summary>Persists and applies an explicit authored profile selection for the current application scope.</summary>
-    /// <param name="next">Current device profile identifier, or null to clear the layer's selection.</param>
-    /// <param name="cancellationToken">Cancels persistence or application; shutdown also cancels admission.</param>
-    /// <returns>Completion after persistence and the application attempt; missing/unknown profiles are ignored.</returns>
-    internal async Task SelectAuthoredProfileAsync(string? next, CancellationToken cancellationToken = default)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        using var admission = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
-        cancellationToken = admission.Token;
-        var current = ActivePluginScope(candidate => candidate.Profiles.Count > 0);
-        if (current is null || (next is not null && !current.Profiles.Any(profile => profile.ProfileId == next)))
-        {
-            return;
-        }
-
-        var snapshot = await Profiles.SetAsync(values => values.FanCurveProfileId = next,
-            $"fan profile {next ?? "(none)"}", cancellationToken: cancellationToken).ConfigureAwait(false);
-        await ApplyAuthoredProfilesAsync(snapshot, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>Applies the authored profile in force for the running application.</summary>
-    /// <param name="snapshot">The profiles and the application they resolve for.</param>
-    /// <param name="cancellationToken">Cancels the device writes.</param>
-    /// <remarks>
-    ///     Every failure here is contained. A profile that cannot be applied is a degraded feature, not
-    ///     a reason to fault the session, and the applier already logs which step refused it.
-    /// </remarks>
-    private async Task ApplyAuthoredProfilesAsync(
-        ProfileSnapshot snapshot,
-        CancellationToken cancellationToken)
-    {
-        if (_disposed)
-        {
-            return;
-        }
-
-        var selected = snapshot.Layers.Reference(values => values.FanCurveProfileId);
-        var scope = ActivePluginScope(candidate => candidate.Profiles.Count > 0);
-        if (selected.Value is null || scope is null)
-        {
-            return;
-        }
-
-        try
-        {
-            await DeviceProfileApplier.ApplyAsync(
-                scope.Profiles.FirstOrDefault(profile => profile.ProfileId == selected.Value),
-                selected,
-                CapabilityIds.FanCurve,
-                DescribeCapability,
-                // A started write runs to its deadline, as in ReconcileDesiredValuesAsync.
-                (capabilityId, value, _) => ExecuteCapabilityAsync(
-                    capabilityId,
-                    null,
-                    value,
-                    TimeSpan.FromSeconds(5),
-                    CapabilityCommandOrigin.AutomaticControl,
-                    cancellationToken: _lifetime.Token),
-                cancellationToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Applying the fan profile failed: {ex.Message}");
-        }
-    }
-
-    /// <summary>Reads the descriptor the device publishes right now for one capability.</summary>
-    /// <remarks>
-    ///     At apply time rather than cached: a plugin republishes its capabilities across a cycle, and a
-    ///     curve checked against a stale descriptor is exactly the case the pre-apply check exists for.
-    /// </remarks>
-    private CapabilityDescriptor? DescribeCapability(string capabilityId)
-    {
-        return Capabilities.Snapshot().FirstOrDefault(view => string.Equals(
-            view.Descriptor.CapabilityId,
-            capabilityId,
-            StringComparison.Ordinal))?.Descriptor;
-    }
-
-    /// <summary>The stored settings scope of the active device and plugin matching a predicate.</summary>
-    private PluginSettingsScope? ActivePluginScope(Func<PluginSettingsScope, bool> predicate)
-    {
-        var device = ActiveDeviceDefinitionId;
-        var plugin = InstalledPackage?.Manifest?.Id;
-        if (device is null || plugin is null)
-        {
-            return null;
-        }
-
-        return _config.DeviceIntegration.PluginSettings.LastOrDefault(candidate =>
-            string.Equals(candidate.DeviceDefinitionId, device, StringComparison.Ordinal)
-            && string.Equals(candidate.PluginId, plugin, StringComparison.Ordinal)
-            && predicate(candidate));
-    }
-
     /// <summary>Writes every persistent desired value the hardware does not already hold.</summary>
     /// <param name="reason">What asked for the reconciliation, for the log.</param>
     /// <param name="cancellationToken">Cancels the remaining commands.</param>
@@ -3152,6 +2985,7 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
                 return;
             }
 
+            await ReconcileLightingProfileAsync(Profiles.Current, cancellationToken).ConfigureAwait(false);
             await CapabilityDesiredReconciler.RunAsync(
                 new CapabilityReconcilePass(
                     "Device",
@@ -3160,13 +2994,19 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
                 {
                     ReadCurrent = Capabilities.TryGetView,
                     Priority = ReconciliationPriority,
-                    Include = view => (!lightingOnly || DeviceLightingRestore.IsLighting(view.Descriptor.Role))
+                    Include = view => !OwnsLightingProfile(view)
+                                      && (!lightingOnly || DeviceLightingRestore.IsLighting(view.Descriptor.Role))
                                       && !(view.Descriptor.Role is CapabilityRole.PowerSlowLimit
                                            && (ManualTdpUnified || PowerAssignments.HasCurrentAssignment)),
                     Abandon = () => lightingOnly && Volatile.Read(ref _userCapabilityCommands) != 0
                 },
                 reason,
                 cancellationToken).ConfigureAwait(false);
+            if (!lightingOnly)
+            {
+                await ApplyAuthoredProfilesAsync(Profiles.Current, cancellationToken).ConfigureAwait(false);
+                await ReconcileChargeLimitAsync().ConfigureAwait(false);
+            }
         }
         finally
         {
@@ -3202,8 +3042,6 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
                 desired,
                 TimeSpan.FromSeconds(5),
                 CapabilityCommandOrigin.DesiredStateRestore,
-                view.Projection.State.CycleGeneration,
-                view.Projection.State.DescriptorGeneration,
                 cancellationToken: _lifetime.Token).ConfigureAwait(false);
             outcome = result.Outcome;
             return result;
@@ -3249,55 +3087,47 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     private void UpdateCapabilityDesiredContext()
     {
         // Unknown power reads as AC here: only a confirmed battery state selects battery values.
-        Capabilities.UpdateDesiredContext(DeviceIdentityKey, Profiles.Current.Layers, _readOnAcPower() ?? true);
+        Capabilities.UpdateDesiredContext(DeviceIdentityKey, LightingProfileDesiredLayers(Profiles.Current.Layers),
+            _readOnAcPower() ?? true);
     }
 
     private void UpdateOemConfiguration()
     {
         _oemActions.UpdateConfiguration(
             _config.DeviceIntegration.OemAssignments,
-            _config.DeviceIntegration.ControllerManagementEnabled,
+            ControllerManagementEnabled,
             ControllerTargetSelection.Resolve(Profiles.Current.Config, _runningApplicationId,
                 _runningExecutable).Target);
     }
 
-    private void LoadPhysicalGlyphProfiles(InstalledDevicePackage package)
+    private void LoadPhysicalGlyphProfiles(HandheldDeviceRuntime runtime)
     {
         try
         {
-            GlyphPackageImportResult imported;
-            using (var file = PluginPackageFile.Open(package.PackagePath))
-            {
-                imported = GlyphPackageImporter.Import(file);
-            }
-
+            var imported = runtime.Device is { } device
+                ? GlyphPackageImporter.Import(new EmbeddedGlyphSource(device))
+                : new GlyphPackageImportResult([], []);
             PhysicalGlyphCatalog.ReplacePackageProfiles(imported.Profiles);
+            Log.Info(
+                $"Handheld glyph catalog: model={runtime.Device.Definition.Id}, profiles={imported.Profiles.Count}, errors={imported.Errors.Count}.");
             foreach (var error in imported.Errors)
             {
                 Log.Warn(
-                    $"Device glyph profile rejected: profile={error.ProfileId}, code={error.Code}, "
-                    + $"path={error.Path}, detail={error.Message}");
+                    $"Device glyph profile rejected: profile={error.ProfileId}, code={error.Code}, path={error.Path}, detail={error.Message}");
             }
-
-            Log.Info(
-                $"Device glyph catalog: package={package.Manifest?.Id}, "
-                + $"profiles={imported.Profiles.Count}, rejected={imported.Errors.Count}.");
         }
-        catch (Exception exception) when (exception is IOException
-                                              or UnauthorizedAccessException
-                                              or InvalidDataException)
+        catch (Exception exception) when (exception is not OutOfMemoryException)
         {
             PhysicalGlyphCatalog.ReplacePackageProfiles([]);
             Log.Warn($"Device glyph catalog unavailable: {exception.Message}");
         }
     }
 
-    private static Task<DevicePackageDiscovery> DiscoverPackageAsync(
+    private static Task<HandheldDefinition?> DetectDeviceAsync(DeviceIdentitySnapshot identity,
         CancellationToken cancellationToken)
     {
-        return Task.Run(
-            () => PluginPackageCatalog.Discover(InstallLayout.Plugins).Device,
-            cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(HandheldDevice.Detect(identity));
     }
 
     private DeviceCoordinatorDiagnosticsSnapshot DiagnosticsSnapshot()
@@ -3306,24 +3136,19 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         return new DeviceCoordinatorDiagnosticsSnapshot
         {
             State = State,
-            InstalledPackage = InstalledPackage?.Manifest is { } manifest
-                ? new DeviceInstalledPackageDiagnostic(manifest.Id, manifest.Version)
+            Handheld = DeviceDefinition is { } definition
+                ? new HandheldDiagnostic(definition.FamilyId,
+                    HandheldDeviceRuntime.SourceVersion)
                 : null,
-            CycleGeneration = Interlocked.Read(ref _cycleGeneration),
             CapabilityCount = capabilities.Count,
-            HealthyCapabilityCount = capabilities.Count(capability =>
-                capability.Projection.State is
-                {
-                    Available: true,
-                    Quality: HardwareStateQuality.Observed or HardwareStateQuality.Verified
-                }),
+            AvailableCapabilityCount = capabilities.Count(capability => capability.Projection.State.Available),
             FaultedCapabilityCount = capabilities.Count(capability =>
                 capability.Projection.State.Quality is HardwareStateQuality.Faulted),
             CapturedAt = DateTimeOffset.UtcNow
         };
     }
 
-    private void OnLifecycleState(DevicePluginRuntime client, DevicePluginState state)
+    private void OnLifecycleState(HandheldDeviceRuntime client, HandheldRuntimeState state)
     {
         // Every stop and fault teardown clears the current client before it starts and sets the
         // deactivating and disabled states itself; a late notification from that client must not
@@ -3333,24 +3158,24 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
             return;
         }
 
-        if (state.CycleGeneration != Interlocked.Read(ref _cycleGeneration))
+        SetDeviceDefinitionId(state.DeviceDefinitionId);
+        if (state.Reason is { } reason)
         {
-            Log.Warn(
-                $"Device lifecycle notification rejected as stale: "
-                + $"cycle={state.CycleGeneration}, current={_cycleGeneration}.");
-            return;
+            Log.Change("handheld.lifecycle.reason",
+                $"Handheld {state.State}: family={client.Device.Definition.FamilyId}, "
+                + $"model={state.DeviceDefinitionId ?? "unknown"}, code={reason.Code}, detail={reason.Detail ?? "none"}, "
+                + $"source={HandheldDeviceRuntime.SourceVersion}.", LogLevel.Warn);
         }
 
-        SetDeviceDefinitionId(state.DeviceDefinitionId);
         SetState(state.State);
     }
 
-    /// <summary>Records which device definition the plugin matched.</summary>
+    /// <summary>Records which device definition the handheld matched.</summary>
     /// <param name="deviceDefinitionId">The matched definition, or null when detection did not match.</param>
     /// <remarks>
-    ///     Every glyph surface — the Steam Input page, the overlay's glyph rows, and the navigation
-    ///     hints — resolves through <see cref="PhysicalGlyphSelectionSnapshot" />, which will only return
-    ///     a profile that names the active device. The plugin publishes it with lifecycle state;
+    ///     Every glyph surface â€” the Steam Input page, the overlay's glyph rows, and the navigation
+    ///     hints â€” resolves through <see cref="PhysicalGlyphSelectionSnapshot" />, which will only return
+    ///     a profile that names the active device. The handheld publishes it with lifecycle state;
     ///     retaining a prior cycle's value after a non-match would select artwork and
     ///     authored profiles for hardware the active cycle did not identify.
     /// </remarks>
@@ -3380,13 +3205,13 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
 
         var wasRunning = State is DeviceCycleState.Active or DeviceCycleState.Degraded;
         _state = state;
-        Log.Info($"Device cycle: state={state}, cycleGeneration={_cycleGeneration}.");
+        Log.Info($"Handheld state: {state}.");
         StateChanged?.Invoke(state);
         if (!wasRunning && state is DeviceCycleState.Active or DeviceCycleState.Degraded && IntegrationEnabled)
         {
             // A new cycle, including one after sleep, can start with firmware defaults, so every
             // desired value is restored once, whichever profile layer it comes from. The power preset
-            // waits for this pass instead of competing with it for the plugin's command lane, and is
+            // waits for this pass instead of competing with it for the handheld's command lane, and is
             // reconciled once the pass has completed.
             var restore = Task.Run(async () =>
             {
@@ -3467,13 +3292,46 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
         }
     }
 
+    private sealed class EmbeddedGlyphSource(HandheldDevice device) : IGlyphPackageSource
+    {
+        private readonly HashSet<string> _paths = new(device.GlyphResources, StringComparer.Ordinal);
+
+        public IReadOnlyList<string> EnumerateProfileIds()
+        {
+            return _paths
+                .Where(path =>
+                    path.StartsWith("glyphs/profiles/", StringComparison.Ordinal) &&
+                    path.EndsWith(".json", StringComparison.Ordinal))
+                .Select(path => Path.GetFileNameWithoutExtension(path)).ToArray();
+        }
+
+        public bool TryRead(string relativePath, int maximumBytes, out byte[] bytes)
+        {
+            bytes = [];
+            if (!_paths.Contains(relativePath) || maximumBytes <= 0)
+            {
+                return false;
+            }
+
+            using var stream = device.OpenGlyphResource(relativePath);
+            if (stream.Length <= 0 || stream.Length > maximumBytes)
+            {
+                return false;
+            }
+
+            bytes = new byte[checked((int)stream.Length)];
+            stream.ReadExactly(bytes);
+            return true;
+        }
+    }
+
     /// <summary>What a resume does with the cycle it finds.</summary>
     internal enum ResumeAction
     {
         /// <summary>Nothing to resume.</summary>
         Skip,
 
-        /// <summary>Resume the suspended plugin in place.</summary>
+        /// <summary>Resume the suspended handheld in place.</summary>
         Resume,
 
         /// <summary>Stop whatever is there and start a fresh cycle.</summary>
@@ -3481,26 +3339,22 @@ internal sealed class DeviceCoordinator : IAsyncDisposable
     }
 
     /// <summary>What the power-preset projection reads from one power control.</summary>
-    /// <param name="Cycle">The cycle generation of its state.</param>
-    /// <param name="Descriptors">The descriptor generation of its state, which also versions the declared presets.</param>
     /// <param name="Commandable">Whether it takes commands, which decides preset availability.</param>
     /// <param name="Observed">Its observed value.</param>
     private readonly record struct PowerControlReading(
-        long Cycle,
-        long Descriptors,
         bool Commandable,
         CapabilityValue? Observed)
     {
         internal static PowerControlReading Of(DeviceCapabilityView view)
         {
             var state = view.Projection.State;
-            return new PowerControlReading(state.CycleGeneration, state.DescriptorGeneration,
+            return new PowerControlReading(
                 DeviceCapabilityRouter.CanCommand(state), state.ObservedValue);
         }
     }
 }
 
-/// <summary>Complete retained outcome of controller handoff, plugin stop, detach, and disposal.</summary>
+/// <summary>Complete retained outcome of controller handoff, handheld stop, detach, and disposal.</summary>
 /// <param name="Failures">All retained cleanup failures; an empty list means no stage reported an unverified outcome.</param>
 internal sealed record DeviceClientTeardownResult(IReadOnlyList<Exception> Failures)
 {

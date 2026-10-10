@@ -72,6 +72,16 @@ internal interface IGameModeEntryBackend
     /// <returns>What happened.</returns>
     Task<DisplayLayoutResult> ApplyLayoutAsync(DisplayLayout layout, CancellationToken cancellationToken);
 
+    /// <summary>Applies saved driver display values through freshly discovered output routes.</summary>
+    /// <returns>A warning for refused or uncertain values; accepted writes are never retried.</returns>
+    Task<string?> ApplyDisplayGpuAsync(IReadOnlyList<DisplayGpuPreference> preferences,
+        CancellationToken cancellationToken);
+
+    /// <summary>Captures readable original values only for driver controls this entry changes.</summary>
+    Task<IReadOnlyList<DisplayGpuPreference>> CaptureDisplayGpuAsync(
+        IReadOnlyList<DisplayGpuPreference> preferences, CancellationToken cancellationToken,
+        bool refreshTopology = false);
+
     /// <summary>Captures the current desktop audio state for a later return.</summary>
     /// <param name="cancellationToken">Cancels waiting or query admission.</param>
     /// <returns>The readable desktop audio preferences, or null when defaults cannot be read.</returns>
@@ -88,8 +98,10 @@ internal interface IGameModeEntryBackend
     /// <summary>Records, or clears, the display and audio state this session owes the desktop.</summary>
     /// <param name="layout">The layout to restore later, or null to clear the record.</param>
     /// <param name="audio">The captured audio state to restore later, or null to clear the record.</param>
+    /// <param name="graphics">Captured original driver values, or null to clear them.</param>
     /// <returns>A task that completes once the record is on disk.</returns>
-    Task PersistPendingReturnAsync(DisplayLayout? layout, AudioProfilePreference? audio);
+    Task PersistPendingReturnAsync(DisplayLayout? layout, AudioProfilePreference? audio,
+        IReadOnlyList<DisplayGpuPreference>? graphics = null);
 
     /// <summary>Applies the scaling posture Default entry uses.</summary>
     /// <returns>Completion of the configured default display posture operation.</returns>
@@ -113,6 +125,10 @@ internal interface IGameModeEntryBackend
     /// <returns>A warning when it could not be restored, otherwise null.</returns>
     Task<string?> ApplyReturnLayoutAsync();
 
+    /// <summary>Restores desktop driver values after the return layout has settled.</summary>
+    /// <returns>A warning for unavailable, refused or uncertain controls; originals remain recorded.</returns>
+    Task<string?> ApplyReturnDisplayGpuAsync();
+
     /// <summary>Restores desktop audio after the return display layout has settled.</summary>
     /// <returns>A warning when it could not be restored, otherwise null.</returns>
     Task<string?> ApplyReturnAudioAsync();
@@ -121,8 +137,8 @@ internal interface IGameModeEntryBackend
     /// <returns>Whether the desktop can be safely taken over.</returns>
     Task<bool> PrepareExplorerExitAsync();
 
-    /// <summary>Exits Explorer and waits for it, bounded.</summary>
-    /// <returns>True when Explorer is confirmed gone.</returns>
+    /// <summary>Requests orderly Explorer shell exit and waits for stable absence, bounded.</summary>
+    /// <returns>True when taskbar and desktop surfaces are absent; unrelated retired windows may remain.</returns>
     Task<bool> ExitExplorerAndWaitAsync();
 
     /// <summary>Returns through the shared desktop recovery sequence.</summary>
@@ -161,6 +177,7 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
         IReadOnlyList<PluginActionStepResult> entered = [];
         DisplayLayout? returnLayout = null;
         AudioProfilePreference? returnAudio = null;
+        IReadOnlyList<DisplayGpuPreference> returnGraphics = [];
         bool? recovered = null;
 
         // Recovery reports its own failure; cache it to avoid duplicate attempts and warnings.
@@ -196,6 +213,12 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
                 returnAudio = await backend.CaptureAudioAsync(cancellationToken).ConfigureAwait(false);
             }
 
+            if (launch.GameDisplayGpu.Count > 0)
+            {
+                returnGraphics = await backend.CaptureDisplayGpuAsync(launch.GameDisplayGpu, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             if (launch.EnterActions.Count > 0)
             {
                 backend.SetStatus("Running the configured entry actions");
@@ -219,10 +242,11 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
                 await backend.WaitForDisplaysAsync(required, cancellationToken).ConfigureAwait(false);
             }
 
-            if (launch.Kind == GameModeLaunchKind.Custom || returnAudio is not null)
+            if (launch.Kind == GameModeLaunchKind.Custom || returnAudio is not null || launch.GameDisplayGpu.Count > 0)
             {
                 backend.SetStatus("Preparing the display layout");
-                await backend.PersistPendingReturnAsync(returnLayout, returnAudio).ConfigureAwait(false);
+                await backend.PersistPendingReturnAsync(returnLayout, returnAudio, returnGraphics)
+                    .ConfigureAwait(false);
             }
 
             backend.SetStatus("Preparing the Windows desktop");
@@ -273,6 +297,26 @@ internal sealed class GameModeEntryTransaction(IGameModeEntryBackend backend, Ga
             else
             {
                 await backend.ApplyDefaultPostureAsync().ConfigureAwait(false);
+            }
+
+            if (launch.GameDisplayGpu.Count > 0)
+            {
+                // A switched HDMI display may have been absent during the desktop snapshot.
+                // Capture its controls only after entry actions and the layout make its route live,
+                // while retaining every earlier original before any Game Mode driver write.
+                var visibleOriginals = await backend.CaptureDisplayGpuAsync(launch.GameDisplayGpu,
+                    CancellationToken.None, true).ConfigureAwait(false);
+                returnGraphics = GameModeReturnRecovery.MergeGraphicsOriginals(returnGraphics, visibleOriginals);
+                await backend.PersistPendingReturnAsync(returnLayout, returnAudio, returnGraphics)
+                    .ConfigureAwait(false);
+                backend.SetStatus("Applying the Game Mode display driver preferences");
+                var warning = await backend.ApplyDisplayGpuAsync(launch.GameDisplayGpu, CancellationToken.None)
+                    .ConfigureAwait(false);
+                if (warning is not null)
+                {
+                    layoutWarning = (layoutWarning is null ? "" : layoutWarning + " ")
+                                    + "Game Mode display controls: " + warning;
+                }
             }
 
             if (launch.GameAudio is not null)

@@ -1201,11 +1201,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
     {
         return primary.Descriptor.PairedPowerLimitId is { } id
             ? _capabilities().FirstOrDefault(view => view.Descriptor.CapabilityId == id &&
-                                                     view.Descriptor.InstanceId is null
-                                                     && view.Projection.State.CycleGeneration ==
-                                                     primary.Projection.State.CycleGeneration
-                                                     && view.Projection.State.DescriptorGeneration ==
-                                                     primary.Projection.State.DescriptorGeneration)
+                                                     view.Descriptor.InstanceId is null)
             : null;
     }
 
@@ -1290,7 +1286,6 @@ internal sealed class AutoTdpService : IAsyncDisposable
         trace.PairedCapability = power.Descriptor.PairedPowerLimitId;
         trace.ObservedWatts = power.Projection.State.ObservedValue?.IntegerValue;
         trace.ObservedQuality = power.Projection.State.Quality.ToString();
-        trace.CycleGeneration = power.Projection.State.CycleGeneration;
         trace.PairedObservedWatts = FindPairedPower(power)?.Projection.State.ObservedValue?.IntegerValue;
     }
 

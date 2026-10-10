@@ -314,6 +314,13 @@ internal sealed class AudioProfileService : IAsyncDisposable
         var deadline = Environment.TickCount64 + (long)EndpointArrivalTimeout.TotalMilliseconds;
         var output = ResolveEndpoint(preference.Output, CoreAudio.AudioDirection.Render, deadline, cancellationToken);
         var input = ResolveEndpoint(preference.Input, CoreAudio.AudioDirection.Capture, deadline, cancellationToken);
+        if (preference.Output is null &&
+            (preference.PlaybackFormat is not null || preference.SpatialFormat is not null))
+        {
+            var currentDefault = List(CoreAudio.AudioDirection.Render).FirstOrDefault(endpoint => endpoint.IsDefault);
+            output = string.IsNullOrEmpty(currentDefault.Id) ? null : currentDefault;
+        }
+
         // Volume and mute are written through whatever is default now. When the profile asked for
         // a particular playback endpoint and that endpoint did not become the default, the write
         // would land on an unrelated device the same result set has just reported untouched.
@@ -344,16 +351,20 @@ internal sealed class AudioProfileService : IAsyncDisposable
                 : new AudioProfileOperationResult("playback mute", false, UnselectedPlayback));
         }
 
-        if (output is { } endpoint && preference.PlaybackFormat is { } format)
+        if (preference.PlaybackFormat is { } format)
         {
-            results.Add(SetPlaybackFormat(endpoint.Id, ToDeviceFormat(format), ReadPlaybackCapabilities()));
+            results.Add(output is { } endpoint && playbackSelected
+                ? SetPlaybackFormat(endpoint.Id, ToDeviceFormat(format), ReadPlaybackCapabilities())
+                : new AudioProfileOperationResult("playback format", false, UnselectedPlayback));
         }
 
-        if (output is { } spatialEndpoint && preference.SpatialFormat is { } spatial)
+        if (preference.SpatialFormat is { } spatial)
         {
             // Read after the format write: the spatial formats an endpoint supports can change with its
             // device format, so an earlier read would check against stale capabilities.
-            results.Add(SetSpatialFormat(spatialEndpoint.Id, spatial, ReadPlaybackCapabilities()));
+            results.Add(output is { } spatialEndpoint && playbackSelected
+                ? SetSpatialFormat(spatialEndpoint.Id, spatial, ReadPlaybackCapabilities())
+                : new AudioProfileOperationResult("spatial sound", false, UnselectedPlayback));
         }
 
         return new AudioProfileApplyResult(results);

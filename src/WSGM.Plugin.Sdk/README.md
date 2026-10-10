@@ -2,19 +2,22 @@
 
 The MIT-licensed common contracts for WSGM integrations that are not a device: identity, category
 strings, host-owned slot policy, strict manifests, resident lifecycle, configuration, state
-publications and diagnostic tracing. The current contract is `PluginApi.Version` 4.
+publications and diagnostic tracing. The current contract is `PluginApi.Version` 5, package 0.4.0.
 
-It references two libraries, and the types it uses from them are part of the contract:
+Shared capabilities, active-time deadlines, glyphs, diagnostic levels and package validation live in
+this assembly under [Shared](Shared). Their existing `WSGM.Device.Sdk.*` source namespaces remain;
+there is no Device SDK assembly, package reference, type forwarder or compatibility assembly.
+Plugins must rebuild for API 5 because these types now have the Plugin SDK assembly identity. The
+[source migration list](docs/shared-source-migration.md) accounts for every retained source file.
 
-- the Device SDK, for the active-time `Deadline`, the capability descriptor, state and command
-  model, `PlainText` and `DeviceTraceLevel`;
-- SteamUiToolkit, for `ISteamUiModule` and the toolkit types reachable from it. Every plugin shares
-  the host's copy of the toolkit, so API 4 covers that closure too, and a plugin built against an
-  older toolkit is refused at manifest read rather than failing at load or first call.
+The only project dependency is SteamUiToolkit, for `ISteamUiModule` and the toolkit types reachable
+from it. Every plugin shares the host's copy of the toolkit, so API 5 covers that closure too. A
+plugin built against an older toolkit is refused at manifest read rather than failing at load or
+first call.
 
-It does not reference Avalonia or Windows Device Control. The device package uses the Device SDK's
-own lifecycle and runtime, driven directly by `DeviceCoordinator`; the common host rejects its
-category. Nothing maps one lifecycle onto the other.
+It does not reference Avalonia, Windows Device Control or LibHandheld. WSGM integrates LibHandheld
+directly; handheld device packages are no longer admitted. Only lifecycle/controller enums still
+consumed by WSGM remain, as documented in [the shared reference](docs/shared-reference.md).
 
 GPU packages use `PluginCategories.Gpu` (`wsgm.gpu`). They are independent common plugins, may
 coexist across vendors and adapters, and do not consume the sole Device slot. Their typed
@@ -31,9 +34,8 @@ interface and result to its host behavior.
 
 ## Categories and slots
 
-Device is the `wsgm.device` category, with zero or one active instance. Every other category is an
-open string and the host decides how many instances it allows. A desktop with no device plugin is
-perfectly valid.
+Device packages are retired. Common categories remain open strings; the host decides their
+independent instance policy.
 
 Manifest `permissions` are metadata. WSGM validates and records them but never grants or enforces
 them, and they do not sandbox in-process code.

@@ -1,10 +1,10 @@
 # WSGM Device Lab
 
-The authoring and diagnostic tool for
-[WSGM Device Plugins](https://github.com/KillerPixelCrew/WSGM/tree/master/src/WSGM.Device.Sdk). It
-inventories the handheld you are targeting, captures what its hardware actually does, scaffolds a
-plugin from that capture, validates and packs the package, and runs the attended hardware tests that
-only a real machine can answer.
+The authoring and diagnostic tool for LibHandheld source contributions and WSGM hardware research.
+It inventories the handheld, captures observed behaviour, and creates exact identity source, decoder
+research starters, recorded fixtures and provenance for a LibHandheld PR. New handhelds are
+implemented in LibHandheld. Retired package validation, packing and plugin-test commands are
+removed.
 
 It is a GUI and a CLI over the same code. The executable is `wsgm-device`.
 
@@ -96,7 +96,7 @@ A returned report is read with the developer commands:
 wsgm-device report  test.wsgmlab                       # every step and its summary
 wsgm-device review  test.wsgmlab                       # agreements and disagreements with the known record
 wsgm-device promote test.wsgmlab --out new-record.json # a curated record with lab-confirmed facts
-wsgm-device scaffold --from test.wsgmlab --out-dir my-plugin
+wsgm-device scaffold --from test.wsgmlab --out-dir my-contribution
 ```
 
 Review uses the power summary's pass rules, including matched-write readback, and requires
@@ -114,10 +114,10 @@ the same review. For a remote tester, publish one self-contained file:
 
 ## Why it is a separate tool
 
-Writing a device plugin means answering questions about a specific machine that no documentation
-will tell you: which EC register the fan curve lives behind, what the OEM button reports, whether a
-power-limit write actually took. Device Lab exists to answer those before you write the plugin, and
-to prove the answers afterwards.
+Implementing a native handheld family means answering questions about a specific machine that no
+documentation will tell you: which EC register the fan curve lives behind, what the OEM button
+reports, whether a power-limit write actually took. Device Lab exists to answer those before you
+implement the native engine, and to prove the answers afterwards.
 
 It lives in the WSGM repository but ships separately. WSGM goes to end users and owns a live
 session; Device Lab is a developer tool that runs offline, on a machine that may not have WSGM
@@ -137,17 +137,14 @@ wsgm-device inspect    capture.wsgmcap
 wsgm-device compare    before.wsgmcap after.wsgmcap
 wsgm-device correlate  capture.wsgmcap --action <id> --sources <id,id>
 
-# 3. Turn a capture into a buildable plugin.
-wsgm-device scaffold --from capture.wsgmcap --out-dir my-plugin `
-    --usb-instance <exact-instance-id> # required only when several exact USB endpoints are present
+# 3. Create a LibHandheld contribution with capture-backed fixtures.
+wsgm-device scaffold --from capture.wsgmcap --out-dir my-contribution `
+    --usb-instance <exact-instance-id> # required only with several exact endpoints
 
-# 4. Prove it, offline first.
-wsgm-device validate my-plugin
-wsgm-device test sample
-wsgm-device test plugin my-plugin --from inventory/inventory.json
-
-# 5. Ship it.
-wsgm-device pack my-plugin --out plugin.wsgmpkg
+# 4. Implement and review native source in the LibHandheld checkout.
+# Copy generated C# into src/LibHandheld/Families/<family>, implement the engine,
+# add fixture-backed decoder tests and register only completed device support.
+# Submit a LibHandheld PR with sanitized evidence; do not pack a device DLL.
 ```
 
 `inventory --shareable` is the form meant for a bug report: it keeps the device facts and drops the
@@ -187,18 +184,11 @@ Regenerate the extracted records after updating the reference, and review the di
 
 The split is enforced, not advisory.
 
-**Read-only or offline:** `validate`, `inspect`, `compare`, `correlate`, `inventory`, `doctor` and
-`pack`. `validate` never loads plugin code. It checks the manifest, the package layout and that the
-entry assembly is a managed x64 image, all statically.
-
-**Unattended but running your code:** `test sample` and `test plugin` load and run plugin code in a
-contained worker with your authority. Only `validate` is fully static.
-
-**Attended:** `test hardware` writes to the device, so it demands an explicit action, a state
-directory you named, and your presence. It exists because a capability write is only ever proven on
-real hardware. Detection and the whole attended lifecycle run in an authenticated disposable worker
-process. Device Lab kills the full process tree at the hard deadline and keeps the production owner
-slot reserved if cleanup could not be verified.
+Offline analysis reads saved reports, inventories and captures and writes requested source
+contributions. inventory, doctor and compiled read probes observe the live machine and need the
+operator's requested scope. Hardware writes occur only in the attended wizard and its authenticated,
+checkpointed worker. It requires an exact identity, bounded operations and restoration or
+zero-output cleanup. Retired package validation, packing and plugin-test commands are removed.
 
 ## Capture exports and privacy
 
@@ -222,26 +212,27 @@ cancelled.
 Output paths are checked before anything is written. A broad home directory, a repository root or an
 existing reparse point is refused rather than written into.
 
-## Scaffolded plugins are yours
+## LibHandheld contribution output
 
-`scaffold` generates a plugin that links only `WSGM.Device.Sdk`, which is MIT. It ships an MIT
-`LICENSE.txt` with a placeholder for your name, because that constrains you least. Replace it with
-whatever licence you want, including none of these. WSGM and Device Lab are GPL-3.0-or-later, but a
-plugin links neither.
+`scaffold` emits source and research data without a project, package manifest or WSGM assembly
+reference. `DeviceIdentity.cs` uses LibHandheld's public identity contracts. `ReportDecoder.cs`
+rejects reports until verified decoding is implemented. A capture includes deterministic `fixtures/`
+with its exact retained-input SHA-256; a lab report includes `DeviceProfile.cs` with confirmed
+buttons, axis maps, roles and provenance. `contribution.json` explicitly marks the contribution
+unimplemented. Read the generated README before integrating it in a family.
+
+The included MIT license has a contributor placeholder. Complete it and follow LibHandheld's
+contribution rules. Device Lab's GPL license does not change the generated contribution license.
 
 ## Building
 
-Run these from the WSGM repository root. The SDK is shared source under `src/WSGM.Device.Sdk`, and
-device projects are built and reviewed together.
+Run from the WSGM repository root. Device Lab's helper contracts now come from the single
+`src/WSGM.Plugin.Sdk` assembly; existing diagnostic namespaces are retained.
 
 ```powershell
 dotnet build src/WSGM.DeviceLab/WSGM.DeviceLab.csproj
 dotnet test tests/WSGM.DeviceLab.Tests/WSGM.DeviceLab.Tests.csproj
 ```
-
-Plugins that Device Lab scaffolds reference the same SDK as WSGM: a project reference inside a
-checkout, and an explicit reference to the `WSGM.Device.Sdk.dll` shipped beside the tool otherwise.
-That is what stops you building a plugin against a contract the host does not have.
 
 ## Licence
 
