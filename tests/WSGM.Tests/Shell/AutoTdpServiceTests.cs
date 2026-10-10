@@ -800,19 +800,17 @@ public sealed class AutoTdpServiceTests
     }
 
     [Fact]
-    public async Task CompanionFromAnEarlierCycleCannotSupplyTheRestoreSnapshot()
+    public async Task AnInstanceScopedCompanionCannotSupplyTheUnscopedRestoreSnapshot()
     {
         var primary = View("primary", 12, true);
-        primary = primary with
+        var companion = View("boost", 17, false);
+        companion = companion with
         {
-            Projection = primary.Projection with
-            {
-                State = primary.Projection.State
-            }
+            Descriptor = companion.Descriptor with { InstanceId = "another-instance" }
         };
         await using AutoTdpService service = new(
             new FakeFrametimeSource { Live = [new RtssFrametimeSample(1, "game.exe", 22, 60, 100)] },
-            () => [primary, View("boost", 17, false)],
+            () => [primary, companion],
             (_, _, _, _) => throw new InvalidOperationException("No command was requested."), () => 16.6);
         Assert.False(service.Availability.Available);
     }

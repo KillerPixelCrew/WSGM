@@ -35,6 +35,7 @@ public sealed class SettingsViewModelSplashTests
         {
             DeviceIntegration =
             {
+                PreferencesSchemaVersion = DeviceIntegrationConfig.CurrentPreferencesSchemaVersion,
                 AutoTdpEnabled = true,
                 GlyphSelection = DeviceGlyphSelection.NativeSteam
             },

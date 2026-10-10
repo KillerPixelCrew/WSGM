@@ -258,6 +258,8 @@ public sealed class GpuCoordinatorTests
         var live = coordinator.Open(GpuInstance, Manifest(), plugin);
 
         Assert.Throws<InvalidOperationException>(() => coordinator.Open(GpuInstance, Manifest(), plugin));
+        live.Open();
+        Assert.Throws<InvalidOperationException>(() => coordinator.Open(GpuInstance, Manifest(), plugin));
 
         live.Dispose();
         var reopened = coordinator.Open(GpuInstance, Manifest(), plugin);

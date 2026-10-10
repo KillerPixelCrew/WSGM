@@ -37,7 +37,8 @@ internal static class CommonPluginEnablement
     /// <returns>True for a graphics package that serves this machine.</returns>
     internal static bool EnabledByDefault(PluginManifest manifest, IReadOnlyList<DisplayAdapterIdentity> adapters)
     {
-        return manifest.Category == PluginCategories.Gpu && ServesMachine(manifest, adapters);
+        return !BuiltinGpuDrivers.Contains(manifest.Id)
+               && manifest.Category == PluginCategories.Gpu && ServesMachine(manifest, adapters);
     }
 
     /// <summary>The instances that should run.</summary>
@@ -55,6 +56,11 @@ internal static class CommonPluginEnablement
         List<PluginInstanceIdentity> desired = [];
         foreach (var instance in configured.Where(instance => instance.Enabled))
         {
+            if (BuiltinGpuDrivers.Contains(instance.PluginId))
+            {
+                continue;
+            }
+
             var package = installed.FirstOrDefault(candidate => candidate.Manifest.Id == instance.PluginId);
             if (package is { Manifest.Category: PluginCategories.Gpu } && !ServesMachine(package.Manifest, adapters))
             {

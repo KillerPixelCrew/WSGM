@@ -662,7 +662,7 @@ internal static class EmulatorPortable
             "pcsx2" =>
                 "Create portable.txt beside PCSX2, optionally containing a relative data-folder path, and copy your user files into that folder.",
             "eden" =>
-                "Create a user folder beside eden.exe and copy your existing Eden data into it before registering it.",
+                "Create a portable user folder beside eden.exe and copy your existing Eden data into it before registering it.",
             "rpcs3" =>
                 "Create a portable folder beside rpcs3.exe and copy your existing RPCS3 data into it before registering it.",
             "dolphin" =>

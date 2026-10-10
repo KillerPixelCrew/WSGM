@@ -179,6 +179,7 @@ public sealed class WsgmSteamSettingsServiceTests
     public async Task BuiltinGraphicsCanBeDisabledAndReenabledWithoutAnInstalledPackage()
     {
         Harness harness = new();
+        harness.Stored.GpuDrivers!.Intel = true;
         var service = harness.Create();
         const string key = "plugins.enabled:wsgm.gpu.intel/default";
         var integration = service.ReadState().Pages.Single(page => page.Id == "steam");
@@ -192,29 +193,44 @@ public sealed class WsgmSteamSettingsServiceTests
         var enabled = await service.SetAsync(key, Json("true"), CancellationToken.None);
 
         Assert.True(enabled.Succeeded);
-        Assert.True(Assert.Single(harness.Stored.PluginInstances).Enabled);
+        Assert.True(harness.Stored.GpuDrivers!.Intel);
+        Assert.Empty(harness.Stored.PluginInstances);
         Assert.Empty(harness.Installed);
     }
 
     [Fact]
-    public void BuiltinGraphicsRetainNamedDisabledChoicesAndDoNotBecomePluginSections()
+    public void BuiltinGraphicsCollapseLegacyInstancesAndDoNotBecomePluginSections()
     {
         Harness harness = new();
         harness.Stored.PluginInstances =
         [
             new CommonPluginInstanceConfig { PluginId = "wsgm.gpu.intel", InstanceId = "custom", Enabled = false }
         ];
+        harness.Stored.GpuDrivers = null;
+        harness.Stored = AppConfigRules.Normalize(harness.Stored).Value;
         // A stale installed inventory must not duplicate a built-in driver in the Plugins page.
         harness.Installed = [new InstalledCommonPlugin("wsgm.gpu.intel", "Old Intel package")];
 
         var state = harness.Create().ReadState();
 
-        var intel = Row(state, "plugins.enabled:wsgm.gpu.intel/custom");
-        Assert.Equal("Intel graphics (custom)", intel.Label);
+        var intel = Row(state, "plugins.enabled:wsgm.gpu.intel/default");
+        Assert.Equal("Intel graphics", intel.Label);
         Assert.False(intel.Checked);
+        Assert.Empty(harness.Stored.PluginInstances);
         Assert.DoesNotContain(
             state.Pages.Single(page => page.Id == "plugins").Sections.SelectMany(section => section.Rows),
             row => row.Key.StartsWith("plugins.enabled:wsgm.gpu.", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void BuiltinGraphicsListOnlyTheDetectedDrivers()
+    {
+        Harness harness = new() { Graphics = [BuiltinGpuDrivers.All[0], BuiltinGpuDrivers.All[2]] };
+
+        var graphics = harness.Create().ReadState().Pages.Single(page => page.Id == "steam")
+            .Sections.Single(section => section.Title == "Built-in graphics drivers");
+
+        Assert.Equal(["Intel graphics", "NVIDIA graphics"], graphics.Rows.Select(row => row.Label));
     }
 
     [Fact]
@@ -356,6 +372,7 @@ public sealed class WsgmSteamSettingsServiceTests
         internal readonly List<(string Id, string Key, string Value, long Revision)> PluginWrites = [];
         internal readonly List<AppConfig> SteamInputApplied = [];
         internal List<InstalledCommonPlugin> Installed = [];
+        internal IReadOnlyList<BuiltinGpuDriver> Graphics = BuiltinGpuDrivers.All;
         internal List<CommonPluginSettingsView> Running = [];
         internal AppConfig Stored = AppConfigRules.Normalize(new AppConfig()).Value;
 
@@ -380,7 +397,8 @@ public sealed class WsgmSteamSettingsServiceTests
                 {
                     PluginWrites.Add((id, key, value.GetRawText(), revision));
                     return Task.FromResult(SteamUiCommandResult.Applied);
-                });
+                },
+                () => Graphics);
         }
     }
 }

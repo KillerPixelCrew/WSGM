@@ -116,6 +116,7 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
     private readonly Action<AppConfig> _applySteamInput;
     private readonly Func<Action<AppConfig>, bool, AppConfig> _commit;
     private readonly Func<AppConfig> _config;
+    private readonly Func<IReadOnlyList<BuiltinGpuDriver>> _detectedGraphics;
 
     private readonly Func<string, string, JsonElement, long, CancellationToken, Task<SteamUiCommandResult>>?
         _configurePlugin;
@@ -147,6 +148,7 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
     /// <param name="installedPlugins">The installed common plugin packages.</param>
     /// <param name="pluginSettings">Every running plugin's declared settings.</param>
     /// <param name="configurePlugin">Changes one running plugin's setting, or null without plugins.</param>
+    /// <param name="detectedGraphics">Reads the matching built-in graphics drivers.</param>
     internal WsgmSteamSettingsService(
         Func<AppConfig> config,
         Func<Action<AppConfig>, bool, AppConfig> commit,
@@ -155,7 +157,8 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
         Func<IReadOnlyList<InstalledCommonPlugin>>? installedPlugins = null,
         Func<IReadOnlyList<CommonPluginSettingsView>>? pluginSettings = null,
         Func<string, string, JsonElement, long, CancellationToken, Task<SteamUiCommandResult>>? configurePlugin =
-            null)
+            null,
+        Func<IReadOnlyList<BuiltinGpuDriver>>? detectedGraphics = null)
     {
         _config = config;
         _commit = commit;
@@ -164,6 +167,7 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
         _installedPlugins = installedPlugins ?? (() => []);
         _pluginSettings = pluginSettings ?? (() => []);
         _configurePlugin = configurePlugin;
+        _detectedGraphics = detectedGraphics ?? BuiltinGpuDrivers.Detect;
     }
 
     /// <summary>The route the page is served at.</summary>
@@ -330,9 +334,9 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
             toggle.Read(config), Confirm: toggle.Confirm);
     }
 
-    private static SteamSettingsSection BuiltinGraphicsSection(AppConfig config)
+    private SteamSettingsSection BuiltinGraphicsSection(AppConfig config)
     {
-        var drivers = BuiltinGpuDrivers.Detect();
+        var drivers = _detectedGraphics();
         return new SteamSettingsSection("Built-in graphics drivers",
         [
             .. drivers.Select(driver => new SteamSettingsRow(
@@ -388,6 +392,11 @@ internal sealed class WsgmSteamSettingsService : IWsgmSteamSettingsBackend, ISte
     {
         foreach (var package in _installedPlugins())
         {
+            if (BuiltinGpuDrivers.Contains(package.PluginId))
+            {
+                continue;
+            }
+
             var configured = config.PluginInstances.Where(entry => entry.PluginId == package.PluginId).ToArray();
             if (configured.Length == 0)
             {

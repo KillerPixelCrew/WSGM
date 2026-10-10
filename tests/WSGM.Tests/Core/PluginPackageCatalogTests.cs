@@ -29,19 +29,19 @@ public sealed class PluginPackageCatalogTests
     }
 
     [Fact]
-    public void RetiredDevicePackageIsIgnoredWithoutLoadingOrDeletingIt()
+    public void RetiredDevicePackageIsRefusedWithoutLoadingOrDeletingIt()
     {
         using TemporaryDirectory temporary = new();
         var path = WriteDevicePackage(temporary.Root, "claw.wsgmpkg", "test.device", "1.0.0");
 
         var catalog = PluginPackageCatalog.Discover(temporary.Root);
         Assert.Empty(catalog.Common);
-        Assert.Empty(catalog.Errors);
+        Assert.StartsWith("claw.wsgmpkg: Manifest JSON", Assert.Single(catalog.Errors), StringComparison.Ordinal);
         Assert.True(File.Exists(path));
     }
 
     [Fact]
-    public void MultipleRetiredDevicePackagesDoNotBlockCommonPlugins()
+    public void RefusedDevicePackagesDoNotBlockCommonPlugins()
     {
         using TemporaryDirectory temporary = new();
         var first = WriteDevicePackage(temporary.Root, "a.wsgmpkg", "first.device", "1.0.0");
@@ -51,7 +51,9 @@ public sealed class PluginPackageCatalogTests
 
         var catalog = PluginPackageCatalog.Discover(temporary.Root);
         Assert.Equal("test.ir", Assert.Single(catalog.Common).Manifest.Id);
-        Assert.Empty(catalog.Errors);
+        Assert.Collection(catalog.Errors,
+            error => Assert.StartsWith("a.wsgmpkg: Manifest JSON", error, StringComparison.Ordinal),
+            error => Assert.StartsWith("b.wsgmpkg: Manifest JSON", error, StringComparison.Ordinal));
         Assert.True(File.Exists(first));
         Assert.True(File.Exists(second));
     }
@@ -74,14 +76,14 @@ public sealed class PluginPackageCatalogTests
     }
 
     [Fact]
-    public void RetiredDevicePackageForAnotherApiVersionIsStillIgnored()
+    public void RetiredDevicePackageForAnotherApiVersionIsStillRefused()
     {
         using TemporaryDirectory temporary = new();
         var path = WriteDevicePackage(temporary.Root, "future.wsgmpkg", "test.device", "1.0.0", 13);
 
         var catalog = PluginPackageCatalog.Discover(temporary.Root);
         Assert.Empty(catalog.Common);
-        Assert.Empty(catalog.Errors);
+        Assert.StartsWith("future.wsgmpkg: Manifest JSON", Assert.Single(catalog.Errors), StringComparison.Ordinal);
         Assert.True(File.Exists(path));
     }
 
@@ -104,7 +106,7 @@ public sealed class PluginPackageCatalogTests
     [Theory]
     [InlineData("1.0.0")]
     [InlineData(null)]
-    public void RetiredDeviceArchivesAreIgnoredRegardlessOfTheirHostStamp(string? builtFor)
+    public void RetiredDeviceArchivesAreRefusedRegardlessOfTheirHostStamp(string? builtFor)
     {
         using TemporaryDirectory temporary = new();
         var manifest = builtFor is null
@@ -115,7 +117,7 @@ public sealed class PluginPackageCatalogTests
 
         var catalog = PluginPackageCatalog.Discover(temporary.Root);
         Assert.Empty(catalog.Common);
-        Assert.Empty(catalog.Errors);
+        Assert.StartsWith("old-device.wsgmpkg: Manifest JSON", Assert.Single(catalog.Errors), StringComparison.Ordinal);
         Assert.True(File.Exists(path));
     }
 

@@ -74,7 +74,7 @@ public sealed class DeviceCoordinatorTests
 
         Assert.Equal(DeviceCycleState.Passive, harness.Coordinator.State);
         Assert.Equal(1, harness.Loads);
-        Assert.Equal(["detect", "dispose"], harness.Calls);
+        Assert.Equal(["detect", "stop", "dispose"], harness.Calls);
     }
 
     [Fact]
@@ -262,12 +262,12 @@ public sealed class DeviceCoordinatorTests
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
             await shutdown.WaitAsync(TimeSpan.FromSeconds(5));
             await harness.Coordinator.Completion.WaitAsync(TimeSpan.FromSeconds(5));
-            await harness.Runtime!.Completion.WaitAsync(TimeSpan.FromSeconds(5));
             await harness.Coordinator.DisposeAsync();
 
             Assert.Equal(1, harness.Calls.Count(call => call == "stop"));
             Assert.DoesNotContain("dispose", harness.Calls);
             Assert.Equal(0, harness.OwnerDisposals);
+            Assert.False(harness.Runtime!.Completion.IsCompleted);
             Assert.False(harness.Runtime.LateCleanup.IsCompleted);
         }
         finally

@@ -48,6 +48,7 @@ public sealed class CommonPluginEnablementTests
         var retired = Package(id, PluginCategories.Gpu, "8086");
         CommonPluginInstanceConfig[] configured = [new() { PluginId = id, Enabled = true }];
 
+        Assert.False(CommonPluginEnablement.EnabledByDefault(retired.Manifest, [IntelAdapter]));
         Assert.Empty(CommonPluginEnablement.Desired(configured, [], [IntelAdapter]));
         Assert.Empty(CommonPluginEnablement.Desired(configured, [retired], [IntelAdapter]));
         Assert.Empty(CommonPluginEnablement.Desired([], [retired], [IntelAdapter]));
