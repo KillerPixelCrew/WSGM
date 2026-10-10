@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using LibGPUDriverInteract;
+using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Device.Sdk.Lifecycle;
@@ -369,6 +370,100 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
         ];
     }
 
+    /// <summary>Refreshes the enabled session-owned graphics drivers after a display layout change.</summary>
+    internal async Task RefreshDisplayTopologyAsync(CancellationToken cancellationToken)
+    {
+        GpuPublisher[] publishers;
+        lock (_gate)
+        {
+            publishers = [.. _publishers.Where(publisher => publisher.Driver is not null)];
+        }
+
+        using var admission = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
+        foreach (var publisher in publishers)
+        {
+            admission.Token.ThrowIfCancellationRequested();
+            await publisher.Driver!.RefreshTopologyAsync(admission.Token).ConfigureAwait(false);
+            var published = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _postToUi(published.SetResult);
+            await published.Task.WaitAsync(admission.Token).ConfigureAwait(false);
+            // Descriptor replacement schedules the existing profile restoration. Let that finish
+            // before layout-specific values are written, so an older profile cannot overwrite them.
+            await publisher.WaitForRefreshesAsync(admission.Token).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Reads detached display-control metadata from enabled owners without creating a native driver.</summary>
+    internal IReadOnlyList<DisplayGpuCapability> DisplayCapabilities()
+    {
+        GpuPublisher[] publishers;
+        lock (_gate)
+        {
+            publishers = [.. _publishers];
+        }
+
+        List<DisplayGpuCapability> capabilities = [];
+        foreach (var publisher in publishers)
+        {
+            var outputs = publisher.Driver?.DisplayTargets;
+            foreach (var view in publisher.Router.Snapshot())
+            {
+                var descriptor = view.Descriptor;
+                DisplayTargetIdentity? target = null;
+                if (descriptor.SectionId is { } section && outputs?.TryGetValue(section, out var output) == true)
+                {
+                    if (string.IsNullOrEmpty(output.DevicePath) && string.IsNullOrEmpty(output.EdidIdentity))
+                    {
+                        // Native output IDs and friendly names do not identify a saved physical monitor.
+                        continue;
+                    }
+
+                    target = new DisplayTargetIdentity(output.DevicePath ?? "", null, null,
+                        publisher.Router.Sections.FirstOrDefault(item => item.SectionId == section)?.CustomTitle
+                        ?? "Display", output.AdapterLowPart ?? 0, output.AdapterHighPart ?? 0, output.TargetId ?? 0)
+                    {
+                        EdidIdentity = output.EdidIdentity
+                    };
+                }
+                else if (descriptor.Role is not CapabilityRole.VariableRefreshRate || !descriptor.SupportsWrite)
+                {
+                    continue;
+                }
+
+                capabilities.Add(new DisplayGpuCapability
+                {
+                    PluginId = publisher.Identity.PluginId,
+                    Target = target,
+                    Descriptor = descriptor,
+                    ObservedValue = DisplayGpuProfileService.ToPreferenceValue(view.Projection.State.ObservedValue)
+                });
+            }
+        }
+
+        return capabilities;
+    }
+
+    /// <summary>Applies a layout's value to the freshly matched output without creating a per-game override.</summary>
+    internal Task<CapabilityCommandResult> ExecuteDisplayPreferenceAsync(DisplayGpuPreference preference,
+        CancellationToken cancellationToken)
+    {
+        var current = DisplayGpuProfileService.Resolve(preference, DisplayCapabilities());
+        if (current?.Descriptor is not { SupportsWrite: true } descriptor
+            || DisplayGpuProfileService.ToCapabilityValue(preference.Value, descriptor) is not { } value)
+        {
+            return Task.FromResult(new CapabilityCommandResult
+            {
+                CommandId = Guid.NewGuid(), Outcome = CommandOutcome.Rejected,
+                Reason = new CapabilityReason(CapabilityReasonCode.HostUnavailable,
+                    "The configured display control is unavailable, ambiguous or no longer accepts this value.", true),
+                CompletedAt = DateTimeOffset.UtcNow
+            });
+        }
+
+        return ExecuteAsync(current.PluginId!, descriptor.CapabilityId, descriptor.InstanceId, value,
+            CapabilityCommandOrigin.ProfileRestore, cancellationToken);
+    }
+
     /// <summary>Writes one graphics capability and, for a user's write, remembers it by its profile scope.</summary>
     /// <param name="pluginId">The graphics plugin's id.</param>
     /// <param name="capabilityId">The capability.</param>
@@ -661,6 +756,17 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
                     _refreshGate.Release();
                 }
             }
+        }
+
+        internal Task WaitForRefreshesAsync(CancellationToken cancellationToken)
+        {
+            Task[] work;
+            lock (_owner._gate)
+            {
+                work = [.. _refreshWork];
+            }
+
+            return Task.WhenAll(work).WaitAsync(cancellationToken);
         }
 
         internal GpuPublisherView Describe(IReadOnlyList<PluginHealthPublication> health)

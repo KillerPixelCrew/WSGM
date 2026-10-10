@@ -37,8 +37,7 @@ internal static class QuietSetup
         using var engine = SetupEngine.Detect(options.PayloadDirectory);
         if (options.Mode is SetupMode.Uninstall)
         {
-            var uninstall = engine.PlanUninstall(new UninstallChoices(!options.RemoveData, !options.KeepComponents,
-                !options.KeepComponents));
+            var uninstall = engine.PlanUninstall(CreateUninstallChoices(options));
             var ok = engine.Run(uninstall, () => { });
             return engine.StillHiddenDevices.Count > 0 ? ControllerStillHidden : ok ? Success : Failed;
         }
@@ -102,6 +101,12 @@ internal static class QuietSetup
         }
 
         return result;
+    }
+
+    internal static UninstallChoices CreateUninstallChoices(SetupOptions options)
+    {
+        return new UninstallChoices(!options.RemoveData, !options.KeepComponents,
+            !options.KeepComponents, !options.KeepComponents, !options.KeepComponents);
     }
 
     /// <summary>

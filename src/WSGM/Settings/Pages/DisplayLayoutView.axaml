@@ -3,6 +3,32 @@
              xmlns:s="using:WSGM.Settings"
              x:Class="WSGM.Settings.Pages.DisplayLayoutView"
              x:DataType="s:DisplayLayoutEditor">
+  <UserControl.Resources>
+    <DataTemplate x:Key="DisplayGpuDraft" x:DataType="s:DisplayGpuEditorRow">
+      <Border BorderBrush="{StaticResource HcControlBorderBrush}" BorderThickness="0,1,0,0" Padding="0,10">
+        <StackPanel Spacing="6">
+          <StackPanel Spacing="6" IsVisible="{Binding CanEdit}">
+            <CheckBox IsChecked="{Binding UseSetting}">
+              <TextBlock Text="{Binding Title}" TextWrapping="Wrap" />
+            </CheckBox>
+            <CheckBox Content="Enabled" IsChecked="{Binding BooleanValue}" IsVisible="{Binding IsBoolean}"
+                      IsEnabled="{Binding UseSetting}" />
+            <ComboBox ItemsSource="{Binding Choices}" SelectedItem="{Binding Choice}"
+                      IsVisible="{Binding IsChoice}" IsEnabled="{Binding UseSetting}"
+                      PlaceholderText="Choose a value" HorizontalAlignment="Stretch" />
+            <NumericUpDown Value="{Binding IntegerValue}" Minimum="{Binding Minimum}" Maximum="{Binding Maximum}"
+                           Increment="{Binding Step}" IsVisible="{Binding IsInteger}" IsEnabled="{Binding UseSetting}" />
+            <TextBlock Text="{Binding SavedChoiceHint}" Classes="caption" TextWrapping="Wrap"
+                       IsVisible="{Binding HasUnavailableChoice}" />
+          </StackPanel>
+          <StackPanel Spacing="3" IsVisible="{Binding IsReadOnly}">
+            <TextBlock Text="{Binding Title}" Classes="caption" TextWrapping="Wrap" />
+            <TextBlock Text="{Binding ValueText}" TextWrapping="Wrap" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
+    </DataTemplate>
+  </UserControl.Resources>
   <Grid ColumnDefinitions="*,310" ColumnSpacing="18">
     <StackPanel Spacing="10">
       <Border Classes="layout-surface" Padding="8" IsVisible="{Binding HasDisplays}">
@@ -43,6 +69,14 @@
         Text="A display is disconnected. You can edit and save its layout now; it must be available when the layout is applied."
         Classes="layout-warning" TextWrapping="Wrap" IsVisible="{Binding HasDisconnectedDisplay}" />
       <Button Content="Undo last edit" Click="OnUndo" IsEnabled="{Binding CanUndo}" HorizontalAlignment="Left" />
+      <Border Classes="layout-surface" Padding="16" IsVisible="{Binding HasGlobalGpuControls}">
+        <StackPanel Spacing="6">
+          <TextBlock Text="Graphics for all displays" FontWeight="SemiBold" />
+          <TextBlock Text="These driver settings apply across outputs when this layout is selected."
+                     Classes="caption" TextWrapping="Wrap" />
+          <ItemsControl ItemsSource="{Binding GlobalGpuControls}" ItemTemplate="{StaticResource DisplayGpuDraft}" />
+        </StackPanel>
+      </Border>
     </StackPanel>
     <Border Grid.Column="1" Classes="layout-surface" Padding="16" VerticalAlignment="Top"
             IsVisible="{Binding HasSelection}">
@@ -83,6 +117,12 @@
             </ComboBox>
             <TextBlock Text="{Binding HdrHint}" Classes="caption" TextWrapping="Wrap"
                        IsVisible="{Binding !HdrSupported}" />
+          </StackPanel>
+          <StackPanel Spacing="4" IsVisible="{Binding HasGpuControls}">
+            <TextBlock Text="Graphics for this display" FontWeight="SemiBold" />
+            <TextBlock Text="Choose which driver settings this layout applies. Other settings stay unchanged."
+                       Classes="caption" TextWrapping="Wrap" />
+            <ItemsControl ItemsSource="{Binding GpuControls}" ItemTemplate="{StaticResource DisplayGpuDraft}" />
           </StackPanel>
           <StackPanel Spacing="4">
             <TextBlock Text="Position" Classes="caption" />

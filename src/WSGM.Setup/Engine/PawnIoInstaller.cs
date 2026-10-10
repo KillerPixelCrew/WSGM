@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using WSGM.Security;
 
@@ -21,7 +22,28 @@ internal static class PawnIoInstaller
 
     internal static DriverInstallResult Install()
     {
-        return Installation.InstallAsync(CancellationToken.None).GetAwaiter().GetResult();
+        return Install(Installation.InstalledVersion, Installation.IsInstalled,
+            () => Installation.InstallAsync(CancellationToken.None).GetAwaiter().GetResult());
+    }
+
+    internal static DriverInstallResult Install(string? installedVersion, bool supported,
+        Func<DriverInstallResult> install)
+    {
+        if (supported)
+        {
+            return new DriverInstallResult(true, false, false);
+        }
+
+        if (installedVersion is not null)
+        {
+            return new DriverInstallResult(false, false, false,
+                $"PawnIO {installedVersion} is incompatible with this WSGM build. "
+                + "The bundled installer cannot replace an existing copy. "
+                + "Remove PawnIO in Windows Settings > Apps > Installed apps, then run WSGM setup's Repair. "
+                + "The existing driver was left unchanged.");
+        }
+
+        return install();
     }
 
     internal static DriverInstallResult Uninstall()

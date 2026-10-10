@@ -13,20 +13,58 @@ namespace WSGM.Shell;
 /// <summary>Owns one native driver per enabled installed vendor, independently of common plugins.</summary>
 internal sealed class BuiltinGpuService : IAsyncDisposable
 {
-    private readonly GpuCoordinator _coordinator;
+    private readonly Func<BuiltinGpuDriver, string, IBuiltinGpuDriver> _createDriver;
+    private readonly Func<IReadOnlyList<GpuVendor>> _detectVendors;
     private readonly Dictionary<GpuVendor, Entry> _entries = [];
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Lock _registration = new();
+    private readonly Action<string, bool> _report;
+    private readonly TimeSpan _startupWait;
     private readonly ConfigStore _store;
+    private string? _activation;
     private volatile bool _closed;
     private GpuVendor[] _configured = [];
     private bool _suspended;
 
     internal BuiltinGpuService(ConfigStore store, GpuCoordinator coordinator)
+        : this(store, GpuDriver.DetectVendors,
+            (definition, directory) => new GpuDriverPublisher(coordinator, definition, directory),
+            TimeSpan.FromSeconds(5), (message, warning) =>
+            {
+                if (warning)
+                {
+                    Log.Warn(message);
+                }
+                else
+                {
+                    Log.Info(message);
+                }
+            })
+    {
+    }
+
+    internal BuiltinGpuService(ConfigStore store, Func<IReadOnlyList<GpuVendor>> detectVendors,
+        Func<BuiltinGpuDriver, string, IBuiltinGpuDriver> createDriver, TimeSpan startupWait,
+        Action<string, bool> report)
     {
         _store = store;
-        _coordinator = coordinator;
+        _detectVendors = detectVendors;
+        _createDriver = createDriver;
+        _startupWait = startupWait;
+        _report = report;
+    }
+
+    /// <summary>The registered startup work, including initialization whose caller has stopped waiting.</summary>
+    internal Task StartupCompletion
+    {
+        get
+        {
+            lock (_registration)
+            {
+                return Task.WhenAll(_entries.Values.Select(entry => entry.Startup));
+            }
+        }
     }
 
     public async ValueTask DisposeAsync()
@@ -68,14 +106,14 @@ internal sealed class BuiltinGpuService : IAsyncDisposable
                 configured = _configured;
             }
 
-            var installed = await Task.Run(GpuDriver.DetectVendors, linked.Token).ConfigureAwait(false);
+            var installed = await Task.Run(_detectVendors, linked.Token).ConfigureAwait(false);
             var desired = configured.Where(installed.Contains).ToArray();
-            Log.Change("graphics.activation",
-                $"Graphics drivers: detected=[{string.Join(',', installed)}], configured=[{string.Join(',', configured)}], admitted=[{string.Join(',', desired)}].");
+            ReportActivation(installed, configured, desired);
             Entry[] retiring;
             lock (_registration)
             {
-                retiring = _entries.Where(pair => !desired.Contains(pair.Key) || pair.Value.Retirement is not null)
+                retiring = _entries.Where(pair => !desired.Contains(pair.Key) || pair.Value.Retirement is not null
+                                                                              || pair.Value.StartupFailed)
                     .Select(pair => pair.Value).ToArray();
             }
 
@@ -111,11 +149,14 @@ internal sealed class BuiltinGpuService : IAsyncDisposable
 
                     var definition = BuiltinGpuDrivers.All.First(driver => driver.Vendor == vendor);
                     var directory = Path.Combine(_store.Context.Root, "GpuState", definition.Id);
-                    entry = new Entry(definition, new GpuDriverPublisher(_coordinator, definition, directory));
+                    entry = new Entry(definition, _createDriver(definition, directory));
                     _entries.Add(vendor, entry);
+                    // Register the actual owned startup before shutdown can see the entry. Only the
+                    // caller's wait expires; native startup keeps its independent lifetime and is joined.
+                    entry.Startup = ObserveStartupAsync(entry);
                 }
 
-                starts.Add(StartAsync(entry, linked.Token));
+                starts.Add(WaitForStartupAsync(entry, linked.Token));
             }
 
             await Task.WhenAll(starts).ConfigureAwait(false);
@@ -126,21 +167,55 @@ internal sealed class BuiltinGpuService : IAsyncDisposable
         }
     }
 
-    private static async Task StartAsync(Entry entry, CancellationToken token)
+    private void ReportActivation(IReadOnlyList<GpuVendor> installed, GpuVendor[] configured, GpuVendor[] desired)
     {
-        using var wait = Deadline.After(TimeSpan.FromSeconds(5)).CreateCancellationSource(token);
+        var text =
+            $"Graphics drivers: detected=[{string.Join(',', installed)}], configured=[{string.Join(',', configured)}], admitted=[{string.Join(',', desired)}].";
+        if (_activation == text)
+        {
+            return;
+        }
+
+        _activation = text;
+        _report(text, false);
+    }
+
+    private async Task ObserveStartupAsync(Entry entry)
+    {
         try
         {
-            await entry.Publisher.StartAsync(wait.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (wait.IsCancellationRequested)
-        {
-            // Cancellation bounds this wait. The driver still owns initialization and late publication.
-            Log.Info($"Graphics {entry.Definition.Name} startup is continuing in its native owner.");
+            var health = await entry.Publisher.StartAsync(CancellationToken.None).ConfigureAwait(false);
+            if (health is not GpuHealth.Ready)
+            {
+                MarkStartupFailed(entry, $"Graphics {entry.Definition.Name} startup finished {health}.");
+            }
         }
         catch (Exception error) when (error is not OutOfMemoryException)
         {
-            Log.Warn($"Graphics {entry.Definition.Name} startup failed: {error.Message}");
+            MarkStartupFailed(entry, $"Graphics {entry.Definition.Name} startup failed: {error.Message}");
+        }
+    }
+
+    private void MarkStartupFailed(Entry entry, string message)
+    {
+        lock (_registration)
+        {
+            entry.StartupFailed = true;
+            entry.Publisher.CloseAdmission();
+        }
+
+        _report(message, true);
+    }
+
+    private async Task WaitForStartupAsync(Entry entry, CancellationToken token)
+    {
+        try
+        {
+            await entry.Startup.WaitAsync(_startupWait, token).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            _report($"Graphics {entry.Definition.Name} startup is continuing in its native owner.", false);
         }
     }
 
@@ -220,7 +295,7 @@ internal sealed class BuiltinGpuService : IAsyncDisposable
         }
         catch (OperationCanceledException)
         {
-            Log.Warn("Graphics cleanup is still completing an owned native call.");
+            _report("Graphics cleanup is still completing an owned native call.", true);
         }
     }
 
@@ -229,14 +304,31 @@ internal sealed class BuiltinGpuService : IAsyncDisposable
         lock (entry)
         {
             entry.Publisher.CloseAdmission();
-            return entry.Retirement ??= entry.Publisher.DisposeAsync().AsTask();
+            return entry.Retirement ??= RetireOwnedAsync(entry);
         }
     }
 
-    private sealed class Entry(BuiltinGpuDriver definition, GpuDriverPublisher publisher)
+    private static async Task RetireOwnedAsync(Entry entry)
+    {
+        await entry.Startup.ConfigureAwait(false);
+        await entry.Publisher.DisposeAsync().ConfigureAwait(false);
+    }
+
+    private sealed class Entry(BuiltinGpuDriver definition, IBuiltinGpuDriver publisher)
     {
         internal Task? Retirement;
+        internal Task Startup = Task.CompletedTask;
+        internal bool StartupFailed;
         internal BuiltinGpuDriver Definition { get; } = definition;
-        internal GpuDriverPublisher Publisher { get; } = publisher;
+        internal IBuiltinGpuDriver Publisher { get; } = publisher;
     }
+}
+
+/// <summary>The native owner's lifecycle boundary; admission closes before any owned call is joined.</summary>
+internal interface IBuiltinGpuDriver : IAsyncDisposable
+{
+    ValueTask<GpuHealth> StartAsync(CancellationToken token);
+    ValueTask RefreshTopologyAsync(CancellationToken token);
+    void CloseAdmission();
+    void SetSuspended(bool suspended);
 }

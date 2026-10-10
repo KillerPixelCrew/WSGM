@@ -111,8 +111,9 @@ public sealed partial class SettingsViewModel
     public bool DeviceProfilesAvailable => _deviceProfileDefinition.Length > 0;
 
     /// <summary>Explains an unavailable profile editor without activating device hardware.</summary>
-    public string DeviceProfilesEmptyReason =>
-        "No supported handheld was detected. Device profiles become available when this model is supported.";
+    public string DeviceProfilesEmptyReason => InventoryDiscoveryText.Length > 0
+        ? InventoryDiscoveryText
+        : "No supported handheld was detected. Device profiles become available when this model is supported.";
 
     /// <summary>Starts the installed setup's repair, which installs what the plugins need.</summary>
     internal static void StartSetupRepair()
@@ -350,5 +351,6 @@ public sealed partial class SettingsViewModel
 
         SelectedDeviceProfile = DeviceProfiles.FirstOrDefault();
         _deviceProfilesEdited = false;
+        Raise(nameof(DeviceProfilesAvailable));
     }
 }

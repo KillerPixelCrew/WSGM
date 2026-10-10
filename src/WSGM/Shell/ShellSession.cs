@@ -7,7 +7,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Threading;
-using LibHandheld;
 using SteamUiToolkit;
 using WindowsDeviceControl;
 using WSGM.Core;
@@ -17,7 +16,6 @@ using WSGM.Interop;
 using WSGM.Overlay;
 using WSGM.Plugin.Sdk;
 using WSGM.Settings;
-using HandheldDefinition = LibHandheld.Contracts.HandheldDefinition;
 
 namespace WSGM.Shell;
 
@@ -200,9 +198,6 @@ public sealed partial class ShellSession
     private RunningApplicationMonitor? _runningApplications;
     private SettingsActivation? _settingsActivation;
 
-    /// <summary>Read-only exact model metadata for Settings, independent of device activation.</summary>
-    private HandheldDefinition? _settingsDeviceDefinition;
-
     private SettingsSurface? _settingsSurface;
     private volatile bool _shutdownRequested;
     private SoundPackService? _sounds;
@@ -367,13 +362,6 @@ public sealed partial class ShellSession
                 }
 
                 _shutdownCancellation.Token.ThrowIfCancellationRequested();
-                // Offline profile authoring needs model metadata even when the device cycle is disabled
-                // or cannot acquire ownership. Capture it on a worker before any Settings window exists;
-                // enabling integration later does not replace that window's authoring scope or draft.
-                await Task.Run(() => TryStart("Settings handheld metadata",
-                            () => _settingsDeviceDefinition = HandheldDevice.Detect(DeviceMachineIdentity.Collect())),
-                        _shutdownCancellation.Token)
-                    .ConfigureAwait(false);
                 // Package files the Plugins page removed while they were loaded go now, once, before the
                 // common plugins or the device integration open any package, whatever the integration
                 // switch says.
@@ -468,19 +456,22 @@ public sealed partial class ShellSession
     ///     restore while the session has none (before its services start, after they stop).
     /// </summary>
     /// <param name="cancellationToken">Stops waiting for the restore.</param>
+    /// <param name="requireAudio">Whether unavailable audio holds recovery pending; entry preflight may proceed without it.</param>
     /// <returns>Whether everything recorded was restored.</returns>
-    private async Task<bool> RestorePendingDesktopAsync(CancellationToken cancellationToken)
+    private async Task<bool> RestorePendingDesktopAsync(CancellationToken cancellationToken, bool requireAudio = true)
     {
         if (_audioProfiles is { } live)
         {
-            return await GameModeReturnRecovery.RestorePendingAsync(_store, cancellationToken, live)
+            return await GameModeReturnRecovery.RestorePendingAsync(_store, cancellationToken, live,
+                    applyGraphics: RestorePendingDisplayGpuAsync, requireAudio: requireAudio)
                 .ConfigureAwait(false);
         }
 
         var recoveryAudio = new AudioProfileService(new CoreAudioProfileOperations());
         try
         {
-            return await GameModeReturnRecovery.RestorePendingAsync(_store, cancellationToken, recoveryAudio)
+            return await GameModeReturnRecovery.RestorePendingAsync(_store, cancellationToken, recoveryAudio,
+                    applyGraphics: RestorePendingDisplayGpuAsync, requireAudio: requireAudio)
                 .ConfigureAwait(false);
         }
         finally
@@ -1181,7 +1172,7 @@ public sealed partial class ShellSession
         // lists offer what is actually running.
         var settings = _settingsSurface = new SettingsSurface(
             read => SettingsViewModel.FromLoadedConfig(read, _store, _steamInput.Shim, ReadPluginActionOptions,
-                _settingsDeviceDefinition),
+                readDisplayGpu: () => _gpu?.DisplayCapabilities() ?? []),
             _store,
             _steamInput,
             () => _inGameMode,

@@ -803,6 +803,110 @@ public sealed class EmulatorPortableTests
         Assert.Equal(EmulatorPortable.PhysicalPath(installed.DataPath), EmulatorPortable.PhysicalPath(alias));
     }
 
+    [Theory]
+    [InlineData("eden", "user")]
+    [InlineData("rpcs3", "portable")]
+    [InlineData("dolphin", "User")]
+    public void FailedPortableAliasCreationPreservesTheLiveBindingAndOriginalConfigAndSaves(string id, string name)
+    {
+        using var temporary = new TemporaryDirectory();
+        var installed = Installation(temporary.Root, id, "current");
+        var original = Path.Combine(temporary.Root, "legacy-native-data");
+        var save = Write(original, "save/progress.bin", "original progress");
+        var config = Write(original, id switch
+        {
+            "eden" => "config/qt-config.ini", "rpcs3" => "config.yml", _ => "Config/Dolphin.ini"
+        }, "original configuration");
+        var program = Path.GetDirectoryName(installed.ExecutablePath)!;
+        var alias = Path.Combine(program, name);
+        EmulatorPortableSetup.CreateAlias(alias, original);
+        var originalTarget = new DirectoryInfo(alias).LinkTarget;
+        var marker = Write(program, "portable.txt", "original marker");
+        var attempts = 0;
+
+        Assert.Throws<IOException>(() => EmulatorPortableSetup.Prepare(installed, installed.DataPath, null,
+            CancellationToken.None, false, createAlias: (replacement, _) =>
+            {
+                attempts++;
+                Assert.NotEqual(alias, replacement);
+                Assert.Equal(originalTarget, new DirectoryInfo(alias).LinkTarget);
+                throw new IOException("Both symbolic-link and junction creation failed.");
+            }));
+
+        Assert.Equal(1, attempts);
+        Assert.Equal(originalTarget, new DirectoryInfo(alias).LinkTarget);
+        Assert.Equal(EmulatorPortable.PhysicalPath(original), EmulatorPortable.PhysicalPath(alias));
+        Assert.Equal("original progress", File.ReadAllText(save));
+        Assert.Equal("original configuration", File.ReadAllText(config));
+        Assert.Equal("original progress", File.ReadAllText(Path.Combine(alias, "save/progress.bin")));
+        Assert.Equal("original marker", File.ReadAllText(marker));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(program, name + ".portable-link-*"));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(program, name + ".before-portable-*"));
+    }
+
+    [Theory]
+    [InlineData("eden", "user")]
+    [InlineData("rpcs3", "portable")]
+    [InlineData("dolphin", "User")]
+    public void NativeAliasStorageDisappearingAfterPreflightKeepsItsOriginalBinding(string id, string name)
+    {
+        using var temporary = new TemporaryDirectory();
+        var installed = Installation(temporary.Root, id, "current");
+        var original = temporary.GetPath("legacy-data");
+        var offline = temporary.GetPath("offline-data");
+        Write(original, "save/progress.bin", "original progress");
+        var program = Path.GetDirectoryName(installed.ExecutablePath)!;
+        var alias = Path.Combine(program, name);
+        EmulatorPortableSetup.CreateAlias(alias, original);
+        var originalTarget = new DirectoryInfo(alias).LinkTarget;
+
+        Assert.Throws<InvalidDataException>(() => EmulatorPortableSetup.Prepare(installed, installed.DataPath,
+            null, CancellationToken.None, false, createAlias: (replacement, data) =>
+            {
+                EmulatorPortableSetup.CreateAlias(replacement, data);
+                Assert.True(StoragePaths.IsUnder(temporary.Root, original));
+                Assert.True(StoragePaths.IsUnder(temporary.Root, offline));
+                Directory.Move(original, offline);
+            }));
+
+        Assert.Equal(originalTarget, new DirectoryInfo(alias).LinkTarget);
+        Assert.Empty(Directory.EnumerateFileSystemEntries(program, name + ".portable-link-*"));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(program, name + ".before-portable-*"));
+        Directory.Move(offline, original);
+        Assert.Equal("original progress", File.ReadAllText(Path.Combine(alias, "save/progress.bin")));
+    }
+
+    [Theory]
+    [InlineData("eden", "user")]
+    [InlineData("rpcs3", "portable")]
+    [InlineData("dolphin", "User")]
+    public void FailedPortableAliasPublicationRestoresTheExactPreviousBinding(string id, string name)
+    {
+        using var temporary = new TemporaryDirectory();
+        var installed = Installation(temporary.Root, id, "current");
+        var original = Path.Combine(temporary.Root, "legacy-native-data");
+        var save = Write(original, "save/progress.bin", "original progress");
+        var program = Path.GetDirectoryName(installed.ExecutablePath)!;
+        var alias = Path.Combine(program, name);
+        EmulatorPortableSetup.CreateAlias(alias, original);
+        var originalTarget = new DirectoryInfo(alias).LinkTarget;
+
+        Assert.Throws<DirectoryNotFoundException>(() => EmulatorPortableSetup.Prepare(installed, installed.DataPath,
+            null,
+            CancellationToken.None, false, createAlias: (replacement, data) =>
+            {
+                // Refuse directory publication after the old alias has been retained for rollback.
+                EmulatorPortableSetup.CreateAlias(replacement, data);
+                Directory.Delete(replacement);
+            }));
+
+        Assert.Equal(originalTarget, new DirectoryInfo(alias).LinkTarget);
+        Assert.Equal(EmulatorPortable.PhysicalPath(original), EmulatorPortable.PhysicalPath(alias));
+        Assert.Equal("original progress", File.ReadAllText(save));
+        Assert.Equal("original progress", File.ReadAllText(Path.Combine(alias, "save/progress.bin")));
+        Assert.Empty(Directory.EnumerateDirectories(program, name + ".before-portable-*"));
+    }
+
     [Fact]
     public void RetiredVersionCopiesRealLinkedUserDataAndExcludesOnlyItsRetainedNativeAlias()
     {

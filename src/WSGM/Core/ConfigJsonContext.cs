@@ -7,6 +7,8 @@ namespace WSGM.Core;
 [JsonSerializable(typeof(AppConfig))]
 [JsonSerializable(typeof(GpuDriverConfig))]
 [JsonSerializable(typeof(GameModeLaunchRecovery))]
+[JsonSerializable(typeof(DisplayGpuPreference))]
+[JsonSerializable(typeof(DisplayGpuCapability))]
 [JsonSerializable(typeof(CefConfig))]
 [JsonSerializable(typeof(SplashConfig))]
 [JsonSerializable(typeof(LaunchWrapperConfig))]

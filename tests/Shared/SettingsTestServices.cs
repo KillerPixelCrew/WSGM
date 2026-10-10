@@ -73,7 +73,9 @@ internal static class SettingsTestServices
             {
                 calls?.Add("load-persisted");
                 return ConfigJson.Clone(current, ConfigJsonContext.Tolerant.AppConfig);
-            });
+            },
+            () => new SettingsInventory(null, []),
+            action => action());
     }
 
     /// <summary>A view model over <paramref name="config" /> with inert services, showing every plugin's settings.</summary>

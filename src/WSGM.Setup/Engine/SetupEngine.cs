@@ -459,6 +459,12 @@ internal sealed class SetupEngine : IDisposable
                         step.Note = "PawnIO installation requires a restart.";
                     }
 
+                    if (result.Succeeded && !result.Installed)
+                    {
+                        step.DoneLabel = "PawnIO already installed";
+                        step.State = StepState.Skipped;
+                    }
+
                     return Fail(step, result.Succeeded, result.Error ?? "PawnIO is unavailable.");
                 }));
         }

@@ -759,11 +759,23 @@ public sealed partial class ShellSession
         Dispatcher.UIThread.Post(KickTabBootSync);
     }
 
+    /// <summary>Restores driver values through the existing graphics owner without requiring GPU startup for panic recovery.</summary>
+    private async Task<bool> RestorePendingDisplayGpuAsync(IReadOnlyList<DisplayGpuPreference> preferences,
+        CancellationToken cancellationToken)
+    {
+        var warning = await DisplayGpuProfileService.ApplyAsync(_gpu, preferences, cancellationToken)
+            .ConfigureAwait(false);
+        if (warning is not null)
+        {
+            Log.Warn("Desktop display controls: " + warning);
+        }
+
+        return warning is null;
+    }
+
     /// <summary>
-    ///     Everything the Game Mode entry and the desktop return do to the machine. Everything here
-    ///     needs state the session owns (the splash, the plugin host, the config store, the Explorer
-    ///     host and the shutdown token), so it is a view onto the session rather than a free-standing
-    ///     service. Launch settings come from the session's current configuration.
+    ///     Everything the Game Mode entry and desktop return do through the session's existing owners.
+    ///     Launch settings come from the session's current configuration.
     /// </summary>
     private sealed class SessionEntryBackend(ShellSession session) : IGameModeEntryBackend
     {
@@ -828,21 +840,75 @@ public sealed partial class ShellSession
             return observed;
         }
 
-        public Task<DisplayLayoutResult> ApplyLayoutAsync(
+        public async Task<DisplayLayoutResult> ApplyLayoutAsync(
             DisplayLayout layout, CancellationToken cancellationToken)
         {
-            return Task.Run(() =>
+            var result = await Task.Run(() =>
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 return DisplayLayoutDiagnostics.Apply(layout, DisplayLayouts.Apply,
                     DisplayLayouts.Observe, Log.Info, Log.Warn);
-            }, CancellationToken.None);
+            }, CancellationToken.None).ConfigureAwait(false);
+            if (result.Applied)
+            {
+                // Observe route stability before HDMI audio and output-specific driver commands.
+                // Windows acceptance already completed the layout write; this is not a value gate.
+                using var settle = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                settle.CancelAfter(TimeSpan.FromSeconds(5));
+                try
+                {
+                    await session.CreateArrivalWaiter().WaitAsync([], settle.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    Log.Warn(
+                        "Display routes are still changing after the accepted layout; later controls validate their current routes.");
+                }
+            }
+
+            return result;
         }
 
         public Task<AudioProfilePreference?> CaptureAudioAsync(CancellationToken cancellationToken)
         {
             return session._audioProfiles?.CaptureAsync(cancellationToken)
                    ?? Task.FromResult<AudioProfilePreference?>(null);
+        }
+
+        public Task<string?> ApplyDisplayGpuAsync(IReadOnlyList<DisplayGpuPreference> preferences,
+            CancellationToken cancellationToken)
+        {
+            return DisplayGpuProfileService.ApplyAsync(session._gpu, preferences, cancellationToken);
+        }
+
+        public async Task<IReadOnlyList<DisplayGpuPreference>> CaptureDisplayGpuAsync(
+            IReadOnlyList<DisplayGpuPreference> preferences, CancellationToken cancellationToken,
+            bool refreshTopology = false)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (refreshTopology && session._gpu is { } graphics)
+            {
+                await graphics.RefreshDisplayTopologyAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            var current = session._gpu?.DisplayCapabilities() ?? [];
+            var captured = preferences
+                .Select(preference => DisplayGpuProfileService.Resolve(preference, current))
+                .OfType<DisplayGpuCapability>()
+                .Where(capability => capability.ObservedValue is not null)
+                .Select(capability => new DisplayGpuPreference
+                {
+                    Target = capability.Target, PluginId = capability.PluginId,
+                    CapabilityId = capability.Descriptor!.CapabilityId,
+                    InstanceId = capability.Descriptor.InstanceId, Value = capability.ObservedValue!.Value
+                }).ToArray();
+            if (refreshTopology && captured.Length < preferences.Count)
+            {
+                Log.Warn("Display driver preferences: some original values are unreadable or unavailable. "
+                         + "Their controls remain writable; automatic original-value restoration is limited to captured values and explicit Desktop preferences.");
+            }
+
+            return captured;
         }
 
         public Task<AudioProfileApplyResult> ApplyAudioAsync(
@@ -853,7 +919,8 @@ public sealed partial class ShellSession
                    ?? Task.FromResult(new AudioProfileApplyResult([]));
         }
 
-        public Task PersistPendingReturnAsync(DisplayLayout? layout, AudioProfilePreference? audio)
+        public Task PersistPendingReturnAsync(DisplayLayout? layout, AudioProfilePreference? audio,
+            IReadOnlyList<DisplayGpuPreference>? graphics = null)
         {
             return Task.Run(() =>
             {
@@ -862,8 +929,15 @@ public sealed partial class ShellSession
                 {
                     fresh.GameModeLaunchRecovery.PendingReturnLayout = layout;
                     fresh.GameModeLaunchRecovery.PendingReturnAudio = audio;
+                    fresh.GameModeLaunchRecovery.PendingReturnDisplayGpu = graphics is null
+                        ? []
+                        : GameModeReturnRecovery.MergeGraphicsOriginals(
+                            fresh.GameModeLaunchRecovery.PendingReturnDisplayGpu ?? [], graphics);
                     fresh.GameModeLaunchRecovery.EnteredAt =
-                        layout is null && audio is null ? null : DateTimeOffset.UtcNow;
+                        layout is null && audio is null
+                                       && fresh.GameModeLaunchRecovery.PendingReturnDisplayGpu.Count == 0
+                            ? null
+                            : DateTimeOffset.UtcNow;
                     return true;
                 });
             });
@@ -871,12 +945,10 @@ public sealed partial class ShellSession
 
         public async Task<bool> RestorePendingReturnAsync(CancellationToken cancellationToken)
         {
-            var fingerprint = GameModeReturnRecovery.PendingFingerprint(session._store);
-            var restored = await session.RestorePendingDesktopAsync(cancellationToken).ConfigureAwait(false);
-            if (restored && ExplorerControl.IsDesktopShellRunning())
-            {
-                GameModeReturnRecovery.ClearRestored(session._store, fingerprint);
-            }
+            // Missing HDMI audio belongs after the new display layout, never at an entry gate.
+            // Keep the old durable record until entry records the actual desktop or return succeeds.
+            var restored = await session.RestorePendingDesktopAsync(cancellationToken, false)
+                .ConfigureAwait(false);
 
             if (!restored)
             {
@@ -969,10 +1041,21 @@ public sealed partial class ShellSession
             return result.Applied ? null : "Desktop display layout: " + DisplayText.Layout(result);
         }
 
+        public async Task<string?> ApplyReturnDisplayGpuAsync()
+        {
+            var recovery = session._store.Read().RequireConfig().GameModeLaunchRecovery;
+            var desktopGpu = session._config.GameModeLaunch.DesktopDisplayGpu;
+            var warning = await ApplyDisplayGpuAsync(
+                GameModeReturnRecovery.MergeGraphicsOriginals(desktopGpu, recovery.PendingReturnDisplayGpu ?? []),
+                CancellationToken.None).ConfigureAwait(false);
+            return warning is null ? null : "Desktop display controls: " + warning;
+        }
+
         public async Task<string?> ApplyReturnAudioAsync()
         {
+            var recovery = session._store.Read().RequireConfig().GameModeLaunchRecovery;
             var audio = GameModeLaunchRules.DesktopAudio(session._config.GameModeLaunch,
-                session._store.Read().RequireConfig().GameModeLaunchRecovery);
+                recovery);
             var result = await ApplyAudioAsync(audio, CancellationToken.None).ConfigureAwait(false);
             return result.Succeeded
                 ? null

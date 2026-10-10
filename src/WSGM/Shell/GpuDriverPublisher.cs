@@ -12,7 +12,7 @@ using WSGM.Plugin.Sdk;
 namespace WSGM.Shell;
 
 /// <summary>Projects one directly owned native GPU stream into the application capability router.</summary>
-internal sealed class GpuDriverPublisher : ICapabilityPublisher, IAsyncDisposable
+internal sealed class GpuDriverPublisher : ICapabilityPublisher, IBuiltinGpuDriver
 {
     private readonly GpuCoordinator _coordinator;
     private readonly GpuDriver _driver;
@@ -20,6 +20,7 @@ internal sealed class GpuDriverPublisher : ICapabilityPublisher, IAsyncDisposabl
     private readonly Dictionary<DeviceCapabilityKey, CapabilityState> _states = [];
     private bool _closed;
     private CapabilityDescriptorSet _descriptors = new() { Descriptors = [] };
+    private IReadOnlyDictionary<string, GpuDisplayTarget> _displayTargets = new Dictionary<string, GpuDisplayTarget>();
     private IReadOnlyList<CapabilityRole> _roles = [];
     private long _sequence;
     private GpuStatus _status = new(GpuHealth.Unavailable, "The driver has not started.");
@@ -48,6 +49,18 @@ internal sealed class GpuDriverPublisher : ICapabilityPublisher, IAsyncDisposabl
 
     internal BuiltinGpuDriver Definition { get; }
 
+    /// <summary>Reads physical output identities from the current driver descriptor generation.</summary>
+    internal IReadOnlyDictionary<string, GpuDisplayTarget> DisplayTargets
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _displayTargets;
+            }
+        }
+    }
+
     internal GpuStatus Status
     {
         get
@@ -73,6 +86,53 @@ internal sealed class GpuDriverPublisher : ICapabilityPublisher, IAsyncDisposabl
             _driver.StatusChanged -= OnStatus;
             _coordinator.CloseBuiltin(this);
         }
+    }
+
+    public ValueTask<GpuHealth> StartAsync(CancellationToken token)
+    {
+        return _driver.StartAsync(token);
+    }
+
+    public ValueTask RefreshTopologyAsync(CancellationToken token)
+    {
+        return _driver.RefreshTopologyAsync(token);
+    }
+
+    public void CloseAdmission()
+    {
+        lock (_gate)
+        {
+            _closed = true;
+        }
+    }
+
+    public void SetSuspended(bool suspended)
+    {
+        CapabilityDescriptorSet descriptors;
+        CapabilityState[] states;
+        lock (_gate)
+        {
+            if (_closed)
+            {
+                return;
+            }
+
+            _suspended = suspended;
+            descriptors = _descriptors;
+            states = _states.Values.ToArray();
+        }
+
+        if (!suspended)
+        {
+            DescriptorSetReceived?.Invoke(descriptors);
+            foreach (var state in states)
+            {
+                CapabilityStateReceived?.Invoke(new CapabilityStateDelta(
+                    Interlocked.Increment(ref _sequence), state));
+            }
+        }
+
+        _coordinator.BuiltinChanged();
     }
 
     public bool IsActive
@@ -173,53 +233,6 @@ internal sealed class GpuDriverPublisher : ICapabilityPublisher, IAsyncDisposabl
                 failure.CapabilityId, failure.Detail)).ToArray());
     }
 
-    internal ValueTask<GpuHealth> StartAsync(CancellationToken token)
-    {
-        return _driver.StartAsync(token);
-    }
-
-    internal ValueTask RefreshTopologyAsync(CancellationToken token)
-    {
-        return _driver.RefreshTopologyAsync(token);
-    }
-
-    internal void CloseAdmission()
-    {
-        lock (_gate)
-        {
-            _closed = true;
-        }
-    }
-
-    internal void SetSuspended(bool suspended)
-    {
-        CapabilityDescriptorSet descriptors;
-        CapabilityState[] states;
-        lock (_gate)
-        {
-            if (_closed)
-            {
-                return;
-            }
-
-            _suspended = suspended;
-            descriptors = _descriptors;
-            states = _states.Values.ToArray();
-        }
-
-        if (!suspended)
-        {
-            DescriptorSetReceived?.Invoke(descriptors);
-            foreach (var state in states)
-            {
-                CapabilityStateReceived?.Invoke(new CapabilityStateDelta(
-                    Interlocked.Increment(ref _sequence), state));
-            }
-        }
-
-        _coordinator.BuiltinChanged();
-    }
-
     private void OnStatus(GpuStatus status)
     {
         lock (_gate)
@@ -236,6 +249,8 @@ internal sealed class GpuDriverPublisher : ICapabilityPublisher, IAsyncDisposabl
         lock (_gate)
         {
             _descriptors = descriptors;
+            _displayTargets = set.Sections.Where(section => section.DisplayTarget is not null)
+                .ToDictionary(section => section.SectionId, section => section.DisplayTarget!, StringComparer.Ordinal);
             _roles = descriptors.Descriptors.Select(descriptor => descriptor.Role).Distinct().ToArray();
             var keys = descriptors.Descriptors.Select(descriptor => new DeviceCapabilityKey(
                 descriptor.CapabilityId, descriptor.InstanceId)).ToHashSet();

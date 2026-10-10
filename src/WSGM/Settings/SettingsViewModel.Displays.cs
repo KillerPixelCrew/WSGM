@@ -97,6 +97,8 @@ public sealed partial class SettingsViewModel
     internal void StopDisplayDiscovery()
     {
         _displayDiscoveryClosed = true;
+        GameAudioProfile.StopDiscovery();
+        DesktopAudioProfile.StopDiscovery();
     }
 
     private void SeedDisplayLayout(DisplayLayoutEditor editor, bool game)
@@ -132,7 +134,7 @@ public sealed partial class SettingsViewModel
             }
         }
 
-        return new DisplayRead(arrangement, facts);
+        return new DisplayRead(arrangement, facts, _services.ReadDisplayGpu());
     }
 
     private Task RefreshDisplaysAsync()
@@ -173,6 +175,7 @@ public sealed partial class SettingsViewModel
             MergeCatalog(read.Arrangement, read.Facts);
             GameLayout.RefreshCatalog(KnownDisplays, _present);
             DesktopLayout.RefreshCatalog(KnownDisplays, _present);
+            MergeGpuCapabilities(read.Graphics);
             RefreshDisplayChoices();
             if (copy)
             {
@@ -230,5 +233,6 @@ public sealed partial class SettingsViewModel
 
     private sealed record DisplayRead(
         DisplayArrangement Arrangement,
-        IReadOnlyDictionary<string, DisplayCatalogFacts?> Facts);
+        IReadOnlyDictionary<string, DisplayCatalogFacts?> Facts,
+        IReadOnlyList<DisplayGpuCapability> Graphics);
 }

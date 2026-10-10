@@ -154,7 +154,7 @@ internal static class EmulatorPortableSetup
 
     internal static EmulatorInstallation Prepare(EmulatorInstallation installed, string retainedData,
         EmulatorInstallation? previous, CancellationToken token, bool staged,
-        Func<IReadOnlyList<string>>? knownRomPaths = null)
+        Func<IReadOnlyList<string>>? knownRomPaths = null, Action<string, string>? createAlias = null)
     {
         if (!installed.Managed)
         {
@@ -200,10 +200,10 @@ internal static class EmulatorPortableSetup
                 AtomicFile.WriteText(Path.Combine(program, "portable.txt"), "", true);
                 installed = installed with { DataPath = program };
                 break;
-            case "eden": Link(program, "user", retainedData, token, staged); break;
-            case "rpcs3": Link(program, "portable", retainedData, token, staged); break;
+            case "eden": Link(program, "user", retainedData, token, staged, createAlias); break;
+            case "rpcs3": Link(program, "portable", retainedData, token, staged, createAlias); break;
             case "dolphin":
-                Link(program, "User", retainedData, token, staged);
+                Link(program, "User", retainedData, token, staged, createAlias);
                 AtomicFile.WriteText(Path.Combine(program, "portable.txt"), "", true);
                 break;
             case "pcsx2": Pcsx2Data.Prepare(installed, staged: staged); break;
@@ -956,40 +956,49 @@ internal static class EmulatorPortableSetup
         }
     }
 
-    private static void Link(string program, string name, string data, CancellationToken token, bool staged)
+    private static void Link(string program, string name, string data, CancellationToken token, bool staged,
+        Action<string, string>? createAlias)
     {
         var link = Path.Combine(program, name);
         var directory = new DirectoryInfo(link);
+        if (directory.LinkTarget is not null && directory.Exists
+                                             && Same(directory.ResolveLinkTarget(true)!.FullName, data))
+        {
+            return;
+        }
+
+        var replacement = link + ".portable-link-" + Guid.NewGuid().ToString("N");
         string? backup = null;
-        if (directory.LinkTarget is not null)
-        {
-            if (directory.Exists && Same(directory.ResolveLinkTarget(true)!.FullName, data))
-            {
-                return;
-            }
-
-            CopyData(EmulatorPortable.PhysicalPath(link), data, token, overwriteExisting: !staged);
-            Directory.Delete(link); // Only the old alias, never its target.
-        }
-        else if (directory.Exists)
-        {
-            CopyData(link, data, token, overwriteExisting: !staged);
-            backup = link + ".before-portable-" + Guid.NewGuid().ToString("N");
-            Directory.Move(link, backup);
-        }
-
         try
         {
-            CreateAlias(link, data);
+            // A failed symlink/junction creation must never remove the active portable binding.
+            // Keep its exact reparse point for rollback, including relative symbolic-link targets.
+            (createAlias ?? CreateAlias)(replacement, data);
+            if (directory.LinkTarget is not null || directory.Exists)
+            {
+                CopyData(EmulatorPortable.PhysicalPath(link), data, token, overwriteExisting: !staged,
+                    requiredSource: true);
+                backup = link + ".before-portable-" + Guid.NewGuid().ToString("N");
+                Directory.Move(link, backup);
+            }
+
+            Directory.Move(replacement, link);
         }
         catch
         {
-            if (backup is not null && Directory.Exists(backup) && !Directory.Exists(link))
+            if (backup is not null && !Directory.Exists(link) && new DirectoryInfo(link).LinkTarget is null)
             {
                 Directory.Move(backup, link);
             }
 
             throw;
+        }
+        finally
+        {
+            if (new DirectoryInfo(replacement).LinkTarget is not null)
+            {
+                Directory.Delete(replacement); // Unlink only; never remove the retained data.
+            }
         }
     }
 

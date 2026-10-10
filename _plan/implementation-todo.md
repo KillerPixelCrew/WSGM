@@ -1094,3 +1094,25 @@ Z:\WSGM-Setup-2.1.0.exe, SHA-256 369BAC756D964DF6376FBF076E6049DC413F1C9C5F84CC3
 The previous Z: setup was preserved. The desktop deployment restarted WSGM/Steam through the established
 script and six app/library/helper hashes match the staged files. Test execution remains deferred.
 Later tracker-only commits leave this implementation and delivered snapshot unchanged.
+
+## PR 222 review and desktop test corrections, 2026-10-10
+
+- [x] Quiet uninstall honors all owned-driver removal choices and keep-components; incompatible
+      pre-existing PawnIO gets an actionable refusal without claiming ownership.
+- [x] Settings discovers machine metadata on its injected worker after opening; failed graphics
+      startup retires safely and permits a later reconciliation retry.
+- [x] Portable alias replacement retains the previous reparse point until publication succeeds,
+      and refuses a required data source disappearing during conversion.
+- [x] Connected Windows-disabled displays remain selectable; audio capability publication keeps
+      endpoint, channel-format and spatial selections intact.
+- [x] Display layouts persist and apply actual GPU colour depth, dithering and VRR controls through
+      current physical routes, with offline authoring and desktop recovery.
+- [x] GPU discovery performs no setter probes; backdrop geometry and adapter ownership follow the
+      host monitor, including topology changes.
+- [x] Explorer transfer dialogs no longer receive blanket close requests or block entry after shell
+      surfaces retire. Unavailable HDMI recovery survives entry until its display is enabled.
+- [ ] Complete the committed-head gate, setup build, Z: delivery and desktop deployment.
+- [ ] Maintainer retest of physical display/audio/GPU switching and live multi-monitor/Optimus blur.
+
+The supplied desktop logs and all manual-testing comments were reviewed. Automated/native geometry
+checks support the implementation; they do not establish fresh visible or hardware acceptance.

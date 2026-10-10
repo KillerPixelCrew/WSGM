@@ -156,6 +156,7 @@ public partial class SettingsWindow : Window
             // (not the constructor) so a window that is built but never shown cannot
             // leave a session, and with it the staged images, behind.
             _services.BeginImportSession();
+            Log.Observe(_viewModel.StartInventoryDiscoveryAsync(), "Settings machine inventory");
             Log.Observe(_viewModel.StartDisplayDiscoveryAsync(), "Settings display discovery");
             _viewModel.StartAudioDiscovery();
             Log.Observe(_services.RefreshDeviceOwner(), "Settings device owner read");
@@ -163,6 +164,7 @@ public partial class SettingsWindow : Window
         Closed += (_, _) =>
         {
             _closed = true;
+            _viewModel.StopInventoryDiscovery();
             _viewModel.StopDisplayDiscovery();
             _viewModel.StopUpdateWork();
             _viewModel.PropertyChanged -= OnViewModelPropertyChanged;

@@ -113,6 +113,7 @@ internal sealed class UiFixture : IDisposable
         // Inert by default, so nothing here reads this machine; the fixture's own seams on top.
         var services = SettingsTestServices.Inert(Saved, Calls) with
         {
+            PostToUi = action => Dispatcher.UIThread.Post(action),
             CaptureDisplays = () => ReadDisplays?.Invoke() ?? Displays,
             ReadDisplayFacts = target => DisplayFacts.GetValueOrDefault(target.DevicePath),
             ReadPluginActions = () => PluginActions,

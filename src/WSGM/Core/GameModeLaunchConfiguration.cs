@@ -66,6 +66,9 @@ public sealed class KnownDisplay
     /// <summary>Highest scaling percentage the display offered, or zero when it is unknown.</summary>
     public int MaximumDpiPercent { get; set; }
 
+    /// <summary>Last driver display controls, retained for editing this monitor while disconnected.</summary>
+    public List<DisplayGpuCapability> GpuCapabilities { get; set; } = [];
+
     /// <summary>When the display was last observed as connected.</summary>
     public DateTimeOffset LastSeen { get; set; }
 }
@@ -152,6 +155,12 @@ public sealed class GameModeLaunchConfiguration
     /// <summary>Layout restored when <see cref="Return" /> is DesktopLayout.</summary>
     public DisplayLayout? DesktopLayout { get; set; }
 
+    /// <summary>Driver display values applied after the Game Mode layout settles.</summary>
+    public List<DisplayGpuPreference> GameDisplayGpu { get; set; } = [];
+
+    /// <summary>Driver display values applied after the desktop layout settles.</summary>
+    public List<DisplayGpuPreference> DesktopDisplayGpu { get; set; } = [];
+
     /// <summary>Audio preferences applied after the Game Mode layout settles.</summary>
     public AudioProfilePreference? GameAudio { get; set; }
 
@@ -169,6 +178,9 @@ public sealed class GameModeLaunchConfiguration
 
     /// <summary>Displays remembered for the layout editor, present or not.</summary>
     public List<KnownDisplay> KnownDisplays { get; set; } = [];
+
+    /// <summary>Remembered driver display and driver-wide capabilities for offline editing.</summary>
+    public List<DisplayGpuCapability> KnownGpuCapabilities { get; set; } = [];
 }
 
 /// <summary>
@@ -183,6 +195,9 @@ public sealed class GameModeLaunchRecovery
 
     /// <summary>Captured desktop audio state to restore after a Game Mode session.</summary>
     public AudioProfilePreference? PendingReturnAudio { get; set; }
+
+    /// <summary>Captured driver values for the controls Game Mode changes, retained until desktop restoration.</summary>
+    public List<DisplayGpuPreference> PendingReturnDisplayGpu { get; set; } = [];
 
     /// <summary>When the pending layout was recorded.</summary>
     public DateTimeOffset? EnteredAt { get; set; }

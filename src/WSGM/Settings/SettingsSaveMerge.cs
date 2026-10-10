@@ -28,6 +28,7 @@ internal static class SettingsSaveMerge
         var config = fresh;
         var values = ConfigJson.Clone(request.Values, ConfigJsonContext.Tolerant.AppConfig);
         var discoveredDisplays = fresh.GameModeLaunch.KnownDisplays;
+        var discoveredGpuCapabilities = fresh.GameModeLaunch.KnownGpuCapabilities;
         var shimWas = fresh.SteamInputManagementEnabled;
         var autostartWas = fresh.SteamAutostartTakeoverAccepted;
         var managersWas = fresh.OtherManagersTakeoverAccepted;
@@ -55,12 +56,34 @@ internal static class SettingsSaveMerge
         config.GameModeLaunch.DesktopLayout = values.GameModeLaunch.DesktopLayout;
         config.GameModeLaunch.GameAudio = values.GameModeLaunch.GameAudio;
         config.GameModeLaunch.DesktopAudio = values.GameModeLaunch.DesktopAudio;
+        config.GameModeLaunch.GameDisplayGpu = values.GameModeLaunch.GameDisplayGpu;
+        config.GameModeLaunch.DesktopDisplayGpu = values.GameModeLaunch.DesktopDisplayGpu;
+        config.GameModeLaunch.KnownGpuCapabilities = values.GameModeLaunch.KnownGpuCapabilities;
         config.GameModeLaunch.WaitForDisplay = values.GameModeLaunch.WaitForDisplay;
         config.GameModeLaunch.EnterActions = values.GameModeLaunch.EnterActions;
         config.GameModeLaunch.LeaveActions = values.GameModeLaunch.LeaveActions;
         config.GameModeLaunch.DesktopStartupActions = values.GameModeLaunch.DesktopStartupActions;
         config.GameModeLaunch.DesktopWakeActions = values.GameModeLaunch.DesktopWakeActions;
         config.GameModeLaunch.KnownDisplays = values.GameModeLaunch.KnownDisplays;
+        foreach (var discovered in discoveredGpuCapabilities)
+        {
+            if (discovered.Target is { } identity && request.ForgottenDisplays.Any(target => target.Matches(identity)))
+            {
+                continue;
+            }
+
+            if (!config.GameModeLaunch.KnownGpuCapabilities.Any(edited => edited.PluginId == discovered.PluginId
+                                                                          && edited.Descriptor?.CapabilityId ==
+                                                                          discovered.Descriptor?.CapabilityId
+                                                                          && (discovered.Target is null
+                                                                              ? edited.Target is null
+                                                                              : edited.Target?.Matches(
+                                                                                  discovered.Target) == true)))
+            {
+                config.GameModeLaunch.KnownGpuCapabilities.Add(discovered);
+            }
+        }
+
         config.Artwork.SteamGridDbApiKey = values.Artwork.SteamGridDbApiKey;
         config.Artwork.ScreenscraperEnabled = values.Artwork.ScreenscraperEnabled;
         config.Artwork.ScreenscraperUser = values.Artwork.ScreenscraperUser;
@@ -144,6 +167,15 @@ internal static class SettingsSaveMerge
                 edited.Modes = [.. edited.Modes.Concat(discovered.Modes).Distinct()];
                 edited.HdrSupported |= discovered.HdrSupported;
                 edited.MaximumDpiPercent = Math.Max(edited.MaximumDpiPercent, discovered.MaximumDpiPercent);
+                foreach (var capability in discovered.GpuCapabilities)
+                {
+                    if (!edited.GpuCapabilities.Any(existing => existing.PluginId == capability.PluginId
+                                                                && existing.Descriptor?.CapabilityId ==
+                                                                capability.Descriptor?.CapabilityId))
+                    {
+                        edited.GpuCapabilities.Add(capability);
+                    }
+                }
             }
         }
 

@@ -17,7 +17,7 @@ Push-Location $outputPath
 try {
     & cl.exe /nologo /std:c++17 /EHsc /O2 /MT /W4 /WX /wd4191 /LD "$PSScriptRoot/Backdrop.cpp" `
         /Fe:Avalonia.LiveBackdrop.Native.dll /Fo:Backdrop.obj `
-        /link user32.lib comctl32.lib ole32.lib dwmapi.lib d3d11.lib dcomp.lib
+        /link user32.lib comctl32.lib ole32.lib dwmapi.lib d3d11.lib dxgi.lib dcomp.lib
     if ($LASTEXITCODE -ne 0) { throw 'LiveBackdrop native compilation failed.' }
 } finally {
     Pop-Location
