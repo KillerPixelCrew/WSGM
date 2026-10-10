@@ -8,6 +8,7 @@ public sealed class HandheldPackageRetirementTests
 {
     [Theory]
     [InlineData("wsgm.device.msi.claw")]
+    [InlineData("wsgm.device.msi.claw-8-a2vm")]
     [InlineData("wsgm.device.asus.rog-ally")]
     public void DeviceArchiveRetirementPreservesFamilyRecoveryState(string id)
     {
@@ -22,6 +23,7 @@ public sealed class HandheldPackageRetirementTests
 
     [Theory]
     [InlineData("wsgm.device.msi.claw")]
+    [InlineData("wsgm.device.msi.claw-8-a2vm")]
     [InlineData("wsgm.device.asus.rog-ally")]
     public void FailedInstallationRestoresRetiredDeviceArchive(string id)
     {

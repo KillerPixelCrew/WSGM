@@ -225,6 +225,7 @@ $request = Join-Path $root 'publish\dev-deploy-request.json'
     AppDirectory = $appDirectory
     Copies = $copies
     PluginsRoot = $pluginsRoot
+    RetiredPackageIds = $retiredPackageIds
 } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $request -Encoding UTF8
 
 # WSGM has exited by now, so a locked WSGM.exe fails the swap. A desktop session keeps a live anchor
@@ -280,7 +281,7 @@ if (Test-Path -LiteralPath $request.PluginsRoot -PathType Container) {
                     try {
                         $manifest = $reader.ReadToEnd() | ConvertFrom-Json -ErrorAction Stop
                         $retired = $manifest -is [PSCustomObject] -and $manifest.id -is [string] -and
-                            $manifest.id -cin $retiredPackageIds
+                            $manifest.id -cin $request.RetiredPackageIds
                     } finally {
                         $reader.Dispose()
                     }
