@@ -15,6 +15,28 @@ The initial audit found concrete Handheld Companion parity defects. The implemen
 
 Hardware purchases and model-by-model physical acceptance are not implementation gates. No unrun hardware, live Steam rendering or firmware behavior is claimed as tested. Host-only HC policies such as screen-color capture, Windows EPP/core scheduling and controller-remapper authoring remain distinct from LibHandheld's native integration/mapping/glyph scope.
 
+## Delivered implementation
+
+Development version **2.2.0.1680** is installed at `C:/Program Files/WSGM/App`. The authorized
+`eng/dev-deploy.ps1 -Desktop` batch published the app and both launch wrappers, rebuilt the native
+packaged-game bridge, stopped/swapped/restarted through the established deployment owner and completed
+successfully. The publish log contains no compiler warning/error diagnostics. All **289** requested
+installed files match staged SHA-256, including readable glyph notices for all nine families.
+
+- WSGM implementation: `b427ee305db4a6c6a68447108795c22b4975aa5a`.
+- LibHandheld: `fd62addb1ed6912486b306e0e887985abbee42b2`.
+- SteamUiToolkit: `1a9dcaf71d0804d24f72b35346b29a2e5194b521`.
+- Installed `WSGM.dll`: `6B73C0FDC26685BB2015F60412AD9A5EC2FAE1EBEE2209E7A0780D6CE30B8EA5`.
+- Installed `LibHandheld.dll`: `D163BCF28594CBE842B8F44A6626F34F4E687D4095B4B508E4FCE8712E51530D`.
+- Installed `SteamUiToolkit.dll`: `DFB59DF8B9D694FC57F61D1E16282ABD330C0884E0023EBD7EF65D54C74B2770`.
+- Generated Steam asset: `EB83A33135D2FDC8DA4DD11AB3B9CD15876CACB40DE2456EE188E56D77304459`.
+
+All three source commits are pushed to the existing task branches. Complete file identities,
+deployment output and test results are retained under `artifacts/libhandheld-parity`. The changed
+release/deployment scripts parse successfully and require all nine family notice files; the complete
+setup executable was not built in this development batch. Hardware commands and live CEF rendering
+were not exercised. Later documentation-only commits preserve this installed implementation snapshot.
+
 This audit covers detection, model variants, power, fans, charging, lighting, physical input, OEM controls, motion, haptics, native dependencies, application routing, both WSGM interfaces and runtime transitions. A mapped model or matching packet is not a hardware acceptance result. Findings below distinguish implementation defects, missing functionality, deliberate product choices and unresolved hardware questions.
 
 ## Source identities and proof

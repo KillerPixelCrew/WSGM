@@ -6,8 +6,6 @@ Implementation follows the [simplified plan](refactor-2.1/refactor-plan-v2.md), 
 are finished. Live/manual acceptance remains outstanding; older entries below record earlier source
 and validation states.
 
-## Steam CEF activation after startup applications, 2026-10-12
-
 ## LibHandheld HC parity, 2026-10-12
 
 - [x] Correct native HC 1.3.3.1 packets, motion/rear mappings, haptics and read-only measurements.
@@ -15,11 +13,14 @@ and validation states.
 - [x] Embed authored glyphs for all 112 exact definitions through 106 profiles and import actual artwork in both surfaces.
 - [x] Reconcile coverage and ship readable family glyph notices in setup/development payloads.
 - [x] Complete relevant Release, regression, emitted-asset and rendered UI checks.
-- [ ] Complete development deployment and record installed artifact identities.
+- [x] Complete development deployment and record installed artifact identities.
 
 The comparison record and executed results are in [the parity audit](libhandheld-hc-parity-20261012.md).
 Hardware purchases and per-model physical acceptance are not implementation gates. No new hardware
 or live Steam rendering pass is claimed.
+Development version 2.2.0.1680 from WSGM `b427ee30`, LibHandheld `fd62add` and toolkit `1a9dcaf`
+is installed. All 289 requested installed files match staged SHA-256. Subsequent documentation-only
+commits do not change that source/artifact snapshot.
 
 ## Steam CEF activation after startup applications, 2026-10-12
 
