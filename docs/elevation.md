@@ -108,34 +108,56 @@ the affected appids.
 
 ### Lifetime, ordering and waiting
 
-The elevated wrapper stays alive for the target's lifetime, preserves Steam's arguments and working
-directory, and stops the target tree if Steam terminates the wrapper. Do not replace it with a
-fire-and-forget scheduled task or an Explorer-token shortcut.
+The wrapper stays alive for the target's complete process-tree lifetime and preserves Steam's
+arguments and working directory. Do not replace it with a fire-and-forget scheduled task or an
+Explorer-token shortcut.
+
+Lease-only launches acquire the native client's lease through `SteamInputLeaseHost`, then create the
+target through the wrapper's own `SuspendedProcess` path. They no longer delegate creation to the
+native client's blocking `RunWrapped` call. Both lease flags use this same creation boundary;
+neither changes the caller's integrity unless `--deelevate` is also requested.
 
 Every controlled child environment omits `SDL_GAMECONTROLLER_IGNORE_DEVICES`. Steam sets that
 variable to exclude direct controllers from SDL while Steam Input supplies input, and the exclusion
-can also suppress WSGM's VIIPER virtual pad, whatever the lease did. Both the native wrapped launch
-and the de-elevated payload remove the variable case-insensitively and preserve the caller's
-environment, Steam's app and overlay variables and the other SDL hints. De-elevation without a lease
-and the fallback after a failed lease acquisition use the same sanitized child payload.
+can also suppress WSGM's VIIPER virtual pad, whatever the lease did. Every wrapper route removes the
+variable case-insensitively and preserves the caller's environment, Steam's app and overlay
+variables and the other SDL hints. De-elevation without a lease and a failed lease acquisition use
+the same sanitized child payload.
 
 `launch.log` records whether `SDL_GAMECONTROLLER_IGNORE_DEVICES` was present, its child-environment
 disposition, and the target filename under the wrapper PID. It never records the variable's value or
-the environment block. A native wrapped launch reports the removal as pending before the blocking
-call and confirms it after the process tree exits successfully through that call; a failure records
-that the fallback also removes the exclusion from its child payload.
+the environment block. Lease acquisition failure does not change the child's sanitization.
 
-The lease is the outer behaviour. The elevated parent acquires it before the de-elevation hand-off
-and releases it after the medium child reports the target's exit. That also keeps the explicitly
-requested injection route at Steam's integrity, since a medium process cannot inject into elevated
-Steam.
+The lease is the outer behaviour. The elevated wrapper acquires it before de-elevation and holds it
+until the target's process tree exits. That also keeps the explicitly requested Steam Input gate
+injection route at Steam's integrity, since a medium process cannot inject into elevated Steam.
 
-Both paths wait on a job object, never on the process they started. The native wrapper starts the
-target suspended and assigns it before resume; the de-elevated child now does the same through
-`WSGM.Launch\SuspendedProcess.cs`. The exact process identity is retained before resume, so a
-short-lived launcher cannot run descendants before job admission. A game behind a launcher exits its
-root process seconds in, and waiting on that released the lease mid-session and told Steam the game
-had stopped. The job is also what lets stop-on-parent-exit reach orphaned descendants.
+For de-elevation, the wrapper opens its own linked limited token, verifies it is not elevated and
+duplicates it as a primary token. `CreateProcessAsUserW` starts the game directly under the wrapper
+with that token. This keeps the game in the process tree Steam launched while lowering its
+integrity; WSGM does not load an overlay DLL into either process. Steam remains responsible for its
+renderer. Both de-elevation alone and de-elevation with either input-lease flag use this route.
+
+The scheduled task remains a fallback when a limited token cannot be opened or Windows refuses
+process creation. That fallback logs that Steam's overlay handoff may be unavailable: copying
+Steam's environment does not reconnect a game started under Task Scheduler to Steam's launch tree.
+Failure after creation, including job admission or resume, never falls back to another launch. The
+created target is terminated instead, so a partially started game cannot be launched twice.
+
+The October 11 desktop reconstruction found Steam's renderer and Vulkan layer in Vulkan Story with a
+direct or non-elevated wrapped launch. The elevated scheduled-task launch carried the Vulkan layer
+but lacked the renderer, and Steam's process log did not track the actual game PID. Lease-only was
+not exercised in that reconstruction. Both changed routes still need a live overlay retest. Keeping
+Steam's normal injection route does not establish anti-cheat compatibility for any title.
+
+Every route waits for a job object to become empty after its root exits. Lease-only, direct-token
+de-elevation and the fallback medium child all create the target suspended and assign it before
+resume through `WSGM.Launch\SuspendedProcess.cs`. The exact process identity is retained before
+resume, so a short-lived launcher cannot run descendants before job admission. A game behind a
+launcher exits its root process seconds in, and waiting on that released the lease mid-session and
+told Steam the game had stopped. The scheduled-task fallback also uses the job to stop orphaned
+descendants if its parent pipe disconnects. Direct-launch jobs do not kill surviving processes when
+their handles close.
 
 ### Lease failures and impossible de-elevation fail open
 
@@ -160,13 +182,10 @@ apart.
 
 ### A failed release handshake is reported, never retried
 
-An error out of `run_wrapped` means the target never started, because that is what the caller acts
-on. A release handshake that fails after the game exited returns the exit code instead; otherwise
-the wrapper would start a finished game a second time. The failure is still reported through
-`WrappedRun.release` (ABI 3 added the `release` output). Blocking is lifted either way, but Steam
-was never asked to rediscover controllers, so `WSGM.Launch` writes
-`Steam Input lease released, but Steam controller recovery did not run …` to `launch.log`, the only
-surface that failure shows on.
+`SteamInputLeaseHost` releases the lease after the game tree exits and records the controller
+recovery outcome in `launch.log`. A release-handshake failure closes the crash-safe pipe and lifts
+blocking; it can lose controller recovery, but never causes another game launch. The target's exit
+code remains the result of the launch.
 
 ## Four device-verified invariants when Steam is elevated
 
@@ -252,12 +271,13 @@ Setting `SteamLaunchUnelevated` removes that reason.
 | [`Shared/Process/ScheduledTaskXml.cs`](../src/Shared/Process/ScheduledTaskXml.cs) and [`WindowsCommandLine.cs`](../src/Shared/Process/WindowsCommandLine.cs)                                 | One task principal/XML vocabulary and Windows argument quoting shared with the resident application                       |
 | [`Shared/Process/SteamControllerExclusion.cs`](../src/Shared/Process/SteamControllerExclusion.cs)                                                                                            | Case-insensitive exclusion-name match shared with the packaged launcher                                                   |
 
-For de-elevation, the parent creates the user-SID-accessible pipe and schedules the same executable
-with the internal `--medium-child <pipe>` command. After the child connects, the parent sends
-`LaunchPayload`; the child restores that environment, adds `RunAsInvoker`, creates and contains the
-target before it runs, and reports launch/result messages while the parent retains the outer lease.
-The initial connection budget is 20 seconds and the launch-report budget is two minutes. Once the
-target runs, the session follows the job rather than applying a fixed game-duration timeout.
+For fallback de-elevation, the parent creates the user-SID-accessible pipe and schedules the same
+executable with the internal `--medium-child <pipe>` command. After the child connects, the parent
+sends `LaunchPayload`; the child restores that environment, adds `RunAsInvoker`, creates and
+contains the target before it runs, and reports launch/result messages while the parent retains the
+outer lease. The initial connection budget is 20 seconds and the launch-report budget is two
+minutes. Once the target runs, the session follows the job rather than applying a fixed
+game-duration timeout.
 
 The wrapper's `ScheduledTaskLauncher` has a 15-second wait per `schtasks` invocation, with a bounded
 termination wait for a stuck utility. This is separate from `Core/UnelevatedLauncher`'s shared

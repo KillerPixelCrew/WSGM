@@ -116,64 +116,46 @@ internal static class Program
                        $"target={Path.GetFileName(options.Command[0])}, " +
                        $"argumentCount={options.Command.Length - 1}).");
 
-        // Without de-elevation the native wrapper is strictly better: it starts the
-        // target suspended, assigns it to a job object and waits for the whole
-        // process tree, so a launcher that spawns the real game and exits still
-        // holds the lease. The de-elevation path cannot use it — it would create
-        // the process from this elevated parent, which is the thing we are avoiding.
-        if (options is { AnyLease: true, Deelevate: false })
-        {
-            return await RunLeaseWrappedAsync(options);
-        }
-
+        // Keep Steam-facing creation in this wrapper for every lease mode. The native
+        // client owns the input lease; this wrapper owns launch and process-tree lifetime.
         using var lease = options.AnyLease ? SteamInputLeaseHost.TryAcquire(options) : null;
         var payload = LaunchPayload.Capture(options.Command);
         LogSdlEnvironment(options.Command[0], "removed from child payload");
-        return elevated == false
-            ? await LaunchAndWaitAsync(payload, "the wrapper is not elevated")
-            : await RunElevatedParentAsync(payload);
-    }
-
-    private static async Task<int> RunLeaseWrappedAsync(LaunchOptions options)
-    {
-        try
+        if (!options.Deelevate || elevated == false)
         {
-            using var client = SteamInputLeaseHost.CreateClient(options);
-            LogSdlEnvironment(options.Command[0], "native child removal pending lease acquisition");
-            Console.WriteLine("Acquiring Steam Input block lease...");
-            var run = client.RunWrapped(options.Command);
-            LogSdlEnvironment(options.Command[0], "removed from native child environment; process tree exited");
-            Console.WriteLine("Game process tree exited; Steam Input unblocked.");
-            LaunchLog.Info($"Steam Input lease wrapper finished with exit code {run.ExitCode}.");
-            // Blocking is lifted either way (the lease is a pipe Windows closes with
-            // this process), but if Steam was never asked to rediscover controllers it
-            // will not see the pad again until then — and launch.log is the only place
-            // that can be diagnosed from.
-            if (run.Release.RecoveryRequested)
+            return await LaunchAndWaitAsync(payload, options.Deelevate
+                ? "the wrapper is not elevated"
+                : "Steam Input lease; caller integrity unchanged");
+        }
+
+        using var limitedToken = Elevation.OpenLimitedPrimaryToken(out var tokenError);
+        if (limitedToken is not null)
+        {
+            (Process Process, JobObject Job) started;
+            try
             {
-                LaunchLog.Info($"Steam Input lease released ({run.Release.Recovery}).");
+                // Create as this wrapper's direct child, using the limited token for integrity.
+                // Task Scheduler breaks Steam's ancestry and leaves the game without its renderer.
+                started = Start(payload, limitedToken.DangerousGetHandle());
             }
-            else
+            catch (ProcessCreationException ex)
             {
-                LaunchLog.Warn("Steam Input lease released, but Steam controller recovery did not run"
-                               + $" ({run.Release.Recovery}: {run.Release.RecoveryMessage ?? "no reason reported"}).");
+                LaunchLog.Warn($"Direct limited-token creation refused (Win32 {ex.NativeErrorCode}); " +
+                               "using Task Scheduler. Steam's overlay handoff may be unavailable.");
+                return await RunElevatedParentAsync(payload);
             }
 
-            return unchecked((int)run.ExitCode);
+            using var process = started.Process;
+            using var job = started.Job;
+            LaunchLog.Info($"Medium-integrity target started directly under Steam wrapper pid " +
+                           $"{Environment.ProcessId} (target pid {process.Id}); no overlay DLLs loaded by WSGM.");
+            await WaitForTreeAsync(process, job, CancellationToken.None);
+            return process.ExitCode;
         }
-        catch (Exception ex)
-        {
-            // Fail open: a controller Steam refuses to let go of is a degraded
-            // experience, but a game that never starts is a broken one. Safe to
-            // relaunch because RunWrapped only reports failure when the target
-            // never started — a release handshake that fails after the game has
-            // exited returns its exit code instead (see run_wrapped).
-            LaunchLog.Error($"Steam Input lease wrapper failed: {ex.Message}. Launching without it.");
-            await Console.Error.WriteLineAsync($"Steam Input block unavailable: {ex.Message}");
-            var payload = LaunchPayload.Capture(options.Command);
-            LogSdlEnvironment(options.Command[0], "removed from fallback child payload after lease launch failure");
-            return await LaunchAndWaitAsync(payload, "Steam Input lease fallback");
-        }
+
+        LaunchLog.Warn($"Limited primary token unavailable (Win32 {tokenError}); using Task Scheduler. " +
+                       "Steam's overlay handoff may be unavailable.");
+        return await RunElevatedParentAsync(payload);
     }
 
     private static void LogSdlEnvironment(string target, string disposition)
@@ -555,7 +537,7 @@ internal static class Program
         }
     }
 
-    private static (Process Process, JobObject Job) Start(LaunchPayload payload)
+    private static (Process Process, JobObject Job) Start(LaunchPayload payload, nint primaryToken = 0)
     {
         if (payload.Arguments.Length == 0)
         {
@@ -595,7 +577,7 @@ internal static class Program
         }
 
         ContainedProcessStart.UseCallerIntegrity(startInfo);
-        return SuspendedProcess.Start(startInfo);
+        return SuspendedProcess.Start(startInfo, primaryToken);
     }
 
     private static string SafeTargetDirectory(string target)

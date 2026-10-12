@@ -30,7 +30,8 @@ internal static unsafe partial class ContainedProcessStart
         Environment.SetEnvironmentVariable("__COMPAT_LAYER", layers);
     }
 
-    internal static Process Start(ProcessStartInfo start, Func<nint, bool> contain)
+    // A nonzero primary token changes integrity without moving creation to a broker's process tree.
+    internal static Process Start(ProcessStartInfo start, Func<nint, bool> contain, nint primaryToken = 0)
     {
         ArgumentNullException.ThrowIfNull(start);
         ArgumentNullException.ThrowIfNull(contain);
@@ -59,11 +60,17 @@ internal static unsafe partial class ContainedProcessStart
             fixed (char* commandPointer = command)
             fixed (char* environmentPointer = environment)
             {
-                if (!CreateProcessW(null, commandPointer, 0, 0, false,
+                var created = primaryToken == 0
+                    ? CreateProcessW(null, commandPointer, 0, 0, false,
                         CreateSuspended | CreateUnicodeEnvironment, environmentPointer,
-                        start.WorkingDirectory, ref startup, out information))
+                        start.WorkingDirectory, ref startup, out information)
+                    : CreateProcessAsUserW(primaryToken, null, commandPointer, 0, 0, false,
+                        CreateSuspended | CreateUnicodeEnvironment, environmentPointer,
+                        start.WorkingDirectory, ref startup, out information);
+                if (!created)
                 {
-                    throw new Win32Exception(Marshal.GetLastPInvokeError(), "Could not create the suspended target.");
+                    // Only this failure proves that no child exists and permits another creation route.
+                    throw new ProcessCreationException(Marshal.GetLastPInvokeError());
                 }
             }
 
@@ -135,10 +142,23 @@ internal static unsafe partial class ContainedProcessStart
         string directory, ref ParentProcessStart.StartupInfo startup,
         out ParentProcessStart.ProcessInformation information);
 
+    [LibraryImport("advapi32.dll", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool CreateProcessAsUserW(nint token, string? application, char* command,
+        nint processAttributes, nint threadAttributes, [MarshalAs(UnmanagedType.Bool)] bool inheritHandles,
+        uint flags, char* environment, string directory, ref ParentProcessStart.StartupInfo startup,
+        out ParentProcessStart.ProcessInformation information);
+
     [LibraryImport("kernel32.dll", SetLastError = true)]
     private static partial uint ResumeThread(nint thread);
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool TerminateProcess(nint process, uint code);
+}
+
+/// <summary>A refused creation, before a process exists or any containment/resume operation runs.</summary>
+internal sealed class ProcessCreationException(int error)
+    : Win32Exception(error, "Could not create the suspended target.")
+{
 }
