@@ -6,6 +6,18 @@ Implementation follows the [simplified plan](refactor-2.1/refactor-plan-v2.md), 
 are finished. Live/manual acceptance remains outstanding; older entries below record earlier source
 and validation states.
 
+## Setup distributions and Steam UI resilience, 2026-10-12
+
+- [x] Separate offline and online prerequisite payloads; bundled RTSS and explicit download policy.
+- [x] Scan actual replacement-file owners, terminate verified holders and report actionable paths.
+- [x] Preserve native menu slots through reactive updates and keep native slider sizing intact.
+- [x] Check isolated current stable/beta sources and exercise native Windows file release.
+- [ ] Build, stage both installers on Z: and verify the deployed Steam UI.
+
+Setup regression coverage includes the real isolated DLL holder, rollback and pinned acquisition.
+The stable channel lacks the optional native Screensaver settings section; ordinary settings remain
+supported. Channel-source evidence is distinct from visible/live workflow acceptance.
+
 ## LibHandheld HC parity, 2026-10-12
 
 - [x] Correct native HC 1.3.3.1 packets, motion/rear mappings, haptics and read-only measurements.

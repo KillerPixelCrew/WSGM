@@ -14,17 +14,20 @@ internal sealed class SetupFileTransaction
     private readonly Func<string?>? _readRegistration;
     private readonly Action<string>? _relocatedSetup;
     private readonly Action<string?>? _restoreRegistration;
+    private readonly Action<IReadOnlyList<string>>? _releaseFiles;
     private readonly Dictionary<string, (string Path, bool Directory)> _targets;
     private Journal? _journal;
 
     internal SetupFileTransaction(string root, string machineData, Func<string?>? readRegistration = null,
         Action<string?>? restoreRegistration = null,
-        Func<string?>? executingSetup = null, Action<string>? relocatedSetup = null)
+        Func<string?>? executingSetup = null, Action<string>? relocatedSetup = null,
+        Action<IReadOnlyList<string>>? releaseFiles = null)
     {
         _executingSetup = executingSetup;
         _relocatedSetup = relocatedSetup;
         _readRegistration = readRegistration;
         _restoreRegistration = restoreRegistration;
+        _releaseFiles = releaseFiles;
         root = Path.GetFullPath(root);
         machineData = Path.GetFullPath(machineData);
         _journalPath = Path.Combine(machineData, "setup-transaction.json");
@@ -37,6 +40,9 @@ internal sealed class SetupFileTransaction
             ["Bundle"] = (Path.Combine(machineData, "bundle.json"), false)
         };
     }
+
+    internal IReadOnlyList<string> ReplacementPaths =>
+        [.. _targets.Values.SelectMany(target => new[] { target.Path, target.Path + ".previous" })];
 
     internal void Recover()
     {
@@ -69,6 +75,7 @@ internal sealed class SetupFileTransaction
             var app = _targets["App"].Path;
             if (!Directory.Exists(app) && Directory.Exists(app + ".previous"))
             {
+                _releaseFiles?.Invoke([app + ".previous"]);
                 Directory.Move(app + ".previous", app);
             }
         }
@@ -81,6 +88,7 @@ internal sealed class SetupFileTransaction
             throw new InvalidOperationException("The previous setup transaction must be recovered first.");
         }
 
+        _releaseFiles?.Invoke([.. _targets.Values.Select(target => target.Path + ".previous")]);
         foreach (var target in _targets.Values)
         {
             Delete(target.Path + ".previous", target.Directory);
@@ -147,6 +155,7 @@ internal sealed class SetupFileTransaction
             return;
         }
 
+        _releaseFiles?.Invoke(ReplacementPaths);
         foreach (var (name, target) in _targets)
         {
             var backup = target.Path + ".previous";
@@ -209,6 +218,7 @@ internal sealed class SetupFileTransaction
 
     private void Cleanup()
     {
+        _releaseFiles?.Invoke([.. _targets.Values.Select(target => target.Path + ".previous")]);
         foreach (var target in _targets.Values)
         {
             Delete(target.Path + ".previous", target.Directory);
@@ -268,6 +278,7 @@ internal sealed class SetupFileTransaction
 
             try
             {
+                _releaseFiles?.Invoke([path]);
                 File.Delete(path);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

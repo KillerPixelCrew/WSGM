@@ -36,7 +36,7 @@
           <TextBlock Grid.Row="1" Classes="muted" Text="Steam" />
           <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding SteamStatus}" />
           <TextBlock Grid.Row="2" Classes="muted" Text="Needs" />
-          <TextBlock Grid.Row="2" Grid.Column="1" Text="No internet connection." />
+          <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Prerequisites}" TextWrapping="Wrap" />
         </Grid>
       </Border>
     </DataTemplate>
@@ -506,7 +506,7 @@
             <TextBlock Classes="eyebrow" Text="{Binding Page.Eyebrow}" />
             <TextBlock Classes="title" Text="{Binding Page.Title}" />
           </StackPanel>
-          <TextBlock Classes="lead" Text="{Binding Page.Lead}" IsVisible="{Binding Page.HasLead}" />
+          <TextBlock Classes="lead" Text="{Binding PageLead}" IsVisible="{Binding HasPageLead}" />
           <ContentControl Content="{Binding Page}" />
         </StackPanel>
       </ScrollViewer>

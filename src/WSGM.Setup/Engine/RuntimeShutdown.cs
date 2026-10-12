@@ -38,6 +38,11 @@ internal interface IRuntimeShutdown
     /// <inheritdoc cref="WindowsSetup.Blockers" />
     IReadOnlyList<string> Blockers(bool includeSteam);
 
+    /// <summary>Scans exact replacement paths and ends verified file owners; returns an actionable refusal.</summary>
+    /// <param name="paths">Files or installation directories about to be modified.</param>
+    /// <returns>Null when all required files were released, otherwise the refusal reason.</returns>
+    string? ReleaseFileOwners(IReadOnlyList<string> paths);
+
     /// <inheritdoc cref="WindowsSetup.Run" />
     int Run(string file, string arguments);
 
@@ -128,6 +133,12 @@ internal sealed class WindowsRuntimeShutdown : IRuntimeShutdown
     public IReadOnlyList<string> Blockers(bool includeSteam)
     {
         return WindowsSetup.Blockers(includeSteam);
+    }
+
+    /// <inheritdoc />
+    public string? ReleaseFileOwners(IReadOnlyList<string> paths)
+    {
+        return SetupFileOwners.Release(paths);
     }
 
     /// <inheritdoc />

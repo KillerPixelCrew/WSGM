@@ -14,11 +14,13 @@ stays per-user in `%LOCALAPPDATA%\WSGM` and HKCU, which belong to the elevating 
 single-user-device design. Setup keeps its own machine records in `%ProgramData%\WSGM`:
 `components.json` (the drivers it installed), `bundle.json` (the installed bundle) and `setup.log`.
 
-The setup carries everything: the application, the controller stack (VIIPER, the USB/IP driver,
-HidHide) and every bundled plugin. The one thing it downloads is RivaTuner Statistics Server, only
-when the RTSS switch is on and RTSS is missing; offline, that step fails on its own and the rest of
-the install completes (see [RTSS integration](rtss.md#boundary)). The approved screen design is
-`src\WSGM.Setup\docs\mockup.html`.
+Setup comes in two distributions. Both carry WSGM, its .NET runtime, every bundled plugin and the
+small handheld access helpers. The default `WSGM-Setup-<version>.exe` is offline: it also carries
+WebView2, USB/IP, HidHide and RTSS. `WSGM-Setup-<version>-Online.exe` downloads those prerequisites
+from their pinned sources only when needed. Their SHA-256 hashes are checked before execution;
+signed controller installers retain their signer checks. Compatible existing installations are
+reused and failed downloads are reported without automatic retries. An offline payload never falls
+back to a download. The approved screen design is `src\WSGM.Setup\docs\mockup.html`.
 
 ## What gets installed
 
@@ -176,8 +178,8 @@ install and upgrade take two setup runs and a restart; the mechanism and the evi
     the Xbox-FSE guard, the boot manifest, the answers), then `WSGM.LogonService.exe --install`
     (create-or-reconfigure, failure actions, start). A controller package adds the USB/IP version
     check and HidHide step. The USB/IP check can arrange the separate restart run described below;
-    it never replaces the driver in this run. Selected RTSS installation, the bundled WebView2
-    runtime, shortcuts and the Installed apps entry follow.
+    it never replaces the driver in this run. Selected RTSS installation, the WebView2 runtime,
+    shortcuts and the Installed apps entry follow.
 11. After successful interactive completion, start WSGM in its previous mode (`--shell`, or
     Settings), or the session on a fresh install. A quiet update or repair restarts the previous
     runtime; a quiet fresh install does not start it. No path starts WSGM while a driver update is
@@ -189,6 +191,12 @@ executable, package cache, bundle metadata and registered version until file ins
 fatal failure restores that set before restarting the previous runtime. Recovery that cannot finish
 retains its journal and backups, and does not start a mismatched runtime. Resident-shell and sign-in
 startup refuse an incomplete transaction; Settings and the early desktop escape remain available.
+
+After normal shutdown, setup registers the exact installation files with Windows Restart Manager and
+terminates remaining verified holders before replacement or backup cleanup. PID and creation time
+checks keep termination tied to the identified process. Setup never terminates itself or Windows
+critical/Explorer processes. A refused release names the affected paths and owner when available;
+the existing file transaction preserves or restores the previous installation.
 
 A later setup first stops the relevant owners and recovers the transaction before detecting
 installed packages or preparing answers. Committed or fully restored journals require only backup

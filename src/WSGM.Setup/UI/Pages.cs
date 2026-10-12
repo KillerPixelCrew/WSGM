@@ -108,7 +108,8 @@ internal sealed class MessagePage(string eyebrow, string title, string lead, str
     public override CloseBehaviour OnClose => CloseBehaviour.Close;
 }
 
-internal sealed class WelcomePage(Version version, bool steamFound) : Page
+internal sealed class WelcomePage(Version version, bool steamFound,
+    string prerequisites = "Selected RTSS needs an internet connection if it is missing.") : Page
 {
     public override string Eyebrow => $"WSGM {SetupEngine.Display(version)}";
     public override string Title => "Set up WSGM";
@@ -118,6 +119,7 @@ internal sealed class WelcomePage(Version version, bool steamFound) : Page
 
     public string InstallPath => InstallLayout.Root;
     public string SteamStatus => steamFound ? "Found" : "Not found. Install Steam first.";
+    public string Prerequisites { get; } = prerequisites;
     public override string Primary => "Get started";
     public override string Back => "";
 }

@@ -6,6 +6,19 @@ disagree, fix the mechanism doc. Dated entries carry the day the maintainer deci
 
 ## Install and per-user state
 
+**Offer online and offline setup (2026-10-12).** Both distributions carry the application and its
+.NET runtime. Online setup acquires the large WebView2, USB/IP, HidHide and RTSS prerequisites only
+when needed; offline setup includes them. Exact hashes and existing signer pins apply before
+execution. Offline never silently downloads missing payloads. The default release filename remains
+offline so existing updates keep their established selection. Details are in [setup](setup.md).
+
+**Release actual file users before replacement (2026-10-12).** After the normal runtime and service
+shutdown, setup scans the installation files being replaced and terminates remaining identified
+holders. This authority is scoped to real file usage rather than image names. Setup preserves its
+own process and Windows critical processes, reports the blocked path and holder when available, and
+refuses replacement if the files cannot be released. Existing transaction rollback remains the owner
+of restoring the previous installation.
+
 **The product lives in Program Files; state stays per-user.** WSGM setup is one elevated process
 because the machine service and the drivers demand it. It installs WSGM, its plugins and a copy of
 itself under `%ProgramFiles%\WSGM`, while `%LOCALAPPDATA%\WSGM` and HKCU belong to the elevating

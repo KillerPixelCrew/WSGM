@@ -171,14 +171,20 @@ After the required manual validation and when a complete setup artifact is wante
 This script restores locked Node tools, checks the generated Steam asset, validates/builds Steam
 Input and VIIPER, restores for `win-x64`, publishes WSGM and both launch wrappers plus the logon
 service, builds the native UWP bridge, stages pinned controller installers, builds the curated
-plugin bundle, stages the pinned WebView2 installer, validates component contents, embeds the ZIP
-and publishes setup. It clears the root `publish` contents before rebuilding that output.
+plugin bundle, stages the pinned WebView2 and RTSS installers, validates component contents, embeds
+each distribution's ZIP and publishes both setups. Native components, application and plugins are
+prepared once. It clears the root `publish` contents before rebuilding that output.
 
-The deliverables are `publish/WSGM-Setup-<version>.exe` and `publish/bundle.json`. `publish/App`,
-`Payload`, `Packages`, `SetupOut` and `payload.zip` are staging products. The setup's `App` includes
-a second copy of the main executable named `WSGM.ShellAnchor.exe`, so ending `WSGM.exe` cannot also
-end its independent Explorer recovery owner. `Controller` carries VIIPER and controller installers;
-setup installs that component only for an applicable device role. `MediaRuntime` carries WebView2.
+The deliverables are offline `publish/WSGM-Setup-<version>.exe`,
+`publish/WSGM-Setup-<version>-Online.exe` and `publish/bundle.json`. `publish/App`, `Payload`,
+`OnlinePayload`, `Packages`, `SetupOut`, `OnlineSetupOut`, `payload.zip` and `online-payload.zip`
+are staging products. Each payload's `setup-distribution.json` declares bundled or downloaded
+prerequisites. The setup's `App` includes a second copy of the main executable named
+`WSGM.ShellAnchor.exe`, so ending `WSGM.exe` cannot also end its independent Explorer recovery
+owner. `Controller` carries VIIPER and controller installers; setup installs that component only for
+an applicable device role. Offline `MediaRuntime` carries WebView2 and `PerformanceRuntime` carries
+the pinned RTSS archive. Online payloads omit those installers and the USB/IP and HidHide
+executables. The updater retains the exact default filename.
 
 `build.ps1 -BundleFrom <directory>` consumes prebuilt `Packages` and `bundle.json`. Prepare that
 directory outside the root `publish` tree, which this script clears. The release workflow builds

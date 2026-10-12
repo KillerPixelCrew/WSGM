@@ -102,6 +102,7 @@ public sealed class SetupShutdownContractTests
             "ShellAnchorRecoverySettled",
             "ForceStop WSGM.ShellAnchor.exe",
             "CloseSteam 60",
+            "ReleaseFileOwners",
             "Blockers",
             "ReserveDeviceOwner 30"
         ];
@@ -140,7 +141,7 @@ public sealed class SetupShutdownContractTests
             runtime.Calls.Where(call => call.StartsWith("ForceStop ", StringComparison.Ordinal)));
         Assert.Contains("CloseSteam 60", runtime.Calls);
         Assert.DoesNotContain("ReserveDeviceOwner 30", runtime.Calls);
-        Assert.Equal("steam is still running. Close it normally, then run setup again. No process was ended.",
+        Assert.Equal("steam is still running. Close it normally, then run setup again.",
             step.Note);
     }
 
@@ -309,6 +310,12 @@ public sealed class SetupShutdownContractTests
         {
             Calls.Add("Blockers");
             return StillRunning;
+        }
+
+        public string? ReleaseFileOwners(IReadOnlyList<string> paths)
+        {
+            Calls.Add("ReleaseFileOwners");
+            return null;
         }
 
         public int Run(string file, string arguments)

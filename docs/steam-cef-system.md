@@ -1222,8 +1222,12 @@ running client and recorded in [steam-cef.md](steam-cef.md).
   that opens the importer, and the game menu carries "Change Artwork…", with admitted common plugins
   appended after, unable to claim a reserved id. The tab draws every row with Steam's own panel
   pieces and fields (`PanelSection`, its rows, `DialogButton`, `ToggleField`, the dropdown and text
-  field) and has no fallback drawing of its own. The game menu is intercepted before its first
-  render through the shared JSX claim. Both host pages are served on host-owned routes:
-  `wsgm.artwork-browser` and `wsgm.library-import`. Regression checks cover those seams; live visual
-  acceptance remains open. Completing a live 1:1 comparison of the artwork page with Decky
-  SteamGridDB remains an acceptance task.
+  field) and has no fallback drawing of its own. The game menu uses Steam's native
+  `additionalActions` slot through the shared JSX owner. It validates the actual native class and
+  observes naturally returned collection-menu items across later reactive renders, without calling
+  native methods eagerly or depending on the first render or a private factory's source location.
+  Competing handles and malformed native returns refuse the extension and preserve native behavior.
+  Toolkit sizing applies to its layout boxes, preserving Valve's slider internals. Both host pages
+  are served on host-owned routes: `wsgm.artwork-browser` and `wsgm.library-import`. Regression
+  checks cover those seams; live visual acceptance remains open. Completing a live 1:1 comparison of
+  the artwork page with Decky SteamGridDB remains an acceptance task.

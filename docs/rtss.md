@@ -9,17 +9,19 @@ pairing for the frame limit is in [power and display](power-and-display.md).
 
 ## Boundary
 
-WSGM treats RTSS as an optional external application and ships none of the RTSS SDK, headers, DLLs,
-installers, profiles or licence text. Using the profile API of the installed RTSS is the accepted
-boundary; compatibility, truthful readback and coexistence remain ordinary engineering gates.
+WSGM treats RTSS as an optional external application and includes none of its SDK, headers, runtime
+DLLs or profiles in the application. Offline setup carries the unmodified pinned installer archive.
+Using the profile API of the installed RTSS is the accepted boundary; compatibility, truthful
+readback and coexistence remain ordinary engineering gates.
 
 Setup's `rtss` switch, which Full turns on, is the one exception to "never installs". When it is on
-and no RTSS is registered, setup downloads one pinned Guru3D build (`RtssInstaller`: 7.3.7, the file
-and SHA-256 winget's `Guru3D.RTSS` manifest pins), refuses it unless the hash matches, and runs its
-installer silently. The installer is signed by Micro-Star International, like the reference
-installation. A failed download or install is reported on the progress page, is not retried, and
-does not stop setup. WSGM never repairs, updates or removes RTSS, and uninstall leaves it in place
-because other programs use it too. The switch itself is `Performance.Enabled`.
+and no RTSS is registered, online setup downloads one pinned Guru3D build while offline setup uses
+its bundled copy (`eng/rtss-runtime.lock.json`: 7.3.7, the file and SHA-256 winget's `Guru3D.RTSS`
+manifest pins). Setup refuses it unless the hash matches, and runs its installer silently. The
+installer is signed by Micro-Star International, like the reference installation. A failed download
+or install is reported on the progress page, is not retried, and does not stop setup. WSGM never
+repairs, updates or removes RTSS, and uninstall leaves it in place because other programs use it
+too. The switch itself is `Performance.Enabled`.
 
 RTSS state is independent of Device Integration. One session-owned `PerformanceService` feeds both
 the WSGM overlay and the native Steam QAM; neither owns a separate RTSS adapter. RTSS absence or
