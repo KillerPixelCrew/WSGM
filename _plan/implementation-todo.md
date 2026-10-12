@@ -11,11 +11,16 @@ and validation states.
 - [x] Prepare CEF before startup apps and when adopting an existing Steam client.
 - [x] Recover a confirmed closed debugging port through one bounded graceful restart in the current mode.
 - [x] Preserve mode transitions, deliberate closure, shutdown and the restart latch across replacement gaps.
-- [ ] Complete focused Release validation and development deployment.
+- [x] Complete focused Release validation and development deployment.
 
 The tester's 2.1.0.1654 log confirms the absent port after Big Picture appears. The reported
 Lossless Scaling startup correlation does not prove which process first launched Steam. Live
 reboot acceptance with that startup entry remains outstanding.
+Focused Release checks passed (37 toolkit and 27 WSGM tests), with no compiler warnings/errors.
+Development deployment delivered 2.2.0.1678 from WSGM `1088c454` and toolkit `0ba9a15c`;
+installed/staged DLL hashes match. The new desktop startup log reports a verified Steam-owned
+listener on port 8080. Logs and artifact identities are in `artifacts/cef-activation-20261012`.
+The missing-port restart and the tester's Lossless Scaling reboot still require live acceptance.
 
 ## SDK Steam CEF plugins, issue 119, 2026-10-06
 
