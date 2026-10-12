@@ -438,13 +438,60 @@ public sealed class RtssOsdSlotsTests
         var region = NewRegion();
         region.BusyHeld = true;
 
-        Assert.True(RtssOsdSlots.TryWrite(region, "WSGM", "hello"));
+        Assert.False(RtssOsdSlots.TryWrite(region, "WSGM", "hello"));
 
-        // The slot is claimed and the frame counter moves, but the text write is skipped —
-        // exactly what the library does when another writer holds the flag.
-        Assert.Equal("WSGM", region.ReadString(EntryOffset(1) + OwnerOffset));
+        Assert.Equal(string.Empty, region.ReadString(EntryOffset(1) + OwnerOffset));
         Assert.Equal(string.Empty, region.ReadString(EntryOffset(1) + TextExOffset));
+        Assert.Equal(0u, region.ReadUInt32(FrameOffset));
+        region.BusyHeld = false;
+        Assert.True(RtssOsdSlots.TryWrite(region, "WSGM", "hello"));
+        Assert.Equal("hello", region.ReadString(EntryOffset(1) + TextExOffset));
+    }
+
+    [Fact]
+    public void AFailedTextWriteAlwaysReleasesTheBusyFlag()
+    {
+        var region = NewRegion();
+        Assert.True(RtssOsdSlots.TryWrite(region, "WSGM", "old"));
+        region.ThrowOnWriteAt = EntryOffset(1) + TextExOffset;
+
+        Assert.Throws<IOException>(() => RtssOsdSlots.TryWrite(region, "WSGM", "new"));
+
+        Assert.False(region.BusyHeld);
         Assert.Equal(1u, region.ReadUInt32(FrameOffset));
+        region.ThrowOnWriteAt = null;
+        Assert.True(RtssOsdSlots.TryWrite(region, "WSGM", "new"));
+    }
+
+    [Fact]
+    public void ClearingAnAbsentDisplayDoesNotClaimAFreeSlot()
+    {
+        var region = NewRegion();
+
+        Assert.True(RtssOsdSlots.TryWrite(region, "WSGM", string.Empty));
+
+        Assert.Equal(string.Empty, region.ReadString(EntryOffset(1) + OwnerOffset));
+        Assert.Equal(0u, region.ReadUInt32(FrameOffset));
+    }
+
+    [Fact]
+    public void ReleaseRespectsTheBusyFlagAndClearsEveryMatchingOwner()
+    {
+        var region = NewRegion();
+        region.WriteString(EntryOffset(1) + OwnerOffset, "WSGM");
+        region.WriteString(EntryOffset(2) + OwnerOffset, "WSGM");
+        region.WriteString(EntryOffset(3) + OwnerOffset, "foreign");
+        region.BusyHeld = true;
+
+        RtssOsdSlots.Release(region, "WSGM");
+        Assert.Equal("WSGM", region.ReadString(EntryOffset(1) + OwnerOffset));
+
+        region.BusyHeld = false;
+        RtssOsdSlots.Release(region, "WSGM");
+        Assert.Equal(string.Empty, region.ReadString(EntryOffset(1) + OwnerOffset));
+        Assert.Equal(string.Empty, region.ReadString(EntryOffset(2) + OwnerOffset));
+        Assert.Equal("foreign", region.ReadString(EntryOffset(3) + OwnerOffset));
+        Assert.False(region.BusyHeld);
     }
 
     [Fact]
@@ -478,6 +525,7 @@ public sealed class RtssOsdSlotsTests
         private readonly byte[] _memory = new byte[capacity];
 
         public bool BusyHeld { get; set; }
+        public long? ThrowOnWriteAt { get; set; }
 
         public long Capacity => _memory.Length;
 
@@ -498,16 +546,28 @@ public sealed class RtssOsdSlotsTests
 
         public void WriteBytes(long offset, byte[] buffer, int count)
         {
+            if (offset == ThrowOnWriteAt)
+            {
+                throw new IOException("Injected slot-write failure.");
+            }
+
             Array.Copy(buffer, 0, _memory, offset, count);
         }
 
         public bool TryAcquireBusy(long offset)
         {
-            return !BusyHeld;
+            if (BusyHeld)
+            {
+                return false;
+            }
+
+            BusyHeld = true;
+            return true;
         }
 
         public void ReleaseBusy(long offset)
         {
+            BusyHeld = false;
         }
 
         public string ReadString(long offset)
@@ -525,5 +585,98 @@ public sealed class RtssOsdSlotsTests
         {
             Encoding.ASCII.GetBytes(value).CopyTo(_memory, (int)offset);
         }
+    }
+}
+
+public sealed class RtssOsdRendererTests
+{
+    [Fact]
+    public async Task RichOverlayPublishesBeforeItsSensorCollectorCanBlock()
+    {
+        using var release = new ManualResetEventSlim();
+        var sampling = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var published = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var renderer = new RtssOsdRenderer(write: text =>
+        {
+            published.TrySetResult(text);
+            return true;
+        }, sample: () =>
+        {
+            sampling.TrySetResult();
+            release.Wait(TimeSpan.FromSeconds(5));
+            return RtssOsdMetrics.Empty;
+        });
+        renderer.SetLevel(2);
+        renderer.Start();
+        try
+        {
+            await sampling.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(published.Task.IsCompleted);
+            Assert.Contains("<FR>", await published.Task);
+        }
+        finally
+        {
+            release.Set();
+        }
+    }
+
+    [Fact]
+    public async Task MinimalOverlayPublishesWithoutCollectingSensors()
+    {
+        var published = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var samples = 0;
+        await using var renderer = new RtssOsdRenderer(write: text =>
+        {
+            if (text.Length > 0)
+            {
+                published.TrySetResult(text);
+            }
+
+            return true;
+        }, sample: () =>
+        {
+            Interlocked.Increment(ref samples);
+            throw new IOException("Sensors unavailable.");
+        });
+
+        renderer.SetLevel(1);
+        renderer.Start();
+        var text = await published.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await renderer.DisposeAsync();
+
+        Assert.Contains("<FR>", text);
+        Assert.Equal(0, samples);
+    }
+
+    [Fact]
+    public async Task ARefusedClearIsRetriedInsteadOfParkingTheRenderer()
+    {
+        var shown = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cleared = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var clears = 0;
+        await using var renderer = new RtssOsdRenderer(write: text =>
+        {
+            if (text.Length > 0)
+            {
+                shown.TrySetResult();
+                return true;
+            }
+
+            if (Interlocked.Increment(ref clears) == 1)
+            {
+                return false;
+            }
+
+            cleared.TrySetResult();
+            return true;
+        });
+
+        renderer.SetLevel(1);
+        renderer.Start();
+        await shown.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        renderer.SetLevel(0);
+        await cleared.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(2, clears);
     }
 }

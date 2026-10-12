@@ -88,7 +88,9 @@ internal sealed record RtssProbe(
 /// <summary>Result of querying the active global or application profile.</summary>
 /// <param name="Values">Frame-limit profile value and the adapter's current WSGM overlay level.</param>
 /// <param name="Timestamp">UTC time assigned by the adapter to this observation.</param>
-internal sealed record RtssReadback(PerformanceValues Values, DateTimeOffset Timestamp);
+/// <param name="OverlayPresentationEnabled">RTSS's presentation gates, independent of WSGM's selector; null when unknown or off.</param>
+internal sealed record RtssReadback(PerformanceValues Values, DateTimeOffset Timestamp,
+    bool? OverlayPresentationEnabled = null);
 
 /// <summary>Narrow property update sent to the adapter.</summary>
 /// <param name="RtssProfileName">Executable profile name, or the empty string for the global profile.</param>
@@ -109,6 +111,9 @@ internal sealed record RtssApplyResult(bool Applied, string? Diagnostic);
 /// <summary>Adapter boundary used by the shared service and deterministic tests.</summary>
 internal interface IRtssAdapter : IAsyncDisposable
 {
+    /// <summary>Clears WSGM's OSD without changing RTSS profiles or other applications' displays.</summary>
+    void ClearOverlay();
+
     /// <summary>
     ///     Applies the Custom overlay's configuration (selector level 4). A cheap handoff
     ///     to the adapter's renderer; adapters without one ignore it.

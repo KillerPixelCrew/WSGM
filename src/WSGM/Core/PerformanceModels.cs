@@ -136,6 +136,7 @@ internal sealed record PerformanceCommandState(
 /// <param name="Observed">Last values read or successfully written; not proof of hardware readback.</param>
 /// <param name="RefreshedAt">Time of the last observation, published write, or unavailable refresh.</param>
 /// <param name="Command">Most recent semantic command status.</param>
+/// <param name="OverlayPresentationEnabled">RTSS's presentation gates; separate from the selected overlay level.</param>
 internal sealed record PerformanceState(
     RtssProbe Probe,
     PerformanceApplicationTarget? Target,
@@ -145,4 +146,5 @@ internal sealed record PerformanceState(
     PerformanceValues Desired,
     PerformanceValues Observed,
     DateTimeOffset? RefreshedAt,
-    PerformanceCommandState Command);
+    PerformanceCommandState Command,
+    bool? OverlayPresentationEnabled = null);

@@ -24,6 +24,23 @@ public sealed class RtssLauncherTests
     }
 
     [Fact]
+    public async Task AReadyRtssDoesNotWaitThroughTheFixedStartupDelay()
+    {
+        using RtssLauncher launcher = new(_ => Task.FromResult(true));
+        var probes = 0;
+
+        var started = await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), enabled: true,
+            ready: _ =>
+            {
+                probes++;
+                return Task.FromResult(true);
+            }).WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.True(started);
+        Assert.Equal(1, probes);
+    }
+
+    [Fact]
     public void NoOtherStateStartsAnything()
     {
         // Starting a program because WSGM could not identify it would be exactly the wrong response
@@ -128,6 +145,26 @@ public sealed class RtssLauncherTests
         launcher.Dispose();
         Assert.False(await launcher.TryStartAsync(Probe(RtssAvailability.NotRunning), true));
         Assert.Equal(0, starts);
+    }
+
+    [Fact]
+    public void AReusedProcessIdWithANewGenerationGetsANewWatch()
+    {
+        List<WatchLease> leases = [];
+        using RtssLauncher launcher = new(watchProcess: (_, _) =>
+        {
+            WatchLease lease = new();
+            leases.Add(lease);
+            return lease;
+        });
+        var ready = Probe(RtssAvailability.Ready) with { ProcessId = 10, Generation = 1 };
+
+        launcher.Watch(ready, () => { });
+        launcher.Watch(ready with { Generation = 2 }, () => { });
+
+        Assert.Equal(2, leases.Count);
+        Assert.True(leases[0].Disposed);
+        Assert.False(leases[1].Disposed);
     }
 
     [Fact]

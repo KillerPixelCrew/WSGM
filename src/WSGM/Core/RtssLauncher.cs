@@ -16,8 +16,8 @@ internal sealed class RtssLauncher : IDisposable
     private readonly Lock _watchGate = new();
     private readonly Func<int, Action, IDisposable?> _watchProcess;
     private bool _disposed;
-    private int? _failedProcessId;
-    private int? _processId;
+    private (int ProcessId, long Generation)? _failedProcess;
+    private (int ProcessId, long Generation)? _process;
     private int _starting;
     private IDisposable? _watch;
     private object? _watchIdentity;
@@ -48,7 +48,7 @@ internal sealed class RtssLauncher : IDisposable
         {
             _disposed = true;
             _watchIdentity = null;
-            _processId = null;
+            _process = null;
             _watch?.Dispose();
             _watch = null;
         }
@@ -74,11 +74,13 @@ internal sealed class RtssLauncher : IDisposable
     /// <param name="probe">The most recent probe.</param>
     /// <param name="enabled">Whether the user has performance control switched on.</param>
     /// <param name="cancellationToken">Prevents admission or ends the settle delay; cannot undo a process start.</param>
+    /// <param name="ready">Optional caller-owned readiness probe; ends settling as soon as RTSS is usable.</param>
     /// <returns>Whether process creation succeeded; readiness is established by a later probe.</returns>
     internal async Task<bool> TryStartAsync(
         RtssProbe probe,
         bool enabled,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Func<CancellationToken, Task<bool>>? ready = null)
     {
         if (!ShouldStart(probe, enabled))
         {
@@ -116,8 +118,34 @@ internal sealed class RtssLauncher : IDisposable
             }
 
             created = true;
-            // Keep admission closed while the created process initializes its shared memory.
-            await Task.Delay(SettleTimeout, cancellationToken).ConfigureAwait(false);
+            // Keep start admission closed, but do not impose ten seconds on a ready RTSS.
+            if (ready is null)
+            {
+                await Task.Delay(SettleTimeout, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                var deadline = Environment.TickCount64 + (long)SettleTimeout.TotalMilliseconds;
+                while (Environment.TickCount64 < deadline)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    lock (_watchGate)
+                    {
+                        if (_disposed)
+                        {
+                            return true;
+                        }
+                    }
+
+                    if (await ready(cancellationToken).ConfigureAwait(false))
+                    {
+                        break;
+                    }
+
+                    await Task.Delay(TimeSpan.FromMilliseconds(200), cancellationToken).ConfigureAwait(false);
+                }
+            }
+
             return true;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -147,7 +175,8 @@ internal sealed class RtssLauncher : IDisposable
 
         lock (_watchGate)
         {
-            if (_disposed || _processId == processId || _failedProcessId == processId)
+            var process = (processId, probe.Generation);
+            if (_disposed || _process == process || _failedProcess == process)
             {
                 return;
             }
@@ -155,8 +184,8 @@ internal sealed class RtssLauncher : IDisposable
             _watchIdentity = null;
             _watch?.Dispose();
             _watch = null;
-            _processId = processId;
-            _failedProcessId = null;
+            _process = process;
+            _failedProcess = null;
             var identity = new object();
             _watchIdentity = identity;
             try
@@ -168,8 +197,8 @@ internal sealed class RtssLauncher : IDisposable
                     _watch = watch;
                     if (watch is null)
                     {
-                        _processId = null;
-                        _failedProcessId = processId;
+                        _process = null;
+                        _failedProcess = process;
                         _watchIdentity = null;
                     }
                 }
@@ -180,8 +209,8 @@ internal sealed class RtssLauncher : IDisposable
             }
             catch (Exception ex)
             {
-                _processId = null;
-                _failedProcessId = processId;
+                _process = null;
+                _failedProcess = process;
                 _watchIdentity = null;
                 Log.Warn($"RTSS exit watch unavailable for process {processId}: {ex.Message}");
             }
@@ -198,7 +227,7 @@ internal sealed class RtssLauncher : IDisposable
             }
 
             _watchIdentity = null;
-            _processId = null;
+            _process = null;
             _watch?.Dispose();
             _watch = null;
         }

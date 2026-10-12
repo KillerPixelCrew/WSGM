@@ -769,6 +769,7 @@ public sealed partial class ShellSession
             _deviceCoordinator is null
                 ? null
                 : ApplyRunningApplicationTargetAsync);
+        _foregroundWindows.Start();
     }
 
     /// <summary>

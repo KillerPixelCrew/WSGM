@@ -205,7 +205,8 @@ internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
             var time0 = region.ReadUInt32(entry + EntryTime0Offset);
             var time1 = region.ReadUInt32(entry + EntryTime1Offset);
             var frames = region.ReadUInt32(entry + EntryFramesOffset);
-            if (processId == 0 || frames == 0 || time1 == 0 || time1 <= time0)
+            var elapsed = unchecked(time1 - time0);
+            if (processId == 0 || frames == 0 || elapsed == 0 || elapsed > int.MaxValue)
             {
                 continue;
             }
@@ -223,7 +224,7 @@ internal sealed class RtssFrametimeReader : IFrametimeSource, IDisposable
             live.Add(new RtssFrametimeSample(
                 processId,
                 DecodeName(name),
-                (time1 - time0) / (double)frames,
+                elapsed / (double)frames,
                 frames,
                 age,
                 time0,
