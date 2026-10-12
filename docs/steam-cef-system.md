@@ -168,7 +168,20 @@ A healthy cold boot shows `Big Picture window detected` before the first `open:`
 - Desktop download polling and overlay-driven operations stay immediate because they do not act on a
   half-built game-mode session; their shared transport still waits for a MainWindow on cold starts.
 - The remote-debugging flag uses the configured `Cef.Enabled` value, not the temporary transport
-  hold. A first cold start must write the flag while attachment is still prohibited.
+  hold. WSGM prepares it before startup applications, on warm adoption and before every cold launch,
+  while attachment can still be prohibited.
+
+The gate worker also maintains this opt-in and passively checks the native listener table. After
+Steam has spent 30 seconds outside a mode transition with a confirmed closed debugging port,
+`SessionModes` requests a graceful client exit and relaunches it in the current mode. The transport
+stays held and the exit monitor stays paused during replacement. Steam gets 15 seconds to exit; a
+refusal leaves the client running and surfaces a warning. An unreadable listener table or foreign
+port owner never triggers a restart. One recovery is admitted until the listener opens, Steam is
+closed deliberately, or the CEF master switch is disabled. The replacement's process-creation gap
+cannot rearm another restart. Recovery waits up to 30 seconds for the replacement's verified
+listener and reports a visible warning if activation fails. This also activates CEF when the master
+switch is enabled while Steam already runs. Startup grace and an open listener do not replace the
+normal window/target readiness checks or the attended debugging preflight.
 
 ### Retract before either Big Picture mode change
 

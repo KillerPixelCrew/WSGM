@@ -6,6 +6,17 @@ Implementation follows the [simplified plan](refactor-2.1/refactor-plan-v2.md), 
 are finished. Live/manual acceptance remains outstanding; older entries below record earlier source
 and validation states.
 
+## Steam CEF activation after startup applications, 2026-10-12
+
+- [x] Prepare CEF before startup apps and when adopting an existing Steam client.
+- [x] Recover a confirmed closed debugging port through one bounded graceful restart in the current mode.
+- [x] Preserve mode transitions, deliberate closure, shutdown and the restart latch across replacement gaps.
+- [ ] Complete focused Release validation and development deployment.
+
+The tester's 2.1.0.1654 log confirms the absent port after Big Picture appears. The reported
+Lossless Scaling startup correlation does not prove which process first launched Steam. Live
+reboot acceptance with that startup entry remains outstanding.
+
 ## SDK Steam CEF plugins, issue 119, 2026-10-06
 
 - [x] Declare unrestricted package JS/CSS modules and the optional JSON backend in the SDK.

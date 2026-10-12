@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
+using SteamUiToolkit;
 using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Interop;
@@ -116,6 +118,7 @@ public sealed class SessionModes
     private IDisposable? _pendingSteamRelaunch;
     private int _shutdownRequested;
     private int _steamClosedByUser;
+    private int _steamCefRecoveryInProgress;
 
     /// <summary>
     ///     Creates a preview-only coordinator. Desktop/game transition requests are inert
@@ -513,6 +516,11 @@ public sealed class SessionModes
     /// </summary>
     public void EnsureSteamDesktop()
     {
+        if (Volatile.Read(ref _steamCefRecoveryInProgress) != 0)
+        {
+            return;
+        }
+
         if (Volatile.Read(ref _shutdownRequested) != 0)
         {
             Log.Info("Ignoring desktop Steam start: application shutdown is in progress.");
@@ -823,6 +831,11 @@ public sealed class SessionModes
     /// </summary>
     public void StartOrFocusSteam()
     {
+        if (Volatile.Read(ref _steamCefRecoveryInProgress) != 0)
+        {
+            return;
+        }
+
         if (Volatile.Read(ref _shutdownRequested) != 0)
         {
             Log.Info("Ignoring Steam start/focus: application shutdown is in progress.");
@@ -891,6 +904,11 @@ public sealed class SessionModes
     /// </returns>
     public string? StartBigPicture()
     {
+        if (Volatile.Read(ref _steamCefRecoveryInProgress) != 0)
+        {
+            return "Steam is restarting to enable WSGM's Steam integration.";
+        }
+
         if (Volatile.Read(ref _shutdownRequested) != 0)
         {
             Log.Info("Ignoring Big Picture start: application shutdown is in progress.");
@@ -911,6 +929,142 @@ public sealed class SessionModes
         return result.Started ? null : BigPictureStartFailedWarning;
     }
 
+    /// <summary>Gracefully replaces a client that did not enable its CEF debugging listener.</summary>
+    /// <param name="bigPicture">Whether the current session should return to Big Picture.</param>
+    /// <param name="cancellationToken">Cancels recovery during application shutdown.</param>
+    /// <returns>False when another transition refused admission, otherwise true even if Steam refused to exit.</returns>
+    internal async Task<bool> RestartSteamForCefAsync(bool bigPicture, CancellationToken cancellationToken)
+    {
+        if (SteamClosedByUser || !_config.Cef.Enabled
+                              || !TryBeginTransition("Steam CEF activation"))
+        {
+            return false;
+        }
+
+        Volatile.Write(ref _steamCefRecoveryInProgress, 1);
+        var wasPaused = false;
+        try
+        {
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                wasPaused = _monitor?.Paused == true;
+                if (_monitor is not null)
+                {
+                    _monitor.Paused = true;
+                }
+
+                _pendingSteamRelaunch?.Dispose();
+                _pendingSteamRelaunch = null;
+            });
+
+            cancellationToken.ThrowIfCancellationRequested();
+            if (SteamClosedByUser || !_config.Cef.Enabled || Volatile.Read(ref _shutdownRequested) != 0)
+            {
+                return false;
+            }
+
+            if (!SteamCef.EnsureRemoteDebuggingEnabled(Steam.InstallDirectory, enabled: true))
+            {
+                ReportWarning("Couldn't enable Steam debugging. Check wsgm.log for the file access error.");
+                return true;
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            if (SteamClosedByUser || !_config.Cef.Enabled || Volatile.Read(ref _shutdownRequested) != 0)
+            {
+                return false;
+            }
+
+            // The listener may have appeared while recovery was acquiring the transition.
+            if (SteamCef.GetRemoteDebuggingState(out _) != SteamCefDebuggingState.Closed)
+            {
+                return true;
+            }
+
+            Log.Warn("Steam CEF listener stayed closed after startup; restarting Steam to activate it.");
+            if (Steam.IsRunning && !AppLauncher.StartProtocol(Steam.ExitUrl).Started)
+            {
+                ReportWarning("Couldn't ask Steam to restart for WSGM's Steam integration.");
+                return true;
+            }
+
+            var stopWait = Stopwatch.StartNew();
+            while (Steam.IsRunning)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (stopWait.Elapsed >= TimeSpan.FromSeconds(15))
+                {
+                    Log.Warn("Steam CEF activation: Steam did not exit within 15 seconds; leaving it running.");
+                    ReportWarning("Steam didn't finish restarting. Close any running game and restart Steam to enable WSGM's Steam integration.");
+                    return true;
+                }
+
+                await Task.Delay(250, cancellationToken).ConfigureAwait(false);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            if (SteamClosedByUser || Volatile.Read(ref _shutdownRequested) != 0)
+            {
+                return true;
+            }
+
+            var config = _config;
+            var result = bigPicture
+                ? Steam.LaunchBigPicture(Store.Context, SteamInputShim, config.SteamInputManagementEnabled,
+                    config.SteamLaunchUnelevated, config.Cef.Enabled)
+                : Steam.LaunchDesktop(Store.Context, SteamInputShim, config.SteamInputManagementEnabled,
+                    config.SteamLaunchUnelevated, config.Cef.Enabled);
+            result.Process?.Dispose();
+            if (!result.Started)
+            {
+                ReportWarning("Couldn't restart Steam for WSGM's Steam integration.");
+                return true;
+            }
+
+            var startupWait = Stopwatch.StartNew();
+            while (_config.Cef.Enabled && !SteamClosedByUser)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var state = SteamCef.GetRemoteDebuggingState(out var reason);
+                if (state == SteamCefDebuggingState.Open)
+                {
+                    Log.Info($"Steam CEF activation succeeded: {reason}.");
+                    return true;
+                }
+
+                if (state == SteamCefDebuggingState.Unavailable
+                    || startupWait.Elapsed >= SteamCefActivationPolicy.StartupGrace)
+                {
+                    Log.Warn($"Steam CEF activation failed after replacement: {state}, {reason}.");
+                    ReportWarning("Steam restarted, but its debugging port is still unavailable. Check wsgm.log for details.");
+                    return true;
+                }
+
+                await Task.Delay(250, cancellationToken).ConfigureAwait(false);
+            }
+
+            return true;
+        }
+        finally
+        {
+            try
+            {
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (_monitor is not null)
+                    {
+                        _monitor.Paused = wasPaused || SteamClosedByUser;
+                    }
+                });
+            }
+            finally
+            {
+                Volatile.Write(ref _steamCefRecoveryInProgress, 0);
+                EndTransition();
+            }
+        }
+    }
+
     /// <summary>Brings Steam Big Picture to the foreground when the monitor sees it alive.</summary>
     /// <param name="force">
     ///     Whether to skip the monitor's up-to-5 s-stale liveness poll because the
@@ -918,6 +1072,11 @@ public sealed class SessionModes
     /// </param>
     public void FocusSteam(bool force = false)
     {
+        if (Volatile.Read(ref _steamCefRecoveryInProgress) != 0)
+        {
+            return;
+        }
+
         if (Volatile.Read(ref _shutdownRequested) != 0)
         {
             Log.Info("Ignoring Steam focus: application shutdown is in progress.");
