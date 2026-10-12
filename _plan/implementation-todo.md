@@ -12,11 +12,22 @@ and validation states.
 - [x] Scan actual replacement-file owners, terminate verified holders and report actionable paths.
 - [x] Preserve native menu slots through reactive updates and keep native slider sizing intact.
 - [x] Check isolated current stable/beta sources and exercise native Windows file release.
-- [ ] Build, stage both installers on Z: and verify the deployed Steam UI.
+- [x] Build and hash-verify both installers on Z: and deploy version 2.2.0.1684.
+- [x] Observe Change Artwork remaining visible in the deployed Beta menu after seven seconds.
+- [ ] Verify rendered native slider geometry and overlay-level visibility after deployment.
 
 Setup regression coverage includes the real isolated DLL holder, rollback and pinned acquisition.
 The stable channel lacks the optional native Screensaver settings section; ordinary settings remain
 supported. Channel-source evidence is distinct from visible/live workflow acceptance.
+
+Both setups were built from `315cd45c` with LibHandheld `f005faa9` and SteamUiToolkit `3ceca9d1`.
+`Z:\WSGM-Setup-2.2.0.exe` is the 428,847,160-byte offline package;
+`Z:\WSGM-Setup-2.2.0-Online.exe` is the 167,530,552-byte online package. Both copied payloads passed
+SHA-256 verification and their actual embedded resources matched the selected distribution.
+Development deployment completed and installed application/library hashes matched staging.
+Native file-owner release, setup regressions, menu contracts and emitted asset checks passed.
+Stable source validation leaves only the unsupported optional Screensaver section; Beta matches
+all 38 current fingerprints. Stable live rendering has not been tested.
 
 ## LibHandheld HC parity, 2026-10-12
 
