@@ -13,6 +13,7 @@ using OemControlEdge = LibHandheld.Contracts.OemControlEdge;
 using OemControlEvent = LibHandheld.Contracts.OemControlEvent;
 using OemControlPlacement = LibHandheld.Contracts.OemControlPlacement;
 using OemDefaultActionHint = LibHandheld.Contracts.OemControlDefaultActionHint;
+using CanonicalButtons = LibHandheld.Contracts.CanonicalButtons;
 using PhysicalDeviceIdentity = LibHandheld.Contracts.PhysicalDeviceIdentity;
 
 namespace WSGM.Shell;
@@ -20,6 +21,10 @@ namespace WSGM.Shell;
 /// <summary>WSGM-owned typed action surface available to the OEM router.</summary>
 internal sealed record DeviceOemActionServices
 {
+    internal Func<bool> WrapperInputLeaseActive { get; init; } = static () => false;
+
+    internal required Func<bool, CancellationToken, Task<bool>> SendSteamShortcutAsync { get; init; }
+
     internal required Func<CancellationToken, Task<bool>> ToggleOverlayAsync { get; init; }
 
     internal required Func<CancellationToken, Task<bool>> ToggleSteamQuickAccessAsync { get; init; }
@@ -78,6 +83,8 @@ internal sealed class DeviceOemActionRouter : IDisposable
     private readonly Func<bool, bool> _setSecondaryButton;
     private long _actionGeneration;
     private DeviceOemActionServices? _actions;
+    private CanonicalButtons _keyboardSteamButtons;
+    private DateTimeOffset _keyboardSteamButtonsAt;
     private IReadOnlyList<DeviceOemAssignment> _assignments = [];
     private HandheldDeviceRuntime? _client;
     private bool _controllerManagementEnabled;
@@ -205,6 +212,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
     internal void OnEvent(OemControlEvent input)
     {
         OemAction action;
+        bool keyboardSteamAction;
         DeviceOemActionServices? actions;
         CancellationToken cancellationToken;
         lock (_gate)
@@ -253,13 +261,22 @@ internal sealed class DeviceOemActionRouter : IDisposable
                 return;
             }
 
-            action = ResolveActionUnderGate(control);
+            var wrapperLease = _actions?.WrapperInputLeaseActive() == true;
+            action = ResolveActionUnderGate(control, wrapperLease);
+            keyboardSteamAction = wrapperLease
+                                  && action is OemAction.ToggleSteamOverlay or OemAction.ToggleSteamQuickAccess;
             if (!OemActionRules.IsAssignable(action, control.Placement)
                 || !OemActionRules.IsAvailable(action, _targetHasRearButtons)
                 || (control.RequiresControllerAcquisition && !_controllerManagementEnabled))
             {
                 Log.Warn($"Device OEM action unavailable: control={control.ControlId}, action={action}.");
                 return;
+            }
+
+            if (keyboardSteamAction)
+            {
+                _keyboardSteamButtons |= control.ControllerButton;
+                _keyboardSteamButtonsAt = input.Timestamp;
             }
 
             if (action is OemAction.MouseSecondaryButton)
@@ -313,7 +330,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
                 return;
             }
 
-            dispatch = Task.Run(() => DispatchAsync(actions, action, input, cancellationToken));
+            dispatch = Task.Run(() => DispatchAsync(actions, action, input, keyboardSteamAction, cancellationToken));
             _dispatches.Add(dispatch);
         }
 
@@ -343,6 +360,7 @@ internal sealed class DeviceOemActionRouter : IDisposable
         DeviceOemActionServices actions,
         OemAction action,
         OemControlEvent input,
+        bool keyboardSteamAction,
         CancellationToken cancellationToken)
     {
         try
@@ -350,7 +368,10 @@ internal sealed class DeviceOemActionRouter : IDisposable
             using var bounded = CancellationTokenSource.CreateLinkedTokenSource(
                 cancellationToken);
             bounded.CancelAfter(TimeSpan.FromSeconds(3));
-            var completed = action switch
+            var completed = keyboardSteamAction
+                ? await actions.SendSteamShortcutAsync(action == OemAction.ToggleSteamQuickAccess, bounded.Token)
+                    .ConfigureAwait(false)
+                : action switch
             {
                 OemAction.ToggleWsgmOverlay => await actions.ToggleOverlayAsync(bounded.Token)
                     .ConfigureAwait(false),
@@ -389,26 +410,33 @@ internal sealed class DeviceOemActionRouter : IDisposable
         }
     }
 
-    private OemAction ResolveActionUnderGate(OemControlDescriptor control)
+    private OemAction ResolveActionUnderGate(OemControlDescriptor control, bool wrapperLeaseActive)
     {
         var assignment = _assignments.FirstOrDefault(item =>
             string.Equals(item.ControlId, control.ControlId, StringComparison.Ordinal));
 
-        // The handheld's Guide and Quick Access buttons reach Steam as the virtual target's own
-        // buttons: the plugin puts them in the controller sample and Steam responds natively, so WSGM
-        // neither intercepts them nor synthesizes anything on their behalf. The one default WSGM
-        // claims is the manufacturer's companion-application button (Armoury Crate on the Xbox Ally),
-        // a button the Steam Deck layout has no place for: it opens WSGM, the companion application
-        // here, as Handheld Companion opens its own window from it. An explicit assignment, Disabled
-        // included, always wins.
-        return assignment?.Action ?? DefaultAction(control);
+        // Steam normally reads Guide/QAM from the target. A wrapper lease blocks that channel,
+        // so the same OEM press needs the keyboard route. Explicit assignments still win.
+        return assignment?.Action ?? DefaultAction(control, wrapperLeaseActive);
     }
 
     /// <summary>What an unassigned control does.</summary>
     /// <param name="control">Published OEM control declaration, including placement and companion-application role.</param>
-    /// <returns>Right mouse button for the tablet touchpad gesture, WSGM for a companion button, otherwise disabled.</returns>
-    internal static OemAction DefaultAction(OemControlDescriptor control)
+    /// <param name="wrapperLeaseActive">Whether a game wrapper currently blocks Steam's controller reads.</param>
+    /// <returns>Steam for leased Guide/QAM controls, right mouse for the touchpad, WSGM for a companion, otherwise disabled.</returns>
+    internal static OemAction DefaultAction(OemControlDescriptor control, bool wrapperLeaseActive = false)
     {
+        if (wrapperLeaseActive && control.Placement == OemControlPlacement.Front)
+        {
+            switch (control.ControllerButton)
+            {
+                case CanonicalButtons.Guide:
+                    return OemAction.ToggleSteamOverlay;
+                case CanonicalButtons.QuickAccess:
+                    return OemAction.ToggleSteamQuickAccess;
+            }
+        }
+
         if (control.DefaultActionHint == OemDefaultActionHint.MouseSecondaryButton &&
             control.Placement is OemControlPlacement.Front)
         {
@@ -434,9 +462,26 @@ internal sealed class DeviceOemActionRouter : IDisposable
 
     private void ResetUnderGate()
     {
+        _keyboardSteamButtons = CanonicalButtons.None;
+        _keyboardSteamButtonsAt = default;
         _heldMouseControls.Clear();
         ReleaseSecondaryButtonUnderGate();
         _recentEvents.Clear();
+    }
+
+    /// <summary>Withholds a translated OEM press from the virtual pad until its physical release.</summary>
+    /// <remarks>Pure button state on the sample path; marker lookup happens only on OEM edges.</remarks>
+    internal CanonicalButtons FilterControllerButtons(LibHandheld.Contracts.CanonicalControllerSample sample)
+    {
+        lock (_gate)
+        {
+            if (sample.Timestamp >= _keyboardSteamButtonsAt)
+            {
+                _keyboardSteamButtons &= sample.Buttons;
+            }
+
+            return sample.Buttons & ~_keyboardSteamButtons;
+        }
     }
 
     private bool PressSecondaryButtonUnderGate()
@@ -538,6 +583,8 @@ internal sealed class DeviceOemActionRouter : IDisposable
     {
         return PlainText.IsIdentifier(control.ControlId)
                && Enum.IsDefined(control.DefaultActionHint)
+               && control.ControllerButton is CanonicalButtons.None or CanonicalButtons.Guide
+                   or CanonicalButtons.QuickAccess
                && control.Display.TryValidate(out _);
     }
 }

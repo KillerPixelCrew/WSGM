@@ -308,7 +308,7 @@ surface opens are suppressed until released, and forwarding resumes only on the 
 which every control the UI used is up. The press that opened or closed a surface therefore never
 arrives in the game as a fresh input.
 
-### Steam's surfaces open from the virtual pad
+### Steam's surfaces open from OEM buttons
 
 OEM actions that open Steam's Quick Access or its menu never hand the physical pad to Steam. While a
 managed target is Active, `ControllerManager.PressSteamButtonAsync` holds Steam's own button on the
@@ -318,6 +318,16 @@ surface itself. Without an active target WSGM sends Big Picture's shortcut while
 visible. The Game Mode keyboard is Steam's native action, replayed through CEF on the one game
 overlay or, when none is registered, the visible main window; more than one game overlay is refused.
 [The Steam Input lease](steam-input.md#steam-surfaces-from-oem-buttons) has the details.
+
+A successful game-wrapper input lease blocks Steam's controller reads, including Guide and Quick
+Access. While that lease is held, unassigned front OEM controls carrying LibHandheld's Guide or
+Quick Access role send Ctrl+1 or Ctrl+2 respectively. Explicit assignments, including Disabled,
+still win; explicit Steam menu actions also use this keyboard route. It works without a managed
+controller target and does not require the main Big Picture window to be visible. Steam must be
+running. WSGM keeps the lease held and sends the shortcut without focusing a window or loading an
+overlay DLL. A translated button stays withheld from the virtual pad until its release, so ending
+the wrapper lease during a press cannot replay that press into Steam. Ordinary WSGM surface leases
+do not enable these defaults.
 
 The first answer to #65 paused WSGM's ownership, released the physical pad to Steam and reacquired
 it after the surface closed. That path, with its release and reacquire controls in the overlay, has

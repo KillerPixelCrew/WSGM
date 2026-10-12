@@ -253,6 +253,7 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
             () => Volatile.Read(ref _resumeRestore));
         _hapticSink = new PluginHapticSink(ApplyHapticOutputAsync);
         Controllers = createControllers(_hapticSink);
+        Controllers.FilterOemButtons = _oemActions.FilterControllerButtons;
         Controllers.ApplyRumbleCalibration(config.RumbleCalibration);
         Controllers.TargetLost += OnControllerTargetLost;
         // Last: it starts serving at once, and nothing after it may fail and leave it running.

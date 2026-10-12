@@ -189,6 +189,7 @@
     <Compile Include="..\Shared\Process\ScheduledTaskXml.cs" Link="Shared\ScheduledTaskXml.cs"/>
     <Compile Include="..\Shared\Process\SessionProtocolNames.cs" Link="Shared\SessionProtocolNames.cs"/>
     <Compile Include="..\Shared\Process\Win32Common.cs" Link="Shared\Win32Common.cs"/>
+    <Compile Include="..\Shared\Process\WrapperInputLeaseMarker.cs" Link="Shared\WrapperInputLeaseMarker.cs"/>
     <Compile Include="..\Shared\Process\WindowsCommandLine.cs" Link="Shared\WindowsCommandLine.cs"/>
     <Compile Include="..\Shared\Process\LaunchArguments.cs" Link="Shared\LaunchArguments.cs"/>
   </ItemGroup>

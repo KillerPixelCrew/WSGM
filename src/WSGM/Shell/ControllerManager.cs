@@ -336,6 +336,9 @@ internal sealed class ControllerManager : IAsyncDisposable
     /// <remarks>Raised before routing and never used to drive input.</remarks>
     internal event Action<CanonicalControllerSample>? PhysicalSampleObserved;
 
+    /// <summary>Optional owner-provided OEM translation; physical/UI observers retain the original sample.</summary>
+    internal Func<CanonicalControllerSample, CanonicalButtons>? FilterOemButtons { get; set; }
+
     /// <summary>Returns the current projection.</summary>
     /// <returns>The controller-management projection.</returns>
     internal ControllerManagerStatus Snapshot()
@@ -632,11 +635,12 @@ internal sealed class ControllerManager : IAsyncDisposable
             }
 
             CanonicalControllerSample routed;
+            var buttons = FilterOemButtons?.Invoke(sample) ?? sample.Buttons;
             lock (_stateGate)
             {
-                routed = _syntheticButtons is CanonicalButtons.None
+                routed = _syntheticButtons is CanonicalButtons.None && buttons == sample.Buttons
                     ? sample
-                    : sample with { Buttons = sample.Buttons | _syntheticButtons };
+                    : sample with { Buttons = buttons | _syntheticButtons };
             }
 
             return await _router.RouteAsync(routed, cancellationToken).ConfigureAwait(false);

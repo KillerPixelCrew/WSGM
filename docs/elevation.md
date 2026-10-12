@@ -117,6 +117,15 @@ target through the wrapper's own `SuspendedProcess` path. They no longer delegat
 native client's blocking `RunWrapped` call. Both lease flags use this same creation boundary;
 neither changes the caller's integrity unless `--deelevate` is also requested.
 
+After acquisition, the wrapper holds a user/session-scoped kernel marker for the same lifetime. The
+resident application reads this marker on OEM button presses and uses Ctrl+1 for Guide or Ctrl+2 for
+Quick Access while Steam's controller reads are blocked. Both lease flags publish it; de-elevation
+alone and failed acquisition do not. Ordinary resident surface leases do not publish it either.
+Multiple wrappers hold separate references, the last reference removes the marker, and process exit
+closes it automatically. Readers only open an existing marker. Its explicit user SID and medium
+integrity label allow elevated and medium wrappers to coexist without changing any application's
+security settings. Ship the updated application, wrapper and LibHandheld together.
+
 Every controlled child environment omits `SDL_GAMECONTROLLER_IGNORE_DEVICES`. Steam sets that
 variable to exclude direct controllers from SDL while Steam Input supplies input, and the exclusion
 can also suppress WSGM's VIIPER virtual pad, whatever the lease did. Every wrapper route removes the

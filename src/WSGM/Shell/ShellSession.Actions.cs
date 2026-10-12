@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -24,8 +25,8 @@ public sealed partial class ShellSession
 
     /// <summary>Opens Steam's Quick Access, its menu or its keyboard from an OEM or overlay action.</summary>
     /// <remarks>
-    ///     As HC does: while the virtual pad is active, Steam's own button is pressed on it and Steam opens
-    ///     the surface itself. Without one, Big Picture's shortcut does it. The Game Mode keyboard is
+    ///     A wrapper input lease uses Ctrl+1/Ctrl+2 because Steam cannot read the pad. Otherwise an active
+    ///     virtual pad supplies Steam's own button, with Big Picture's shortcut as fallback. The Game Mode keyboard is
     ///     Steam's native action through CEF. The physical pad is never handed to Steam.
     /// </remarks>
     private async Task<bool> ToggleSteamSurfaceAsync(SteamNativeSurfaceAction action,
@@ -47,6 +48,11 @@ public sealed partial class ShellSession
         }
 
         var quickAccess = action == SteamNativeSurfaceAction.QuickAccess;
+        if (ReadWrapperInputLeaseActive())
+        {
+            return await SendSteamMenuShortcutAsync(quickAccess, cancellationToken).ConfigureAwait(false);
+        }
+
         if (_deviceCoordinator?.Controllers is { State: ControllerManagementState.Active } controllers
             && await controllers.PressSteamButtonAsync(quickAccess, cancellationToken).ConfigureAwait(false))
         {
@@ -59,6 +65,26 @@ public sealed partial class ShellSession
                                                                               ? BigPictureShortcut.QuickAccess
                                                                               : BigPictureShortcut.SteamMenu),
             cancellationToken).ConfigureAwait(false);
+    }
+
+    private Task<bool> SendSteamMenuShortcutAsync(bool quickAccess, CancellationToken cancellationToken)
+    {
+        return RunUiActionAsync(() => _monitor?.IsAlive == true && Steam.TrySendBigPictureShortcut(
+            quickAccess ? BigPictureShortcut.QuickAccess : BigPictureShortcut.SteamMenu), cancellationToken);
+    }
+
+    private static bool ReadWrapperInputLeaseActive()
+    {
+        try
+        {
+            return WrapperInputLeaseMarker.IsActive();
+        }
+        catch (Win32Exception ex)
+        {
+            Log.Change("wrapper-input-lease-marker", $"Wrapper input-lease state unavailable: {ex.Message}",
+                LogLevel.Warn);
+            return false;
+        }
     }
 
     /// <summary>The Steam window a native surface opens in: the one game overlay, else the main window.</summary>
