@@ -16,6 +16,45 @@ public sealed class DevicePowerPresetsTests
         DevicePowerMode.BestPerformance);
 
     [Fact]
+    public async Task IndependentFastTargetIsAppliedAndMatchedByBothSurfaces()
+    {
+        Rig rig = new();
+        rig.AddFast();
+        var service = rig.Create();
+        Assert.True((await service.ApplyAsync("balanced", CancellationToken.None)).Succeeded);
+        Assert.Equal(("PowerFastLimit", 25), rig.Calls.Last());
+        var state = await service.ReadAsync();
+        Assert.Equal("balanced", state.Current);
+        Assert.Equal(25, state.Values?.FastWatts);
+        Assert.Equal(25, state.Values?.ToPreset().FastWatts);
+        rig.Views[2] = View(CapabilityRole.PowerFastLimit, 24);
+        Assert.Equal("custom", (await service.ReadAsync()).Current);
+        Assert.Equal("Custom", (await new NativeQamPowerPresetService(service, null).ReadAsync())!.Current);
+    }
+
+    [Fact]
+    public async Task UncertainFastWriteStopsBeforeWindowsModeAndIsNotRetried()
+    {
+        Rig rig = new() { FailAt = 3 };
+        rig.AddFast();
+        var service = rig.Create();
+        Assert.False((await service.ApplyAsync("balanced", CancellationToken.None)).Succeeded);
+        Assert.Equal(3, rig.Calls.Count);
+        Assert.Equal(0, rig.Api.Writes);
+        await service.ReadAsync();
+        Assert.Equal(3, rig.Calls.Count);
+    }
+
+    [Fact]
+    public async Task LegacyPresetOnThreeLimitProviderWritesTheDeclaredFastLimitToo()
+    {
+        Rig rig = new();
+        rig.Views = [.. rig.Views, View(CapabilityRole.PowerFastLimit, 20)];
+        Assert.True((await rig.Create().ApplyAsync("balanced", CancellationToken.None)).Succeeded);
+        Assert.Equal(("PowerFastLimit", 18), rig.Calls.Last());
+    }
+
+    [Fact]
     public void AutoTdpOwnershipShowsCustomEvenWhenReadbackMatchesTheConfiguredPreset()
     {
         DeviceCapabilityView[] views =
@@ -525,6 +564,19 @@ public sealed class DevicePowerPresetsTests
             [View(CapabilityRole.PowerSustainedLimit, 17), View(CapabilityRole.PowerSlowLimit, 18)];
 
         internal TaskCompletionSource? WaitForWrite;
+
+        internal void AddFast()
+        {
+            Views[0] = Views[0] with
+            {
+                Descriptor = Views[0].Descriptor with
+                {
+                    PowerPresets = [Battery with { FastWatts = 12 }, Balanced with { FastWatts = 25 },
+                        Extreme with { FastWatts = 35 }]
+                }
+            };
+            Views = [.. Views, View(CapabilityRole.PowerFastLimit, 20)];
+        }
 
         internal DevicePowerPresets Create(Func<bool>? automaticPowerOwner = null)
         {

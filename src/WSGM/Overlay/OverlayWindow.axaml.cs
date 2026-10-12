@@ -43,6 +43,10 @@ public partial class OverlayWindow : Window
     /// </remarks>
     private readonly Dictionary<GlyphControlId, Border> _glyphTiles = [];
 
+    private readonly HashSet<GlyphControlId> _glyphOemPressed = [];
+
+    private int _glyphOemEpoch;
+
     private readonly OverlayNavigation _navigation = new();
 
     private readonly HashSet<IPointer> _pressedPointers = [];

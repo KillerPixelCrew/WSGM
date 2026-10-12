@@ -57,7 +57,13 @@ public sealed class GlyphInputTestMapTests
     {
         // The tile stands for the pad. Someone checking it wants to see it react to being touched,
         // not only to being pressed through.
-        Assert.Equal([GlyphControlId.LeftTrackpad], Pressed(Sample(button)));
+        Assert.Equal(new HashSet<GlyphControlId>
+        {
+            GlyphControlId.LeftTrackpad,
+            button is CanonicalButtons.LeftPadTouch
+                ? GlyphControlId.LeftTrackpadTouch
+                : GlyphControlId.LeftTrackpadClick
+        }, Pressed(Sample(button)));
     }
 
     [Fact]
@@ -102,5 +108,41 @@ public sealed class GlyphInputTestMapTests
         ];
 
         Assert.Equal(expected, pressed);
+    }
+
+    [Theory]
+    [InlineData(-0.8f, 0f, GlyphControlId.LeftStickLeft)]
+    [InlineData(0.8f, 0f, GlyphControlId.LeftStickRight)]
+    [InlineData(0f, 0.8f, GlyphControlId.LeftStickUp)]
+    [InlineData(0f, -0.8f, GlyphControlId.LeftStickDown)]
+    public void StickDirectionLightsItsPhysicalDirection(float x, float y, GlyphControlId expected)
+    {
+        var sample = Sample(CanonicalButtons.None) with { LeftStickX = x, LeftStickY = y };
+        Assert.Equal([expected], Pressed(sample));
+    }
+
+    [Fact]
+    public void TrackpadDirectionsRequireAPressAndKeepTouchSeparate()
+    {
+        var sample = Sample(CanonicalButtons.RightPadTouch) with { RightPadX = 0.8f, RightPadY = 0.8f };
+        Assert.Equal(new HashSet<GlyphControlId>
+        {
+            GlyphControlId.RightTrackpad, GlyphControlId.RightTrackpadTouch
+        }, Pressed(sample));
+        sample = sample with { Buttons = CanonicalButtons.RightPadTouch | CanonicalButtons.RightPadClick };
+        Assert.Equal(new HashSet<GlyphControlId>
+        {
+            GlyphControlId.RightTrackpad, GlyphControlId.RightTrackpadTouch, GlyphControlId.RightTrackpadClick,
+            GlyphControlId.RightTrackpadUp, GlyphControlId.RightTrackpadRight
+        }, Pressed(sample));
+    }
+
+    [Fact]
+    public void SmallStickDriftDoesNotLightDirectionalGlyphs()
+    {
+        Assert.Empty(Pressed(Sample(CanonicalButtons.None) with
+        {
+            LeftStickX = 0.05f, LeftStickY = -0.05f, RightStickX = -0.05f, RightStickY = 0.05f
+        }));
     }
 }

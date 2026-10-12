@@ -26,6 +26,7 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
     private bool _disposed;
     private bool _hasSoftwareFanCurve;
     private int? _softwareChargeLimit;
+    private bool _softwareChargeSuspended;
     private IReadOnlyList<CurvePoint> _softwareFanCurve = [];
     private string? _softwareFanReason;
     private volatile DeviceCycleState _state = DeviceCycleState.Disabled;
@@ -106,13 +107,26 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
                 {
                     Descriptors =
                     [
-                        .. projected.Descriptors.Where(item =>
-                            item.Role != CapabilityRole.FanCurve || item.InstanceId == "xg"),
+                        .. projected.Descriptors.Select(item =>
+                            item.Role == CapabilityRole.FanCurve && item.InstanceId is null
+                                ? item with
+                                {
+                                    InstanceId = "firmware",
+                                    Display = new CapabilityDisplay
+                                    {
+                                        Key = DisplayKey.Custom, CustomLabel = "Firmware fan curve"
+                                    }
+                                }
+                                : item),
                         new CapabilityDescriptor
                         {
                             CapabilityId = CapabilityIds.FanCurve, Role = CapabilityRole.FanCurve,
                             ValueKind = CapabilityValueKind.Curve,
-                            Display = new CapabilityDisplay { Key = DisplayKey.FanCurve },
+                            CurveInputs = Enumerable.Range(0, 11).Select(index => index * 10).ToArray(),
+                            Display = new CapabilityDisplay
+                            {
+                                Key = DisplayKey.Custom, CustomLabel = "Software fan curve"
+                            },
                             SupportsRead = true, SupportsWrite = true, Minimum = 0, Maximum = 100, Step = 1,
                             Unit = CapabilityUnit.Percent, Persistence = CapabilityPersistence.Volatile,
                             SectionId = DeviceSections.PowerId, CategoryId = "fans", SortOrder = 1
@@ -133,7 +147,7 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
                 {
                     Descriptors =
                     [
-                        .. projected.Descriptors.Where(item => item.Role != CapabilityRole.ChargeBypass),
+                        .. projected.Descriptors,
                         new CapabilityDescriptor
                         {
                             CapabilityId = CapabilityIds.ChargeLimit, Role = CapabilityRole.ChargeLimit,
@@ -159,12 +173,19 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
     {
         if (!_disposed && (AcceptsPublications || !state.Available))
         {
-            if ((!_hasSoftwareFanCurve || state.CapabilityId != CapabilityIds.FanCurve)
-                && (!UsesSoftwareChargeLimit || !Device.Controls.Controls.Any(item =>
-                    item.Role == P.CapabilityRole.ChargeBypass && item.Descriptor.CapabilityId == state.CapabilityId)))
+            var projectedState = HandheldUiProjection.State(state);
+            if (_hasSoftwareFanCurve && state.InstanceId is null && Device.Controls.Controls.Any(item =>
+                    item.Role == P.CapabilityRole.FanCurve && item.InstanceId is null
+                    && item.Descriptor.CapabilityId == state.CapabilityId))
+            {
+                projectedState = projectedState with { InstanceId = "firmware" };
+            }
+
+            if (!_hasSoftwareFanCurve || state.CapabilityId != CapabilityIds.FanCurve
+                                      || projectedState.InstanceId is not null)
             {
                 CapabilityStateReceived?.Invoke(new CapabilityStateDelta(Interlocked.Increment(ref _stateSequence),
-                    HandheldUiProjection.State(state)));
+                    projectedState));
             }
 
             if (_hasSoftwareFanCurve && Device.Controls.Controls.Any(item =>
@@ -347,6 +368,7 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
         {
             await ApplySoftwareChargeLimitAsync!(percent, token).ConfigureAwait(false);
             _softwareChargeLimit = percent;
+            _softwareChargeSuspended = false;
             PublishSoftwareChargeLimit();
             return new CapabilityCommandResult
             {
@@ -356,7 +378,9 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
 
         var control = Device.Controls.Controls.SingleOrDefault(item =>
             item.Descriptor.CapabilityId == command.CapabilityId
-            && item.InstanceId == command.InstanceId);
+            && (item.InstanceId == command.InstanceId
+                || _hasSoftwareFanCurve && command.InstanceId == "firmware" && item.InstanceId is null
+                && item.Role == P.CapabilityRole.FanCurve));
         if (control is null)
         {
             return Rejected(command, "The native control is no longer declared.");
@@ -428,7 +452,8 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
         {
             CommandId = command.CommandId, CapabilityId = command.CapabilityId, InstanceId = command.InstanceId,
             RequestedValue = value is null ? null : HandheldUiProjection.NativeValue(value),
-            PairedPowerLimitWatts = command.PairedPowerLimitWatts, Deadline = deadline
+            PairedPowerLimitWatts = command.PairedPowerLimitWatts,
+            ApplyUniformPowerTarget = command.ApplyUniformPowerTarget, Deadline = deadline
         };
         return HandheldUiProjection.Result(await Device.ExecuteAsync(native, token).ConfigureAwait(false));
     }
@@ -439,7 +464,7 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
         var watts = command.RequestedValue!.IntegerValue!.Value;
         var peer = command.PairedPowerLimitWatts;
         var deadline = Budget(command.Deadline);
-        if (peer == watts)
+        if (command.ApplyUniformPowerTarget)
         {
             return Device.SetTdpAsync(watts, deadline, token);
         }
@@ -654,10 +679,20 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
             new CapabilityState
             {
                 CapabilityId = CapabilityIds.ChargeLimit, Available = available,
+                Reason = _softwareChargeSuspended
+                    ? new CapabilityReason(CapabilityReasonCode.ResourceReleased,
+                        "Software charge ceiling paused by a firmware bypass selection. Select a ceiling to resume.")
+                    : null,
                 ObservedValue = _softwareChargeLimit is { } limit ? CapabilityValue.Integer(limit) : null,
                 Quality = _softwareChargeLimit is null ? HardwareStateQuality.Unknown : HardwareStateQuality.Observed,
                 ObservedAt = _softwareChargeLimit is null ? null : DateTimeOffset.UtcNow
             }));
+    }
+
+    internal void ReportSoftwareChargeSuspended()
+    {
+        _softwareChargeSuspended = true;
+        PublishSoftwareChargeLimit();
     }
 }
 

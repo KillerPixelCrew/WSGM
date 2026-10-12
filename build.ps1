@@ -114,10 +114,18 @@ if (-not (Test-Path "$appPublish\libviiper.dll")) { throw "VIIPER controller lib
 if (-not (Test-Path "$appPublish\LibHandheld.dll")) { throw "Handheld library was not published" }
 
 # Family glyph licences and source provenance remain readable outside the embedded library.
-foreach ($family in @("MsiClaw", "RogAlly")) {
+$handheldFamilyFiles = @()
+foreach ($family in @("Ayaneo", "Generic", "Gpd", "LegionGo", "MsiClaw", "OneXPlayer", "RogAlly", "SteamDeck", "Zotac")) {
     $familySource = "$root\external\libhandheld\src\LibHandheld\Families\$family"
     foreach ($notice in @("THIRD_PARTY_NOTICES.md", "PROVENANCE.md", "LICENSE")) {
-        Copy-Item -LiteralPath "$familySource\$notice" -Destination "$appPublish\LibHandheld-$family-$notice"
+        $source = "$familySource\$notice"
+        if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+            if ($notice -eq "THIRD_PARTY_NOTICES.md") { throw "Missing glyph notices for $family" }
+            continue
+        }
+        $name = "LibHandheld-$family-$notice"
+        Copy-Item -LiteralPath $source -Destination "$appPublish\$name"
+        $handheldFamilyFiles += $name
     }
 }
 
@@ -161,14 +169,13 @@ $appFiles = @(
     "WSGM.PackagedLaunch.deps.json", "WSGM.PackagedLaunch.runtimeconfig.json", "SharpCompress-LICENSE.txt",
     "LICENSE.txt", "LibGPUDriverInteract-LICENSE.txt", "LibGPUDriverInteract-PROVENANCE.md",
     "LibHandheld-LICENSE.txt", "LibHandheld-PROVENANCE.md",
-    "LibHandheld-MsiClaw-THIRD_PARTY_NOTICES.md", "LibHandheld-MsiClaw-PROVENANCE.md", "LibHandheld-MsiClaw-LICENSE",
-    "LibHandheld-RogAlly-THIRD_PARTY_NOTICES.md", "LibHandheld-RogAlly-PROVENANCE.md", "LibHandheld-RogAlly-LICENSE",
     "LibHandheld-Transports-NOTICES.md", "LibHandheld-Transports-MPL-2.0.txt", "LibHandheld-Transports-LGPL-2.1.txt",
     "LoadingIndicators.Avalonia-UNLICENSE.txt", "Avalonia.Labs-MIT.txt",
     "Avalonia.LiveBackdrop.ThirdParty.txt", "WebView2-LICENSE.txt", "WebView2-NOTICE.txt",
     "Microsoft.Data.Sqlite-MIT.txt", "SQLitePCLRaw-Apache-2.0.txt",
     "DotNetRuntime-LICENSE.txt", "DotNetRuntime-THIRD-PARTY-NOTICES.txt"
 )
+$appFiles += $handheldFamilyFiles
 foreach ($file in $appFiles) {
     Copy-Item -LiteralPath "$appPublish\$file" -Destination $payloadApp
 }

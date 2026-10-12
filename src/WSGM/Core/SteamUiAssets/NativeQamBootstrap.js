@@ -3499,6 +3499,60 @@
       }
     };
     switch (row.kind) {
+      case "curve": {
+        const points = draft !== undefined ? draft : (row.curve ?? []);
+        return h(
+          ui.react.Fragment,
+          { key },
+          h(ui.valueField, {
+            name: row.label,
+            description: steamSettingDescription(ui, row),
+            focusable: false,
+            value: null,
+          }),
+          ...points.map((point, index) =>
+            h(ui.sliderField, {
+              key: `${key}-${point.input}`,
+              label: `${point.input} °C`,
+              value: point.output,
+              min: row.minimum ?? 0,
+              max: row.maximum ?? 100,
+              step: row.step ?? 1,
+              valueSuffix: row.suffix ?? "%",
+              showValue: true,
+              disabled: !!row.disabled,
+              onChange: (output) => {
+                // A fan must not slow down as temperature rises. Keep the existing input
+                // breakpoints and adjust adjoining duties when a node moves past them.
+                const next = points.map((entry, entryIndex) => ({
+                  ...entry,
+                  output:
+                    entryIndex < index
+                      ? Math.min(entry.output, output)
+                      : entryIndex > index
+                        ? Math.max(entry.output, output)
+                        : output,
+                }));
+                change(row, next, false);
+              },
+            }),
+          ),
+          renderSteamUiActions(ui, [
+            ...(row.curvePresets ?? []).map((preset) => ({
+              id: `${key}-${preset.label}`,
+              label: preset.label,
+              disabled: !!row.disabled || !points.length,
+              onClick: () => change(row, preset.points, false),
+            })),
+            {
+              id: `${key}-apply`,
+              label: "Apply curve",
+              disabled: !!row.disabled || !points.length || draft === undefined,
+              onClick: () => send(points),
+            },
+          ]),
+        );
+      }
       case "boolean":
         return h(ui.toggleField, {
           key,
@@ -3696,7 +3750,9 @@
           ? (row.number ?? null)
           : row.kind === "order"
             ? (row.order ?? null)
-            : (row.text ?? null),
+            : row.kind === "curve"
+              ? (row.curve ?? null)
+              : (row.text ?? null),
     );
   /**
    * Tracks per-row edits and refusals without letting older requests settle newer drafts.
@@ -10672,6 +10728,8 @@
         chargeLimit,
         lightingBrightness,
         lightingZones: Object.freeze(lightingZones),
+        sections: Array.isArray(value.sections) ? value.sections : [],
+        revision: Number.isSafeInteger(value.revision) ? value.revision : 0,
       });
     };
     const normalizeFrameLimitState = (value) => {
@@ -11791,7 +11849,7 @@
         );
         return controlRuntime.react.createElement(controlRuntime.react.Fragment, null, ...rows);
       };
-    const createDeviceControlsControl = (controlRuntime) =>
+    const createDeviceControlsControl = (controlRuntime, ui) =>
       // `sections` is the Quick Settings sections of the host's layout, or null without one.
       function SteamUiDeviceControls({ sections }) {
         const state = useSemanticState(
@@ -11816,6 +11874,7 @@
         const [selectedZone, setSelectedZone] = controlRuntime.react.useState("");
         const [editingColor, setEditingColor] = controlRuntime.react.useState(false);
         const folds = useSemanticState(controlRuntime, "panelFolds", normalizePanelFoldsState);
+        const drafts = useSteamSettingDrafts(controlRuntime.react, state?.revision);
         const chargeValue = state?.chargeLimit
           ? (state.chargeLimit.observed ?? state.chargeLimit.desired)
           : null;
@@ -12042,7 +12101,49 @@
               ),
           });
         }
-        if (!rows.length && !chargingRows.length)
+        const descriptorRows =
+          ui?.valueField && ui?.smallButton
+            ? (state.sections ?? []).flatMap((section) =>
+                (section.rows ?? []).map((row) => {
+                  const change = drafts.change((current, value) => {
+                    if (current.kind === "color") {
+                      const parsed = parseSteamColor(String(value));
+                      if (!parsed) return Promise.reject(new Error("Enter a valid opaque color."));
+                      const saturation = parsed.s / 100;
+                      const lightness = parsed.l / 100;
+                      const component = (offset) => {
+                        const k = (offset + parsed.h / 30) % 12;
+                        const a = saturation * Math.min(lightness, 1 - lightness);
+                        return Math.round(
+                          255 * (lightness - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))),
+                        );
+                      };
+                      value =
+                        "#" +
+                        [component(0), component(8), component(4)]
+                          .map((part) => part.toString(16).padStart(2, "0"))
+                          .join("");
+                    }
+                    return sendCommand(definition, "setControl", {
+                      key: current.key,
+                      value: current.kind === "action" ? null : value,
+                    });
+                  });
+                  return controlRuntime.react.createElement(
+                    controlRuntime.row,
+                    { key: row.key },
+                    renderSteamSettingRow(
+                      ui,
+                      drafts.row({ ...row, layout: "below" }),
+                      drafts.draft(row),
+                      change,
+                      (current) => change(current, true),
+                    ),
+                  );
+                }),
+              )
+            : [];
+        if (!rows.length && !chargingRows.length && !descriptorRows.length)
           return note("deviceControls", "no compatible charge or lighting rows");
         drew("deviceControls", `rendered ${rows.length + chargingRows.length} row(s)`);
         // Two groups, two detail lines, each under the kind its section names: the charge limit, and
@@ -12069,6 +12170,7 @@
           null,
           group("charging", chargingRows),
           group("lighting", rows),
+          ...(descriptorRows.length ? [group("deviceDescriptors", descriptorRows)] : []),
         );
       };
     // Steam's own FPS counter rows, which a host whose limiter overlay replaces them hides. Identified by
@@ -12480,7 +12582,7 @@
       }
       settingsSectionsControl = createSettingsSectionsControl(controlRuntime, settingsRuntime);
       vrrControl = createVrrControl(controlRuntime);
-      deviceControlsControl = createDeviceControlsControl(controlRuntime);
+      deviceControlsControl = createDeviceControlsControl(controlRuntime, settingsRuntime);
       powerLimitControl = createPowerLimitControl(controlRuntime);
       // Selected by the localization token it draws, never by a minified export name: the names are
       // right for today's build and are not guaranteed for the next. Live-probed 2026-08-30 that

@@ -16,6 +16,7 @@ internal sealed class DeviceChargeLimitController(
     private int? _limit;
     private Task _loop = Task.CompletedTask;
     private bool? _written;
+    private bool _suspendedByUser;
 
     public async ValueTask DisposeAsync()
     {
@@ -32,6 +33,15 @@ internal sealed class DeviceChargeLimitController(
         await _owner.WaitAsync().ConfigureAwait(false);
         try
         {
+            if (explicitSelection)
+            {
+                _suspendedByUser = false;
+            }
+            else if (_suspendedByUser)
+            {
+                active = false;
+            }
+
             if (_limit == limit && active == _cancellation is not null && !explicitSelection)
             {
                 return;
@@ -107,6 +117,21 @@ internal sealed class DeviceChargeLimitController(
         await _owner.WaitAsync().ConfigureAwait(false);
         try
         {
+            await StopUnderOwnerAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            _owner.Release();
+        }
+    }
+
+    /// <summary>Yields bypass ownership to a direct selection until a charge ceiling is explicitly selected again.</summary>
+    internal async Task SuspendAsync()
+    {
+        await _owner.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            _suspendedByUser = true;
             await StopUnderOwnerAsync().ConfigureAwait(false);
         }
         finally

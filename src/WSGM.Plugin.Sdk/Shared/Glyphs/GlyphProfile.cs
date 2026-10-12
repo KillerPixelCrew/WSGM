@@ -233,7 +233,124 @@ public enum GlyphControlId
     LeftTrackpad,
 
     /// <summary>Right trackpad.</summary>
-    RightTrackpad
+    RightTrackpad,
+
+    /// <summary>Third OEM control.</summary>
+    Oem3,
+
+    /// <summary>Fourth OEM control.</summary>
+    Oem4,
+
+    /// <summary>Fifth OEM control.</summary>
+    Oem5,
+
+    /// <summary>Sixth OEM control.</summary>
+    Oem6,
+
+    /// <summary>Seventh OEM control.</summary>
+    Oem7,
+
+    /// <summary>Eighth OEM control.</summary>
+    Oem8,
+
+    /// <summary>Ninth OEM control.</summary>
+    Oem9,
+
+    /// <summary>Tenth OEM control.</summary>
+    Oem10,
+
+    /// <summary>Left stick upward direction.</summary>
+    LeftStickUp,
+
+    /// <summary>Left stick downward direction.</summary>
+    LeftStickDown,
+
+    /// <summary>Left stick leftward direction.</summary>
+    LeftStickLeft,
+
+    /// <summary>Left stick rightward direction.</summary>
+    LeftStickRight,
+
+    /// <summary>Right stick upward direction.</summary>
+    RightStickUp,
+
+    /// <summary>Right stick downward direction.</summary>
+    RightStickDown,
+
+    /// <summary>Right stick leftward direction.</summary>
+    RightStickLeft,
+
+    /// <summary>Right stick rightward direction.</summary>
+    RightStickRight,
+
+    /// <summary>Left trackpad touch sensor.</summary>
+    LeftTrackpadTouch,
+
+    /// <summary>Right trackpad touch sensor.</summary>
+    RightTrackpadTouch,
+
+    /// <summary>Left trackpad press.</summary>
+    LeftTrackpadClick,
+
+    /// <summary>Right trackpad press.</summary>
+    RightTrackpadClick,
+
+    /// <summary>Left trackpad upward press.</summary>
+    LeftTrackpadUp,
+
+    /// <summary>Left trackpad downward press.</summary>
+    LeftTrackpadDown,
+
+    /// <summary>Left trackpad leftward press.</summary>
+    LeftTrackpadLeft,
+
+    /// <summary>Left trackpad rightward press.</summary>
+    LeftTrackpadRight,
+
+    /// <summary>Right trackpad upward press.</summary>
+    RightTrackpadUp,
+
+    /// <summary>Right trackpad downward press.</summary>
+    RightTrackpadDown,
+
+    /// <summary>Right trackpad leftward press.</summary>
+    RightTrackpadLeft,
+
+    /// <summary>Right trackpad rightward press.</summary>
+    RightTrackpadRight,
+
+    /// <summary>Primary mouse button on the handheld controller.</summary>
+    MousePrimary,
+
+    /// <summary>Secondary mouse button on the handheld controller.</summary>
+    MouseSecondary,
+
+    /// <summary>Middle mouse button on the handheld controller.</summary>
+    MouseMiddle,
+
+    /// <summary>Mouse wheel upward direction.</summary>
+    MouseWheelUp,
+
+    /// <summary>Mouse wheel downward direction.</summary>
+    MouseWheelDown,
+
+    /// <summary>Volume increase control.</summary>
+    VolumeUp,
+
+    /// <summary>Volume decrease control.</summary>
+    VolumeDown,
+
+    /// <summary>Left control wheel clockwise direction.</summary>
+    LeftWheelClockwise,
+
+    /// <summary>Left control wheel counterclockwise direction.</summary>
+    LeftWheelCounterclockwise,
+
+    /// <summary>Right control wheel clockwise direction.</summary>
+    RightWheelClockwise,
+
+    /// <summary>Right control wheel counterclockwise direction.</summary>
+    RightWheelCounterclockwise
 }
 
 /// <summary>Explicit physical presence of a semantic control.</summary>
@@ -275,6 +392,9 @@ public sealed record GlyphControlMapping
 
     /// <summary>Bounded plain-text label printed on the device.</summary>
     public string? PhysicalLabel { get; init; }
+
+    /// <summary>Exact native OEM descriptor identifier presented by this physical control, when applicable.</summary>
+    public string? OemControlId { get; init; }
 
     /// <summary>Identifier of control artwork, or null for the generic fallback.</summary>
     public string? AssetId { get; init; }

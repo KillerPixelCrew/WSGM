@@ -86,7 +86,7 @@ internal sealed class DevicePowerPresets(
         }
     }
 
-    /// <summary>Applies one admitted preset as ordered scenario, paired-power, and Windows-mode steps.</summary>
+    /// <summary>Applies one admitted preset as ordered scenario, paired and fast power, and Windows-mode steps.</summary>
     /// <param name="id">Declared preset identifier, or <c>custom</c> with explicit custom values.</param>
     /// <param name="cancellationToken">Cancels admission or remaining steps; completed native effects are not rolled back.</param>
     /// <param name="persistValues">Whether accepted watt-control writes enter the host's manual preference path.</param>
@@ -175,6 +175,23 @@ internal sealed class DevicePowerPresets(
                     }
                 }
 
+                if (FastView(views) is { } fast)
+                {
+                    CheckCurrent();
+                    mutationStarted = true;
+                    var result = await execute(fast.Descriptor.CapabilityId,
+                        new CapabilityValue
+                        {
+                            Kind = CapabilityValueKind.Integer,
+                            IntegerValue = preset.FastWatts ?? preset.SlowWatts
+                        }, persistValues, cancellationToken).ConfigureAwait(false);
+                    if (!result.Outcome.IsApplied())
+                    {
+                        throw new InvalidOperationException(result.Reason?.Detail ??
+                                                            $"The device reported {result.Outcome}.");
+                    }
+                }
+
                 CheckCurrent();
                 await Task.Run(() => modes.Apply(preset.WindowsMode, cancellationToken), cancellationToken)
                     .ConfigureAwait(false);
@@ -236,6 +253,7 @@ internal sealed class DevicePowerPresets(
     {
         var presets = Presets(views);
         if (!TryPair(views, out var sustained, out var slow)
+            || !FastCurrent(views)
             || (presets.Any(preset => preset.ScenarioOnAc is not null)
                 && !Current(ScenarioView(views))))
         {
@@ -252,6 +270,8 @@ internal sealed class DevicePowerPresets(
         var match = presets.FirstOrDefault(preset =>
             preset.SustainedWatts == sustained!.Projection.State.ObservedValue?.IntegerValue
             && preset.SlowWatts == slow!.Projection.State.ObservedValue?.IntegerValue
+            && (FastView(views) is not { } fast
+                || (preset.FastWatts ?? preset.SlowWatts) == fast.Projection.State.ObservedValue?.IntegerValue)
             && WindowsPowerModes.Id(preset.WindowsMode) == mode
             && (preset.ScenarioOnAc is null || ScenarioView(views)?.Projection.State.ObservedValue?.ChoiceValue
                 == (onAc == true ? preset.ScenarioOnAc : preset.ScenarioOnDc)));
@@ -260,10 +280,13 @@ internal sealed class DevicePowerPresets(
         var values = observedMode is { } knownMode
                      && sustained!.Projection.State.ObservedValue?.IntegerValue is { } sustainedWatts
                      && slow!.Projection.State.ObservedValue?.IntegerValue is { } slowWatts
+                     && (FastView(views) is null
+                         || FastView(views)!.Projection.State.ObservedValue?.IntegerValue is not null)
             ? new DevicePowerCustomValues
             {
                 SustainedWatts = sustainedWatts,
                 SlowWatts = slowWatts,
+                FastWatts = FastView(views)?.Projection.State.ObservedValue?.IntegerValue,
                 WindowsMode = knownMode,
                 Scenario = presets.Any(preset => preset.ScenarioOnAc is not null)
                     ? ScenarioView(views)!.Projection.State.ObservedValue?.ChoiceValue
@@ -278,7 +301,9 @@ internal sealed class DevicePowerPresets(
 
         return new DevicePowerPresetState(presets, presets.Length > 0, match?.Id ?? "custom", status.Length > 0 ? status
             : match is null ? "Custom: current power limits, firmware scenario or Windows mode do not match a preset."
-            : $"{match.SustainedWatts}/{match.SlowWatts} W · {WindowsPowerModes.Label(match.WindowsMode)}", values);
+            : $"{match.SustainedWatts}/{match.SlowWatts}"
+              + (FastView(views) is null ? string.Empty : $"/{match.FastWatts ?? match.SlowWatts}")
+              + $" W · {WindowsPowerModes.Label(match.WindowsMode)}", values);
     }
 
     private static DevicePowerPreset[] Presets(IReadOnlyList<DeviceCapabilityView> views)
@@ -304,7 +329,7 @@ internal sealed class DevicePowerPresets(
 
     private static bool SameTarget(IReadOnlyList<DeviceCapabilityView> views, DevicePowerPreset preset, bool custom)
     {
-        return ValidTarget(views, preset, custom) && TryPair(views, out _, out _)
+        return ValidTarget(views, preset, custom) && TryPair(views, out _, out _) && FastCurrent(views)
                                                   && (preset.ScenarioOnAc is null || Current(ScenarioView(views)));
     }
 
@@ -312,6 +337,17 @@ internal sealed class DevicePowerPresets(
     {
         var matches = views.Where(view => view.Descriptor.Role == CapabilityRole.ScenarioMode).ToArray();
         return matches.Length == 1 ? matches[0] : null;
+    }
+
+    private static DeviceCapabilityView? FastView(IReadOnlyList<DeviceCapabilityView> views)
+    {
+        var matches = views.Where(view => view.Descriptor.Role == CapabilityRole.PowerFastLimit).ToArray();
+        return matches.Length == 1 ? matches[0] : null;
+    }
+
+    private static bool FastCurrent(IReadOnlyList<DeviceCapabilityView> views)
+    {
+        return !views.Any(view => view.Descriptor.Role == CapabilityRole.PowerFastLimit) || Current(FastView(views));
     }
 
     private static bool TryPair(IReadOnlyList<DeviceCapabilityView> views, out DeviceCapabilityView? sustained,

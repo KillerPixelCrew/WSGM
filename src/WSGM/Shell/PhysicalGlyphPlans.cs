@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using Avalonia.Media;
 using WSGM.Controls;
@@ -93,6 +92,31 @@ internal sealed class PhysicalGlyphPlans : IDisposable
         }
     }
 
+    internal PhysicalGlyphRenderPlan ResolveOem(
+        PhysicalGlyphSelectionResult selection,
+        string oemControlId,
+        PhysicalGlyphSurface surface,
+        bool activeInputSourceIsManagedHandheld)
+    {
+        return TryGetOemControl(selection, oemControlId, out var control)
+            ? Resolve(selection, control, surface, activeInputSourceIsManagedHandheld)
+            : FallbackPlan(selection.Profile is null
+                ? selection.FallbackReason
+                : PhysicalGlyphFallbackReason.ArtworkMissing);
+    }
+
+    internal static bool TryGetOemControl(PhysicalGlyphSelectionResult selection, string oemControlId,
+        out GlyphControlId control)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        ArgumentNullException.ThrowIfNull(oemControlId);
+        var mapping = selection.Profile?.Manifest.Controls.FirstOrDefault(candidate =>
+            candidate.Presence is GlyphControlPresence.Present
+            && string.Equals(candidate.OemControlId, oemControlId, StringComparison.Ordinal));
+        control = mapping?.Control ?? default;
+        return mapping is not null;
+    }
+
     private void ResetCache()
     {
         lock (_gate)
@@ -145,7 +169,7 @@ internal sealed class PhysicalGlyphPlans : IDisposable
         try
         {
             var paths = vector.Paths.Select(path => new PhysicalGlyphPath(
-                StreamGeometry.Parse(FillRulePrefix(path.FillRule) + ToAvaloniaPathData(path.Data)),
+                StreamGeometry.Parse(FillRulePrefix(path.FillRule) + path.Data),
                 path.Fill,
                 path.Stroke,
                 path.StrokeWidth,
@@ -176,74 +200,6 @@ internal sealed class PhysicalGlyphPlans : IDisposable
     private static string FillRulePrefix(string fillRule)
     {
         return string.Equals(fillRule, "evenodd", StringComparison.Ordinal) ? "F0 " : "F1 ";
-    }
-
-    private static string ToAvaloniaPathData(string normalized)
-    {
-        var tokens = normalized.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        StringBuilder output = new(normalized.Length + 16);
-        var index = 0;
-        while (index < tokens.Length)
-        {
-            var command = tokens[index++];
-            if (output.Length > 0)
-            {
-                output.Append(' ');
-            }
-
-            output.Append(command);
-            var arity = char.ToUpperInvariant(command[0]) switch
-            {
-                'M' or 'L' or 'T' => 2,
-                'H' or 'V' => 1,
-                'C' => 6,
-                'S' or 'Q' => 4,
-                'A' => 7,
-                'Z' => 0,
-                _ => throw new FormatException("Imported glyph path has an unsupported command.")
-            };
-            while (arity > 0 && index < tokens.Length && !char.IsAsciiLetter(tokens[index][0]))
-            {
-                if (index + arity > tokens.Length)
-                {
-                    throw new FormatException("Imported glyph path has an incomplete command.");
-                }
-
-                output.Append(' ');
-                switch (arity)
-                {
-                    case 1:
-                        output.Append(tokens[index]);
-                        break;
-                    case 7:
-                        output.Append(tokens[index]).Append(',').Append(tokens[index + 1])
-                            .Append(' ').Append(tokens[index + 2])
-                            .Append(' ').Append(tokens[index + 3])
-                            .Append(' ').Append(tokens[index + 4])
-                            .Append(' ').Append(tokens[index + 5]).Append(',').Append(tokens[index + 6]);
-                        break;
-                    default:
-                    {
-                        for (var parameter = 0; parameter < arity; parameter += 2)
-                        {
-                            if (parameter > 0)
-                            {
-                                output.Append(' ');
-                            }
-
-                            output.Append(tokens[index + parameter]).Append(',')
-                                .Append(tokens[index + parameter + 1]);
-                        }
-
-                        break;
-                    }
-                }
-
-                index += arity;
-            }
-        }
-
-        return output.ToString();
     }
 
     private static PhysicalGlyphRenderPlan FallbackPlan(

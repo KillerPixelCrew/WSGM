@@ -648,3 +648,23 @@ Settings owns startup, integration, controller-ownership, logging and update con
 owner-process requests. Live power, fan, controller, motion, OEM, lighting, glyph, performance and
 recovery state belongs on the overlay's Device destination. Overlay, Settings, native QAM and
 diagnostics consume the same runtime services rather than parallel policy or projection stacks.
+
+## Native controls and authored glyphs
+
+The device descriptor stream supplies all writable native controls to Overlay and Steam Quick
+Access, including choices, switches, ranges, text, actions, colors and fixed-breakpoint curves.
+Steam retains its Reset button for returning per-game overrides to Global. Curve editor starting
+points are declared metadata and never presented as observed hardware settings.
+
+Firmware fan curves have their own instances alongside the existing software-curve profile. An
+explicit native fan change yields software fan ownership first. A native bypass selection suspends
+software charge polling; choosing a software ceiling resumes it. Neither automatic loop may
+overwrite a manual native choice.
+
+Independent AMD fast PPT travels through uniform targets, presets and saved custom AC/DC values.
+Optional processor controls use the selected device's captured identity and source-backed bounds.
+Temporary originals are restored when readable; missing readback does not suppress writes.
+
+Every exact LibHandheld definition selects an authored glyph profile. Native OEM edges resolve
+through that profile's identifier map and the same observed-input lease as the preview. Stale queued
+edges are discarded and highlights clear on disconnect, configuration change or release.

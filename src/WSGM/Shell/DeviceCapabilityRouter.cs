@@ -454,6 +454,7 @@ internal sealed class DeviceCapabilityRouter : IAsyncDisposable
 
                 command = command with
                 {
+                    ApplyUniformPowerTarget = applyPowerPair,
                     PairedPowerLimitWatts = PairedWatts(descriptor, peerDescriptor, watts,
                         peer.State.ObservedValue?.IntegerValue, applyPowerPair)
                 };

@@ -8,6 +8,21 @@ and validation states.
 
 ## Steam CEF activation after startup applications, 2026-10-12
 
+## LibHandheld HC parity, 2026-10-12
+
+- [x] Correct native HC 1.3.3.1 packets, motion/rear mappings, haptics and read-only measurements.
+- [x] Deliver processor settings and independent fast PPT through the library, SDK, profiles and both controls.
+- [x] Embed authored glyphs for all 112 exact definitions through 106 profiles and import actual artwork in both surfaces.
+- [x] Reconcile coverage and ship readable family glyph notices in setup/development payloads.
+- [x] Complete relevant Release, regression, emitted-asset and rendered UI checks.
+- [ ] Complete development deployment and record installed artifact identities.
+
+The comparison record and executed results are in [the parity audit](libhandheld-hc-parity-20261012.md).
+Hardware purchases and per-model physical acceptance are not implementation gates. No new hardware
+or live Steam rendering pass is claimed.
+
+## Steam CEF activation after startup applications, 2026-10-12
+
 - [x] Prepare CEF before startup apps and when adopting an existing Steam client.
 - [x] Recover a confirmed closed debugging port through one bounded graceful restart in the current mode.
 - [x] Preserve mode transitions, deliberate closure, shutdown and the restart latch across replacement gaps.

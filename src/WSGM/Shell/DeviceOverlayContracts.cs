@@ -130,6 +130,9 @@ internal sealed record DeviceOverlayCapability(
     /// <summary>The ordered legal values of a choice capability, empty otherwise.</summary>
     public IReadOnlyList<CapabilityChoice> Choices { get; init; } = [];
 
+    /// <summary>Starting inputs for a writable curve whose current value is unknown.</summary>
+    public IReadOnlyList<int> CurveInputs { get; init; } = [];
+
     /// <summary>Maximum text length for a text capability, or null when it has none.</summary>
     public int? MaximumLength { get; init; }
 
@@ -141,6 +144,7 @@ internal sealed record DeviceOverlayCapability(
                && ValueKind == other.ValueKind && Writable == other.Writable && SupportsAction == other.SupportsAction
                && Minimum == other.Minimum && Maximum == other.Maximum && Step == other.Step && Unit == other.Unit
                && MaximumLength == other.MaximumLength && Choices.SequenceEqual(other.Choices)
+               && CurveInputs.SequenceEqual(other.CurveInputs)
                && Prominence == other.Prominence && LayoutPair == other.LayoutPair && SortOrder == other.SortOrder
                && Title == other.Title && CategoryId == other.CategoryId && PluginSectionId == other.PluginSectionId;
     }
@@ -273,6 +277,12 @@ internal interface IDeviceOverlaySource : IDisposable
     ///     as a hint to update one visual state, never as a reason to rebuild a page.
     /// </remarks>
     event Action<CanonicalControllerSample>? PhysicalSampleReceived;
+
+    /// <summary>Resolved physical OEM edges while the glyph preview is observing.</summary>
+    event Action<GlyphControlId, bool>? PhysicalOemControlReceived;
+
+    /// <summary>Releases preview highlights when device ownership or configuration changes.</summary>
+    event Action? PhysicalInputReset;
 
     /// <summary>The device's own glyph for one navigation hint, when one applies.</summary>
     /// <param name="control">The control the hint names.</param>

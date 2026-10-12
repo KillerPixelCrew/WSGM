@@ -402,6 +402,7 @@ public static class GlyphPackageImporter
 
         var controls = manifest.Controls ?? [];
         Dictionary<GlyphControlId, GlyphControlMapping> controlsById = [];
+        HashSet<string> oemControlIds = new(StringComparer.Ordinal);
         for (var index = 0; index < controls.Count; index++)
         {
             var control = controls[index];
@@ -427,6 +428,12 @@ public static class GlyphPackageImporter
             if (control.PhysicalLabel is { } label && !PlainText.TryValidate(label, "physicalLabel", out _))
             {
                 Invalid($"{path}.physicalLabel", "The physical label is not plain text.");
+            }
+
+            if (control.OemControlId is { } oemControlId
+                && (!IsIdentifier(oemControlId) || !oemControlIds.Add(oemControlId)))
+            {
+                Invalid($"{path}.oemControlId", "A native OEM control must have one distinct identifier.");
             }
 
             if (control.Presence is GlyphControlPresence.Absent && control.AssetId is not null)

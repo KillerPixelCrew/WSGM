@@ -16,6 +16,20 @@ public sealed class SdkPowerPresetTests
     }
 
     [Fact]
+    public void FastTargetsRequireTheirOwnWritableDescriptorAndRoundTrip()
+    {
+        var preset = new DevicePowerPreset("battery", "Battery", 8, 9, DevicePowerMode.BetterBattery)
+            { FastWatts = 12 };
+        var fast = Limit(CapabilityRole.PowerFastLimit);
+        Assert.True(DevicePowerPreset.TryValidate([.. Pair(preset), fast], out _));
+        Assert.False(DevicePowerPreset.TryValidate(Pair(preset), out _));
+        Assert.False(DevicePowerPreset.TryValidate([.. Pair(preset), fast with { SupportsWrite = false }], out _));
+        Assert.False(DevicePowerPreset.TryValidate([.. Pair(preset with { FastWatts = 38 }), fast], out _));
+        Assert.False(DevicePowerPreset.TryValidate([.. Pair(preset), fast, fast], out _));
+        Assert.Equal(preset, JsonSerializer.Deserialize<DevicePowerPreset>(JsonSerializer.Serialize(preset)));
+    }
+
+    [Fact]
     public void EmptyPresetsPreserveExistingDescriptors()
     {
         var sustained = Limit(CapabilityRole.PowerSustainedLimit);

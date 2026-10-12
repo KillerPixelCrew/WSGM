@@ -81,9 +81,11 @@ internal static class HandheldUiProjection
             PairedPowerLimitId = value.PairedPowerLimitId,
             Choices = value.Choices.Select(choice => new CapabilityChoice(choice.Value, Display(choice.Display)))
                 .ToArray(),
+            CurveInputs = value.CurveInputs,
             PowerPresets = value.PowerPresets.Select(preset => new DevicePowerPreset(preset.Id, preset.Name,
                     preset.SustainedWatts, preset.SlowWatts, (DevicePowerMode)preset.WindowsMode)
-                { ScenarioOnAc = preset.ScenarioOnAc, ScenarioOnDc = preset.ScenarioOnDc }).ToArray(),
+                { FastWatts = preset.FastWatts, ScenarioOnAc = preset.ScenarioOnAc, ScenarioOnDc = preset.ScenarioOnDc })
+                .ToArray(),
             MaximumLength = value.MaximumLength, AvailableOnAc = value.AvailableOnAc,
             AvailableOnDc = value.AvailableOnDc,
             Persistence = (CapabilityPersistence)value.Persistence,

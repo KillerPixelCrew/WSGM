@@ -133,7 +133,8 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
 
     /// <summary>The power controls' last reading, so only a change to them wakes the assignment reconcile.</summary>
     /// <remarks>Read and written on the UI thread, where the router raises its change event.</remarks>
-    private (PowerControlReading Sustained, PowerControlReading Slow, PowerControlReading Scenario) _powerControls;
+    private (PowerControlReading Sustained, PowerControlReading Slow, PowerControlReading Fast,
+        PowerControlReading Scenario) _powerControls;
 
     private bool _powerLoopsStarted;
 
@@ -453,6 +454,10 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
     /// </remarks>
     internal event Action? ConfigurationChanged;
 
+    internal event Action<LibHandheld.Contracts.OemControlEvent>? PhysicalOemEventReceived;
+
+    private Action<LibHandheld.Contracts.OemControlEvent>? _glyphOemHandler;
+
     /// <summary>Saves the active profile's manual sustained/boost coupling mode.</summary>
     /// <param name="unified">True to couple the limits; false to retain independent sustained and boost values.</param>
     /// <returns>Completion of the saved profile edit; shutdown cancels admission.</returns>
@@ -574,7 +579,7 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
     /// </remarks>
     private void OnPowerControlsChanged(IReadOnlyList<DeviceCapabilityView> views)
     {
-        PowerControlReading sustained = default, slow = default, scenario = default;
+        PowerControlReading sustained = default, slow = default, fast = default, scenario = default;
         for (var index = 0; index < views.Count; index++)
         {
             var view = views[index];
@@ -586,13 +591,16 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
                 case CapabilityRole.PowerSlowLimit:
                     slow = PowerControlReading.Of(view);
                     break;
+                case CapabilityRole.PowerFastLimit:
+                    fast = PowerControlReading.Of(view);
+                    break;
                 case CapabilityRole.ScenarioMode:
                     scenario = PowerControlReading.Of(view);
                     break;
             }
         }
 
-        var reading = (sustained, slow, scenario);
+        var reading = (sustained, slow, fast, scenario);
         if (reading == _powerControls)
         {
             return;
@@ -2084,6 +2092,14 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
         client.LifecycleStateReceived += _lifecycleHandler;
         client.PhysicalIdentitiesReceived += OnPhysicalIdentities;
         client.ControllerSampleReceived += Controllers.Submit;
+        _glyphOemHandler = input =>
+        {
+            if (ReferenceEquals(_client, client))
+            {
+                PhysicalOemEventReceived?.Invoke(input);
+            }
+        };
+        client.OemEventReceived += _glyphOemHandler;
     }
 
     private ValueTask DetachAsync(HandheldDeviceRuntime client)
@@ -2095,6 +2111,11 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
 
         client.PhysicalIdentitiesReceived -= OnPhysicalIdentities;
         client.ControllerSampleReceived -= Controllers.Submit;
+        if (_glyphOemHandler is { } oemHandler)
+        {
+            client.OemEventReceived -= oemHandler;
+            _glyphOemHandler = null;
+        }
         // The handheld no longer owns the controller: no frame goes to it from here on.
         _hapticSink.Withdraw();
         Capabilities.Detach();
@@ -2504,7 +2525,8 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
             : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
         cancellationToken = admission?.Token ?? cancellationToken;
         var power = FindDescriptor(capabilityId, instanceId)?.Role is
-            CapabilityRole.PowerSustainedLimit or CapabilityRole.PowerSlowLimit or CapabilityRole.ScenarioMode;
+            CapabilityRole.PowerSustainedLimit or CapabilityRole.PowerSlowLimit or CapabilityRole.PowerFastLimit
+                or CapabilityRole.PowerPeakLimit or CapabilityRole.ScenarioMode;
         if (origin == CapabilityCommandOrigin.User
             && FindDescriptor(capabilityId, instanceId)?.Role == CapabilityRole.PowerSustainedLimit)
         {
@@ -2752,6 +2774,21 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
 
         try
         {
+            if (user && FindDescriptor(capabilityId, instanceId) is { } manualDescriptor)
+            {
+                if (manualDescriptor.Role == CapabilityRole.ChargeBypass && _client?.UsesSoftwareChargeLimit == true)
+                {
+                    await _chargeLimits.SuspendAsync().ConfigureAwait(false);
+                    _client.ReportSoftwareChargeSuspended();
+                }
+
+                if (manualDescriptor.Role is CapabilityRole.FanDuty or CapabilityRole.FanMode
+                    || (manualDescriptor.Role == CapabilityRole.FanCurve && instanceId is not null))
+                {
+                    await ConfigureFanCurveAsync(null, explicitSelection: true).ConfigureAwait(false);
+                }
+            }
+
             if (user && value is not null && _identity is not null
                 && FindCapability(capabilityId, instanceId) is { } view)
             {
@@ -2843,7 +2880,10 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
         if (!primaryPowerLimit)
         {
             var primary = views.FirstOrDefault(view =>
-                view.Descriptor.PairedPowerLimitId == capabilityId && instanceId is null);
+                (view.Descriptor.PairedPowerLimitId == capabilityId
+                 || (FindDescriptor(capabilityId, instanceId)?.Role is CapabilityRole.PowerFastLimit
+                     or CapabilityRole.PowerPeakLimit
+                     && view.Descriptor.Role == CapabilityRole.PowerSustainedLimit)) && instanceId is null);
             if (primary?.Projection.State.ObservedValue?.IntegerValue is { } sustained)
             {
                 // A companion edit hands the runtime pair back without persisting observed
@@ -2997,6 +3037,7 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
                     Include = view => !OwnsLightingProfile(view)
                                       && (!lightingOnly || DeviceLightingRestore.IsLighting(view.Descriptor.Role))
                                       && !(view.Descriptor.Role is CapabilityRole.PowerSlowLimit
+                                               or CapabilityRole.PowerFastLimit or CapabilityRole.PowerPeakLimit
                                            && (ManualTdpUnified || PowerAssignments.HasCurrentAssignment)),
                     Abandon = () => lightingOnly && Volatile.Read(ref _userCapabilityCommands) != 0
                 },
@@ -3073,8 +3114,10 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
             // Lower PL1 before lowering PL2, otherwise the new PL2 can fall below the old PL1.
             CapabilityRole.PowerSustainedLimit when desired < observed => 0,
             // Raise PL2 before raising PL1, otherwise the new PL1 can exceed the old PL2.
-            CapabilityRole.PowerSlowLimit when desired > observed => 0,
-            CapabilityRole.PowerSustainedLimit or CapabilityRole.PowerSlowLimit => 1,
+            CapabilityRole.PowerSlowLimit or CapabilityRole.PowerFastLimit or CapabilityRole.PowerPeakLimit
+                when desired > observed => 0,
+            CapabilityRole.PowerSustainedLimit or CapabilityRole.PowerSlowLimit or CapabilityRole.PowerFastLimit
+                or CapabilityRole.PowerPeakLimit => 1,
             _ => 2
         };
     }
