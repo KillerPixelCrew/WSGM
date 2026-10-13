@@ -3903,6 +3903,7 @@
 .steam-ui-kit-header-detail{font-size:12px;color:rgba(255,255,255,.55);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .steam-ui-kit-header-caret{flex:0 0 auto;color:rgba(255,255,255,.7);display:flex}
 .steam-ui-kit-group,.steam-ui-kit-blocks > div:not(:empty),.steam-ui-kit-valve > div:not(:empty){border-radius:4px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07);padding:4px 12px 8px!important;margin:0 12px 10px!important;box-sizing:border-box}
+.steam-ui-kit-group{margin-inline:0!important}
 .steam-ui-kit-group.plain{padding:8px 12px!important}
 .steam-ui-kit-group.hidden{display:none}
 .steam-ui-kit-more{display:flex;justify-content:center;padding:8px 0 24px}
