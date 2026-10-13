@@ -1227,7 +1227,9 @@ running client and recorded in [steam-cef.md](steam-cef.md).
   observes naturally returned collection-menu items across later reactive renders, without calling
   native methods eagerly or depending on the first render or a private factory's source location.
   Competing handles and malformed native returns refuse the extension and preserve native behavior.
-  Toolkit sizing applies to its layout boxes, preserving Valve's slider internals. Both host pages
-  are served on host-owned routes: `wsgm.artwork-browser` and `wsgm.library-import`. Regression
-  checks cover those seams; live visual acceptance remains open. Completing a live 1:1 comparison of
-  the artwork page with Decky SteamGridDB remains an acceptance task.
+  Toolkit sizing applies to its layout boxes, preserving Valve's slider internals. Cards use the
+  host's existing horizontal inset: adding another card margin squeezed native fields below their
+  minimum width and let sliders and dropdowns overflow. Both host pages are served on host-owned
+  routes: `wsgm.artwork-browser` and `wsgm.library-import`. Regression checks cover those seams;
+  live visual acceptance remains open. Completing a live 1:1 comparison of the artwork page with
+  Decky SteamGridDB remains an acceptance task.
