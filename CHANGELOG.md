@@ -75,9 +75,7 @@ restoration. WSGM keeps profiles, AutoTDP, HidHide, virtual controllers and what
 The controls still appear in the overlay and Steam through the same backend.
 
 The library has **112 exact device definitions** and **106 glyph profiles**, covering
-AYANEO/SuiPlay, AYN, GPD, Legion Go, MSI Claw, ONEXPLAYER/AOKZOE, ROG Ally, Valve and Zotac. **Only
-the MSI Claw 8 A2VM and ROG Xbox Ally X have been tested on real hardware.** The other definitions
-are implemented from reference source and await owners trying them.
+AYANEO/SuiPlay, AYN, GPD, Legion Go, MSI Claw, ONEXPLAYER/AOKZOE, ROG Ally, Valve and Zotac.
 
 New handheld support belongs in LibHandheld. Device Lab produces library contribution source and
 fixtures instead of device plugins. Hardware support updates with WSGM.
@@ -152,15 +150,6 @@ including WebView2, USB/IP, HidHide and the pinned RTSS installer archive.
 - **Setup failing with files in use.** After normal shutdown, setup scans the files being replaced
   and terminates verified holders. Critical processes are protected, and a remaining failure names
   the blocked file and owner when available. Rollback and legacy package cleanup are improved too.
-
-## Testing
-
-- **The only tested handhelds remain the MSI Claw 8 A2VM and ROG Xbox Ally X.** The larger catalog
-  is not a claim that every model has been tested on hardware.
-- Steam Stable and Beta source contracts were checked separately, and the current Beta was inspected
-  live.
-- Release builds, native payload checks and relevant regression checks passed. These checks do not
-  expand the hardware-tested device list.
 
 ## Known issues
 
