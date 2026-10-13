@@ -14,7 +14,8 @@ and validation states.
 - [x] Check isolated current stable/beta sources and exercise native Windows file release.
 - [x] Build and hash-verify both installers on Z: and deploy version 2.2.0.1684.
 - [x] Observe Change Artwork remaining visible in the deployed Beta menu after seven seconds.
-- [ ] Verify rendered native slider geometry and overlay-level visibility after deployment.
+- [x] Inspect live native slider geometry and overlay-level visibility; correct shared card insets.
+- [x] Retain CEF evaluation results through completion without replaying an unanswered producer.
 
 Setup regression coverage includes the real isolated DLL holder, rollback and pinned acquisition.
 The stable channel lacks the optional native Screensaver settings section; ordinary settings remain
@@ -28,6 +29,16 @@ Development deployment completed and installed application/library hashes matche
 Native file-owner release, setup regressions, menu contracts and emitted asset checks passed.
 Stable source validation leaves only the unsupported optional Screensaver section; Beta matches
 all 38 current fingerprints. Stable live rendering has not been tested.
+
+The 2026-10-13 follow-up is built from `9af19d32` with toolkit `fa17869` and deployed as
+2.2.0.1688. Both normal Z: installer paths were updated and their copied hashes verified. CEF node
+handles exposed the actual popup DOM without desktop input. Live Beta 1791856936 showed the
+overlay-level row; the exact shipped card-spacing correction was captured on Performance and
+Quick Settings, preserving native track/notch sizing and containing their sliders. Temporary
+preview attributes were removed. The transport passed 31 focused tests and returned strings,
+objects and fulfilled promises in the same live context whose inspector waiting path failed.
+Installed application/toolkit hashes match staging; WSGM and Steam restarted in the background.
+The official Stable manifest still reports 1788652215, so its existing source checks remain valid.
 
 ## LibHandheld HC parity, 2026-10-12
 
