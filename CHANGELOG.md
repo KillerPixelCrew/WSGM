@@ -2,106 +2,143 @@
 
 ## 2.3.0 (2026-10-13)
 
-The main change in **WSGM 2.3.0** is the replacement of the Device SDK and separate hardware plugin
-packages with **[LibHandheld](https://github.com/KillerPixelCrew/LibHandheld)** and
-**[LibGPUDriverInteract](https://github.com/KillerPixelCrew/LibGPUDriverInteract)**. Handheld and
-GPU integration are now built into WSGM.
+Hardware support has moved out of device plugins and into
+**[LibHandheld](https://github.com/KillerPixelCrew/LibHandheld)** and
+**[LibGPUDriverInteract](https://github.com/KillerPixelCrew/LibGPUDriverInteract)**. The Device SDK
+is deprecated and removed; handheld and graphics integration now ship as part of WSGM. This release
+also fixes Change Artwork disappearing, broken Quick Access sliders, Steam overlay launching, RTSS
+updates and setup failing because files are still in use.
 
-**The Device SDK is deprecated and has been removed from WSGM.** Device plugin packages are no
-longer supported. New handheld support belongs in LibHandheld; native graphics driver support
-belongs in LibGPUDriverInteract. The common Plugin SDK remains available for independent
-integrations.
+These are the changes since **2.1.0**, the last published release, including the unreleased 2.2.0
+work.
 
-**The only tested handhelds remain the MSI Claw 8 A2VM and ROG Xbox Ally X.** The larger device
-catalog describes implemented definitions and source coverage. It does not mean those devices have
-been tested on physical hardware.
+## Before you upgrade
 
-**The Emulator Manager and ROM Importer are still WIP.** The Game Library and packaged-game overlay
-routes also remain experimental.
+- **Just run the offline setup.** It updates in place and keeps your settings and installation
+  choices. Steam closes during the update, that is normal.
+- **The Device SDK and device plugins are retired.** Setup removes the old first-party device and
+  GPU packages. Their replacements are built into WSGM; there is no separate hardware package to
+  install.
+- **Third-party common plugins need compatible builds.** The common Plugin SDK is now **API 5,
+  version 0.4.0**. Shared types moved into that assembly, so older plugin builds need rebuilding.
+- Settings that depend on a particular model, firmware or native provider remain available only
+  where that support exists.
 
-This changelog covers changes since the last published release, **2.1.0**, including the unreleased
-2.2.0 work.
+## What's new
 
-### From Device SDK to native libraries
+### LibHandheld replaces the Device SDK
 
-- **[LibHandheld](https://github.com/KillerPixelCrew/LibHandheld)** owns exact device detection,
-  model protocols, physical input, motion, haptics and native hardware restoration. WSGM keeps
-  profiles, AutoTDP, HidHide, virtual controllers, OEM action policy and presentation.
-- **[LibGPUDriverInteract](https://github.com/KillerPixelCrew/LibGPUDriverInteract)** owns the
-  Intel, AMD and NVIDIA driver backends. WSGM keeps graphics profiles, integration switches and
-  controls in Overlay and Steam. Separate first-party GPU plugin packages are retired.
-- Device support ships with WSGM and updates through the application installer. There is no device
-  package installation or device plugin lifecycle.
-- The native catalog contains **112 exact device definitions** and **106 glyph profiles** across
-  AYANEO/SuiPlay, AYN, GPD, Legion Go, MSI Claw, ONEXPLAYER/AOKZOE, ROG Ally, Valve and Zotac.
-  Hardware testing remains limited to the two handhelds named above.
-- Device Lab now produces LibHandheld contribution source and fixtures instead of device packages.
+**[LibHandheld](https://github.com/KillerPixelCrew/LibHandheld)** now handles exact device
+detection, the device's own protocols, physical controller input, motion, haptics and hardware
+restoration. WSGM keeps profiles, AutoTDP, HidHide, virtual controllers and what the OEM buttons do.
+The controls still appear in the overlay and Steam through the same backend.
 
-### Upgrade notes
+The library has **112 exact device definitions** and **106 glyph profiles**, covering
+AYANEO/SuiPlay, AYN, GPD, Legion Go, MSI Claw, ONEXPLAYER/AOKZOE, ROG Ally, Valve and Zotac. **Only
+the MSI Claw 8 A2VM and ROG Xbox Ally X have been tested on real hardware.** The other definitions
+are implemented from reference source and await owners trying them.
 
-- Run the **offline installer** to update in place. Settings and installation choices are preserved.
-  Steam closes during the update, and retired first-party hardware packages are cleaned up during
-  migration.
-- Third-party common plugins need compatible rebuilds for **Plugin API 5 / WSGM.Plugin.Sdk 0.4.0**.
-  Shared types moved into the common SDK assembly; this does not restore the deprecated Device SDK
-  extension point.
-- Device Integration off stops the native handheld lifecycle, controller management, device writes
-  and AutoTDP. Built-in GPU integration, Windows controls, RTSS and independent common plugins
-  retain their own owners.
+New handheld support belongs in LibHandheld. Device Lab produces library contribution source and
+fixtures instead of device plugins. Hardware support updates with WSGM.
 
-### Handheld controls and input
+### Built-in Intel, NVIDIA and AMD graphics
 
-- Added independent AMD fast PPT, supported processor clocks, AMD curve and thermal controls, Intel
-  undervolting and clock restoration through the existing controls and profiles.
-- Corrected motion transforms, rear-button ordering, Legion touch timing and stale samples across
-  controller sessions.
-- Updated supported lighting, fan, charge and UMA protocols, including Claw Battery Master, GPD WIN4
-  fan control and WIN5 Type-C power reporting, Steam Deck haptic output, and XG Mobile fan
+The graphics backends now come from
+**[LibGPUDriverInteract](https://github.com/KillerPixelCrew/LibGPUDriverInteract)**. Separate
+first-party GPU plugins are gone. WSGM keeps graphics profiles, integration switches and the
+controls in the overlay and Steam.
+
+Graphics integration still works with Device Integration off. Turning Device Integration off stops
+handheld control, controller management and AutoTDP; Windows controls, RTSS and independent common
+plugins keep working too. The common Plugin SDK remains available for integrations such as IR and
+Steam frontend plugins.
+
+### Handheld controls
+
+- Independent AMD fast PPT alongside the sustained and slow limits, including presets and custom
+  AC/DC profiles.
+- Supported processor clocks, AMD curve and thermal controls, Intel undervolting and automatic clock
   restoration.
-- Writable controls stay available when firmware cannot read a setting back. Accepted values and
-  measured telemetry remain separate; uncertain writes are not automatically retried.
-- Claw Steam and Quick Access buttons work through wrapped-game input leases. Explicit button
-  assignments take precedence.
+- Claw Battery Master and corrected GPD WIN5 Type-C power-source reporting.
+- Updated supported lighting, fan and UMA protocols, including AYANEO KUN and FLIP, ONEX rear
+  lighting, GPD WIN4 fan control and Zotac UMA. XG Mobile restores automatic fan control when
+  released.
+- Steam Deck haptic output and independent charge, GPU and fabric measurements.
 
-### Steam UI and launching
+### Display layouts and portable emulators
 
-- Fixed **Change Artwork** disappearing from the native game menu during reactive updates.
-- Corrected Quick Access slider and dropdown overflow while preserving native track, handle and
-  notch sizing. Restored the overlay-level row in the Performance panel.
-- Fixed CEF promise collection failures and result ownership without replaying an evaluation that
-  may already have run.
-- Prepared CEF activation before startup applications and improved bounded recovery of Steam's debug
-  listener.
-- Kept game creation inside the Steam launch wrapper after de-elevation, preserving Steam overlay
-  ownership.
-- Improved Emulator Manager navigation and retained editor state across updates. Emulator management
-  and ROM importing remain WIP.
+- GPU display preferences are part of Desktop and Game Mode layouts, tied to the physical monitor.
+  Connected displays that Windows has disabled can still be configured.
+- Managed emulators use portable storage, with shared BIOS/firmware links and retained saves and
+  configuration across updates.
+- Portable conversions check for missing or disconnected sources, collisions and unsafe aliases
+  before changing redirects.
 
-### Graphics, performance and storage
+### Offline installer
 
-- Preserved enabled-by-default GPU integration for legacy configuration and corrected Claw Intel GPU
-  discovery.
-- Added driver-declared GPU display preferences to Desktop and Game Mode layouts, including
-  connected but Windows-disabled displays. Improved display recovery and audio choice preservation.
-- Improved RTSS overlay publication, game detection, startup and shared-memory ownership. Frame
-  limits and the performance overlay remain independent of Device Integration.
-- Moved managed emulators to portable storage with shared BIOS/firmware links and retained saves and
-  configuration. Conversion checks protect against disconnected sources, collisions and unsafe
-  aliases.
+Only the offline setup is published for this release. It includes the selected prerequisites,
+including WebView2, USB/IP, HidHide and the pinned RTSS installer archive.
 
-### Installer
+## Fixed
 
-- Only the **offline installer** is published. It includes the selected prerequisites, including
-  WebView2, USB/IP, HidHide and the pinned RTSS installer archive.
-- Added file-owner scanning before replacement, rollback and cleanup. Setup terminates verified file
-  holders, protects critical processes and reports the blocked file and owner when it cannot
-  proceed.
-- Improved rollback, prerequisite handling and legacy package cleanup.
+- **Change Artwork disappearing from the game menu.** Steam rebuilt the menu after WSGM added its
+  entry and dropped it a few seconds later. The entry now uses the menu's native action slot and
+  stays through those updates.
+- **Broken sliders and dropdowns in Quick Access.** Shared cards fit the space Steam gives them
+  while keeping the native slider track, handle and notches at their intended sizes. The
+  overlay-level row is back in the Performance panel.
+- **CEF commands failing with `Promise was collected`.** Results stay owned until completion or
+  timeout. A command that may already have run is not sent again automatically.
+- **Steam's debug connection not being ready at startup.** CEF activation happens before startup
+  applications, with bounded recovery when Steam's debug listener remains closed.
+- **Steam overlay launching after de-elevation.** The game is created inside the Steam launch
+  wrapper, preserving the process boundary Steam uses for its overlay.
+- **Claw Steam and Quick Access buttons during wrapped games.** Their default actions work through
+  the wrapper's input lease; explicit button assignments still take precedence.
+- **Profiles waiting for readback a device cannot provide.** Writable controls stay available,
+  accepted settings are separate from measured telemetry, and uncertain writes are not retried
+  automatically.
+- **Motion and rear-button handling.** Corrected axis transforms, Legion and AYANEO rear-button
+  ordering, Legion touch timing and samples left over from an earlier controller session.
+- **RTSS overlay updates and game detection.** Steam notifications and foreground observation use
+  one application identity and profile. Startup, shared-memory handling and overlay ownership are
+  improved.
+- **Claw Intel graphics discovery and legacy GPU settings.** Matching graphics integration stays
+  enabled when an older configuration has no entry, while an explicit disabled choice is respected.
+- **Display and audio recovery.** Corrected display activation order, capture of original GPU
+  settings, and preservation of audio endpoint, format and spatial-sound choices during updates.
+- **Emulator Manager navigation.** Selection and editor state survive updates.
+- **Setup failing with files in use.** After normal shutdown, setup scans the files being replaced
+  and terminates verified holders. Critical processes are protected, and a remaining failure names
+  the blocked file and owner when available. Rollback and legacy package cleanup are improved too.
 
-Automated checks and Steam UI inspection do not expand the tested handheld list. Device capabilities
-still depend on the exact model, firmware and available native providers. Anti-cheat compatibility
-is not verified.
+## Testing
+
+- **The only tested handhelds remain the MSI Claw 8 A2VM and ROG Xbox Ally X.** The larger catalog
+  is not a claim that every model has been tested on hardware.
+- Steam Stable and Beta source contracts were checked separately, and the current Beta was inspected
+  live.
+- Release builds, native payload checks and relevant regression checks passed. These checks do not
+  expand the hardware-tested device list.
+
+## Known issues
+
+- **The Emulator Manager and ROM Importer are still WIP.**
+- **The Game Library and packaged-game overlay routes remain experimental.** Anti-cheat
+  compatibility of the overlay route is unverified.
 
 Feel free to report any issue found.
 
-[Support development on Ko-fi](https://ko-fi.com/nightstorm1000)
+## Support
+
+If WSGM is useful to you, you can support its development on Ko-fi.
+
+[![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/nightstorm1000)
+
+[Full changelog since 2.1.0](https://github.com/KillerPixelCrew/WSGM/compare/2.1.0...2.3.0)
+
+## Checksum
+
+```
+SHA-256 cd4f5615bb3af8a93e32c3e9f87eb57458d66a9a895ff6424c05533d26d62a7d  WSGM-Setup-2.3.0.exe
+```
