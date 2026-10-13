@@ -3,8 +3,9 @@
 ## 2.3.0 (2026-10-13)
 
 The main change in **WSGM 2.3.0** is the replacement of the Device SDK and separate hardware plugin
-packages with **LibHandheld** and **LibGPUDriverInteract**. Handheld and GPU integration are now
-built into WSGM.
+packages with **[LibHandheld](https://github.com/KillerPixelCrew/LibHandheld)** and
+**[LibGPUDriverInteract](https://github.com/KillerPixelCrew/LibGPUDriverInteract)**. Handheld and
+GPU integration are now built into WSGM.
 
 **The Device SDK is deprecated and has been removed from WSGM.** Device plugin packages are no
 longer supported. New handheld support belongs in LibHandheld; native graphics driver support
@@ -23,12 +24,12 @@ This changelog covers changes since the last published release, **2.1.0**, inclu
 
 ### From Device SDK to native libraries
 
-- **LibHandheld** owns exact device detection, model protocols, physical input, motion, haptics and
-  native hardware restoration. WSGM keeps profiles, AutoTDP, HidHide, virtual controllers, OEM
-  action policy and presentation.
-- **LibGPUDriverInteract** owns the Intel, AMD and NVIDIA driver backends. WSGM keeps graphics
-  profiles, integration switches and controls in Overlay and Steam. Separate first-party GPU plugin
-  packages are retired.
+- **[LibHandheld](https://github.com/KillerPixelCrew/LibHandheld)** owns exact device detection,
+  model protocols, physical input, motion, haptics and native hardware restoration. WSGM keeps
+  profiles, AutoTDP, HidHide, virtual controllers, OEM action policy and presentation.
+- **[LibGPUDriverInteract](https://github.com/KillerPixelCrew/LibGPUDriverInteract)** owns the
+  Intel, AMD and NVIDIA driver backends. WSGM keeps graphics profiles, integration switches and
+  controls in Overlay and Steam. Separate first-party GPU plugin packages are retired.
 - Device support ships with WSGM and updates through the application installer. There is no device
   package installation or device plugin lifecycle.
 - The native catalog contains **112 exact device definitions** and **106 glyph profiles** across
