@@ -19,13 +19,6 @@ This fixes OEM button handling broken by the move from device plugins to LibHand
 - **OEM button releases being dropped during suspend, shutdown and fault cleanup.** Release events
   now reach the application after new presses are blocked, so held controls can be cleared.
 
-## Testing
-
-- 90 focused regression checks passed, including the actual Xbox Ally button metadata reaching
-  WSGM's overlay action and OEM releases during cleanup.
-- The full release build and native payload checks passed.
-- The Xbox Ally hardware retest is still pending.
-
 ## Known issues
 
 - **The Emulator Manager and ROM Importer are still WIP.**
