@@ -104,7 +104,7 @@ Custom stores an editable display layout, an optional wait for a display and opt
 actions. Leaving restores either the layout captured at entry or a configured Desktop layout. The
 reference desktop PC shares an HDMI switch with a TV box, and the TV is invisible to Windows until
 that switch selects the PC, so entry must be able to drive external routing and wait without a
-deadline. Work is tracked in `_plan\implementation-todo.md`.
+deadline.
 
 **WSGM owns how Steam starts, and setup asks for it.** Windows starting Steam first produces a Steam
 without WSGM's integrity, which silently costs Steam Input its reach over elevated windows, so setup

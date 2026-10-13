@@ -7,8 +7,9 @@ the source and generated XML documentation remain the detailed API reference.
 
 Each doc opens with a short lead saying what it covers. Dated findings are evidence from one machine
 and one build: if you change behaviour one of them describes, check it again on the device before
-trusting the change. Product decisions live in [decisions.md](decisions.md); the implementation
-tracker is `_plan\implementation-todo.md`.
+trusting the change. Product decisions live in [decisions.md](decisions.md).
+
+Release changes are recorded in the [changelog](../CHANGELOG.md).
 
 ## Start with the code
 
@@ -26,13 +27,10 @@ Reusable libraries are pinned submodules, with their own source contracts and do
 [WindowsDeviceControl](../external/windows-device-control/README.md). WSGM's guides describe the
 product policy around those APIs; each library describes its own mechanics, outcomes and lifetimes.
 
-The device/GPU extraction is on `chore/device-integration-rework`. Its private repositories are
-[LibHandheld](../external/libhandheld/README.md) and
-[LibGPUDriverInteract](../external/libgpu-driver-interact/README.md); see the
-[rework plan](../_plan/device-integration-rework.md). LibGPUDriverInteract is directly linked into
-WSGM. LibHandheld is also directly linked, with the existing five Claw and four Ally definitions
-implemented. The complete HC/HHD inventory remains the support target; those nine definitions do not
-cover it yet.
+WSGM directly links [LibHandheld](../external/libhandheld/README.md) and
+[LibGPUDriverInteract](../external/libgpu-driver-interact/README.md). LibHandheld provides native
+integration for 112 exact device definitions and 106 glyph profiles. LibGPUDriverInteract owns
+Intel, AMD and NVIDIA driver mechanics. WSGM retains application policy and both UI surfaces.
 
 ## Implementation skills
 

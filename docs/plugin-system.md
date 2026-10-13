@@ -287,8 +287,8 @@ never an automatic retry request. Common preferences use `PluginConfigurations` 
 increasing revisions; provider schema validation occurs before delivery. Their generic Settings
 editor is not part of this initial surface; the Device settings editor remains available.
 
-Delivery status lives in `_plan/implementation-todo.md`. Device and common plugins have separate
-lifecycle owners and retain the existing user workflows.
+Device integration and common plugins have separate lifecycle owners and retain the existing user
+workflows.
 
 ### Widget declarations
 

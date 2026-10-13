@@ -91,14 +91,13 @@ original native implementation.
 
 ## Dependencies and generated boundaries
 
-The private `external/libgpu-driver-interact` submodule contains the production driver backends and
-their tests. WSGM references that library directly; its library-owned contracts have no WSGM SDK
+The `external/libgpu-driver-interact` submodule contains the production driver backends and their
+tests. WSGM references that library directly; its library-owned contracts have no WSGM SDK
 dependency. Standalone builds use the library's own WindowsDeviceControl submodule, while this
-checkout reuses the sibling `external/windows-device-control` project. The private
-`external/libhandheld` submodule contains the direct typed device API, nine migrated Claw/Ally
-definitions, private native helpers, glyphs and regression sources. Its independent contracts have
-no WSGM SDK dependency. The inventory and extraction plan preserve the remaining complete HC/HHD
-target for the [device integration rework](../_plan/device-integration-rework.md).
+checkout reuses the sibling `external/windows-device-control` project. `external/libhandheld`
+contains the direct typed device API, 112 exact definitions, native helpers, glyphs and regression
+sources. Its independent contracts have no WSGM SDK dependency. Application integration is described
+in [device integration](device-integration.md).
 
 | Boundary                                                                          | Ownership                                                                                                                                                                                                              |
 | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

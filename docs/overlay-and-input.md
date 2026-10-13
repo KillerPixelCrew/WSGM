@@ -573,6 +573,5 @@ changes remove disabled routes and close their transient surfaces. Library picke
 typed library result, so connection/schema failures remain distinct from a valid empty library.
 Theme/profile/movie deletion uses an explicit confirmation and preserves failure context.
 
-The parity specification and pending manual acceptance matrix are in
-[`_plan/overlay-tools-cef-parity.md`](../_plan/overlay-tools-cef-parity.md). Headless captures use
-explicit backend/media data fakes and establish layout only, not current Steam or native playback.
+Headless captures use explicit backend/media data fakes and establish layout only, not current Steam
+or native playback.
