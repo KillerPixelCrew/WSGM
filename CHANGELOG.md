@@ -1,5 +1,53 @@
 # WSGM changelog
 
+## 2.3.1 (2026-10-13)
+
+This fixes OEM button handling broken by the move from device plugins to LibHandheld in 2.3.0.
+
+## Before you upgrade
+
+- **Just run the offline setup.** It updates in place and keeps your settings and installation
+  choices. Steam closes during the update, that is normal.
+- **Only the offline installer is published.** It includes the prerequisites, as in 2.3.0.
+
+## Fixed
+
+- **The Armoury Crate button no longer opening WSGM on the ROG Xbox Ally and Xbox Ally X.** The
+  button events still arrived, but the migration left out the default action WSGM now reads. The
+  button opens the overlay again without recording a keyboard shortcut. Explicit button assignments
+  still take precedence.
+- **OEM button releases being dropped during suspend, shutdown and fault cleanup.** Release events
+  now reach the application after new presses are blocked, so held controls can be cleared.
+
+## Testing
+
+- 90 focused regression checks passed, including the actual Xbox Ally button metadata reaching
+  WSGM's overlay action and OEM releases during cleanup.
+- The full release build and native payload checks passed.
+- The Xbox Ally hardware retest is still pending.
+
+## Known issues
+
+- **The Emulator Manager and ROM Importer are still WIP.**
+- **The Game Library and packaged-game overlay routes remain experimental.** Anti-cheat
+  compatibility of the overlay route is unverified.
+
+Feel free to report any issue found.
+
+## Support
+
+If WSGM is useful to you, you can support its development on Ko-fi.
+
+[![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/nightstorm1000)
+
+[Full changelog since 2.3.0](https://github.com/KillerPixelCrew/WSGM/compare/2.3.0...2.3.1)
+
+## Checksum
+
+```
+SHA-256 904495257497a3a6a667523cd5f291b3d5f90b02b01abed2edda7aecec523798  WSGM-Setup-2.3.1.exe
+```
+
 ## 2.3.0 (2026-10-13)
 
 Hardware support has moved out of device plugins and into
