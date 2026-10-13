@@ -5,7 +5,7 @@ holds the scenarios, the recorded numbers, where the idle cost goes, and the bud
 and analysis tool is [tools/PerfLab](../../tools/PerfLab/README.md); the tracking issue is #121.
 
 Every number here is dated evidence from one machine and one build. Re-record before trusting a
-figure after a change to the controller path, the device plugin runtime, VIIPER or the overlay.
+figure after a change to the controller path, the native handheld runtime, VIIPER or the overlay.
 
 ## Scenarios
 

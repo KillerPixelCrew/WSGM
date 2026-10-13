@@ -339,7 +339,7 @@ Every step runs even when an earlier one failed, and every wait gives up at the 
 2. Join the startup task and a running device power transition. One queued but not started never
    runs.
 3. Device cleanup: AutoTDP's original limit first, then controller release with the physical pad
-   shown again, then the device package stops.
+   shown again, then the native handheld runtime stops.
 4. Common plugins, then the graphics router.
 5. Join the in-flight mode transition, the boot worker and the transport gate loop.
 6. Retire the tray, then the session's event sources.

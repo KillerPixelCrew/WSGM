@@ -49,18 +49,17 @@ layer is in force.
 per-application sync), then power and refresh. A different running application cancels the pass in
 progress; a value change waits behind it.
 
-## Graphics packages store their values beside the device's
+## Graphics publishers store their values beside the device's
 
-A `wsgm.gpu` package (see `docs\plugin-system.md`) publishes capabilities like the device package
-does, and its values go into the same `Device[]` list, keyed `gpu:<plugin id>` instead of the
-machine's identity key. Several graphics packages and the device package never share a key, so each
-one's values stay its own. Variable refresh is the exception: it keeps its typed
-`VariableRefreshRate` field whichever package publishes it.
+Built-in GPU drivers and optional third-party graphics publishers expose capability descriptors.
+Their values use the same `Device[]` list, keyed `gpu:<publisher id>` rather than the native
+handheld's machine identity. Independent publishers never share a key. Variable refresh keeps its
+typed `VariableRefreshRate` field whichever publisher provides it.
 
 ## A capability's profile scope decides where its value goes
 
-Each descriptor carries a `ProfileScope` (Device SDK 11), and both the device router and every
-graphics router honour it.
+Each descriptor carries a `ProfileScope`, and both the native handheld router and every graphics
+router honour it.
 
 | Scope                  | A value the user sets                                                    | What WSGM writes on a game switch |
 | ---------------------- | ------------------------------------------------------------------------ | --------------------------------- |
@@ -78,11 +77,12 @@ so a page can say when a value takes effect.
 ## Graphics drivers keep their own per-application values
 
 For `NativePerApplication` capabilities WSGM hands the publisher every enabled game's values through
-`ICapabilityPlugin.SyncApplicationProfilesAsync`, and the plugin stores them in the driver's own
-per-application profiles. The set is complete each time; a game that is off, has no known executable
-or has no value for such a capability is absent, and the plugin removes what it wrote for it before.
-`ApplicationProfileSyncBuilder` builds the set. `GpuCoordinator` sends it after start and resume
-(when the new cycle's descriptors arrive), when the set changes, and when a game starts.
+the publisher's application-profile synchronization path, and its backend stores them in the
+driver's own per-application profiles. The set is complete each time; a game that is off, has no
+known executable or has no value for such a capability is absent, and the plugin removes what it
+wrote for it before. `ApplicationProfileSyncBuilder` builds the set. `GpuCoordinator` sends it after
+start and resume (when the new cycle's descriptors arrive), when the set changes, and when a game
+starts.
 
 A driver matches on executable names, and WSGM knows a store title's executable only while it runs.
 `ProfileService` records the running executable in the matched game profile's `Executables` list the
@@ -135,14 +135,14 @@ overrides looks exactly as it would with no profile.
 The overlay's Use global calls `ProfileService.ClearGameOverrideAsync`, which removes only the
 game's value; the fan-out then applies Global and the marker disappears. It never clears Global.
 Each marker carries the setting's id (`ProfileSettingKey.Id`: a field name,
-`device:<capability>#<instance>` for the device package, or
-`gpu:<plugin id>/<capability>#<instance>` for a graphics package). A graphics id clears only that
-publisher's value, and a device id never clears a graphics package's. Quick Access only colours the
-row's description while it has one and offers no per-row control: the maintainer found a button
+`device:<capability>#<instance>` for native handheld controls, or
+`gpu:<publisher id>/<capability>#<instance>` for graphics). A graphics id clears only that
+publisher's value, and a device id never clears a graphics publisher's. Quick Access only colours
+the row's description while it has one and offers no per-row control: the maintainer found a button
 under every overridden row too heavy for Steam's panel (2026-09-25).
 
-The header's override count leaves out values stored for a device or graphics package that is not
-running, because they change nothing on this machine.
+The header's override count leaves out values stored for a handheld or graphics publisher that is
+not running, because they change nothing on this machine.
 
 Valve's own overlay-level selector draws no marker, because it reads Valve's store, which has no
 field for it. WSGM's overlay row for the same value does.

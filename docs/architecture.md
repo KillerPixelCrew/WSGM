@@ -20,18 +20,20 @@ flowchart TD
     Session --> Views[Overlay and resident Settings]
     Session --> Managers[Feature managers and coordinators]
     Managers --> Windows[WindowsDeviceControl]
-    Managers --> Device[One device package through Device SDK]
-    Managers --> Plugins[Common and graphics packages through Plugin SDK]
+    Managers --> Device[One exact handheld through LibHandheld]
+    Managers --> Graphics[Built-in drivers through LibGPUDriverInteract]
+    Managers --> Plugins[Independent common packages through Plugin SDK]
     Managers --> Host[SteamUiSessionHost]
     Host --> Toolkit[SteamUiToolkit transport, modules and patches]
     Toolkit --> Steam[Steam CEF SharedJSContext]
     Session --> Input[Steam Input lease and controller management]
 ```
 
-WSGM is a managed .NET 10 Windows application with an Avalonia UI. It runs device and common plugins
-in-process. Package validation, permissions and collectible load contexts are admission and lifetime
-mechanisms; they do not sandbox plugin code. The CEF frontend of an admitted plugin also runs with
-the Steam document's authority. See [plugin contracts and trust](plugin-system.md).
+WSGM is a managed .NET 10 Windows application with an Avalonia UI. Native handheld and graphics
+libraries are direct dependencies; independent common plugins run in-process. Package validation,
+permissions and collectible load contexts are admission and lifetime mechanisms; they do not sandbox
+plugin code. The CEF frontend of an admitted plugin also runs with the Steam document's authority.
+See [plugin contracts and trust](plugin-system.md).
 
 The executable boundaries have different jobs:
 
@@ -42,13 +44,15 @@ The executable boundaries have different jobs:
 | `WSGM`                | Resident Game/Desktop Mode, Settings, overlay and feature policy                              | Configuration, session-owned services and explicit maintenance modes                  |
 | `WSGM.Launch`         | Start an ordinary game with optional de-elevation and a Steam Input lease                     | Parsed wrapper arguments and the lifetime of the launched game                        |
 | `WSGM.PackagedLaunch` | Activate or follow an imported game and maintain its selected input/overlay route             | Validated packaged/follow command, runtime classification and game process lifetime   |
-| `WSGM.DeviceLab`      | Attended hardware evidence and plugin development                                             | SDK contracts and exported evidence; it is not a resident WSGM service                |
+| `WSGM.DeviceLab`      | Attended hardware evidence and LibHandheld contributions                                      | Native contracts and exported evidence; it is not a resident WSGM service             |
 
 The reusable libraries are project references at pinned submodule commits. SteamUiToolkit owns CDP,
 Steam module discovery, the bridge and reversible Steam patches. WindowsDeviceControl owns Windows
 audio, radios, displays, brightness and related primitives. WSGM owns their policy and lifetime. The
-native Steam Input lease and VIIPER have separate submodules and build pipelines. Device SDK, Plugin
-SDK, hardware packages and GPU plugins are ordinary projects in this repository.
+native Steam Input lease and VIIPER have separate submodules and build pipelines. LibHandheld owns
+device detection, protocols and physical input; LibGPUDriverInteract owns vendor driver mechanics.
+The common Plugin SDK is the extension contract. There is no separate Device SDK or device-package
+loader.
 
 ## Entry and recovery
 
@@ -83,10 +87,10 @@ the graphics capability owner and common plugin manager, and admits the optional
 Partial startup is owned too: a coordinator created after shutdown was requested is shut down rather
 than abandoned.
 
-Device Integration off is a complete supported mode. It runs no device-package lifecycle, controller
-target, device hardware writes or AutoTDP. Independent shell, overlay, Windows controls, RTSS and
-admitted common/GPU plugins can still run. Common packages and the singleton device slot have
-separate admission rules; see [device runtime](device-plugin-system.md) and
+Device Integration off is a complete supported mode. It runs no native handheld lifecycle,
+controller target, device hardware writes or AutoTDP. Independent shell, overlay, Windows controls,
+RTSS and admitted common plugins and built-in GPU drivers can still run. Common-package admission
+and exact handheld detection are separate; see [device runtime](device-runtime.md) and
 [common plugins](plugin-system.md).
 
 The session constructs and owns the long-lived managers. A view receives a projection or service
@@ -95,10 +99,10 @@ device runtime or RTSS owner. There are intentional surface lifetimes: `OverlayC
 capture/focus and overlay input claims, and a focused Settings window owns its input claim.
 
 Game Mode and Desktop Mode are two postures of this resident session. Desktop Mode is not a stopped
-device/plugin runtime. Explorer remains the registered Windows shell; Game Mode asks it to exit
-orderly and owns its eventual restoration. `GameModeEntryTransaction` sequences display/audio
-preparation, plugin actions, any display wait, Explorer exit and Big Picture entry, with a shared
-desktop return path. A pending return record survives a process failure. See
+native device or common-plugin runtime. Explorer remains the registered Windows shell; Game Mode
+asks it to exit orderly and owns its eventual restoration. `GameModeEntryTransaction` sequences
+display/audio preparation, plugin actions, any display wait, Explorer exit and Big Picture entry,
+with a shared desktop return path. A pending return record survives a process failure. See
 [display and session automation](power-and-display.md#game-mode-display-layouts).
 
 ## A control from frontend to backend

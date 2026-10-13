@@ -65,9 +65,9 @@ whose outputs are decisions, replayable from a trace. `AutoTdpService` owns appl
 capability lookup, paired limits, one write in flight, manual pause, restore on stop and the trace.
 The original watts survive device cycle changes such as lock, sleep and restart. Stop restores them
 through the currently published primary power capability, including the pair's original watts. If
-the capability is unavailable, the restore obligation is retained and logged. The device package
-declares the limit range and paired descriptors; WSGM chooses the sustained/boost values and the
-plugin writes that pair in its firmware's order. Nothing here changes QAM or overlay ownership.
+the capability is unavailable, the restore obligation is retained and logged. The native device
+runtime declares the limit range and paired descriptors; WSGM chooses the sustained/boost values and
+the plugin writes that pair in its firmware's order. Nothing here changes QAM or overlay ownership.
 
 There is no learning. No floor, learned or failed, is kept for a context or across sessions. Control
 starts from the limit the hardware reports and every conclusion is re-tested from fresh evidence.
@@ -431,7 +431,7 @@ Rows:
 Column groups, in file order:
 
 - Identity and timing: schema version, row, event, monotonic `elapsed_ms`, `wall_utc`, the measured
-  `tick_interval_ms`, trace id, WSGM version and the installed device package.
+  `tick_interval_ms`, trace id, WSGM version and the selected native handheld definition.
 - Context: application id, executable, process id, running generation, context key and target.
 - Windows and device: AC state, battery percent, effective power mode, active scheme, the plugin's
   limit range and step, the primary and paired capability ids, their observed values, quality and

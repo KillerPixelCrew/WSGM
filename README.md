@@ -75,10 +75,10 @@ output and input devices and their levels, and Storage and Screensaver get backe
 limit paired with the refresh rates your display actually accepts, on-screen display levels, and an
 AutoTDP that steers the power limit from measured frametimes.
 
-**Device power profiles** come from the device plugin as a TDP, firmware scenario and Windows mode
-preset, chosen from the Device page or Steam's Performance tab. The Claw offers Super Battery,
-Balanced, Extreme Performance and Full Power. Changing something by hand saves a Custom profile for
-whichever source you are on, AC or battery, and switching back restores it.
+**Device power profiles** come from the built-in handheld integration as a TDP, firmware scenario
+and Windows mode preset, chosen from the Device page or Steam's Performance tab. The Claw offers
+Super Battery, Balanced, Extreme Performance and Full Power. Changing something by hand saves a
+Custom profile for whichever source you are on, AC or battery, and switching back restores it.
 
 ## WSGM inside Steam
 
@@ -171,20 +171,20 @@ The same wrapper de-elevates titles that refuse to run elevated, and it can do b
 
 ## Devices and plugins
 
-**Device plugins.** One MIT-licensed Device SDK, one installed package at a time, picked by setup
-from your hardware. The MSI Claw package is the reference, hardware-tested on the Claw 8 AI+ A2VM
-and covering every Claw: power and charge limits, fan behaviour, RGB lighting, the controller and
-its motion sensors, OEM buttons that open Steam's menus, and a virtual controller. Driver controls
-such as variable refresh and Intel graphics settings come from the separate graphics plugins. A
-package for the four ROG Ally models is built and waiting for its hardware pass. You can write one
-for another handheld with [Device Lab](src/WSGM.DeviceLab/README.md) and the
-[authoring guide](docs/device-plugin-authoring.md).
+**Built-in handheld integration.** LibHandheld detects one exact model and owns its native controls,
+physical input, motion and haptics. Its 112 definitions select device artwork through 106 glyph
+profiles. WSGM owns profiles, AutoTDP, virtual controllers and OEM actions. New hardware support is
+a [LibHandheld contribution](docs/handheld-contributions.md), not a device plugin.
 
-**Common plugins** are packages beyond the device slot. Intel, NVIDIA and AMD graphics packages
-start by default on matching hardware unless explicitly disabled, independently of device
-integration. Other common plugins are explicitly enabled. The IR plugin for the XIAO IR Mate learns
-and sends remote codes over USB or Wi-Fi and can drive an HDMI switch or TV as part of entering Game
-Mode. It is still under development, see its [README](src/WSGM.Plugin.Ir/README.md).
+**Built-in graphics integration.** LibGPUDriverInteract supplies Intel, NVIDIA and AMD driver
+controls independently of Device Integration. Explicit disabled choices are preserved; no
+first-party graphics package needs to be installed.
+
+**Common plugins** provide independent extensions through Plugin API 5. The host refuses device
+packages. Third-party graphics contributions can use the common capability contract. The IR plugin
+for the XIAO IR Mate learns and sends remote codes over USB or Wi-Fi and can drive an HDMI switch or
+TV as part of entering Game Mode. It is still under development, see its
+[README](src/WSGM.Plugin.Ir/README.md).
 
 ## Game Mode and Desktop Mode
 
@@ -270,8 +270,9 @@ shortcut layout is on you.
 The full technical write-up lives in the wiki:
 **[How it Works](https://github.com/KillerPixelCrew/WSGM/wiki/How-it-Works)**. It covers the logon
 service, the Explorer takeover, Desktop Mode, the Steam Input Lease, the Steam CEF bridge behind the
-library features, device plugins, elevation and recovery. The in-repo [docs](docs/README.md) carry
-the implementation contracts, exact log lines, budgets and dates it summarizes.
+library features, native device integration, elevation and recovery. The in-repo
+[docs](docs/README.md) carry the implementation contracts, exact log lines, budgets and dates it
+summarizes.
 
 For the code, start with [architecture from startup to shutdown](docs/architecture.md), the
 [source map](docs/source-map.md), [configuration and live reload](docs/configuration.md), and the
@@ -287,12 +288,12 @@ documented beside their declarations and emitted as XML documentation by the pro
 
 1. Download and run **`WSGM-Setup-<version>.exe`** from the
    [latest release](https://github.com/KillerPixelCrew/WSGM/releases/latest). It asks for
-   administrator rights once. Keyboard, touch and a gamepad all work. It needs no network, except to
-   download RivaTuner Statistics Server when you want it and it is not installed yet.
-2. Setup checks your hardware. When a bundled device plugin matches it, setup says so and installs
-   that plugin, plus the virtual controller (VIIPER, the USB/IP driver and HidHide) when the plugin
-   needs it; the driver step restarts USB and asks for a reboot. With no match you get plain WSGM.
-   Then pick:
+   administrator rights once. Keyboard, touch and a gamepad all work. The published offline setup
+   includes its runtime prerequisites, including RTSS when selected.
+2. Setup detects your exact native handheld definition and installs its declared prerequisites,
+   including VIIPER, USB/IP, HidHide or PawnIO where required. A driver step can require a reboot.
+   With no match, WSGM's independent features remain available. No device plugin is installed. Then
+   pick:
    - **Full** or **Minimal**: every integration on, or the WSGM session only.
    - **Steam first** boots into Game Mode; **Desktop first** starts WSGM with Windows and waits in
      the notification area, with Game Mode one press away.
@@ -346,11 +347,10 @@ WSGM is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY
 implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
 License for more details.
 
-The Plugin SDK, Device SDK, Claw reference plugin, ROG Ally plugin and Handheld Companion scaffold,
-including their test projects, keep their MIT licenses under `src` and `tests`, so external packages
-can implement the contracts. Device Lab compiles WSGM's own interop sources and is GPL-3.0-or-later
-like WSGM. See [device plugin authoring](docs/device-plugin-authoring.md) for paths and build
-commands.
+The common Plugin SDK remains MIT-licensed for independent extensions. Native handheld and GPU
+libraries keep their own licenses and notices. The separate Device SDK and first-party device/GPU
+plugin projects are retired. Device Lab compiles WSGM's interop sources and is GPL-3.0-or-later like
+WSGM. See [handheld contributions](docs/handheld-contributions.md) for the current workflow.
 
 Bundled third-party components keep their own licenses; their notices ship beside the executable and
 with the installer.

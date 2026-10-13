@@ -3,8 +3,8 @@
 How WSGM's fullscreen sheet works: its layout and navigation, the in-window utility, keyboard and
 power-menu surfaces, the controller and raw-touch input stack, and the findings that shaped them.
 Styling and headless rendering are in [UI mechanisms](ui.md). The
-[Steam Input lease](steam-input.md) and the [device plugin system](device-plugin-system.md) document
-their own integration boundaries.
+[Steam Input lease](steam-input.md) and the [device runtime](device-runtime.md) document their own
+integration boundaries.
 
 ## Code ownership and an open/close cycle
 
@@ -19,7 +19,7 @@ covers the other executables and libraries.
 | Capability presentation          | `Overlay/OverlayWindow.Device*`, `.Graphics`, `.Performance`, `.Pins`, `CapabilityRowRenderer.cs`, `DescriptorControlView.cs`               | Reconcile descriptor rows and pinned sections; report user intent through the supplied device, graphics or performance bridge.                                                                                |
 | Utility and content presentation | `Overlay/StatusPanel.cs`, `RadioPanel`, `AudioPanel`, `EjectPanel`, `KeyboardPanel`, `ServiceSubView.cs`, `OverlaySubView.cs`               | Own transient presentation, nested navigation and subscriptions. `ThemesView`, `AnimationsView`, `SoundsView`, `ArtworkView` and `GameLibraryView` borrow durable services.                                   |
 | UI input                         | `Input/SdlGamepads.cs`, `GamepadService.cs`, `GamepadNavigation.cs`, `FocusSearch.cs`, `Overlay/OverlayInput.cs`                            | One SDL owner, UI sampling, edge/repeat decisions, focused-control dispatch and navigation.                                                                                                                   |
-| Managed input                    | `Shell/ControllerManager.cs`, `Shell/UiCaptureState.cs`, `Input/ManagedControllerRouter.cs`, `ManagedUiPad.cs`, `ControllerOutputRouter.cs` | Publish managed pad state to UI and suspend/resume game forwarding around capture. Device transport and firmware interpretation belong to the device package.                                                 |
+| Managed input                    | `Shell/ControllerManager.cs`, `Shell/UiCaptureState.cs`, `Input/ManagedControllerRouter.cs`, `ManagedUiPad.cs`, `ControllerOutputRouter.cs` | Publish managed pad state to UI and suspend/resume game forwarding around capture. Physical transport and firmware interpretation belong to LibHandheld.                                                      |
 | Touch activation                 | `Overlay/RawTouchInput.cs`, `TouchSwipeMonitor.cs`, `EdgeSwipeRecognizer.cs`                                                                | Observe digitizer reports, recognize one gesture, and request an action without intercepting the desktop input stream.                                                                                        |
 | Rendering support                | `Controls/`, `Themes/`, `Avalonia.LiveBackdrop`                                                                                             | Shared editors, focus and color tokens; one native backdrop per overlay window. See [UI](ui.md) and the [backdrop API](../src/Avalonia.LiveBackdrop/README.md).                                               |
 

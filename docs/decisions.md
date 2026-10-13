@@ -22,20 +22,20 @@ of restoring the previous installation.
 **The product lives in Program Files; state stays per-user.** WSGM setup is one elevated process
 because the machine service and the drivers demand it. It installs WSGM, its plugins and a copy of
 itself under `%ProgramFiles%\WSGM`, while `%LOCALAPPDATA%\WSGM` and HKCU belong to the elevating
-account. This is a single-user-device design. The setup carries every accepted plugin and installs
-only the one the hardware matches, so there is no plugin repository and no hot plugin upgrade; the
-updater always updates WSGM whole. The update and uninstall ordering, the exit events and the
-restart rule live in [setup](setup.md).
+account. This is a single-user-device design. The setup carries the built-in native libraries and
+selected common plugins, and installs the detected handheld's declared prerequisites. There is no
+device-plugin repository or hot hardware-package upgrade; the updater always updates WSGM whole. The
+update and uninstall ordering, the exit events and the restart rule live in [setup](setup.md).
 
 **Setup asks how the machine is used, not which components to install.** A fresh install chooses
 Full or Minimal, Steam first or Desktop first and the sign-in start on one profile page, and
-Customize opens the individual switches for the people who want them. Which device plugin and which
-drivers go on is decided by matching every bundled plugin's hardware rules against the machine,
-because a person installing WSGM knows what they are putting it on and does not know what a
-device-integration runtime or a virtual controller is for. The answers seed only a machine with no
-configuration yet: re-running setup is how repair and upgrade work, and an update starts from the
-values WSGM exports, so it never rewrites a choice Settings changed behind the user's back. Details
-in [setup](setup.md#what-gets-installed).
+Customize opens the individual switches for the people who want them. Native device dependencies are
+selected from the exact LibHandheld definition matched to the machine, because a person installing
+WSGM knows what they are putting it on and does not know what a device-integration runtime or a
+virtual controller is for. The answers seed only a machine with no configuration yet: re-running
+setup is how repair and upgrade work, and an update starts from the values WSGM exports, so it never
+rewrites a choice Settings changed behind the user's back. Details in
+[setup](setup.md#what-gets-installed).
 
 **Per-user inputs stay per-user.** The boot manifest, live configuration, HKCU Steam registration
 and the install-to-run handoff stay in the user's profile even though WSGM elevates. Keep validation
@@ -165,7 +165,7 @@ per-game data was wiped on 2026-09-22 when the model was centralized (the mainta
 
 **A device control the user moves is remembered.** A `User` capability write the device accepted is
 saved to the profile layer in force: the running game's profile while it is on, Global otherwise.
-Mechanism in [device plugin system](device-plugin-system.md), §11.
+Mechanism in [device runtime](device-runtime.md#controls-and-profiles) and [profiles](profiles.md).
 
 **A driver that keeps per-application values keeps WSGM's per-game values too (2026-09-29).** GPU
 drivers apply their own per-application profiles when a game starts, and some settings take effect
@@ -302,32 +302,29 @@ on.
 
 ## Devices and plugins
 
-**Plugin categories share common contracts.** The #49 migration adds an MIT common SDK while
-preserving the current Device runtime. Device is an optional singleton specialization; independent
-integrations must not require a Device Plugin. Category multiplicity is host policy. Trusted
-in-process execution remains the initial model, with no claim that loading or permission
-declarations provide a sandbox. The slices and ownership boundary are described in
-[common plugin contracts](plugin-system.md).
+**Plugin categories share common contracts.** Independent extensions use the MIT common SDK. Native
+handheld integration is a directly linked library, not a plugin category, and the common host
+refuses `wsgm.device`. Category multiplicity is host policy. Trusted in-process execution remains
+the initial model, with no claim that loading or permission declarations provide a sandbox. The
+slices and ownership boundary are described in [common plugin contracts](plugin-system.md).
 
-**Graphics drivers get their own plugin category (2026-09-29, #178).** Variable refresh, sharpening,
-colour and latency belong to the GPU driver, not to the handheld, and the same driver runs on
-machines no device package supports. They live in `wsgm.gpu` packages: common packages, several at
-once (an Intel iGPU and an NVIDIA dGPU), beside the single device package and independent of device
-integration and of the device owner. A package runs by default where a display adapter matches its
-manifest and never elsewhere, so setup offers it by the same match and writes no enable entry; an
-explicit disable still wins. Each package publishes Device SDK capabilities through its own router,
-never merged with the device's, because the device consumers pick the power limit, a fan or VRR by
-role and expect one match. Variable refresh moved from the Claw package to the Intel one and keeps
-its typed profile value. Mechanism in
+**Graphics drivers are independent of the handheld.** Variable refresh, sharpening, colour and
+latency belong to the GPU driver and also work on machines with no handheld definition. Intel,
+NVIDIA and AMD now use the directly linked LibGPUDriverInteract library. Matching adapters run by
+default unless explicitly disabled. Each publisher has its own capability router and profile key; it
+is never merged into the native handheld router. The common `wsgm.gpu` category remains available
+for third-party contributions, while retired first-party vendor packages are refused. Variable
+refresh keeps its typed profile value. Mechanism in
 [common plugin contracts](plugin-system.md#graphics-packages-wsgmgpu).
 
-**WSGM is not a controller remapper.** OEM buttons are bound in plugin code, and the closed
-`OemAction` vocabulary has no authoring UI on purpose. Every handheld on the market today maps
-cleanly onto a Steam Deck controller with no buttons or functions left over, so a rebinding surface
-would answer a problem no supported device has while making WSGM responsible for input policy that
-belongs to Steam. The one button left over, the Xbox Ally's Armoury Crate beside its Xbox and
-Library buttons, is marked as the companion-application button and opens the WSGM overlay by default
-(maintainer, 2026-09-26). See [device plugin system](device-plugin-system.md#13-oem-controls).
+**WSGM is not a controller remapper.** Native OEM button facts belong to LibHandheld and action
+policy belongs to WSGM. The closed `OemAction` vocabulary has no authoring UI on purpose. Every
+handheld on the market today maps cleanly onto a Steam Deck controller with no buttons or functions
+left over, so a rebinding surface would answer a problem no supported device has while making WSGM
+responsible for input policy that belongs to Steam. The one button left over, the Xbox Ally's
+Armoury Crate beside its Xbox and Library buttons, is marked as the companion-application button and
+opens the WSGM overlay by default (maintainer, 2026-09-26). See
+[device runtime](device-runtime.md#physical-input-oem-controls-and-haptics).
 
 **Claw chord suppression retains the working state machine (2026-10-01).** The incomplete firmware
 sequence cannot be handled by ordinary shortcut remapping. The orphan-only rewrite opened Game Bar
@@ -336,17 +333,12 @@ provided the working `BlockWinG.zip` PoC. Preserve interception of G down and or
 repeat/release state and the synthetic Win release. Details are in
 [device integration](device-integration.md#claw-oem-chord-suppression-also-runs-on-desktop).
 
-**Device Lab drives hardware for an attended tester (2026-09-24).** Device Lab used to touch
-hardware only through a loaded plugin's `test hardware` action. It is becoming the one tool a
-maintainer sends to people with an unknown handheld, and on such a device there is no plugin yet:
-finding out what a plugin would have to do is the point. The attended wizard may therefore change
-machine state directly: HidHide's allowed-programs list, a PawnIO install, and from later stages the
-device's own power, fan, lighting and controller-mode commands. The rules a plugin must follow still
-apply: every change is recorded before it is made, read back from a real source, restored, confirmed
-by the tester and never retried automatically, and a crashed session is cleaned up on the next
-start. The knowledge records the wizard works from are evidence, not a plugin: nothing WSGM runs
-reads them, and a device only becomes supported through a plugin built from them. AllyXLab was
-retired on 2026-09-25, once the wizard covered it.
+**Device Lab drives hardware for an attended tester (2026-09-24).** The attended wizard may change
+machine state directly: HidHide's allowed-programs list, a PawnIO install and reviewed native device
+commands. Changes are recorded before dispatch, restored and confirmed by the tester; uncertain
+writes are never retried automatically. Crash recovery handles unfinished sessions. Its knowledge
+records are evidence, not runtime drivers. Production support comes from a native LibHandheld
+contribution. AllyXLab was retired on 2026-09-25, once the wizard covered it.
 
 **Handheld Companion is the Ally plugin's primary reference, buttons included (2026-09-25).** The
 ROG Ally plugin was first built with HHD as the authority for buttons, because HC's button handling
@@ -355,7 +347,7 @@ used on these devices under Windows, so its event semantics now lead: 0x93 is a 
 control and 0xA7/0xA8 are M2 press and release. HHD stays the cross-check and the source for what HC
 does not do. HC's controller tables are sent as HC sends them, even where they differ from HHD's: an
 Xbox Ally X refused the HHD-layout set. A Device Lab observation beats both. The per-fact record is
-`src/WSGM.Device.Asus.RogAlly/PROVENANCE.md`.
+`external/libhandheld/src/LibHandheld/Families/RogAlly/PROVENANCE.md`.
 
 **WSGM owns HidHide's cloak (2026-09-28).** WSGM used to treat the cloak switch as a prerequisite it
 only read, and Handheld Companion's uninstaller turns it off. Anyone who removed HC would then run
