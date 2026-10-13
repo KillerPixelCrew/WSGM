@@ -8,6 +8,7 @@ improves game launching, performance monitoring and installation.
 
 ### Before you upgrade
 
+- **The Emulator Manager and ROM Importer are still works in progress.**
 - Run the offline setup to update in place. It preserves settings and installation choices. Steam
   closes during the update.
 - Handheld and graphics integration use the built-in libraries. Retired first-party device and
