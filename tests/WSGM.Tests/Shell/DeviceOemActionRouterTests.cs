@@ -15,6 +15,26 @@ namespace WSGM.Tests.Shell;
 public sealed class DeviceOemActionRouterTests
 {
     [Theory]
+    [InlineData("rc73ya")]
+    [InlineData("rc73xa")]
+    public async Task NativeXboxAllyCompanionMetadataOpensTheOverlay(string modelId)
+    {
+        var model = LibHandheld.Families.RogAlly.AllyModels.ById(modelId)!;
+        var invoked = 0;
+        using var router = new DeviceOemActionRouter(_ => true);
+        router.OnControls(LibHandheld.Families.RogAlly.AllyModels.OemControls(model));
+        router.ConfigureActions(Actions(_ =>
+        {
+            invoked++;
+            return Task.FromResult(true);
+        }));
+        router.UpdateConfiguration([], controllerManagementEnabled: false, ManagedControllerTarget.Xbox360);
+        router.OnEvent(Event(OemControlEdge.Pressed, "native", "armoury-crate"));
+        await router.Completion;
+        Assert.Equal(1, invoked);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task WrapperLeaseTranslatesFrontSteamButtonsToKeyboardWithoutAController(bool quickAccess)

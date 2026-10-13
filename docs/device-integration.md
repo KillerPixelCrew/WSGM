@@ -34,6 +34,10 @@ forwarding and UI capture. Steam Input leases keep capture and wrapped-game owne
 native device acquisition. Explicit OEM action assignments override defaults; Guide and Quick Access
 actions remain available through wrapper leases.
 
+The Xbox Ally Armoury Crate button declares the companion-application default and opens WSGM without
+a recorded keyboard shortcut. OEM release edges still reach the host during suspend, stop and fault
+cleanup, after admission of new presses closes.
+
 The virtual target's output and calibration previews share one physical haptic sink. Cleanup
 neutralizes forwarding and ends output before physical controller release and native stop.
 
