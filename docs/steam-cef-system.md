@@ -106,6 +106,12 @@ Steam's CEF exposes an unauthenticated, loopback-only debug port. The toolkit ve
 8080 is owned by Steam and that the debugger URL is loopback before connecting; the accepted
 security posture is in [steam-cef.md](steam-cef.md). WSGM adds a second guard of its own.
 
+Evaluations return synchronous values directly. Actual promises and their results stay in a
+per-evaluation CDP object group until completion, cancellation or timeout. The transport reads the
+retained promise state instead of attaching inspector reactions, which Steam's CEF can stop
+servicing while ordinary JavaScript still runs. Every exit releases the group; an unanswered result
+after dispatch never permits re-executing the expression.
+
 ### A cold-starting Steam must not be touched before its window exists
 
 **A running Steam process and a reachable `SharedJSContext` are not proof that a cold-start UI is
