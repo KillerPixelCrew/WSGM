@@ -38,7 +38,7 @@ Lifecycle requests do not block the UI; successful shutdown dispatch is not a cl
 completed. Wake-policy capture must succeed before any mutation. Restoration failures retain the
 saved snapshot.
 
-Disabling Device Integration releases plugin-only pages. Shared Power stays open, keeping the
+Disabling Device Integration releases handheld-only pages. Shared Power stays open, keeping the
 Windows power-profile picker reachable.
 
 The Core policy in `PowerSchemes` consumes Windows Device Control's `WindowsPower` API for installed
@@ -281,10 +281,10 @@ When an assignment is applied:
 
 When an assignment is saved:
 
-- Assignment saves reject changes to the application, plugin, device cycle, enabled state, power
-  source or performance configuration during the read. The coordinator checks the assignment scope
-  again under its transition gate before persistence.
-- Saved plugin and preset IDs are trimmed before validation.
+- Assignment saves reject changes to the application, native family, device cycle, enabled state,
+  power source or performance configuration during the read. The coordinator checks the assignment
+  scope again under its transition gate before persistence.
+- Saved family and preset IDs are trimmed before validation.
 
 Custom values:
 
@@ -707,11 +707,11 @@ when more than one candidate remains. The offered range is 13-87 percent, which 
 Graphics Software shows on this machine. Intel publishes the default and a 10 GB system-memory
 requirement but no formula for the bounds, so they are taken from the shipping control.
 
-The setting is a persistent user choice like the charge limit, not a resource the plugin borrows. It
-is not journalled and not restored on stop: putting it back would silently undo what the user asked
-for. It is the one Intel setting still written to the registry, because IGCL has no call for it, and
-the only one the Intel package publishes as global-only with a restart timing. Only the write is
-verified; the split itself is not.
+The setting is a persistent user choice like the charge limit, not a resource the driver runtime
+borrows. It is not journalled and not restored on stop: putting it back would silently undo what the
+user asked for. It is the one Intel setting still written to the registry, because IGCL has no call
+for it, and the only one the Intel driver publishes as global-only with a restart timing. Only the
+write is verified; the split itself is not.
 
 ## Source routes
 

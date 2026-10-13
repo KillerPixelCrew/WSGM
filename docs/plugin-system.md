@@ -159,7 +159,7 @@ access based on manifest declarations.
 Intel, NVIDIA and AMD are built-in driver integrations using
 [LibGPUDriverInteract](../external/libgpu-driver-interact/README.md). Their native sessions,
 discovery, support checks, journals and command outcomes belong to the library; WSGM owns profiles
-and both UI surfaces. `BuiltinGpuService` drives their lifetime and `GpuDriverAdapter` translates
+and both UI surfaces. `BuiltinGpuService` drives their lifetime and `GpuDriverPublisher` translates
 library records into the existing `GpuCoordinator` routers. Settings Integration and Steam
 Integration expose runtime enable/disable, preserving the existing saved instance choices,
 `gpu:wsgm.gpu.<vendor>` profile keys, pins and `PluginState/<id>/<instance hash>` journals.
@@ -513,18 +513,18 @@ separate from #52's carrier measurement and real-remote acceptance.
 
 ## Source routes
 
-| Boundary                                                    | Owning source                                                                                                                                                                         |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Public types and interface semantics                        | [Common SDK reference](../src/WSGM.Plugin.Sdk/docs/reference.md)                                                                                                                      |
-| Archive admission and version selection                     | [PluginPackageFile](../src/WSGM/Core/PluginPackageFile.cs), [PluginPackageCatalog](../src/WSGM/Core/PluginPackageCatalog.cs)                                                          |
-| Instance activation and dependency order                    | [CommonPluginManager](../src/WSGM/Shell/CommonPluginManager.cs), [CommonPluginDependencyPlan](../src/WSGM/Shell/CommonPluginDependencyPlan.cs)                                        |
-| Collectible loading and shared assembly identity            | [PluginLoader](../src/WSGM/Shell/PluginLoader.cs)                                                                                                                                     |
-| Lifecycle serialization, generations and retained ownership | [PluginHost / PluginRegistration](../src/WSGM/Shell/PluginHost.cs)                                                                                                                    |
-| Desired configuration and effective state                   | [CommonPluginSettings](../src/WSGM/Shell/CommonPluginSettings.cs) and the registration's publication handlers                                                                         |
-| Named actions and session sequences                         | [CommonPluginActions](../src/WSGM/Shell/CommonPluginActions.cs), [PluginActionSequence](../src/WSGM/Shell/PluginActionSequence.cs)                                                    |
-| Overlay and Steam projections                               | [CommonPluginOverlaySource](../src/WSGM/Shell/CommonPluginOverlaySource.cs), [CommonPluginSteamUiSource](../src/WSGM/Shell/CommonPluginSteamUiSource.cs)                              |
-| GPU capability admission and profile routing                | [PluginCapabilityChannel](../src/WSGM/Shell/PluginCapabilityChannel.cs), [GpuCoordinator](../src/WSGM/Shell/GpuCoordinator.cs)                                                        |
-| Built-in vendor driver library                              | [LibGPUDriverInteract](../external/libgpu-driver-interact/README.md), [public API](../external/libgpu-driver-interact/API.md), [WSGM adapter](../src/WSGM/Shell/BuiltinGpuDrivers.cs) |
+| Boundary                                                    | Owning source                                                                                                                                                                          |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Public types and interface semantics                        | [Common SDK reference](../src/WSGM.Plugin.Sdk/docs/reference.md)                                                                                                                       |
+| Archive admission and version selection                     | [PluginPackageFile](../src/WSGM/Core/PluginPackageFile.cs), [PluginPackageCatalog](../src/WSGM/Core/PluginPackageCatalog.cs)                                                           |
+| Instance activation and dependency order                    | [CommonPluginManager](../src/WSGM/Shell/CommonPluginManager.cs), [CommonPluginDependencyPlan](../src/WSGM/Shell/CommonPluginDependencyPlan.cs)                                         |
+| Collectible loading and shared assembly identity            | [PluginLoader](../src/WSGM/Shell/PluginLoader.cs)                                                                                                                                      |
+| Lifecycle serialization, generations and retained ownership | [PluginHost / PluginRegistration](../src/WSGM/Shell/PluginHost.cs)                                                                                                                     |
+| Desired configuration and effective state                   | [CommonPluginSettings](../src/WSGM/Shell/CommonPluginSettings.cs) and the registration's publication handlers                                                                          |
+| Named actions and session sequences                         | [CommonPluginActions](../src/WSGM/Shell/CommonPluginActions.cs), [PluginActionSequence](../src/WSGM/Shell/PluginActionSequence.cs)                                                     |
+| Overlay and Steam projections                               | [CommonPluginOverlaySource](../src/WSGM/Shell/CommonPluginOverlaySource.cs), [CommonPluginSteamUiSource](../src/WSGM/Shell/CommonPluginSteamUiSource.cs)                               |
+| GPU capability admission and profile routing                | [PluginCapabilityChannel](../src/WSGM/Shell/PluginCapabilityChannel.cs), [GpuCoordinator](../src/WSGM/Shell/GpuCoordinator.cs)                                                         |
+| Built-in vendor driver library                              | [LibGPUDriverInteract](../external/libgpu-driver-interact/README.md), [public API](../external/libgpu-driver-interact/API.md), [WSGM adapter](../src/WSGM/Shell/GpuDriverPublisher.cs) |
 
 The common host serializes an instance's lifecycle/actions. Capability channels delegate hardware
 serialization to each GPU runtime; the AMD/NVIDIA shared runtime and Intel runtime keep their own

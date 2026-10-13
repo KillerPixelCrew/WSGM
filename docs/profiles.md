@@ -24,17 +24,17 @@ Global wattage. A game that sets only its button colour keeps the Global ring co
 
 `ProfileLayers` in `Core\Profiles\ProfileResolver.cs` is the resolver, and every consumer uses it.
 
-| Setting                               | Consumer                                                                    |
-| ------------------------------------- | --------------------------------------------------------------------------- |
-| `FrameLimit`, `OverlayLevel`          | `PerformanceService` (RTSS)                                                 |
-| manual power values                   | `ApplicationPerformanceReconciler`, the coordinator's power pair            |
-| `VariableRefreshRate`                 | `ApplicationPerformanceReconciler`, on whichever package publishes VRR      |
-| `CpuBoost`                            | `ApplicationPerformanceReconciler` (Windows processor boost mode)           |
-| `AcPowerPreset`, `BatteryPowerPreset` | `DevicePowerAssignments`                                                    |
-| `FanCurveProfileId`                   | `DeviceCoordinator.ApplyAuthoredProfilesAsync`                              |
-| `ControllerTarget`                    | `ControllerTargetSelection` (default `SteamDeckComposite`)                  |
-| `Device[]` (capability, instance)     | `DeviceCapabilityRouter` desired state, keyed by the machine's identity key |
-| `Device[]` of a graphics package      | that package's router in `GpuCoordinator`, keyed `gpu:<plugin id>`          |
+| Setting                               | Consumer                                                                         |
+| ------------------------------------- | -------------------------------------------------------------------------------- |
+| `FrameLimit`, `OverlayLevel`          | `PerformanceService` (RTSS)                                                      |
+| manual power values                   | `ApplicationPerformanceReconciler`, the coordinator's power pair                 |
+| `VariableRefreshRate`                 | `ApplicationPerformanceReconciler`, on whichever graphics publisher supplies VRR |
+| `CpuBoost`                            | `ApplicationPerformanceReconciler` (Windows processor boost mode)                |
+| `AcPowerPreset`, `BatteryPowerPreset` | `DevicePowerAssignments`                                                         |
+| `FanCurveProfileId`                   | `DeviceCoordinator.ApplyAuthoredProfilesAsync`                                   |
+| `ControllerTarget`                    | `ControllerTargetSelection` (default `SteamDeckComposite`)                       |
+| `Device[]` (capability, instance)     | `DeviceCapabilityRouter` desired state, keyed by the machine's identity key      |
+| `Device[]` of a graphics publisher    | that publisher's router in `GpuCoordinator`, keyed `gpu:<plugin id>`             |
 
 ## One running application, one profile
 
@@ -45,9 +45,9 @@ target all resolve from that snapshot, so they cannot disagree about which game 
 layer is in force.
 
 `ProfileFanOut` carries each change to the consumers in a fixed order: RTSS, then the device
-(desired values, fan profile, controller target), then the graphics packages (desired values and the
-per-application sync), then power and refresh. A different running application cancels the pass in
-progress; a value change waits behind it.
+(desired values, fan profile, controller target), then the graphics publishers (desired values and
+the per-application sync), then power and refresh. A different running application cancels the pass
+in progress; a value change waits behind it.
 
 ## Graphics publishers store their values beside the device's
 
@@ -79,7 +79,7 @@ so a page can say when a value takes effect.
 For `NativePerApplication` capabilities WSGM hands the publisher every enabled game's values through
 the publisher's application-profile synchronization path, and its backend stores them in the
 driver's own per-application profiles. The set is complete each time; a game that is off, has no
-known executable or has no value for such a capability is absent, and the plugin removes what it
+known executable or has no value for such a capability is absent, and the publisher removes what it
 wrote for it before. `ApplicationProfileSyncBuilder` builds the set. `GpuCoordinator` sends it after
 start and resume (when the new cycle's descriptors arrive), when the set changes, and when a game
 starts.
@@ -151,7 +151,7 @@ field for it. WSGM's overlay row for the same value does.
 
 Firmware can come back from sleep with its own defaults. Each time the device cycle becomes active,
 including after resume, every desired value is restored once, from whichever layer supplies it. The
-power preset waits for that pass instead of competing with it for the plugin's command lane.
+power preset waits for that pass instead of competing with it for the native runtime's command lane.
 
 Lighting is also restored from readiness publications, bounded by `DeviceLightingRestore`: at most
 three attempts per zone, value and cycle. A refused command wrote nothing and may be tried again. An

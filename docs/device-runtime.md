@@ -54,8 +54,8 @@ profiles and journals are not interpreted as a native hardware identity.
 ## Controls and profiles
 
 `HandheldUiProjection` adapts library descriptors and observations for WSGM's existing capability
-router. `HandheldAdapter` sends semantic operations to the native library; application policy and
-vendor byte protocols do not cross that boundary.
+router. `HandheldDeviceRuntime` sends semantic operations to the native library; application policy
+and vendor byte protocols do not cross that boundary.
 
 Descriptor bounds, choices, instances, profile scope and apply timing determine the controls offered
 by Overlay and Steam. They share one backend and current state. WSGM rejects stale host generations
@@ -101,7 +101,7 @@ labels still say `package`; they identify the native family, not a loaded plugin
 - [Handheld contributions](handheld-contributions.md): adding exact definitions, protocols and
   fixtures.
 - [Device integration](device-integration.md): product settings and integration boundaries.
-- `Shell/DeviceCoordinator`, `HandheldDeviceRuntime`, `HandheldUiProjection` and `HandheldAdapter`:
-  application ownership and adaptation.
+- `Shell/DeviceCoordinator`, `HandheldDeviceRuntime` and `HandheldUiProjection`: application
+  ownership and adaptation.
 
 Source coverage and regression fixtures do not establish physical validation of every model.

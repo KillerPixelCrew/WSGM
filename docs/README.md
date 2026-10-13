@@ -89,14 +89,15 @@ Intel, NVIDIA and AMD driver engines are provided by the directly linked
 profiles, integration switches and UI through its graphics adapter and coordinator.
 
 Handheld hardware comes from [LibHandheld](../external/libhandheld/README.md), through
-`HandheldAdapter` and `HandheldDeviceRuntime`. WSGM retains profiles, AutoTDP, controller ownership,
-HidHide, virtual input and OEM action policy. The separate Device SDK assembly and installed device
-packages have been removed. The common Plugin SDK remains for IR and independent extensions.
+`HandheldDeviceRuntime` and `HandheldUiProjection`. WSGM retains profiles, AutoTDP, controller
+ownership, HidHide, virtual input and OEM action policy. The separate Device SDK assembly and
+installed device packages have been removed. The common Plugin SDK remains for IR and independent
+extensions.
 
 | Read                                                   | When you want to understand                                                                                |
 | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
 | [plugin-system.md](plugin-system.md)                   | common plugin contracts, widgets, Steam placements, session automation and the Game Mode entry transaction |
-| [device-integration.md](device-integration.md)         | historical device findings, controller management, authored profiles and HidHide                           |
+| [device-integration.md](device-integration.md)         | native integration, controller management, driver setup and HidHide                                        |
 | [device-runtime.md](device-runtime.md)                 | direct native lifecycle, controller ownership, semantic operations and application boundaries              |
 | [handheld-contributions.md](handheld-contributions.md) | contributing native device implementations and fixtures to LibHandheld                                     |
 | [LibHandheld API](../external/libhandheld/API.md)      | the independent typed device API and native lifetime                                                       |
