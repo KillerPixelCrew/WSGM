@@ -1,5 +1,41 @@
 # WSGM changelog
 
+## 2.3.2 (2026-10-14)
+
+This test build addresses Steam's Quick Access integration disappearing after sleep and wake.
+
+## Before you upgrade
+
+- **Run the offline setup over your existing installation.** It keeps your settings and installation
+  choices. Steam closes during the update, that is normal.
+- **Only the offline installer is published.**
+
+## Fixed
+
+- **Steam's Performance and Quick Settings panels going empty after wake.** CEF recovery holds the
+  integration while Steam restarts and restores that hold after every outcome. Recovery warnings
+  reach the UI without stopping the transport worker.
+- **Steam refusing to close during restart or setup.** WSGM and setup enforce a bounded shutdown
+  before continuing, including Steam's process trees when the graceful request is ignored.
+- **G-SYNC preferences affecting the wrong display.** Adaptive-sync controls and saved choices are
+  tied to the physical monitor.
+
+## Known issues
+
+- **The Emulator Manager and ROM Importer are still WIP.**
+- **The Game Library and packaged-game overlay routes remain experimental.** Anti-cheat
+  compatibility of the overlay route is unverified.
+
+Feel free to report any issue found.
+
+## Support
+
+If WSGM is useful to you, you can support its development on Ko-fi.
+
+[![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/nightstorm1000)
+
+[Full changelog since 2.3.1](https://github.com/KillerPixelCrew/WSGM/compare/2.3.1...2.3.2)
+
 ## 2.3.1 (2026-10-13)
 
 This fixes OEM button handling broken by the move from device plugins to LibHandheld in 2.3.0.
