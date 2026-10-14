@@ -40,10 +40,12 @@ trust and no INF date stamping, so the reproducibility gate that blocked HIDMaes
 WSGM still installs it only through the installer, as an explicit user-approved elevated step,
 because INV-020 forbids the runtime from installing a driver whatever its provenance.
 
-HIDMaestro 1.7.0's profile named only two of the four rear controls and its managed state had no
-capacitive stick-touch fields, and its generated driver package was locally signed and stamped from
-the build date. Those are the concrete reasons it is not kept as a second backend or source
-checkout. Git history has the full comparison.
+When WSGM switched, HIDMaestro 1.7.0's profile named only two of the four rear controls and its
+managed state had no capacitive stick-touch fields. HIDMaestro v1.12.0 (2026-10-14) closed that gap:
+`steam-deck-composite` now maps all four rear controls and stick touch to the bits above (issue
+#224). Its generated driver package is still locally signed and stamped from the build date, and
+that alone keeps it out as a second backend or source checkout. Git history has the full
+comparison.
 
 ### The one real cost, and where it comes from
 
