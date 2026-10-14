@@ -305,6 +305,12 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     public event Action<CanonicalControllerSample>? PhysicalSampleReceived;
 
     /// <inheritdoc />
+    public event Action<GlyphControlId, bool>? PhysicalOemControlReceived;
+
+    /// <inheritdoc />
+    public event Action? PhysicalInputReset;
+
+    /// <inheritdoc />
     public IDisposable ObservePhysicalSamples()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -313,6 +319,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             if (_sampleObservers++ == 0)
             {
                 _coordinator.Controllers.PhysicalSampleObserved += OnPhysicalSample;
+                _coordinator.PhysicalOemEventReceived += OnPhysicalOemEvent;
+                _coordinator.Controllers.StatusChanged += OnPhysicalControllerStatus;
             }
         }
 
@@ -346,6 +354,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             if (_sampleObservers > 0)
             {
                 _coordinator.Controllers.PhysicalSampleObserved -= OnPhysicalSample;
+                _coordinator.PhysicalOemEventReceived -= OnPhysicalOemEvent;
+                _coordinator.Controllers.StatusChanged -= OnPhysicalControllerStatus;
                 _sampleObservers = 0;
             }
         }
@@ -353,6 +363,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         // The plans subscribed to the catalog's change event, so it has to be released here or it
         // keeps this bridge's geometry cache alive for the rest of the session.
         _glyphs.Dispose();
+        PhysicalInputReset?.Invoke();
     }
 
     private async Task InvokeGpuAsync(string pluginId, DeviceOverlayCapability capability,
@@ -733,12 +744,33 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             }
 
             _coordinator.Controllers.PhysicalSampleObserved -= OnPhysicalSample;
+            _coordinator.PhysicalOemEventReceived -= OnPhysicalOemEvent;
+            _coordinator.Controllers.StatusChanged -= OnPhysicalControllerStatus;
         }
+
+        PhysicalInputReset?.Invoke();
     }
 
     private void OnPhysicalSample(CanonicalControllerSample sample)
     {
         PhysicalSampleReceived?.Invoke(sample);
+    }
+
+    private void OnPhysicalOemEvent(LibHandheld.Contracts.OemControlEvent input)
+    {
+        if (PhysicalGlyphPlans.TryGetOemControl(_coordinator.PhysicalGlyphSelectionSnapshot(), input.ControlId,
+                out var control))
+        {
+            PhysicalOemControlReceived?.Invoke(control, input.Edge is LibHandheld.Contracts.OemControlEdge.Pressed);
+        }
+    }
+
+    private void OnPhysicalControllerStatus(ControllerManagerStatus status)
+    {
+        if (status.State is not ControllerManagementState.Active)
+        {
+            PhysicalInputReset?.Invoke();
+        }
     }
 
     /// <summary>The next target in the cycle order.</summary>
@@ -778,6 +810,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 
     private void OnStateChanged(DeviceCycleState _)
     {
+        PhysicalInputReset?.Invoke();
         Changed?.Invoke();
     }
 
@@ -788,6 +821,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 
     private void OnConfigurationChanged()
     {
+        PhysicalInputReset?.Invoke();
         Changed?.Invoke();
     }
 
@@ -814,6 +848,16 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         var displayed = projection.PendingValue
                         ?? state.ObservedValue
                         ?? projection.DesiredValue;
+        if (descriptor is { ValueKind: CapabilityValueKind.Curve, SupportsWrite: true }
+            && descriptor.CurveInputs.Count > 0
+            && displayed?.CurveValue is not { Count: > 0 })
+        {
+            // An editor draft is not an observed firmware setting. Use the existing WSGM preset until Apply.
+            displayed = CapabilityValue.Curve(descriptor.CurveInputs
+                .Select(input => new CurvePoint(input, Math.Clamp(
+                    FanCurvePresets.DutyAt(FanCurvePreset.Default, input),
+                    descriptor.Minimum ?? 0, descriptor.Maximum ?? 100))).ToArray());
+        }
         var actionOnlyReady = state is { Available: true, Reason: null, Quality: HardwareStateQuality.Unknown }
                               && descriptor is { SupportsAction: true, SupportsRead: false };
         var current = DeviceCapabilityRouter.CanCommand(state);
@@ -871,6 +915,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             Step = descriptor.Step,
             Unit = descriptor.Unit,
             Choices = descriptor.Choices,
+            CurveInputs = descriptor.CurveInputs,
             MaximumLength = descriptor.MaximumLength
         };
     }

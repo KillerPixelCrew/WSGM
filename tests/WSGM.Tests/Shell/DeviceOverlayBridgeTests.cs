@@ -11,6 +11,64 @@ namespace WSGM.Tests.Shell;
 public sealed class DeviceOverlayBridgeTests
 {
     [Theory]
+    [InlineData("firmware", false)]
+    [InlineData("cpu", true)]
+    [InlineData("xg", false)]
+    public void UnknownNativeCurvesUseDeclaredEditorInputsWithoutInventingAnObservation(string instance,
+        bool supportsRead)
+    {
+        CapabilityDescriptor descriptor = new()
+        {
+            CapabilityId = CapabilityIds.FanCurve, InstanceId = instance, Role = CapabilityRole.FanCurve,
+            ValueKind = CapabilityValueKind.Curve, Display = new CapabilityDisplay { Key = DisplayKey.FanCurve },
+            SupportsRead = supportsRead, SupportsWrite = true, Minimum = 0, Maximum = 100,
+            CurveInputs = [58, 61, 64, 68, 72, 77, 81, 98], Persistence = CapabilityPersistence.Volatile
+        };
+        CapabilityState state = new()
+        {
+            CapabilityId = descriptor.CapabilityId, InstanceId = instance, Available = true,
+            Quality = HardwareStateQuality.Unknown
+        };
+        var capability = new DeviceCapabilityView(descriptor, new CapabilityProjection { State = state }, null);
+        var row = DeviceOverlayBridge.ToOverlayCapability(capability, new HashSet<string>());
+        Assert.True(row.CanInvoke);
+        Assert.Equal(instance, row.InstanceId);
+        Assert.Equal(descriptor.CurveInputs, row.CurrentValue!.CurveValue.Select(point => point.Input));
+        Assert.True(CapabilityValueValidation.ValueMatches(row.CurrentValue, descriptor, out _));
+        Assert.Null(capability.Projection.State.ObservedValue);
+        Assert.Null(capability.Projection.DesiredValue);
+        var steam = DeviceCoordinatorNativeQamDeviceControlsService.Project([capability]);
+        var steamRow = Assert.Single(Assert.Single(steam.Sections!).Rows);
+        Assert.False(steamRow.Disabled);
+        Assert.Equal(descriptor.CurveInputs, steamRow.Curve!.Select(point => point.Input));
+
+        var observed = CapabilityValue.Curve([new CurvePoint(40, 30), new CurvePoint(80, 90)]);
+        var known = DeviceOverlayBridge.ToOverlayCapability(capability with
+        {
+            Projection = capability.Projection with { State = state with { ObservedValue = observed } }
+        }, new HashSet<string>());
+        Assert.Same(observed, known.CurrentValue);
+    }
+
+    [Fact]
+    public void NativeCurveEditorInputsAreCopiedIntoTheHostDescriptor()
+    {
+        int[] inputs = [0, 20, 40, 60, 80, 100];
+        LibHandheld.Contracts.CapabilityDescriptor native = new()
+        {
+            CapabilityId = CapabilityIds.FanCurve, Role = LibHandheld.Contracts.CapabilityRole.FanCurve,
+            ValueKind = LibHandheld.Contracts.CapabilityValueKind.Curve,
+            Display = new LibHandheld.Contracts.CapabilityDisplay { Key = LibHandheld.Contracts.DisplayKey.FanCurve },
+            SupportsWrite = true, CurveInputs = inputs,
+            Persistence = LibHandheld.Contracts.CapabilityPersistence.Volatile
+        };
+        inputs[0] = 50;
+        var descriptor = Assert.Single(HandheldUiProjection.Descriptors(
+            new LibHandheld.Contracts.CapabilityDescriptorSet { Descriptors = [native] }).Descriptors);
+        Assert.Equal([0, 20, 40, 60, 80, 100], descriptor.CurveInputs);
+    }
+
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public void ObservedFanCurveCanBeEditedWithoutACyclingNextValue(bool available)

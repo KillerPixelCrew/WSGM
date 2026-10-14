@@ -28,6 +28,13 @@ function Assert-NoLinks([string]$Directory) {
     }
 }
 
+Require-File "setup-distribution.json"
+$distribution = Get-Content -LiteralPath (Join-Path $outputFull "setup-distribution.json") -Raw | ConvertFrom-Json
+if ($distribution.schemaVersion -ne 1 -or $distribution.prerequisites -cnotin @("bundled", "download")) {
+    throw "Unsupported setup distribution marker."
+}
+$bundled = $distribution.prerequisites -ceq "bundled"
+
 Require-File "App\WSGM.exe"
 Require-File "App\WSGM.ShellAnchor.exe"
 Require-File "App\WSGM.Launch.exe"
@@ -40,17 +47,67 @@ Require-File "App\Microsoft.Data.Sqlite-MIT.txt"
 Require-File "App\SQLitePCLRaw-Apache-2.0.txt"
 Require-File "App\DotNetRuntime-LICENSE.txt"
 Require-File "App\DotNetRuntime-THIRD-PARTY-NOTICES.txt"
-Require-File "MediaRuntime\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
+foreach ($family in @("Ayaneo", "Generic", "Gpd", "LegionGo", "MsiClaw", "OneXPlayer", "RogAlly", "SteamDeck", "Zotac")) {
+    Require-File "App\LibHandheld-$family-THIRD_PARTY_NOTICES.md"
+}
 Require-File "Controller\libviiper.dll"
+Require-File "Controller\libviiper.h"
+Require-File "Controller\VIIPER-LICENSE.txt"
+Require-File "Controller\VIIPER-NOTICE.md"
 Require-File "Controller\Install-UsbipDriver.ps1"
+Require-File "Controller\usbip-win2-BSD-2-Clause.txt"
+Require-File "Controller\HidHide-MIT.txt"
 $controllerAssets = @((Get-Content -LiteralPath (Join-Path $root "external\controller\controller-components.lock.json") -Raw |
     ConvertFrom-Json).components.asset)
-foreach ($asset in $controllerAssets) { Require-File "Controller\$asset" }
 Require-File "bundle.json"
 
-foreach ($directory in @("App", "Controller", "Packages", "MediaRuntime")) {
-    Assert-NoLinks (Join-Path $outputFull $directory)
+$runtimeLock = Get-Content -LiteralPath (Join-Path $root "eng\rtss-runtime.lock.json") -Raw | ConvertFrom-Json
+if ($runtimeLock.asset -cne "rtss.zip" -or $runtimeLock.sha256 -notmatch '^[0-9a-fA-F]{64}$' -or
+    [IO.Path]::GetFileName([string]$runtimeLock.setupEntry) -cne $runtimeLock.setupEntry) {
+    throw "RTSS runtime pin must name rtss.zip, a SHA-256 digest and a root installer entry."
 }
+if ($bundled) {
+    Require-File "MediaRuntime\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
+    foreach ($asset in $controllerAssets) { Require-File "Controller\$asset" }
+    Require-File "PerformanceRuntime\rtss.zip"
+    $rtssArchive = Join-Path $outputFull "PerformanceRuntime\rtss.zip"
+    if ((Get-FileHash -LiteralPath $rtssArchive -Algorithm SHA256).Hash -ine $runtimeLock.sha256) {
+        throw "Staged RTSS archive does not match its reviewed SHA-256."
+    }
+    $archive = [IO.Compression.ZipFile]::OpenRead($rtssArchive)
+    try {
+        $entries = @($archive.Entries | Where-Object { $_.FullName -ceq $runtimeLock.setupEntry })
+        if ($entries.Count -ne 1 -or $entries[0].Length -eq 0) {
+            throw "Staged RTSS archive must contain exactly one nonempty $($runtimeLock.setupEntry)."
+        }
+    }
+    finally {
+        $archive.Dispose()
+    }
+}
+else {
+    foreach ($path in (@("MediaRuntime", "PerformanceRuntime") + @($controllerAssets | ForEach-Object { "Controller\$_" }))) {
+        if (Test-Path -LiteralPath (Join-Path $outputFull $path)) {
+            throw "Online setup must download its prerequisites instead of bundling $path."
+        }
+    }
+    # These pins are embedded in Setup, rather than installed with WSGM. Confirm every exact
+    # input and resource name used by the download path before assembling either executable.
+    [xml]$setupProject = Get-Content -LiteralPath (Join-Path $root "src\WSGM.Setup\WSGM.Setup.csproj") -Raw
+    $requiredPins = @{
+        "WSGM.ControllerComponentsPin" = "..\..\external\controller\controller-components.lock.json"
+        "WSGM.WebView2RuntimePin" = "..\..\eng\webview2-runtime.lock.json"
+        "WSGM.RtssRuntimePin" = "..\..\eng\rtss-runtime.lock.json"
+    }
+    foreach ($name in $requiredPins.Keys) {
+        $resources = @($setupProject.SelectNodes("//EmbeddedResource") | Where-Object { $_.GetAttribute("LogicalName") -ceq $name })
+        if ($resources.Count -ne 1 -or $resources[0].GetAttribute("Include") -cne $requiredPins[$name] -or
+            -not (Test-Path -LiteralPath (Join-Path "$root\src\WSGM.Setup" $requiredPins[$name]) -PathType Leaf)) {
+            throw "Online setup requires its pinned download resource: $name."
+        }
+    }
+}
+Assert-NoLinks $outputFull
 
 $packagesDirectory = Join-Path $outputFull "Packages"
 if (@(Get-ChildItem -LiteralPath $packagesDirectory -Directory).Count -ne 0) {
@@ -120,9 +177,15 @@ function Assert-NoDeveloperMaterial([IO.FileInfo]$File, [string]$Label) {
 
 # The setup payload ships everything in App and Controller; build.ps1 fills them from an explicit
 # allowlist, so nothing else should be there.
-foreach ($directory in @("App", "Controller", "MediaRuntime")) {
+foreach ($directory in @("App", "Controller", "MediaRuntime", "PerformanceRuntime")) {
+    if (-not (Test-Path -LiteralPath (Join-Path $outputFull $directory) -PathType Container)) {
+        continue
+    }
     foreach ($file in @(Get-ChildItem -LiteralPath (Join-Path $outputFull $directory) -File -Recurse)) {
-        if ($file.Extension -ne ".ps1") {
+        $relative = [IO.Path]::GetRelativePath($outputFull, $file.FullName).Replace("\", "/")
+        # Only the exact archive already checked above may bypass the source ZIP prohibition.
+        $pinnedRtss = $bundled -and $relative -ceq "PerformanceRuntime/rtss.zip"
+        if ($file.Extension -ne ".ps1" -and -not $pinnedRtss) {
             Assert-NoDeveloperMaterial $file "$directory payload"
         }
         Assert-NoLeaks $file "$directory payload"

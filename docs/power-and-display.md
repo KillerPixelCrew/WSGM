@@ -38,7 +38,7 @@ Lifecycle requests do not block the UI; successful shutdown dispatch is not a cl
 completed. Wake-policy capture must succeed before any mutation. Restoration failures retain the
 saved snapshot.
 
-Disabling Device Integration releases plugin-only pages. Shared Power stays open, keeping the
+Disabling Device Integration releases handheld-only pages. Shared Power stays open, keeping the
 Windows power-profile picker reachable.
 
 The Core policy in `PowerSchemes` consumes Windows Device Control's `WindowsPower` API for installed
@@ -188,15 +188,15 @@ set by WSGM".
 The value is a `ProfileValues.CpuBoost` layer like the frame limit: a game profile that sets it wins
 while that game runs, Global applies otherwise, and an unset layer leaves Windows alone.
 `ApplicationPerformanceReconciler` carries it on every running-application change, with or without a
-device plugin, and restores the mode it found before its first write once no layer prefers one. The
-overlay's Performance section (Device > Power, present with RTSS and device integration off) and
-Steam's Performance tab (`steam-ui.cpu-boost`) show and set the same value through that one carrier;
-both mark a game override and offer the way back to Global.
+native handheld integration, and restores the mode it found before its first write once no layer
+prefers one. The overlay's Performance section (Device > Power, present with RTSS and device
+integration off) and Steam's Performance tab (`steam-ui.cpu-boost`) show and set the same value
+through that one carrier; both mark a game override and offer the way back to Global.
 
 ## Device power presets
 
-Steam QAM → Performance offers AC and battery profile assignments when the plugin declares presets.
-The Claw A2VM supplies:
+Steam QAM → Performance offers AC and battery profile assignments when the native definition
+declares presets. The Claw A2VM supplies:
 
 | Preset              | PL1 / PL2 | Windows power mode | EC scenario on AC | EC scenario on battery |
 | ------------------- | --------- | ------------------ | ----------------- | ---------------------- |
@@ -205,29 +205,30 @@ The Claw A2VM supplies:
 | Extreme Performance | 30 / 31 W | Best Performance   | Sport             | Comfort                |
 | Full Power          | 37 / 37 W | Best Performance   | Sport             | Comfort                |
 
-Full Power uses the Claw plugin's supported maximum of 37 W for both limits. The other three presets
-are the A2VM values from the local `_ref/HandheldCompanion` source. `ClawA2VM` overrides the watt
-pairs and inherits `ClawA1M.PowerProfileManager_Applied` for the scenario selection. HC's battery
-`ShiftType.None` becomes active Comfort (`0xC0`). WSGM uses the same mapping through optional
-plugin-authored AC/battery scenario targets; the host contains no MSI register knowledge. A Windows
-mode is the performance/efficiency overlay on a power plan, separate from the scheme selector above.
-CPU boost, Intel Endurance Gaming and fan controls remain independent. The exact firmware effects of
-each EC scenario still require attended AC/battery measurements.
+Full Power uses the Claw native definition's supported maximum of 37 W for both limits. The other
+three presets are the A2VM values from the local `_ref/HandheldCompanion` source. `ClawA2VM`
+overrides the watt pairs and inherits `ClawA1M.PowerProfileManager_Applied` for the scenario
+selection. HC's battery `ShiftType.None` becomes active Comfort (`0xC0`). WSGM uses the same mapping
+through optional definition-authored AC/battery scenario targets; the host contains no MSI register
+knowledge. A Windows mode is the performance/efficiency overlay on a power plan, separate from the
+scheme selector above. CPU boost, Intel Endurance Gaming and fan controls remain independent. The
+exact firmware effects of each EC scenario still require attended AC/battery measurements.
 
 Applying a preset:
 
 - Changing the assignment for the active power source applies it immediately, serialized with manual
   power, scenario and AutoTDP writes.
-- The order is the firmware scenario first, then a read of the resulting watt pair, then PL2 before
-  PL1 when raising and PL1 before PL2 when lowering, then the Windows mode, read back last.
+- The order is the firmware scenario first, then power limits ordered from current published control
+  state, including independent fast PPT when declared, then the Windows mode. Native writes do not
+  wait for readback.
 - Each device write must be applied, verified or not, before the next step; a rejected or uncertain
   write stops the preset. Device and descriptor generations and the power source are checked between
   steps; an unknown power source blocks scenario presets, and a source change stops the remaining
   writes without retry.
 - The manual TDP funnel pauses AutoTDP and records the underlying values through their existing
   owners. Preset scenario commands are not persisted as desired values.
-- The plugin journals the exact original scenario and watt pair and restores the scenario first,
-  then the pair, when releasing its temporary state.
+- The native library journals the exact original scenario and watt pair and restores the scenario
+  first, then the pair, when releasing its temporary state.
 
 Reading the current preset:
 
@@ -244,11 +245,11 @@ Reading the current preset:
 - Disabling Device Integration removes the preset choices and leaves the Windows scheme picker.
 
 A failure can leave some underlying values changed. WSGM reports that partial result, stops, and
-does not retry or roll back across Windows and device controls. Device packages retain their own
-temporary-state restoration policy; the first-party packages do not immediately roll back an
-uncertain power command. Preview surfaces cannot apply presets, and closing the overlay cancels
-remaining work and prevents late UI updates. Validation uses fake device/Windows backends and
-emitted dropdown fixtures; it does not change live power settings or a running Steam client.
+does not retry or roll back across Windows and device controls. Native services retain their own
+temporary-state restoration policy and do not immediately roll back an uncertain power command.
+Preview surfaces cannot apply presets, and closing the overlay cancels remaining work and prevents
+late UI updates. Validation uses fake device/Windows backends and emitted dropdown fixtures; it does
+not change live power settings or a running Steam client.
 
 ## AC and battery assignments
 
@@ -257,8 +258,8 @@ assignments and a read-only active-profile status. There is no separate active-p
 Background reads do not block assignment selection or overwrite an open dropdown. Global assignments
 are the defaults; with the per-game profile on, an assignment made for the running game overrides
 Global for that source only, and an unset one inherits Global ([profiles](profiles.md)). References
-include the plugin ID so changing device packages cannot silently apply another package's similarly
-named preset.
+include the native family identity so changing definitions cannot silently apply another family's
+similarly named preset.
 
 When an assignment is applied:
 
@@ -280,10 +281,10 @@ When an assignment is applied:
 
 When an assignment is saved:
 
-- Assignment saves reject changes to the application, plugin, device cycle, enabled state, power
-  source or performance configuration during the read. The coordinator checks the assignment scope
-  again under its transition gate before persistence.
-- Saved plugin and preset IDs are trimmed before validation.
+- Assignment saves reject changes to the application, native family, device cycle, enabled state,
+  power source or performance configuration during the read. The coordinator checks the assignment
+  scope again under its transition gate before persistence.
+- Saved family and preset IDs are trimmed before validation.
 
 Custom values:
 
@@ -713,11 +714,11 @@ when more than one candidate remains. The offered range is 13-87 percent, which 
 Graphics Software shows on this machine. Intel publishes the default and a 10 GB system-memory
 requirement but no formula for the bounds, so they are taken from the shipping control.
 
-The setting is a persistent user choice like the charge limit, not a resource the plugin borrows. It
-is not journalled and not restored on stop: putting it back would silently undo what the user asked
-for. It is the one Intel setting still written to the registry, because IGCL has no call for it, and
-the only one the Intel package publishes as global-only with a restart timing. Only the write is
-verified; the split itself is not.
+The setting is a persistent user choice like the charge limit, not a resource the driver runtime
+borrows. It is not journalled and not restored on stop: putting it back would silently undo what the
+user asked for. It is the one Intel setting still written to the registry, because IGCL has no call
+for it, and the only one the Intel driver publishes as global-only with a restart timing. Only the
+write is verified; the split itself is not.
 
 ## Source routes
 

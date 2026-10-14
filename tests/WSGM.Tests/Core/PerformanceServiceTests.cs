@@ -6,6 +6,42 @@ namespace WSGM.Tests.Core;
 
 public sealed class PerformanceServiceTests
 {
+    [Theory]
+    [InlineData(0u, 1u, false)]
+    [InlineData(1u, 0u, false)]
+    [InlineData(1u, 1u, true)]
+    [InlineData(null, 1u, null)]
+    public void OverlayReadbackDetectsGlobalAndApplicationPresentationDrift(
+        uint? applicationEnabled, uint? globalEnabled, bool? expected)
+    {
+        Assert.Equal(expected, RtssNativeAdapter.ReadOverlayPresentation(3, "game.exe",
+            profile => profile.Length == 0 ? globalEnabled : applicationEnabled));
+    }
+
+    [Fact]
+    public void OverlayOffDoesNotReadOrChangeOtherApplicationsPresentation()
+    {
+        Assert.Null(RtssNativeAdapter.ReadOverlayPresentation(0, "game.exe",
+            _ => throw new InvalidOperationException("Off must only clear WSGM's slot.")));
+    }
+
+    [Fact]
+    public async Task DisablingIntegrationClearsTheOverlayAndEnablingRestoresItsPreference()
+    {
+        await using var adapter = new FakeRtssAdapter();
+        var profiles = Profiles(Config(overlayLevel: 1));
+        await using var service = Service(adapter, profiles);
+        await service.SetAsync(PerformanceControl.OverlayLevel, 1, "overlay", "enable");
+
+        await service.ApplyProfilesAsync(profiles.Current, enabled: false);
+
+        Assert.Equal(0, adapter.Values[string.Empty].OverlayLevel);
+        Assert.Equal(0, service.Current.Observed.OverlayLevel);
+        Assert.Equal(1, profiles.Current.Config.Global.OverlayLevel);
+        await service.ApplyProfilesAsync(profiles.Current, enabled: true);
+        Assert.Equal(1, adapter.Values[string.Empty].OverlayLevel);
+    }
+
     [Fact]
     public async Task PowerStatusIsForwardedUntilTheServiceIsDisposed()
     {
@@ -44,6 +80,28 @@ public sealed class PerformanceServiceTests
     public void OverlayOffDoesNotCloseAnyRtssPresentationGate()
     {
         Assert.Empty(RtssNativeAdapter.OverlayActivationProfiles(0, "game.exe"));
+    }
+
+    [Fact]
+    public async Task ClosedPresentationIsRepairedWithoutChangingTheSelectedLevel()
+    {
+        await using var adapter = new FakeRtssAdapter();
+        adapter.Values[string.Empty] = new PerformanceValues(null, 1);
+        adapter.OverlayPresentationEnabled = false;
+        await using var service = CreateService(adapter, Config(overlayLevel: 1));
+        var observedLevels = new List<int?>();
+        service.StateChanged += state => observedLevels.Add(state.Observed.OverlayLevel);
+
+        await service.RefreshAsync();
+
+        Assert.Contains(adapter.Applies,
+            request => request is { Control: PerformanceControl.OverlayLevel, Value: 1 });
+        Assert.DoesNotContain(0, observedLevels);
+        Assert.Equal(1, service.Current.Desired.OverlayLevel);
+        Assert.True(service.Current.OverlayPresentationEnabled);
+        var writes = adapter.Applies.Count;
+        await service.RefreshAsync();
+        Assert.Equal(writes, adapter.Applies.Count);
     }
 
     [Fact]
@@ -644,6 +702,7 @@ public sealed class PerformanceServiceTests
         public RtssOsdMetrics Sensors { get; } = RtssOsdMetrics.Empty;
 
         public RtssProbe Probe { get; set; } = ReadyProbe;
+        public bool? OverlayPresentationEnabled { get; set; }
 
         public Dictionary<string, PerformanceValues> Values { get; } = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -663,6 +722,14 @@ public sealed class PerformanceServiceTests
         public void ApplyOsdCustomization(RtssOsdCustomSettings settings)
         {
             // The fake has no renderer; the service only forwards.
+        }
+
+        public void ClearOverlay()
+        {
+            foreach (var name in Values.Keys.ToArray())
+            {
+                Values[name] = Values[name] with { OverlayLevel = 0 };
+            }
         }
 
         public void ApplyOsdPowerStatus(RtssOsdPowerStatus status)
@@ -698,7 +765,8 @@ public sealed class PerformanceServiceTests
             cancellationToken.ThrowIfCancellationRequested();
             Interlocked.Increment(ref ReadCount);
             Values.TryGetValue(rtssProfileName, out var values);
-            return Task.FromResult(new RtssReadback(values ?? PerformanceValues.Empty, DateTimeOffset.UtcNow));
+            return Task.FromResult(new RtssReadback(values ?? PerformanceValues.Empty, DateTimeOffset.UtcNow,
+                OverlayPresentationEnabled));
         }
 
         public Task<RtssApplyResult> ApplyAsync(
@@ -722,6 +790,10 @@ public sealed class PerformanceServiceTests
         public void Write(RtssApplyRequest request)
         {
             Applies.Add(request);
+            if (request.Control == PerformanceControl.OverlayLevel)
+            {
+                OverlayPresentationEnabled = request.Value > 0 ? true : null;
+            }
             Values.TryGetValue(request.RtssProfileName, out var current);
             Values[request.RtssProfileName] = (current ?? PerformanceValues.Empty).With(
                 request.Control,

@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 using WSGM.Interop;
 
 namespace WSGM.Launch;
@@ -10,6 +11,73 @@ internal static partial class Elevation
     private const int TokenElevation = 20;
     private const int TokenElevationType = 18;
     private const uint TokenElevationTypeFull = 2;
+    private const int TokenLinkedToken = 19;
+    private const uint PrimaryTokenAccess = 0x0001 | 0x0002 | TokenQuery;
+
+    /// <summary>Opens a verified limited primary token from this wrapper's own split token.</summary>
+    /// <param name="error">The Windows error when querying or duplicating the token fails.</param>
+    /// <returns>An owned limited token, or null when direct de-elevation is unavailable.</returns>
+    internal static SafeAccessTokenHandle? OpenLimitedPrimaryToken(out int error)
+    {
+        error = 0;
+        if (OpenProcessToken(GetCurrentProcess(), TokenQuery, out var current) == 0)
+        {
+            error = Marshal.GetLastPInvokeError();
+            return null;
+        }
+
+        try
+        {
+            if (GetTokenInformation(current, TokenElevationType, out var type, sizeof(uint), out _) == 0)
+            {
+                error = Marshal.GetLastPInvokeError();
+                return null;
+            }
+
+            if (type != TokenElevationTypeFull)
+            {
+                return null;
+            }
+
+            if (GetLinkedTokenInformation(current, TokenLinkedToken, out var linked, nint.Size, out _) == 0)
+            {
+                error = Marshal.GetLastPInvokeError();
+                return null;
+            }
+
+            try
+            {
+                if (GetTokenInformation(linked, TokenElevation, out var elevated, sizeof(uint), out _) == 0)
+                {
+                    error = Marshal.GetLastPInvokeError();
+                    return null;
+                }
+
+                if (elevated != 0)
+                {
+                    error = 5; // Refuse an elevated token rather than silently defeating --deelevate.
+                    return null;
+                }
+
+                if (!Win32Common.DuplicateTokenEx(linked, PrimaryTokenAccess, 0,
+                        impersonationLevel: 2, tokenType: 1, out var primary))
+                {
+                    error = Marshal.GetLastPInvokeError();
+                    return null;
+                }
+
+                return new SafeAccessTokenHandle(primary);
+            }
+            finally
+            {
+                Win32Common.CloseHandle(linked);
+            }
+        }
+        finally
+        {
+            Win32Common.CloseHandle(current);
+        }
+    }
 
     /// <summary>Checks the current process token's elevation flag.</summary>
     /// <returns>True when elevated, false when limited, or null if the token cannot be queried.</returns>
@@ -76,4 +144,9 @@ internal static partial class Elevation
         out uint tokenInformation,
         int tokenInformationLength,
         out int returnLength);
+
+    [LibraryImport("advapi32.dll", EntryPoint = "GetTokenInformation", SetLastError = true)]
+    private static partial int GetLinkedTokenInformation(
+        nint tokenHandle, int tokenInformationClass, out nint tokenInformation,
+        int tokenInformationLength, out int returnLength);
 }

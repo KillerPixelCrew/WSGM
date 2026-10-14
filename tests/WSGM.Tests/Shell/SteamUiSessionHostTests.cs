@@ -124,7 +124,7 @@ public sealed class SteamUiSessionHostTests : IDisposable
 
         Assert.Contains(
             "\"steam-ui.device-controls\":[\"setChargeLimit\","
-            + "\"setLightingBrightness\",\"setLightingColor\"]",
+            + "\"setLightingBrightness\",\"setLightingColor\",\"setControl\"]",
             transport.BridgeConfiguration,
             StringComparison.Ordinal);
     }

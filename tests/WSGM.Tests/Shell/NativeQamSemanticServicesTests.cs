@@ -167,6 +167,63 @@ public sealed partial class NativeQamSemanticServicesTests
     }
 
     [Fact]
+    public void DescriptorControlsKeepFanInstancesChoicesCurvesAndProfileOverrides()
+    {
+        var fan = IntegerDeviceView("vendor.fan", CapabilityRole.FanDuty, DisplayKey.FanSpeed,
+            15, 100, 40, 35);
+        fan = fan with
+        {
+            Descriptor = fan.Descriptor with { InstanceId = "right" },
+            Projection = fan.Projection with { DesiredSource = ProfileSource.Game, Progress = CommandProgress.Pending }
+        };
+        CapabilityDescriptor protection = new()
+        {
+            CapabilityId = "vendor.protection", Role = CapabilityRole.ChargeProtectionMode,
+            Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Charge protection" },
+            ValueKind = CapabilityValueKind.Choice, SupportsWrite = true, Persistence = CapabilityPersistence.Volatile,
+            Choices = [new CapabilityChoice("full", new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Full" }),
+                new CapabilityChoice("balanced", new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Balanced" })]
+        };
+        var curveDescriptor = fan.Descriptor with
+        {
+            CapabilityId = "vendor.curve", Role = CapabilityRole.FanCurve, ValueKind = CapabilityValueKind.Curve
+        };
+        var curve = CapabilityValue.Curve([new CurvePoint(40, 20), new CurvePoint(80, 90)]);
+        var state = DeviceCoordinatorNativeQamDeviceControlsService.Project([
+            fan, DeviceView(protection, CapabilityValue.Choice("balanced"), CapabilityValue.Choice("full")),
+            DeviceView(curveDescriptor, curve, curve)
+        ]);
+        var rows = Assert.Single(state.Sections!).Rows;
+        var fanRow = Assert.Single(rows, row => row.Kind == SteamSettingsRowKind.Range);
+        Assert.Contains("right", fanRow.Label, StringComparison.Ordinal);
+        Assert.Equal(15, fanRow.Minimum);
+        Assert.Equal(35, fanRow.Number);
+        Assert.True(fanRow.Disabled);
+        Assert.True(fanRow.Accent);
+        var choiceRow = Assert.Single(rows, row => row.Kind == SteamSettingsRowKind.Choice);
+        Assert.Equal("full", choiceRow.Text);
+        Assert.Equal(["full", "balanced"], choiceRow.Choices!.Select(choice => choice.Value));
+        var curveRow = Assert.Single(rows, row => row.Kind == SteamSettingsRowKind.Curve);
+        Assert.Equal([40, 80], curveRow.Curve!.Select(point => point.Input));
+        Assert.Equal(3, curveRow.CurvePresets!.Count);
+        Assert.All(curveRow.CurvePresets, preset => Assert.Equal([40, 80], preset.Points.Select(point => point.Input)));
+    }
+
+    [Theory]
+    [InlineData("41", true)]
+    [InlineData("101", false)]
+    [InlineData("\"41\"", false)]
+    [InlineData("null", false)]
+    public void DescriptorValueParsingUsesCurrentBoundsAndRejectsDifferentWireKinds(string payload, bool expected)
+    {
+        var descriptor = IntegerDeviceView("fan", CapabilityRole.FanDuty, DisplayKey.FanSpeed,
+            15, 100, 40, 35).Descriptor;
+        using var document = JsonDocument.Parse(payload);
+        Assert.Equal(expected, DeviceCoordinatorNativeQamDeviceControlsService.TryReadControlValue(
+            document.RootElement, descriptor, out _));
+    }
+
+    [Fact]
     public void AmbiguousLightingZoneIsDroppedWithoutHidingIndependentControls()
     {
         var state =

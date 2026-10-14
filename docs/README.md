@@ -7,8 +7,9 @@ the source and generated XML documentation remain the detailed API reference.
 
 Each doc opens with a short lead saying what it covers. Dated findings are evidence from one machine
 and one build: if you change behaviour one of them describes, check it again on the device before
-trusting the change. Product decisions live in [decisions.md](decisions.md); the implementation
-tracker is `_plan\implementation-todo.md`.
+trusting the change. Product decisions live in [decisions.md](decisions.md).
+
+Release changes are recorded in the [changelog](../CHANGELOG.md).
 
 ## Start with the code
 
@@ -26,13 +27,10 @@ Reusable libraries are pinned submodules, with their own source contracts and do
 [WindowsDeviceControl](../external/windows-device-control/README.md). WSGM's guides describe the
 product policy around those APIs; each library describes its own mechanics, outcomes and lifetimes.
 
-The device/GPU extraction is on `chore/device-integration-rework`. Its private repositories are
-[LibHandheld](../external/libhandheld/README.md) and
-[LibGPUDriverInteract](../external/libgpu-driver-interact/README.md); see the
-[rework plan](../_plan/device-integration-rework.md). LibGPUDriverInteract is directly linked into
-WSGM. LibHandheld is also directly linked, with the existing five Claw and four Ally definitions
-implemented. The complete HC/HHD inventory remains the support target; those nine definitions do not
-cover it yet.
+WSGM directly links [LibHandheld](../external/libhandheld/README.md) and
+[LibGPUDriverInteract](../external/libgpu-driver-interact/README.md). LibHandheld provides native
+integration for 112 exact device definitions and 106 glyph profiles. LibGPUDriverInteract owns
+Intel, AMD and NVIDIA driver mechanics. WSGM retains application policy and both UI surfaces.
 
 ## Implementation skills
 
@@ -41,7 +39,7 @@ placement, reuse, maintainability and frontend parity. It routes work to
 [Core](../.agents/skills/wsgm-core/SKILL.md),
 [Steam CEF implementation](../.agents/skills/wsgm-steam-cef-toolkit/SKILL.md),
 [Steam CEF debugging](../.agents/skills/wsgm-steam-cef-debugging/SKILL.md),
-[Device SDK](../.agents/skills/wsgm-device-sdk/SKILL.md) and
+[Handheld library](../.agents/skills/wsgm-device-sdk/SKILL.md) and
 [Device Lab](../.agents/skills/wsgm-device-lab/SKILL.md). The Steam guide includes the
 [reusable-elements catalog](../.agents/skills/wsgm-steam-cef-toolkit/references/reusable-elements.md)
 and
@@ -91,17 +89,18 @@ Intel, NVIDIA and AMD driver engines are provided by the directly linked
 profiles, integration switches and UI through its graphics adapter and coordinator.
 
 Handheld hardware comes from [LibHandheld](../external/libhandheld/README.md), through
-`HandheldAdapter` and `HandheldDeviceRuntime`. WSGM retains profiles, AutoTDP, controller ownership,
-HidHide, virtual input and OEM action policy. The separate Device SDK assembly and installed device
-packages have been removed. The common Plugin SDK remains for IR and independent extensions.
+`HandheldDeviceRuntime` and `HandheldUiProjection`. WSGM retains profiles, AutoTDP, controller
+ownership, HidHide, virtual input and OEM action policy. The separate Device SDK assembly and
+installed device packages have been removed. The common Plugin SDK remains for IR and independent
+extensions.
 
-| Read                                                     | When you want to understand                                                                                |
-| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| [plugin-system.md](plugin-system.md)                     | common plugin contracts, widgets, Steam placements, session automation and the Game Mode entry transaction |
-| [device-integration.md](device-integration.md)           | historical device findings, controller management, authored profiles and HidHide                           |
-| [device-plugin-system.md](device-plugin-system.md)       | historical package-era lifecycle and validation findings; current native API is in LibHandheld             |
-| [device-plugin-authoring.md](device-plugin-authoring.md) | contributing native device implementations and fixtures to LibHandheld                                     |
-| [LibHandheld API](../external/libhandheld/API.md)        | the independent typed device API and native lifetime                                                       |
+| Read                                                   | When you want to understand                                                                                |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| [plugin-system.md](plugin-system.md)                   | common plugin contracts, widgets, Steam placements, session automation and the Game Mode entry transaction |
+| [device-integration.md](device-integration.md)         | native integration, controller management, driver setup and HidHide                                        |
+| [device-runtime.md](device-runtime.md)                 | direct native lifecycle, controller ownership, semantic operations and application boundaries              |
+| [handheld-contributions.md](handheld-contributions.md) | contributing native device implementations and fixtures to LibHandheld                                     |
+| [LibHandheld API](../external/libhandheld/API.md)      | the independent typed device API and native lifetime                                                       |
 
 The [LibHandheld API](../external/libhandheld/API.md) and
 [Plugin SDK guide](../src/WSGM.Plugin.Sdk/README.md) document the public contracts beside their

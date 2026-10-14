@@ -13,6 +13,13 @@ namespace WSGM.Tests.Shell;
 
 public sealed class PhysicalGlyphPlansTests
 {
+    static PhysicalGlyphPlansTests()
+    {
+        // Geometry.Parse uses the platform renderer even without a window. Use the real CPU Skia
+        // implementation so these fixtures exercise authored paths rather than a mock geometry.
+        Avalonia.Skia.SkiaPlatform.Initialize();
+    }
+
     [Fact]
     public void Automatic_WithNoActiveDevice_ReportsTheMismatchRatherThanAProfile()
     {
@@ -263,6 +270,107 @@ public sealed class PhysicalGlyphPlansTests
             new GlyphTestPackageSource(manifest.ProfileId, files));
         Assert.True(result.IsValid, string.Join("; ", result.Errors));
         return Assert.Single(result.Profiles);
+    }
+
+    [Fact]
+    public void EveryEmbeddedDefinitionImportsAndItsActualControlOutlinesParse()
+    {
+        var assembly = typeof(LibHandheld.HandheldDevice).Assembly;
+        var resources = assembly.GetManifestResourceNames();
+        foreach (var definition in LibHandheld.HandheldDevice.Definitions)
+        {
+            var manifestResource = Assert.Single(resources, name =>
+                name.Contains(".glyphs.profiles.", StringComparison.Ordinal)
+                && name.EndsWith("." + definition.GlyphProfileId + ".json", StringComparison.Ordinal));
+            var imported = GlyphPackageImporter.Import(new EmbeddedProfileSource(manifestResource));
+            Assert.True(imported.IsValid, definition.Id + ": " + string.Join("; ", imported.Errors));
+            var profile = Assert.Single(imported.Profiles);
+            Assert.Contains(definition.Id, profile.Manifest.ExactDeviceIds);
+            using PhysicalGlyphCatalog catalog = new();
+            using PhysicalGlyphPlans plans = new(catalog);
+            var selected = new PhysicalGlyphSelectionResult(profile, PhysicalGlyphFallbackReason.None, false);
+            foreach (var mapping in profile.Manifest.Controls.Where(mapping =>
+                         mapping.Presence is GlyphControlPresence.Present && mapping.AssetId is not null))
+            {
+                var plan = plans.Resolve(selected, mapping.Control, PhysicalGlyphSurface.DeviceDescription, true);
+                Assert.True(plan.UsesDeviceArtwork,
+                    $"{definition.Id}/{mapping.Control}: {plan.FallbackReason}");
+                if (profile.Assets[mapping.AssetId!].Vector is not null)
+                {
+                    Assert.NotEmpty(plan.Paths);
+                }
+
+                if (mapping.OemControlId is { } nativeId)
+                {
+                    Assert.Same(plan, plans.ResolveOem(selected, nativeId,
+                        PhysicalGlyphSurface.DeviceDescription, true));
+                }
+            }
+
+            var steam = SteamInputGlyphPresentation.Create(profile);
+            Assert.NotNull(steam);
+            if (definition.HasController)
+            {
+                Assert.NotEmpty(steam.StableResources);
+            }
+        }
+    }
+
+    [Fact]
+    public void OemLookupUsesExactSelectedProfileMetadataAndHonorsInputAuthority()
+    {
+        var profile = ImportProfile(["device-a"]);
+        profile = profile with
+        {
+            Manifest = profile.Manifest with
+            {
+                Controls =
+                [
+                    profile.Manifest.Controls[0] with { OemControlId = "native-front" }
+                ]
+            }
+        };
+        using PhysicalGlyphCatalog catalog = new();
+        using PhysicalGlyphPlans plans = new(catalog);
+        var selected = new PhysicalGlyphSelectionResult(profile, PhysicalGlyphFallbackReason.None, false);
+        Assert.True(PhysicalGlyphPlans.TryGetOemControl(selected, "native-front", out var control));
+        Assert.Equal(GlyphControlId.FaceSouth, control);
+        Assert.False(PhysicalGlyphPlans.TryGetOemControl(selected, "NATIVE-FRONT", out _));
+        Assert.False(PhysicalGlyphPlans.TryGetOemControl(selected, "FaceSouth", out _));
+        Assert.True(plans.ResolveOem(selected, "native-front",
+            PhysicalGlyphSurface.DeviceDescription, false).UsesDeviceArtwork);
+        Assert.Equal(PhysicalGlyphFallbackReason.SourceNotHandheld,
+            plans.ResolveOem(selected, "native-front", PhysicalGlyphSurface.NavigationHint, false).FallbackReason);
+    }
+
+    private sealed class EmbeddedProfileSource(string manifestResource) : IGlyphPackageSource
+    {
+        private readonly string _family = manifestResource[
+            ..(manifestResource.IndexOf(".glyphs.profiles.", StringComparison.Ordinal) + 1)];
+
+        private readonly string _profileId = manifestResource[
+            (manifestResource.IndexOf(".glyphs.profiles.", StringComparison.Ordinal) + ".glyphs.profiles.".Length)..^5];
+
+        public IReadOnlyList<string> EnumerateProfileIds()
+        {
+            return [_profileId];
+        }
+
+        public bool TryRead(string relativePath, int maximumBytes, out byte[] bytes)
+        {
+            using var resource = typeof(LibHandheld.HandheldDevice).Assembly.GetManifestResourceStream(
+                _family + relativePath.Replace('/', '.'));
+            if (resource is null || resource.Length > maximumBytes)
+            {
+                bytes = [];
+                return false;
+            }
+
+            using MemoryStream output = new();
+            resource.CopyTo(output);
+            bytes = output.ToArray();
+            return true;
+        }
     }
 
     private static byte[] OnePixelPng()

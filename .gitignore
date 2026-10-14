@@ -6,6 +6,9 @@
 # dotenv files
 .env
 
+# Internal planning and audit trackers stay local.
+/_plan/
+
 # Agent working directories: session state and local machine paths, never committed.
 # AGENTS.md and every CLAUDE.md symlink beside one ARE tracked on purpose: they are
 # the instructions a contributor's AI reads, so they have to ship with the repo.

@@ -275,6 +275,7 @@ public static class Steam
     internal static AppLauncher.LaunchResult LaunchBigPicture(UserDataContext context, SteamInputShim shim,
         bool steamInputManagement, bool unelevated = false, bool cefEnabled = true)
     {
+        SteamCef.EnsureRemoteDebuggingEnabled(InstallDirectory, cefEnabled);
         if (!IsRunning && ExePath is { } exe)
         {
             return ColdStart(context, shim, steamInputManagement, exe, OpenBigPictureUrl, unelevated, cefEnabled);
@@ -297,6 +298,7 @@ public static class Steam
     internal static AppLauncher.LaunchResult LaunchDesktop(UserDataContext context, SteamInputShim shim,
         bool steamInputManagement, bool unelevated = false, bool cefEnabled = true)
     {
+        SteamCef.EnsureRemoteDebuggingEnabled(InstallDirectory, cefEnabled);
         if (IsRunning)
         {
             return new AppLauncher.LaunchResult(null, true, false);

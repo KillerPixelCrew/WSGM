@@ -467,6 +467,37 @@ public sealed class RunningApplicationTargetTests : IDisposable
     }
 
     [Fact]
+    public async Task ForegroundOnlyGameExitIsObservedWhileSteamIsDisabled()
+    {
+        await using var transport = new DisabledTransport();
+        var exited = 0;
+        var active = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var global = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var monitor = new RunningApplicationMonitor(new SteamClient(transport).RunningApps,
+            steamEnabled: false, foregroundExited: (_, _) => Volatile.Read(ref exited) != 0);
+        monitor.Changed += state =>
+        {
+            if (state.State == RunningApplicationTargetState.Active)
+            {
+                active.TrySetResult();
+            }
+            else if (state.State == RunningApplicationTargetState.Global && Volatile.Read(ref exited) != 0)
+            {
+                global.TrySetResult();
+            }
+        };
+        monitor.ReportForeground("game.exe", @"D:\Games\game.exe", processId: 42);
+        using var observation = monitor.AcquireObservation();
+        monitor.Start();
+        await active.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Volatile.Write(ref exited, 1);
+        await global.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Null(monitor.Current.ApplicationId);
+    }
+
+    [Fact]
     public async Task DeliberatelyDisabledCefStillAllowsForegroundApplicationPolicy()
     {
         await using var transport = new DisabledTransport();

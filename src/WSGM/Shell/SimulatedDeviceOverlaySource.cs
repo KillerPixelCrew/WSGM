@@ -443,6 +443,18 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
         remove { }
     }
 
+    public event Action<GlyphControlId, bool>? PhysicalOemControlReceived
+    {
+        add { }
+        remove { }
+    }
+
+    public event Action? PhysicalInputReset
+    {
+        add { }
+        remove { }
+    }
+
     /// <inheritdoc />
     public IDisposable ObservePhysicalSamples()
     {

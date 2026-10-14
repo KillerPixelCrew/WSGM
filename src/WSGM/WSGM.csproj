@@ -10,7 +10,7 @@
     <ApplicationIcon>Assets\wsgm.ico</ApplicationIcon>
     <AssemblyName>WSGM</AssemblyName>
     <RootNamespace>WSGM</RootNamespace>
-    <Version>2.2.0</Version>
+    <Version>2.3.1</Version>
     <!-- Self-contained JIT publish. Built-in handheld and GPU libraries own native mechanics;
          the resident process owns policy and uses managed Windows APIs where possible. -->
     <SelfContained>true</SelfContained>
@@ -190,6 +190,7 @@
     <Compile Include="..\Shared\Process\SessionProtocolNames.cs" Link="Shared\SessionProtocolNames.cs"/>
     <Compile Include="..\Shared\Process\SteamProcessControl.cs" Link="Shared\SteamProcessControl.cs"/>
     <Compile Include="..\Shared\Process\Win32Common.cs" Link="Shared\Win32Common.cs"/>
+    <Compile Include="..\Shared\Process\WrapperInputLeaseMarker.cs" Link="Shared\WrapperInputLeaseMarker.cs"/>
     <Compile Include="..\Shared\Process\WindowsCommandLine.cs" Link="Shared\WindowsCommandLine.cs"/>
     <Compile Include="..\Shared\Process\LaunchArguments.cs" Link="Shared\LaunchArguments.cs"/>
   </ItemGroup>

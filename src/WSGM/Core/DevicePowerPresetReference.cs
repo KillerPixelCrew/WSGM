@@ -24,6 +24,9 @@ public sealed record DevicePowerCustomValues
     /// <summary>Slow power limit in watts.</summary>
     public int SlowWatts { get; init; }
 
+    /// <summary>Independent fast-PPT limit in watts, when the selected device declares one.</summary>
+    public int? FastWatts { get; init; }
+
     /// <summary>Windows performance/efficiency mode.</summary>
     public DevicePowerMode WindowsMode { get; init; }
 
@@ -36,6 +39,6 @@ public sealed record DevicePowerCustomValues
     internal DevicePowerPreset ToPreset()
     {
         return new DevicePowerPreset("custom-values", "Custom", SustainedWatts, SlowWatts, WindowsMode)
-            { ScenarioOnAc = Scenario, ScenarioOnDc = Scenario };
+            { FastWatts = FastWatts, ScenarioOnAc = Scenario, ScenarioOnDc = Scenario };
     }
 }

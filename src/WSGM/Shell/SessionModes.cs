@@ -544,6 +544,11 @@ public sealed class SessionModes
     /// </summary>
     public void EnsureSteamDesktop()
     {
+        if (Volatile.Read(ref _steamCefRecoveryInProgress) != 0)
+        {
+            return;
+        }
+
         if (Volatile.Read(ref _shutdownRequested) != 0)
         {
             Log.Info("Ignoring desktop Steam start: application shutdown is in progress.");
@@ -890,6 +895,11 @@ public sealed class SessionModes
     /// </summary>
     public void StartOrFocusSteam()
     {
+        if (Volatile.Read(ref _steamCefRecoveryInProgress) != 0)
+        {
+            return;
+        }
+
         if (Volatile.Read(ref _shutdownRequested) != 0)
         {
             Log.Info("Ignoring Steam start/focus: application shutdown is in progress.");
@@ -963,6 +973,11 @@ public sealed class SessionModes
     /// </returns>
     public string? StartBigPicture()
     {
+        if (Volatile.Read(ref _steamCefRecoveryInProgress) != 0)
+        {
+            return "Steam is restarting to enable WSGM's Steam integration.";
+        }
+
         if (Volatile.Read(ref _shutdownRequested) != 0)
         {
             Log.Info("Ignoring Big Picture start: application shutdown is in progress.");

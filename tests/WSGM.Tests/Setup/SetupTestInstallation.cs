@@ -101,6 +101,7 @@ internal sealed class RecordingSetupRuntime : IRuntimeShutdown
     internal List<string> Calls { get; } = [];
     internal Func<int, bool>? OnStop { get; set; }
     internal Func<string, string, int>? OnRun { get; set; }
+    internal Func<IReadOnlyList<string>, string?>? OnReleaseFiles { get; set; }
     internal string? Version { get; set; } = "2.0.0.1";
     internal int Stops { get; private set; }
 
@@ -149,6 +150,12 @@ internal sealed class RecordingSetupRuntime : IRuntimeShutdown
     public IReadOnlyList<string> Blockers(bool includeSteam)
     {
         return [];
+    }
+
+    public string? ReleaseFileOwners(IReadOnlyList<string> paths)
+    {
+        Calls.Add("ReleaseFileOwners");
+        return OnReleaseFiles?.Invoke(paths);
     }
 
     public int Run(string file, string arguments)

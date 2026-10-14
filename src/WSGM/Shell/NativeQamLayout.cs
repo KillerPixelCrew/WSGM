@@ -32,7 +32,8 @@ internal static class NativeQamLayout
         ],
         [
             new SteamQuickAccessSection("Charging", "Charging", "batteryCharging", true, ["charging"]),
-            new SteamQuickAccessSection("RGB lighting", "RGB lighting", "colors", true, ["lighting"])
+            new SteamQuickAccessSection("RGB lighting", "RGB lighting", "colors", true, ["lighting"]),
+            new SteamQuickAccessSection("Device controls", "Device controls", "sliders", true, ["deviceDescriptors"])
         ],
         true,
         AccentLabel);

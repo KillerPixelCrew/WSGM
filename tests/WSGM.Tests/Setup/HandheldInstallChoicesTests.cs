@@ -24,7 +24,9 @@ public sealed class HandheldInstallChoicesTests
         Assert.Equal(enabled, answers["deviceIntegration"]!.GetValue<bool>());
         Assert.Equal(enabled ? installation.Engine.Offers!.Handheld!.Definition.Id : null,
             choices.HandheldDefinitionId);
-        IReadOnlyList<SetupComponent> expected = enabled ? [SetupComponent.ControllerStack] : [];
+        IReadOnlyList<SetupComponent> expected = enabled
+            ? [SetupComponent.ControllerStack, SetupComponent.PawnIo]
+            : [];
         Assert.Equal(expected, installation.Engine.RequiredComponents(choices));
         Assert.DoesNotContain(installation.Engine.PlanInstall(choices),
             step => step.Label.StartsWith("Installing ROG", StringComparison.Ordinal));

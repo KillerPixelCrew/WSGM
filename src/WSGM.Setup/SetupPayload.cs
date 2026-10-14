@@ -4,6 +4,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
+using System.Text.Json;
 using WSGM.Install;
 
 namespace WSGM.Setup;
@@ -19,15 +20,30 @@ internal sealed class SetupPayload : IDisposable
     private readonly ZipArchive? _archive;
     private readonly string? _directory;
 
-    private SetupPayload(ZipArchive? archive, string? directory, BundleManifest bundle)
+    private SetupPayload(ZipArchive? archive, string? directory, BundleManifest bundle, bool? online)
     {
         _archive = archive;
         _directory = directory;
         Bundle = bundle;
+        Online = online == true;
+        DistributionSpecified = online is not null;
     }
 
     /// <summary>What the release bundles.</summary>
     public BundleManifest Bundle { get; }
+
+    /// <summary>Whether missing prerequisites are downloaded rather than carried in the payload.</summary>
+    public bool Online { get; }
+
+    /// <summary>Whether this payload explicitly selected online or offline prerequisite acquisition.</summary>
+    internal bool DistributionSpecified { get; }
+
+    /// <summary>Explains prerequisite acquisition before setup changes the machine.</summary>
+    public string PrerequisitesNotice => Online
+        ? "Online setup needs an internet connection to download missing WebView2, selected controller drivers and RTSS."
+        : DistributionSpecified
+            ? "Offline setup includes prerequisite installers. No internet connection is needed."
+            : "This setup includes WebView2 and controller drivers. Selected RTSS needs an internet connection if it is missing.";
 
     /// <summary>Where the payload came from, for the log.</summary>
     public string Source => _directory ?? "embedded";
@@ -47,8 +63,10 @@ internal sealed class SetupPayload : IDisposable
         {
             var root = Path.GetFullPath(directory);
             var bundlePath = Path.Combine(root, "bundle.json");
+            var distributionPath = Path.Combine(root, "setup-distribution.json");
             return File.Exists(bundlePath)
-                ? new SetupPayload(null, root, BundleManifest.Parse(File.ReadAllBytes(bundlePath)))
+                ? new SetupPayload(null, root, BundleManifest.Parse(File.ReadAllBytes(bundlePath)),
+                    File.Exists(distributionPath) ? ReadDistribution(File.ReadAllBytes(distributionPath)) : null)
                 : throw new FileNotFoundException("The payload directory has no bundle.json.", bundlePath);
         }
 
@@ -76,7 +94,16 @@ internal sealed class SetupPayload : IDisposable
             using var bundleStream = entry.Open();
             using MemoryStream buffer = new();
             bundleStream.CopyTo(buffer);
-            return new SetupPayload(archive, null, BundleManifest.Parse(buffer.ToArray()));
+            bool? online = null;
+            if (archive.GetEntry("setup-distribution.json") is { } distribution)
+            {
+                using var distributionStream = distribution.Open();
+                using MemoryStream distributionBuffer = new();
+                distributionStream.CopyTo(distributionBuffer);
+                online = ReadDistribution(distributionBuffer.ToArray());
+            }
+
+            return new SetupPayload(archive, null, BundleManifest.Parse(buffer.ToArray()), online);
         }
         catch
         {
@@ -96,12 +123,18 @@ internal sealed class SetupPayload : IDisposable
     /// <summary>Copies one payload folder (for example <c>App</c>) into a directory.</summary>
     /// <param name="folder">Top-level payload folder.</param>
     /// <param name="destination">Target directory; created if missing.</param>
-    public void Extract(string folder, string destination)
+    /// <param name="include">Optional relative-file filter, used to extract controller runtime without installers.</param>
+    public void Extract(string folder, string destination, Func<string, bool>? include = null)
     {
         Directory.CreateDirectory(destination);
         var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(destination)) + Path.DirectorySeparatorChar;
         foreach (var (relative, open) in Files(folder))
         {
+            if (include is not null && !include(relative))
+            {
+                continue;
+            }
+
             var target = Path.GetFullPath(Path.Combine(destination, relative));
             if (!target.StartsWith(root, StringComparison.OrdinalIgnoreCase))
             {
@@ -112,6 +145,33 @@ internal sealed class SetupPayload : IDisposable
             using var source = open();
             using var output = File.Create(target);
             source.CopyTo(output);
+        }
+    }
+
+    private static bool ReadDistribution(byte[] bytes)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(bytes);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty("schemaVersion", out var schema)
+                || schema.ValueKind != JsonValueKind.Number || !schema.TryGetInt32(out var version) || version != 1
+                || !root.TryGetProperty("prerequisites", out var prerequisites))
+            {
+                throw new InvalidDataException("The setup distribution marker is invalid. Use a complete WSGM setup.");
+            }
+
+            return prerequisites.ValueKind == JsonValueKind.String ? prerequisites.GetString() switch
+            {
+                "download" => true,
+                "bundled" => false,
+                _ => throw new InvalidDataException("The setup prerequisite mode is unsupported. Use a complete WSGM setup.")
+            } : throw new InvalidDataException("The setup prerequisite mode is invalid. Use a complete WSGM setup.");
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidDataException("The setup distribution marker is invalid. Use a complete WSGM setup.", ex);
         }
     }
 

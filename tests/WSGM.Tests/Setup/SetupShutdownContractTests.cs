@@ -110,6 +110,7 @@ public sealed class SetupShutdownContractTests
             "ShellAnchorRecoverySettled",
             "ForceStop WSGM.ShellAnchor.exe",
             "CloseSteam 60",
+            "ReleaseFileOwners",
             "Blockers",
             "ReserveDeviceOwner 30"
         ];
@@ -349,6 +350,12 @@ public sealed class SetupShutdownContractTests
         {
             Calls.Add("Blockers");
             return StillRunning.Where(name => !_terminatedSteam.Contains(name)).ToArray();
+        }
+
+        public string? ReleaseFileOwners(IReadOnlyList<string> paths)
+        {
+            Calls.Add("ReleaseFileOwners");
+            return null;
         }
 
         public int Run(string file, string arguments)

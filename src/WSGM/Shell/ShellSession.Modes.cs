@@ -680,6 +680,8 @@ public sealed partial class ShellSession
         // Before Steam, for the same reason as on the desktop path: a reappeared autostart entry
         // must not be the one that wins the race to start Steam.
         SteamAutostartService.ReapplyAtStart(_store);
+        // Steam-backed tools can activate the client themselves, before WSGM's own launch.
+        SteamCef.EnsureRemoteDebuggingEnabled(Steam.InstallDirectory, _cefMasterEnabled);
         var haveApps = _config.StartupApps.Exists(a => a.Enabled && !string.IsNullOrWhiteSpace(a.Path));
         if (haveApps && _config.StartupDelayMs > 0)
         {

@@ -26,6 +26,8 @@ internal static class GlyphInputTestMap
     /// </remarks>
     private const float TriggerThreshold = 0.2f;
 
+    private const float DirectionThreshold = 0.5f;
+
     /// <summary>Buttons paired with the glyph they light, in canonical order.</summary>
     private static readonly (CanonicalButtons Button, GlyphControlId Control)[] Buttons =
     [
@@ -61,14 +63,38 @@ internal static class GlyphInputTestMap
         (CanonicalButtons.LeftPadClick, GlyphControlId.LeftTrackpad),
         (CanonicalButtons.RightPadClick, GlyphControlId.RightTrackpad),
         (CanonicalButtons.LeftPadTouch, GlyphControlId.LeftTrackpad),
-        (CanonicalButtons.RightPadTouch, GlyphControlId.RightTrackpad)
+        (CanonicalButtons.RightPadTouch, GlyphControlId.RightTrackpad),
+        (CanonicalButtons.LeftPadTouch, GlyphControlId.LeftTrackpadTouch),
+        (CanonicalButtons.RightPadTouch, GlyphControlId.RightTrackpadTouch),
+        (CanonicalButtons.LeftPadClick, GlyphControlId.LeftTrackpadClick),
+        (CanonicalButtons.RightPadClick, GlyphControlId.RightTrackpadClick)
+    ];
+
+    private static readonly GlyphControlId[] Directions =
+    [
+        GlyphControlId.LeftStickUp, GlyphControlId.LeftStickDown,
+        GlyphControlId.LeftStickLeft, GlyphControlId.LeftStickRight,
+        GlyphControlId.RightStickUp, GlyphControlId.RightStickDown,
+        GlyphControlId.RightStickLeft, GlyphControlId.RightStickRight,
+        GlyphControlId.LeftTrackpadUp, GlyphControlId.LeftTrackpadDown,
+        GlyphControlId.LeftTrackpadLeft, GlyphControlId.LeftTrackpadRight,
+        GlyphControlId.RightTrackpadUp, GlyphControlId.RightTrackpadDown,
+        GlyphControlId.RightTrackpadLeft, GlyphControlId.RightTrackpadRight
     ];
 
     internal static long Key(CanonicalControllerSample sample)
     {
         return (long)sample.Buttons
                | (sample.LeftTrigger > TriggerThreshold ? 1L << 32 : 0)
-               | (sample.RightTrigger > TriggerThreshold ? 1L << 33 : 0);
+               | (sample.RightTrigger > TriggerThreshold ? 1L << 33 : 0)
+               | DirectionKey(sample.LeftStickX, sample.LeftStickY, bit: 34)
+               | DirectionKey(sample.RightStickX, sample.RightStickY, bit: 38)
+               | ((sample.Buttons & CanonicalButtons.LeftPadClick) != 0
+                   ? DirectionKey(sample.LeftPadX, sample.LeftPadY, bit: 42)
+                   : 0)
+               | ((sample.Buttons & CanonicalButtons.RightPadClick) != 0
+                   ? DirectionKey(sample.RightPadX, sample.RightPadY, bit: 46)
+                   : 0);
     }
 
     internal static bool Lights(long key, GlyphControlId control)
@@ -83,6 +109,14 @@ internal static class GlyphInputTestMap
             return (key & (1L << 33)) != 0;
         }
 
+        for (var index = 0; index < Directions.Length; index++)
+        {
+            if (Directions[index] == control)
+            {
+                return (key & (1L << (34 + index))) != 0;
+            }
+        }
+
         foreach (var mapping in Buttons)
         {
             if (mapping.Control == control && (key & (long)mapping.Button) != 0)
@@ -92,5 +126,13 @@ internal static class GlyphInputTestMap
         }
 
         return false;
+    }
+
+    private static long DirectionKey(float x, float y, int bit)
+    {
+        return (y >= DirectionThreshold ? 1L << bit : 0)
+               | (y <= -DirectionThreshold ? 1L << (bit + 1) : 0)
+               | (x <= -DirectionThreshold ? 1L << (bit + 2) : 0)
+               | (x >= DirectionThreshold ? 1L << (bit + 3) : 0);
     }
 }

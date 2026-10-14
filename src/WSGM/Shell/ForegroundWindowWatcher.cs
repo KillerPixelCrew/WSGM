@@ -31,37 +31,65 @@ internal sealed unsafe class ForegroundWindowWatcher : IDisposable
 
     private readonly Lock _gate = new();
     private readonly Timer _poll;
+    private readonly Func<nint> _foregroundWindow;
+    private readonly Func<nint, (string Name, string? Path, uint ProcessId)> _resolveExecutable;
+    private readonly Func<NativeMethods.WinEventProc, nint> _startHook;
     private string _current = string.Empty;
     private uint _currentProcessId;
     private bool _disposed;
+    private bool _started;
     private int _evaluationQueued;
     private nint _hook;
     private nint _lastWindow;
     private nint _pendingWindow;
 
-    /// <summary>Creates the watcher and begins observing.</summary>
+    /// <summary>Creates an idle watcher; subscribe before calling Start.</summary>
+    /// <param name="foregroundWindow">Optional isolated foreground-window reader.</param>
+    /// <param name="resolveExecutable">Optional isolated process-identity reader.</param>
+    /// <param name="startHook">Optional isolated hook installer; zero uses polling only.</param>
     /// <remarks>
     ///     The poll interval is deliberately slow. The hook carries every ordinary switch, so this only
     ///     has to notice the ones it missed, and a fast poll would read a process path several times a
     ///     second for a value that changes when the user alt-tabs.
     /// </remarks>
-    internal ForegroundWindowWatcher()
+    internal ForegroundWindowWatcher(Func<nint>? foregroundWindow = null,
+        Func<nint, (string Name, string? Path, uint ProcessId)>? resolveExecutable = null,
+        Func<NativeMethods.WinEventProc, nint>? startHook = null)
     {
         _callback = OnWinEvent;
-        _hook = NativeMethods.SetWinEventHook(
+        _foregroundWindow = foregroundWindow ?? NativeMethods.GetForegroundWindow;
+        _resolveExecutable = resolveExecutable ?? ResolveExecutable;
+        _startHook = startHook ?? (callback => NativeMethods.SetWinEventHook(
             NativeMethods.EventSystemForeground,
             NativeMethods.EventSystemForeground,
             0,
-            _callback,
+            callback,
             0,
             0,
-            NativeMethods.WinEventOutOfContext | NativeMethods.WinEventSkipOwnProcess);
-        if (_hook == 0)
-        {
-            Log.Warn("Foreground watcher: WinEvent hook not installed; polling only.");
-        }
+            NativeMethods.WinEventOutOfContext | NativeMethods.WinEventSkipOwnProcess));
+        _poll = new Timer(_ => Evaluate(), null, Timeout.InfiniteTimeSpan, PollInterval);
+    }
 
-        _poll = new Timer(_ => Evaluate(), null, TimeSpan.Zero, PollInterval);
+    /// <summary>Begins observation after the owner has subscribed, preserving the initial foreground.</summary>
+    internal void Start()
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_started)
+            {
+                return;
+            }
+
+            _started = true;
+            _hook = _startHook(_callback);
+            if (_hook == 0)
+            {
+                Log.Warn("Foreground watcher: WinEvent hook not installed; polling only.");
+            }
+
+            _poll.Change(TimeSpan.Zero, PollInterval);
+        }
     }
 
     /// <inheritdoc />
@@ -157,7 +185,7 @@ internal sealed unsafe class ForegroundWindowWatcher : IDisposable
     {
         if (window == 0)
         {
-            window = NativeMethods.GetForegroundWindow();
+            window = _foregroundWindow();
         }
 
         if (window == 0)
@@ -175,7 +203,22 @@ internal sealed unsafe class ForegroundWindowWatcher : IDisposable
             _lastWindow = window;
         }
 
-        var (executable, imagePath, processId) = ResolveExecutable(window);
+        var (executable, imagePath, processId) = _resolveExecutable(window);
+        if (string.IsNullOrEmpty(executable))
+        {
+            // A process still starting can refuse its first image query. Do not cache that
+            // failure as a completed observation of this HWND: the fallback poll must retry it.
+            lock (_gate)
+            {
+                if (_lastWindow == window)
+                {
+                    _lastWindow = 0;
+                }
+            }
+
+            return;
+        }
+
         if (ForegroundApplicationFilter.Classify(executable)
             is not ForegroundApplicationKind.Application)
         {
@@ -184,6 +227,11 @@ internal sealed unsafe class ForegroundWindowWatcher : IDisposable
 
         lock (_gate)
         {
+            if (_disposed || _lastWindow != window)
+            {
+                return;
+            }
+
             // The process as well as the name: a relaunched application is a new foreground even under
             // the same executable name, and the monitor drops an identity whose process has exited.
             if (string.Equals(_current, executable, StringComparison.OrdinalIgnoreCase)

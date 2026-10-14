@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Net.Http;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -7,7 +8,7 @@ using Microsoft.Win32;
 
 namespace WSGM.Setup.Engine;
 
-/// <summary>The shared Evergreen runtime, carried offline and left installed for other applications.</summary>
+/// <summary>The shared Evergreen runtime, bundled offline or downloaded online and left installed for other applications.</summary>
 internal static class WebViewRuntimeInstaller
 {
     internal static bool Present()
@@ -43,17 +44,45 @@ internal static class WebViewRuntimeInstaller
         using var pin = JsonDocument.Parse(pinStream);
         var asset = pin.RootElement.GetProperty("asset").GetString()!;
         var expected = pin.RootElement.GetProperty("sha256").GetString()!;
+        if (Path.GetFileName(asset) != asset)
+        {
+            throw new InvalidDataException("The WebView2 runtime pin is invalid.");
+        }
+
         var stage = Path.Combine(Path.GetTempPath(), "WSGM-webview2-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(stage);
         var installer = Path.Combine(stage, asset);
         try
         {
-            payload.ExtractFile("MediaRuntime/" + asset, installer);
+            if (payload.Online)
+            {
+                var download = new Uri(pin.RootElement.GetProperty("url").GetString()!, UriKind.Absolute);
+                if (!RtssInstaller.TryDownload(new SocketsHttpHandler(), download, installer,
+                        RtssInstaller.BodyStallTimeout, out var problem))
+                {
+                    step.Note = $"Setup could not download WebView2 ({problem}). Connect to the internet and run Repair. Media previews need WebView2.";
+                    return false;
+                }
+            }
+            else
+            {
+                try
+                {
+                    payload.ExtractFile("MediaRuntime/" + asset, installer);
+                }
+                catch (FileNotFoundException)
+                {
+                    step.Note = "This setup is missing the bundled WebView2 installer. Use a complete offline setup or install Microsoft WebView2, then run Repair.";
+                    return false;
+                }
+            }
+
             using (var input = File.OpenRead(installer))
             {
                 if (!Convert.ToHexString(SHA256.HashData(input)).Equals(expected, StringComparison.OrdinalIgnoreCase))
                 {
-                    throw new InvalidDataException("The WebView2 runtime checksum does not match the setup's pin.");
+                    step.Note = "The WebView2 runtime checksum does not match this setup's pin, so setup did not run it. Use a complete WSGM setup or install Microsoft WebView2.";
+                    return false;
                 }
             }
 
@@ -69,12 +98,14 @@ internal static class WebViewRuntimeInstaller
         }
         finally
         {
-            if (File.Exists(installer))
+            try
             {
-                File.Delete(installer);
+                Directory.Delete(stage, recursive: true);
             }
-
-            Directory.Delete(stage);
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                SetupLog.Warn($"WebView2: the installer folder could not be removed: {ex.Message}");
+            }
         }
     }
 }

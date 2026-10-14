@@ -121,6 +121,28 @@ public sealed class RtssFrametimeReaderTests
     }
 
     [Fact]
+    public void AMeasurementWindowCrossingTheTickCounterWrapRemainsLive()
+    {
+        FakeRegion region = new();
+        region.WriteEntry(0, 7, @"C:\game.exe", uint.MaxValue - 99, 100, 10);
+
+        var sample = Assert.Single(
+            RtssFrametimeReader.Parse(region, (1L << 32) + 200, out _));
+
+        Assert.Equal(20, sample.MeanFrametimeMs);
+        Assert.Equal(100, sample.AgeMs);
+    }
+
+    [Fact]
+    public void AReversedMeasurementWindowIsStillRejected()
+    {
+        FakeRegion region = new();
+        region.WriteEntry(0, 7, @"C:\game.exe", 1000, 900, 10);
+
+        Assert.Empty(RtssFrametimeReader.Parse(region, 1000, out _));
+    }
+
+    [Fact]
     public void AnEntryTimedInTheFutureIsDiscardedRatherThanTrusted()
     {
         FakeRegion region = new();

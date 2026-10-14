@@ -112,73 +112,91 @@ internal static class RtssOsdSlots
             return false;
         }
 
-        var ownerBytes = Encoding.ASCII.GetBytes(owner);
-        var slot = FindSlot(region, ownerBytes, entrySize, arrayOffset, arraySize, true);
-        if (slot < 0)
+        var synchronized = version >= BusyMinimumVersion;
+        if (synchronized && !region.TryAcquireBusy(HeaderOsdBusyOffset))
         {
+            // No owner, text or frame-counter mutation happened. Retry on the next render tick.
             return false;
         }
 
-        var entry = arrayOffset + slot * entrySize;
-        var textBytes = Encoding.ASCII.GetBytes(text);
-        var useExtended = version >= TextExMinimumVersion
-                          && entrySize >= TextExOffset + TextExLength;
-        var textAt = entry + (useExtended ? TextExOffset : TextOffset);
-        var capacity = useExtended ? TextExLength : TextLength;
-        var payload = new byte[Math.Min(textBytes.Length, capacity - 1) + 1];
-        Array.Copy(textBytes, payload, payload.Length - 1);
-
-        if (version >= BusyMinimumVersion)
+        try
         {
-            if (region.TryAcquireBusy(HeaderOsdBusyOffset))
+            var ownerBytes = Encoding.ASCII.GetBytes(owner);
+            var slot = FindSlot(region, ownerBytes, entrySize, arrayOffset, arraySize, text.Length > 0);
+            if (slot < 0)
             {
-                region.WriteBytes(textAt, payload, payload.Length);
+                return text.Length == 0;
+            }
+
+            var entry = arrayOffset + slot * entrySize;
+            var textBytes = Encoding.ASCII.GetBytes(text);
+            var useExtended = version >= TextExMinimumVersion
+                              && entrySize >= TextExOffset + TextExLength;
+            var textAt = entry + (useExtended ? TextExOffset : TextOffset);
+            var capacity = useExtended ? TextExLength : TextLength;
+            var payload = new byte[Math.Min(textBytes.Length, capacity - 1) + 1];
+            Array.Copy(textBytes, payload, payload.Length - 1);
+            region.WriteBytes(textAt, payload, payload.Length);
+            region.WriteUInt32(HeaderOsdFrameOffset, unchecked(region.ReadUInt32(HeaderOsdFrameOffset) + 1));
+            return true;
+        }
+        finally
+        {
+            if (synchronized)
+            {
                 region.ReleaseBusy(HeaderOsdBusyOffset);
             }
-            // A held busy flag means another writer is mid-update; the library skips the write
-            // too and the next 100 ms tick repeats it.
         }
-        else
-        {
-            region.WriteBytes(textAt, payload, payload.Length);
-        }
-
-        region.WriteUInt32(HeaderOsdFrameOffset, region.ReadUInt32(HeaderOsdFrameOffset) + 1);
-        return true;
     }
 
     /// <summary>Releases every slot owned by <paramref name="owner" /> by zeroing it whole.</summary>
     /// <param name="region">The mapped RTSS shared memory.</param>
     /// <param name="owner">Slot owner identity.</param>
-    internal static void Release(IRtssOsdRegion region, string owner)
+    /// <returns>True when released or absent; false when the mapping is incompatible or a writer is busy.</returns>
+    internal static bool Release(IRtssOsdRegion region, string owner)
     {
         ArgumentNullException.ThrowIfNull(region);
-        if (!TryReadHeader(region, out _, out var entrySize, out var arrayOffset,
+        if (!TryReadHeader(region, out var version, out var entrySize, out var arrayOffset,
                 out var arraySize))
         {
-            return;
+            return false;
         }
 
-        var ownerBytes = Encoding.ASCII.GetBytes(owner);
-        var slot = FindSlot(region, ownerBytes, entrySize, arrayOffset, arraySize, false);
-        if (slot < 0)
+        var synchronized = version >= BusyMinimumVersion;
+        if (synchronized && !region.TryAcquireBusy(HeaderOsdBusyOffset))
         {
-            return;
+            return false;
         }
 
-        var entry = arrayOffset + slot * entrySize;
-        var zero = new byte[Math.Min(entrySize, 65536)];
-        var remaining = entrySize;
-        var at = entry;
-        while (remaining > 0)
+        try
         {
-            var chunk = (int)Math.Min(remaining, zero.Length);
-            region.WriteBytes(at, zero, chunk);
-            at += chunk;
-            remaining -= chunk;
-        }
+            var ownerBytes = Encoding.ASCII.GetBytes(owner);
+            var zero = new byte[Math.Min(entrySize, 65536)];
+            while (FindSlot(region, ownerBytes, entrySize, arrayOffset, arraySize, false) is var slot
+                   && slot >= 0)
+            {
+                var remaining = entrySize;
+                var at = arrayOffset + slot * entrySize;
+                while (remaining > 0)
+                {
+                    var chunk = (int)Math.Min(remaining, zero.Length);
+                    region.WriteBytes(at, zero, chunk);
+                    at += chunk;
+                    remaining -= chunk;
+                }
 
-        region.WriteUInt32(HeaderOsdFrameOffset, region.ReadUInt32(HeaderOsdFrameOffset) + 1);
+                region.WriteUInt32(HeaderOsdFrameOffset, unchecked(region.ReadUInt32(HeaderOsdFrameOffset) + 1));
+            }
+
+            return true;
+        }
+        finally
+        {
+            if (synchronized)
+            {
+                region.ReleaseBusy(HeaderOsdBusyOffset);
+            }
+        }
     }
 
     private static bool TryReadHeader(
@@ -284,7 +302,20 @@ internal sealed class RtssOsdWriter : IDisposable
         {
             if (_view is not null)
             {
-                RtssOsdSlots.Release(new AccessorRegion(_view), Owner);
+                var region = new AccessorRegion(_view);
+                var released = RtssOsdSlots.Release(region, Owner);
+                var deadline = Environment.TickCount64 + 200;
+                while (!released && Environment.TickCount64 < deadline)
+                {
+                    // A refused lock changed nothing; a bounded cleanup retry cannot duplicate a write.
+                    Thread.Sleep(5);
+                    released = RtssOsdSlots.Release(region, Owner);
+                }
+
+                if (!released)
+                {
+                    Log.Warn("RTSS OSD slot could not be released within its cleanup budget.");
+                }
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
@@ -313,7 +344,7 @@ internal sealed class RtssOsdWriter : IDisposable
                 "rtss-osd-slot",
                 written
                     ? "RTSS OSD slot claimed and updating."
-                    : "RTSS OSD slot refused: foreign mapping layout or no free slot.");
+                    : "RTSS OSD write deferred: mapping layout, busy writer or no free slot.");
             return written;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
@@ -995,7 +1026,6 @@ internal sealed class RtssOsdMetricsSource : IDisposable
             return;
         }
 
-        _providerAttemptTicks = nowTicks;
         var executable = _rtssExecutablePath?.Invoke();
         var directory = executable is null ? null : Path.GetDirectoryName(executable);
         if (directory is null)
@@ -1014,6 +1044,7 @@ internal sealed class RtssOsdMetricsSource : IDisposable
 
         try
         {
+            _providerAttemptTicks = nowTicks;
             using var started = Process.Start(
                 new ProcessStartInfo(provider, "-i")
                 {
@@ -1437,6 +1468,8 @@ internal sealed class RtssOsdRenderer : IAsyncDisposable
     private readonly SemaphoreSlim _wake = new(0, 1);
 
     private readonly RtssOsdWriter _writer = new();
+    private readonly Func<string, bool> _write;
+    private readonly Func<RtssOsdMetrics> _sample;
     private volatile RtssOsdCustomSettings _custom = RtssOsdCustomSettings.Default;
     private bool _disposed;
     private volatile int _level;
@@ -1445,9 +1478,14 @@ internal sealed class RtssOsdRenderer : IAsyncDisposable
 
     /// <summary>Creates an OSD renderer with its own sensor source and mapping writer.</summary>
     /// <param name="rtssExecutablePath">Supplies the last verified RTSS executable for optional sensor-provider startup.</param>
-    internal RtssOsdRenderer(Func<string?>? rtssExecutablePath = null)
+    /// <param name="write">Optional isolated OSD sink; null uses the owned shared-memory writer.</param>
+    /// <param name="sample">Optional isolated telemetry source; null uses the owned sensor source.</param>
+    internal RtssOsdRenderer(Func<string?>? rtssExecutablePath = null,
+        Func<string, bool>? write = null, Func<RtssOsdMetrics>? sample = null)
     {
         _metrics = new RtssOsdMetricsSource(rtssExecutablePath);
+        _write = write ?? _writer.TryUpdate;
+        _sample = sample ?? _metrics.Sample;
     }
 
     /// <summary>Gets the level currently rendered — the adapter's overlay readback.</summary>
@@ -1593,19 +1631,35 @@ internal sealed class RtssOsdRenderer : IAsyncDisposable
                 {
                     if (!cleared)
                     {
-                        _writer.TryUpdate(string.Empty);
-                        cleared = true;
+                        cleared = _write(string.Empty);
                         written = false;
+                        if (!cleared)
+                        {
+                            await Task.Delay(RefreshInterval, cancellationToken).ConfigureAwait(false);
+                            continue;
+                        }
                     }
 
                     await _wake.WaitAsync(cancellationToken).ConfigureAwait(false);
                     continue;
                 }
 
-                cleared = false;
                 try
                 {
-                    var sample = _metrics.Sample();
+                    // Publish the new layout before collecting optional telemetry. Level 1 is
+                    // entirely RTSS-owned FPS text and must never wait for sensor/provider work.
+                    if (!written || level != writtenLevel)
+                    {
+                        written = _write(level == 4
+                            ? RtssOsdContent.BuildCustom(_custom, RtssOsdMetrics.Empty, _powerStatus)
+                            : RtssOsdContent.Build(level, RtssOsdMetrics.Empty, _powerStatus));
+                        if (written)
+                        {
+                            cleared = false;
+                        }
+                    }
+
+                    var sample = level == 1 ? RtssOsdMetrics.Empty : _sample();
                     var powerStatus = _powerStatus;
                     var custom = _custom;
                     var second = DateTime.UtcNow.Ticks / TimeSpan.TicksPerSecond;
@@ -1617,7 +1671,7 @@ internal sealed class RtssOsdRenderer : IAsyncDisposable
                         || sample != writtenSample || powerStatus != writtenPowerStatus
                         || !ReferenceEquals(custom, writtenCustom))
                     {
-                        written = _writer.TryUpdate(level == 4
+                        written = _write(level == 4
                             ? RtssOsdContent.BuildCustom(custom, sample, powerStatus)
                             : RtssOsdContent.Build(level, sample, powerStatus));
                         writtenLevel = level;
@@ -1625,6 +1679,10 @@ internal sealed class RtssOsdRenderer : IAsyncDisposable
                         writtenSample = sample;
                         writtenPowerStatus = powerStatus;
                         writtenCustom = custom;
+                        if (written)
+                        {
+                            cleared = false;
+                        }
                     }
                 }
                 catch (Exception ex)

@@ -92,6 +92,8 @@ internal sealed class SetupViewModel : Observable
             if (Set(ref _page, value))
             {
                 Raise(nameof(HintLeft));
+                Raise(nameof(PageLead));
+                Raise(nameof(HasPageLead));
             }
         }
     }
@@ -101,6 +103,10 @@ internal sealed class SetupViewModel : Observable
     public string Version => SetupEngine.Display(_engine?.ThisVersion);
     public string InstallPath => InstallLayout.Root;
     public string HintLeft => _flow.Count == 0 ? "" : $"Step {_step + 1} of {_flow.Count}";
+    public string PageLead => Page is LegacyPage or UpdatePage or MaintainPage or ProfilePage
+        ? (Page.Lead + " " + _engine?.Payload?.PrerequisitesNotice).Trim()
+        : Page.Lead;
+    public bool HasPageLead => PageLead.Length > 0;
 
     private bool FinishingDrivers => _flow.Contains("finishdrivers");
 
@@ -241,7 +247,8 @@ internal sealed class SetupViewModel : Observable
         switch (id)
         {
             case "welcome":
-                Page = new WelcomePage(_engine!.ThisVersion, _engine.SteamInstalled);
+                Page = new WelcomePage(_engine!.ThisVersion, _engine.SteamInstalled,
+                    _engine.Payload!.PrerequisitesNotice);
                 break;
             case "legacy":
                 Page = new LegacyPage(_engine!.Legacy!.Value.Version, _engine.ThisVersion);

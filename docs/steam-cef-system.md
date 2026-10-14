@@ -18,7 +18,7 @@ Related:
   transport gate.
 - [power-and-display.md](power-and-display.md): Windows power-profile selection through the native
   Performance dropdown.
-- [device-plugin-system.md](device-plugin-system.md) §15: glyph data on the device side.
+- [device-runtime.md](device-runtime.md#glyphs-and-ui): glyph data on the native device side.
 - [decisions.md](decisions.md): the standing product decisions.
 
 ## 1. Components and ownership
@@ -64,16 +64,16 @@ on the existing shared transport. Pack compatibility, licensing and restoration 
 Ownership follows decision D16. The toolkit owns how to find, own and remove a thing safely, and
 every revived Valve surface: the gates, the Quick Access rows, the library badge and the Home
 carousel, the authored source fingerprints and localization tokens they name, and the wire shape of
-each state and command. WSGM owns the data behind them, its managers, RTSS, the device plugin and
-the card model, adapted onto the toolkit's `ISteam*Backend` interfaces, and the policy about which
-patches are on when. Its own features, library tabs, download sorting and glyph delivery, stay
-WSGM's. Reading and driving the client itself is the toolkit's `Client` layer: app details and
-launch writes, artwork, install folders, the download overview, library data, the current game page
-and the running-app observer. WSGM keeps the policy on top, which slot, which wrapper, which card's
-library. Device state reaches the QAM through WSGM's backend services. Common plugins can
-additionally contribute host-rendered sections/actions or opt into unrestricted frontend modules;
-the session composes those modules beside its own through `CommonPluginSteamUiSource`. See the
-plugin frontend boundary below.
+each state and command. WSGM owns the data behind them, its managers, RTSS, native handheld
+integration and the card model, adapted onto the toolkit's `ISteam*Backend` interfaces, and the
+policy about which patches are on when. Its own features, library tabs, download sorting and glyph
+delivery, stay WSGM's. Reading and driving the client itself is the toolkit's `Client` layer: app
+details and launch writes, artwork, install folders, the download overview, library data, the
+current game page and the running-app observer. WSGM keeps the policy on top, which slot, which
+wrapper, which card's library. Device state reaches the QAM through WSGM's backend services. Common
+plugins can additionally contribute host-rendered sections/actions or opt into unrestricted frontend
+modules; the session composes those modules beside its own through `CommonPluginSteamUiSource`. See
+the plugin frontend boundary below.
 
 ## 2. Finding and driving Steam
 
@@ -106,6 +106,12 @@ URL. Readiness is `IsRunning && IsBigPictureVisible`.
 Steam's CEF exposes an unauthenticated, loopback-only debug port. The toolkit verifies that port
 8080 is owned by Steam and that the debugger URL is loopback before connecting; the accepted
 security posture is in [steam-cef.md](steam-cef.md). WSGM adds a second guard of its own.
+
+Evaluations return synchronous values directly. Actual promises and their results stay in a
+per-evaluation CDP object group until completion, cancellation or timeout. The transport reads the
+retained promise state instead of attaching inspector reactions, which Steam's CEF can stop
+servicing while ordinary JavaScript still runs. Every exit releases the group; an unanswered result
+after dispatch never permits re-executing the expression.
 
 ### A cold-starting Steam must not be touched before its window exists
 
@@ -178,7 +184,20 @@ A healthy cold boot shows `Big Picture window detected` before the first `open:`
 - Desktop download polling and overlay-driven operations stay immediate because they do not act on a
   half-built game-mode session; their shared transport still waits for a MainWindow on cold starts.
 - The remote-debugging flag uses the configured `Cef.Enabled` value, not the temporary transport
-  hold. A first cold start must write the flag while attachment is still prohibited.
+  hold. WSGM prepares it before startup applications, on warm adoption and before every cold launch,
+  while attachment can still be prohibited.
+
+The gate worker also maintains this opt-in and passively checks the native listener table. After
+Steam has spent 30 seconds outside a mode transition with a confirmed closed debugging port,
+`SessionModes` requests a graceful client exit and relaunches it in the current mode. The transport
+stays held and the exit monitor stays paused during replacement. Steam gets 15 seconds to exit; a
+refusal leaves the client running and surfaces a warning. An unreadable listener table or foreign
+port owner never triggers a restart. One recovery is admitted until the listener opens, Steam is
+closed deliberately, or the CEF master switch is disabled. The replacement's process-creation gap
+cannot rearm another restart. Recovery waits up to 30 seconds for the replacement's verified
+listener and reports a visible warning if activation fails. This also activates CEF when the master
+switch is enabled while Steam already runs. Startup grace and an open listener do not replace the
+normal window/target readiness checks or the attended debugging preflight.
 
 ### Retract before either Big Picture mode change
 
@@ -808,15 +827,15 @@ A limited set of WSGM's global settings, every one of which configures WSGM itse
 | Steam integration | the CEF master switch; library tabs, the SD-card library manager, SD formatting, formatting from Steam's storage page, the Home carousel and its uninstalled games; the Wi-Fi indicator, the native Quick Access bridge, keep awake during downloads, download queue sorting | at once, through the shell's config reload                                                                             |
 | Startup           | start WSGM at sign-in; start in game or desktop mode                                                                                                                                                                                                                         | at the next start; boot.json is rewritten with the setting                                                             |
 | Steam Input       | blocking Steam Input while WSGM's panels are open; Steam Input management, with the shim's state                                                                                                                                                                             | the lease at the next panel; management at once, with the same elevation and pending-update behaviour as WSGM Settings |
-| Plugins           | each installed plugin's on/off switch and, while it runs, its declared settings; the device plugin's settings, by section                                                                                                                                                    | as in WSGM Settings and Quick Access                                                                                   |
+| Plugins           | each installed common plugin's on/off switch and, while it runs, its declared settings                                                                                                                                                                                       | as in WSGM Settings and Quick Access                                                                                   |
 
 Turning the CEF master switch off asks first, in Steam's own destructive confirm: it removes this
 page and every WSGM feature in Steam, which come back only from WSGM's overlay or WSGM Settings.
 Turning the native Quick Access bridge off asks too, but the page stays: WSGM's pages follow CEF
 itself, not the bridge. A plugin's secret is never sent to Steam. Its row says whether one is set,
 takes a new one, and clears it when emptied. Two instances of one plugin are named by instance, and
-device plugin settings come only from the plugin installed now, never a declaration a removed one
-left in configuration.
+plugin settings come only from the currently admitted common instance, never a declaration a removed
+instance left in configuration. Built-in handheld controls use their native descriptors.
 
 Windows and other external state are not here, as they are not in WSGM Settings; they are on the
 overlay and in Quick Access. Artwork credentials and the Game Library defaults stay in WSGM
@@ -885,7 +904,7 @@ root through the known SharedJSContext and popup documents, with the original ho
   WSGM's layout publishes, in Steam's accent blue, as the Quick Access rows do. There is no Use
   global control on Steam's surfaces; Steam's Reset button returns the game to Global, and the
   overlay keeps its own Use global. A Global-only row is never marked.
-- An unavailable row is disabled and its line says why. A GPU package that is not ready puts its
+- An unavailable row is disabled and its line says why. A GPU publisher that is not ready puts its
   status before its controls.
 - Variable refresh is a normal row here; Valve's Performance row stays where it was.
 
@@ -1219,8 +1238,14 @@ running client and recorded in [steam-cef.md](steam-cef.md).
   that opens the importer, and the game menu carries "Change Artwork…", with admitted common plugins
   appended after, unable to claim a reserved id. The tab draws every row with Steam's own panel
   pieces and fields (`PanelSection`, its rows, `DialogButton`, `ToggleField`, the dropdown and text
-  field) and has no fallback drawing of its own. The game menu is intercepted before its first
-  render through the shared JSX claim. Both host pages are served on host-owned routes:
-  `wsgm.artwork-browser` and `wsgm.library-import`. Regression checks cover those seams; live visual
-  acceptance remains open. Completing a live 1:1 comparison of the artwork page with Decky
-  SteamGridDB remains an acceptance task.
+  field) and has no fallback drawing of its own. The game menu uses Steam's native
+  `additionalActions` slot through the shared JSX owner. It validates the actual native class and
+  observes naturally returned collection-menu items across later reactive renders, without calling
+  native methods eagerly or depending on the first render or a private factory's source location.
+  Competing handles and malformed native returns refuse the extension and preserve native behavior.
+  Toolkit sizing applies to its layout boxes, preserving Valve's slider internals. Cards use the
+  host's existing horizontal inset: adding another card margin squeezed native fields below their
+  minimum width and let sliders and dropdowns overflow. Both host pages are served on host-owned
+  routes: `wsgm.artwork-browser` and `wsgm.library-import`. Regression checks cover those seams;
+  live visual acceptance remains open. Completing a live 1:1 comparison of the artwork page with
+  Decky SteamGridDB remains an acceptance task.

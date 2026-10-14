@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Interop;
@@ -33,6 +34,12 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
         // installation directory the last probe verified.
         _osd = new RtssOsdRenderer(() => _lastProbe?.ExecutablePath);
         _osd.Start();
+    }
+
+    /// <inheritdoc />
+    public void ClearOverlay()
+    {
+        _osd.SetLevel(0);
     }
 
     /// <inheritdoc />
@@ -186,11 +193,17 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
             throw new InvalidDataException("RTSS did not return a valid frame-limit value.");
         }
 
-        // The overlay level is WSGM-owned renderer state, not an RTSS property, so its readback is
-        // this process's own live level.
+        // The selector is WSGM-owned, but RTSS can close its presentation gates independently.
+        // Reporting the cached selector alone hid that drift, including after an RTSS restart.
+        var presentation = ReadOverlayPresentation(_osd.Level, rtssProfileName, profile =>
+        {
+            api.LoadProfile(profile);
+            return api.TryGetUInt32(OverlayEnabledProperty, out var enabled) ? enabled : null;
+        });
+
         return new RtssReadback(
             new PerformanceValues((int)frameLimit, _osd.Level),
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow, presentation);
     }
 
     private RtssApplyResult ApplyCore(RtssApplyRequest request)
@@ -312,16 +325,38 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
                 : [requestedProfile, string.Empty];
     }
 
+    /// <summary>Combines the live selector with RTSS's global and application presentation gates.</summary>
+    /// <param name="level">WSGM's current selector level.</param>
+    /// <param name="profile">Active executable profile, or empty for global.</param>
+    /// <param name="readPresentation">Reads EnableOSD for one profile; null means no readback.</param>
+    /// <returns>False for a closed gate, true for open gates, or null when unknown or switched off.</returns>
+    internal static bool? ReadOverlayPresentation(int level, string profile, Func<string, uint?> readPresentation)
+    {
+        bool? enabled = level > 0 ? true : null;
+        foreach (var name in OverlayActivationProfiles(level, profile))
+        {
+            var value = readPresentation(name);
+            if (value == 0)
+            {
+                return false;
+            }
+
+            if (value != 1)
+            {
+                enabled = null;
+            }
+        }
+
+        return enabled;
+    }
+
     private async Task RequireReadyAsync(
         long generation,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ObjectDisposedException.ThrowIf(_disposed, this);
-        var probe = _lastProbe is { Availability: RtssAvailability.Ready } cached
-                    && cached.Generation == generation
-            ? cached
-            : await ProbeAsync(cancellationToken).ConfigureAwait(false);
+        var probe = await ProbeAsync(cancellationToken).ConfigureAwait(false);
         if (probe.Availability != RtssAvailability.Ready || probe.Generation != generation)
         {
             throw new InvalidOperationException(
@@ -372,6 +407,15 @@ internal sealed class SimulatedRtssAdapter : IRtssAdapter
         };
 
     private bool _disposed;
+
+    /// <inheritdoc />
+    public void ClearOverlay()
+    {
+        foreach (var name in _profiles.Keys.ToArray())
+        {
+            _profiles[name] = _profiles[name] with { OverlayLevel = 0 };
+        }
+    }
 
     /// <inheritdoc />
     public void ApplyOsdCustomization(RtssOsdCustomSettings settings)
@@ -428,7 +472,8 @@ internal sealed class SimulatedRtssAdapter : IRtssAdapter
         var values = _profiles.TryGetValue(rtssProfileName, out var profile)
             ? profile
             : _profiles[string.Empty];
-        return Task.FromResult(new RtssReadback(values, DateTimeOffset.UtcNow));
+        return Task.FromResult(new RtssReadback(values, DateTimeOffset.UtcNow,
+            values.OverlayLevel is > 0 ? true : null));
     }
 
     /// <inheritdoc />

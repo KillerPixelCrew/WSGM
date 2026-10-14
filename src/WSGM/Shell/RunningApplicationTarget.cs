@@ -602,6 +602,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
     private int _disposed;
     private ForegroundApplicationObservation _foreground = ForegroundApplicationObservation.None;
     private SteamRunningAppsObservation? _lastObservation;
+    private SteamRunningAppProfile? _lastPublishedProfile;
     private Task? _loop;
     private DateTimeOffset _nextProfileRetry;
     private SteamRunningAppProfile? _profile;
@@ -686,7 +687,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
         return _observers.Acquire();
     }
 
-    /// <summary>Starts the loop once; it remains idle without observation leases or while Steam is disabled.</summary>
+    /// <summary>Starts the loop once; foreground liveness continues without Steam while an observation lease is held.</summary>
     /// <exception cref="ObjectDisposedException">The monitor has been disposed.</exception>
     internal void Start()
     {
@@ -734,7 +735,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
 
             _foreground = next;
             observation = _lastObservation;
-            profile = _profile;
+            profile = _lastPublishedProfile;
         }
 
         if (observation is null)
@@ -776,9 +777,18 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
         var cancellationToken = _shutdown.Token;
         while (!cancellationToken.IsCancellationRequested)
         {
-            if (_observers.Count == 0 || !_steamEnabled)
+            if (_observers.Count == 0)
             {
                 await _observers.WaitAsync(cancellationToken).ConfigureAwait(false);
+                continue;
+            }
+
+            if (!_steamEnabled)
+            {
+                // Foreground-only games still need liveness checks and RTSS pairing refreshes.
+                // Disabling Steam must stop CEF work, not freeze the last application's identity.
+                Publish(new SteamRunningAppsObservation(true, [], 0, null), null);
+                await Task.Delay(PollInterval, cancellationToken).ConfigureAwait(false);
                 continue;
             }
 
@@ -968,6 +978,7 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
             }
 
             _lastObservation = observation;
+            _lastPublishedProfile = profile;
             foregroundName = _foreground.ExecutableName;
             next = RunningApplicationTargetProjection.Apply(
                 _current,

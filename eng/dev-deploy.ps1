@@ -106,11 +106,18 @@ if (-not $SkipBuild) {
 
 $newExe = Join-Path $appPublish 'WSGM.exe'
 # Keep family licences and glyph notices readable in the established development install too.
-foreach ($family in 'MsiClaw', 'RogAlly') {
+$handheldFamilyFiles = @()
+foreach ($family in 'Ayaneo', 'Generic', 'Gpd', 'LegionGo', 'MsiClaw', 'OneXPlayer', 'RogAlly', 'SteamDeck', 'Zotac') {
     $familySource = Join-Path $root "external\libhandheld\src\LibHandheld\Families\$family"
     foreach ($notice in 'THIRD_PARTY_NOTICES.md', 'PROVENANCE.md', 'LICENSE') {
-        Copy-Item -LiteralPath (Join-Path $familySource $notice) `
-            -Destination (Join-Path $appPublish "LibHandheld-$family-$notice") -Force
+        $source = Join-Path $familySource $notice
+        if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+            if ($notice -eq 'THIRD_PARTY_NOTICES.md') { throw "Missing glyph notices for $family" }
+            continue
+        }
+        $name = "LibHandheld-$family-$notice"
+        Copy-Item -LiteralPath $source -Destination (Join-Path $appPublish $name) -Force
+        $handheldFamilyFiles += $name
     }
 }
 if (-not (Test-Path -LiteralPath $newExe)) {
@@ -200,11 +207,11 @@ if ($wsgmProcesses.Count -ne 0) {
 $copies = [Collections.Generic.List[object]]::new()
 $copies.Add(@{ Source = $newExe; Name = 'WSGM.exe'; Process = '' })
 $copies.Add(@{ Source = $newExe; Name = 'WSGM.ShellAnchor.exe'; Process = 'WSGM.ShellAnchor' })
-foreach ($pattern in 'WSGM.Launch.exe', 'WSGM.PackagedLaunch.exe', '*.dll', 'WSGM.deps.json',
+$copyPatterns = @('WSGM.Launch.exe', 'WSGM.PackagedLaunch.exe', '*.dll', 'WSGM.deps.json',
     'WSGM.runtimeconfig.json', 'LibGPUDriverInteract-LICENSE.txt', 'LibGPUDriverInteract-PROVENANCE.md',
     'LibHandheld-LICENSE.txt', 'LibHandheld-PROVENANCE.md', 'LibHandheld-Transports-NOTICES.md',
-    'LibHandheld-MsiClaw-*', 'LibHandheld-RogAlly-*',
-    'LibHandheld-Transports-MPL-2.0.txt', 'LibHandheld-Transports-LGPL-2.1.txt') {
+    'LibHandheld-Transports-MPL-2.0.txt', 'LibHandheld-Transports-LGPL-2.1.txt') + $handheldFamilyFiles
+foreach ($pattern in $copyPatterns) {
     foreach ($file in @(Get-ChildItem -LiteralPath $appPublish -Filter $pattern -ErrorAction SilentlyContinue)) {
         $copies.Add(@{ Source = $file.FullName; Name = $file.Name; Process = '' })
     }

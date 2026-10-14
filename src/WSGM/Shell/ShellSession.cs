@@ -769,6 +769,7 @@ public sealed partial class ShellSession
             _deviceCoordinator is null
                 ? null
                 : ApplyRunningApplicationTargetAsync);
+        _foregroundWindows.Start();
     }
 
     /// <summary>
@@ -1288,6 +1289,8 @@ public sealed partial class ShellSession
             ToggleSteamQuickAccessAsync = token =>
                 ToggleSteamSurfaceAsync(SteamNativeSurfaceAction.QuickAccess, token),
             ToggleSteamOverlayAsync = token => ToggleSteamSurfaceAsync(SteamNativeSurfaceAction.Home, token),
+            WrapperInputLeaseActive = ReadWrapperInputLeaseActive,
+            SendSteamShortcutAsync = SendSteamMenuShortcutAsync,
             ToggleDevicePageAsync = cancellationToken => RunUiActionAsync(() =>
             {
                 _overlay?.ShowDevicePage();

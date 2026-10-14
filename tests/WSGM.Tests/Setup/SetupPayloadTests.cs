@@ -44,7 +44,60 @@ public sealed class SetupPayloadTests
         Assert.False(stream.CanRead);
     }
 
-    private static TrackedStream Archive(string? bundle)
+    [Theory]
+    [InlineData("download", true)]
+    [InlineData("bundled", false)]
+    public void DistributionMarkerSelectsPrerequisiteAcquisition(string mode, bool online)
+    {
+        using var payload = SetupPayload.OpenArchive(Archive(
+            "{\"schemaVersion\":1,\"wsgmVersion\":\"2.1.0\"}",
+            $"{{\"schemaVersion\":1,\"prerequisites\":\"{mode}\"}}"));
+
+        Assert.Equal(online, payload.Online);
+        Assert.True(payload.DistributionSpecified);
+    }
+
+    [Fact]
+    public void LegacyPayloadDoesNotOptIntoOnlinePrerequisites()
+    {
+        using var payload = SetupPayload.OpenArchive(Archive("{\"schemaVersion\":1,\"wsgmVersion\":\"2.1.0\"}"));
+
+        Assert.False(payload.Online);
+        Assert.False(payload.DistributionSpecified);
+    }
+
+    [Theory]
+    [InlineData("not json")]
+    [InlineData("null")]
+    [InlineData("{}")]
+    [InlineData("{\"schemaVersion\":2,\"prerequisites\":\"download\"}")]
+    [InlineData("{\"schemaVersion\":\"1\",\"prerequisites\":\"download\"}")]
+    [InlineData("{\"schemaVersion\":1,\"prerequisites\":true}")]
+    [InlineData("{\"schemaVersion\":1,\"prerequisites\":\"unknown\"}")]
+    public void InvalidDistributionRefusesAndReleasesTheArchive(string marker)
+    {
+        var stream = Archive("{\"schemaVersion\":1,\"wsgmVersion\":\"2.1.0\"}", marker);
+
+        Assert.Throws<InvalidDataException>(() => SetupPayload.OpenArchive(stream));
+        Assert.Equal(1, stream.Disposals);
+    }
+
+    [Theory]
+    [InlineData("download", true)]
+    [InlineData("bundled", false)]
+    public void DirectoryPayloadUsesTheSameDistributionMarker(string mode, bool online)
+    {
+        using var directory = new TemporaryDirectory();
+        File.WriteAllText(directory.GetPath("bundle.json"), "{\"schemaVersion\":1,\"wsgmVersion\":\"2.1.0\"}");
+        File.WriteAllText(directory.GetPath("setup-distribution.json"),
+            $"{{\"schemaVersion\":1,\"prerequisites\":\"{mode}\"}}");
+        using var payload = SetupPayload.Open(directory.GetPath("."));
+
+        Assert.Equal(online, payload!.Online);
+        Assert.True(payload.DistributionSpecified);
+    }
+
+    private static TrackedStream Archive(string? bundle, string? distribution = null)
     {
         using var buffer = new MemoryStream();
         using (var archive = new ZipArchive(buffer, ZipArchiveMode.Create, true))
@@ -53,6 +106,12 @@ public sealed class SetupPayloadTests
             {
                 using var manifest = archive.CreateEntry("bundle.json").Open();
                 manifest.Write(Encoding.UTF8.GetBytes(bundle));
+            }
+
+            if (distribution is not null)
+            {
+                using var marker = archive.CreateEntry("setup-distribution.json").Open();
+                marker.Write(Encoding.UTF8.GetBytes(distribution));
             }
 
             using var application = archive.CreateEntry("App/app.txt").Open();

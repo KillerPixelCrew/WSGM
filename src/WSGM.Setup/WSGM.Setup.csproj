@@ -57,5 +57,7 @@
                       Condition="Exists('..\..\artifacts\pawnio\PawnIO_setup.exe')"
                       LogicalName="WSGM.PawnIO.Installer"/>
     <EmbeddedResource Include="..\..\eng\webview2-runtime.lock.json" LogicalName="WSGM.WebView2RuntimePin"/>
+    <EmbeddedResource Include="..\..\eng\rtss-runtime.lock.json" LogicalName="WSGM.RtssRuntimePin"/>
+    <EmbeddedResource Include="..\..\external\controller\controller-components.lock.json" LogicalName="WSGM.ControllerComponentsPin"/>
   </ItemGroup>
 </Project>

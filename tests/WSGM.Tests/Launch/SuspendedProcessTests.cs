@@ -1,4 +1,5 @@
 extern alias launch;
+using System.ComponentModel;
 using System.Diagnostics;
 using launch::WSGM.Launch;
 using WSGM.Testing;
@@ -7,6 +8,39 @@ namespace WSGM.Tests.Launch;
 
 public sealed class SuspendedProcessTests
 {
+    [Fact]
+    public void AnInvalidPrimaryTokenIsRefusedWithoutStartingAtCallerIntegrity()
+    {
+        using var temporary = new TemporaryDirectory();
+        ProcessStartInfo start = new(Path.Combine(Environment.SystemDirectory, "cmd.exe"))
+        {
+            WorkingDirectory = temporary.Root
+        };
+        // If the token were ignored, this would create the marker at the caller's integrity.
+        var marker = Path.Combine(temporary.Root, "must-not-run.txt");
+        start.Arguments = $"/c echo launched>\"{marker}\"";
+
+        Assert.Throws<launch::WSGM.Core.ProcessCreationException>(() =>
+            SuspendedProcess.Start(start, primaryToken: -1));
+        Assert.False(File.Exists(marker));
+    }
+
+    [Fact]
+    public void AContainmentFailureDoesNotAuthorizeAnotherCreationRoute()
+    {
+        ProcessStartInfo start = new(Path.Combine(Environment.SystemDirectory, "cmd.exe"))
+        {
+            WorkingDirectory = Environment.CurrentDirectory
+        };
+        start.Arguments = "/c exit /b 17";
+        var refused = new Win32Exception(5, "Containment refused after creation.");
+
+        var actual = Assert.Throws<Win32Exception>(() =>
+            launch::WSGM.Core.ContainedProcessStart.Start(start, _ => throw refused));
+
+        Assert.Same(refused, actual);
+    }
+
     [Fact]
     public async Task AnUnqualifiedTargetRetainsWindowsSearchAndImpliedExe()
     {

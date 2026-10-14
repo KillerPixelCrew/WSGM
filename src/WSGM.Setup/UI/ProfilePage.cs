@@ -59,8 +59,8 @@ internal sealed class ProfilePage : Page
             "Opens WSGM with a button combination you set in Settings.", null, "Getting to WSGM", false),
         ["bootSplash"] = ("Boot splash", "Covers the desktop while Game Mode starts.", null, "Start", false),
         ["rtss"] = ("RivaTuner Statistics Server",
-            "Frame limit, performance overlay and AutoTDP. If RTSS isn't installed, setup downloads it from Guru3D "
-            + "and installs it.", null, "Performance", true)
+            "Frame limit, performance overlay and AutoTDP. If RTSS isn't installed, setup installs its pinned "
+            + "build, bundled in Offline setup or downloaded by Online setup.", null, "Performance", true)
     };
 
     private readonly JsonObject _presets;

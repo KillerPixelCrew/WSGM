@@ -246,6 +246,12 @@ internal sealed class PerformanceService : IAsyncDisposable
                 _profiles = profiles;
                 _enabled = enabled;
                 _state = WithResolvedDesired(_state with { Target = TargetFor(profiles.Active) });
+                if (!enabled)
+                {
+                    _adapter.ClearOverlay();
+                    _state = _state with { Observed = _state.Observed.With(PerformanceControl.OverlayLevel, 0) };
+                }
+
                 next = _state;
             }
         }
@@ -481,7 +487,9 @@ internal sealed class PerformanceService : IAsyncDisposable
         // the adapter gate so UI commands can still observe and report the unavailable state.
         if (launchProbe is not null)
         {
-            await _launcher.TryStartAsync(launchProbe, Enabled, admission.Token).ConfigureAwait(false);
+            await _launcher.TryStartAsync(launchProbe, Enabled, admission.Token, RefreshStartedRtssAsync)
+                .ConfigureAwait(false);
+            _launcher.Watch(Current.Probe, KickRefresh);
         }
 
         // Also outside the gate, and for the same reason: the repair is an ordinary command and
@@ -489,6 +497,20 @@ internal sealed class PerformanceService : IAsyncDisposable
         if (Drifted())
         {
             await ApplyEffectiveDesiredAsync("drift-repair", admission.Token).ConfigureAwait(false);
+        }
+    }
+
+    private async Task<bool> RefreshStartedRtssAsync(CancellationToken cancellationToken)
+    {
+        await _adapterGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await RefreshInsideGateAsync(cancellationToken).ConfigureAwait(false);
+            return Current.Probe.Availability == RtssAvailability.Ready;
+        }
+        finally
+        {
+            _adapterGate.Release();
         }
     }
 
@@ -512,6 +534,11 @@ internal sealed class PerformanceService : IAsyncDisposable
         }
 
         List<string> drift = [];
+        if (snapshot.Desired.OverlayLevel is > 0 && snapshot.OverlayPresentationEnabled == false)
+        {
+            drift.Add("RTSS OSD presentation is disabled");
+        }
+
         foreach (var control in DriftCheckedControls)
         {
             if (snapshot.Desired.ValueFor(control) is { } wanted
@@ -734,6 +761,7 @@ internal sealed class PerformanceService : IAsyncDisposable
                 {
                     Probe = probe,
                     Observed = PerformanceValues.Empty,
+                    OverlayPresentationEnabled = null,
                     RefreshedAt = _timeProvider.GetUtcNow()
                 });
                 unavailable = _state;
@@ -807,6 +835,7 @@ internal sealed class PerformanceService : IAsyncDisposable
             {
                 Probe = probe,
                 Observed = readback.Values,
+                OverlayPresentationEnabled = readback.OverlayPresentationEnabled,
                 RefreshedAt = readback.Timestamp,
                 Command = command
             });
@@ -824,6 +853,9 @@ internal sealed class PerformanceService : IAsyncDisposable
             _state = _state with
             {
                 Observed = _state.Observed.With(control, value),
+                OverlayPresentationEnabled = control == PerformanceControl.OverlayLevel
+                    ? value > 0 ? true : null
+                    : _state.OverlayPresentationEnabled,
                 RefreshedAt = _timeProvider.GetUtcNow()
             };
             next = _state;

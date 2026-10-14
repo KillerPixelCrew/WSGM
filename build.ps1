@@ -1,7 +1,6 @@
 # WSGM release build: self-contained publish, plugin bundle and the WSGM setup.
-# Output: publish\WSGM-Setup-<version>.exe (the one-file setup, which carries the application,
-# the virtual-controller stack and every bundled plugin; the only shipped artifact) and
-# publish\bundle.json.
+# Output: publish\WSGM-Setup-<version>.exe (offline),
+# publish\WSGM-Setup-<version>-Online.exe and publish\bundle.json.
 #
 # -BundleFrom takes the plugin bundle (Packages, bundle.json, Tools) from a directory that
 # eng\build-bundle.ps1 produced elsewhere. The release workflow builds the bundle in a job without
@@ -114,10 +113,18 @@ if (-not (Test-Path "$appPublish\libviiper.dll")) { throw "VIIPER controller lib
 if (-not (Test-Path "$appPublish\LibHandheld.dll")) { throw "Handheld library was not published" }
 
 # Family glyph licences and source provenance remain readable outside the embedded library.
-foreach ($family in @("MsiClaw", "RogAlly")) {
+$handheldFamilyFiles = @()
+foreach ($family in @("Ayaneo", "Generic", "Gpd", "LegionGo", "MsiClaw", "OneXPlayer", "RogAlly", "SteamDeck", "Zotac")) {
     $familySource = "$root\external\libhandheld\src\LibHandheld\Families\$family"
     foreach ($notice in @("THIRD_PARTY_NOTICES.md", "PROVENANCE.md", "LICENSE")) {
-        Copy-Item -LiteralPath "$familySource\$notice" -Destination "$appPublish\LibHandheld-$family-$notice"
+        $source = "$familySource\$notice"
+        if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+            if ($notice -eq "THIRD_PARTY_NOTICES.md") { throw "Missing glyph notices for $family" }
+            continue
+        }
+        $name = "LibHandheld-$family-$notice"
+        Copy-Item -LiteralPath $source -Destination "$appPublish\$name"
+        $handheldFamilyFiles += $name
     }
 }
 
@@ -150,10 +157,6 @@ else {
 # (VIIPER, the USB/IP driver and HidHide), Packages and bundle.json are every
 # bundled plugin. Anything else in publish\App stays out.
 Write-Host "== Assembling the setup payload ==" -ForegroundColor Cyan
-$payload = "$root\publish\Payload"
-$payloadApp = "$payload\App"
-$payloadController = "$payload\Controller"
-New-Item -ItemType Directory -Path $payloadApp, $payloadController | Out-Null
 $appFiles = @(
     "WSGM.exe", "WSGM.deps.json", "WSGM.runtimeconfig.json", "WSGM.Launch.exe",
     "WSGM.Launch.deps.json", "WSGM.Launch.runtimeconfig.json",
@@ -161,46 +164,76 @@ $appFiles = @(
     "WSGM.PackagedLaunch.deps.json", "WSGM.PackagedLaunch.runtimeconfig.json", "SharpCompress-LICENSE.txt",
     "LICENSE.txt", "LibGPUDriverInteract-LICENSE.txt", "LibGPUDriverInteract-PROVENANCE.md",
     "LibHandheld-LICENSE.txt", "LibHandheld-PROVENANCE.md",
-    "LibHandheld-MsiClaw-THIRD_PARTY_NOTICES.md", "LibHandheld-MsiClaw-PROVENANCE.md", "LibHandheld-MsiClaw-LICENSE",
-    "LibHandheld-RogAlly-THIRD_PARTY_NOTICES.md", "LibHandheld-RogAlly-PROVENANCE.md", "LibHandheld-RogAlly-LICENSE",
     "LibHandheld-Transports-NOTICES.md", "LibHandheld-Transports-MPL-2.0.txt", "LibHandheld-Transports-LGPL-2.1.txt",
     "LoadingIndicators.Avalonia-UNLICENSE.txt", "Avalonia.Labs-MIT.txt",
     "Avalonia.LiveBackdrop.ThirdParty.txt", "WebView2-LICENSE.txt", "WebView2-NOTICE.txt",
     "Microsoft.Data.Sqlite-MIT.txt", "SQLitePCLRaw-Apache-2.0.txt",
     "DotNetRuntime-LICENSE.txt", "DotNetRuntime-THIRD-PARTY-NOTICES.txt"
 )
-foreach ($file in $appFiles) {
-    Copy-Item -LiteralPath "$appPublish\$file" -Destination $payloadApp
-}
-# The Explorer recovery owner is the same image under a distinct name, so a force stop of WSGM.exe
-# never ends the process that must restore Explorer.
-Copy-Item -LiteralPath "$appPublish\WSGM.exe" -Destination "$payloadApp\WSGM.ShellAnchor.exe"
-Copy-Item -LiteralPath "$appPublish\Resources" -Destination "$payloadApp\Resources" -Recurse
-Get-ChildItem -LiteralPath $appPublish -File | Where-Object {
-    ($_.Extension -eq ".dll" -and $_.Name -ne "libviiper.dll") -or $_.Name -like "SteamInputLease-*"
-} | Copy-Item -Destination $payloadApp
+$appFiles += $handheldFamilyFiles
 $controllerAssets = @((Get-Content -LiteralPath "$root\external\controller\controller-components.lock.json" -Raw |
     ConvertFrom-Json).components.asset)
-foreach ($file in (@("libviiper.dll", "libviiper.h", "VIIPER-LICENSE.txt", "VIIPER-NOTICE.md") + $controllerAssets)) {
-    Copy-Item -LiteralPath "$appPublish\$file" -Destination $payloadController
+
+function New-SetupPayload([string]$Destination, [bool]$Bundled) {
+    $payloadApp = "$Destination\App"
+    $payloadController = "$Destination\Controller"
+    New-Item -ItemType Directory -Path $payloadApp, $payloadController | Out-Null
+    foreach ($file in $appFiles) {
+        Copy-Item -LiteralPath "$appPublish\$file" -Destination $payloadApp
+    }
+    # The recovery owner uses a distinct image name so stopping WSGM.exe leaves it alive.
+    Copy-Item -LiteralPath "$appPublish\WSGM.exe" -Destination "$payloadApp\WSGM.ShellAnchor.exe"
+    Copy-Item -LiteralPath "$appPublish\Resources" -Destination "$payloadApp\Resources" -Recurse
+    Get-ChildItem -LiteralPath $appPublish -File | Where-Object {
+        ($_.Extension -eq ".dll" -and $_.Name -ne "libviiper.dll") -or $_.Name -like "SteamInputLease-*"
+    } | Copy-Item -Destination $payloadApp
+    $controllerFiles = @("libviiper.dll", "libviiper.h", "VIIPER-LICENSE.txt", "VIIPER-NOTICE.md")
+    if ($Bundled) { $controllerFiles += $controllerAssets }
+    foreach ($file in $controllerFiles) {
+        Copy-Item -LiteralPath "$appPublish\$file" -Destination $payloadController
+    }
+    Copy-Item -LiteralPath "$root\src\WSGM.Setup\Install-UsbipDriver.ps1" -Destination $payloadController
+    Copy-Item -LiteralPath "$root\external\controller\licenses\usbip-win2-BSD-2-Clause.txt" -Destination $payloadController
+    Copy-Item -LiteralPath "$root\external\controller\licenses\HidHide-MIT.txt" -Destination $payloadController
+    Copy-Item -LiteralPath "$root\publish\Packages" -Destination "$Destination\Packages" -Recurse
+    Copy-Item -LiteralPath "$root\publish\bundle.json" -Destination $Destination
+    $prerequisites = if ($Bundled) { "bundled" } else { "download" }
+    @{ schemaVersion = 1; prerequisites = $prerequisites } | ConvertTo-Json |
+        Set-Content -LiteralPath "$Destination\setup-distribution.json" -Encoding utf8
+    if ($Bundled) {
+        & "$root\eng\stage-webview2-runtime.ps1" -Destination "$Destination\MediaRuntime"
+        & "$root\eng\stage-rtss-runtime.ps1" -Destination "$Destination\PerformanceRuntime"
+    }
+    & "$root\eng\assert-component-staging.ps1" -OutputRoot $Destination
 }
-Copy-Item -LiteralPath "$root\src\WSGM.Setup\Install-UsbipDriver.ps1" -Destination $payloadController
-Copy-Item -LiteralPath "$root\external\controller\licenses\usbip-win2-BSD-2-Clause.txt" -Destination $payloadController
-Copy-Item -LiteralPath "$root\external\controller\licenses\HidHide-MIT.txt" -Destination $payloadController
-Copy-Item -LiteralPath "$root\publish\Packages" -Destination "$payload\Packages" -Recurse
-Copy-Item -LiteralPath "$root\publish\bundle.json" -Destination $payload
-& "$root\eng\stage-webview2-runtime.ps1" -Destination "$payload\MediaRuntime"
-& "$root\eng\assert-component-staging.ps1" -OutputRoot $payload
 
+# Payload and the original filename remain the offline distribution for existing tooling.
+$payload = "$root\publish\Payload"
+$onlinePayload = "$root\publish\OnlinePayload"
+New-SetupPayload -Destination $payload -Bundled $true
+New-SetupPayload -Destination $onlinePayload -Bundled $false
 $payloadZip = "$root\publish\payload.zip"
+$onlinePayloadZip = "$root\publish\online-payload.zip"
 [IO.Compression.ZipFile]::CreateFromDirectory($payload, $payloadZip, [IO.Compression.CompressionLevel]::Optimal, $false)
+[IO.Compression.ZipFile]::CreateFromDirectory($onlinePayload, $onlinePayloadZip, [IO.Compression.CompressionLevel]::Optimal, $false)
 
-Write-Host "== Publishing WSGM.Setup ==" -ForegroundColor Cyan
+Write-Host "== Publishing WSGM.Setup (offline) ==" -ForegroundColor Cyan
 $setupOut = "$root\publish\SetupOut"
 dotnet publish "$root\src\WSGM.Setup\WSGM.Setup.csproj" -c Release -r win-x64 `
     -o $setupOut --no-restore "-p:SetupPayload=$payloadZip" -m:1
 if ($LASTEXITCODE -ne 0) { throw "WSGM.Setup publish failed" }
 Copy-Item -LiteralPath "$setupOut\WSGM.Setup.exe" -Destination "$root\publish\WSGM-Setup-$version.exe"
+
+# Both payloads can predate the first compilation. Remove only Setup's intermediate assembly to
+# force its embedded resource to be compiled again, without rebuilding the application or plugins.
+$setupAssembly = "$root\src\WSGM.Setup\obj\Release\net10.0-windows10.0.19041.0\win-x64\WSGM.Setup.dll"
+Remove-Item -LiteralPath $setupAssembly -Force
+Write-Host "== Publishing WSGM.Setup (online) ==" -ForegroundColor Cyan
+$onlineSetupOut = "$root\publish\OnlineSetupOut"
+dotnet publish "$root\src\WSGM.Setup\WSGM.Setup.csproj" -c Release -r win-x64 `
+    -o $onlineSetupOut --no-restore "-p:SetupPayload=$onlinePayloadZip" -m:1
+if ($LASTEXITCODE -ne 0) { throw "WSGM.Setup online publish failed" }
+Copy-Item -LiteralPath "$onlineSetupOut\WSGM.Setup.exe" -Destination "$root\publish\WSGM-Setup-$version-Online.exe"
 
 Get-ChildItem "$root\publish\WSGM-Setup-*.exe" |
     Select-Object Name, @{n='SizeMB';e={[math]::Round($_.Length/1MB,1)}}

@@ -753,7 +753,7 @@ public partial class OverlayWindow
         var key = Volatile.Read(ref _glyphInputKey);
         foreach (var (control, tile) in _glyphTiles)
         {
-            tile.Classes.Set("pressed", GlyphInputTestMap.Lights(key, control));
+            tile.Classes.Set("pressed", GlyphInputTestMap.Lights(key, control) || _glyphOemPressed.Contains(control));
         }
     }
 
@@ -846,14 +846,18 @@ public partial class OverlayWindow
 
         if (!observe)
         {
+            Interlocked.Increment(ref _glyphOemEpoch);
             if (_deviceBridge is not null)
             {
                 _deviceBridge.PhysicalSampleReceived -= OnPhysicalGlyphSample;
+                _deviceBridge.PhysicalOemControlReceived -= OnPhysicalGlyphOemControl;
+                _deviceBridge.PhysicalInputReset -= OnPhysicalGlyphReset;
             }
 
             _glyphInputObservation?.Dispose();
             _glyphInputObservation = null;
             Volatile.Write(ref _glyphInputKey, 0);
+            _glyphOemPressed.Clear();
             return;
         }
 
@@ -864,7 +868,48 @@ public partial class OverlayWindow
         }
 
         bridge.PhysicalSampleReceived += OnPhysicalGlyphSample;
+        bridge.PhysicalOemControlReceived += OnPhysicalGlyphOemControl;
+        bridge.PhysicalInputReset += OnPhysicalGlyphReset;
         _glyphInputObservation = bridge.ObservePhysicalSamples();
+    }
+
+    private void OnPhysicalGlyphOemControl(GlyphControlId control, bool pressed)
+    {
+        var epoch = Volatile.Read(ref _glyphOemEpoch);
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_closed || _glyphInputObservation is null || epoch != Volatile.Read(ref _glyphOemEpoch))
+            {
+                return;
+            }
+
+            if (pressed)
+            {
+                _glyphOemPressed.Add(control);
+            }
+            else
+            {
+                _glyphOemPressed.Remove(control);
+            }
+
+            ApplyGlyphInputTest();
+        });
+    }
+
+    private void OnPhysicalGlyphReset()
+    {
+        var epoch = Interlocked.Increment(ref _glyphOemEpoch);
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_closed || epoch != Volatile.Read(ref _glyphOemEpoch))
+            {
+                return;
+            }
+
+            _glyphOemPressed.Clear();
+            Volatile.Write(ref _glyphInputKey, 0);
+            ApplyGlyphInputTest();
+        });
     }
 
     /// <summary>Marshals one physical sample onto the UI thread and lights what it presses.</summary>

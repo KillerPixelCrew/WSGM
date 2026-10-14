@@ -8,7 +8,7 @@ other line around it.
 
 ## Levels
 
-`Log.Debug/Info/Warn/Error`, `PluginTrace.Debug/Info/Warn/Error` in a device plugin, and
+`Log.Debug/Info/Warn/Error`, native library diagnostics adapted by `HandheldDeviceRuntime`, and
 `IPluginHost.Trace(level, scope, message)` in a common plugin, which WSGM writes under
 `plugin/<id>`. The threshold is `Info` unless verbose diagnostics are on.
 
@@ -27,7 +27,6 @@ warnings are routine is the same as reading one with no warnings at all.
 ## Poll loops use a key
 
 Anything observed repeatedly goes through `Log.Change(key, message, level)`, or
-`PluginTrace.Change(scope, key, message, level)` from a device plugin, or
 `IPluginHost.TraceChange(level, scope, key, message)` from a common plugin. It writes only when that
 key's message differs, and counts what it suppressed so the next line that does change carries
 `(previous state held for N more polls)`. A silent drop would be worse than the repetition, because
@@ -54,11 +53,10 @@ without bound. Per-subject keys (`tray.rejected.{hwnd}.{uid}`) are why the cap e
 
 Use dotted segments, most general first: `steam.ui.discovery`, `running-apps.observation`,
 `device-command/{capability}`. Existing keys are in three styles and several are documented
-contracts in [device plugin system](device-plugin-system.md) and
-[the Steam CEF system](steam-cef-system.md); do not rename those to match, and write new ones in the
-dotted style.
+contracts in [device runtime](device-runtime.md) and [the Steam CEF system](steam-cef-system.md); do
+not rename those to match, and write new ones in the dotted style.
 
-The device package's keys are namespaced by the host as `plugin/{scope}/{key}`. Common plugins use
+Native device diagnostics come through the library/runtime observer. Common plugins use
 `plugin/{pluginId}/{scope}/{key}`, so two packages can use the same local scope and key. Their
 visible lines follow the same prefix with `: message`; blank scopes become `plugin` and blank keys
 become `state`. [`PluginLogLine`](../src/WSGM/Shell/PluginLogLine.cs) owns this formatting, after

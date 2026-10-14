@@ -38,6 +38,9 @@ public sealed record CapabilityCommand
     /// </remarks>
     public int? PairedPowerLimitWatts { get; init; }
 
+    /// <summary>Whether a uniform power request must also update every declared independent limit.</summary>
+    public bool ApplyUniformPowerTarget { get; init; }
+
     /// <summary>When the command stops being worth applying, on the active clock.</summary>
     public required Deadline Deadline { get; init; }
 }

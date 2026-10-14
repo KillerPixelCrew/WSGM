@@ -130,4 +130,40 @@ internal sealed class FakeDevice : IDeviceOverlaySource
     {
         _changed?.Invoke();
     }
+
+    public event Action<GlyphControlId, bool>? PhysicalOemControlReceived
+    {
+        add
+        {
+            if (SampleSource is not null)
+            {
+                SampleSource.PhysicalOemControlReceived += value;
+            }
+        }
+        remove
+        {
+            if (SampleSource is not null)
+            {
+                SampleSource.PhysicalOemControlReceived -= value;
+            }
+        }
+    }
+
+    public event Action? PhysicalInputReset
+    {
+        add
+        {
+            if (SampleSource is not null)
+            {
+                SampleSource.PhysicalInputReset += value;
+            }
+        }
+        remove
+        {
+            if (SampleSource is not null)
+            {
+                SampleSource.PhysicalInputReset -= value;
+            }
+        }
+    }
 }

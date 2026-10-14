@@ -2,12 +2,15 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
 using LibHandheld.Contracts;
 using WSGM.Install;
+using WSGM.Security;
 using WSGM.Shared;
 
 namespace WSGM.Setup.Engine;
@@ -423,12 +426,12 @@ internal sealed class SetupEngine : IDisposable
         steps.Add(new SetupStep("Copying WSGM", $"WSGM {Display(ThisVersion)} installed", true,
             step => InstallApplication(step, controller)));
         steps.Add(new SetupStep("Keeping this setup for repair and uninstall", "Setup stored for repair", true,
-            _ => StoreSetup(payload)));
+            step => StoreSetup(payload, step)));
         foreach (var id in choices.CommonPluginIds)
         {
             var plugin = payload.Bundle.Plugins.First(candidate => candidate.Id == id);
             steps.Add(new SetupStep("Installing " + plugin.Name, $"{plugin.Name} {plugin.Version} installed", true,
-                _ => InstallPlugin(payload, plugin)));
+                step => InstallPlugin(payload, plugin, step)));
         }
 
         steps.Add(new SetupStep("Applying your profile", "Profile applied", true,
@@ -487,13 +490,16 @@ internal sealed class SetupEngine : IDisposable
                 }));
         }
 
-        // RTSS is the one component setup downloads rather than carries; a failure leaves WSGM working without it.
+        // A prerequisite failure leaves WSGM working without its optional integration.
         if (choices.Answers["features"]?["rtss"]?.GetValue<bool>() == true)
         {
             steps.Add(new SetupStep("Installing RivaTuner Statistics Server",
-                $"RivaTuner Statistics Server {RtssInstaller.Version} installed", false, RtssInstaller.Install)
+                $"RivaTuner Statistics Server {RtssInstaller.Version} installed", false,
+                step => RtssInstaller.Install(payload, step))
             {
-                Hint = "Setup downloads RTSS from Guru3D's mirror now."
+                Hint = payload.Online || !payload.DistributionSpecified
+                    ? "Setup downloads RTSS from Guru3D's mirror now."
+                    : "Setup uses the bundled RTSS installer."
             });
         }
 
@@ -724,6 +730,11 @@ internal sealed class SetupEngine : IDisposable
             _runtime.ForceStopCurrentSession("steamwebhelper.exe");
         }
 
+        if (!ReleaseFiles(step, [.. CreateFileTransaction().ReplacementPaths, AppStaging]))
+        {
+            return false;
+        }
+
         var blockers = _runtime.Blockers(includeSteam: true);
         if (blockers.Count > 0)
         {
@@ -796,11 +807,29 @@ internal sealed class SetupEngine : IDisposable
     {
         return new SetupFileTransaction(_root, _machineData,
             _runtime.InstalledVersion, _runtime.RestoreVersion,
-            () => SetupExecutable.Path, path => SetupExecutable.Path = path);
+            () => SetupExecutable.Path, path => SetupExecutable.Path = path,
+            paths =>
+            {
+                if (_runtime.ReleaseFileOwners(paths) is { } refusal)
+                {
+                    throw new IOException(refusal);
+                }
+            });
+    }
+
+    private bool ReleaseFiles(SetupStep step, IReadOnlyList<string> paths)
+    {
+        var refusal = _runtime.ReleaseFileOwners(paths);
+        return Fail(step, refusal is null, refusal ?? string.Empty);
     }
 
     private bool InstallApplication(SetupStep step, bool controller)
     {
+        if (!ReleaseFiles(step, [App, AppPrevious, Plugins]))
+        {
+            return false;
+        }
+
         _files = CreateFileTransaction();
         _files.Begin();
         var payload = Payload!;
@@ -812,17 +841,14 @@ internal sealed class SetupEngine : IDisposable
         if (controller)
         {
             // The virtual controller library lives beside WSGM; the driver installers stay in the payload.
-            var controllerStage = Path.Combine(Path.GetTempPath(), $"wsgm-controller-{Guid.NewGuid():N}");
-            payload.Extract("Controller", controllerStage);
-            foreach (var file in Directory.EnumerateFiles(controllerStage)
-                         .Where(file =>
-                             Path.GetFileName(file).StartsWith("libviiper", StringComparison.OrdinalIgnoreCase)
-                             || Path.GetFileName(file).StartsWith("VIIPER", StringComparison.OrdinalIgnoreCase)))
-            {
-                File.Copy(file, Path.Combine(AppStaging, Path.GetFileName(file)), true);
-            }
+            payload.Extract("Controller", AppStaging, relative =>
+                Path.GetFileName(relative).StartsWith("libviiper", StringComparison.OrdinalIgnoreCase)
+                || Path.GetFileName(relative).StartsWith("VIIPER", StringComparison.OrdinalIgnoreCase));
+        }
 
-            Directory.Delete(controllerStage, true);
+        if (!ReleaseFiles(step, [App, AppStaging]))
+        {
+            return false;
         }
 
         if (Directory.Exists(AppPrevious))
@@ -843,14 +869,15 @@ internal sealed class SetupEngine : IDisposable
         {
             MoveWithRetry(AppStaging, App);
         }
-        catch (IOException)
+        catch (IOException ex)
         {
             if (Directory.Exists(AppPrevious) && !Directory.Exists(App))
             {
                 Directory.Move(AppPrevious, App);
             }
 
-            step.Note = "The new WSGM could not replace the installed one; the installed version stays.";
+            step.Note = $"The new WSGM at {AppStaging} could not replace {App}; the installed version stays. "
+                        + ex.Message;
             throw;
         }
 
@@ -870,6 +897,11 @@ internal sealed class SetupEngine : IDisposable
         {
             if (NeutralLibraryPackageRetirement.IsRetiredPackage(path))
             {
+                if (_runtime.ReleaseFileOwners([path]) is { } refusal)
+                {
+                    throw new IOException(refusal);
+                }
+
                 File.Delete(path);
             }
         }
@@ -890,11 +922,21 @@ internal sealed class SetupEngine : IDisposable
                 SetupLog.Warn($"Moving {source} failed (attempt {attempt} of {attempts}): {ex.Message}");
                 Thread.Sleep(1000);
             }
+            catch (IOException ex)
+            {
+                throw new IOException($"Setup could not move {source} to {destination}. "
+                                      + "Close programs using that directory and run setup again. " + ex.Message, ex);
+            }
         }
     }
 
-    private bool StoreSetup(SetupPayload payload)
+    private bool StoreSetup(SetupPayload payload, SetupStep step)
     {
+        if (!ReleaseFiles(step, [SetupExe, SetupPackages, InstalledBundle]))
+        {
+            return false;
+        }
+
         Directory.CreateDirectory(SetupDirectory);
         var self = SetupExecutable.Path;
         if (!string.Equals(Path.GetFullPath(self), Path.GetFullPath(SetupExe),
@@ -915,18 +957,22 @@ internal sealed class SetupEngine : IDisposable
         return true;
     }
 
-    private bool InstallPlugin(SetupPayload payload, BundledPlugin plugin)
+    private bool InstallPlugin(SetupPayload payload, BundledPlugin plugin, SetupStep step)
     {
         Directory.CreateDirectory(Plugins);
         // Setup owns the ids it bundles: every other build of this id goes, and so does every build of
         // an id it replaced, while unrelated common packages remain installed. A local build of another id stays.
-        foreach (var id in (IEnumerable<string>)[plugin.Id, .. plugin.Replaces])
+        var replaced = Directory.EnumerateFiles(Plugins, "*.wsgmpkg")
+            .Where(file => ((IEnumerable<string>)[plugin.Id, .. plugin.Replaces])
+                .Any(id => IsPackageOf(Path.GetFileName(file), id))).ToArray();
+        if (!ReleaseFiles(step, [.. replaced, Path.Combine(Plugins, plugin.File)]))
         {
-            foreach (var old in Directory.EnumerateFiles(Plugins, "*.wsgmpkg")
-                         .Where(file => IsPackageOf(Path.GetFileName(file), id)))
-            {
-                File.Delete(old);
-            }
+            return false;
+        }
+
+        foreach (var old in replaced)
+        {
+            File.Delete(old);
         }
 
         payload.ExtractFile("Packages/" + plugin.File, Path.Combine(Plugins, plugin.File));
@@ -960,7 +1006,13 @@ internal sealed class SetupEngine : IDisposable
             if (install)
             {
                 Registration.CancelResumeAfterRestart();
-                Payload!.Extract("Controller", stage);
+                Payload!.ExtractFile("Controller/Install-UsbipDriver.ps1", script);
+                if (!Payload.Online)
+                {
+                    using var pin = ControllerPin("usbip-win2");
+                    var asset = pin.RootElement.GetProperty("asset").GetString()!;
+                    Payload.ExtractFile("Controller/" + asset, Path.Combine(stage, asset));
+                }
             }
             else
             {
@@ -968,7 +1020,13 @@ internal sealed class SetupEngine : IDisposable
                 Payload!.ExtractFile("Controller/Install-UsbipDriver.ps1", script);
             }
 
-            var outcome = RunUsbipScript(script, install ? string.Empty : "-CheckOnly");
+            var arguments = install ? string.Empty : "-CheckOnly";
+            if (!Payload!.Online)
+            {
+                arguments += " -Offline";
+            }
+
+            var outcome = RunUsbipScript(script, arguments);
             SetupLog.Info("USB/IP: " + outcome.Detail);
             if (outcome.UpdateRequired)
             {
@@ -1057,13 +1115,48 @@ internal sealed class SetupEngine : IDisposable
         }
 
         var stage = Path.Combine(Path.GetTempPath(), $"wsgm-controller-{Guid.NewGuid():N}");
-        Payload!.Extract("Controller", stage);
+        Directory.CreateDirectory(stage);
         try
         {
-            var installer = Directory.EnumerateFiles(stage, "HidHide*.exe").FirstOrDefault();
-            if (installer is null)
+            using var pin = ControllerPin("hidhide");
+            var component = pin.RootElement;
+            var asset = component.GetProperty("asset").GetString()!;
+            var installer = Path.Combine(stage, asset);
+            if (Payload!.Online)
             {
-                step.Note = "This setup carries no HidHide installer.";
+                var download = new Uri(component.GetProperty("assetUrl").GetString()!, UriKind.Absolute);
+                if (!RtssInstaller.TryDownload(new SocketsHttpHandler(), download, installer,
+                        RtssInstaller.BodyStallTimeout, out var problem))
+                {
+                    step.Note = $"Setup could not download HidHide ({problem}). Connect to the internet and run Repair. Steam may show duplicate controllers until HidHide is installed.";
+                    return false;
+                }
+            }
+            else
+            {
+                try
+                {
+                    Payload.ExtractFile("Controller/" + asset, installer);
+                }
+                catch (FileNotFoundException)
+                {
+                    step.Note = "This setup is missing the bundled HidHide installer. Use a complete offline setup, or install HidHide and run Repair.";
+                    return false;
+                }
+            }
+
+            using var verified = File.Open(installer, FileMode.Open, FileAccess.Read, FileShare.Read);
+            if (!Convert.ToHexString(SHA256.HashData(verified)).Equals(
+                    component.GetProperty("assetSha256").GetString(), StringComparison.OrdinalIgnoreCase))
+            {
+                step.Note = "The HidHide checksum does not match this setup's pin, so setup did not run it. Use a complete WSGM setup.";
+                return false;
+            }
+
+            if (AuthenticodeSignature.Verify(installer, verified.SafeFileHandle,
+                    component.GetProperty("signerThumbprint").GetString()!) is { } signatureProblem)
+            {
+                step.Note = $"The HidHide installer signature is invalid ({signatureProblem}), so setup did not run it. Use a complete WSGM setup.";
                 return false;
             }
 
@@ -1079,8 +1172,31 @@ internal sealed class SetupEngine : IDisposable
         }
         finally
         {
-            Directory.Delete(stage, true);
+            try
+            {
+                Directory.Delete(stage, recursive: true);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                SetupLog.Warn($"HidHide: the installer folder could not be removed: {ex.Message}");
+            }
         }
+    }
+
+    private static JsonDocument ControllerPin(string id)
+    {
+        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("WSGM.ControllerComponentsPin")
+                           ?? throw new InvalidOperationException("The controller prerequisites pin is missing.");
+        using var pin = JsonDocument.Parse(stream);
+        var component = pin.RootElement.GetProperty("components").EnumerateArray()
+            .First(entry => entry.GetProperty("id").GetString() == id);
+        var asset = component.GetProperty("asset").GetString()!;
+        if (Path.GetFileName(asset) != asset)
+        {
+            throw new InvalidDataException("The controller prerequisite pin is invalid.");
+        }
+
+        return JsonDocument.Parse(component.GetRawText());
     }
 
     private bool Register()
@@ -1188,6 +1304,11 @@ internal sealed class SetupEngine : IDisposable
 
     private bool DeleteProgramFiles(SetupStep step)
     {
+        if (!ReleaseFiles(step, [Plugins, App, AppPrevious, AppStaging, SetupDirectory]))
+        {
+            return false;
+        }
+
         _unregister();
         File.Delete(InstalledBundle);
         File.Delete(ComponentsFile);
@@ -1274,7 +1395,14 @@ internal sealed class SetupEngine : IDisposable
     {
         if (_swapped && Directory.Exists(AppPrevious))
         {
-            _delete(AppPrevious);
+            if (_runtime.ReleaseFileOwners([AppPrevious]) is { } refusal)
+            {
+                SetupLog.Warn("Backup cleanup remains pending: " + refusal);
+            }
+            else
+            {
+                _delete(AppPrevious);
+            }
         }
 
         _owner?.Dispose();

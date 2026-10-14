@@ -17,10 +17,8 @@
 
     The installer normally ships inside WSGM's setup, already verified on the release machine by
     `eng/acquire-controller-dependencies.ps1`. It is re-verified here anyway — the release machine's
-    verification says nothing about the copy sitting on this disk — and, when the release build had
-    no network and could not stage it, this falls back to downloading the same pinned asset. That
-    fallback matters: a freshly imaged handheld often runs WSGM's setup before its Wi-Fi is
-    configured, which is exactly when a download-only design would fail.
+    verification says nothing about the copy sitting on this disk. Online setup downloads the same
+    pinned asset if it is needed. Offline setup passes -Offline and refuses a missing bundled copy.
 
     Failure is never fatal to WSGM's setup. The script reports what happened and exits 0 for
     "installed", "already present" and "failed" alike; WSGM without the driver simply reports
@@ -45,6 +43,10 @@
     Reports the detection result and verifies whatever installer is present without installing
     anything. This is the safe mode for a development machine, where installing a kernel driver is
     off-limits.
+
+.PARAMETER Offline
+    Requires the staged installer and never falls back to a network download. CheckOnly never
+    acquires an installer, with or without this switch.
 
 .NOTES
     Verified against the upstream project on 2026-08-29:
@@ -97,7 +99,10 @@ param(
     # so it costs a registry read: the caller uses it to find out whether a reboot has to be
     # arranged before the real run.
     [Parameter()]
-    [switch]$CheckOnly
+    [switch]$CheckOnly,
+
+    [Parameter()]
+    [switch]$Offline
 )
 
 Set-StrictMode -Version Latest
@@ -398,8 +403,11 @@ try {
         Write-Step "using the staged installer at $source"
     }
     else {
-        # The release build could not stage it — no network on the release machine — so fetch the
-        # same pinned asset. Verification below is identical either way.
+        if ($Offline) {
+            throw 'This offline setup is missing the bundled USB/IP installer. Use a complete offline WSGM setup, then run Repair.'
+        }
+
+        # Online setup carries the script without the installer. Verification is identical either way.
         Write-Step "no staged installer; downloading $InstallerUrl"
         $temporaryDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ('wsgm-usbip-' + [Guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $temporaryDirectory -Force | Out-Null
@@ -407,7 +415,7 @@ try {
         $previousProgress = $ProgressPreference
         try {
             $ProgressPreference = 'SilentlyContinue'
-            Invoke-WebRequest -Uri $InstallerUrl -OutFile $source -UseBasicParsing
+            Invoke-WebRequest -Uri $InstallerUrl -OutFile $source -UseBasicParsing -TimeoutSec 300
         }
         finally {
             $ProgressPreference = $previousProgress

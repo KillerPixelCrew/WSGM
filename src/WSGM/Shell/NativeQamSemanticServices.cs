@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
@@ -820,7 +821,7 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
     }
 }
 
-/// <summary>Projects charge-limit and persistent lighting capabilities into Quick Settings.</summary>
+/// <summary>Projects every device descriptor and charging/lighting controls into Quick Settings.</summary>
 /// <remarks>
 ///     The projection selects capabilities by their SDK semantic roles, never by a device package's
 ///     private ids. Commands re-resolve the descriptor at execution time and pass through the same
@@ -830,6 +831,12 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
 internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : ISteamDeviceControlsBackend
 {
     private readonly DeviceCoordinator? _coordinator;
+    private readonly Lock _controlGate = new();
+    private readonly Dictionary<CapabilityDescriptor, string> _keys = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<string, CapabilityDescriptor> _controls = new(StringComparer.Ordinal);
+    private string? _published;
+    private long _revision;
+    private ActiveProfile? _activeProfile;
 
     /// <summary>Creates a capability projection over the existing device owner.</summary>
     /// <param name="coordinator">Borrowed coordinator, or null when device integration is inactive.</param>
@@ -839,8 +846,152 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : ISteamDe
     }
 
     /// <summary>Projects the current capability snapshot without reading hardware; absent roles remain unavailable.</summary>
-    public SteamDeviceControlsState Current => Project(
-        _coordinator?.Capabilities.Snapshot() ?? []);
+    public SteamDeviceControlsState Current
+    {
+        get
+        {
+            var views = _coordinator?.Capabilities.Snapshot() ?? [];
+            lock (_controlGate)
+            {
+                var activeProfile = _coordinator?.Profiles.Current.Active;
+                if (_activeProfile != activeProfile)
+                {
+                    _keys.Clear();
+                    _controls.Clear();
+                    _activeProfile = activeProfile;
+                }
+
+                var active = views.Select(view => view.Descriptor).ToHashSet(ReferenceEqualityComparer.Instance);
+                foreach (var descriptor in _keys.Keys.Where(descriptor => !active.Contains(descriptor)).ToArray())
+                {
+                    _controls.Remove(_keys[descriptor]);
+                    _keys.Remove(descriptor);
+                }
+
+                var state = Project(views, view =>
+                {
+                    if (!_keys.TryGetValue(view.Descriptor, out var key))
+                    {
+                        key = Guid.NewGuid().ToString("N");
+                        _keys.Add(view.Descriptor, key);
+                        _controls.Add(key, view.Descriptor);
+                    }
+
+                    return key;
+                });
+                var content = SteamDeviceControlsRow.Serialize(state).GetRawText();
+                if (!string.Equals(content, _published, StringComparison.Ordinal))
+                {
+                    _published = content;
+                    _revision++;
+                }
+
+                return state with { Revision = _revision };
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    public async Task<SteamUiCommandResult> SetControlAsync(string key, JsonElement value,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var view = ResolveControl(key);
+        if (view is null || !DeviceCapabilityRouter.CanCommand(view.Projection.State))
+        {
+            return new SteamUiCommandResult(false, "That device control changed or is unavailable. Reopen the panel.");
+        }
+
+        CapabilityValue? requested = null;
+        if (!view.Descriptor.SupportsAction)
+        {
+            if (!view.Descriptor.SupportsWrite || !TryReadControlValue(value, view.Descriptor, out requested))
+            {
+                return new SteamUiCommandResult(false, "The value is outside the device's current descriptor.");
+            }
+
+            if (requested.Kind == CapabilityValueKind.Curve)
+            {
+                var current = DeviceOverlayBridge.ToOverlayCapability(view, new HashSet<string>()).CurrentValue;
+                if (current?.Kind != CapabilityValueKind.Curve
+                    || !current.CurveValue.Select(point => point.Input)
+                        .SequenceEqual(requested.CurveValue.Select(point => point.Input)))
+                {
+                    return new SteamUiCommandResult(false, "The fan curve's firmware breakpoints changed.");
+                }
+            }
+        }
+
+        var result = await _coordinator!.ExecuteCapabilityAsync(view.Descriptor.CapabilityId,
+            view.Descriptor.InstanceId, requested, NativeQamUi.CommandTimeout,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return NativeQamUi.CommandResult(result, $"The device command ended as {result.Outcome}.");
+    }
+
+    private DeviceCapabilityView? ResolveControl(string key)
+    {
+        lock (_controlGate)
+        {
+            return _activeProfile == _coordinator?.Profiles.Current.Active
+                   && _controls.TryGetValue(key, out var descriptor)
+                ? _coordinator?.Capabilities.Snapshot().SingleOrDefault(view =>
+                    ReferenceEquals(view.Descriptor, descriptor))
+                : null;
+        }
+    }
+
+    internal static bool TryReadControlValue(JsonElement value, CapabilityDescriptor descriptor,
+        out CapabilityValue requested)
+    {
+        requested = CapabilityValue.None();
+        switch (descriptor.ValueKind)
+        {
+            case CapabilityValueKind.Boolean when value.ValueKind is JsonValueKind.True or JsonValueKind.False:
+                requested = new CapabilityValue { Kind = CapabilityValueKind.Boolean, BooleanValue = value.GetBoolean() };
+                break;
+            case CapabilityValueKind.Integer when value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number):
+                requested = CapabilityValue.Integer(number);
+                break;
+            case CapabilityValueKind.Choice when value.ValueKind == JsonValueKind.String:
+                requested = CapabilityValue.Choice(value.GetString()!);
+                break;
+            case CapabilityValueKind.Text when value.ValueKind == JsonValueKind.String:
+                requested = new CapabilityValue { Kind = CapabilityValueKind.Text, TextValue = value.GetString() };
+                break;
+            case CapabilityValueKind.Color when value.ValueKind == JsonValueKind.String:
+                var colorText = value.GetString();
+                if (colorText is null || colorText.Length != 7 || colorText[0] != '#'
+                    || !int.TryParse(colorText.AsSpan(1), System.Globalization.NumberStyles.HexNumber,
+                        System.Globalization.CultureInfo.InvariantCulture, out var color))
+                {
+                    return false;
+                }
+
+                requested = new CapabilityValue { Kind = CapabilityValueKind.Color, ColorValue = color };
+                break;
+            case CapabilityValueKind.Curve when value.ValueKind == JsonValueKind.Array && value.GetArrayLength() <= 128:
+                List<CurvePoint> points = [];
+                foreach (var point in value.EnumerateArray())
+                {
+                    if (point.ValueKind != JsonValueKind.Object || !point.TryGetProperty("input", out var input)
+                        || input.ValueKind != JsonValueKind.Number || !input.TryGetInt32(out var temperature)
+                        || !point.TryGetProperty("output", out var output) || output.ValueKind != JsonValueKind.Number
+                        || !output.TryGetInt32(out var duty) || point.EnumerateObject().Count() != 2)
+                    {
+                        return false;
+                    }
+
+                    points.Add(new CurvePoint(temperature, duty));
+                }
+
+                requested = CapabilityValue.Curve(points);
+                break;
+            default:
+                return false;
+        }
+
+        return CapabilityValueValidation.ValueMatches(requested, descriptor, out _);
+    }
 
     /// <inheritdoc />
     public Task<SteamUiCommandResult> SetChargeLimitAsync(
@@ -941,11 +1092,13 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : ISteamDe
         return NativeQamUi.CommandResult(result, $"The device command ended as {result.Outcome}.");
     }
 
-    /// <summary>Projects semantic charge, brightness and lighting-zone capabilities for Quick Settings.</summary>
+    /// <summary>Projects device descriptors alongside semantic charge, brightness and lighting-zone controls.</summary>
     /// <param name="views">Current device capability views; ambiguous role/instance matches are not writable.</param>
-    /// <returns>Range and per-zone state with desired/observed values and profile overrides; absent range roles are null.</returns>
+    /// <param name="controlKey">Optional descriptor identity allocator; the live service supplies generation-scoped keys.</param>
+    /// <returns>Native range/zone state and settings descriptors sharing the Overlay's values, status and profile overrides.</returns>
     internal static SteamDeviceControlsState Project(
-        IReadOnlyList<DeviceCapabilityView> views)
+        IReadOnlyList<DeviceCapabilityView> views,
+        Func<DeviceCapabilityView, string>? controlKey = null)
     {
         var charge = ProjectUniqueRange(
             views,
@@ -986,7 +1139,79 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : ISteamDe
                 })
         ];
 
-        return new SteamDeviceControlsState(charge, brightness, zones);
+        List<SteamSettingsRow> controls = [];
+        foreach (var view in views)
+        {
+            var descriptor = view.Descriptor;
+            var key = controlKey?.Invoke(view) ?? view.SettingKey.Id;
+            var legacy = descriptor.Role is CapabilityRole.ChargeLimit or CapabilityRole.LightingBrightness
+                         && PrimaryRanges(views, descriptor.Role) is [var primary]
+                         && ReferenceEquals(primary.Descriptor, descriptor)
+                         && WritableRange(view, descriptor.Role, out _, out _, out _)
+                         || descriptor.Role == CapabilityRole.LightingZoneColor
+                         && zones.Any(zone => zone.Id == descriptor.InstanceId);
+            if (!legacy)
+            {
+                controls.Add(ProjectControl(view, key));
+            }
+
+        }
+
+        return new SteamDeviceControlsState(charge, brightness, zones,
+            controls.Count == 0 ? [] : [new SteamSettingsSection("Device controls", controls, "deviceControls")]);
+    }
+
+    private static SteamSettingsRow ProjectControl(DeviceCapabilityView view, string key)
+    {
+        var row = DeviceOverlayBridge.ToOverlayCapability(view, new HashSet<string>());
+        var descriptor = view.Descriptor;
+        var kind = !descriptor.SupportsWrite && !descriptor.SupportsAction ? SteamSettingsRowKind.Note
+            : descriptor.SupportsAction ? SteamSettingsRowKind.Action
+            : descriptor.ValueKind switch
+            {
+                CapabilityValueKind.Integer => SteamSettingsRowKind.Range,
+                CapabilityValueKind.Boolean => SteamSettingsRowKind.Boolean,
+                CapabilityValueKind.Choice => SteamSettingsRowKind.Choice,
+                CapabilityValueKind.Text => SteamSettingsRowKind.Text,
+                CapabilityValueKind.Color => SteamSettingsRowKind.Color,
+                CapabilityValueKind.Curve => SteamSettingsRowKind.Curve,
+                _ => SteamSettingsRowKind.Note
+            };
+        var curve = row.CurrentValue?.CurveValue ?? [];
+        var title = row.Title + (descriptor.InstanceId is { } instance ? $" ({instance})" : string.Empty);
+        var description = row.OverrideId is null ? row.Description : NativeQamLayout.AccentDescription(row.Description);
+        return new SteamSettingsRow(key, kind, title, description,
+            Checked: row.CurrentValue?.BooleanValue,
+            Text: kind == SteamSettingsRowKind.Note ? row.TrailingText
+                : kind == SteamSettingsRowKind.Color ? $"#{row.CurrentValue?.ColorValue ?? 0xFFFFFF:X6}"
+                : row.CurrentValue?.ChoiceValue ?? row.CurrentValue?.TextValue,
+            Number: row.CurrentValue?.IntegerValue ?? descriptor.Minimum,
+            Choices: descriptor.Choices.Select(choice => new SteamSettingsChoice(choice.Value,
+                CapabilityDisplayLabels.For(choice.Display, choice.Value))).ToArray(),
+            Minimum: descriptor.Minimum, Maximum: descriptor.Maximum, Step: descriptor.Step,
+            Suffix: descriptor.Unit switch
+            {
+                CapabilityUnit.Watt => " W",
+                CapabilityUnit.Percent => "%",
+                CapabilityUnit.Celsius => " °C",
+                CapabilityUnit.Rpm => " RPM",
+                CapabilityUnit.Milliampere => " mA",
+                CapabilityUnit.Millivolt => " mV",
+                CapabilityUnit.Megahertz => " MHz",
+                CapabilityUnit.Millisecond => " ms",
+                _ => null
+            },
+            MaximumLength: descriptor.MaximumLength,
+            Disabled: !DeviceCapabilityRouter.CanCommand(view.Projection.State)
+                      || view.Projection.Progress == CommandProgress.Pending
+                      || kind == SteamSettingsRowKind.Curve && curve.Count == 0,
+            ButtonLabel: "Run", Accent: row.OverrideId is not null, ColorAlpha: false,
+            Curve: curve.Select(point => new SteamSettingsCurvePoint(point.Input, point.Output)).ToArray(),
+            CurvePresets: descriptor.Role == CapabilityRole.FanCurve
+                ? Enum.GetValues<FanCurvePreset>().Select(preset => new SteamSettingsCurvePreset(
+                    FanCurvePresets.Label(preset), FanCurvePresets.SampleOnto(preset, curve)
+                        .Select(point => new SteamSettingsCurvePoint(point.Input, point.Output)).ToArray())).ToArray()
+                : null);
     }
 
     private static DeviceCapabilityView[] PrimaryRanges(IReadOnlyList<DeviceCapabilityView> views, CapabilityRole role)

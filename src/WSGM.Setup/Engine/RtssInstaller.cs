@@ -2,38 +2,41 @@ using System;
 using System.IO;
 using System.IO.Compression;
 using System.Net.Http;
+using System.Reflection;
 using System.Security.Cryptography;
+using System.Text.Json;
 using System.Threading;
 using Microsoft.Win32;
 
 namespace WSGM.Setup.Engine;
 
 /// <summary>
-///     RivaTuner Statistics Server, which WSGM's frame limit, performance overlay and AutoTDP drive. Setup does not
-///     carry it: it fetches one pinned Guru3D build, checks it against its SHA-256 and only then runs it. Uninstall
+///     RivaTuner Statistics Server, which WSGM's frame limit, performance overlay and AutoTDP drive. Setup
+///     obtains one pinned Guru3D build from the payload or its mirror, checks its SHA-256 and only then runs it. Uninstall
 ///     leaves RTSS in place, because other programs use it too.
 /// </summary>
 internal static class RtssInstaller
 {
     /// <summary>The pinned RTSS version.</summary>
-    internal const string Version = "7.3.7";
+    internal static string Version => Pin.Version;
 
     /// <summary>SHA-256 of <see cref="Download" />, as winget's Guru3D.RTSS 7.3.7 manifest pins it.</summary>
-    internal const string Sha256 = "9b084a8cb3e53ec1a673894d0b66e22b16c9fd8785636b020b2d422f3f2a820e";
+    internal static string Sha256 => Pin.Sha256;
 
     /// <summary>The installer inside the archive.</summary>
-    internal const string SetupEntry = "RTSSSetup737.exe";
+    internal static string SetupEntry => Pin.SetupEntry;
 
     private const string UninstallKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\RTSS";
 
     // HttpClient's timeout ends with the headers; a mirror that stops sending the body is caught by this.
-    private static readonly TimeSpan BodyStallTimeout = TimeSpan.FromSeconds(30);
+    internal static readonly TimeSpan BodyStallTimeout = TimeSpan.FromSeconds(30);
+
+    private static readonly (string Version, string Sha256, string SetupEntry, string Asset, Uri Download) Pin = ReadPin();
 
     /// <summary>
     ///     The archive, from the mirror winget's manifest uses. Guru3D's own download page has no stable file link.
     /// </summary>
-    internal static readonly Uri Download =
-        new("https://ftp.nluug.nl/pub/games/PC/guru3d/afterburner/[Guru3D]-RTSSSetup737Build28314.zip");
+    internal static Uri Download => Pin.Download;
 
     /// <summary>Whether RTSS is installed, by whoever: the registration WSGM's RTSS discovery reads.</summary>
     /// <returns>True when an RTSS registration names Unwinder; does not validate runtime readiness or version.</returns>
@@ -64,6 +67,15 @@ internal static class RtssInstaller
     /// <returns>Whether RTSS is installed afterwards.</returns>
     public static bool Install(SetupStep step)
     {
+        return Install(null, step);
+    }
+
+    /// <summary>Installs bundled RTSS offline, or downloads it for online and legacy payloads.</summary>
+    /// <param name="payload">Payload acquisition policy; null retains the legacy download behavior.</param>
+    /// <param name="step">The progress line.</param>
+    /// <returns>Whether RTSS is installed afterwards.</returns>
+    public static bool Install(SetupPayload? payload, SetupStep step)
+    {
         if (Present())
         {
             step.DoneLabel = "RivaTuner Statistics Server already installed";
@@ -75,11 +87,10 @@ internal static class RtssInstaller
         Directory.CreateDirectory(stage);
         try
         {
-            var archive = Path.Combine(stage, "rtss.zip");
-            if (!TryDownload(new SocketsHttpHandler(), archive, BodyStallTimeout, out var problem))
+            var archive = Path.Combine(stage, Pin.Asset);
+            if (!AcquireArchive(payload, new SocketsHttpHandler(), archive, out var problem))
             {
-                step.Note = $"Setup could not download RTSS ({problem}). Install it from guru3d.com and WSGM uses "
-                            + "it from then on.";
+                step.Note = problem;
                 return false;
             }
 
@@ -87,7 +98,7 @@ internal static class RtssInstaller
             {
                 if (!Matches(stream))
                 {
-                    step.Note = "The downloaded RTSS was not the expected build, so setup did not run it. Install "
+                    step.Note = "The RTSS archive was not the expected build, so setup did not run it. Install "
                                 + "it from guru3d.com.";
                     return false;
                 }
@@ -98,7 +109,7 @@ internal static class RtssInstaller
             {
                 if (zip.GetEntry(SetupEntry) is not { } entry)
                 {
-                    step.Note = "The RTSS download holds no installer. Install it from guru3d.com.";
+                    step.Note = "The RTSS archive holds no installer. Install it from guru3d.com.";
                     return false;
                 }
 
@@ -128,12 +139,49 @@ internal static class RtssInstaller
         }
     }
 
+    /// <summary>Uses the explicit bundled payload without contacting the network; legacy payloads download.</summary>
+    /// <param name="payload">The setup payload, or null for legacy acquisition.</param>
+    /// <param name="handler">Owned download handler; disposed even when no network is allowed.</param>
+    /// <param name="destination">Temporary archive path.</param>
+    /// <param name="problem">An actionable acquisition failure, or empty.</param>
+    /// <returns>Whether the archive is available for checksum validation.</returns>
+    internal static bool AcquireArchive(SetupPayload? payload, HttpMessageHandler handler, string destination,
+        out string problem)
+    {
+        if (payload is not { Online: false, DistributionSpecified: true })
+        {
+            if (TryDownload(handler, destination, BodyStallTimeout, out var downloadProblem))
+            {
+                problem = "";
+                return true;
+            }
+
+            problem = $"Setup could not download RTSS ({downloadProblem}). Connect to the internet and run Repair, or install it from guru3d.com.";
+            return false;
+        }
+
+        using (handler)
+        {
+            try
+            {
+                payload.ExtractFile("PerformanceRuntime/" + Pin.Asset, destination);
+                problem = "";
+                return true;
+            }
+            catch (FileNotFoundException)
+            {
+                problem = "This offline setup is missing RTSS. Use a complete offline setup, or install RTSS from guru3d.com.";
+                return false;
+            }
+        }
+    }
+
     /// <summary>Whether a download is exactly the pinned build.</summary>
     /// <param name="archive">The downloaded archive.</param>
     /// <returns>Whether its SHA-256 is <see cref="Sha256" />.</returns>
     internal static bool Matches(Stream archive)
     {
-        return string.Equals(Convert.ToHexStringLower(SHA256.HashData(archive)), Sha256, StringComparison.Ordinal);
+        return string.Equals(Convert.ToHexStringLower(SHA256.HashData(archive)), Sha256, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Fetches the pinned archive once; the hash check afterwards decides whether it is used.</summary>
@@ -145,10 +193,32 @@ internal static class RtssInstaller
     internal static bool TryDownload(HttpMessageHandler handler, string destination, TimeSpan stallTimeout,
         out string problem)
     {
+        return TryDownload(handler, Download, destination, stallTimeout, out problem);
+    }
+
+    /// <summary>Fetches one pinned prerequisite URL without retries; each body read has a stall limit.</summary>
+    /// <param name="handler">Owned network handler, or a test's fake.</param>
+    /// <param name="download">The prerequisite's pinned HTTPS URL.</param>
+    /// <param name="destination">Destination in the prerequisite's temporary staging folder.</param>
+    /// <param name="stallTimeout">Maximum time for one body read.</param>
+    /// <param name="problem">Actionable failure detail, or empty.</param>
+    /// <returns>Whether the complete response body arrived.</returns>
+    internal static bool TryDownload(HttpMessageHandler handler, Uri download, string destination,
+        TimeSpan stallTimeout, out string problem)
+    {
+        var complete = false;
         try
         {
+            if (!download.IsAbsoluteUri || download.Scheme != Uri.UriSchemeHttps)
+            {
+                problem = "the setup download URL is invalid";
+                handler.Dispose();
+                return false;
+            }
+
             using HttpClient client = new(handler) { Timeout = TimeSpan.FromMinutes(5) };
-            using var response = client.Send(new HttpRequestMessage(HttpMethod.Get, Download),
+            using HttpRequestMessage request = new(HttpMethod.Get, download);
+            using var response = client.Send(request,
                 HttpCompletionOption.ResponseHeadersRead);
             if (!response.IsSuccessStatusCode)
             {
@@ -159,16 +229,50 @@ internal static class RtssInstaller
             using var source = response.Content.ReadAsStream();
             using var target = File.Create(destination);
             var total = CopyBody(source, target, stallTimeout);
-            SetupLog.Info($"RTSS: downloaded {total} bytes from {Download.Host}.");
+            SetupLog.Info($"Setup: downloaded {total} bytes from {download.Host}.");
             problem = "";
+            complete = true;
             return true;
         }
         catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or IOException)
         {
-            SetupLog.Warn($"RTSS: the download failed: {ex.Message}");
+            SetupLog.Warn($"Setup: the download failed: {ex.Message}");
             problem = ex is OperationCanceledException ? "it timed out" : "no connection";
             return false;
         }
+        finally
+        {
+            if (!complete)
+            {
+                try
+                {
+                    File.Delete(destination);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    SetupLog.Warn($"Setup: a partial prerequisite download could not be removed: {ex.Message}");
+                }
+            }
+        }
+    }
+
+    private static (string Version, string Sha256, string SetupEntry, string Asset, Uri Download) ReadPin()
+    {
+        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("WSGM.RtssRuntimePin")
+                           ?? throw new InvalidOperationException("The RTSS runtime pin is missing.");
+        using var pin = JsonDocument.Parse(stream);
+        var root = pin.RootElement;
+        var asset = root.GetProperty("asset").GetString()!;
+        var setupEntry = root.GetProperty("setupEntry").GetString()!;
+        var download = new Uri(root.GetProperty("url").GetString()!, UriKind.Absolute);
+        if (Path.GetFileName(asset) != asset || Path.GetFileName(setupEntry) != setupEntry
+            || download.Scheme != Uri.UriSchemeHttps)
+        {
+            throw new InvalidDataException("The RTSS runtime pin is invalid.");
+        }
+
+        return (root.GetProperty("version").GetString()!, root.GetProperty("sha256").GetString()!,
+            setupEntry, asset, download);
     }
 
     internal static long CopyBody(Stream source, Stream target, TimeSpan stallTimeout)

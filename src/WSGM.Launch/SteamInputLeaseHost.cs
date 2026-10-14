@@ -1,6 +1,8 @@
 using System;
 using System.Threading;
+using Microsoft.Win32.SafeHandles;
 using SteamInterop;
+using WSGM.Core;
 
 namespace WSGM.Launch;
 
@@ -17,6 +19,7 @@ internal sealed class SteamInputLeaseHost : IDisposable
 {
     private readonly SteamInputClient _client;
     private SteamInputBlockLease? _lease;
+    private SafeWaitHandle? _marker;
 
     private SteamInputLeaseHost(SteamInputClient client)
     {
@@ -49,6 +52,7 @@ internal sealed class SteamInputLeaseHost : IDisposable
             }
         }
 
+        Interlocked.Exchange(ref _marker, null)?.Dispose();
         _client.Dispose();
     }
 
@@ -80,18 +84,27 @@ internal sealed class SteamInputLeaseHost : IDisposable
     internal static SteamInputLeaseHost? TryAcquire(LaunchOptions options)
     {
         SteamInputClient? client = null;
+        SteamInputLeaseHost? host = null;
         try
         {
             client = CreateClient(options);
-            var host = new SteamInputLeaseHost(client);
+            host = new SteamInputLeaseHost(client);
             host._lease = client.Acquire();
+            host._marker = WrapperInputLeaseMarker.Hold();
             LaunchLog.Info("Acquired Steam Input block lease for the target's lifetime.");
             Console.WriteLine("Acquiring Steam Input block lease...");
             return host;
         }
         catch (Exception ex)
         {
-            client?.Dispose();
+            if (host is not null)
+            {
+                host.Dispose();
+            }
+            else
+            {
+                client?.Dispose();
+            }
             if (options.InputLease)
             {
                 LaunchLog.Error(
