@@ -73,7 +73,7 @@ public sealed class DisplayGpuProfileServiceTests
             PluginId = "wsgm.gpu.nvidia", CapabilityId = "display.color-depth"
         };
         var global = Capability(null, "driver");
-        Assert.Same(global, DisplayGpuProfileService.Resolve(saved, [Capability(Monitor("one"), "1"), global]));
+        Assert.Null(DisplayGpuProfileService.Resolve(saved, [Capability(Monitor("one"), "1"), global]));
         Assert.Null(DisplayGpuProfileService.Resolve(saved, [Capability(Monitor("one"), "1")]));
     }
 

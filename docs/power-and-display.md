@@ -355,6 +355,13 @@ refresh choices keep the same item list while a selection changes; rebuilding th
 ComboBox commit reset the chosen value. UI regressions select through the actual pickers, including
 while the source is disabled in Windows.
 
+G-SYNC is configured per monitor in each display profile. The inspector uses the NVIDIA output's
+Adaptive Sync control and saves the physical display identity, so applying a profile rematches that
+monitor rather than changing a global DRS value. Driver-wide G-SYNC preferences from older profiles
+remain stored but are not applied or copied to every output; select each monitor's setting
+explicitly. The global NVIDIA G-SYNC driver policy remains a separate graphics control. The new
+output write path requires manual hardware acceptance.
+
 CCD discovery bounds possible routes separately from the number of monitors. A read-only check on
 2026-09-13 found 284 possible routes, 568 mode records and three active displays on the desktop,
 exceeding the former 256-route bound. The library now admits up to 4,096 routes and 8,192 modes; the

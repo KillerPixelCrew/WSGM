@@ -885,11 +885,12 @@ public sealed class DisplayLayoutEditor : ObservableObject
     }
 
     /// <summary>Projects an admitted capability snapshot while preserving every draft value.</summary>
-    /// <param name="capabilities">Current driver descriptors with physical output identities or explicit global scope.</param>
+    /// <param name="capabilities">Current driver descriptors; only physically identified output controls are admitted.</param>
     internal void RefreshGpuCapabilities(IReadOnlyList<DisplayGpuCapability> capabilities)
     {
         var preferences = BuildGpuPreferences();
         _gpuCapabilities = capabilities.Where(capability => capability.Descriptor is not null
+                                                            && capability.Target is not null
                                                             && !string.IsNullOrWhiteSpace(capability.PluginId))
             .DistinctBy(capability => (capability.PluginId, capability.Descriptor!.CapabilityId,
                 Instance: capability.Target is null ? capability.Descriptor.InstanceId : null,
@@ -897,7 +898,7 @@ public sealed class DisplayLayoutEditor : ObservableObject
         PublishGpuControls(preferences);
     }
 
-    /// <summary>Builds detached per-output and driver-global preferences, retaining unavailable saved controls.</summary>
+    /// <summary>Builds detached per-output preferences, retaining unavailable saved controls.</summary>
     /// <returns>Only explicit selected settings; observing a value never makes it a preference.</returns>
     internal List<DisplayGpuPreference> BuildGpuPreferences()
     {

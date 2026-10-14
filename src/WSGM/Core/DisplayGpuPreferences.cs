@@ -7,7 +7,7 @@ namespace WSGM.Core;
 /// <summary>A driver display preference retained independently of the monitor's current route.</summary>
 public sealed class DisplayGpuPreference
 {
-    /// <summary>Physical display identity, or null for a driver-wide setting.</summary>
+    /// <summary>Physical display identity. Legacy driver-wide entries with no target are retained but not applied.</summary>
     public DisplayTargetIdentity? Target { get; set; }
 
     /// <summary>Stable graphics provider identity.</summary>
@@ -26,7 +26,7 @@ public sealed class DisplayGpuPreference
 /// <summary>A remembered driver capability used to edit connected or disconnected displays.</summary>
 public sealed class DisplayGpuCapability
 {
-    /// <summary>Physical display identity, or null for a driver-wide setting.</summary>
+    /// <summary>Physical display identity. Untargeted driver controls are excluded from the display editor.</summary>
     public DisplayTargetIdentity? Target { get; set; }
 
     /// <summary>Stable graphics provider identity.</summary>

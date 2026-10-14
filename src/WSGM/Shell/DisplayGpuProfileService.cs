@@ -48,11 +48,14 @@ internal static class DisplayGpuProfileService
     internal static DisplayGpuCapability? Resolve(DisplayGpuPreference preference,
         IReadOnlyList<DisplayGpuCapability> current)
     {
+        if (preference.Target is null)
+        {
+            return null;
+        }
+
         var matches = current.Where(capability => capability.PluginId == preference.PluginId
                                                   && capability.Descriptor?.CapabilityId == preference.CapabilityId
-                                                  && (preference.Target is null
-                                                      ? capability.Target is null
-                                                      : capability.Target?.Matches(preference.Target) == true))
+                                                  && capability.Target?.Matches(preference.Target) == true)
             .ToArray();
         if (matches.Length == 1)
         {

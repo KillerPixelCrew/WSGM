@@ -30,10 +30,10 @@ public sealed class SettingsLayoutTests
             [("v00000000", "Auto"), ("v00000001", "Enabled"), ("v00000002", "Disabled")], "v00000001");
         var vrr = new DisplayGpuCapability
         {
-            PluginId = "wsgm.gpu.nvidia", ObservedValue = new PluginValue(true),
+            PluginId = "wsgm.gpu.nvidia", Target = target, ObservedValue = new PluginValue(true),
             Descriptor = new CapabilityDescriptor
             {
-                CapabilityId = "graphics.gsync", InstanceId = "driver", Role = CapabilityRole.GenericToggle,
+                CapabilityId = "display.gsync", InstanceId = "output-fixture", Role = CapabilityRole.GenericToggle,
                 ValueKind = CapabilityValueKind.Boolean,
                 Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "G-SYNC enabled" },
                 SupportsWrite = true, Persistence = CapabilityPersistence.DevicePersistent
@@ -75,8 +75,8 @@ public sealed class SettingsLayoutTests
         Assert.Contains(text, control => control.Text == "Output bit depth");
         Assert.Contains(text, control => control.Text == "Dithering");
         Assert.Contains(text, control => control.Text == "G-SYNC enabled");
-        Assert.Equal(2, model.GameLayout.Selected?.GpuControls.Count);
-        Assert.Single(model.GameLayout.GlobalGpuControls);
+        Assert.Equal(3, model.GameLayout.Selected?.GpuControls.Count);
+        Assert.Empty(model.GameLayout.GlobalGpuControls);
         VisualBaseline.Verify(window, "settings-display-custom-" + width);
     }
 

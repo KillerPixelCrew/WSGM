@@ -68,7 +68,7 @@ public sealed class DisplayGpuEditorTests
     }
 
     [Fact]
-    public void UndoIncludesExplicitGraphicsEditsAndGlobalControlsKeepTheirDriverWideScope()
+    public void UndoIncludesExplicitGraphicsEditsAndDriverWideControlsAreExcluded()
     {
         var global = new DisplayGpuCapability
         {
@@ -92,11 +92,39 @@ public sealed class DisplayGpuEditorTests
         editor.Undo();
         Assert.Empty(editor.BuildGpuPreferences());
 
-        var vrr = Assert.Single(editor.GlobalGpuControls);
-        vrr.UseSetting = true;
-        vrr.BooleanValue = true;
-        Assert.Null(Assert.Single(editor.BuildGpuPreferences()).Target);
-        Assert.True(Assert.Single(editor.BuildGpuPreferences()).Value.Boolean);
+        Assert.Empty(editor.GlobalGpuControls);
+        Assert.Empty(editor.BuildGpuPreferences());
+    }
+
+    [Fact]
+    public void GsyncDraftsAreIndependentForEachPhysicalDisplay()
+    {
+        var second = Tv with { DevicePath = "second", TargetId = 8 };
+        var capabilities = new[] { Tv, second }.Select(target => new DisplayGpuCapability
+        {
+            PluginId = "wsgm.gpu.nvidia", Target = target,
+            Descriptor = new CapabilityDescriptor
+            {
+                CapabilityId = "display.gsync", InstanceId = target.DevicePath,
+                Role = CapabilityRole.GenericToggle, ValueKind = CapabilityValueKind.Boolean,
+                Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "G-SYNC enabled" },
+                SupportsWrite = true, Persistence = CapabilityPersistence.DevicePersistent
+            }
+        }).ToArray();
+        DisplayLayoutEditor editor = new(() => { });
+        editor.Load([new KnownDisplay { Target = Tv }, new KnownDisplay { Target = second }], [Tv, second], null);
+        editor.RefreshGpuCapabilities(capabilities);
+        var firstControl = Assert.Single(editor.Rows[0].GpuControls);
+        firstControl.UseSetting = true;
+        firstControl.BooleanValue = false;
+        var secondControl = Assert.Single(editor.Rows[1].GpuControls);
+        secondControl.UseSetting = true;
+        secondControl.BooleanValue = true;
+
+        Assert.Empty(editor.GlobalGpuControls);
+        var preferences = editor.BuildGpuPreferences();
+        Assert.False(Assert.Single(preferences, preference => preference.Target == Tv).Value.Boolean);
+        Assert.True(Assert.Single(preferences, preference => preference.Target == second).Value.Boolean);
     }
 
     [Fact]

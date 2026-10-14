@@ -48,6 +48,10 @@ deadlock/race.
 
 ## Configuration ownership
 
+Display profiles admit only GPU controls with a physical output identity. NVIDIA `display.gsync`
+uses the output's Adaptive Sync API; the global DRS G-SYNC policy is separate. Do not restore a
+targetless legacy G-SYNC preference to every monitor or guess its intended output.
+
 `Core/ConfigStore.cs` owns `%LOCALAPPDATA%\WSGM\config.json` and its cross-process lock.
 
 - `Read` reports an explicit outcome; startup can use read-only defaults after a failed read. There

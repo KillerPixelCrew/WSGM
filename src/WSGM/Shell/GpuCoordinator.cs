@@ -425,7 +425,7 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
                         EdidIdentity = output.EdidIdentity
                     };
                 }
-                else if (descriptor.Role is not CapabilityRole.VariableRefreshRate || !descriptor.SupportsWrite)
+                else
                 {
                     continue;
                 }
