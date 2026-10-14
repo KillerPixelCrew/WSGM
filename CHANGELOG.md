@@ -12,8 +12,8 @@ This test build addresses Steam's Quick Access integration disappearing after sl
 
 ## Fixed
 
-- **Steam's Performance and Quick Settings panels going empty after wake.** CEF recovery holds the
-  integration while Steam restarts and restores that hold after every outcome. Recovery warnings
+- **Steam's Performance and Quick Settings panels going empty after wake.** CEF recovery pauses the
+  integration while Steam restarts and restores the transport gate afterward. Recovery warnings
   reach the UI without stopping the transport worker.
 - **Steam refusing to close during restart or setup.** WSGM and setup enforce a bounded shutdown
   before continuing, including Steam's process trees when the graceful request is ignored.
@@ -35,6 +35,12 @@ If WSGM is useful to you, you can support its development on Ko-fi.
 [![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/nightstorm1000)
 
 [Full changelog since 2.3.1](https://github.com/KillerPixelCrew/WSGM/compare/2.3.1...2.3.2)
+
+## Checksum
+
+```
+SHA-256 7fe00b1b159ffe614f34ca98650d9e2423625fe4f6778dc957e9c90386cc61d8  WSGM-Setup-2.3.2.exe
+```
 
 ## 2.3.1 (2026-10-13)
 
