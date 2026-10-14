@@ -4,7 +4,7 @@
   "controllerManagementApproved": true,
   "policy": "controller-backend-viiper",
   "approvalNotes": [
-    "HIDMaestro was dropped because it generates and locally signs driver packages whose INF versions are stamped from the current date, so an exact signed driver could not be reproduced. Its 1.7.0 steam-deck-composite profile also lacked two rear controls and stick touch; v1.12.0 closed that gap.",
+    "HIDMaestro was dropped: its 1.7.0 steam-deck-composite profile lacked two rear controls and stick touch, and its UMDF driver packages are locally signed with date-stamped INF versions. v1.12.0 closed the profile gap and the Deck persona now uses usbip-win2, but VIIPER stays because the fork carries Deck fixes HIDMaestro lacks and HIDMaestro installs its driver at runtime.",
     "VIIPER's steamdeck device carries every control the canonical model defines and needs no WSGM-signed driver: it rides usbip-win2's WHLK-certified/attestation-signed generic USB/IP client driver.",
     "No separate ControllerHost process is needed. libviiper exposes a flat C ABI over blittable types, so WSGM binds it directly."
   ],

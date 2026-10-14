@@ -43,9 +43,11 @@ because INV-020 forbids the runtime from installing a driver whatever its proven
 When WSGM switched, HIDMaestro 1.7.0's profile named only two of the four rear controls and its
 managed state had no capacitive stick-touch fields. HIDMaestro v1.12.0 (2026-10-14) closed that gap:
 `steam-deck-composite` now maps all four rear controls and stick touch to the bits above (issue
-#224). Its generated driver package is still locally signed and stamped from the build date, and
-that alone keeps it out as a second backend or source checkout. Git history has the full
-comparison.
+#224). Since v1.10.0 that persona rides the same signed usbip-win2 driver as VIIPER, so the locally signed UMDF
+package no longer applies to it. WSGM stays on VIIPER because the fork carries Deck fixes HIDMaestro
+lacks (trigger Full Pull, a fixed report grid with averaged gyro, decoded haptics) and because the
+SDK installs usbip-win2 itself on first create, which INV-020 forbids at runtime. Git history has the
+full comparison.
 
 ### The one real cost, and where it comes from
 
