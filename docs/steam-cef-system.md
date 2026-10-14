@@ -134,15 +134,21 @@ one choke point the patch host, the running-application probe and every one-shot
 nothing WSGM does can reach a cold-starting Steam's port before its window exists.
 
 ```text
-TransportShouldBeOpen(cefMaster, inGameMode, bigPictureRequestPending, bigPictureReady,
-                      bigPictureClosePending)
-  = cefMaster && !bigPictureClosePending &&
-    ((!inGameMode && !bigPictureRequestPending) || bigPictureReady)
+TransportShouldBeOpen(cefMaster, inGameMode, holds, bigPictureReady)
+  = cefMaster && holds ⊆ {BigPictureRequest} &&
+    ((!inGameMode && holds == ∅) || bigPictureReady)
 ```
 
-The hold is symmetric. Leaving Big Picture rebuilds Steam's front-end exactly as entering it does,
-so `bigPictureClosePending` closes the transport before `steam://close/bigpicture` fires and keeps
-it closed until the desktop return settles.
+`SteamUiHold` names every reason the transport is held while the master switch is on:
+`BigPictureRequest` (ends early once the window exists), `BigPictureClose`, `Activation`,
+`Suspended` and `Resuming`. The request and close holds are symmetric: leaving Big Picture rebuilds
+Steam's front-end exactly as entering it does, so the close hold closes the transport before
+`steam://close/bigpicture` fires and keeps it closed until the desktop return settles.
+
+`bigPictureReady` comes from `BigPictureAdmission`. A cold start is admitted only once its Big
+Picture window exists. After that, only a window missing for 3 s, a new steamwebhelper browser
+process or a hold withdraws the admission: a window recreated across a display change or a wake no
+longer detaches every socket and forces a complete reapply.
 
 Desktop mode permits discovery on the master switch. In both modes WSGM constructs the toolkit
 transport with `requireMainWindow: true`: discovery must find exactly one validated, shaped
@@ -151,17 +157,22 @@ MainWindow. This holds desktop cold starts before the network and login services
 the existing discovery connection and no JavaScript evaluation to decide readiness.
 
 `ShellSession` runs a one-second gate loop that re-decides on every signal (mode change,
-`SteamStarted`, `SteamExited`, master switch) and logs the transition under
-`Log.Change("steam-ui-transport-gate", …)`:
+`SteamStarted`, `SteamExited`, master switch, suspend and resume) and logs the transition under
+`Log.Change("steam-ui-transport-gate", …)`. Each tick takes one Steam observation outside the master
+gate (`SteamProcessObserver`: one process snapshot, one window search, and a command-line read for
+each new steamwebhelper), then decides the gate under it. Nothing but shutdown ends the loop: in
+2.3.1 one exception escaped it during a cold start and WSGM never attached again for that session
+(issue #226). Its task is observed, and a failed tick is logged and retried at the next one.
 
-The same worker passively checks the CEF listener using the toolkit's native TCP ownership query. A
-confirmed closed listener gets a continuous 30-second startup grace, then one enforced Steam restart
-with the remote-debugging flag prepared first. Unverified or foreign listener ownership does not
-authorize recovery. The transport stays held during replacement and is re-evaluated in a `finally`
-block on success, failure, or cancellation. Restart failures remain bounded to one attempt until the
-listener opens or integration is explicitly switched off and on; an absent replacement does not
-start a restart loop. Warning presentation runs on the UI thread and cannot stop the gate worker. An
-open listener still has to pass the normal Big Picture and MainWindow readiness gates.
+While the transport is open the loop asks the patch manager for a health check every 15 s, and the
+session asks on unlock and on a display change: one evaluation that verifies the bridge, and a full
+reapplication when Steam lost it without a new generation.
+
+Every resume closes the transport for 2 s (`Resuming`) and reopens it, which is a new connection and
+a new generation, so every patch is verified or applied again on a settled Steam. An accepted
+suspend closes it at once (`Suspended`), so no request is in flight across the sleep and times out
+the moment the machine wakes. The stale suspend of a modern standby wake is dropped as it is for the
+device cycle.
 
 | Log line                                                                                                                          | Meaning                     |
 | --------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
@@ -171,6 +182,9 @@ open listener still has to pass the normal Big Picture and MainWindow readiness 
 | `Steam UI transport closed: Big Picture was requested — holding every automatic CEF touch until Steam's UI exists.`               | transition in flight        |
 | `Steam UI transport closed: Big Picture was asked to close — holding every automatic CEF touch until the desktop return settles.` | desktop return in flight    |
 | `Steam UI transport closed: Steam CEF integration is off.`                                                                        | master switch off           |
+| `Steam UI transport closed: restarting Steam to activate CEF debugging.`                                                          | activation restart          |
+| `Steam UI transport closed: the system is suspending.`                                                                            | accepted suspend            |
+| `Steam UI transport closed: the system resumed; reconnecting once Steam has settled.`                                             | 2 s after every resume      |
 
 A healthy cold boot shows `Big Picture window detected` before the first `open:` line and before any
 `steam.ui.patch.<id>: Applied`. What the gate governs:
@@ -187,17 +201,24 @@ A healthy cold boot shows `Big Picture window detected` before the first `open:`
   hold. WSGM prepares it before startup applications, on warm adoption and before every cold launch,
   while attachment can still be prohibited.
 
-The gate worker also maintains this opt-in and passively checks the native listener table. After
-Steam has spent 30 seconds outside a mode transition with a confirmed closed debugging port,
-`SessionModes` requests a graceful client exit and relaunches it in the current mode. The transport
-stays held and the exit monitor stays paused during replacement. Steam gets 15 seconds to exit; a
-refusal leaves the client running and surfaces a warning. An unreadable listener table or foreign
-port owner never triggers a restart. One recovery is admitted until the listener opens, Steam is
-closed deliberately, or the CEF master switch is disabled. The replacement's process-creation gap
-cannot rearm another restart. Recovery waits up to 30 seconds for the replacement's verified
-listener and reports a visible warning if activation fails. This also activates CEF when the master
-switch is enabled while Steam already runs. Startup grace and an open listener do not replace the
-normal window/target readiness checks or the attended debugging preflight.
+Activation reads the command line of steamwebhelper's browser process, the one without `--type=`.
+Steam starts it with `--remote-debugging-port` exactly when it honored the flag, and records the
+same line in `logs\webhelper.txt`. No timer is involved, so a Steam that is still updating, syncing
+or waiting for its login is never restarted: the old 30-second grace from `steam.exe`'s start fired
+on a healthy client mid-update (2026-10-13) and on a slow cold start on a Claw. The rules
+(`SteamCefActivationPolicy`):
+
+- No browser process yet, or one started with the flag: wait. The port opens in its own time.
+- A browser process started without the flag, outside a mode transition: `SessionModes` restarts
+  Steam once, with the flag prepared first. The transport stays held (`Activation`) and the exit
+  monitor paused during replacement. Steam gets 15 seconds to exit gracefully before forced exit,
+  and the replacement is launched in the current mode.
+- A replacement that also starts without the flag is reported once and never restarted.
+- An unreadable command line never triggers a restart.
+
+The restart claim clears when a browser process with the flag is seen or the master switch goes off.
+This also activates CEF when the master switch is enabled while Steam already runs. None of this
+replaces the normal window/target readiness checks or the attended debugging preflight.
 
 ### Retract before either Big Picture mode change
 
@@ -206,8 +227,13 @@ Steam rebuilds its front-end for a Big Picture request and bootstraps against wh
 once the gate closes. `PrepareSteamUiForBigPictureAsync` therefore runs before the request, under a
 5 s budget: it marks the request pending, disables the session host (which retracts the library
 badge and the Home carousel with every other patch) and the library tabs, and closes the transport.
-On timeout it logs
-`Steam UI retraction did not finish before the Big Picture request; continuing with the transition.`
+The budget is a cancellation token: when it fires the transport closes at once, before the
+retraction has returned, and the rest of the retraction is cancelled. Only stopping the wait used to
+leave a slow retraction sending patch traffic into the front-end Steam was rebuilding for the
+request fired meanwhile. It logs
+`Steam UI retraction for the Big Picture request ran out of time; the transport closed with the rest still in Steam.`
+The master switch's retraction has a 15 s deadline of its own, so no retraction holds the master
+gate, and with it the gate loop, behind a hung renderer.
 
 When the transition settles, the hold is released and the gate is re-checked. Surface restoration
 waits for the retraction to finish, including when it outlives the transition's budget, then
@@ -1147,15 +1173,15 @@ output uses the existing Verbose logging setting. Available stacks and bounded r
 properties are included, so a plain `{ result: 2, message: "CVRPathHelpers not found" }` does not
 disappear behind `#<Object>`. Repeated identical messages use the normal change-aware suppression.
 
-| Area                               | Keys and lines                                                                                                                                                                                                                                                                              |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Gate and lifecycle                 | `steam-ui-transport-gate`, `Steam CEF remote-debugging enabled`, `Steam launch integrity`, `Steam exited.`, `Steam started.`, `Starting Steam Big Picture.`, `Steam UI retraction did not finish before the Big Picture request`, `Steam CEF integration disabled — injected UI retracted.` |
-| Toolkit (`Core\WsgmSteamUiLog.cs`) | `steam.ui.discovery`, `steam.ui.patch.<id>`, `steam.ui.bridge.rejected`, `steam.ui.request.<patch>.<command>`, `steam.ui.response.<patch>.<command>`, `steam.ui.publication.<patch>`                                                                                                        |
-| Host                               | `steam.ui.glyphs`, `steam.ui.append.<id>`, `steam.ui.append.error.<id>`, `Steam UI patch synchronization failed`                                                                                                                                                                            |
-| QAM                                | `native-qam-echo-<Kind>`, `Native QAM performance delta refused`, `Native QAM power limit released to the device ceiling`, `Native QAM audio: …`, `Bluetooth: …`, `Native QAM resolution refused`, `display.backlight`                                                                      |
-| Library                            | `Library tabs injected`, `Library tabs (boot)`, `steam.home.layout`, `steam.home.carousel`, `Library badge: initial reading failed`, `Steam current app <id> (<signal>)`, `Steam library added to the live client.`                                                                         |
-| Themes                             | `Themes: … themes read from …`, `Themes: <link status>`, `themes.translations`, `theme.inject.<id>`, `Themes: unpacking …`, `Themes: the update check could not reach the store`                                                                                                            |
-| Animations                         | `Animations: … in the library, boot …, override written`, `animations.repository`, `Animations: Downloaded …`                                                                                                                                                                               |
+| Area                               | Keys and lines                                                                                                                                                                                                                                                                            |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Gate and lifecycle                 | `steam-ui-transport-gate`, `Steam CEF remote-debugging enabled`, `Steam launch integrity`, `Steam exited.`, `Steam started.`, `Starting Steam Big Picture.`, `Steam UI retraction for the Big Picture request ran out of time`, `Steam CEF integration disabled — injected UI retracted.` |
+| Toolkit (`Core\WsgmSteamUiLog.cs`) | `steam.ui.discovery`, `steam.ui.patch.<id>`, `steam.ui.bridge.rejected`, `steam.ui.request.<patch>.<command>`, `steam.ui.response.<patch>.<command>`, `steam.ui.publication.<patch>`                                                                                                      |
+| Host                               | `steam.ui.glyphs`, `steam.ui.append.<id>`, `steam.ui.append.error.<id>`, `Steam UI patch synchronization failed`                                                                                                                                                                          |
+| QAM                                | `native-qam-echo-<Kind>`, `Native QAM performance delta refused`, `Native QAM power limit released to the device ceiling`, `Native QAM audio: …`, `Bluetooth: …`, `Native QAM resolution refused`, `display.backlight`                                                                    |
+| Library                            | `Library tabs injected`, `Library tabs (boot)`, `steam.home.layout`, `steam.home.carousel`, `Library badge: initial reading failed`, `Steam current app <id> (<signal>)`, `Steam library added to the live client.`                                                                       |
+| Themes                             | `Themes: … themes read from …`, `Themes: <link status>`, `themes.translations`, `theme.inject.<id>`, `Themes: unpacking …`, `Themes: the update check could not reach the store`                                                                                                          |
+| Animations                         | `Animations: … in the library, boot …, override written`, `animations.repository`, `Animations: Downloaded …`                                                                                                                                                                             |
 
 The Screensaver settings rows log `steam.screensaver` once per change of Steam's reported timeouts,
 and each raise or refused raise of a display timeout on its own line.

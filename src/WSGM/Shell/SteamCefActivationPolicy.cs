@@ -1,50 +1,64 @@
-using System;
-using SteamUiToolkit;
-
 namespace WSGM.Shell;
 
-/// <summary>Admits one recovery after Steam's CEF listener remains closed through its startup grace.</summary>
-/// <remarks>The Steam gate worker is the sole owner. An unsuccessful recovery cannot start a restart loop.</remarks>
+/// <summary>What the gate worker does about Steam's debugging port after one observation.</summary>
+internal enum SteamCefActivation
+{
+    /// <summary>Nothing: the port is coming, Steam is still starting, or recovery is not WSGM's to start.</summary>
+    None,
+
+    /// <summary>Restart Steam once: its browser process runs without remote debugging.</summary>
+    Restart,
+
+    /// <summary>The restart did not help: the replacement also runs without remote debugging. Reported once.</summary>
+    GaveUp
+}
+
+/// <summary>Decides from steamwebhelper's command line whether Steam must be restarted for its debugging port.</summary>
+/// <remarks>
+///     The gate worker is the sole owner. No timer is involved: a Steam that is still updating, syncing
+///     or waiting for its login has no browser process yet, and a browser process started with the
+///     flag opens the port in its own time, so neither ever restarts Steam. Only a browser process
+///     started without the flag does, once; an unsuccessful restart cannot start a loop, and the claim
+///     clears when a browser process with the flag is seen or the integration is turned off.
+/// </remarks>
 internal sealed class SteamCefActivationPolicy
 {
-    internal static readonly TimeSpan StartupGrace = TimeSpan.FromSeconds(30);
-
-    private TimeSpan? _closedSince;
     private bool _attempted;
+    private uint _reportedBrowser;
 
-    /// <summary>Records a passive observation and claims recovery when the closed-listener grace expires.</summary>
-    /// <param name="enabled">Whether the master Steam CEF integration is enabled.</param>
-    /// <param name="steamRunning">Whether the Steam client is running.</param>
+    /// <summary>Decides what one observation asks for, claiming the restart before it is returned.</summary>
+    /// <param name="enabled">Whether the integration is on and Steam was not closed by the user.</param>
     /// <param name="transitionPending">Whether a session transition currently owns Steam.</param>
-    /// <param name="state">The passively verified state of Steam's debugging listener.</param>
-    /// <param name="now">Monotonic elapsed time from the owning worker's clock.</param>
-    /// <returns>True once per uninterrupted failure, with the attempt already claimed.</returns>
-    internal bool ShouldRecover(bool enabled, bool steamRunning, bool transitionPending,
-        SteamCefDebuggingState state, TimeSpan now)
+    /// <param name="steam">The observation.</param>
+    /// <returns>The action; <see cref="SteamCefActivation.Restart" /> at most once per claim.</returns>
+    internal SteamCefActivation Decide(bool enabled, bool transitionPending, SteamProcessSnapshot steam)
     {
-        if (!enabled || state == SteamCefDebuggingState.Open)
+        if (!enabled || steam.BrowserDebugging == true)
         {
-            _closedSince = null;
             _attempted = false;
-            return false;
+            _reportedBrowser = 0;
+            return SteamCefActivation.None;
         }
 
-        if (!steamRunning || transitionPending || state != SteamCefDebuggingState.Closed)
+        if (steam.BrowserDebugging is null || transitionPending)
         {
-            // A scheduled launch can return before the replacement appears. Its absence must
-            // not rearm an already claimed recovery while that launch is still unresolved.
-            _closedSince = null;
-            return false;
+            return SteamCefActivation.None;
         }
 
-        _closedSince ??= now;
-        if (_attempted || now - _closedSince.Value < StartupGrace)
+        if (!_attempted)
         {
-            return false;
+            // The browser that asked for the restart is never also the one reported as unhelped.
+            _attempted = true;
+            _reportedBrowser = steam.BrowserProcessId;
+            return SteamCefActivation.Restart;
         }
 
-        // Claim before the caller starts asynchronous recovery. A failed restart stays bounded.
-        _attempted = true;
-        return true;
+        if (_reportedBrowser == steam.BrowserProcessId)
+        {
+            return SteamCefActivation.None;
+        }
+
+        _reportedBrowser = steam.BrowserProcessId;
+        return SteamCefActivation.GaveUp;
     }
 }

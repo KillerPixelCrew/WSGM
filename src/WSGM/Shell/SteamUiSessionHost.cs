@@ -732,11 +732,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     ///     Still runs after <see cref="CloseAdmission" />, so a master-switch or Big Picture retraction
     ///     already queued at shutdown start removes what it was meant to; only a retired host skips it.
     /// </remarks>
+    /// <param name="deadline">Ends the pass; what was not removed by then stays in Steam and is reported.</param>
     /// <returns>
-    ///     A task completing after the retraction pass, or immediately for a retired host; session shutdown cancellation
-    ///     can interrupt the pass.
+    ///     A task completing after the retraction pass, or immediately for a retired host; the deadline and
+    ///     session shutdown cancellation can interrupt the pass.
     /// </returns>
-    internal async Task DisableAsync()
+    internal async Task DisableAsync(CancellationToken deadline = default)
     {
         if (_retired)
         {
@@ -744,7 +745,20 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
 
         ClearSwitches();
-        await RetractAsync(_shutdown.Token).ConfigureAwait(false);
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token, deadline);
+        await RetractAsync(cancellation.Token).ConfigureAwait(false);
+    }
+
+    /// <summary>Asks the patch manager whether the bridge still holds in Steam's page; one evaluation.</summary>
+    /// <remarks>The session calls this periodically while its transport is open, and on unlock and display changes.</remarks>
+    internal void CheckHealth()
+    {
+        if (_disposed || _retired)
+        {
+            return;
+        }
+
+        _patches.QueueHealthCheck();
     }
 
     /// <summary>Turns every feature switch off and cancels in-flight requests, without touching CEF.</summary>

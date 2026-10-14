@@ -741,6 +741,7 @@ public sealed partial class ShellSession
         ApplySteamUiTransportGate();
         _transportGateWork = Task.Run(() =>
             RunSteamUiTransportGateAsync(_shutdownCancellation.Token));
+        Log.Observe(_transportGateWork, "Steam UI transport gate");
         // Its own reader rather than AutoTDP's: RtssFrametimeReader is not thread-safe, and
         // these two poll on different threads at different cadences. The mapping is read-only,
         // so a second view of it costs a handle and nothing else.

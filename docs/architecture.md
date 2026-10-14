@@ -142,14 +142,17 @@ toolkit elements, styling and completion checks for both surfaces.
 [`ShellSession.SteamUi.cs`](../src/WSGM/Shell/ShellSession.SteamUi.cs) owns the product gate:
 
 ```text
-master && !exitPending && ((!inGameMode && !transitionPending) || bigPictureReady)
+master && holds ⊆ {BigPictureRequest} && ((!inGameMode && holds == ∅) || bigPictureReady)
 ```
 
-A Big Picture exit hold closes admission before the exit request and remains until desktop return
-settles. A reachable debugging endpoint is not Big Picture readiness. Toolkit discovery also
-validates the MainWindow target. One process-long transport supplies one attached session; feature
-calls borrow it. `SharedJSContext` hosts stores, module discovery, React, the bridge and patches;
-the validated MainWindow document is the DOM/screenshot target.
+The holds are a Big Picture request or close, a CEF activation restart, an accepted suspend and the
+2 s after every resume. A Big Picture exit hold closes admission before the exit request and remains
+until desktop return settles. In game mode a cold start is admitted once its window exists; a window
+missing for less than 3 s afterwards keeps the admission. A reachable debugging endpoint is not Big
+Picture readiness. Toolkit discovery also validates the MainWindow target. One process-long
+transport supplies one attached session; feature calls borrow it. `SharedJSContext` hosts stores,
+module discovery, React, the bridge and patches; the validated MainWindow document is the
+DOM/screenshot target.
 
 The host registers modules and their command/state contracts. The toolkit probes, applies, verifies
 and removes generation-scoped patches. Failed verification removes the partial application. Module

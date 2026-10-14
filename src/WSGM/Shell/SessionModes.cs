@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -817,13 +816,20 @@ public sealed class SessionModes
     ///     Runs one bounded Steam UI retraction before a Big Picture mode change. A broken CEF
     ///     session delays the switch by at most <see cref="SteamUiPrepareTimeout" /> and never blocks it.
     /// </summary>
-    private static async Task PrepareSteamUiAsync(Func<Task> prepare, string request, TimeSpan budget)
+    /// <remarks>
+    ///     The budget is handed to the owner, which closes its transport when the budget expires: only
+    ///     stopping the wait here left a slow retraction sending patch traffic into the front-end Steam
+    ///     was already rebuilding for the request that followed. The wait keeps its own bound as well.
+    /// </remarks>
+    private static async Task PrepareSteamUiAsync(Func<CancellationToken, Task> prepare, string request,
+        TimeSpan budget)
     {
+        using var deadline = new CancellationTokenSource(budget);
         try
         {
-            var work = prepare();
+            var work = prepare(deadline.Token);
             var first = await Task
-                .WhenAny(work, Task.Delay(budget))
+                .WhenAny(work, Task.Delay(budget + TimeSpan.FromSeconds(1)))
                 .ConfigureAwait(false);
             if (first == work)
             {
@@ -831,8 +837,8 @@ public sealed class SessionModes
             }
             else
             {
-                Log.Warn($"Steam UI retraction did not finish before the {request}; "
-                         + "continuing with the transition.");
+                Log.Warn($"Steam UI retraction did not return before the {request}; "
+                         + "continuing with the transition and its transport closed.");
             }
         }
         catch (Exception ex)
@@ -998,7 +1004,10 @@ public sealed class SessionModes
         return result.Started ? null : BigPictureStartFailedWarning;
     }
 
-    /// <summary>Restarts Steam with debugging enabled after a confirmed closed listener, including forced exit.</summary>
+    /// <summary>
+    ///     Restarts Steam with debugging enabled after its browser process started without it, including
+    ///     forced exit. Returns once the replacement was launched; its port is the gate worker's to observe.
+    /// </summary>
     /// <param name="bigPicture">Whether the replacement should open in Big Picture.</param>
     /// <param name="cancellationToken">Interrupts recovery and prevents later stop or launch effects.</param>
     /// <returns>True when recovery was attempted; false when session policy deferred it.</returns>
@@ -1063,7 +1072,7 @@ public sealed class SessionModes
                 return true;
             }
 
-            Log.Warn("Steam CEF listener stayed closed after startup; enforcing a Steam restart to activate it.");
+            Log.Warn("Steam's browser process started without remote debugging; restarting Steam to activate it.");
             if (!await Steam.StopAsync(cancellationToken).ConfigureAwait(false))
             {
                 ReportWarning("Steam could not be stopped for WSGM's Steam integration. Check wsgm.log for details.");
@@ -1089,28 +1098,9 @@ public sealed class SessionModes
                 return true;
             }
 
-            var startupWait = Stopwatch.StartNew();
-            while (_config.Cef.Enabled && !SteamClosedByUser)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var state = SteamCef.GetRemoteDebuggingState(out var reason);
-                if (state == SteamCefDebuggingState.Open)
-                {
-                    Log.Info($"Steam CEF activation succeeded: {reason}.");
-                    return true;
-                }
-
-                if (state == SteamCefDebuggingState.Unavailable
-                    || startupWait.Elapsed >= SteamCefActivationPolicy.StartupGrace)
-                {
-                    Log.Warn($"Steam CEF activation failed after replacement: {state}, {reason}.");
-                    ReportWarning("Steam restarted, but its debugging port is still unavailable. Check wsgm.log for details.");
-                    return true;
-                }
-
-                await Task.Delay(250, cancellationToken).ConfigureAwait(false);
-            }
-
+            // No wait for the port here: the replacement may update or sync first, and the gate worker
+            // reads its browser process's command line when it appears.
+            Log.Info("Steam restarted with remote debugging enabled.");
             return true;
         }
         finally
@@ -1307,11 +1297,13 @@ public sealed class SessionModes
 /// <param name="PrepareSteamUiForBigPictureAsync">
 ///     Awaited (bounded) immediately before a transition asks Steam for Big Picture, so the owner can
 ///     retract injected Steam UI state and close its transport first: the request rebuilds Steam's
-///     whole front-end, and that rebuild must see stock client state.
+///     whole front-end, and that rebuild must see stock client state. The token is the budget; the
+///     owner closes its transport when it fires, whatever the retraction is still doing.
 /// </param>
 /// <param name="PrepareSteamUiForDesktopAsync">
 ///     Awaited (bounded) immediately before the desktop return asks Steam to close Big Picture, for
-///     the same reason: closing rebuilds Steam's front-end just as opening does.
+///     the same reason: closing rebuilds Steam's front-end just as opening does. The token is the
+///     budget, as above.
 /// </param>
 /// <param name="SteamUiBigPictureRequestSettled">
 ///     Invoked when a transition that may have requested Big Picture has settled, on every outcome,
@@ -1326,8 +1318,8 @@ public sealed class SessionModes
 /// <param name="ShutdownCancellation">Cancels an in-flight desktop restoration when the session stops.</param>
 internal sealed record SessionModeHooks(
     IGameModeEntryBackend Entry,
-    Func<Task> PrepareSteamUiForBigPictureAsync,
-    Func<Task> PrepareSteamUiForDesktopAsync,
+    Func<CancellationToken, Task> PrepareSteamUiForBigPictureAsync,
+    Func<CancellationToken, Task> PrepareSteamUiForDesktopAsync,
     Action SteamUiBigPictureRequestSettled,
     Action GameModeEntrySettled,
     Action DesktopReady,

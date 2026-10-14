@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -167,6 +168,14 @@ public static class Steam
     public static nint FindBigPictureWindow()
     {
         return WindowFinder.FindWindow(ProcessNames, BigPictureWindowClass);
+    }
+
+    /// <summary>Finds Steam's Big Picture window among processes the caller already enumerated.</summary>
+    /// <param name="steamProcessIds">This session's steam and steamwebhelper process ids.</param>
+    /// <returns>The window handle, or <see cref="IntPtr.Zero" />.</returns>
+    internal static nint FindBigPictureWindow(HashSet<uint> steamProcessIds)
+    {
+        return WindowFinder.FindWindow(steamProcessIds, BigPictureWindowClass);
     }
 
     private static string? ResolveExePath()

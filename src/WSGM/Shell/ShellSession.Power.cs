@@ -58,6 +58,7 @@ public sealed partial class ShellSession
     private void OnSessionUnlocked()
     {
         QueueDevicePowerTransition(false, "session unlocked");
+        RequestSteamUiHealthCheck();
     }
 
     private void OnSystemSuspending()
@@ -79,6 +80,7 @@ public sealed partial class ShellSession
         Log.Info(
             $"Device cycle suspend accepted (system suspending): monotonic={monotonic.TotalMilliseconds:F0} ms, "
             + $"wall={wall.TotalMilliseconds:F0} ms since the last resume.");
+        HoldSteamUiForSuspend();
         QueueDevicePowerTransition(true, "system suspending", true);
     }
 
@@ -86,6 +88,8 @@ public sealed partial class ShellSession
     {
         Interlocked.Exchange(ref _systemResumeTimestamp, Stopwatch.GetTimestamp());
         Interlocked.Exchange(ref _systemResumeWallTicks, DateTimeOffset.UtcNow.UtcTicks);
+        // Every resume, including the second of one modern standby wake: the settle restarts with it.
+        ReleaseSteamUiAfterResume();
         QueueDevicePowerTransition(false, "system resumed", true);
         if (!ResumeWasUnattended())
         {
@@ -144,8 +148,9 @@ public sealed partial class ShellSession
 
     /// <summary>Re-establishes the state a sleep invalidates without announcing it.</summary>
     /// <remarks>
-    ///     The device cycle has its own resume and the Steam transport reconnects on its own. What is
-    ///     left are the two answers cached from before the sleep. The refresh-rate pairing is latched
+    ///     The device cycle has its own resume and the Steam transport reconnects after every resume
+    ///     (<see cref="ReleaseSteamUiAfterResume" />). What is left are the two answers cached from
+    ///     before the sleep. The refresh-rate pairing is latched
     ///     on the limit it last applied, so a panel that came back at its default rate keeps the
     ///     paired label while running at another cadence until the cap is moved twice. RTSS is only
     ///     probed while a UI client holds an observation lease, so with Quick Access closed and

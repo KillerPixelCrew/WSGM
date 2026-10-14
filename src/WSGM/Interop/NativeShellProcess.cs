@@ -20,6 +20,7 @@ internal static partial class NativeShellProcess
     private const uint CreateUnicodeEnvironment = 0x00000400;
     private const uint WaitObject0 = 0;
     private const int ErrorInvalidParameter = 87;
+    private const int ProcessCommandLineInformation = 60;
 
     /// <summary>Inspects a process without retaining a handle.</summary>
     /// <param name="processId">Process identifier to inspect.</param>
@@ -77,6 +78,57 @@ internal static partial class NativeShellProcess
         try
         {
             return QueryImagePath(process, out _);
+        }
+        finally
+        {
+            Win32Common.CloseHandle(process);
+        }
+    }
+
+    /// <summary>
+    ///     Reads a process's command line through the documented information class, which needs only
+    ///     the limited query right rather than access to the process's memory.
+    /// </summary>
+    /// <param name="processId">Process identity to inspect without retaining a handle.</param>
+    /// <returns>The command line, possibly empty, or null when the process is absent or inaccessible.</returns>
+    internal static unsafe string? TryGetCommandLine(uint processId)
+    {
+        var process = NativeMethods.OpenProcess(ProcessQueryLimitedInformation, false, processId);
+        if (process == 0)
+        {
+            return null;
+        }
+
+        try
+        {
+            var length = 4096;
+            for (var attempt = 0; attempt < 3; attempt++)
+            {
+                var buffer = NativeMemory.Alloc((nuint)length);
+                try
+                {
+                    var status = NtQueryInformationProcess(process, ProcessCommandLineInformation, (nint)buffer,
+                        length, out var needed);
+                    if (status == 0)
+                    {
+                        var text = (UnicodeString*)buffer;
+                        return text->Buffer == 0 ? string.Empty : new string((char*)text->Buffer, 0, text->Length / 2);
+                    }
+
+                    if (needed <= length)
+                    {
+                        return null;
+                    }
+
+                    length = needed;
+                }
+                finally
+                {
+                    NativeMemory.Free(buffer);
+                }
+            }
+
+            return null;
         }
         finally
         {
@@ -254,6 +306,24 @@ internal static partial class NativeShellProcess
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool ProcessIdToSessionId(uint processId, out uint sessionId);
+
+    /// <summary>Returns an NTSTATUS; zero is success.</summary>
+    [LibraryImport("ntdll.dll")]
+    private static partial int NtQueryInformationProcess(
+        nint process,
+        int informationClass,
+        nint information,
+        int length,
+        out int returnLength);
+
+    /// <summary>The native UNICODE_STRING the command-line class answers with: lengths in bytes.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    private struct UnicodeString
+    {
+        internal ushort Length;
+        internal ushort MaximumLength;
+        internal nint Buffer;
+    }
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

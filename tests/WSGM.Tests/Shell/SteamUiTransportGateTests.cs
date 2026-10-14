@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using WSGM.Shell;
 
 namespace WSGM.Tests.Shell;
@@ -8,105 +9,45 @@ public sealed class SteamUiTransportGateTests
     private readonly SteamUiReadiness _readiness = new();
 
     [Theory]
+    [InlineData((int)SteamUiHold.Activation)]
+    [InlineData((int)SteamUiHold.Suspended)]
+    [InlineData((int)SteamUiHold.Resuming)]
+    [InlineData((int)SteamUiHold.BigPictureClose)]
+    public void EveryHoldButTheRequestClosesTheTransportWhateverTheWindowSays(int holdBits)
+    {
+        var hold = (SteamUiHold)holdBits;
+        foreach (var inGameMode in (bool[])[false, true])
+        {
+            foreach (var bigPictureReady in (bool[])[false, true])
+            {
+                Assert.False(SteamUiReadiness.TransportShouldBeOpen(true, inGameMode, hold, bigPictureReady));
+                Assert.False(SteamUiReadiness.TransportShouldBeOpen(true, inGameMode,
+                    hold | SteamUiHold.BigPictureRequest, bigPictureReady));
+            }
+        }
+    }
+
+    [Theory]
     [InlineData(false, false)]
     [InlineData(false, true)]
     [InlineData(true, false)]
     [InlineData(true, true)]
-    public void CefActivationHoldsAllTrafficUntilRecoverySettles(bool inGameMode, bool bigPictureReady)
+    public void WithoutAHoldGameModeWaitsForBigPictureAndDesktopModeDoesNot(bool inGameMode, bool bigPictureReady)
     {
-        Assert.False(SteamUiReadiness.TransportShouldBeOpen(
-            cefMasterEnabled: true, inGameMode, gameModeTransitionPending: false,
-            bigPictureReady, bigPictureExitPending: false, activationPending: true));
-
-        Assert.Equal(!inGameMode || bigPictureReady, SteamUiReadiness.TransportShouldBeOpen(
-            cefMasterEnabled: true, inGameMode, gameModeTransitionPending: false,
-            bigPictureReady, bigPictureExitPending: false, activationPending: false));
-    }
-
-    [Fact]
-    public void TransportShouldBeOpen_GameModeWithoutBigPictureWindow_HoldsTheTransportClosed()
-    {
-        Assert.False(SteamUiReadiness.TransportShouldBeOpen(
-            true,
-            true,
-            false,
-            false));
-    }
-
-    [Fact]
-    public void TransportShouldBeOpen_GameModeWithBigPictureWindow_Opens()
-    {
-        Assert.True(SteamUiReadiness.TransportShouldBeOpen(
-            true,
-            true,
-            false,
-            true));
+        Assert.Equal(!inGameMode || bigPictureReady,
+            SteamUiReadiness.TransportShouldBeOpen(true, inGameMode, SteamUiHold.None, bigPictureReady));
     }
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void TransportShouldBeOpen_DesktopMode_OpensOnTheMasterSwitchAlone(bool bigPictureReady)
-    {
-        Assert.True(SteamUiReadiness.TransportShouldBeOpen(
-            true,
-            false,
-            false,
-            bigPictureReady));
-    }
-
-    [Fact]
-    public void TransportShouldBeOpen_BigPictureRequestPendingInDesktopMode_HoldsTheTransportClosed()
+    public void ABigPictureRequestHoldsUntilTheWindowExists(bool inGameMode)
     {
         // The desktop-to-game transition retracts and closes BEFORE steam://open/bigpicture
         // fires: Steam rebuilds its front-end for that request, and injected state left behind
         // stalled the gamepad UI bootstrap (device-diagnosed 2026-09-01).
-        Assert.False(SteamUiReadiness.TransportShouldBeOpen(
-            true,
-            false,
-            true,
-            false));
-    }
-
-    [Fact]
-    public void TransportShouldBeOpen_BigPictureRequestPendingAndWindowUp_Opens()
-    {
-        Assert.True(SteamUiReadiness.TransportShouldBeOpen(
-            true,
-            false,
-            true,
-            true));
-    }
-
-    [Theory]
-    [InlineData(true, true)]
-    [InlineData(true, false)]
-    [InlineData(false, true)]
-    [InlineData(false, false)]
-    public void TransportShouldBeOpen_BigPictureClosePending_HoldsTheTransportClosed(
-        bool inGameMode,
-        bool bigPictureReady)
-    {
-        // The mirror of the request hold. steam://close/bigpicture rebuilds Steam's front-end
-        // back to the desktop client, and driving patches and evaluations through that rebuild
-        // wedged steamwebhelper for three minutes (Claw, 2026-09-26). The hold covers the whole
-        // desktop return, including the window still being up as the request is dispatched.
-        Assert.False(SteamUiReadiness.TransportShouldBeOpen(
-            true,
-            inGameMode,
-            false,
-            bigPictureReady,
-            true));
-    }
-
-    [Fact]
-    public void TransportShouldBeOpen_BigPictureCloseSettled_ReopensInDesktopMode()
-    {
-        Assert.True(SteamUiReadiness.TransportShouldBeOpen(
-            true,
-            false,
-            false,
-            false));
+        Assert.False(SteamUiReadiness.TransportShouldBeOpen(true, inGameMode, SteamUiHold.BigPictureRequest, false));
+        Assert.True(SteamUiReadiness.TransportShouldBeOpen(true, inGameMode, SteamUiHold.BigPictureRequest, true));
     }
 
     [Theory]
@@ -116,11 +57,73 @@ public sealed class SteamUiTransportGateTests
     [InlineData(true, true)]
     public void TransportShouldBeOpen_MasterSwitchOff_NeverOpens(bool inGameMode, bool bigPictureReady)
     {
-        Assert.False(SteamUiReadiness.TransportShouldBeOpen(
-            false,
-            inGameMode,
-            false,
-            bigPictureReady));
+        Assert.False(SteamUiReadiness.TransportShouldBeOpen(false, inGameMode, SteamUiHold.None, bigPictureReady));
+    }
+
+    [Fact]
+    public void AColdStartIsAdmittedOnlyOnceItsWindowExists()
+    {
+        var admission = new BigPictureAdmission();
+
+        Assert.False(admission.Observe(Observation(100, false), false, Ticks(0)));
+        Assert.True(admission.Observe(Observation(100, true), false, Ticks(1)));
+    }
+
+    [Fact]
+    public void AnAdmittedWindowMissingBrieflyKeepsTheAdmission()
+    {
+        var admission = new BigPictureAdmission();
+        admission.Observe(Observation(100, true), false, Ticks(0));
+
+        Assert.True(admission.Observe(Observation(100, false), false, Ticks(1)));
+        Assert.True(admission.Observe(Observation(100, false), false,
+            Ticks(1) + Seconds(SteamUiReadiness.BigPictureLossGrace) - 1));
+        Assert.True(admission.Observe(Observation(100, true), false, Ticks(10)));
+    }
+
+    [Fact]
+    public void AWindowMissingForTheWholeGraceWithdrawsTheAdmission()
+    {
+        var admission = new BigPictureAdmission();
+        admission.Observe(Observation(100, true), false, Ticks(0));
+        admission.Observe(Observation(100, false), false, Ticks(1));
+
+        Assert.False(admission.Observe(Observation(100, false), false,
+            Ticks(1) + Seconds(SteamUiReadiness.BigPictureLossGrace)));
+        Assert.False(admission.Observe(Observation(100, false), false, Ticks(5)));
+    }
+
+    [Fact]
+    public void ANewBrowserProcessMustShowItsOwnWindow()
+    {
+        var admission = new BigPictureAdmission();
+        admission.Observe(Observation(100, true), false, Ticks(0));
+
+        Assert.False(admission.Observe(Observation(200, false), false, Ticks(1)));
+    }
+
+    [Fact]
+    public void AWindowSeenDuringAHoldEarnsNoGrace()
+    {
+        var admission = new BigPictureAdmission();
+
+        Assert.True(admission.Observe(Observation(100, true), true, Ticks(0)));
+        Assert.False(admission.Observe(Observation(100, false), false, Ticks(1)));
+    }
+
+    private static SteamProcessSnapshot Observation(uint browser, bool window)
+    {
+        return new SteamProcessSnapshot(true, browser, true, window);
+    }
+
+    private static long Ticks(int seconds)
+    {
+        return 1_000 * Stopwatch.Frequency + seconds * Stopwatch.Frequency;
+    }
+
+    private static long Seconds(TimeSpan span)
+    {
+        return (long)(span.TotalSeconds * Stopwatch.Frequency);
     }
 
     [Fact]

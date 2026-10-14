@@ -59,18 +59,24 @@ are localized and therefore not an identity.
 The gate is:
 
 ```text
-master && !activationPending && !exitPending && ((!inGameMode && !transitionPending) || bigPictureReady)
+master && holds ⊆ {BigPictureRequest} && ((!inGameMode && holds == ∅) || bigPictureReady)
 ```
+
+The holds (`SteamUiHold`) are `BigPictureRequest`, `BigPictureClose`, `Activation`, `Suspended` and
+`Resuming`; only the request hold yields to an existing window.
 
 In game mode, keep the transport closed until the real `SDL_app` Big Picture window exists. Before a
 Big Picture request, retract the host, card badge, and library tabs, then close the transport within
 the bounded shutdown budget. Disabling the master switch follows the same retract-before-close
 order. Overlay-test mode never attaches.
 
-The activation worker passively observes listener ownership, allows a continuous 30-second closed
-listener grace, and admits one bounded restart. It enforces Steam exit before replacement, restores
-the transport decision in `finally`, and posts warnings to the UI thread. Install, update and an
-explicit Close Steam request authorize full Steam process-tree termination without another approval.
+The activation worker reads steamwebhelper's browser-process command line and restarts Steam once
+only when that process runs without `--remote-debugging-port`; a Steam without a browser process yet
+is never restarted. It enforces Steam exit before replacement, releases its hold in `finally`, and
+posts warnings to the UI thread. The gate loop never ends before shutdown, reconnects the transport
+after every resume, and asks for a one-evaluation bridge health check every 15 s while open.
+Install, update and an explicit Close Steam request authorize full Steam process-tree termination
+without another approval.
 
 The toolkit transport additionally requires one validated MainWindow target before attaching in
 either mode (`requireMainWindow: true` in WSGM). The desktop master-switch branch permits discovery,

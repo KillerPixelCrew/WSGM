@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
@@ -15,11 +16,24 @@ namespace WSGM.Shell;
 internal sealed class SteamUiReadiness
 {
     /// <summary>
-    ///     How often the shell re-reads the Big Picture window while it owns the transport
-    ///     gate. One second bounds the cold-start delay after the window appears; the boot splash keeps
-    ///     its own tighter detection because that one drives a visible fade.
+    ///     How often the shell re-reads Steam's processes and Big Picture window while it owns the
+    ///     transport gate. One second bounds the cold-start delay after the window appears; the boot
+    ///     splash keeps its own tighter detection because that one drives a visible fade.
     /// </summary>
     internal static readonly TimeSpan TransportGatePollInterval = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    ///     How long the Big Picture window of an admitted Steam may be missing before the game-mode gate
+    ///     treats it as gone. A window recreated across a display change or a wake is back well inside
+    ///     this; a closed Big Picture is not.
+    /// </summary>
+    internal static readonly TimeSpan BigPictureLossGrace = TimeSpan.FromSeconds(3);
+
+    /// <summary>How long the transport stays closed after the machine resumes, so it reconnects to a settled Steam.</summary>
+    internal static readonly TimeSpan ResumeSettle = TimeSpan.FromSeconds(2);
+
+    /// <summary>How often the gate asks the page whether WSGM's bridge still holds while the transport is open.</summary>
+    internal static readonly TimeSpan HealthCheckInterval = TimeSpan.FromSeconds(15);
 
     private readonly Lock _sync = new();
 
@@ -28,16 +42,6 @@ internal sealed class SteamUiReadiness
 
     /// <summary>What the gate last reported. Guarded by <see cref="_sync" />.</summary>
     private bool _ready;
-
-    /// <summary>
-    ///     Gets whether Steam has progressed beyond process creation to a real
-    ///     Big Picture window. A cold-start SharedJSContext can accept evaluations before
-    ///     this point; early mutation was the distinguishing state in a device-observed
-    ///     startup failure. BOTH conditions are required: a live steam.exe alone is not
-    ///     a constructed Big Picture session.
-    /// </summary>
-    /// <remarks>Only the session's gate samples this; everything else reads <see cref="IsReady" />.</remarks>
-    internal static bool BigPictureUp => Steam.IsRunning && Steam.IsBigPictureVisible;
 
     /// <summary>Gets whether the gate last held the transport open.</summary>
     /// <remarks>
@@ -58,20 +62,8 @@ internal sealed class SteamUiReadiness
     /// <summary>Decides whether the Steam UI transport may carry any traffic at all.</summary>
     /// <param name="cefMasterEnabled">Whether Steam CEF integration is switched on.</param>
     /// <param name="inGameMode">Whether WSGM owns game mode, where it also owns Steam's start.</param>
-    /// <param name="gameModeTransitionPending">
-    ///     Whether a transition is about to ask (or has just
-    ///     asked) Steam for Big Picture and has not settled yet. The request rebuilds Steam's whole
-    ///     front-end, so the hold must begin BEFORE it fires — waiting for the mode flag flips the
-    ///     gate seconds after Steam already started bootstrapping against injected state.
-    /// </param>
-    /// <param name="bigPictureReady">Whether <see cref="BigPictureUp" /> held when the caller sampled it.</param>
-    /// <param name="bigPictureExitPending">
-    ///     Whether a transition has asked (or is about to ask) Steam to leave Big Picture and has not
-    ///     settled yet. Leaving rebuilds Steam's front-end exactly as entering does, so the hold is
-    ///     symmetric: every automatic CEF touch stops before the close request fires and resumes only
-    ///     once the desktop return has settled.
-    /// </param>
-    /// <param name="activationPending">Whether a bounded CEF activation restart currently owns Steam.</param>
+    /// <param name="holds">The holds in force; see <see cref="SteamUiHold" /> for what each one waits for.</param>
+    /// <param name="bigPictureReady">Whether <see cref="BigPictureAdmission" /> admitted the Big Picture window.</param>
     /// <returns>True to open the transport; false to hold every automatic CEF touch.</returns>
     /// <remarks>
     ///     Desktop mode opens on the master switch alone: Steam there is the user's own
@@ -84,17 +76,15 @@ internal sealed class SteamUiReadiness
     internal static bool TransportShouldBeOpen(
         bool cefMasterEnabled,
         bool inGameMode,
-        bool gameModeTransitionPending,
-        bool bigPictureReady,
-        bool bigPictureExitPending = false,
-        bool activationPending = false)
+        SteamUiHold holds,
+        bool bigPictureReady)
     {
-        if (!cefMasterEnabled || bigPictureExitPending || activationPending)
+        if (!cefMasterEnabled || (holds & ~SteamUiHold.BigPictureRequest) != SteamUiHold.None)
         {
             return false;
         }
 
-        return (!inGameMode && !gameModeTransitionPending) || bigPictureReady;
+        return (!inGameMode && holds == SteamUiHold.None) || bigPictureReady;
     }
 
     /// <summary>
@@ -197,5 +187,85 @@ internal sealed class SteamUiReadiness
         {
             return _nextReady.Task.WaitAsync(cancellationToken);
         }
+    }
+}
+
+/// <summary>Why the transport is held closed while the master switch is on.</summary>
+[Flags]
+internal enum SteamUiHold
+{
+    /// <summary>No hold.</summary>
+    None = 0,
+
+    /// <summary>
+    ///     A transition is about to ask, or has asked, Steam for Big Picture and has not settled. The
+    ///     request rebuilds Steam's whole front-end, so the hold begins before it fires; it ends early
+    ///     once the Big Picture window exists.
+    /// </summary>
+    BigPictureRequest = 1,
+
+    /// <summary>
+    ///     A transition is about to ask, or has asked, Steam to leave Big Picture and has not settled.
+    ///     Leaving rebuilds the front-end exactly as entering does.
+    /// </summary>
+    BigPictureClose = 2,
+
+    /// <summary>A bounded restart to activate Steam's debugging port owns Steam.</summary>
+    Activation = 4,
+
+    /// <summary>The machine accepted a suspend; nothing may be in flight across the sleep.</summary>
+    Suspended = 8,
+
+    /// <summary>The machine resumed moments ago; the transport reconnects once Steam has settled.</summary>
+    Resuming = 16
+}
+
+/// <summary>Admits Steam's Big Picture window once per browser process for the game-mode gate.</summary>
+/// <remarks>
+///     A cold start must show its window before anything touches its CEF context (the device-observed
+///     startup failure). After that, a window missing for one 1 s sample used to close the transport,
+///     detach every socket and leave WSGM's namespaces in Steam unanswered until the full reapply: a
+///     window recreated across a display change or a wake cost a complete teardown. Now only a window
+///     missing for <see cref="SteamUiReadiness.BigPictureLossGrace" />, a new browser process or a hold
+///     withdraws the admission. The gate worker is the sole owner.
+/// </remarks>
+internal sealed class BigPictureAdmission
+{
+    private uint _admittedBrowser;
+    private long _missingSince;
+
+    /// <summary>Decides from one observation whether Big Picture is ready.</summary>
+    /// <param name="steam">The observation.</param>
+    /// <param name="held">Whether a hold is in force, which withdraws the admission.</param>
+    /// <param name="now">The observation time, in <see cref="Stopwatch" /> ticks.</param>
+    /// <returns>Whether the game-mode gate may treat Big Picture as up.</returns>
+    internal bool Observe(SteamProcessSnapshot steam, bool held, long now)
+    {
+        if (steam.BigPictureWindow)
+        {
+            // A window seen during a hold opens a held request but earns no grace for later.
+            _admittedBrowser = held ? 0 : steam.BrowserProcessId;
+            _missingSince = 0;
+            return true;
+        }
+
+        if (held || !steam.Running || _admittedBrowser == 0 || _admittedBrowser != steam.BrowserProcessId)
+        {
+            _admittedBrowser = 0;
+            return false;
+        }
+
+        if (_missingSince == 0)
+        {
+            _missingSince = now;
+        }
+
+        if (Stopwatch.GetElapsedTime(_missingSince, now) < SteamUiReadiness.BigPictureLossGrace)
+        {
+            return true;
+        }
+
+        _admittedBrowser = 0;
+        return false;
     }
 }
