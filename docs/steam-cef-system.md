@@ -89,16 +89,17 @@ Steam Input proxy.
 | Big Picture window  | class `SDL_app` owned by a Steam process; `IsBigPictureVisible` is stronger than `IsRunning` on purpose   |
 | URLs                | `steam://open/bigpicture`, `steam://close/bigpicture`, `steam://exit`                                     |
 | Shortcuts           | Ctrl+1 opens the Steam menu, Ctrl+2 the Quick Access Menu, sent without a foreground gate                 |
-| Update stop         | 10 s budget, 5 s graceful `steam://exit` window, never kills Steam                                        |
+| Update stop         | 10 s budget, 5 s graceful `steam://exit` window, then full forced termination                             |
 | Monitor poll        | every 5 s at background priority; `SteamStarted` only after Steam was seen dead                           |
 | Auto relaunch       | 10 s after an exit, when `SteamAutoRelaunch` is set                                                       |
 | `RunWhenReadyAsync` | at once when the gate holds the transport open, else at its next ready edge, and again at each later edge |
 
 A cold `LaunchBigPicture` passes the Big Picture URL on the command line so Steam boots straight
-into it. Only that path reconciles the Steam Input shim and writes the CEF flag, because the flag
-takes effect on a fresh start. With `SteamLaunchUnelevated` and WSGM elevated, Steam starts through
-the de-elevated scheduled task; `Steam launch integrity: …` records which path ran. A warm launch
-fires the protocol URL. Readiness is `IsRunning && IsBigPictureVisible`.
+into it. Cold starts reconcile the Steam Input shim and write the CEF flag. Activation recovery also
+prepares the flag before replacing an already running client, because it takes effect on a fresh
+start. With `SteamLaunchUnelevated` and WSGM elevated, Steam starts through the de-elevated
+scheduled task; `Steam launch integrity: …` records which path ran. A warm launch fires the protocol
+URL. Readiness is `IsRunning && IsBigPictureVisible`.
 
 ## 3. The transport gate
 
@@ -146,6 +147,15 @@ the existing discovery connection and no JavaScript evaluation to decide readine
 `ShellSession` runs a one-second gate loop that re-decides on every signal (mode change,
 `SteamStarted`, `SteamExited`, master switch) and logs the transition under
 `Log.Change("steam-ui-transport-gate", …)`:
+
+The same worker passively checks the CEF listener using the toolkit's native TCP ownership query. A
+confirmed closed listener gets a continuous 30-second startup grace, then one enforced Steam restart
+with the remote-debugging flag prepared first. Unverified or foreign listener ownership does not
+authorize recovery. The transport stays held during replacement and is re-evaluated in a `finally`
+block on success, failure, or cancellation. Restart failures remain bounded to one attempt until the
+listener opens or integration is explicitly switched off and on; an absent replacement does not
+start a restart loop. Warning presentation runs on the UI thread and cannot stop the gate worker. An
+open listener still has to pass the normal Big Picture and MainWindow readiness gates.
 
 | Log line                                                                                                                          | Meaning                     |
 | --------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |

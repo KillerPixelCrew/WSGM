@@ -76,11 +76,13 @@ necessary, keeping the code readable and maintainable by a human.
   Graphics entry. Normalize React's nested child-key prefixes before matching Steam's descriptor
   anchors.
 - The production transport gate is
-  `master && !exitPending && ((!inGameMode && !transitionPending) || bigPictureReady)`. A reachable
-  CEF endpoint or a new `SharedJSContext` is not Big Picture readiness. WSGM also requires a
-  validated MainWindow during toolkit discovery in both modes; a desktop login popup does not
-  authorize attachment. The configured master switch, not that temporary hold, controls creating the
-  remote-debugging flag before a cold start.
+  `master && !activationPending && !exitPending && ((!inGameMode && !transitionPending) || bigPictureReady)`.
+  CEF activation holds every automatic touch through the bounded Steam replacement and releases its
+  hold in `finally`, including failure and cancellation. Worker warnings are posted to the UI
+  thread. A reachable CEF endpoint or a new `SharedJSContext` is not Big Picture readiness. WSGM
+  also requires a validated MainWindow during toolkit discovery in both modes; a desktop login popup
+  does not authorize attachment. The configured master switch, not that temporary hold, controls
+  creating the remote-debugging flag before a cold start.
 - Keep one persistent transport and one attached session. One-shot evaluations borrow that session.
 - Use `SharedJSContext` for stores, webpack, React, bridge, and patches. Use the visible shaped
   `MainWindow` target for DOM and screenshots; never select it by localized title.

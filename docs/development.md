@@ -62,6 +62,9 @@ runtime copies of a type.
 | `Launch/PackagedLaunchCommand.cs`                                   | Library shortcut composer and packaged launcher share parse/compose vocabulary                                       |
 | `Interop`                                                           | Explicitly linked native implementation primitives; `.csproj` includes define their consumers                        |
 
+`Process/SteamProcessControl.cs` is linked by WSGM and setup. Both use its bounded orderly and
+forced Steam shutdown, current-session process targeting, and exit verification.
+
 The Steam browser payload is also composed from one set of owning sources.
 [`eng/build-steam-assets.mjs`](../eng/build-steam-assets.mjs) combines the toolkit fragment list
 with [`Core/SteamUiAssets/Source`](../src/WSGM/Core/SteamUiAssets/Source) and emits

@@ -380,6 +380,17 @@ reference Claw. Unattended tests must not start or stop the live shell.
 and surfaces `SessionModes.SteamStartFailed`. `TransitionInProgress` serializes transitions, and the
 overlay ignores mode clicks while one runs.
 
+Warnings from Steam recovery workers are posted to the UI thread; UI-thread warnings remain
+synchronous. Shutdown suppresses both queued and new warnings, so a late failure cannot reopen the
+overlay or interrupt the transport gate with an Avalonia thread-access exception.
+
+Close Steam and CEF recovery share one serialized stop operation. Steam has 15 seconds to answer
+`steam://exit`, followed by up to five seconds for forced-exit verification. The forced phase ends
+Steam and its CEF helpers in the current Windows session. Explicit Close Steam, install and update
+requests also authorize ending their process trees. Automatic CEF recovery ends the client and
+helpers. An update uses the same operation within its existing ten-second budget, with five seconds
+of grace. Cancellation prevents a later forced stop, and shutdown joins the close worker.
+
 Steam is driven with protocol URLs, which are UIPI-proof:
 
 | Action                                             | URL                        |
@@ -432,6 +443,10 @@ WSGM posts `WM_CLOSE` to that window directly and logs its handle and `IsHungApp
 2026-09-26 the close request reached a Steam whose CEF renderer had stopped answering thirteen
 seconds earlier, so nothing consumed it, and the rest of the return rebuilt the desktop underneath a
 Big Picture window that was still up.
+
+If both close attempts fail, WSGM forces Steam to stop and verifies exit within five seconds before
+continuing desktop restoration. A failed stop is recorded as a transition failure. The restored
+desktop starts its normal windowed Steam client through the existing launch path.
 
 Shell readiness requires matching taskbar/desktop owners and responsive windows; surviving processes
 or window handles alone are insufficient. Responsiveness alone is the one check that cannot condemn

@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -282,54 +281,20 @@ internal static class WindowsSetup
         }
     }
 
-    /// <summary>
-    ///     Asks Steam to exit the way WSGM's own update pre-stop does (<c>steam://exit</c>) and waits for it.
-    ///     Steam is never terminated: it may be saving a running game, so a Steam that stays is a refusal.
-    /// </summary>
-    /// <param name="budget">How long Steam may take to shut down.</param>
-    /// <returns>Whether Steam is gone from this session.</returns>
+    /// <summary>Closes this session's Steam client and helpers, enforcing exit after a bounded grace.</summary>
+    /// <param name="budget">Total graceful and forced shutdown budget.</param>
+    /// <returns>True only when Steam and its CEF helpers are gone from this session.</returns>
     public static bool CloseSteam(TimeSpan budget)
     {
-        if (!Blockers(true).Contains("steam", StringComparer.OrdinalIgnoreCase))
+        var grace = TimeSpan.FromSeconds(Math.Min(15, budget.TotalSeconds / 2));
+        var stopped = SteamProcessControl.StopAsync(budget, grace,
+            message => SetupLog.Info(message), CancellationToken.None, entireProcessTree: true).GetAwaiter().GetResult();
+        if (!stopped)
         {
-            // Steam elsewhere is not ours to close, but saying so tells a session mismatch from no Steam at all.
-            var elsewhere = Process.GetProcessesByName("steam");
-            SetupLog.Info("Steam is not running in this session"
-                          + (elsewhere.Length == 0
-                              ? "."
-                              : $"; found in session(s) {string.Join(", ", elsewhere.Select(Session).Distinct())}."));
-            foreach (var process in elsewhere)
-            {
-                process.Dispose();
-            }
-
-            return true;
+            SetupLog.Warn($"Steam did not exit within {budget.TotalSeconds:0} s, including forced shutdown.");
         }
 
-        SetupLog.Info("Steam is still running; asking it to exit (steam://exit).");
-        try
-        {
-            Process.Start(new ProcessStartInfo("steam://exit") { UseShellExecute = true })?.Dispose();
-        }
-        catch (Exception ex) when (ex is Win32Exception or IOException)
-        {
-            SetupLog.Error("Could not ask Steam to exit", ex);
-            return false;
-        }
-
-        var deadline = Stopwatch.StartNew();
-        while (deadline.Elapsed < budget)
-        {
-            Thread.Sleep(500);
-            if (!Blockers(true).Contains("steam", StringComparer.OrdinalIgnoreCase))
-            {
-                SetupLog.Info($"Steam exited after {deadline.Elapsed.TotalSeconds:0.0} s.");
-                return true;
-            }
-        }
-
-        SetupLog.Warn($"Steam did not exit within {budget.TotalSeconds:0} s; it was not terminated.");
-        return false;
+        return stopped;
     }
 
     /// <summary>The image path of the WSGM running in this session, so a rollback restarts that one.</summary>
@@ -358,18 +323,6 @@ internal static class WindowsSetup
         return null;
     }
 
-    private static string Session(Process process)
-    {
-        try
-        {
-            return process.SessionId.ToString(CultureInfo.InvariantCulture);
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
-        {
-            return "?";
-        }
-    }
-
     /// <summary>Force-stops an image in this session only; another signed-in user's WSGM is never touched.</summary>
     /// <param name="image">Executable image name passed to the session-filtered taskkill command.</param>
     public static void ForceStopCurrentSession(string image)
@@ -380,16 +333,44 @@ internal static class WindowsSetup
             return;
         }
 
-        Run(SystemTool("taskkill.exe"), ForceStopArguments(session, image));
+        try
+        {
+            using var process = Process.Start(new ProcessStartInfo(SystemTool("taskkill.exe"),
+                ForceStopArguments(session, image))
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true
+            });
+            if (process is null)
+            {
+                SetupLog.Warn("Could not start forced termination for " + image);
+                return;
+            }
+
+            if (!process.WaitForExit(TimeSpan.FromSeconds(5)))
+            {
+                process.Kill();
+                SetupLog.Warn("The forced-termination command did not complete for " + image);
+                return;
+            }
+
+            SetupLog.Info($"Forced termination for {image} exited {process.ExitCode}.");
+        }
+        catch (Exception ex) when (ex is Win32Exception or IOException or InvalidOperationException)
+        {
+            SetupLog.Error("Forced termination failed for " + image, ex);
+        }
     }
 
-    /// <summary>The taskkill arguments that end one image in one session, and never its child processes.</summary>
+    /// <summary>Session-scoped taskkill arguments; a full Steam stop includes its child processes.</summary>
     /// <param name="session">The session to scope the stop to.</param>
     /// <param name="image">The image name.</param>
     /// <returns>The arguments.</returns>
     internal static string ForceStopArguments(uint session, string image)
     {
-        return $"/FI \"SESSION eq {session}\" /IM \"{image}\" /F";
+        var tree = image.Equals("steam.exe", StringComparison.OrdinalIgnoreCase)
+                   || image.Equals("steamwebhelper.exe", StringComparison.OrdinalIgnoreCase);
+        return $"/FI \"SESSION eq {session}\" /IM \"{image}\" /F" + (tree ? " /T" : "");
     }
 
     /// <summary>
@@ -418,8 +399,8 @@ internal static class WindowsSetup
     }
 
     /// <summary>
-    ///     Whether Steam or a launch wrapper runs in this session. Setup never terminates either: either
-    ///     can own a running game that needs its normal save and exit.
+    ///     Whether Steam or a launch wrapper still runs in this session. Steam shutdown is enforced;
+    ///     active launch wrappers continue to block replacement until their games exit.
     /// </summary>
     /// <param name="includeSteam">Whether Steam itself joins the wrapper blocker list.</param>
     /// <returns>Distinct blocking process names in this session; inaccessible/exited processes are skipped.</returns>
@@ -427,7 +408,7 @@ internal static class WindowsSetup
     {
         // WSGM.Deelevate and steam-input-lease are the wrappers' retired names; a 1.0 install may still run them.
         string[] wrappers = ["WSGM.Launch", "WSGM.PackagedLaunch", "WSGM.Deelevate", "steam-input-lease"];
-        var names = includeSteam ? ["steam", .. wrappers] : wrappers;
+        var names = includeSteam ? ["steam", "steamwebhelper", .. wrappers] : wrappers;
         using var self = Process.GetCurrentProcess();
         var session = self.SessionId;
         List<string> found = [];

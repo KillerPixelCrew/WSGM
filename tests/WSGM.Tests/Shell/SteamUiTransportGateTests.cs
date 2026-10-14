@@ -7,6 +7,22 @@ public sealed class SteamUiTransportGateTests
     // One session's readiness; every test starts closed.
     private readonly SteamUiReadiness _readiness = new();
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void CefActivationHoldsAllTrafficUntilRecoverySettles(bool inGameMode, bool bigPictureReady)
+    {
+        Assert.False(SteamUiReadiness.TransportShouldBeOpen(
+            cefMasterEnabled: true, inGameMode, gameModeTransitionPending: false,
+            bigPictureReady, bigPictureExitPending: false, activationPending: true));
+
+        Assert.Equal(!inGameMode || bigPictureReady, SteamUiReadiness.TransportShouldBeOpen(
+            cefMasterEnabled: true, inGameMode, gameModeTransitionPending: false,
+            bigPictureReady, bigPictureExitPending: false, activationPending: false));
+    }
+
     [Fact]
     public void TransportShouldBeOpen_GameModeWithoutBigPictureWindow_HoldsTheTransportClosed()
     {

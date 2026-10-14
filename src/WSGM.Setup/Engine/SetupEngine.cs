@@ -715,22 +715,22 @@ internal sealed class SetupEngine : IDisposable
         // Every mode closes Steam. An install, update or repair lets WSGM start it with its own settings, and
         // an uninstall can only remove the Steam Input helper from Steam's folder once Steam no longer has it
         // loaded. WSGM's pre-stop covers Steam only for an update and only when WSGM was running (not on a
-        // retry, after the old uninstaller, or for an uninstall), so setup sends the same graceful request
-        // and waits longer. Steam is never terminated. With an installed WSGM, a Steam that stays refuses the
-        // change; a fresh install has nothing loaded in Steam and continues.
-        var existing = File.Exists(AppExe);
-        if (!_runtime.CloseSteam(TimeSpan.FromSeconds(60)) && !existing)
+        // retry, after the old uninstaller, or for an uninstall). Setup enforces the same bounded
+        // graceful-then-forced stop. The installation request authorizes full Steam termination.
+        if (!_runtime.CloseSteam(TimeSpan.FromSeconds(60)))
         {
-            SetupLog.Warn("Steam stayed open; a fresh install continues, and WSGM starts Steam its own way next time.");
+            SetupLog.Warn("Steam remained after the close operation; enforcing termination of its full process trees.");
+            _runtime.ForceStopCurrentSession("steam.exe");
+            _runtime.ForceStopCurrentSession("steamwebhelper.exe");
         }
 
-        var blockers = _runtime.Blockers(existing);
+        var blockers = _runtime.Blockers(includeSteam: true);
         if (blockers.Count > 0)
         {
             step.Note = blockers.Count == 1
-                ? $"{blockers[0]} is still running. Close it normally, then run setup again. No process was ended."
-                : $"{string.Join(" and ", blockers)} are still running. Close them normally, then run setup again. "
-                  + "No process was ended.";
+                ? $"Windows still reports {blockers[0]} running after shutdown. Check setup.log for the termination error."
+                : $"Windows still reports {string.Join(" and ", blockers)} running after shutdown. "
+                  + "Check setup.log for the termination error.";
             return false;
         }
 

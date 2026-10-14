@@ -77,6 +77,14 @@ public sealed class SetupShutdownContractTests
     }
 
     [Theory]
+    [InlineData("steam.exe")]
+    [InlineData("steamwebhelper.exe")]
+    public void FullSteamTerminationIncludesItsProcessTree(string image)
+    {
+        Assert.Equal($"/FI \"SESSION eq 3\" /IM \"{image}\" /F /T", WindowsSetup.ForceStopArguments(3, image));
+    }
+
+    [Theory]
     [InlineData(false, WindowsSetup.ExitForUpdate, WindowsSetup.UpdateGraceIterations)]
     [InlineData(true, WindowsSetup.ExitForUninstall, WindowsSetup.UninstallGraceIterations)]
     public void StopRuntime_StopsTheServiceThenWsgmThenSteamAndReservesTheOwnerLast(bool forUninstall,
@@ -126,9 +134,14 @@ public sealed class SetupShutdownContractTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void StopRuntime_RefusesWhileSteamStaysAndEndsOnlyWsgmImages(bool forUninstall)
+    public void StopRuntime_ReportsAnActualForcedSteamTerminationFailure(bool forUninstall)
     {
-        RecordingRuntime runtime = new() { SteamCloses = false, StillRunning = ["steam"] };
+        RecordingRuntime runtime = new()
+        {
+            SteamCloses = false,
+            ForceClearsSteam = false,
+            StillRunning = ["steam"]
+        };
         using TemporaryDirectory installation = new();
         using SetupEngine engine = new(null, runtime, installation.GetPath("root"),
             installation.GetPath("machine"), installation.GetPath("user"));
@@ -136,12 +149,32 @@ public sealed class SetupShutdownContractTests
 
         Assert.False(engine.StopRuntime(step, forUninstall));
 
-        Assert.Equal(["ForceStop WSGM.exe", "ForceStop WSGM.ShellAnchor.exe"],
+        Assert.Equal(["ForceStop WSGM.exe", "ForceStop WSGM.ShellAnchor.exe", "ForceStop steam.exe", "ForceStop steamwebhelper.exe"],
             runtime.Calls.Where(call => call.StartsWith("ForceStop ", StringComparison.Ordinal)));
         Assert.Contains("CloseSteam 60", runtime.Calls);
         Assert.DoesNotContain("ReserveDeviceOwner 30", runtime.Calls);
-        Assert.Equal("steam is still running. Close it normally, then run setup again. No process was ended.",
+        Assert.Equal("Windows still reports steam running after shutdown. Check setup.log for the termination error.",
             step.Note);
+    }
+
+    [Fact]
+    public void FreshInstallEnforcesSteamTerminationAndContinues()
+    {
+        RecordingRuntime runtime = new()
+        {
+            SteamCloses = false,
+            StillRunning = ["steam", "steamwebhelper"],
+            OwnerAvailable = true
+        };
+        using TemporaryDirectory installation = new();
+        using SetupEngine engine = new(null, runtime, installation.GetPath("root"),
+            installation.GetPath("machine"), installation.GetPath("user"));
+        var step = Step();
+
+        Assert.True(engine.StopRuntime(step, forUninstall: false));
+        Assert.Contains("ForceStop steam.exe", runtime.Calls);
+        Assert.Contains("ForceStop steamwebhelper.exe", runtime.Calls);
+        Assert.Contains("ReserveDeviceOwner 30", runtime.Calls);
     }
 
     [Fact]
@@ -246,7 +279,10 @@ public sealed class SetupShutdownContractTests
         public bool ServiceStops { get; init; } = true;
         public bool AnchorSettles { get; init; } = true;
         public bool SteamCloses { get; init; } = true;
+        public bool ForceClearsSteam { get; init; } = true;
+        public bool OwnerAvailable { get; init; }
         public IReadOnlyList<string> StillRunning { get; init; } = [];
+        private readonly HashSet<string> _terminatedSteam = [];
 
         public string? InstalledVersion()
         {
@@ -291,6 +327,10 @@ public sealed class SetupShutdownContractTests
         public void ForceStopCurrentSession(string image)
         {
             Calls.Add("ForceStop " + image);
+            if (ForceClearsSteam && image is "steam.exe" or "steamwebhelper.exe")
+            {
+                _terminatedSteam.Add(Path.GetFileNameWithoutExtension(image));
+            }
         }
 
         public bool ShellAnchorRecoverySettled()
@@ -308,7 +348,7 @@ public sealed class SetupShutdownContractTests
         public IReadOnlyList<string> Blockers(bool includeSteam)
         {
             Calls.Add("Blockers");
-            return StillRunning;
+            return StillRunning.Where(name => !_terminatedSteam.Contains(name)).ToArray();
         }
 
         public int Run(string file, string arguments)
@@ -325,7 +365,7 @@ public sealed class SetupShutdownContractTests
         public Mutex? ReserveDeviceOwner(TimeSpan wait)
         {
             Calls.Add($"ReserveDeviceOwner {wait.TotalSeconds:0}");
-            return null;
+            return OwnerAvailable ? new Mutex(initiallyOwned: false) : null;
         }
 
         public bool RunInnoUninstaller(string command, Func<bool> stillInstalled)

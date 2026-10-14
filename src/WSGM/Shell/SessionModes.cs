@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
+using SteamUiToolkit;
 using WindowsDeviceControl;
 using WSGM.Core;
 using WSGM.Interop;
@@ -92,6 +94,8 @@ public sealed class SessionModes
 
     private readonly ExplorerDesktopHost? _desktopHost;
     private readonly Lock _homeLaunchGate = new();
+    private readonly SemaphoreSlim _steamControlGate = new(1, 1);
+    private readonly CancellationTokenSource _steamControlCancellation = new();
     private readonly SessionModeHooks? _hooks;
     private readonly Func<bool, bool, bool, bool> _launchSteamDesktop;
     private readonly SteamMonitor? _monitor;
@@ -116,6 +120,8 @@ public sealed class SessionModes
     private IDisposable? _pendingSteamRelaunch;
     private int _shutdownRequested;
     private int _steamClosedByUser;
+    private int _steamCefRecoveryInProgress;
+    private volatile Task _steamCloseWork = Task.CompletedTask;
 
     /// <summary>
     ///     Creates a preview-only coordinator. Desktop/game transition requests are inert
@@ -196,16 +202,17 @@ public sealed class SessionModes
     public bool SteamClosedByUser => Volatile.Read(ref _steamClosedByUser) != 0;
 
     /// <summary>
-    ///     True while explorer is being brought up or down (mode switch or the
-    ///     boot takeover). Mode-switch requests arriving in that window are ignored —
+    ///     True while Explorer is being brought up or down, or a requested Steam close is settling.
+    ///     Mode-switch requests arriving in that window are ignored —
     ///     two concurrent explorer transitions produced exactly the device-observed
     ///     mess of duplicate shutdowns and refused tray hosts (2026-08-07).
     /// </summary>
-    public bool TransitionInProgress => Volatile.Read(ref _explorerTransition) is not null;
+    public bool TransitionInProgress => Volatile.Read(ref _explorerTransition) is not null
+                                        || !_steamCloseWork.IsCompleted;
 
     /// <summary>
-    ///     Raised (on the caller's thread) when <see cref="StartOrFocusSteam" />
-    ///     could not bring Steam up, with the user-facing warning text.
+    ///     Raised on the UI thread when Steam could not be started or a session transition
+    ///     needs a user-facing warning. No warning is delivered after shutdown starts.
     /// </summary>
     public event Action<string>? SteamStartFailed;
 
@@ -232,10 +239,25 @@ public sealed class SessionModes
     /// </summary>
     public event Action? GameModeEntered;
 
-    /// <summary>Surfaces a shell-transition warning through the overlay's existing warning path.</summary>
+    /// <summary>Surfaces a shell-transition warning on the UI thread through the overlay's existing warning path.</summary>
     /// <param name="warning">User-facing transition warning forwarded to SteamStartFailed subscribers.</param>
+    /// <remarks>
+    ///     Background Steam recovery must not construct an overlay window or update its view model
+    ///     on the worker. Posting also keeps warning presentation from interrupting the transport gate.
+    /// </remarks>
     internal void ReportWarning(string warning)
     {
+        if (Volatile.Read(ref _shutdownRequested) != 0)
+        {
+            return;
+        }
+
+        if (!Dispatcher.UIThread.CheckAccess())
+        {
+            Dispatcher.UIThread.Post(() => ReportWarning(warning));
+            return;
+        }
+
         SteamStartFailed?.Invoke(warning);
     }
 
@@ -356,6 +378,7 @@ public sealed class SessionModes
     internal void RequestShutdown()
     {
         Volatile.Write(ref _shutdownRequested, 1);
+        _steamControlCancellation.Cancel();
         _pendingSteamRelaunch?.Dispose();
         _pendingSteamRelaunch = null;
         if (_monitor is not null)
@@ -377,6 +400,8 @@ public sealed class SessionModes
         {
             await transition.Task.ConfigureAwait(false);
         }
+
+        await _steamCloseWork.ConfigureAwait(false);
     }
 
     internal bool TryBeginTransition(string reason)
@@ -384,6 +409,12 @@ public sealed class SessionModes
         if (Volatile.Read(ref _shutdownRequested) != 0)
         {
             Log.Warn($"Ignoring {reason}: application shutdown is in progress.");
+            return false;
+        }
+
+        if (!_steamCloseWork.IsCompleted)
+        {
+            Log.Warn($"Ignoring {reason}: Steam is still closing.");
             return false;
         }
 
@@ -494,7 +525,7 @@ public sealed class SessionModes
 
                 if (warnings.Count > 0)
                 {
-                    SteamStartFailed?.Invoke(string.Join(" ", warnings));
+                    ReportWarning(string.Join(" ", warnings));
                 }
             });
         }
@@ -541,7 +572,7 @@ public sealed class SessionModes
         var config = _config;
         if (!_launchSteamDesktop(config.SteamInputManagementEnabled, config.SteamLaunchUnelevated, config.Cef.Enabled))
         {
-            SteamStartFailed?.Invoke(SteamStartFailedWarning);
+            ReportWarning(SteamStartFailedWarning);
         }
     }
 
@@ -598,7 +629,7 @@ public sealed class SessionModes
                 if (result.Warning is { } warning)
                 {
                     await Dispatcher.UIThread
-                        .InvokeAsync(() => SteamStartFailed?.Invoke(warning));
+                        .InvokeAsync(() => ReportWarning(warning));
                 }
             }
             catch (Exception ex)
@@ -606,7 +637,7 @@ public sealed class SessionModes
                 // The transaction returns every outcome, failed recovery included; only a bug lands here.
                 Log.Error("Game-mode transition failed", ex);
                 await Dispatcher.UIThread.InvokeAsync(() =>
-                    SteamStartFailed?.Invoke(ExplorerExitFailedWarning));
+                    ReportWarning(ExplorerExitFailedWarning));
             }
             finally
             {
@@ -747,10 +778,12 @@ public sealed class SessionModes
             return;
         }
 
-        Log.Error("Steam kept its Big Picture window through both close requests "
-                  + $"(hwnd 0x{window:X}, hung={NativeMethods.IsHungAppWindow(window)}). The desktop "
-                  + "is being restored underneath it, so Explorer may come up behind a window "
-                  + "Steam is no longer servicing.");
+        Log.Warn("Steam ignored both Big Picture close requests; enforcing Steam shutdown before restoring the desktop.");
+        if (!await Steam.StopAsync(TimeSpan.FromSeconds(5), TimeSpan.Zero, CancellationToken.None)
+                .ConfigureAwait(false))
+        {
+            throw new InvalidOperationException("Steam remained active after forced shutdown during desktop return.");
+        }
     }
 
     /// <summary>Waits, bounded, for Steam's Big Picture window to disappear.</summary>
@@ -803,16 +836,50 @@ public sealed class SessionModes
         }
     }
 
-    /// <summary>
-    ///     Deliberately stops Steam (graceful steam://exit). Pauses the monitor
-    ///     first so neither auto-relaunch nor the exit-overlay reaction fires.
-    /// </summary>
+    /// <summary>Closes Steam within a bounded grace, then forces exit if needed. UI thread.</summary>
+    /// <remarks>Pauses the monitor before stopping, owns its worker, and keeps automatic relaunch off.</remarks>
     public void CloseSteam()
     {
+        if (Volatile.Read(ref _shutdownRequested) != 0)
+        {
+            return;
+        }
+
         Volatile.Write(ref _steamClosedByUser, 1);
         _monitor?.Paused = true;
-        Log.Info("Closing Steam (steam://exit).");
-        AppLauncher.StartProtocol(Steam.ExitUrl);
+        _pendingSteamRelaunch?.Dispose();
+        _pendingSteamRelaunch = null;
+        if (!_steamCloseWork.IsCompleted)
+        {
+            return;
+        }
+
+        _steamCloseWork = Task.Run(async () =>
+        {
+            var token = _steamControlCancellation.Token;
+            var acquired = false;
+            try
+            {
+                await _steamControlGate.WaitAsync(token).ConfigureAwait(false);
+                acquired = true;
+                if (!await Steam.StopAsync(token, entireProcessTree: true).ConfigureAwait(false))
+                {
+                    ReportWarning("Steam could not be closed, including forced shutdown. Check wsgm.log for details.");
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                // Session shutdown cancels any stop that has not yet completed.
+            }
+            finally
+            {
+                if (acquired)
+                {
+                    _steamControlGate.Release();
+                }
+            }
+        });
+        Log.Observe(_steamCloseWork, "Closing Steam");
     }
 
     /// <summary>
@@ -826,6 +893,11 @@ public sealed class SessionModes
         if (Volatile.Read(ref _shutdownRequested) != 0)
         {
             Log.Info("Ignoring Steam start/focus: application shutdown is in progress.");
+            return;
+        }
+
+        if (!_steamCloseWork.IsCompleted || Volatile.Read(ref _steamCefRecoveryInProgress) != 0)
+        {
             return;
         }
 
@@ -847,7 +919,7 @@ public sealed class SessionModes
             var warning = StartBigPicture();
             if (warning is not null)
             {
-                SteamStartFailed?.Invoke(warning);
+                ReportWarning(warning);
             }
         }
         finally
@@ -911,6 +983,146 @@ public sealed class SessionModes
         return result.Started ? null : BigPictureStartFailedWarning;
     }
 
+    /// <summary>Restarts Steam with debugging enabled after a confirmed closed listener, including forced exit.</summary>
+    /// <param name="bigPicture">Whether the replacement should open in Big Picture.</param>
+    /// <param name="cancellationToken">Interrupts recovery and prevents later stop or launch effects.</param>
+    /// <returns>True when recovery was attempted; false when session policy deferred it.</returns>
+    internal async Task<bool> RestartSteamForCefAsync(bool bigPicture, CancellationToken cancellationToken)
+    {
+        if (SteamClosedByUser || !_config.Cef.Enabled
+                              || !TryBeginTransition("Steam CEF activation"))
+        {
+            return false;
+        }
+
+        Volatile.Write(ref _steamCefRecoveryInProgress, 1);
+        var wasPaused = false;
+        var acquired = false;
+        try
+        {
+            await _steamControlGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            acquired = true;
+        }
+        catch
+        {
+            Volatile.Write(ref _steamCefRecoveryInProgress, 0);
+            EndTransition();
+            throw;
+        }
+
+        try
+        {
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                wasPaused = _monitor?.Paused == true;
+                if (_monitor is not null)
+                {
+                    _monitor.Paused = true;
+                }
+
+                _pendingSteamRelaunch?.Dispose();
+                _pendingSteamRelaunch = null;
+            });
+
+            cancellationToken.ThrowIfCancellationRequested();
+            if (SteamClosedByUser || !_config.Cef.Enabled || Volatile.Read(ref _shutdownRequested) != 0)
+            {
+                return false;
+            }
+
+            if (!SteamCef.EnsureRemoteDebuggingEnabled(Steam.InstallDirectory, enabled: true))
+            {
+                ReportWarning("Couldn't enable Steam debugging. Check wsgm.log for the file access error.");
+                return true;
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            if (SteamClosedByUser || !_config.Cef.Enabled || Volatile.Read(ref _shutdownRequested) != 0)
+            {
+                return false;
+            }
+
+            // The listener may have appeared while recovery was acquiring the transition.
+            if (SteamCef.GetRemoteDebuggingState(out _) != SteamCefDebuggingState.Closed)
+            {
+                return true;
+            }
+
+            Log.Warn("Steam CEF listener stayed closed after startup; enforcing a Steam restart to activate it.");
+            if (!await Steam.StopAsync(cancellationToken).ConfigureAwait(false))
+            {
+                ReportWarning("Steam could not be stopped for WSGM's Steam integration. Check wsgm.log for details.");
+                return true;
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            if (SteamClosedByUser || Volatile.Read(ref _shutdownRequested) != 0)
+            {
+                return true;
+            }
+
+            var config = _config;
+            var result = bigPicture
+                ? Steam.LaunchBigPicture(Store.Context, SteamInputShim, config.SteamInputManagementEnabled,
+                    config.SteamLaunchUnelevated, config.Cef.Enabled)
+                : Steam.LaunchDesktop(Store.Context, SteamInputShim, config.SteamInputManagementEnabled,
+                    config.SteamLaunchUnelevated, config.Cef.Enabled);
+            result.Process?.Dispose();
+            if (!result.Started)
+            {
+                ReportWarning("Couldn't restart Steam for WSGM's Steam integration.");
+                return true;
+            }
+
+            var startupWait = Stopwatch.StartNew();
+            while (_config.Cef.Enabled && !SteamClosedByUser)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var state = SteamCef.GetRemoteDebuggingState(out var reason);
+                if (state == SteamCefDebuggingState.Open)
+                {
+                    Log.Info($"Steam CEF activation succeeded: {reason}.");
+                    return true;
+                }
+
+                if (state == SteamCefDebuggingState.Unavailable
+                    || startupWait.Elapsed >= SteamCefActivationPolicy.StartupGrace)
+                {
+                    Log.Warn($"Steam CEF activation failed after replacement: {state}, {reason}.");
+                    ReportWarning("Steam restarted, but its debugging port is still unavailable. Check wsgm.log for details.");
+                    return true;
+                }
+
+                await Task.Delay(250, cancellationToken).ConfigureAwait(false);
+            }
+
+            return true;
+        }
+        finally
+        {
+            try
+            {
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (_monitor is not null)
+                    {
+                        _monitor.Paused = wasPaused || SteamClosedByUser;
+                    }
+                });
+            }
+            finally
+            {
+                if (acquired)
+                {
+                    _steamControlGate.Release();
+                }
+
+                Volatile.Write(ref _steamCefRecoveryInProgress, 0);
+                EndTransition();
+            }
+        }
+    }
+
     /// <summary>Brings Steam Big Picture to the foreground when the monitor sees it alive.</summary>
     /// <param name="force">
     ///     Whether to skip the monitor's up-to-5 s-stale liveness poll because the
@@ -918,6 +1130,11 @@ public sealed class SessionModes
     /// </param>
     public void FocusSteam(bool force = false)
     {
+        if (!_steamCloseWork.IsCompleted || Volatile.Read(ref _steamCefRecoveryInProgress) != 0)
+        {
+            return;
+        }
+
         if (Volatile.Read(ref _shutdownRequested) != 0)
         {
             Log.Info("Ignoring Steam focus: application shutdown is in progress.");

@@ -59,13 +59,18 @@ are localized and therefore not an identity.
 The gate is:
 
 ```text
-master && !exitPending && ((!inGameMode && !transitionPending) || bigPictureReady)
+master && !activationPending && !exitPending && ((!inGameMode && !transitionPending) || bigPictureReady)
 ```
 
 In game mode, keep the transport closed until the real `SDL_app` Big Picture window exists. Before a
 Big Picture request, retract the host, card badge, and library tabs, then close the transport within
 the bounded shutdown budget. Disabling the master switch follows the same retract-before-close
 order. Overlay-test mode never attaches.
+
+The activation worker passively observes listener ownership, allows a continuous 30-second closed
+listener grace, and admits one bounded restart. It enforces Steam exit before replacement, restores
+the transport decision in `finally`, and posts warnings to the UI thread. Install, update and an
+explicit Close Steam request authorize full Steam process-tree termination without another approval.
 
 The toolkit transport additionally requires one validated MainWindow target before attaching in
 either mode (`requireMainWindow: true` in WSGM). The desktop master-switch branch permits discovery,

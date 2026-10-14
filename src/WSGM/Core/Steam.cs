@@ -1,12 +1,13 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Win32;
 using SteamUiToolkit;
 using WSGM.Interop;
+using WSGM.Shared;
 
 namespace WSGM.Core;
 
@@ -32,13 +33,6 @@ public static class Steam
     public const string ProcessNames = "steam;steamwebhelper";
 
     /// <summary>
-    ///     Just steam.exe — deliberately narrower than <see cref="ProcessNames" />:
-    ///     only the main client services steam:// protocol URLs, so a lingering
-    ///     steamwebhelper must not count as "Steam is running" for protocol callers.
-    /// </summary>
-    private const string MainProcessName = "steam";
-
-    /// <summary>
     ///     Big Picture window class (paired with the steamwebhelper process —
     ///     SDL_app alone is not unique to Steam).
     /// </summary>
@@ -51,7 +45,7 @@ public static class Steam
     public const string CloseBigPictureUrl = "steam://close/bigpicture";
 
     /// <summary>Graceful full Steam shutdown (verified client URL).</summary>
-    public const string ExitUrl = "steam://exit";
+    public const string ExitUrl = SteamProcessControl.ExitUrl;
 
     private static readonly TimeSpan UpdateGracefulExitBudget = TimeSpan.FromSeconds(5);
 
@@ -443,108 +437,38 @@ public static class Steam
         };
     }
 
-    /// <summary>Requests a graceful Steam shutdown for an application update.</summary>
+    /// <summary>Stops Steam within a bounded graceful and forced shutdown window.</summary>
+    /// <param name="cancellationToken">Cancels waiting and prevents later forced termination.</param>
+    /// <param name="entireProcessTree">Whether an explicit full-close request also ends Steam's children.</param>
+    /// <returns>True only after this session's Steam client and CEF helpers have exited.</returns>
+    internal static Task<bool> StopAsync(CancellationToken cancellationToken, bool entireProcessTree = false)
+    {
+        return StopAsync(TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(15), cancellationToken, entireProcessTree);
+    }
+
+    /// <summary>Stops Steam using the caller's remaining graceful and forced verification budgets.</summary>
+    /// <param name="budget">Total stop budget.</param>
+    /// <param name="gracefulBudget">Time allowed for an orderly exit before forced termination.</param>
+    /// <param name="cancellationToken">Cancels waiting and prevents later forced termination.</param>
+    /// <param name="entireProcessTree">Whether the request also ends Steam's child processes.</param>
+    /// <returns>True only after Steam and its CEF helpers have exited.</returns>
+    internal static Task<bool> StopAsync(TimeSpan budget, TimeSpan gracefulBudget, CancellationToken cancellationToken,
+        bool entireProcessTree = false)
+    {
+        return SteamProcessControl.StopAsync(budget, gracefulBudget,
+            message => Log.Info(message), cancellationToken, entireProcessTree);
+    }
+
+    /// <summary>Stops Steam for an authorized application update, forcing exit after its grace.</summary>
     public static void StopForUpdate()
     {
-        StopForUpdate(UpdateStopBudget);
-    }
-
-    /// <summary>
-    ///     Stops Steam and launch wrappers without exceeding the updater-owned pre-shutdown
-    ///     window through any process-exit wait. The installer reserves this phase before WSGM's
-    ///     application cleanup budget.
-    /// </summary>
-    /// <param name="budget">Maximum combined graceful and forced-stop wait.</param>
-    private static void StopForUpdate(TimeSpan budget)
-    {
-        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(budget, TimeSpan.Zero);
-
-        var elapsed = Stopwatch.StartNew();
-        var runningSteam = CurrentSessionProcesses(MainProcessName);
-        if (runningSteam.Length > 0)
+        var stopped = SteamProcessControl.StopAsync(UpdateStopBudget, UpdateGracefulExitBudget,
+            message => Log.Info(message), CancellationToken.None, entireProcessTree: true).GetAwaiter().GetResult();
+        if (!stopped)
         {
-            foreach (var process in runningSteam)
-            {
-                process.Dispose();
-            }
-
-            Log.Info("Update requested — closing Steam to release the Steam Input payload.");
-            AppLauncher.StartProtocol(ExitUrl);
-            var gracefulDeadline = budget < UpdateGracefulExitBudget
-                ? budget
-                : UpdateGracefulExitBudget;
-            while (elapsed.Elapsed < gracefulDeadline)
-            {
-                var remaining = CurrentSessionProcesses(MainProcessName);
-                if (remaining.Length == 0)
-                {
-                    Log.Info("Steam exited gracefully for update.");
-                    break;
-                }
-
-                foreach (var process in remaining)
-                {
-                    process.Dispose();
-                }
-
-                var delay = gracefulDeadline - elapsed.Elapsed;
-                if (delay > TimeSpan.Zero)
-                {
-                    Thread.Sleep(delay < TimeSpan.FromMilliseconds(250)
-                        ? delay
-                        : TimeSpan.FromMilliseconds(250));
-                }
-            }
-
-            var remainingSteam = CurrentSessionProcesses(MainProcessName);
-            foreach (var process in remainingSteam)
-            {
-                try
-                {
-                    Log.Warn(
-                        $"Steam pid {process.Id} did not exit gracefully; setup will defer the "
-                        + "update instead of terminating Steam or a running game.");
-                }
-                finally
-                {
-                    process.Dispose();
-                }
-            }
+            Log.Warn("Steam remained active after the update-stop budget; setup will enforce termination before replacement.");
         }
 
-        if (budget - elapsed.Elapsed > TimeSpan.Zero)
-        {
-            LogActiveLaunchHelpers("update");
-        }
-        else
-        {
-            Log.Warn("Update-stop budget expired before launch wrappers could be ended.");
-        }
-    }
-
-    private static Process[] CurrentSessionProcesses(string processName)
-    {
-        var sessionId = WindowFinder.CurrentSessionId;
-        var matches = new List<Process>();
-        foreach (var process in Process.GetProcessesByName(processName))
-        {
-            try
-            {
-                if (process.SessionId == sessionId)
-                {
-                    matches.Add(process);
-                }
-                else
-                {
-                    process.Dispose();
-                }
-            }
-            catch
-            {
-                process.Dispose();
-            }
-        }
-
-        return [.. matches];
+        LogActiveLaunchHelpers("update");
     }
 }

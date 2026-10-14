@@ -71,6 +71,7 @@ internal sealed class SteamUiReadiness
     ///     symmetric: every automatic CEF touch stops before the close request fires and resumes only
     ///     once the desktop return has settled.
     /// </param>
+    /// <param name="activationPending">Whether a bounded CEF activation restart currently owns Steam.</param>
     /// <returns>True to open the transport; false to hold every automatic CEF touch.</returns>
     /// <remarks>
     ///     Desktop mode opens on the master switch alone: Steam there is the user's own
@@ -85,9 +86,10 @@ internal sealed class SteamUiReadiness
         bool inGameMode,
         bool gameModeTransitionPending,
         bool bigPictureReady,
-        bool bigPictureExitPending = false)
+        bool bigPictureExitPending = false,
+        bool activationPending = false)
     {
-        if (!cefMasterEnabled || bigPictureExitPending)
+        if (!cefMasterEnabled || bigPictureExitPending || activationPending)
         {
             return false;
         }

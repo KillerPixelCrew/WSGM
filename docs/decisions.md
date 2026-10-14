@@ -135,6 +135,14 @@ retired process that outlives its shell surfaces, only `WM_CLOSE` to its windows
 Winlogon respawn the shell; the 2026-09-13 release did that on every Xbox Ally X entry and broke the
 return to Game Mode. Desktop return waits, bounded, for a retired process still finishing.
 
+**Steam close and restart requests are enforced (2026-10-14).** An orderly request gets a bounded
+grace. If Steam ignores it, WSGM terminates the Steam client and CEF helpers in the current session
+and verifies their exit. An install, update or explicit Close Steam request authorizes full Steam
+process-tree termination; no additional approval or manual close is required. Automatic CEF recovery
+and a hung Big Picture desktop return terminate the client and helpers. OS termination or
+locked-file errors are reported as operation failures. Mechanism in
+[boot and shell](boot-and-shell.md) and [Steam CEF](steam-cef-system.md).
+
 **Launch-parent capture is independent of UI responsiveness (2026-09-13).** The first deployed
 redesign refused a valid medium, jobless Explorer after one 100 ms message timeout, before any
 Explorer exit request. Capturing the actual matching shell owner now checks identity and token

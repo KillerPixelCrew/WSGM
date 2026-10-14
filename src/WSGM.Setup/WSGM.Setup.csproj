@@ -48,6 +48,7 @@
     <Compile Include="..\Shared\Security\AuthenticodeSignature.cs" Link="Shared\AuthenticodeSignature.cs"/>
     <Compile Include="..\Shared\Security\PawnIoInstallation.cs" Link="Shared\PawnIoInstallation.cs"/>
     <Compile Include="..\Shared\Process\SessionProtocolNames.cs" Link="Shared\SessionProtocolNames.cs"/>
+    <Compile Include="..\Shared\Process\SteamProcessControl.cs" Link="Shared\SteamProcessControl.cs"/>
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="..\..\external\pawnio\pawnio.lock.json" LogicalName="WSGM.PawnIO.Pin"/>

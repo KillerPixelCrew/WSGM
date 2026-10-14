@@ -149,7 +149,7 @@ install and upgrade take two setup runs and a restart; the mechanism and the evi
    flipping the restart into desktop mode. Stopping it also frees the service binary. When the
    service state cannot be read, setup stops without changing anything.
 3. Signal `Local\WSGM.ExitForUpdate`. One SetEvent releases every WSGM instance, elevated ones
-   included. WSGM asks Steam and the launch wrappers to exit under a bounded 10 s pre-stop, then
+   included. WSGM stops Steam under a bounded 10 s pre-stop and reports active launch wrappers, then
    runs its own 10 s cleanup, because the mapped Steam Input payload must be replaceable. Setup
    waits for both plus handoff margin (44 half-second polls) before force-stop. A failed Steam
    pre-stop still starts WSGM cleanup.
@@ -160,12 +160,15 @@ install and upgrade take two setup runs and a restart; the mechanism and the evi
    `App` swap then fails on its locked image and setup rolls back.
 6. Close Steam in every mode, so WSGM starts it with its own settings and an uninstall can remove
    the Steam Input helper from Steam's folder. WSGM's pre-stop only covers an update while WSGM
-   runs; whatever is left gets the same graceful `steam://exit` from setup and up to 60 s. Steam is
-   never terminated. A fresh install continues when Steam stays open; with WSGM installed, setup
-   refuses (step 7).
-7. Refuse replacement while Steam or a launch wrapper (`WSGM.Launch`, `WSGM.PackagedLaunch`, plus
-   the retired `WSGM.Deelevate` and `steam-input-lease` names) remains in the session. Setup never
-   terminates either tree.
+   runs; setup uses the same stop operation within 60 s, with at most 15 s of orderly-exit grace
+   before terminating Steam and CEF process trees in its own session. The installation request
+   authorizes this full termination. If the close operation fails, setup enforces session-scoped
+   `taskkill /F /T` before checking what Windows still reports running.
+7. Refuse replacement while Steam, a CEF helper or a launch wrapper (`WSGM.Launch`,
+   `WSGM.PackagedLaunch`, plus the retired `WSGM.Deelevate` and `steam-input-lease` names) remains
+   in the session after enforced termination. An OS termination failure is reported with the setup
+   log. Independent launch wrappers remain blockers until their games exit; Steam's process trees
+   are included in its full termination.
 8. Reserve `Global\WSGM.DeviceOwner`, so no WSGM or Device Lab runs plugin code during the change.
    Setup waits up to 30 s for a process that just exited, or the old uninstaller's temporary copy,
    to let go of it.

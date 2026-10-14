@@ -1,7 +1,9 @@
 using System;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Threading;
+using SteamUiToolkit;
 using WSGM.Core;
 
 namespace WSGM.Shell;
@@ -52,6 +54,7 @@ public sealed partial class ShellSession
     // settles (PrepareSteamUiForBigPictureAsync / ReleaseSteamUiBigPictureHold). The request
     // rebuilds Steam's front-end, so the transport hold must begin before it fires.
     private volatile bool _gameModeCefTransitionPending;
+    private volatile bool _steamCefActivationPending;
     private Task _steamUiWork = Task.CompletedTask;
     private CancellationTokenSource? _tabBootPass;
     private bool _tabBootRequested;
@@ -96,7 +99,7 @@ public sealed partial class ShellSession
         var exitPending = _bigPictureExitPending;
         var bigPictureReady = master && (inGameMode || transitionPending) && SteamUiReadiness.BigPictureUp;
         var open = SteamUiReadiness.TransportShouldBeOpen(
-            master, inGameMode, transitionPending, bigPictureReady, exitPending);
+            master, inGameMode, transitionPending, bigPictureReady, exitPending, _steamCefActivationPending);
         // A held transport is not a disabled one: patches that meet it must say they are waiting.
         // Overlay-test has no transport and nothing to open.
         try
@@ -116,6 +119,10 @@ public sealed partial class ShellSession
             state = inGameMode || transitionPending
                 ? "Steam UI transport open: Big Picture window is up."
                 : "Steam UI transport open: desktop mode.";
+        }
+        else if (master && _steamCefActivationPending)
+        {
+            state = "Steam UI transport closed: restarting Steam to activate CEF debugging.";
         }
         else if (master && exitPending)
         {
@@ -326,6 +333,8 @@ public sealed partial class ShellSession
     /// </summary>
     private async Task RunSteamUiTransportGateAsync(CancellationToken cancellationToken)
     {
+        var activation = new SteamCefActivationPolicy();
+        var clock = Stopwatch.StartNew();
         try
         {
             while (!cancellationToken.IsCancellationRequested)
@@ -344,6 +353,21 @@ public sealed partial class ShellSession
                     _cefMasterGate.Release();
                 }
 
+                try
+                {
+                    activation = await EnsureSteamCefActivatedAsync(activation, clock.Elapsed, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    Log.Error("Steam CEF activation failed", ex);
+                    _modes?.ReportWarning("Couldn't activate WSGM's Steam integration. Check wsgm.log for details.");
+                }
+
                 await _transportGateSignal
                     .WaitAsync(SteamUiReadiness.TransportGatePollInterval, cancellationToken)
                     .ConfigureAwait(false);
@@ -353,6 +377,74 @@ public sealed partial class ShellSession
         {
             // Session shutdown; the owner disposes the transport itself.
         }
+    }
+
+    private async Task<SteamCefActivationPolicy> EnsureSteamCefActivatedAsync(
+        SteamCefActivationPolicy activation, TimeSpan now, CancellationToken cancellationToken)
+    {
+        var modes = _modes;
+        if (modes is null || _shutdownRequested)
+        {
+            return activation;
+        }
+
+        var enabled = _cefMasterEnabled && !modes.SteamClosedByUser;
+        var prepared = !enabled || SteamCef.EnsureRemoteDebuggingEnabled(Steam.InstallDirectory, enabled);
+        var running = enabled && Steam.IsRunning;
+        var reason = string.Empty;
+        var state = running ? SteamCef.GetRemoteDebuggingState(out reason) : SteamCefDebuggingState.Closed;
+        if (running)
+        {
+            Log.Change("steam-cef-activation", $"Steam CEF activation: {state}, {reason}.",
+                state == SteamCefDebuggingState.Unavailable ? LogLevel.Warn : LogLevel.Info);
+        }
+
+        var transition = modes.TransitionInProgress || _gameModeCefTransitionPending || _bigPictureExitPending;
+        if (!activation.ShouldRecover(enabled && prepared, running, transition, state, now))
+        {
+            return activation;
+        }
+
+        _steamCefActivationPending = true;
+        try
+        {
+            await _cefMasterGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                ApplySteamUiTransportGate();
+            }
+            finally
+            {
+                _cefMasterGate.Release();
+            }
+
+            // Await the replacement on this sole polling owner. Its intentional absent interval
+            // must not rearm another recovery if the new client also fails to open the listener.
+            if (!await modes.RestartSteamForCefAsync(_inGameMode, cancellationToken).ConfigureAwait(false))
+            {
+                return new SteamCefActivationPolicy();
+            }
+        }
+        finally
+        {
+            _steamCefActivationPending = false;
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                await _cefMasterGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    ApplySteamUiTransportGate();
+                }
+                finally
+                {
+                    _cefMasterGate.Release();
+                }
+            }
+
+            RequestSteamUiTransportGateCheck();
+        }
+
+        return activation;
     }
 
     /// <summary>
