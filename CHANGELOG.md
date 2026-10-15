@@ -1,8 +1,9 @@
 # WSGM changelog
 
-## 2.3.2 (2026-10-14)
+## 2.3.2 (2026-10-15)
 
-This test build addresses Steam's Quick Access integration disappearing after sleep and wake.
+This fixes Steam's Quick Access integration disappearing after a cold start or sleep and wake,
+unnecessary Steam restarts during startup, and G-SYNC preferences affecting the wrong display.
 
 ## Before you upgrade
 
@@ -12,9 +13,14 @@ This test build addresses Steam's Quick Access integration disappearing after sl
 
 ## Fixed
 
-- **Steam's Performance and Quick Settings panels going empty after wake.** CEF recovery pauses the
-  integration while Steam restarts and restores the transport gate afterward. Recovery warnings
-  reach the UI without stopping the transport worker.
+- **Steam's Performance and Quick Settings panels staying empty after a cold start.** A startup
+  error no longer stops the integration for the rest of the session.
+- **Quick Access integration disappearing after sleep and wake.** WSGM reconnects after resume and
+  restores missing integration after unlock or display changes. Brief Big Picture window changes no
+  longer interrupt the connection.
+- **Unnecessary Steam restarts during updates or slow startup.** WSGM waits for Steam to finish
+  starting and restarts it once only when it started without the debugging support the integration
+  needs.
 - **Steam refusing to close during restart or setup.** WSGM and setup enforce a bounded shutdown
   before continuing, including Steam's process trees when the graceful request is ignored.
 - **G-SYNC preferences affecting the wrong display.** Adaptive-sync controls and saved choices are
@@ -39,7 +45,7 @@ If WSGM is useful to you, you can support its development on Ko-fi.
 ## Checksum
 
 ```
-SHA-256 7fe00b1b159ffe614f34ca98650d9e2423625fe4f6778dc957e9c90386cc61d8  WSGM-Setup-2.3.2.exe
+SHA-256 ccd49e4abfc51671efdd4be6a4443133a822697b215981f39ed693a166d4fa1c  WSGM-Setup-2.3.2.exe
 ```
 
 ## 2.3.1 (2026-10-13)
