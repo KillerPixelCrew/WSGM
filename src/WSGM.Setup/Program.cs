@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 using Avalonia;
 using WSGM.Setup.Engine;
@@ -21,6 +22,7 @@ internal static class Program
             return 64;
         }
 
+        options = DetachWorkingDirectory(options);
         SetupLog.Info("Setup started: " + string.Join(' ', args));
         using var owner = new Mutex(false, @"Global\WSGM.SetupOwner", out var createdNew);
         if (!createdNew)
@@ -44,6 +46,20 @@ internal static class Program
 
         SetupApp.Options = options;
         return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+    }
+
+    /// <summary>Releases an inherited installation directory without changing relative command-line inputs.</summary>
+    /// <param name="options">Options interpreted relative to the launcher's original working directory.</param>
+    /// <returns>Options with absolute input paths, usable after setup leaves the installation directory.</returns>
+    internal static SetupOptions DetachWorkingDirectory(SetupOptions options)
+    {
+        options = options with
+        {
+            AnswersFile = options.AnswersFile is { } answers ? Path.GetFullPath(answers) : null,
+            PayloadDirectory = options.PayloadDirectory is { } payload ? Path.GetFullPath(payload) : null
+        };
+        Directory.SetCurrentDirectory(Path.GetTempPath());
+        return options;
     }
 
     /// <summary>Avalonia configuration, also used by the designer.</summary>

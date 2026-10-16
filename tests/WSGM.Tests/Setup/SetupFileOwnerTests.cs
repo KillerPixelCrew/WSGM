@@ -7,6 +7,66 @@ namespace WSGM.Tests.Setup;
 
 public sealed class SetupFileOwnerTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void NativeReleaseEndsTheOwnedHelperHoldingAnEmptyWorkingDirectory(bool nested)
+    {
+        using SetupTestInstallation installation = new();
+        var directory = Path.Combine(installation.Root, "directory-owner");
+        var working = nested ? Path.Combine(directory, "empty") : directory;
+        Directory.CreateDirectory(working);
+        var ready = Path.Combine(installation.Machine, "directory-owner-ready.txt");
+        var script = $$"""
+            Add-Type -TypeDefinition @'
+            using System.Runtime.InteropServices;
+            public static class DirectoryOwner {
+                [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+                public static extern bool SetCurrentDirectory(string path);
+            }
+            '@
+            if (-not [DirectoryOwner]::SetCurrentDirectory('{{working.Replace("'", "''", StringComparison.Ordinal)}}')) { exit 2 }
+            [IO.File]::WriteAllText('{{ready.Replace("'", "''", StringComparison.Ordinal)}}', 'ready')
+            while ($true) { Start-Sleep -Seconds 1 }
+            """;
+        var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
+        using var helper = Process.Start(new ProcessStartInfo(
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),
+                "WindowsPowerShell", "v1.0", "powershell.exe"),
+            "-NoProfile -NonInteractive -EncodedCommand " + encoded)
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WindowStyle = ProcessWindowStyle.Hidden
+        }) ?? throw new InvalidOperationException("The isolated directory-owner helper could not start.");
+        try
+        {
+            var deadline = Stopwatch.StartNew();
+            while (!File.Exists(ready) && !helper.HasExited && deadline.Elapsed < TimeSpan.FromSeconds(30))
+            {
+                Thread.Sleep(100);
+            }
+
+            Assert.True(File.Exists(ready), "The helper did not establish its working directory.");
+            var moved = working + ".released";
+            Assert.Throws<IOException>(() => Directory.Move(working, moved));
+
+            Assert.Null(SetupFileOwners.Release([directory]));
+
+            Assert.True(helper.WaitForExit(10000));
+            Directory.Move(working, moved);
+            Directory.Delete(moved);
+        }
+        finally
+        {
+            if (!helper.HasExited)
+            {
+                helper.Kill(entireProcessTree: false);
+                Assert.True(helper.WaitForExit(10000));
+            }
+        }
+    }
+
     [Fact]
     public void NativeReleaseEndsOnlyTheOwnedHelperAndReleasesItsLoadedLibrary()
     {
@@ -159,7 +219,6 @@ public sealed class SetupFileOwnerTests
 
     [Theory]
     [InlineData(4u, 0u)]
-    [InlineData(25u, 4u)]
     [InlineData(25u, 1000u)]
     public void ProtectedOwnersRefuseBeforeOpeningAProcess(uint processId, uint applicationType)
     {
@@ -170,6 +229,19 @@ public sealed class SetupFileOwnerTests
             _ => throw new InvalidOperationException("A protected process must not be opened."));
         Assert.Contains("Windows protects", refusal, StringComparison.Ordinal);
         Assert.Contains(file, refusal, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ExplorerClassificationDoesNotExemptAnActualInstallationFileHolder()
+    {
+        using SetupTestInstallation installation = new();
+        var file = Path.Combine(installation.Root, "App", "WSGM.exe");
+        FakeProcess process = new() { Image = "explorer.exe" };
+        var scans = 0;
+
+        Assert.Null(SetupFileOwners.Release([file], 900,
+            _ => scans++ == 0 ? [new SetupFileOwners.Owner(25, 100, "Explorer", 4)] : [], _ => process));
+        Assert.Equal(1, process.Stops);
     }
 
     [Theory]

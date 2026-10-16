@@ -90,72 +90,87 @@ internal sealed class DesktopAppProcessBackend(UserDataContext context) : IDeskt
                 throw new InvalidOperationException($"{instance.Rule.Name}'s process identity changed.");
             }
 
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(TimeSpan.FromSeconds(10));
-            if (instance.Rule.CloseMainWindowFirst && process.MainWindowHandle != 0)
+            try
             {
-                if (!process.CloseMainWindow())
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeout.CancelAfter(TimeSpan.FromSeconds(3));
+                if (instance.Rule.CloseMainWindowFirst && process.MainWindowHandle != 0)
                 {
-                    throw new InvalidOperationException($"{instance.Rule.Name}'s editor could not close safely.");
-                }
-
-                do
-                {
-                    await Task.Delay(100, timeout.Token).ConfigureAwait(false);
-                    process.Refresh();
-                    if (process.HasExited)
+                    if (!process.CloseMainWindow())
                     {
-                        return;
-                    }
-                } while (process.MainWindowHandle != 0);
-            }
-
-            if (instance.Rule.ExitWindowClass is { } windowClass)
-            {
-                nint window = 0;
-                var posted = false;
-                while ((window = NativeMethods.FindWindowExW(0, window, windowClass, null)) != 0)
-                {
-                    NativeMethods.GetWindowThreadProcessId(window, out var owner);
-                    if (owner != instance.ProcessId)
-                    {
-                        continue;
+                        throw new InvalidOperationException($"{instance.Rule.Name}'s editor could not close safely.");
                     }
 
-                    // The hidden event window handles a normal application exit. Never fall back
-                    // to Kill: that marks Wallpaper Engine's next launch as crash recovery.
-                    posted = NativeMethods.PostMessageW(window, 0x0010, 0, 0); // WM_CLOSE
-                    break;
+                    do
+                    {
+                        await Task.Delay(100, timeout.Token).ConfigureAwait(false);
+                        process.Refresh();
+                        if (process.HasExited)
+                        {
+                            return;
+                        }
+                    } while (process.MainWindowHandle != 0);
                 }
 
-                if (!posted)
+                if (instance.Rule.ExitWindowClass is { } windowClass)
                 {
-                    throw new InvalidOperationException($"Could not request {instance.Rule.Name} exit.");
-                }
-            }
-            else if (instance.Rule.ExitCommand is { } command)
-            {
-                var commandPath = Path.Combine(Path.GetDirectoryName(instance.ExecutablePath)!, command);
-                using var request = Process.Start(new ProcessStartInfo(commandPath, instance.Rule.ExitArguments)
-                {
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    WorkingDirectory = Path.GetDirectoryName(commandPath)!
-                }) ?? throw new InvalidOperationException($"Could not request {instance.Rule.Name} exit.");
-                await request.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
-                if (request.ExitCode != 0)
-                {
-                    throw new InvalidOperationException($"{instance.Rule.Name} exit command failed.");
-                }
-            }
-            else
-            {
-                // These entries have no external full-exit command. Termination is restricted to
-                // the captured primary process and its descendants, never a service/name sweep.
-                process.Kill(true);
-            }
+                    nint window = 0;
+                    var posted = false;
+                    while ((window = NativeMethods.FindWindowExW(0, window, windowClass, null)) != 0)
+                    {
+                        NativeMethods.GetWindowThreadProcessId(window, out var owner);
+                        if (owner != instance.ProcessId)
+                        {
+                            continue;
+                        }
 
-            await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
+                        // Prefer its ordinary application exit before enforcing the requested switch.
+                        posted = NativeMethods.PostMessageW(window, 0x0010, 0, 0); // WM_CLOSE
+                        break;
+                    }
+
+                    if (!posted)
+                    {
+                        throw new InvalidOperationException($"Could not request {instance.Rule.Name} exit.");
+                    }
+                }
+                else if (instance.Rule.ExitCommand is { } command)
+                {
+                    var commandPath = Path.Combine(Path.GetDirectoryName(instance.ExecutablePath)!, command);
+                    using var request = Process.Start(new ProcessStartInfo(commandPath, instance.Rule.ExitArguments)
+                    {
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        WorkingDirectory = Path.GetDirectoryName(commandPath)!
+                    }) ?? throw new InvalidOperationException($"Could not request {instance.Rule.Name} exit.");
+                    await request.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
+                    if (request.ExitCode != 0)
+                    {
+                        throw new InvalidOperationException($"{instance.Rule.Name} exit command failed.");
+                    }
+                }
+                else
+                {
+                    // These entries have no external full-exit command. Termination is restricted to
+                    // the captured primary process and its descendants, never a service/name sweep.
+                    process.Kill(true);
+                }
+
+                await process.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException && !cancellationToken.IsCancellationRequested)
+            {
+                Log.Warn($"{instance.Rule.Name} did not finish its graceful exit ({ex.Message}); "
+                         + "terminating its captured process tree for the requested mode switch.");
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+
+                using var forced = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                forced.CancelAfter(TimeSpan.FromSeconds(5));
+                await process.WaitForExitAsync(forced.Token).ConfigureAwait(false);
+            }
         }
     }
 

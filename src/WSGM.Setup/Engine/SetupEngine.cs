@@ -907,7 +907,7 @@ internal sealed class SetupEngine : IDisposable
         }
     }
 
-    private static void MoveWithRetry(string source, string destination)
+    private void MoveWithRetry(string source, string destination)
     {
         const int attempts = 10;
         for (var attempt = 1;; attempt++)
@@ -920,6 +920,11 @@ internal sealed class SetupEngine : IDisposable
             catch (IOException ex) when (attempt < attempts)
             {
                 SetupLog.Warn($"Moving {source} failed (attempt {attempt} of {attempts}): {ex.Message}");
+                if (_runtime.ReleaseFileOwners([source, destination]) is { } refusal)
+                {
+                    throw new IOException(refusal, ex);
+                }
+
                 Thread.Sleep(1000);
             }
             catch (IOException ex)

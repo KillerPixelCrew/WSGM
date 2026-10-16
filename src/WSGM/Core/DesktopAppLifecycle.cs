@@ -135,7 +135,7 @@ internal sealed class DesktopAppLifecycle(IDesktopAppBackend backend, Action<str
                     continue;
                 }
 
-                warn($"{rule.Name} is still running; preserving Explorer.");
+                warn($"{rule.Name} is still running after enforced shutdown.");
                 return false;
             }
 
@@ -143,7 +143,7 @@ internal sealed class DesktopAppLifecycle(IDesktopAppBackend backend, Action<str
         }
         catch (Exception ex)
         {
-            warn($"Desktop application exit failed; preserving Explorer: {ex.Message}");
+            warn($"Desktop application exit failed: {ex.Message}");
             return false;
         }
     }

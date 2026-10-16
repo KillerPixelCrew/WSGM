@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 
 namespace WSGM.Setup.Engine;
 
@@ -23,7 +24,7 @@ internal static partial class SetupFileOwners
 
     internal static string? Release(IReadOnlyList<string> paths)
     {
-        return Release(paths, (uint)Environment.ProcessId, Scan, Open, WindowsSetup.ShellAnchorRecoverySettled);
+        return Release(paths, (uint)Environment.ProcessId, ScanPaths, Open, WindowsSetup.ShellAnchorRecoverySettled);
     }
 
     internal static string? Release(IReadOnlyList<string> paths, uint installer,
@@ -33,13 +34,13 @@ internal static partial class SetupFileOwners
         var locations = string.Join(", ", paths);
         try
         {
-            var files = EnumerateFiles(paths);
+            var files = EnumeratePaths(paths);
             if (files.Count == 0)
             {
                 return null;
             }
 
-            SetupLog.Info($"Scanning {files.Count} replacement files under: {locations}");
+            SetupLog.Info($"Scanning {files.Count} replacement files and directories under: {locations}");
 
             foreach (var owner in scan(files).Distinct())
             {
@@ -51,7 +52,7 @@ internal static partial class SetupFileOwners
                     continue;
                 }
 
-                if (owner.ProcessId <= 4 || owner.ApplicationType is 4 or 1000)
+                if (owner.ProcessId <= 4 || owner.ApplicationType is 1000)
                 {
                     return Refusal(owner, "Windows protects this process", locations);
                 }
@@ -100,7 +101,7 @@ internal static partial class SetupFileOwners
         }
     }
 
-    internal static IReadOnlyList<string> EnumerateFiles(IReadOnlyList<string> paths)
+    internal static IReadOnlyList<string> EnumeratePaths(IReadOnlyList<string> paths)
     {
         HashSet<string> files = new(StringComparer.OrdinalIgnoreCase);
         foreach (var path in paths)
@@ -136,9 +137,9 @@ internal static partial class SetupFileOwners
                 throw new IOException($"Setup cannot scan a linked installation path: {path}");
             }
 
+            files.Add(path);
             if ((attributes & FileAttributes.Directory) == 0)
             {
-                files.Add(path);
                 return;
             }
 
@@ -154,6 +155,88 @@ internal static partial class SetupFileOwners
         return $"WSGM files are in use by {owner.Name} (PID {owner.ProcessId}); {reason}. "
                + $"Required paths: {locations}. Close it or restart Windows, then run setup again. "
                + "Setup stopped before changing these paths.";
+    }
+
+    private static IReadOnlyList<Owner> ScanPaths(IReadOnlyList<string> paths)
+    {
+        // Restart Manager rejects directories, so a file-only scan misses an empty folder,
+        // a working directory or a directory watcher that prevents the App rename/delete.
+        var files = paths.Where(File.Exists).ToArray();
+        List<Owner> owners = files.Length == 0 ? [] : [.. Scan(files)];
+        foreach (var directory in paths.Where(Directory.Exists))
+        {
+            foreach (var processId in DirectoryOwners(directory))
+            {
+                if (owners.Any(owner => owner.ProcessId == processId))
+                {
+                    continue;
+                }
+
+                var handle = OpenProcess(0x1000, false, processId);
+                if (handle == 0)
+                {
+                    var error = Marshal.GetLastPInvokeError();
+                    if (error == 87)
+                    {
+                        continue;
+                    }
+
+                    throw new Win32Exception(error, $"Directory owner PID {processId}: {directory}");
+                }
+
+                using HeldProcess process = new(handle);
+                owners.Add(new Owner(processId, process.Started, Path.GetFileName(process.Image), 0));
+            }
+        }
+
+        return owners;
+    }
+
+    private static unsafe IReadOnlyList<uint> DirectoryOwners(string directory)
+    {
+        // FILE_READ_ATTRIBUTES, all sharing, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS.
+        using var handle = CreateFileW(directory, 0x80, 7, 0, 3, 0x02000000, 0);
+        if (handle.IsInvalid)
+        {
+            throw new Win32Exception(Marshal.GetLastPInvokeError(), $"Cannot inspect directory {directory}");
+        }
+
+        for (var size = 4096; size <= 1024 * 1024; size *= 2)
+        {
+            var buffer = new byte[size];
+            fixed (byte* information = buffer)
+            {
+                // FileProcessIdsUsingFileInformation: ULONG count followed by aligned ULONG_PTR IDs.
+                var status = NtQueryInformationFile(handle, out _, information, (uint)size, 47);
+                if (status is unchecked((int)0x80000005) or unchecked((int)0xC0000004))
+                {
+                    continue;
+                }
+
+                if (status < 0)
+                {
+                    throw new Win32Exception((int)RtlNtStatusToDosError(status),
+                        $"Cannot identify directory owners: {directory}");
+                }
+
+                var count = *(uint*)information;
+                if (count > (size - IntPtr.Size) / IntPtr.Size)
+                {
+                    throw new IOException($"Windows returned an invalid directory-owner list: {directory}");
+                }
+
+                var identifiers = (nuint*)(information + IntPtr.Size);
+                List<uint> result = [];
+                for (var index = 0; index < count; index++)
+                {
+                    result.Add(checked((uint)identifiers[index]));
+                }
+
+                return result;
+            }
+        }
+
+        throw new IOException($"The directory-owner list is too large: {directory}");
     }
 
     private static unsafe IReadOnlyList<Owner> Scan(IReadOnlyList<string> files)
@@ -349,6 +432,25 @@ internal static partial class SetupFileOwners
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
     private static partial nint OpenProcess(uint access, [MarshalAs(UnmanagedType.Bool)] bool inherit, uint processId);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct IoStatusBlock
+    {
+        internal nint Status;
+        internal nuint Information;
+    }
+
+    [LibraryImport("kernel32.dll", EntryPoint = "CreateFileW", StringMarshalling = StringMarshalling.Utf16,
+        SetLastError = true)]
+    private static partial SafeFileHandle CreateFileW(string path, uint access, uint share, nint security,
+        uint creation, uint flags, nint template);
+
+    [LibraryImport("ntdll.dll")]
+    private static unsafe partial int NtQueryInformationFile(SafeFileHandle file, out IoStatusBlock status,
+        void* information, uint length, uint informationClass);
+
+    [LibraryImport("ntdll.dll")]
+    private static partial uint RtlNtStatusToDosError(int status);
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

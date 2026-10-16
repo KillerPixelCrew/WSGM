@@ -186,9 +186,10 @@ rather than adding another boot or mode-switch branch.
 Immediately before Explorer's exit, WSGM captures the listed processes in its own Windows session,
 with their executable paths, PIDs, start times and elevation. Nothing is launched merely because it
 is installed. Both the boot takeover and resident Game Mode entry use this path. An unreadable
-process, a failed exit or a respawning integration refuses takeover, and a partial failure restores
-the affected apps while retaining Explorer. Captured identity is checked again before a process is
-stopped; services and unrelated processes are never selected by a substring match.
+process or failed exit is logged. Applications get three seconds for their normal exit protocol,
+then their captured process trees are terminated. An integration that remains after enforcement does
+not veto the requested mode switch. Captured identity is checked again before a process is stopped;
+services and unrelated processes are never selected by a substring match.
 
 | Integration      | Exit                                                                                                         | Desktop return                                        |
 | ---------------- | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
@@ -220,48 +221,21 @@ suspended. An uncertain launch is not dispatched again, and Windows sign-out or 
 restart them. Ownership lives in memory for the resident session; the independent shell-anchor and
 watchdog crash recovery restores Explorer only.
 
-### Explorer is asked to exit through its own "Exit Explorer" command
+### Explorer exit is graceful first, then enforced
 
-`ExitExplorerAndWait` (`Core\ExplorerControl.cs`) posts `0x5B4` (`WM_USER+436`, the
-Ctrl+Shift-taskbar "Exit Explorer" command) to Explorer's pid-verified `Shell_TrayWnd`. That
-intentional shutdown is the only exit Winlogon's AutoRestartShell does not respawn. Tried and
-disproven (2026-08-07): plain `Process.Kill`, which Winlogon respawns, and Restart Manager
-`RmShutdown`, which wedged a freshly logged-on Explorer for about 30 s with error 351 and then
-respawned it.
+`ExplorerDesktopHost.ExitExplorerAndWaitAsync` posts `0x5B4` (`WM_USER+436`, the Ctrl+Shift-taskbar
+"Exit Explorer" command) to Explorer's verified taskbar owner. If it ignores the request for three
+seconds, WSGM terminates that exact held process with exit status zero. A failed message dispatch
+goes directly to termination. Separate File Explorer folder processes are not swept.
 
-The taskbar's exact process handle is retained before the command is posted. File Explorer processes
-that do not own the desktop do not block takeover. A new taskbar owner is a replacement shell, and
-WSGM gives it one orderly attempt within the same deadline.
-
-Explorer is never terminated: a killed shell process is what Winlogon's AutoRestartShell answers
-with a respawn (2026-08-08). After both `Shell_TrayWnd` and `GetShellWindow` disappear, the original
-process finishes on its own. If it is still running after 3 s, its remaining windows are sent
-`WM_CLOSE`, the first step of Task Manager's End task, and nothing further. Success requires 1.5 s
-of stable shell absence, long enough to catch a respawn inside the exit step. A retired process that
-still owns no shell after 10 s does not hold Game Mode back: it has no taskbar, and the tray host
-checks for Explorer's desktop shell, not for any `explorer.exe`. On refusal or timeout, the shared
-desktop-return sequence restores the layout, shell and captured integrations before optional leave
-actions.
-
-The process outlives its windows because any shell extension can hold a reference on explorer.exe
-through `SHGetInstanceExplorer`, and the process ends only when the last one is released. When a
-retired shell is still running after 3 s, the log names the modules it loaded from outside the
-Windows directory, so the extension holding it can be identified without a probe on the device.
-
-The retired process's exit code is read once it exits. Winlogon's AutoRestartShell relaunches a
-shell that stopped unexpectedly and leaves a clean exit alone, and "Exit Explorer" exits with 0. A
-non-zero code therefore predicts a respawn: entry then watches for the replacement taskbar for 8 s
-(device logs put it at about 3 s) and gives it the one orderly attempt, instead of racing the tray
-host against it.
-
-A new Explorer started beside a lingering retired one comes up unresponsive (2026-09-13): Explorer
-takes the `ExplorerIsShellMutex` on start and polls `GetShellWindow` for 3 s to decide whether it is
-the shell or a folder window, so a shell still winding down confuses it. Desktop return therefore
-waits for a retired process that Game Mode entry left running, asking its windows to close again, up
-to the transition deadline less an 8 s launch reserve, before it starts Explorer. The same day's fix
-released (killed) that process after 2 s instead; an Xbox Ally X, whose orderly exit takes longer,
-then fought a Winlogon respawn on every entry and failed to create the Game Mode tray (2026-09-25),
-so the release was removed again.
+Success still requires 1.5 seconds of stable shell absence before WSGM creates its own tray host. If
+Winlogon starts a replacement shell, the same graceful-then-forced sequence applies to that new
+owner within the transition's deadline. An abnormal exit reserves eight seconds to observe its
+possible replacement. A retired process that no longer owns any shell surface does not block entry.
+On desktop return, that captured retired owner is terminated and awaited before launching Explorer,
+so it cannot retain the shell singleton and strand the replacement without a desktop. If Windows
+ultimately denies termination or the deadline expires, the shared desktop-return sequence restores
+the layout, shell and captured integrations and reports the actual failure.
 
 Folder windows have run in their own explorer.exe since Windows 10 1903, so a process count never
 answers "is the desktop up". Every mode decision (tray host, overlay swipes and scale, the mode
@@ -309,19 +283,23 @@ unsettled taskbar is a failure. Once an anchor request was dispatched, or may ha
 WSGM never dispatches the scheduled task as a second creator and never recreates `TrayHost` while
 that late shell may still publish `Shell_TrayWnd`.
 
-The scheduled-task route (`Core\UnelevatedLauncher.cs`) is last-resort recovery when no anchor
-request was dispatched. Its result is always reported as degraded, even when the Explorer it
-produced happens to be jobless; its deadline rules are in [elevation](elevation.md). A job-bound
-taskbar is never ended without a verified repair owner. For a canonical, ready, current-session
-medium Explorer that is already in a job, WSGM duplicates that shell's primary token and creates the
-fixed anchor through `CreateProcessWithTokenW`, without using the job-bound shell as the process
-parent. The anchor must still pass the image, session and medium-integrity checks before Explorer
-receives an exit request. It must also be jobless unless the Explorer it replaces was job-bound:
-some OEM images, such as the Xbox Ally X's, start Explorer in a job at logon, and the anchor created
-from it lands in a job too (2026-09-25 tester log, every boot). Such an anchor is no worse than the
-desktop the user already had, so takeover proceeds, the anchor is logged as degraded, and the
-restored Explorer is reported as a degraded desktop. An unknown job membership is still refused, and
-failed creation or verification preserves the existing desktop.
+The scheduled-task route (`Core\UnelevatedLauncher.cs`) also supplies desktop recovery when launch
+parent capture or anchor preparation fails; that failure no longer vetoes Game Mode entry. Its
+result is reported as degraded even when the Explorer it produced is jobless; its deadline rules are
+in [elevation](elevation.md). For a canonical, ready, current-session medium Explorer that is
+already in a job, WSGM duplicates that shell's primary token and creates the fixed anchor through
+`CreateProcessWithTokenW`, without using the job-bound shell as the process parent. The anchor must
+still pass the image, session and medium-integrity checks before Explorer receives an exit request.
+It must also be jobless unless the Explorer it replaces was job-bound: some OEM images, such as the
+Xbox Ally X's, start Explorer in a job at logon, and the anchor created from it lands in a job too
+(2026-09-25 tester log, every boot). Such an anchor is no worse than the desktop the user already
+had, so takeover proceeds, the anchor is logged as degraded, and the restored Explorer is reported
+as a degraded desktop. An unusable anchor is retired and desktop return uses the scheduled-task
+route.
+
+Desktop return reserves five seconds for its first Explorer restore attempt. If the shell or launch
+is still stuck, it terminates the identified current-session Explorer owner, retires the failed
+anchor, and launches again through scheduled recovery within the original overall deadline.
 
 ### Shutdown keeps the anchor alive until the desktop is verified
 
@@ -444,9 +422,10 @@ WSGM posts `WM_CLOSE` to that window directly and logs its handle and `IsHungApp
 seconds earlier, so nothing consumed it, and the rest of the return rebuilt the desktop underneath a
 Big Picture window that was still up.
 
-If both close attempts fail, WSGM forces Steam to stop and verifies exit within five seconds before
-continuing desktop restoration. A failed stop is recorded as a transition failure. The restored
-desktop starts its normal windowed Steam client through the existing launch path.
+If both close attempts fail, WSGM terminates Steam and its child process trees and verifies exit
+within five seconds before continuing desktop restoration. A failed stop is recorded as a transition
+failure. The restored desktop starts its normal windowed Steam client through the existing launch
+path.
 
 Shell readiness requires matching taskbar/desktop owners and responsive windows; surviving processes
 or window handles alone are insufficient. Responsiveness alone is the one check that cannot condemn

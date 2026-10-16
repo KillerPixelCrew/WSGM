@@ -1,9 +1,11 @@
 using System;
 using System.Buffers;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
 
 namespace WSGM.Interop;
 
@@ -13,6 +15,27 @@ namespace WSGM.Interop;
 /// </summary>
 internal static partial class NativeShellProcess
 {
+    /// <summary>Terminates the exact held process after its owner has validated its identity.</summary>
+    /// <param name="process">Borrowed process whose retained handle is used for termination.</param>
+    /// <param name="exitCode">Exit status selected by the owning lifecycle.</param>
+    internal static void Terminate(Process process, uint exitCode)
+    {
+        if (process.HasExited || TerminateProcess(process.SafeHandle, exitCode))
+        {
+            return;
+        }
+
+        var error = Marshal.GetLastPInvokeError();
+        if (!process.HasExited)
+        {
+            throw new Win32Exception(error);
+        }
+    }
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool TerminateProcess(SafeProcessHandle process, uint exitCode);
+
     private const uint ProcessCreateProcess = 0x0080;
     private const uint ProcessQueryLimitedInformation = 0x1000;
     private const uint TokenDuplicate = 0x0002;

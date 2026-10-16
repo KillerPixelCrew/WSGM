@@ -195,11 +195,16 @@ fatal failure restores that set before restarting the previous runtime. Recovery
 retains its journal and backups, and does not start a mismatched runtime. Resident-shell and sign-in
 startup refuse an incomplete transaction; Settings and the early desktop escape remain available.
 
-After normal shutdown, setup registers the exact installation files with Windows Restart Manager and
-terminates remaining verified holders before replacement or backup cleanup. PID and creation time
-checks keep termination tied to the identified process. Setup never terminates itself or Windows
-critical/Explorer processes. A refused release names the affected paths and owner when available;
-the existing file transaction preserves or restores the previous installation.
+Setup first leaves its inherited working directory, preserving relative answer/payload paths, so it
+cannot hold the installed `App` directory open itself. After normal shutdown, it registers the exact
+installation files with Windows Restart Manager and queries directory handles separately, including
+empty folders and working directories. It terminates verified holders before replacement or backup
+cleanup, including Explorer when it holds a required path. PID and creation time checks keep
+termination tied to the identified process. Only setup itself and Windows critical processes are
+exempt. A failed folder swap scans and releases new holders before retrying. A sign-in service that
+ignores its ten-second stop grace is also terminated through its installed image. An unreleasable
+path names the affected owner when available; the existing file transaction preserves or restores
+the previous installation.
 
 A later setup first stops the relevant owners and recovers the transaction before detecting
 installed packages or preparing answers. Committed or fully restored journals require only backup

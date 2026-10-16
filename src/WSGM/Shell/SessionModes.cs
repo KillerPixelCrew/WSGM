@@ -35,21 +35,21 @@ public sealed class SessionModes
     ///     session stayed in desktop mode (fail open, never a half game mode).
     /// </summary>
     public const string ExplorerExitFailedWarning =
-        "Game Mode entry stopped because Explorer did not finish leaving. Desktop recovery was requested.";
+        "Windows did not complete the Game Mode switch after enforced Explorer shutdown. Desktop recovery was requested.";
 
     /// <summary>
     ///     The warning shown when a dispatched Explorer may still be initializing, so WSGM
     ///     deliberately avoids creating a competing replacement taskbar.
     /// </summary>
     public const string ExplorerDesktopPendingWarning =
-        "Windows Explorer did not finish starting. WSGM will not create a competing taskbar; sign out or reboot to recover the desktop.";
+        "Windows did not restore Explorer after forced recovery. Try switching to Desktop again; see wsgm.log.";
 
     /// <summary>
     ///     The warning shown when the current desktop cannot safely supply a normal shell
     ///     launch owner, most commonly after upgrading beside an older job-bound Explorer.
     /// </summary>
     public const string ExplorerTakeoverRefusedWarning =
-        "Game Mode could not safely take over this Windows Explorer. Desktop mode was preserved; sign out or reboot once before retrying.";
+        "Windows did not complete preparation for Game Mode. Desktop recovery was requested; see wsgm.log.";
 
     private const uint WmClose = 0x0010;
 
@@ -783,7 +783,8 @@ public sealed class SessionModes
         }
 
         Log.Warn("Steam ignored both Big Picture close requests; enforcing Steam shutdown before restoring the desktop.");
-        if (!await Steam.StopAsync(TimeSpan.FromSeconds(5), TimeSpan.Zero, CancellationToken.None)
+        if (!await Steam.StopAsync(TimeSpan.FromSeconds(5), TimeSpan.Zero, CancellationToken.None,
+                entireProcessTree: true)
                 .ConfigureAwait(false))
         {
             throw new InvalidOperationException("Steam remained active after forced shutdown during desktop return.");

@@ -5,6 +5,36 @@ namespace WSGM.Tests.Setup;
 public sealed class SetupOptionsTests
 {
     [Fact]
+    public void StartupReleasesItsOwnWorkingDirectoryAndPreservesRelativeInputPaths()
+    {
+        using SetupTestInstallation installation = new();
+        var original = Environment.CurrentDirectory;
+        var inherited = Path.Combine(installation.Root, "inherited-working-directory");
+        Directory.CreateDirectory(inherited);
+        try
+        {
+            Directory.SetCurrentDirectory(inherited);
+            var moved = inherited + ".released";
+            Assert.Throws<IOException>(() => Directory.Move(inherited, moved));
+
+            var options = WSGM.Setup.Program.DetachWorkingDirectory(new SetupOptions
+            {
+                AnswersFile = "answers.json",
+                PayloadDirectory = "payload"
+            });
+
+            Assert.Equal(Path.Combine(inherited, "answers.json"), options.AnswersFile);
+            Assert.Equal(Path.Combine(inherited, "payload"), options.PayloadDirectory);
+            Directory.Move(inherited, moved);
+            Directory.Delete(moved);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(original);
+        }
+    }
+
+    [Fact]
     public void QuietUpdate_IsTheUpdatersCommandLine()
     {
         var options = SetupOptions.Parse(["/quiet", "/update"], out var error);

@@ -1,10 +1,41 @@
+using System.Diagnostics;
 using WSGM.Core;
+using WSGM.Interop;
 using WSGM.Tests.Fakes;
 
 namespace WSGM.Tests.Core;
 
 public sealed class ExplorerDesktopHostTests : IDisposable
 {
+    [Fact]
+    public async Task ForcedExitUsesTheHeldHelperHandleAndTheRequestedExitStatus()
+    {
+        using var helper = Process.Start(new ProcessStartInfo(
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),
+                "WindowsPowerShell", "v1.0", "powershell.exe"),
+            "-NoProfile -NonInteractive -Command Start-Sleep -Seconds 60")
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WindowStyle = ProcessWindowStyle.Hidden
+        }) ?? throw new InvalidOperationException("The isolated helper could not start.");
+        try
+        {
+            _ = helper.Handle;
+            NativeShellProcess.Terminate(helper, exitCode: 0);
+            await helper.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(0, helper.ExitCode);
+        }
+        finally
+        {
+            if (!helper.HasExited)
+            {
+                helper.Kill(entireProcessTree: false);
+                await helper.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+            }
+        }
+    }
+
     public ExplorerDesktopHostTests()
     {
         ApplicationShutdownRequest.ResetForTests();

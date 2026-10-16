@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.Marshalling;
 using System.Threading;
 using Microsoft.Win32;
+using WSGM.Install;
 using WSGM.Shared;
 
 namespace WSGM.Setup.Engine;
@@ -70,8 +71,8 @@ internal static class WindowsSetup
         return steam?.GetValue("InstallPath") is string dir && File.Exists(Path.Combine(dir, "steam.exe"));
     }
 
-    /// <summary>Reads the logon service state, or null when it is in a transitional state or unreadable.</summary>
-    /// <returns>Known stopped/running/absent state, or null for a transition or inspection failure.</returns>
+    /// <summary>Reads the logon service state, treating pending transitions as still active.</summary>
+    /// <returns>Known stopped/active/absent state, or null for an inspection failure.</returns>
     public static ServiceState? InspectService()
     {
         var manager = NativeMethods.OpenSCManagerW(null, null, NativeMethods.ScManagerConnect);
@@ -107,7 +108,7 @@ internal static class WindowsSetup
                 {
                     NativeMethods.ServiceStopped => new ServiceState(true, false),
                     NativeMethods.ServiceRunning => new ServiceState(true, true),
-                    _ => null
+                    _ => new ServiceState(true, true)
                 };
             }
             finally
@@ -213,7 +214,24 @@ internal static class WindowsSetup
             Thread.Sleep(250);
         }
 
-        SetupLog.Warn($"{ServiceName} did not stop within ten seconds (sc exit {code}).");
+        SetupLog.Warn($"{ServiceName} did not stop within ten seconds (sc exit {code}); enforcing shutdown.");
+        var serviceImage = Path.Combine(InstallLayout.App, "WSGM.LogonService.exe");
+        if (SetupFileOwners.Release([serviceImage]) is { } refusal)
+        {
+            SetupLog.Warn(refusal);
+            return false;
+        }
+
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            if (InspectService() is { } now && (!now.Exists || !now.Running))
+            {
+                return true;
+            }
+
+            Thread.Sleep(250);
+        }
+
         return false;
     }
 

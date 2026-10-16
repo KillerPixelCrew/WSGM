@@ -121,9 +121,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
         if (!CanCaptureShell(shell))
         {
             var detail = $"current-shell-{shell.Acceptance.Rejection}";
-            Log.Warn($"Explorer takeover refused before orderly exit: {shell.Acceptance.Rejection}. "
-                     + "The current desktop was preserved.");
-            return new ExplorerPreparationResult(false, detail);
+            return await PrepareSchedulerRecoveryAsync(detail).ConfigureAwait(false);
         }
 
         if (!NativeShellProcess.TryOpenLaunchParent(
@@ -132,9 +130,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
                 out var openError))
         {
             var detail = $"parent-open-error-{openError}";
-            Log.Warn($"Explorer takeover refused: taskbar owner pid {shell.Process.ProcessId} could not be retained "
-                     + $"as a launch parent (error {openError}). Sign out or reboot once before retrying.");
-            return new ExplorerPreparationResult(false, detail);
+            return await PrepareSchedulerRecoveryAsync(detail).ConfigureAwait(false);
         }
 
         ExplorerShellAnchorStartResult started;
@@ -163,8 +159,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
                 }
             }
 
-            Log.Warn($"Explorer takeover refused: normal shell anchor creation failed: {started.Error}");
-            return new ExplorerPreparationResult(false, started.Error);
+            return await PrepareSchedulerRecoveryAsync(started.Error).ConfigureAwait(false);
         }
 
         var replacement = started.Anchor;
@@ -205,10 +200,8 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
                         : ExplorerDesktopOutcome.Normal));
         if (!anchorAcceptance.Accepted)
         {
-            Log.Warn("Explorer takeover refused: launch anchor did not inherit normal process semantics "
-                     + $"({anchorAcceptance.Rejection}).");
             await replacement.DisposeAsync().ConfigureAwait(false);
-            return new ExplorerPreparationResult(false, $"anchor-{anchorAcceptance.Rejection}");
+            return await PrepareSchedulerRecoveryAsync($"anchor-{anchorAcceptance.Rejection}").ConfigureAwait(false);
         }
 
         var previous = _anchor;
@@ -237,6 +230,20 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
         Log.Info($"Explorer launch anchor ready (pid {_anchor.ProcessId}, "
                  + $"parent pid {shell.Process.ProcessId}).");
         return new ExplorerPreparationResult(true, "ready");
+    }
+
+    private async Task<ExplorerPreparationResult> PrepareSchedulerRecoveryAsync(string reason)
+    {
+        var previous = _anchor;
+        _anchor = null;
+        if (previous is not null)
+        {
+            await previous.DisposeAsync().ConfigureAwait(false);
+        }
+
+        Log.Warn($"Explorer launch-parent preparation failed ({reason}); "
+                 + "continuing the requested Game Mode switch with scheduled desktop recovery.");
+        return new ExplorerPreparationResult(true, "scheduler-recovery");
     }
 
     // A job-bound shell may supply its verified medium token. The anchor it yields may be job-bound
@@ -285,7 +292,8 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
             // partial shutdown. Never infer a preserved desktop from a surviving Explorer PID.
             if (!stopped)
             {
-                return false;
+                Log.Warn("A desktop integration remained after enforced shutdown; "
+                         + "continuing the requested Explorer takeover.");
             }
 
             var exited = false;
@@ -360,8 +368,52 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
             }
 
             ThrowIfDesktopRestoreCancelled(cancellationToken);
-            var result = await RestoreDesktopUnderGateAsync(deadline, elapsed, cancellationToken)
+            // Reserve time to replace a stuck shell/launch instead of spending the entire return
+            // observing one failed attempt and handing the user a sign-out/reboot instruction.
+            var firstDeadline = DateTimeOffset.UtcNow.AddSeconds(5);
+            if (firstDeadline > deadline)
+            {
+                firstDeadline = deadline;
+            }
+
+            var result = await RestoreDesktopUnderGateAsync(firstDeadline, elapsed, cancellationToken)
                 .ConfigureAwait(false);
+            if ((result.Outcome is ExplorerDesktopOutcome.Failed
+                 || result.Detail == "timeout-unresponsive-shell") && Remaining(deadline) > TimeSpan.Zero)
+            {
+                ThrowIfDesktopRestoreCancelled(cancellationToken);
+                Log.Warn("Explorer did not restore a usable desktop; replacing the stuck shell and relaunching.");
+                var current = ObserveCurrentDesktop(_sessionId, false);
+                if (current.Process.ProcessId != 0)
+                {
+                    using var owner = TryGetExitOwner(current.Process.ProcessId);
+                    if (owner is not null)
+                    {
+                        ForceStopExplorer(owner);
+                        await owner.WaitForExitAsync(cancellationToken).WaitAsync(Remaining(deadline), cancellationToken)
+                            .ConfigureAwait(false);
+                    }
+                }
+                else if (result.CreatedProcessId != 0)
+                {
+                    using var created = TryGetExitOwner(result.CreatedProcessId);
+                    if (created is not null)
+                    {
+                        ForceStopExplorer(created);
+                    }
+                }
+
+                var failedAnchor = _anchor;
+                _anchor = null;
+                if (failedAnchor is not null)
+                {
+                    await failedAnchor.DisposeAsync().ConfigureAwait(false);
+                }
+
+                result = await RestoreDesktopUnderGateAsync(deadline, elapsed, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             if (result.Outcome is not (ExplorerDesktopOutcome.Normal or ExplorerDesktopOutcome.Degraded))
             {
                 return result;
@@ -402,9 +454,9 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
         }
 
         var anchorError = "No anchor was captured.";
-        // A retired owner may still host transfers or extension dialogs after its shell is gone.
-        // Their lifetime is independent of desktop restoration; never close them or wait for them.
-        ReleaseRetiredOwner();
+        // A retired shell can retain Explorer's singleton/mutex after its windows disappear.
+        // Finish that exact owner before starting a replacement desktop.
+        await ReleaseRetiredOwnerAsync(deadline, cancellationToken).ConfigureAwait(false);
 
         if (_anchor is not null)
         {
@@ -724,7 +776,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
     {
         cancellationToken.ThrowIfCancellationRequested();
         var deadline = DateTime.UtcNow + timeout;
-        for (var attempt = 0; attempt < 2 && DateTime.UtcNow < deadline; attempt++)
+        while (DateTime.UtcNow < deadline)
         {
             var taskbar = NativeMethods.FindWindowW("Shell_TrayWnd", null);
             if (taskbar == 0)
@@ -754,9 +806,12 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
 
             cancellationToken.ThrowIfCancellationRequested();
             Log.Info($"Requesting orderly Explorer exit (pid {owner}).");
+            var requested = Stopwatch.StartNew();
+            var forced = false;
             if (!NativeMethods.PostMessageW(taskbar, ExitExplorerMessage, 0, 0))
             {
-                return false;
+                ForceStopExplorer(original);
+                forced = true;
             }
 
             RememberRetired(original);
@@ -772,7 +827,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
                 if (currentTaskbar != 0 && !IsWindowOwnedByProcess(currentTaskbar, owner))
                 {
                     replacement = true;
-                    Log.Info("A replacement desktop appeared; requesting its orderly exit once.");
+                    Log.Info("A replacement desktop appeared; enforcing the requested exit on its new owner.");
                     break;
                 }
 
@@ -785,7 +840,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
                 }
 
                 var action = ExplorerExitPolicy.Decide(surfaces, original.HasExited, absent,
-                    uncleanExit);
+                    uncleanExit, requested.Elapsed);
                 // ReSharper disable once SwitchStatementHandlesSomeKnownEnumValuesWithDefault
                 switch (action)
                 {
@@ -804,6 +859,15 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
                         return true;
                     case ExplorerExitAction.Wait:
                         break;
+                    case ExplorerExitAction.ForceStop:
+                        if (!forced)
+                        {
+                            cancellationToken.ThrowIfCancellationRequested();
+                            ForceStopExplorer(original);
+                            forced = true;
+                        }
+
+                        break;
                 }
 
                 await Task.Delay(100, cancellationToken).ConfigureAwait(false);
@@ -821,7 +885,27 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
         return false;
     }
 
-    private void ReleaseRetiredOwner()
+    private void ForceStopExplorer(Process process)
+    {
+        // Retain the exact handle before identity inspection; never sweep Explorer folder processes.
+        _ = process.Handle;
+        if (process.HasExited)
+        {
+            return;
+        }
+
+        if (process.SessionId != _sessionId
+            || !string.Equals(NativeShellProcess.TryGetImagePath(checked((uint)process.Id)), ExplorerPath,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("The blocking Explorer owner could not be identified.");
+        }
+
+        Log.Warn($"Enforcing the requested shell transition: terminating Explorer pid {process.Id}.");
+        NativeShellProcess.Terminate(process, exitCode: 0);
+    }
+
+    private async Task ReleaseRetiredOwnerAsync(DateTimeOffset deadline, CancellationToken cancellationToken)
     {
         var retired = _retired;
         if (retired is null)
@@ -831,8 +915,17 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
 
         if (!retired.HasExited)
         {
-            Log.Info($"Retired Explorer pid {retired.Id} has no desktop shell; "
-                     + "its remaining windows are preserved while the desktop is restored.");
+            cancellationToken.ThrowIfCancellationRequested();
+            Log.Info($"Finishing retired Explorer pid {retired.Id} before the requested desktop restart.");
+            ForceStopExplorer(retired);
+            var remaining = Remaining(deadline);
+            if (remaining <= TimeSpan.Zero)
+            {
+                throw new TimeoutException("The retired Explorer did not release the desktop before its deadline.");
+            }
+
+            await retired.WaitForExitAsync(cancellationToken).WaitAsync(remaining, cancellationToken)
+                .ConfigureAwait(false);
         }
 
         _retired = null;
@@ -862,12 +955,16 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
 
     private static Process? TryGetExitOwner(uint processId)
     {
+        Process? process = null;
         try
         {
-            return Process.GetProcessById(checked((int)processId));
+            process = Process.GetProcessById(checked((int)processId));
+            _ = process.Handle;
+            return process;
         }
-        catch (ArgumentException)
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or Win32Exception)
         {
+            process?.Dispose();
             return null;
         }
     }

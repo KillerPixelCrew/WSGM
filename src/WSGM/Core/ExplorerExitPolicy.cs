@@ -2,24 +2,30 @@ using System;
 
 namespace WSGM.Core;
 
-/// <summary>Next nonterminating action while the captured Explorer retires its desktop shell.</summary>
+/// <summary>Next action while the captured Explorer retires its desktop shell.</summary>
 internal enum ExplorerExitAction
 {
     /// <summary>Continue observing ownership and absence without dispatching another request.</summary>
     Wait,
 
     /// <summary>The shell has remained absent long enough to proceed, even if a retired process lingers.</summary>
-    Complete
+    Complete,
+
+    /// <summary>The requested transition authorizes terminating the captured shell after its grace.</summary>
+    ForceStop
 }
 
-/// <summary>Explorer is only ever asked to leave. Nothing in the entry terminates it.</summary>
+/// <summary>Completes the requested shell exit with a bounded graceful phase and forced fallback.</summary>
 /// <remarks>
-///     Forced termination can trigger Winlogon's AutoRestartShell and race desktop takeover.
-///     Request orderly shell exit and observe bounded absence;
+///     A replacement from Winlogon is handled by the same exit sequence before takeover.
+///     Request orderly shell exit, enforce it after the grace, and observe bounded absence;
 ///     a lingering process without shell surfaces may remain alive beside Game Mode.
 /// </remarks>
 internal static class ExplorerExitPolicy
 {
+    /// <summary>Time allowed for the shell to honour its orderly exit request.</summary>
+    internal static readonly TimeSpan GracefulExit = TimeSpan.FromSeconds(3);
+
     /// <summary>How long the shell must stay absent before exit counts.</summary>
     /// <remarks>Long enough to see a Winlogon respawn inside the exit step.</remarks>
     internal static readonly TimeSpan StableAbsence = TimeSpan.FromMilliseconds(1500);
@@ -39,13 +45,20 @@ internal static class ExplorerExitPolicy
     /// <param name="originalExited">Whether the captured original process has exited.</param>
     /// <param name="absentFor">Continuous duration without shell surfaces; reset when any surface reappears.</param>
     /// <param name="uncleanExit">Whether the original process exited abnormally, requiring extra respawn observation.</param>
-    /// <returns>Wait or completion; never a request to close unrelated windows or terminate the process.</returns>
+    /// <param name="requestedFor">Time since orderly exit was requested for this exact shell owner.</param>
+    /// <returns>Wait, completion, or termination of the captured owner after its grace.</returns>
     internal static ExplorerExitAction Decide(
         bool shellSurfacePresent,
         bool originalExited,
         TimeSpan absentFor,
-        bool uncleanExit = false)
+        bool uncleanExit = false,
+        TimeSpan requestedFor = default)
     {
+        if (shellSurfacePresent && !originalExited && requestedFor >= GracefulExit)
+        {
+            return ExplorerExitAction.ForceStop;
+        }
+
         if (shellSurfacePresent || absentFor < StableAbsence)
         {
             return ExplorerExitAction.Wait;

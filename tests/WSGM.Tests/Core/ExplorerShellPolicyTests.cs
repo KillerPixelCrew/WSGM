@@ -482,4 +482,18 @@ public sealed class ExplorerShellPolicyTests
         Assert.Equal((ExplorerExitAction)expected,
             ExplorerExitPolicy.Decide(false, true, TimeSpan.FromMilliseconds(absentMs), true));
     }
+
+    [Theory]
+    [InlineData(true, false, 2999, false)]
+    [InlineData(true, false, 3000, true)]
+    [InlineData(true, true, 3000, false)]
+    [InlineData(false, false, 3000, false)]
+    public void RequestedShellExitForcesTheCapturedOwnerAfterItsGrace(
+        bool surfaces, bool exited, int requestedMs, bool force)
+    {
+        var action = ExplorerExitPolicy.Decide(surfaces, exited, TimeSpan.Zero,
+            requestedFor: TimeSpan.FromMilliseconds(requestedMs));
+
+        Assert.Equal(force, action is ExplorerExitAction.ForceStop);
+    }
 }
