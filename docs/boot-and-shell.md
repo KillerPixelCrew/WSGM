@@ -225,17 +225,20 @@ watchdog crash recovery restores Explorer only.
 
 `ExplorerDesktopHost.ExitExplorerAndWaitAsync` posts `0x5B4` (`WM_USER+436`, the Ctrl+Shift-taskbar
 "Exit Explorer" command) to Explorer's verified taskbar owner. If it ignores the request for three
-seconds, WSGM terminates that exact held process with exit status zero. A failed message dispatch
-goes directly to termination. Separate File Explorer folder processes are not swept.
+seconds, WSGM terminates that exact held process with Task Manager's End Process status, `1`, rather
+than its restart status, `0`. A failed message dispatch goes directly to termination. Separate File
+Explorer folder processes are not swept.
 
 Success still requires 1.5 seconds of stable shell absence before WSGM creates its own tray host. If
 Winlogon starts a replacement shell, the same graceful-then-forced sequence applies to that new
-owner within the transition's deadline. An abnormal exit reserves eight seconds to observe its
-possible replacement. A retired process that no longer owns any shell surface does not block entry.
-On desktop return, that captured retired owner is terminated and awaited before launching Explorer,
-so it cannot retain the shell singleton and strand the replacement without a desktop. If Windows
-ultimately denies termination or the deadline expires, the shared desktop-return sequence restores
-the layout, shell and captured integrations and reports the actual failure.
+owner within the transition's deadline. Every forced or abnormal exit reserves eight seconds to
+observe its possible replacement. A retired process that no longer owns any shell surface does not
+block entry. The forced-exit status does not bypass that wait. The terminated process must also
+finish exiting before takeover can complete. On desktop return, that captured retired owner is
+terminated and awaited before launching Explorer, so it cannot retain the shell singleton and strand
+the replacement without a desktop. If Windows ultimately denies termination or the deadline expires,
+the shared desktop-return sequence restores the layout, shell and captured integrations and reports
+the actual failure.
 
 Folder windows have run in their own explorer.exe since Windows 10 1903, so a process count never
 answers "is the desktop up". Every mode decision (tray host, overlay swipes and scale, the mode

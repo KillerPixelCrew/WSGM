@@ -8,7 +8,7 @@ namespace WSGM.Tests.Core;
 public sealed class ExplorerDesktopHostTests : IDisposable
 {
     [Fact]
-    public async Task ForcedExitUsesTheHeldHelperHandleAndTheRequestedExitStatus()
+    public async Task ForcedExitUsesTaskManagersStatusOnTheHeldHelperHandle()
     {
         using var helper = Process.Start(new ProcessStartInfo(
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),
@@ -22,9 +22,9 @@ public sealed class ExplorerDesktopHostTests : IDisposable
         try
         {
             _ = helper.Handle;
-            NativeShellProcess.Terminate(helper, exitCode: 0);
+            NativeShellProcess.Terminate(helper, ExplorerExitPolicy.ForcedExitCode);
             await helper.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
-            Assert.Equal(0, helper.ExitCode);
+            Assert.Equal(1, helper.ExitCode);
         }
         finally
         {

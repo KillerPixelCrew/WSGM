@@ -496,4 +496,18 @@ public sealed class ExplorerShellPolicyTests
 
         Assert.Equal(force, action is ExplorerExitAction.ForceStop);
     }
+
+    [Theory]
+    [InlineData(false, true, 1500, 0)]
+    [InlineData(false, true, 7999, 0)]
+    [InlineData(false, true, 8000, 1)]
+    [InlineData(false, false, 30000, 0)]
+    [InlineData(true, true, 8000, 0)]
+    public void ForcedExitStillWaitsForProcessExitAndWinlogonRespawn(
+        bool surfaces, bool exited, int absentMs, int expected)
+    {
+        Assert.Equal((ExplorerExitAction)expected,
+            ExplorerExitPolicy.Decide(surfaces, exited, TimeSpan.FromMilliseconds(absentMs),
+                uncleanExit: false, forcedExit: true));
+    }
 }

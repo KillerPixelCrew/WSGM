@@ -840,7 +840,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
                 }
 
                 var action = ExplorerExitPolicy.Decide(surfaces, original.HasExited, absent,
-                    uncleanExit, requested.Elapsed);
+                    uncleanExit, requested.Elapsed, forcedExit: forced);
                 // ReSharper disable once SwitchStatementHandlesSomeKnownEnumValuesWithDefault
                 switch (action)
                 {
@@ -902,7 +902,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
         }
 
         Log.Warn($"Enforcing the requested shell transition: terminating Explorer pid {process.Id}.");
-        NativeShellProcess.Terminate(process, exitCode: 0);
+        NativeShellProcess.Terminate(process, ExplorerExitPolicy.ForcedExitCode);
     }
 
     private async Task ReleaseRetiredOwnerAsync(DateTimeOffset deadline, CancellationToken cancellationToken)
