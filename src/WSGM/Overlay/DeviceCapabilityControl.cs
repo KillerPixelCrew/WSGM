@@ -33,7 +33,7 @@ internal sealed class DeviceCapabilityControl : ContentControl
                                 && capability.Minimum is { } min && capability.Maximum is { } max && max >= min)
         {
             _body = new DeviceSliderRow(key, capability.Title, capability.Description, min, max,
-                capability.Step ?? 1, capability.Unit, capability.CurrentValue?.IntegerValue ?? min,
+                capability.Step ?? 1, capability.Unit, capability.CurrentValue?.IntegerValue,
                 capability.CanInvoke, value => Commit(CapabilityValue.Integer(value)));
         }
         else if (capability.Writable && capability.ValueKind == CapabilityValueKind.Boolean)
@@ -97,7 +97,7 @@ internal sealed class DeviceCapabilityControl : ContentControl
             case DeviceSliderRow slider:
                 slider.RefreshDescription(capability.Description);
                 slider.RefreshReadback(capability.Minimum ?? 0, capability.Maximum ?? 0, capability.Step ?? 1,
-                    capability.CurrentValue?.IntegerValue ?? capability.Minimum ?? 0, capability.CanInvoke);
+                    capability.CurrentValue?.IntegerValue, capability.CanInvoke);
                 break;
             case DeviceSettingRow setting:
                 setting.Refresh(capability.CurrentValue, capability.CanInvoke && _run?.Invoking != true,

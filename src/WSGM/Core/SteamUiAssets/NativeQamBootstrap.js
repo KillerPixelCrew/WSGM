@@ -3582,12 +3582,23 @@
         return h(ui.sliderField, {
           key,
           ...common,
-          value: draft !== undefined ? draft : (row.number ?? 0),
+          value: draft !== undefined ? draft : (row.number ?? row.minimum ?? 0),
           min: labels ? 0 : (row.minimum ?? 0),
           max: labels ? labels.length - 1 : (row.maximum ?? 100),
           step: labels ? 1 : (row.step ?? 1),
           showValue: !labels,
           valueSuffix: row.suffix ?? undefined,
+          ...(draft === undefined && row.number == null && !labels
+            ? {
+                showValue: false,
+                description: steamSettingDescription(ui, {
+                  ...row,
+                  description: [row.description, "Unknown · adjust to set a value"]
+                    .filter(Boolean)
+                    .join(" · "),
+                }),
+              }
+            : {}),
           notchCount: labels ? labels.length : undefined,
           notchLabels: labels
             ? labels.map((label, notchIndex) => ({ notchIndex, label: String(label) }))

@@ -1185,7 +1185,7 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : ISteamDe
             Text: kind == SteamSettingsRowKind.Note ? row.TrailingText
                 : kind == SteamSettingsRowKind.Color ? $"#{row.CurrentValue?.ColorValue ?? 0xFFFFFF:X6}"
                 : row.CurrentValue?.ChoiceValue ?? row.CurrentValue?.TextValue,
-            Number: row.CurrentValue?.IntegerValue ?? descriptor.Minimum,
+            Number: row.CurrentValue?.IntegerValue,
             Choices: descriptor.Choices.Select(choice => new SteamSettingsChoice(choice.Value,
                 CapabilityDisplayLabels.For(choice.Display, choice.Value))).ToArray(),
             Minimum: descriptor.Minimum, Maximum: descriptor.Maximum, Step: descriptor.Step,

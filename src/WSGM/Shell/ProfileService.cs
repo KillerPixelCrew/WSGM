@@ -216,6 +216,27 @@ internal sealed class ProfileService
         return result.Snapshot;
     }
 
+    /// <summary>Clears processor tuning for one device from Global and every game, including disabled games.</summary>
+    /// <param name="deviceIdentityKey">Exact device whose processor overrides are removed.</param>
+    /// <param name="cancellationToken">Cancels persistence before hardware reset.</param>
+    /// <param name="capabilityId">One processor control, or null to clear all processor tuning.</param>
+    internal async Task ClearProcessorTuningAsync(string deviceIdentityKey, CancellationToken cancellationToken,
+        string? capabilityId = null)
+    {
+        await MutateAsync((config, _) =>
+        {
+            var changed = false;
+            foreach (var values in config.Games.Select(game => game.Values).Prepend(config.Global))
+            {
+                changed |= values.Device.RemoveAll(entry => entry.DeviceIdentityKey == deviceIdentityKey
+                    && (capabilityId is null ? entry.CapabilityId.StartsWith("processor.", StringComparison.Ordinal)
+                        : entry.CapabilityId == capabilityId)) > 0;
+            }
+
+            return changed;
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>Removes the running game's override, so the setting falls back to Global.</summary>
     /// <param name="key">The setting.</param>
     /// <param name="deviceIdentityKey">The device, for a device setting.</param>

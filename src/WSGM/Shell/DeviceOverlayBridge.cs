@@ -877,6 +877,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             _ when projection.DesiredValueOutOfRange =>
                 "Saved value is outside the current firmware range",
             _ when state.Reason is not null => state.Reason.Detail,
+            _ when descriptor.CapabilityId == "processor.reset" =>
+                "Clears processor tuning for this device in Global and every game. Restores supported values; a Windows restart may be needed for firmware defaults.",
             _ when actionOnlyReady => "Ready",
             // A healthy value has nothing to explain; the row shows it without a caption.
             _ when state.Quality is HardwareStateQuality.Verified or HardwareStateQuality.Observed => string.Empty,

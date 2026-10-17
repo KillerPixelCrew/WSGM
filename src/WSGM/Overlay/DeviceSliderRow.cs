@@ -66,7 +66,7 @@ internal sealed class DeviceSliderRow : Border
         int maximum,
         int step,
         CapabilityUnit unit,
-        int valueNow,
+        int? valueNow,
         bool enabled,
         Action<int> onCommit,
         Func<int, string>? format = null)
@@ -79,14 +79,14 @@ internal sealed class DeviceSliderRow : Border
         _commit.Tick += OnCommitTick;
 
         var tick = Math.Max(1, step);
-        var clamped = Math.Clamp(valueNow, minimum, maximum);
+        var clamped = Math.Clamp(valueNow ?? minimum, minimum, maximum);
 
         Classes.Add("tile");
         Tag = key;
 
         _value = new TextBlock
         {
-            Text = Format(clamped),
+            Text = valueNow is null ? "Unknown" : Format(clamped),
             HorizontalAlignment = HorizontalAlignment.Right
         };
         _value.Classes.Add("setting-title");
@@ -165,7 +165,7 @@ internal sealed class DeviceSliderRow : Border
     /// <param name="step">Published controller step.</param>
     /// <param name="value">Current readback; active pointer or pending user edits retain their draft.</param>
     /// <param name="enabled">Whether the current capability accepts writes; false cancels the pending draft.</param>
-    internal void RefreshReadback(int minimum, int maximum, int step, int value, bool enabled)
+    internal void RefreshReadback(int minimum, int maximum, int step, int? value, bool enabled)
     {
         _slider.IsEnabled = enabled;
         if (!enabled)
@@ -184,8 +184,8 @@ internal sealed class DeviceSliderRow : Border
             _slider.Minimum = minimum;
             _slider.Maximum = maximum;
             _slider.TickFrequency = Math.Max(1, step);
-            _slider.Value = Math.Clamp(value, minimum, maximum);
-            _value.Text = Format((int)Math.Round(_slider.Value));
+            _slider.Value = Math.Clamp(value ?? minimum, minimum, maximum);
+            _value.Text = value is null ? "Unknown" : Format((int)Math.Round(_slider.Value));
         }
         finally
         {
@@ -202,11 +202,12 @@ internal sealed class DeviceSliderRow : Border
 
     private void OnSliderValueChanged(object? sender, RangeBaseValueChangedEventArgs e)
     {
-        _value.Text = Format((int)Math.Round(_slider.Value));
         if (_refreshing)
         {
             return;
         }
+
+        _value.Text = Format((int)Math.Round(_slider.Value));
 
         // Restart the settle window on every change so a drag or a held press commits once.
         _commit.Stop();
@@ -248,6 +249,8 @@ internal sealed class DeviceSliderRow : Border
             CapabilityUnit.Celsius => " °C",
             CapabilityUnit.Rpm => " RPM",
             CapabilityUnit.Milliampere => " mA",
+            CapabilityUnit.Millivolt => " mV",
+            CapabilityUnit.Megahertz => " MHz",
             _ => string.Empty
         };
     }

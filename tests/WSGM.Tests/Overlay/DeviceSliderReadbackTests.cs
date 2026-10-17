@@ -7,6 +7,20 @@ namespace WSGM.Tests.Overlay;
 public sealed class DeviceSliderReadbackTests
 {
     [Fact]
+    public void UnknownValueIsNotPresentedAsAMinimumOrWrittenDuringRefresh()
+    {
+        var writes = 0;
+        DeviceSliderRow row = new("curve", "Curve", "", -24, 12, 1, CapabilityUnit.None, null, true, _ => writes++);
+        var slider = Assert.IsType<Slider>(row.FocusTarget);
+        row.RefreshReadback(-24, 12, 1, null, true);
+        Assert.True(slider.IsEnabled);
+        Assert.False(row.HasPendingUserChange);
+        Assert.Equal(0, writes);
+        slider.Value = -23;
+        Assert.True(row.HasPendingUserChange);
+    }
+
+    [Fact]
     public void ProgrammaticReadbackUpdatesTheSameSliderWithoutSchedulingAWrite()
     {
         var writes = 0;

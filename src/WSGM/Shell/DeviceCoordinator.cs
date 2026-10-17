@@ -2773,8 +2773,23 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
             Interlocked.Increment(ref _userCapabilityCommands);
         }
 
+        var processorResetLane = false;
         try
         {
+            if (user && capabilityId is "processor.reset" or "processor.gpu-clock-automatic" && value is null
+                && DeviceIdentityKey is { } processorDevice && FindCapability(capabilityId, instanceId) is not null)
+            {
+                // Join any in-flight profile pass before clearing intent and restoring hardware.
+                // Otherwise an already-admitted old clock could be written after the reset.
+                await _profileReconcileGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                processorResetLane = true;
+                // Remove every saved layer first so a wake or a dormant game cannot reimpose tuning.
+                // A persistence failure must leave hardware untouched.
+                await Profiles.ClearProcessorTuningAsync(processorDevice, cancellationToken,
+                    capabilityId == "processor.reset" ? null : "processor.gpu-clock").ConfigureAwait(false);
+                UpdateCapabilityDesiredContext();
+            }
+
             if (user && FindDescriptor(capabilityId, instanceId) is { } manualDescriptor)
             {
                 if (manualDescriptor.Role == CapabilityRole.ChargeBypass && _client?.UsesSoftwareChargeLimit == true)
@@ -2842,6 +2857,11 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
         }
         finally
         {
+            if (processorResetLane)
+            {
+                _profileReconcileGate.Release();
+            }
+
             if (user)
             {
                 Interlocked.Decrement(ref _userCapabilityCommands);

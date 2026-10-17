@@ -137,6 +137,22 @@ public sealed partial class NativeQamSemanticServicesTests
     }
 
     [Fact]
+    public void UnknownProcessorRangeRemainsWritableWithoutAnInventedMinimumValue()
+    {
+        var view = IntegerDeviceView("processor.cpu-curve-all", CapabilityRole.GenericRange,
+            DisplayKey.CpuTemperature, -24, 12, 0, 0);
+        view = view with { Projection = view.Projection with
+        {
+            State = view.Projection.State with { ObservedValue = null, Quality = HardwareStateQuality.Unknown },
+            DesiredValue = null
+        } };
+        var state = DeviceCoordinatorNativeQamDeviceControlsService.Project([view]);
+        var row = Assert.Single(Assert.Single(state.Sections!).Rows);
+        Assert.Null(row.Number);
+        Assert.False(row.Disabled);
+    }
+
+    [Fact]
     public void DeviceControlsProjectionFailsClosedForAmbiguousChargeRole()
     {
         var first = IntegerDeviceView(
