@@ -29,13 +29,19 @@ internal enum ControllerManagementState
     /// <summary>A virtual target exists and canonical samples reach it.</summary>
     Active,
 
+    /// <summary>The chosen target is the physical controller itself; Steam drives it and WSGM owns nothing.</summary>
+    Native,
+
     /// <summary>Management faulted for this run; input falls back to SDL and the Steam lease.</summary>
     Faulted
 }
 
 /// <summary>The complete controller-management projection consumed by the overlay and diagnostics.</summary>
 /// <param name="State">Current management lifecycle state.</param>
-/// <param name="Target">Resolved target type, possibly retained while idle; null when off, unavailable or faulted.</param>
+/// <param name="Target">
+///     Resolved target type, possibly retained while idle, and the physical pad's own kind while native; null when
+///     off, unavailable or faulted.
+/// </param>
 /// <param name="TargetSource">Profile layer supplying the target; None also covers the built-in default.</param>
 /// <param name="ApplicationId">Canonical identity when the target comes from a game profile; otherwise null.</param>
 /// <param name="Detail">Displayable lifecycle, availability or failure detail.</param>
@@ -64,6 +70,9 @@ internal sealed record ControllerManagerStatus(
 /// </remarks>
 internal sealed class ControllerManager : IAsyncDisposable
 {
+    /// <summary>What the controller target row says while the physical pad is the target.</summary>
+    internal const string NativeDetail = "Steam drives the Steam Deck controller directly.";
+
     /// <summary>How long a synthetic press is held: HC's <c>KeyPressDelay</c>.</summary>
     private static readonly TimeSpan SyntheticPressInterval = TimeSpan.FromMilliseconds(200);
 
@@ -407,6 +416,16 @@ internal sealed class ControllerManager : IAsyncDisposable
             return SetState(ControllerManagementState.Off, selection.DisabledDetail);
         }
 
+        var resolved = ControllerTargetSelection.Resolve(
+            selection.Profiles,
+            applicationId,
+            executable);
+        if (selection.IsNative(resolved) && _router.Target is null)
+        {
+            // Nothing is hidden and no target is made; StartAsync shows anything a previous owner hid.
+            return await EnterNativeUnderGateAsync(resolved, cancellationToken).ConfigureAwait(false);
+        }
+
         var health = await _backend.DiscoverAsync(cancellationToken)
             .ConfigureAwait(false);
         if (!health.Ready)
@@ -420,10 +439,6 @@ internal sealed class ControllerManager : IAsyncDisposable
         // broken feature rather than an unimplemented one.
         SupportedTargets = [.. health.Targets];
 
-        var resolved = ControllerTargetSelection.Resolve(
-            selection.Profiles,
-            applicationId,
-            executable);
         if (!health.Targets.Contains(resolved.Target))
         {
             return SetState(
@@ -1074,6 +1089,33 @@ internal sealed class ControllerManager : IAsyncDisposable
         }
     }
 
+    /// <summary>Reports the physical pad as the target, with no virtual pad and nothing hidden.</summary>
+    /// <param name="resolved">The native target as resolved.</param>
+    /// <param name="cancellationToken">Cancels the backend query.</param>
+    /// <returns>The Native projection.</returns>
+    /// <remarks>
+    ///     The surfaces still offer the emulated targets, so the backend is asked what it can build once,
+    ///     without building anything. The native target is always offered: it needs no backend.
+    /// </remarks>
+    private async Task<ControllerManagerStatus> EnterNativeUnderGateAsync(
+        ResolvedControllerTarget resolved,
+        CancellationToken cancellationToken)
+    {
+        if (SupportedTargets.Count == 0)
+        {
+            var health = await _backend.DiscoverAsync(cancellationToken).ConfigureAwait(false);
+            SupportedTargets = health.Ready ? [.. health.Targets] : [];
+        }
+
+        if (!SupportedTargets.Contains(resolved.Target))
+        {
+            SupportedTargets = [resolved.Target, .. SupportedTargets];
+        }
+
+        SetEffective(resolved);
+        return SetState(ControllerManagementState.Native, NativeDetail);
+    }
+
     private async Task<ControllerManagerStatus> ReconcileTargetUnderGateAsync(
         string? applicationId,
         string? executable,
@@ -1083,6 +1125,24 @@ internal sealed class ControllerManager : IAsyncDisposable
             _selection.Profiles,
             applicationId,
             executable);
+        // The native target needs no plugin conversation once nothing is left to remove: the caller that
+        // owns that conversation released the pad first, so only the state follows the selection here.
+        if (_router.Target is null)
+        {
+            if (_selection.IsNative(resolved))
+            {
+                return await EnterNativeUnderGateAsync(resolved, cancellationToken).ConfigureAwait(false);
+            }
+
+            if (State is ControllerManagementState.Native)
+            {
+                SetEffective(resolved);
+                return _selection.Enabled
+                    ? SetState(ControllerManagementState.Idle, "Waiting for the handheld to hand over its controller.")
+                    : SetState(ControllerManagementState.Off, _selection.DisabledDetail);
+            }
+        }
+
         // A disabled selection is not reconciled here. Removing the target without ordering it
         // against the plugin's physical release opens a duplicate-input window, so the caller that
         // owns the plugin conversation runs ReleaseAsync instead.
@@ -1194,6 +1254,7 @@ internal sealed class ControllerManager : IAsyncDisposable
             _processPriority.SetActive(!_disposed && state is ControllerManagementState.Active);
             UiPad.SetActive(!_disposed && state is ControllerManagementState.Active);
             status = state is ControllerManagementState.Active or ControllerManagementState.Idle
+                or ControllerManagementState.Native
                 ? _status with { State = state, Detail = detail }
                 : new ControllerManagerStatus(state, null, ProfileSource.None, null, detail);
             Volatile.Write(ref _status, status);

@@ -339,6 +339,21 @@ public sealed class DeviceOverlayBridgeTests
         Assert.Equal(DescriptorStatus.Unsupported, row.Status);
     }
 
+    [Fact]
+    public void TheNativePadIsNamedAndTheTargetCanStillBeChanged()
+    {
+        var row = DeviceOverlayBridge.ControllerView(
+            true,
+            Status(ControllerManagementState.Native, ManagedControllerTarget.SteamDeckComposite,
+                ControllerManager.NativeDetail));
+
+        Assert.NotNull(row);
+        Assert.Equal("DECK", row.TrailingText);
+        Assert.Equal(DescriptorStatus.Available, row.Status);
+        Assert.Equal(ControllerManager.NativeDetail, row.Description);
+        Assert.True(row.CanInvoke);
+    }
+
     [Theory]
     [InlineData(null, ManagedControllerTarget.SteamDeckComposite)]
     [InlineData(ManagedControllerTarget.SteamDeckComposite, ManagedControllerTarget.Xbox360)]

@@ -454,6 +454,48 @@ public sealed class DeviceCoordinatorTests
         Assert.Single(publisher.Commands);
     }
 
+    [Theory]
+    [InlineData(ManagedControllerTarget.SteamDeckComposite, false)]
+    [InlineData(ManagedControllerTarget.Xbox360, true)]
+    [InlineData(ManagedControllerTarget.DualShock4, true)]
+    public void ADeckOwnsItsPadOnlyToEmulateAnotherController(ManagedControllerTarget target, bool owns)
+    {
+        HandheldDefinition deck = new("steamdeck-oled", "valve", "Steam Deck OLED", "steamdeck-oled")
+        {
+            NativeSteamController = true
+        };
+
+        Assert.Equal(owns, DeviceCoordinator.OwnsPhysicalController(true, deck, target));
+        Assert.Equal(ManagedControllerTarget.SteamDeckComposite, DeviceCoordinator.NativeTarget(deck));
+    }
+
+    [Fact]
+    public void APadThatIsNoSteamControllerIsOwnedForEveryTarget()
+    {
+        HandheldDefinition claw = new("ms-1t52", "msi-claw", "MSI Claw 8 AI+", "msi-claw");
+
+        Assert.Null(DeviceCoordinator.NativeTarget(claw));
+        Assert.All(Enum.GetValues<ManagedControllerTarget>(),
+            target => Assert.True(DeviceCoordinator.OwnsPhysicalController(true, claw, target)));
+    }
+
+    [Fact]
+    public void NothingIsOwnedWithManagementOffOrWithoutAController()
+    {
+        HandheldDefinition deck = new("steamdeck-lcd", "valve", "Steam Deck LCD", "steamdeck-lcd")
+        {
+            NativeSteamController = true
+        };
+        HandheldDefinition powerOnly = new("steam-machine", "valve", "Steam Machine", "steam-machine")
+        {
+            HasController = false
+        };
+
+        Assert.False(DeviceCoordinator.OwnsPhysicalController(false, deck, ManagedControllerTarget.Xbox360));
+        Assert.False(DeviceCoordinator.OwnsPhysicalController(true, powerOnly, ManagedControllerTarget.Xbox360));
+        Assert.False(DeviceCoordinator.OwnsPhysicalController(true, null, ManagedControllerTarget.Xbox360));
+    }
+
     private sealed class Harness : IAsyncDisposable
     {
         internal readonly DeterministicFakeControllerBackend Backend = new();

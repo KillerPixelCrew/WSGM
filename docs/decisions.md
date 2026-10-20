@@ -334,6 +334,14 @@ Armoury Crate beside its Xbox and Library buttons, is marked as the companion-ap
 opens the WSGM overlay by default (maintainer, 2026-09-26). See
 [device runtime](device-runtime.md#physical-input-oem-controls-and-haptics).
 
+**A Steam Deck's own pad is never emulated (2026-10-20).** On a Steam Deck the Steam Deck target is
+the physical pad itself, so WSGM takes nothing: no virtual pad, no HidHide entries, no Neptune
+mapping, IMU or haptic writes. Steam drives the pad as it does without WSGM. Choosing Xbox 360 or
+DualShock 4 takes the pad, hides it and emulates the chosen controller as on every other handheld.
+The choice follows the profile like any other target, so a game profile can cross the boundary and
+WSGM hands the pad over in either direction (maintainer, 2026-10-20). See
+[device integration](device-integration.md#wsgm-owns-the-cloak).
+
 **Claw chord suppression retains the working state machine (2026-10-01).** The incomplete firmware
 sequence cannot be handled by ordinary shortcut remapping. The orphan-only rewrite opened Game Bar
 alongside WSGM. The maintainer directed restoration of the implementation before `24368aef` and

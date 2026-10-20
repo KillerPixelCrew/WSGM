@@ -119,6 +119,9 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
 
     private volatile bool _disposed;
     private bool _faultRecoveryPending;
+
+    /// <summary>Whether the handheld was last told to own the physical controller. Written under the transition gate.</summary>
+    private bool _handheldOwnsController;
     private DeviceIdentitySnapshot? _identity;
     private bool _intentionalStop;
 
@@ -336,6 +339,32 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
     internal bool ControllerManagementEnabled =>
         _config.DeviceIntegration is { ControllerManagementEnabled: true, Enabled: true }
         && DeviceDefinition is { HasController: true };
+
+    /// <summary>The target a definition's physical pad already is, if any.</summary>
+    /// <param name="definition">The matched definition.</param>
+    /// <returns>The Steam Deck target for a pad Steam drives natively; otherwise null.</returns>
+    internal static ManagedControllerTarget? NativeTarget(HandheldDefinition? definition)
+    {
+        return definition is { NativeSteamController: true } ? ManagedControllerTarget.SteamDeckComposite : null;
+    }
+
+    /// <summary>Whether the handheld should own its physical controller. Pure, so every case is testable.</summary>
+    /// <param name="managementEnabled">Whether controller management is switched on.</param>
+    /// <param name="definition">The matched definition.</param>
+    /// <param name="resolvedTarget">The target resolved for the running application.</param>
+    /// <returns>
+    ///     False when management is off, the definition has no controller, or the target is the pad itself:
+    ///     a Steam Deck emulating a Steam Deck only takes the pad away from Steam.
+    /// </returns>
+    internal static bool OwnsPhysicalController(
+        bool managementEnabled,
+        HandheldDefinition? definition,
+        ManagedControllerTarget resolvedTarget)
+    {
+        return managementEnabled
+               && definition is { HasController: true }
+               && NativeTarget(definition) != resolvedTarget;
+    }
 
     /// <summary>Current saved rumble calibration; callers edit it through the coordinator rather than mutating this reference.</summary>
     internal RumbleCalibrationConfig RumbleCalibration => _config.RumbleCalibration;
@@ -799,10 +828,8 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
 
             var previousConfig = _config;
             var wasEnabled = _config.DeviceIntegration.Enabled;
-            var controllerWasEnabled = ControllerManagementEnabled;
             _config = config;
             Controllers.ApplyRumbleCalibration(config.RumbleCalibration);
-            var controllerIsEnabled = ControllerManagementEnabled;
             ConfigurationChanged?.Invoke();
 
             // Stored settings live in the configuration, so a reload can change what the handheld
@@ -855,13 +882,9 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
                 }
             }
 
-            if (config.DeviceIntegration.Enabled
-                && controllerWasEnabled != controllerIsEnabled
-                && _client is not null)
+            if (config.DeviceIntegration.Enabled && ControllerOwnershipMustChange())
             {
-                await SetControllerManagementUnderGateAsync(
-                    controllerIsEnabled,
-                    cancellationToken).ConfigureAwait(false);
+                await ApplyControllerSelectionUnderGateAsync(cancellationToken).ConfigureAwait(false);
             }
         }
         finally
@@ -1530,8 +1553,11 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
             UpdateCapabilityDesiredContext();
             _oemActions.Attach(client);
             UpdateOemConfiguration();
-            var controllerManagement =
-                _config.DeviceIntegration.ControllerManagementEnabled && definition.HasController;
+            var controllerManagement = OwnsPhysicalController(
+                _config.DeviceIntegration.ControllerManagementEnabled,
+                definition,
+                ResolvedControllerTarget());
+            _handheldOwnsController = controllerManagement;
             // Before the handheld starts, because the handheld's first job is to find the physical
             // controller and it cannot find one that HidHide is hiding from this process. Doing it
             // afterwards is too late for the cycle that needed it.
@@ -1573,6 +1599,17 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
             LoadPhysicalGlyphProfiles(client);
             SetState(activation.State);
             _automaticRestartAttempts = 0;
+            if (!controllerManagement)
+            {
+                // No pad is published to start the manager, so the selection alone says whether the
+                // physical pad is the native target.
+                await Controllers.ApplySelectionAsync(
+                    CurrentControllerSelection(),
+                    _runningApplicationId,
+                    _runningExecutable,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
             Log.Info(
                 $"Device cycle active: package={definition.FamilyId}, "
                 + $"state={activation.State}.");
@@ -1984,6 +2021,8 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
             return;
         }
 
+        // Recorded before the conversation: one that fails is not started again by the next selection.
+        _handheldOwnsController = enabled;
         var deadline = Deadline.After(TimeSpan.FromSeconds(6));
         if (!enabled)
         {
@@ -2242,6 +2281,12 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
         using var admission = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
         _runningApplicationId = snapshot.ApplicationId;
         _runningExecutable = snapshot.RtssProfileName;
+        if (ControllerOwnershipMustChange())
+        {
+            await ApplyControllerSelectionAsync(admission.Token).ConfigureAwait(false);
+            return;
+        }
+
         await Controllers.ApplyRunningApplicationAsync(snapshot, admission.Token)
             .ConfigureAwait(false);
     }
@@ -2280,17 +2325,91 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
 
         // Applied after the per-capability values so an explicitly selected fan profile wins for the
         // capability it covers, rather than the order deciding at random.
-        await Controllers.ApplySelectionAsync(
+        await ApplyControllerSelectionAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>The target the profiles resolve for the running application.</summary>
+    private ManagedControllerTarget ResolvedControllerTarget()
+    {
+        return ControllerTargetSelection.Resolve(
+            Profiles.Current.Config,
+            _runningApplicationId,
+            _runningExecutable).Target;
+    }
+
+    /// <summary>Whether the selection in force wants the handheld's controller ownership changed.</summary>
+    private bool ControllerOwnershipMustChange()
+    {
+        return _client is not null
+               && OwnsPhysicalController(ControllerManagementEnabled, DeviceDefinition, ResolvedControllerTarget())
+               != _handheldOwnsController;
+    }
+
+    /// <summary>Applies the controller selection, taking the transition gate only when ownership changes.</summary>
+    private async Task<ControllerManagerStatus> ApplyControllerSelectionAsync(CancellationToken cancellationToken)
+    {
+        if (!ControllerOwnershipMustChange())
+        {
+            return await Controllers.ApplySelectionAsync(
+                CurrentControllerSelection(),
+                _runningApplicationId,
+                _runningExecutable,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        await _transitionGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            return await ApplyControllerSelectionUnderGateAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _transitionGate.Release();
+        }
+    }
+
+    /// <summary>Applies the controller selection and moves physical ownership to match it.</summary>
+    /// <remarks>
+    ///     Ordered as every other handoff: going native, the handheld lets go and the virtual pad goes before
+    ///     the selection reports Native; going emulated, the selection leaves Native first and the handheld
+    ///     then takes the pad, whose publication brings the virtual target up.
+    /// </remarks>
+    private async Task<ControllerManagerStatus> ApplyControllerSelectionUnderGateAsync(
+        CancellationToken cancellationToken)
+    {
+        var wanted = _client is not null
+                     && OwnsPhysicalController(ControllerManagementEnabled, DeviceDefinition,
+                         ResolvedControllerTarget());
+        if (_client is not null && !wanted && _handheldOwnsController)
+        {
+            Log.Info("Controller ownership: the handheld lets go of the physical controller.");
+            await SetControllerManagementUnderGateAsync(false, cancellationToken).ConfigureAwait(false);
+        }
+
+        var status = await Controllers.ApplySelectionAsync(
             CurrentControllerSelection(),
             _runningApplicationId,
             _runningExecutable,
             cancellationToken).ConfigureAwait(false);
+        if (_client is not null && wanted && !_handheldOwnsController)
+        {
+            Log.Info("Controller ownership: the handheld takes the physical controller.");
+            await SetControllerManagementUnderGateAsync(true, cancellationToken).ConfigureAwait(false);
+            status = Controllers.Snapshot();
+        }
+
+        return status;
     }
 
     /// <summary>The controller selection from the device switches and the profile store.</summary>
     private ControllerSelection CurrentControllerSelection()
     {
-        var selection = ControllerSelection.From(_config.DeviceIntegration, Profiles.Current.Config);
+        var selection = ControllerSelection.From(_config.DeviceIntegration, Profiles.Current.Config)
+            with
+            {
+                NativeTarget = NativeTarget(DeviceDefinition)
+            };
         return DeviceDefinition is { HasController: false }
             ? selection with
             {
@@ -2467,11 +2586,7 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
             await Profiles.SetAsync(values => values.ControllerTarget = target, $"ControllerTarget={target}",
                 cancellationToken: cancellationToken).ConfigureAwait(false);
             ObjectDisposedException.ThrowIf(_disposed, this);
-            return await Controllers.ApplySelectionAsync(
-                CurrentControllerSelection(),
-                _runningApplicationId,
-                _runningExecutable,
-                cancellationToken).ConfigureAwait(false);
+            return await ApplyControllerSelectionUnderGateAsync(cancellationToken).ConfigureAwait(false);
         }
         finally
         {

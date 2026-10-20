@@ -68,6 +68,15 @@ and release the cloak. Sleep and fault recovery temporarily retain the physical 
 is reacquired, with a bounded recovery window. Entries belonging to other owners are never removed.
 Controller forwarding and virtual-target release finish before physical ownership is released.
 
+A definition whose pad Steam drives natively (`HandheldDefinition.NativeSteamController`, the Steam
+Deck LCD and OLED) is not taken while the resolved target is that pad's own kind.
+`DeviceCoordinator.OwnsPhysicalController` decides it from the management switch, the definition and
+the target resolved for the running application. Leaving the native target runs the ordinary
+handoff: the selection leaves `Native`, the handheld takes the pad, and its publication hides it and
+brings the virtual target up. Returning releases the pad first, then reports `Native`. In `Native`
+the manager creates no target and hides nothing, and both surfaces show the physical pad as the live
+target with the emulated targets still on offer.
+
 A family publishes every node of its pad that Windows knows, present or not, across all product IDs
 the pad enumerates under (`HidDevices.KnownControllerNodes`). A pad that changes mode re-enumerates
 under another product ID: the Claw's firmware returns to XInput in every sleep, and the Legion Go

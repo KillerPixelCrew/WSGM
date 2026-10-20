@@ -15,11 +15,24 @@ namespace WSGM.Shell;
 /// <param name="Enabled">Whether controller management may run at all.</param>
 /// <param name="Profiles">The profile store the target resolves from.</param>
 /// <param name="DisabledDetail">Why management is off, when it is.</param>
+/// <param name="NativeTarget">
+///     The target the physical pad already is (the Steam Deck controller on a Deck), or null. Choosing it
+///     leaves the pad to Steam: WSGM creates no virtual pad and hides nothing.
+/// </param>
 internal sealed record ControllerSelection(
     bool Enabled,
     ProfileConfig Profiles,
-    string DisabledDetail)
+    string DisabledDetail,
+    ManagedControllerTarget? NativeTarget = null)
 {
+    /// <summary>Whether the resolved target is the physical pad itself.</summary>
+    /// <param name="resolved">The target resolved for the running application.</param>
+    /// <returns>True when management is on and the target is the native one.</returns>
+    internal bool IsNative(ResolvedControllerTarget resolved)
+    {
+        return Enabled && NativeTarget is { } native && resolved.Target == native;
+    }
+
     /// <summary>Projects stored settings through the release gate.</summary>
     /// <param name="config">The stored device-integration configuration.</param>
     /// <param name="profiles">The profile store.</param>

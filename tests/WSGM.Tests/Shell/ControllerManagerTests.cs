@@ -665,6 +665,79 @@ public sealed class ControllerManagerTests
         Assert.Equal([ProcessPriorityClass.High, ProcessPriorityClass.Normal], harness.PriorityWrites);
     }
 
+    [Fact]
+    public async Task TheNativeTargetCreatesNoVirtualPadAndHidesNothing()
+    {
+        Harness harness = new();
+        await using var manager = harness.Manager;
+
+        var status = await manager.StartAsync(
+            Enabled(ManagedControllerTarget.SteamDeckComposite) with
+            {
+                NativeTarget = ManagedControllerTarget.SteamDeckComposite
+            },
+            [Device()],
+            null,
+            null,
+            CancellationToken.None);
+
+        Assert.Equal(ControllerManagementState.Native, status.State);
+        Assert.Equal(ManagedControllerTarget.SteamDeckComposite, status.Target);
+        Assert.Equal(ControllerManager.NativeDetail, status.Detail);
+        Assert.DoesNotContain(harness.Backend.Operations, operation => operation.StartsWith("create:", StringComparison.Ordinal));
+        Assert.DoesNotContain(Device().InstancePath, harness.HidHide.Devices);
+        Assert.False(manager.UiPad.IsActive);
+        Assert.Empty(harness.PriorityWrites);
+        Assert.Contains(ManagedControllerTarget.Xbox360, manager.SupportedTargets);
+    }
+
+    [Fact]
+    public async Task LeavingTheNativeTargetWaitsForTheHandheldToHandOverThePad()
+    {
+        Harness harness = new();
+        await using var manager = harness.Manager;
+        var native = Enabled(ManagedControllerTarget.SteamDeckComposite) with
+        {
+            NativeTarget = ManagedControllerTarget.SteamDeckComposite
+        };
+        Assert.Equal(ControllerManagementState.Native,
+            (await manager.ApplySelectionAsync(native, null, null, CancellationToken.None)).State);
+
+        var status = await manager.ApplySelectionAsync(
+            Enabled(ManagedControllerTarget.DualShock4) with
+            {
+                NativeTarget = ManagedControllerTarget.SteamDeckComposite
+            },
+            null,
+            null,
+            CancellationToken.None);
+
+        Assert.Equal(ControllerManagementState.Idle, status.State);
+        Assert.Equal(ManagedControllerTarget.DualShock4, status.Target);
+        Assert.DoesNotContain(harness.Backend.Operations, operation => operation.StartsWith("create:", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task TurningManagementOffWhileNativeReportsOff()
+    {
+        Harness harness = new();
+        await using var manager = harness.Manager;
+        await manager.ApplySelectionAsync(
+            Enabled(ManagedControllerTarget.SteamDeckComposite) with
+            {
+                NativeTarget = ManagedControllerTarget.SteamDeckComposite
+            },
+            null,
+            null,
+            CancellationToken.None);
+
+        var status = await manager.ApplySelectionAsync(Disabled("Controller management is off."), null, null,
+            CancellationToken.None);
+
+        Assert.Equal(ControllerManagementState.Off, status.State);
+        Assert.Equal("Controller management is off.", status.Detail);
+    }
+
     private static async Task StartActiveAsync(ControllerManager manager)
     {
         var status = await manager.StartAsync(

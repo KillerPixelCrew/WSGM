@@ -423,7 +423,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 
         var health = status.State switch
         {
-            ControllerManagementState.Active => DescriptorStatus.Available,
+            ControllerManagementState.Active or ControllerManagementState.Native => DescriptorStatus.Available,
             ControllerManagementState.Idle => DescriptorStatus.Stale,
             ControllerManagementState.Faulted => DescriptorStatus.Warning,
             ControllerManagementState.Unavailable => DescriptorStatus.Unsupported,

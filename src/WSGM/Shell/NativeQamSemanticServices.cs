@@ -1646,13 +1646,15 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService :
         ];
 
         var available = status.State is
-            ControllerManagementState.Idle or ControllerManagementState.Active;
+            ControllerManagementState.Idle or ControllerManagementState.Active or ControllerManagementState.Native;
         var selected = (status.Target ?? chosen) is { } target ? target.ToString() : string.Empty;
 
-        // Observed is what a target actually exists for right now, which is only true while Active.
-        // Reporting the selection back as if it were observed would hide a target that was chosen
-        // but never came up.
-        var observed = status.State is ControllerManagementState.Active ? selected : string.Empty;
+        // Observed is what a target actually exists for right now: the virtual one while Active, the
+        // physical pad itself while Native. Reporting the selection back as if it were observed would
+        // hide a target that was chosen but never came up.
+        var observed = status.State is ControllerManagementState.Active or ControllerManagementState.Native
+            ? selected
+            : string.Empty;
         var detail = status.Detail;
         if (available && string.IsNullOrWhiteSpace(detail) && !packageInstalled)
         {
@@ -1698,7 +1700,7 @@ internal sealed class DeviceCoordinatorNativeQamControllerTargetService :
     {
         return state switch
         {
-            ControllerManagementState.Active => "completed",
+            ControllerManagementState.Active or ControllerManagementState.Native => "completed",
             ControllerManagementState.Idle => string.Empty,
             ControllerManagementState.Faulted => "failed",
             _ => string.Empty

@@ -831,6 +831,22 @@ public sealed partial class NativeQamSemanticServicesTests
         Assert.Empty(service.Current.Targets);
     }
 
+    [Fact]
+    public void TheNativePadIsTheLiveTargetAndTheOthersStayOffered()
+    {
+        var state = ProjectTarget(
+            true,
+            Status(ControllerManagementState.Native, ManagedControllerTarget.SteamDeckComposite,
+                ControllerManager.NativeDetail));
+
+        Assert.True(state.Available);
+        Assert.Equal(nameof(ManagedControllerTarget.SteamDeckComposite), state.SelectedTarget);
+        Assert.Equal(nameof(ManagedControllerTarget.SteamDeckComposite), state.ObservedTarget);
+        Assert.Equal("completed", state.Progress);
+        Assert.Equal(3, state.Targets.Count);
+        Assert.Contains(ControllerManager.NativeDetail, state.StatusText, StringComparison.Ordinal);
+    }
+
     private static SteamControllerTargetState ProjectTarget(
         bool enabled,
         ControllerManagerStatus status,
