@@ -1,5 +1,49 @@
 # WSGM changelog
 
+## 2.3.3 (2026-10-20)
+
+This fixes unnecessary CPU use while WSGM is idle, updates blocked by files still in use, Game and
+Desktop Mode transitions, and saved processor tuning surviving a reset.
+
+## Before you upgrade
+
+- **Run the offline setup over your existing installation.** It keeps your settings and installation
+  choices. Steam closes during the update, that is normal.
+- **Only the offline installer is published.**
+
+## Fixed
+
+- **High CPU use at idle, even with Device Integration disabled.** Refresh-rate discovery now
+  follows display-change notifications instead of repeatedly querying display topology for Steam's
+  settings. Concurrent readers share the same discovery, and actual display writes still validate
+  the target.
+- **Updates failing because installation files or folders are still in use.** Setup releases
+  verified file and directory holders before replacing the installation, including a sign-in service
+  that ignores its stop request.
+- **Game and Desktop Mode switches failing to reach the requested state.** WSGM handles Explorer's
+  exit status and enforces bounded shutdown during the transition, with desktop recovery on failure.
+- **Processor tuning surviving a reset.** Reset processor tuning clears the saved processor
+  overrides from Global and every game. Selecting Automatic GPU clock also clears saved fixed
+  clocks. Controls that require a Windows restart to restore their defaults report that requirement.
+- **Unreadable processor sliders showing their minimum as a current value.** Both the overlay and
+  Steam show Unknown until an observation, saved preference or explicit edit supplies a value.
+
+## Known issues
+
+- **The Emulator Manager and ROM Importer are still WIP.**
+- **The Game Library and packaged-game overlay routes remain experimental.** Anti-cheat
+  compatibility of the overlay route is unverified.
+
+Feel free to report any issue found.
+
+## Support
+
+If WSGM is useful to you, you can support its development on Ko-fi.
+
+[![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/nightstorm1000)
+
+[Full changelog since 2.3.2](https://github.com/KillerPixelCrew/WSGM/compare/2.3.2...2.3.3)
+
 ## 2.3.2 (2026-10-15)
 
 This fixes Steam's Quick Access integration disappearing after a cold start or sleep and wake,
