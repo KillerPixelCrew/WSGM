@@ -168,6 +168,7 @@ public sealed partial class ShellSession
 
         _lastResumeRepairTick = now;
 
+        _refreshPairing?.Invalidate();
         ApplyRefreshPairing(_performance?.Current.Desired.FrameLimit ?? 0, true);
         if (_performance is { } performance && PerformanceEnabled(_config))
         {

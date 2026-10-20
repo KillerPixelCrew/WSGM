@@ -620,8 +620,10 @@ Consequences encoded in `Core\FrameLimitPairing.cs`, `Core\PrimaryDisplayModes.c
 - Rates are enumerated and then tested; a driver may refuse one it enumerated. `CDS_TEST` changes
   nothing and is safe while a game runs.
 - Discovery is cached for the primary target, resolution and colour depth because each candidate
-  costs a driver round trip. A changed operating point invalidates it, and stale discovery results
-  are discarded. Original rates are captured and restored per target.
+  costs a driver round trip. Display-change notifications and resume invalidate the snapshot;
+  routine Overlay and Steam state reads reuse it without querying display topology. Concurrent
+  readers share discovery, and stale results are discarded. Actual refresh-rate writes revalidate
+  the operating point. Original rates are captured and restored per target.
 - The frame-doubling strategy prefers the lowest mode at least twice the cap (30 FPS at 60 Hz, 60 at
   120). A 1:1 cadence keeps adaptive sync's low-framerate compensation out of reach, and a 30 Hz
   panel visibly flickers. Where no doubled multiple exists, and under native modes always, pairing

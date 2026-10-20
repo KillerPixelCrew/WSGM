@@ -20,6 +20,7 @@ namespace WSGM.Core;
 /// </remarks>
 internal sealed class RefreshRatePairingService
 {
+    private readonly Lock _discoveryGate = new();
     private readonly Lock _gate = new();
 
     private readonly Dictionary<string, (DisplayTargetIdentity Target, int Rate)> _originals =
@@ -34,6 +35,7 @@ internal sealed class RefreshRatePairingService
     private IReadOnlyList<int>? _accepted;
     private IReadOnlyList<int>? _advertised;
     private DisplayOperatingPoint? _operatingPoint;
+    private bool _operatingPointKnown;
     private long _operatingPointRevision;
     private FrameLimitStrategy _strategy = FrameLimitStrategy.FrameLimitOnly;
 
@@ -69,7 +71,7 @@ internal sealed class RefreshRatePairingService
         _readTargetRate = readTargetRate ?? throw new ArgumentNullException(nameof(readTargetRate));
     }
 
-    /// <summary>Refreshes display identity/mode observation and returns its revision for stale-discovery rejection.</summary>
+    /// <summary>Gets the cached display revision, discovering it only after invalidation.</summary>
     internal long OperatingPointRevision
     {
         get
@@ -79,6 +81,19 @@ internal sealed class RefreshRatePairingService
             {
                 return _operatingPointRevision;
             }
+        }
+    }
+
+    /// <summary>Invalidates discovery after a display notification or resume, without querying the driver.</summary>
+    internal void Invalidate()
+    {
+        lock (_gate)
+        {
+            _accepted = null;
+            _advertised = null;
+            _operatingPoint = null;
+            _operatingPointKnown = false;
+            _operatingPointRevision++;
         }
     }
 
@@ -116,6 +131,7 @@ internal sealed class RefreshRatePairingService
     /// <returns>Accepted rates, ascending. Empty when the display cannot be read.</returns>
     internal IReadOnlyList<int> AcceptedRates()
     {
+        using var discovery = _discoveryGate.EnterScope();
         for (var attempt = 0; attempt < 2; attempt++)
         {
             RefreshOperatingPoint();
@@ -136,7 +152,7 @@ internal sealed class RefreshRatePairingService
             }
 
             var accepted = _readAcceptedRates();
-            RefreshOperatingPoint();
+            RefreshOperatingPoint(force: true);
             lock (_gate)
             {
                 if (revision == _operatingPointRevision)
@@ -180,6 +196,7 @@ internal sealed class RefreshRatePairingService
             return false;
         }
 
+        RefreshOperatingPoint(force: true);
         var revision = OperatingPointRevision;
         var accepted = AcceptedRates();
         if (revision != OperatingPointRevision)
@@ -243,6 +260,7 @@ internal sealed class RefreshRatePairingService
     /// <returns>The rate applied, or null when the refresh rate was left alone.</returns>
     internal int? ApplyForCap(int capFps)
     {
+        RefreshOperatingPoint(force: true);
         var revision = OperatingPointRevision;
         var (strategy, advertised, accepted) =
             Snapshot();
@@ -305,7 +323,7 @@ internal sealed class RefreshRatePairingService
 
     private void CaptureOriginal()
     {
-        RefreshOperatingPoint();
+        RefreshOperatingPoint(force: true);
         DisplayOperatingPoint? point;
         lock (_gate)
         {
@@ -323,7 +341,7 @@ internal sealed class RefreshRatePairingService
 
         // Capture from this target, never a primary display that may have changed meanwhile.
         var current = _readTargetRate(point.Target);
-        RefreshOperatingPoint();
+        RefreshOperatingPoint(force: true);
         lock (_gate)
         {
             if (current is { } rate && point == _operatingPoint)
@@ -335,6 +353,7 @@ internal sealed class RefreshRatePairingService
 
     private bool ApplyRate(int rate, long expectedRevision)
     {
+        RefreshOperatingPoint(force: true);
         DisplayOperatingPoint? point;
         lock (_gate)
         {
@@ -349,11 +368,30 @@ internal sealed class RefreshRatePairingService
         return point is not null && _restoreTarget(point.Target, rate);
     }
 
-    private void RefreshOperatingPoint()
+    private void RefreshOperatingPoint(bool force = false)
     {
+        using var discovery = _discoveryGate.EnterScope();
+        long revision;
+        lock (_gate)
+        {
+            if (_operatingPointKnown && !force)
+            {
+                return;
+            }
+
+            revision = _operatingPointRevision;
+        }
+
         var observed = _readOperatingPoint();
         lock (_gate)
         {
+            // A notification arriving during the read owns the next discovery. Never let an old
+            // observation mark that newer revision as current.
+            if (revision != _operatingPointRevision)
+            {
+                return;
+            }
+
             if (observed != _operatingPoint)
             {
                 _accepted = null;
@@ -361,11 +399,14 @@ internal sealed class RefreshRatePairingService
                 _operatingPoint = observed;
                 _operatingPointRevision++;
             }
+
+            _operatingPointKnown = true;
         }
     }
 
     private (FrameLimitStrategy, IReadOnlyList<int>, IReadOnlyList<int>) Snapshot()
     {
+        using var discovery = _discoveryGate.EnterScope();
         for (var attempt = 0; attempt < 2; attempt++)
         {
             RefreshOperatingPoint();
@@ -384,8 +425,11 @@ internal sealed class RefreshRatePairingService
             }
 
             var accepted = AcceptedRates();
-            advertised ??= _readAdvertisedRates();
-            RefreshOperatingPoint();
+            if (advertised is null)
+            {
+                advertised = _readAdvertisedRates();
+                RefreshOperatingPoint(force: true);
+            }
             lock (_gate)
             {
                 if (revision == _operatingPointRevision && strategy == _strategy)
