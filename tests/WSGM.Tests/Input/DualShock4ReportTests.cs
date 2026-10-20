@@ -88,9 +88,9 @@ public sealed class DualShock4ReportTests
         Assert.Equal(1600, BinaryPrimitives.ReadInt16LittleEndian(frame.AsSpan(19..21)));
         Assert.Equal(-3200, BinaryPrimitives.ReadInt16LittleEndian(frame.AsSpan(21..23)));
         Assert.Equal(4800, BinaryPrimitives.ReadInt16LittleEndian(frame.AsSpan(23..25)));
-        Assert.Equal(5023, BinaryPrimitives.ReadInt16LittleEndian(frame.AsSpan(25..27)));
-        Assert.Equal(-2511, BinaryPrimitives.ReadInt16LittleEndian(frame.AsSpan(27..29)));
-        Assert.Equal(1256, BinaryPrimitives.ReadInt16LittleEndian(frame.AsSpan(29..31)));
+        Assert.Equal(8192, BinaryPrimitives.ReadInt16LittleEndian(frame.AsSpan(25..27)));
+        Assert.Equal(-4096, BinaryPrimitives.ReadInt16LittleEndian(frame.AsSpan(27..29)));
+        Assert.Equal(2048, BinaryPrimitives.ReadInt16LittleEndian(frame.AsSpan(29..31)));
     }
 
     [Fact]

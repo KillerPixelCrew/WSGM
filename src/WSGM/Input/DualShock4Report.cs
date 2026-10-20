@@ -32,7 +32,7 @@ internal static class DualShock4Report
     private const byte DPadLeft = 0x04;
     private const byte DPadRight = 0x08;
     private const float GyroCountsPerDegreePerSecond = 16f;
-    private const float AccelCountsPerG = 512f * 9.81f;
+    private const float AccelCountsPerG = 8192f;
     private const ushort TouchMaxX = 1920;
     private const ushort TouchMaxY = 942;
 
