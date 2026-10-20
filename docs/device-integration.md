@@ -68,6 +68,12 @@ and release the cloak. Sleep and fault recovery temporarily retain the physical 
 is reacquired, with a bounded recovery window. Entries belonging to other owners are never removed.
 Controller forwarding and virtual-target release finish before physical ownership is released.
 
+A family publishes every node of its pad that Windows knows, present or not, across all product IDs
+the pad enumerates under (`HidDevices.KnownControllerNodes`). A pad that changes mode re-enumerates
+under another product ID: the Claw's firmware returns to XInput in every sleep, and the Legion Go
+switches on request. Hiding only the present nodes left the other mode visible to Steam from the
+moment the pad reappeared until it was taken again.
+
 ## Glyphs, diagnostics and contributions
 
 112 exact definitions select authored artwork through 106 glyph profiles. WSGM imports those
