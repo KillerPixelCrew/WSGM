@@ -44,6 +44,12 @@ If WSGM is useful to you, you can support its development on Ko-fi.
 
 [Full changelog since 2.3.2](https://github.com/KillerPixelCrew/WSGM/compare/2.3.2...2.3.3)
 
+## Checksum
+
+```
+SHA-256 d6435fec2d126f98b1d8e322cf1ecaca7407ef7aaefd917b7f928274283d08d1  WSGM-Setup-2.3.3.exe
+```
+
 ## 2.3.2 (2026-10-15)
 
 This fixes Steam's Quick Access integration disappearing after a cold start or sleep and wake,
