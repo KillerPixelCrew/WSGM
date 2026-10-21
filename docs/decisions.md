@@ -342,15 +342,15 @@ The choice follows the profile like any other target, so a game profile can cros
 WSGM hands the pad over in either direction (maintainer, 2026-10-20). See
 [device integration](device-integration.md#wsgm-owns-the-cloak).
 
-**A slider shows only a value it knows (2026-10-21).** A slider with nothing read, accepted,
-requested or saved is left out of the overlay and of Steam, instead of sitting at its minimum as
-"Unknown". Each service settles what it can as it starts: it reads a readable setting, and writes a
-write-only one's neutral value (curve offsets and undervolts at 0) and publishes it. Fixed clocks
-and temperatures have no neutral value and stay hidden until a profile value is written. A firmware
-that refuses a setting outright (SMU "unknown command" or "failed") withdraws it at once and is
-remembered per processor and BIOS, so later starts hide it from the first frame; a BIOS update
-forgets the record. Writes are still never gated on readback (maintainer, 2026-10-21). See
-[device integration](device-integration.md#shared-controls-and-profiles).
+**Visibility is decided at start (2026-10-21).** Nothing is hidden at runtime: a control that is on
+screen stays there for the session, whatever its value or the outcome of a write. Each service
+settles what it can as it starts: it reads a readable setting, and writes a write-only one's neutral
+value (curve offsets and undervolts at 0) and publishes it. A setting the firmware refuses outright
+during that start (SMU "unknown command" or "failed") is not offered. A refusal of a later write is
+answered as unsupported, leaves the control in place and is remembered per processor and BIOS, so
+the next start hides it from the first frame; a BIOS update forgets the record. A slider without a
+known value stays visible as "Unknown". Writes are never gated on readback (maintainer, 2026-10-21).
+See [device integration](device-integration.md#shared-controls-and-profiles).
 
 **Claw chord suppression retains the working state machine (2026-10-01).** The incomplete firmware
 sequence cannot be handled by ordinary shortcut remapping. The orphan-only rewrite opened Game Bar

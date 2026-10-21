@@ -83,7 +83,6 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         var deviceViews = _coordinator.Capabilities.Snapshot();
         var capabilities = deviceViews
             .Select(view => ToOverlayCapability(view, declaredSectionIds, _coordinator.Profiles.Current.Layers))
-            .Where(capability => !capability.UnknownSlider)
             .ToList();
         // Variable refresh moved to the graphics packages; the Power and thermals row stays where users
         // look for it, backed by whichever package publishes the capability.
@@ -838,26 +837,6 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         Changed?.Invoke();
     }
 
-    /// <summary>Whether a capability is a slider with no value to show.</summary>
-    /// <param name="view">The capability.</param>
-    /// <returns>True for a writable range that was never read, accepted, requested or saved.</returns>
-    /// <remarks>
-    ///     The device settles what it can when it starts, by reading a value or writing a neutral one, so
-    ///     a slider that is still unknown has nothing true to show. Commands never depend on this.
-    /// </remarks>
-    internal static bool IsUnknownSlider(DeviceCapabilityView view)
-    {
-        var projection = view.Projection;
-        return IsUnknownSlider(view.Descriptor,
-            projection.PendingValue ?? projection.State.ObservedValue ?? projection.DesiredValue);
-    }
-
-    private static bool IsUnknownSlider(CapabilityDescriptor descriptor, CapabilityValue? displayed)
-    {
-        return descriptor is { ValueKind: CapabilityValueKind.Integer, SupportsWrite: true, SupportsAction: false }
-               && displayed is null;
-    }
-
     internal static DeviceOverlayCapability ToOverlayCapability(
         DeviceCapabilityView view,
         IReadOnlySet<string> declaredSections,
@@ -918,7 +897,6 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             descriptor.SupportsAction ? null : next)
         {
             Role = descriptor.Role,
-            UnknownSlider = IsUnknownSlider(descriptor, displayed),
             PluginSectionId = descriptor.SectionId is { } sectionId
                               && declaredSections.Contains(sectionId)
                 ? sectionId

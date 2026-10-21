@@ -87,33 +87,6 @@ public sealed class GraphicsOverlayBridgeTests
     }
 
     [Fact]
-    public void ASliderWithNoValueIsLeftOutOfEveryGraphicsPage()
-    {
-        var range = Toggle(CapabilityProfileScope.Switched, "graphics.range") with
-        {
-            ValueKind = CapabilityValueKind.Integer, Role = CapabilityRole.GenericRange, Minimum = 0, Maximum = 100,
-            Step = 1
-        };
-        var unknown = View(Placed(range, "graphics", null), null, null);
-        unknown = unknown with
-        {
-            Projection = unknown.Projection with
-            {
-                State = unknown.Projection.State with { ObservedValue = null, Quality = HardwareStateQuality.Unknown }
-            }
-        };
-        var snapshot = GraphicsOverlayBridge.Project(
-        [
-            Publisher([Section("graphics", "Graphics", 0)],
-                new GpuCapabilityView(unknown, null),
-                new GpuCapabilityView(View(Placed(Toggle(CapabilityProfileScope.Switched, "b"), "graphics", null),
-                    null, null), null))
-        ]);
-
-        Assert.Equal("b", Assert.Single(Assert.Single(snapshot.Sections).Capabilities).CapabilityId);
-    }
-
-    [Fact]
     public void NoPublisherMeansNothingIsOffered()
     {
         Assert.False(GraphicsOverlayBridge.Project([]).Visible);

@@ -47,8 +47,8 @@ The validation budget below overrides older gate recipes in skills and documenta
 - Run at most one exact LibHandheld definition. Device Integration off means no device lifecycle,
   controller target, hardware writes or AutoTDP; independent features keep working.
 - Never gate writes or commands on readback. Write as HC does and publish accepted values. Never
-  automatically retry an uncertain write; resolve its state or require a user action. A slider with
-  no known value is hidden: services settle values at start, and a definite refusal hides a setting.
+  automatically retry an uncertain write; resolve its state or require a user action. Visibility is
+  decided at start: services settle values, and only a setting that fails that test is hidden.
 - High-rate input and telemetry allocate and log nothing per sample. Remote testers are ordinary
   users: diagnose from wsgm.log and reference source, never ask them for developer probes.
 - Settings configures WSGM. Windows/external-state controls belong in Overlay and Steam Quick

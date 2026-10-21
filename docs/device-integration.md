@@ -23,14 +23,15 @@ results through DeviceCoordinator. Descriptor bounds and options determine avail
 Writable controls do not depend on readback; an accepted setting is published separately from
 measured telemetry. Uncertain writes are not automatically retried.
 
-A slider is shown only with a value: one read from the device, accepted from a write, being written,
-or saved in a profile (`DeviceOverlayBridge.IsUnknownSlider`, used by the overlay, the Steam device
-controls, Steam's settings pages and the graphics pages). Services settle values as they start so
-nothing appears and then vanishes when touched. The processor service reads what it can and writes
-curve offsets and undervolts to 0. A definite firmware refusal, the AMD SMU's "unknown command"
-(PawnIO Win32 87) or "failed" (31), withdraws the setting and records it in
-`unsupported-settings.json` in the device state folder, bound to the processor and BIOS. Busy (170),
-prerequisite (1359) and timeout (121) answers are not definite and change nothing.
+Visibility is decided when a service first starts, never at runtime, so nothing appears and then
+vanishes when touched. The processor service reads what it can and writes curve offsets and
+undervolts to 0. A definite firmware refusal during that start, the AMD SMU's "unknown command"
+(PawnIO Win32 87) or "failed" (31), leaves the setting out. A refusal of a later write is reported
+as unsupported, keeps the control on screen and is recorded in `unsupported-settings.json` in the
+device state folder, bound to the processor and BIOS, so the next start leaves it out. A wake
+re-acquires the service but repeats neither the settle nor the decision. Busy (170), prerequisite
+(1359) and timeout (121) answers are not definite and change nothing. A slider without a known value
+stays visible as "Unknown".
 
 [Profiles](profiles.md) resolves Global and per-application preferences. Power presets and AC/DC
 assignments use the coordinator's serialized power lane. Native firmware controls and WSGM's
