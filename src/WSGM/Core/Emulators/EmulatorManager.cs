@@ -345,6 +345,29 @@ public sealed partial class EmulatorManager : IDisposable
         }, cancellationToken);
     }
 
+    /// <summary>Persists per-installation Steam shortcut intent through the same serialized manager.</summary>
+    public Task SetSteamShortcutAsync(string installationId, bool enabled, int launchMode,
+        CancellationToken cancellationToken)
+    {
+        if (launchMode is < 0 or > 3)
+        {
+            throw new ArgumentOutOfRangeException(nameof(launchMode));
+        }
+
+        return OperationAsync(token =>
+        {
+            token.ThrowIfCancellationRequested();
+            _ = Installation(installationId);
+            Mutate(store => store with
+            {
+                Installations = store.Installations.Select(item => item.Id == installationId
+                    ? item with { SteamShortcutEnabled = enabled, SteamShortcutLaunchMode = launchMode }
+                    : item).ToArray()
+            });
+            return Task.CompletedTask;
+        }, cancellationToken);
+    }
+
     /// <summary>Persists an exact channel/artifact release identity to skip in the update offer.</summary>
     public Task IgnoreVersionAsync(string installationId, string releaseId, CancellationToken cancellationToken)
     {
@@ -513,6 +536,8 @@ public sealed partial class EmulatorManager : IDisposable
             EmulatorInstallation candidate = new()
             {
                 Id = id, DefinitionId = definition.Id, Name = definition.Name, Managed = true,
+                SteamShortcutEnabled = previous?.SteamShortcutEnabled ?? true,
+                SteamShortcutLaunchMode = previous?.SteamShortcutLaunchMode ?? 2,
                 Channel = channel, Architecture = architecture, Version = release.Version, ReleaseId = release.Id,
                 Root = installRoot, ExecutablePath = Path.Combine(versionRoot, relativeExecutable), DataPath = data,
                 OwnsData = ownsData, PreviousExecutablePath = previous?.ExecutablePath ?? "",
@@ -567,6 +592,13 @@ public sealed partial class EmulatorManager : IDisposable
                 try
                 {
                     SetStatus("Checking " + definition.Name + " startup before activation");
+                    var runtimes = EmulatorStorage.MissingRuntimePrerequisites(candidate);
+                    if (runtimes.Length > 0)
+                    {
+                        throw new InvalidOperationException(string.Join(" ", runtimes) +
+                            " Choose Install required runtimes on this emulator's page, then install or repair it again.");
+                    }
+
                     EmulatorValidation.ProbeAsync(definition, candidate, cancellationToken).GetAwaiter().GetResult();
                     if (previous is not null)
                     {
@@ -668,6 +700,7 @@ public sealed partial class EmulatorManager : IDisposable
         }
 
         var id = ExternalId(definition.Id, executable);
+        var previous = EmulatorStorage.ReadStore(_context.Root).Installations.FirstOrDefault(item => item.Id == id);
         var directory = Path.GetDirectoryName(executable)!;
         var externalData = EmulatorPortable.ReadExternalData(definition.Id, directory);
         var args = definition.DataPolicy.DataArguments.Concat(definition.LaunchArguments).ToArray();
@@ -675,6 +708,8 @@ public sealed partial class EmulatorManager : IDisposable
         EmulatorInstallation installed = new()
         {
             Id = id, DefinitionId = definition.Id, Name = definition.Name, Managed = false,
+            SteamShortcutEnabled = previous?.SteamShortcutEnabled ?? true,
+            SteamShortcutLaunchMode = previous?.SteamShortcutLaunchMode ?? 2,
             Channel = definition.Sources.Keys.First(), Architecture = architecture, Version = version,
             Root = directory, ExecutablePath = executable, DataPath = externalData, OwnsData = false,
             Source = "External", Systems = definition.Systems, LaunchArguments = [.. args],
@@ -1107,6 +1142,13 @@ public sealed partial class EmulatorManager : IDisposable
         var architecture = RuntimeInformation.OSArchitecture == System.Runtime.InteropServices.Architecture.Arm64
             ? "arm64"
             : "x64";
+        if (RuntimeInformation.OSArchitecture == System.Runtime.InteropServices.Architecture.X64
+            && !definition.Architectures.Contains(architecture, StringComparer.Ordinal)
+            && definition.Architectures.Contains("x86", StringComparer.Ordinal))
+        {
+            return "x86";
+        }
+
         return definition.Architectures.Contains(architecture, StringComparer.Ordinal)
             ? architecture
             : throw new InvalidOperationException(definition.Name +
@@ -1120,6 +1162,7 @@ public sealed partial class EmulatorManager : IDisposable
         return reader.PEHeaders.CoffHeader.Machine switch
         {
             Machine.Amd64 => "x64",
+            Machine.I386 => "x86",
             Machine.Arm64 => "arm64",
             _ => throw new InvalidDataException("This Windows emulator architecture is unsupported.")
         };

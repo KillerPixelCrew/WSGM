@@ -61,6 +61,9 @@ public sealed class ImportedEntry
     /// <summary>The exact working directory written to Steam, retained for edit detection.</summary>
     public string StartDirectory { get; set; } = "";
 
+    /// <summary>Emulator shortcut command persisted before an update, settled only by a Steam answer or observation.</summary>
+    public ShortcutFields? PendingLaunch { get; set; }
+
     /// <summary>The content and launch metadata resolved by the installed helper.</summary>
     public ManagedContentRecord? Content { get; set; }
 

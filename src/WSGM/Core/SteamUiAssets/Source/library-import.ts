@@ -932,7 +932,7 @@ function ImportManualSourceBody({ sourceId, close }: any) {
       value: (draft as any)[key],
       onChange: (event: any) => change({ [key]: event?.target?.value ?? "" }),
     });
-  const pick = (key: string, title: string, mode: string) =>
+  const pick = (key: string, title: string, mode: "file" | "folder" | "any") =>
     void showSteamFilePicker(importUi, { title, mode }).then(
       (chosen) => chosen && change({ [key]: chosen }),
     );
@@ -1010,7 +1010,7 @@ function ImportEmulatorSetupBody({ installationId, close }: any) {
   const definition = (state?.emulators?.definitions ?? []).find(
     (item: any) => item.id === installation?.definitionId,
   );
-  const choose = (prerequisite: any, mode: string) =>
+  const choose = (prerequisite: any, mode: "file" | "folder" | "any") =>
     void showSteamFilePicker(importUi, {
       title: `Choose ${prerequisite.name}`,
       mode,

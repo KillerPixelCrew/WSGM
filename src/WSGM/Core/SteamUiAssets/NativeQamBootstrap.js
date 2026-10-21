@@ -87,11 +87,13 @@
    * @param command Allowlisted command name.
    * @param payload JSON-serializable payload; undefined becomes null.
    * @param requestedGeneration Optional positive action generation; otherwise a new one is allocated.
-   * @returns A promise for the backend payload; rejects on refusal, overload, timeout, disposal or send failure.
+   * @param signal Optional AbortSignal; aborting sends the host a cancel for this request and rejects locally.
+   * @returns A promise for the backend payload; rejects on refusal, overload, timeout, abort, disposal or send failure.
    */
-  const request = (patchId, command, payload, requestedGeneration) => {
+  const request = (patchId, command, payload, requestedGeneration, signal) => {
     if (!allowed(patchId, command)) return Promise.reject(new Error("command not allowlisted"));
     if (pending.size >= config.maximumPending) return Promise.reject(new Error("bridge busy"));
+    if (signal?.aborted) return Promise.reject(new Error("Steam UI bridge request cancelled"));
     const actionGeneration = validActionGeneration(patchId, requestedGeneration);
     const sequence = ++nextSequence;
     const envelope = {
@@ -106,19 +108,30 @@
       payload: payload ?? null,
     };
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        pending.delete(sequence);
+      // The page gave up on the request, by its timeout or by the caller's signal: the host is
+      // told so its worker stops, and whatever it answers afterwards finds no pending entry.
+      const giveUp = (reason) => {
+        if (!pending.delete(sequence)) return;
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", onAbort);
         try {
           send({ ...envelope, type: "cancel" });
         } catch {}
-        reject(new Error("Steam UI bridge request timed out"));
-      }, config.timeoutMilliseconds);
-      pending.set(sequence, { resolve, reject, timer, patchId, command });
+        reject(new Error(reason));
+      };
+      const onAbort = () => giveUp("Steam UI bridge request cancelled");
+      const timer = setTimeout(
+        () => giveUp("Steam UI bridge request timed out"),
+        config.timeoutMilliseconds,
+      );
+      pending.set(sequence, { resolve, reject, timer, patchId, command, onAbort, signal });
+      signal?.addEventListener("abort", onAbort, { once: true });
       try {
         send(envelope);
       } catch (error) {
         clearTimeout(timer);
         pending.delete(sequence);
+        signal?.removeEventListener("abort", onAbort);
         reject(error);
       }
     });
@@ -190,6 +203,7 @@
       if (!item || item.patchId !== envelope.patchId || item.command !== envelope.command)
         return false;
       clearTimeout(item.timer);
+      item.signal?.removeEventListener("abort", item.onAbort);
       pending.delete(envelope.sequence);
       if (envelope.ok) item.resolve(envelope.payload);
       else item.reject(new Error(String(envelope.error || "command rejected")));
@@ -283,6 +297,7 @@
     gates.clear();
     for (const item of pending.values()) {
       clearTimeout(item.timer);
+      item.signal?.removeEventListener("abort", item.onAbort);
       item.reject(new Error(reason || "Steam UI bridge disposed"));
     }
     pending.clear();
@@ -868,17 +883,27 @@
   // @fragment file-picker.ts
   // Controller-accessible file selection; the host owns directory enumeration.
   const SteamFilePickerPatchId = "steam-ui.file-picker";
+  // How many rows the file list draws at once. Every entry stays reachable: LT/RT and the page buttons
+  // move through the rest, and the host always answers the whole folder.
+  const SteamFilePickerPageSize = 200;
+  const steamFilePickerFailure = (failure) => String(failure?.message ?? failure);
+  const steamFilePickerCancelled = (failure) => /cancelled/u.test(steamFilePickerFailure(failure));
   /**
-   * Opens a contained two-pane file picker using native Steam controls.
+   * Opens a contained two-pane file picker using native Steam controls and reports how it settled.
    * @param ui Steam's resolved React, buttons, focus and modal components.
-   * @param options Title, folder/file mode, extension filters and optional starting path.
-   * @returns The accepted path or null; cancellation and late listings cannot settle it twice.
+   * @param options Title, mode, extension filters, starting path and cancellation signal.
+   * @returns The validated selection, a cancellation or a failure; it settles exactly once.
    */
-  const showSteamFilePicker = (ui, options = {}) =>
+  const runSteamFilePicker = (ui, options = {}) =>
     new Promise((resolve) => {
       const react = ui?.react;
-      const mode = options.mode === "file" ? "file" : "folder";
-      const extensions = Array.isArray(options.extensions) ? options.extensions : [];
+      const mode = options.mode === "file" || options.mode === "any" ? options.mode : "folder";
+      const extensions =
+        mode === "folder"
+          ? []
+          : Array.isArray(options.extensions) && options.extensions.length
+            ? options.extensions
+            : [".*"];
       const title = options.title ?? (mode === "folder" ? "Choose a folder" : "Choose a file");
       let settled = false;
       const settle = (value) => {
@@ -887,81 +912,197 @@
           resolve(value);
         }
       };
+      if (options.signal?.aborted) {
+        settle({ outcome: "cancelled" });
+        return;
+      }
       function Picker({ close }) {
         const h = react.createElement;
         const [places, setPlaces] = react.useState([]);
         const [listing, setListing] = react.useState(null);
         const [error, setError] = react.useState("");
         const [loading, setLoading] = react.useState(false);
+        const [page, setPage] = react.useState(0);
+        // The listing on screen is the one asked for last: each request takes a ticket, and an
+        // answer whose ticket is stale is dropped. -1 once the picker is gone, so nothing lands.
         const requested = react.useRef(0);
-        const finish = (path) => {
+        // The listing in flight, so moving on cancels it at the host instead of letting a slow
+        // drive finish work nobody will see.
+        const inFlight = react.useRef(null);
+        // The choice being checked: the ticket of the listing it was made from and its cancel. A
+        // second press on that listing does nothing. Moving on cancels it at the host and leaves
+        // its ticket behind, so a late answer neither returns a path from a folder no longer on
+        // screen nor shows its refusal over the folder that replaced it.
+        const choosing = react.useRef(null);
+        const dropChoice = () => {
+          choosing.current?.controller.abort();
+          choosing.current = null;
+        };
+        const finish = (result) => {
           if (settled) return;
-          settle(path);
+          settle(result);
           close();
         };
-        const open = (path) => {
-          const ticket = ++requested.current;
-          setLoading(true);
-          setError("");
-          void request(SteamFilePickerPatchId, "listFolder", {
-            path,
-            extensions: mode === "folder" ? [] : extensions.length ? extensions : [".*"],
-          }).then(
-            (answer) => {
-              if (ticket !== requested.current) return;
-              setLoading(false);
-              if (answer) {
-                setListing(answer);
-                setError(answer.error ?? "");
-              }
-            },
-            (failure) => {
-              if (ticket !== requested.current) return;
-              setLoading(false);
-              setError(String(failure?.message ?? failure));
-            },
-          );
-        };
-        react.useEffect(() => {
+        const cancel = () => finish({ outcome: "cancelled" });
+        const refreshPlaces = (thenOpen) => {
           void request(SteamFilePickerPatchId, "listPlaces", {}).then(
             (answer) => {
               if (requested.current < 0) return;
               const found = answer?.places ?? [];
               setPlaces(found);
-              const first = options.start || found[0]?.path;
-              if (first && requested.current === 0) open(first);
+              if (thenOpen && requested.current === 0) {
+                const first = options.start || found[0]?.path;
+                if (first) list(first, found[0]?.path);
+              }
             },
             (failure) => {
-              if (requested.current >= 0) setError(String(failure?.message ?? failure));
+              if (requested.current >= 0) setError(steamFilePickerFailure(failure));
             },
           );
+        };
+        // Lists a folder. `fallback` is where to go instead when this one cannot be listed: the
+        // start a page asked for is a preference, not a requirement. `notice` is a message that
+        // stays on screen through the listing, such as why a choice was refused.
+        const list = (path, fallback, notice = "") => {
+          const ticket = ++requested.current;
+          inFlight.current?.abort();
+          dropChoice();
+          const controller = new AbortController();
+          inFlight.current = controller;
+          setLoading(true);
+          setError(notice);
+          void request(
+            SteamFilePickerPatchId,
+            "listFolder",
+            { path, extensions },
+            undefined,
+            controller.signal,
+          ).then(
+            (answer) => {
+              if (ticket !== requested.current) return;
+              inFlight.current = null;
+              if (answer?.error && fallback && fallback !== path) {
+                list(fallback);
+                return;
+              }
+              setLoading(false);
+              if (answer) {
+                setListing(answer);
+                setPage(0);
+                setError(answer.error ?? notice);
+                // A folder that went away may have taken its drive with it.
+                if (answer.error) refreshPlaces(false);
+              }
+            },
+            (failure) => {
+              if (ticket !== requested.current || steamFilePickerCancelled(failure)) return;
+              inFlight.current = null;
+              setLoading(false);
+              setError(steamFilePickerFailure(failure));
+            },
+          );
+        };
+        // Asks the host whether the entry can still be returned: it may be gone, or no longer
+        // the kind it was, since the folder was listed. A refusal is shown and the folder is
+        // listed again so the screen matches the disk; the picker never answers a stale path.
+        // The answer counts only while the listing it was chosen from is still the one on
+        // screen: the picker is gone at -1, and any later listing has moved on.
+        const choose = (path, kind) => {
+          const ticket = requested.current;
+          if (settled || ticket < 0 || choosing.current?.ticket === ticket) return;
+          const controller = new AbortController();
+          choosing.current = { ticket, controller };
+          const done = () => {
+            if (choosing.current?.ticket === ticket) choosing.current = null;
+            return ticket === requested.current && !settled;
+          };
+          void request(
+            SteamFilePickerPatchId,
+            "resolve",
+            { path, kind, extensions },
+            undefined,
+            controller.signal,
+          ).then(
+            (answer) => {
+              if (!done()) return;
+              if (!answer || answer.error) {
+                const reason = answer?.error ?? "That cannot be chosen.";
+                if (listing?.path) list(listing.path, undefined, reason);
+                else setError(reason);
+                return;
+              }
+              finish({ outcome: "selected", path: answer.path, folder: !!answer.folder });
+            },
+            (failure) => {
+              if (done() && !steamFilePickerCancelled(failure))
+                setError(steamFilePickerFailure(failure));
+            },
+          );
+        };
+        react.useEffect(() => {
+          refreshPlaces(true);
+          const signal = options.signal;
+          const onAbort = () => cancel();
+          signal?.addEventListener("abort", onAbort, { once: true });
           return () => {
             requested.current = -1;
-            settle(null);
+            inFlight.current?.abort();
+            inFlight.current = null;
+            dropChoice();
+            signal?.removeEventListener("abort", onAbort);
+            settle({ outcome: "cancelled" });
           };
         }, []);
         const current = listing?.path ?? "";
-        const up = () => listing?.parent && open(listing.parent);
+        const up = () => listing?.parent && list(listing.parent);
+        const refresh = () => {
+          refreshPlaces(false);
+          if (current) list(current);
+        };
         const useCurrent = () => {
-          if (mode === "folder" && current && !listing?.error && !loading) finish(current);
+          if (mode === "file") return;
+          if (!current || loading) {
+            setError("Wait for the folder to finish loading.");
+            return;
+          }
+          if (listing?.error) {
+            setError(listing.error);
+            return;
+          }
+          choose(current, "folder");
+        };
+        const activate = (entry) => {
+          if (entry.folder) list(entry.path);
+          else choose(entry.path, mode === "any" ? "any" : "file");
         };
         const entries = listing?.entries ?? [];
+        const pages = Math.max(1, Math.ceil(entries.length / SteamFilePickerPageSize));
+        const shown = Math.min(page, pages - 1);
+        const first = shown * SteamFilePickerPageSize;
+        const visible = entries.slice(first, first + SteamFilePickerPageSize);
+        const turn = (delta) => setPage(Math.min(pages - 1, Math.max(0, shown + delta)));
+        const kindOf = (entry) => (entry.link ? "Link" : entry.folder ? "Folder" : "File");
         return h(
           ui.focusable,
           {
             className: "steam-ui-kit-picker",
             "flow-children": "column",
-            onCancelButton: () => finish(null),
-            onSecondaryButton: useCurrent,
-            onSecondaryActionDescription: mode === "folder" ? "Use this folder" : undefined,
+            onCancelButton: cancel,
+            onSecondaryButton: mode === "file" ? undefined : useCurrent,
+            onSecondaryActionDescription: mode === "file" ? undefined : "Use this folder",
             onOptionsButton: up,
             onOptionsActionDescription: "Up one level",
+            onButtonDown: pages > 1 ? onSteamTriggers(turn) : undefined,
           },
           steamUiKitStyle(react),
+          // The dialog Steam draws around the picker shows no title of its own in Big Picture,
+          // so the picker draws the one the page asked for.
+          h("div", { className: "steam-ui-kit-picker-title" }, title),
           h(
             ui.focusable,
             { className: "steam-ui-kit-picker-actions", "flow-children": "row" },
-            h(ui.dialogButton, { disabled: !listing?.parent || loading, onClick: up }, "Up"),
+            h(ui.dialogButton, { onClick: up }, "Up"),
+            h(ui.dialogButton, { onClick: refresh }, "Refresh"),
             h(
               "div",
               { className: "steam-ui-kit-picker-path", role: "status" },
@@ -981,58 +1122,89 @@
                   title: place.name,
                   detail: place.detail,
                   selected: current === place.path,
-                  onClick: () => open(place.path),
+                  onClick: () => list(place.path),
                 }),
               ),
             ),
+            // Keyed by folder and page, so a new listing mounts fresh and takes focus at its
+            // first row, while a refresh of the same folder keeps the row that had it.
             h(
               ui.focusable,
-              { className: "steam-ui-kit-picker-files", "flow-children": "column" },
+              {
+                key: current + "#" + shown,
+                className: "steam-ui-kit-picker-files",
+                "flow-children": "column",
+                autoFocus: !!current,
+              },
               h("div", { className: "steam-ui-kit-picker-heading" }, "Files and folders"),
-              ...entries.map((entry) =>
+              ...visible.map((entry) =>
                 renderSteamUiSelectRow(ui, {
                   key: entry.path,
                   title: entry.name,
-                  status: h(
-                    "span",
-                    { className: "steam-ui-kit-muted" },
-                    entry.folder ? "Folder" : "File",
-                  ),
-                  onClick: () => (entry.folder ? open(entry.path) : finish(entry.path)),
+                  status: h("span", { className: "steam-ui-kit-muted" }, kindOf(entry)),
+                  onClick: () => activate(entry),
                 }),
               ),
-              entries.length === 0 && !loading && !error
+              entries.length === 0 && !loading && !error && current
                 ? h("p", {}, "This folder is empty.")
                 : null,
             ),
           ),
+          pages > 1
+            ? h(
+                ui.focusable,
+                { className: "steam-ui-kit-picker-actions", "flow-children": "row" },
+                h(ui.dialogButton, { onClick: () => turn(-1) }, "Previous page"),
+                h(
+                  "div",
+                  {
+                    className: "steam-ui-kit-picker-path steam-ui-kit-picker-count",
+                    role: "status",
+                  },
+                  `Showing ${first + 1}-${first + visible.length} of ${entries.length}`,
+                ),
+                h(ui.dialogButton, { onClick: () => turn(1) }, "Next page"),
+              )
+            : null,
           error ? h("p", { className: "steam-ui-kit-sheet-error", role: "alert" }, error) : null,
           h(
             ui.focusable,
             { className: "steam-ui-kit-picker-actions", "flow-children": "row" },
-            h(ui.dialogButton, { onClick: () => finish(null) }, "Cancel"),
-            mode === "folder"
-              ? h(
+            h(ui.dialogButton, { onClick: cancel }, "Cancel"),
+            mode === "file"
+              ? null
+              : h(
                   ui.dialogButtonPrimary ?? ui.dialogButton,
-                  {
-                    onClick: useCurrent,
-                    disabled: !current || !!listing?.error || loading,
-                  },
+                  { onClick: useCurrent },
                   "Use this folder",
-                )
-              : null,
+                ),
           ),
         );
       }
+      // Steam's dialog folds a body to 600px unless it is allowed its full size; the two panes
+      // need the width the stylesheet gives the picker, bounded by the viewport.
       if (
         !showSteamModal(ui, {
           title,
+          wide: true,
           render: (close) => react.createElement(Picker, { close }),
-          onCancel: () => settle(null),
+          onCancel: () => settle({ outcome: "cancelled" }),
         })
-      )
-        settle(null);
+      ) {
+        settle({ outcome: "failed", reason: "Steam's modal components are unavailable." });
+      }
     });
+  /**
+   * Opens the picker and resolves with the chosen path, or null when it was cancelled, closed, aborted
+   * or could not open. Pages that only need the path use this; `runSteamFilePicker` tells them apart.
+   * @param ui Steam's resolved React, buttons, focus and modal components.
+   * @param options Title, mode, extension filters, starting path and cancellation signal.
+   * @returns The validated path or null; it settles exactly once.
+   */
+  const showSteamFilePicker = (ui, options = {}) =>
+    runSteamFilePicker(ui, options).then((result) =>
+      result.outcome === "selected" ? result.path : null,
+    );
   // @fragment gate-helpers.ts
   // What the gates that walk Steam's React output have in common, and the lifecycle steps every gate
   // repeats.
@@ -1348,8 +1520,14 @@
         });
   /**
    * Opens a native modal and supplies a close callback to its content.
+   *
+   * Steam's dialog keeps its body to 600px unless the dialog is allowed its full size, in which case
+   * the body may grow to the content it holds, within 88% of the viewport. `wide` asks for that
+   * through the dialog's own `bAllowFullSize` prop, so a two-pane body is not folded into a column;
+   * the backdrop, focus, B and dismissal are the same dialog's either way.
    * @param ui Steam's resolved React and native control components.
-   * @param options Optional title/class, content renderer and cancellation callback.
+   * @param options Optional title/class, content renderer, cancellation callback and whether the
+   * dialog may take its full size.
    * @returns True when shown, false when modal components are unavailable.
    */
   const showSteamModal = (ui, options) => {
@@ -1364,7 +1542,13 @@
       };
       return react.createElement(
         ui.modalRoot,
-        { className: options.className, onCancel: cancel, closeModal: cancel, strTitle: title },
+        {
+          className: options.className,
+          onCancel: cancel,
+          closeModal: cancel,
+          strTitle: title,
+          ...(options.wide ? { bAllowFullSize: true } : {}),
+        },
         options.render(close),
       );
     }
@@ -3985,13 +4169,15 @@
 .steam-ui-kit-select-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;width:100%;min-width:0;text-align:left;box-sizing:border-box}
 .steam-ui-kit-select-row-title{min-width:0;overflow-wrap:anywhere}
 .steam-ui-kit-select-row-detail{grid-column:1 / -1;min-width:0;font-size:13px;color:#8b929a;white-space:normal;overflow-wrap:anywhere}
-.steam-ui-kit-picker{display:flex;flex-direction:column;gap:12px;min-width:0;width:min(900px,100%);max-width:100%;box-sizing:border-box}
-.steam-ui-kit-picker-body{display:grid;grid-template-columns:minmax(140px,1fr) minmax(0,2fr);gap:16px;min-height:0;height:min(360px,48vh)}
+.steam-ui-kit-picker{display:flex;flex-direction:column;gap:12px;min-width:0;width:900px;max-width:100%;box-sizing:border-box}
+.steam-ui-kit-picker-title{font-size:22px;line-height:30px;font-weight:700;color:#fff;min-width:0;overflow-wrap:anywhere}
+.steam-ui-kit-picker-body{display:grid;grid-template-columns:minmax(140px,1fr) minmax(0,2fr);gap:16px;min-height:0;height:clamp(200px,90vh - 310px,520px)}
 .steam-ui-kit-picker-places,.steam-ui-kit-picker-files{min-width:0;min-height:0;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;gap:6px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.12);border-radius:4px;padding:8px;box-sizing:border-box}
 .steam-ui-kit-picker-heading{padding:4px 8px 8px;border-bottom:1px solid #3d4450;font-size:12px;font-weight:600;color:#8b929a;text-transform:uppercase;letter-spacing:.06em}
 .steam-ui-kit-picker .steam-ui-kit-select-row{padding:4px 0;border-bottom:1px solid rgba(255,255,255,.14)}
 .steam-ui-kit-picker .DialogButton{min-width:0!important;max-width:100%;width:100%;box-sizing:border-box!important;white-space:normal;margin:0}
-.steam-ui-kit-picker-path{font-size:14px;color:#b8bcbf;overflow-wrap:anywhere}
+.steam-ui-kit-picker-path{flex:1 1 12em;min-width:0;align-self:center;font-size:14px;color:#b8bcbf;overflow-wrap:anywhere}
+.steam-ui-kit-picker-count{text-align:center}
 .steam-ui-kit-picker-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
 .steam-ui-kit-picker-actions .DialogButton{width:auto}
 .steam-ui-kit-muted{color:rgb(124,142,163);font-size:13px}
@@ -8475,7 +8661,7 @@
   /**
    * Registers a renderer for one page template in this bridge generation.
    * @param template Stable template key used by host page publications.
-   * @param render Renderer receiving Steam's React runtime and the published page descriptor.
+   * @param render Renderer receiving Steam's React runtime and the published page descriptor with matched route params.
    */
   const registerSteamPageRenderer = (template, render) => {
     if (!template || template === "default" || steamPageRenderers.has(template)) {
@@ -8553,7 +8739,15 @@
       react.createElement(
         borrowedRoute,
         { path: page.path, key: `${PageKeyPrefix}${page.id}` },
-        react.createElement(SteamUiPageBody, { page }),
+        // Steam's back-stack Route calls function children with its native route props. Keep the
+        // published descriptor intact and detach params from that match on every render, including
+        // reloads; consumers must never resolve a game identity from focus or the visible artwork.
+        (route) =>
+          route?.match
+            ? react.createElement(SteamUiPageBody, {
+                page: { ...page, params: { ...route.match.params } },
+              })
+            : null,
       );
     // Whether an array of elements is the router's route list.
     const isRouteList = (value) => isSteamRouteList(react, value, KnownRoute);
@@ -8744,14 +8938,20 @@
         hostPages = next;
         pages = [
           ...hostPages,
-          ...pluginFrontendItems("page").map((slot) => ({ ...slot.value, template: slot.id })),
+          ...pluginFrontendItems("page").map((slot) => ({
+            ...slot.value,
+            template: slot.id,
+          })),
         ];
         mounted.rerender();
       });
       unsubscribePlugins = subscribePluginFrontends(() => {
         pages = [
           ...hostPages,
-          ...pluginFrontendItems("page").map((slot) => ({ ...slot.value, template: slot.id })),
+          ...pluginFrontendItems("page").map((slot) => ({
+            ...slot.value,
+            template: slot.id,
+          })),
         ];
         mounted.rerender();
       });
@@ -13951,6 +14151,371 @@
     status: () => ({ appId: artworkBrowserPage.state()?.appId ?? 0 }),
     Page: ArtworkBrowserPage,
   });
+  // @fragment consumer/card-manager.ts
+  // SD Card Manager presentation. Card identity, naming, tab state, capacity and every write belong
+  // to LibraryManagerService; this page draws its state and sends its exact commands back.
+  const CardManagerPatchId = "wsgm.cards";
+  const cardManagerAct = wsgmPageAct(CardManagerPatchId);
+  // The page's own layout: where the kit's elements go, not how they look.
+  const cardManagerStyles = `
+#wsgm-cards .steam-ui-kit-pane { padding: 12px 48px 72px; }
+#wsgm-cards .wsgm-cards-level { display: flex; flex-direction: column; gap: 14px; padding: 12px 48px 72px; }
+#wsgm-cards .wsgm-cards-list { display: flex; flex-direction: column; gap: 8px; }
+#wsgm-cards .wsgm-cards-list .DialogButton { width: 100%; min-width: 0; height: auto; padding: 10px 14px; }
+#wsgm-cards .wsgm-cards-row { display: flex; flex-direction: column; gap: 4px; width: 100%; min-width: 0; text-align: left; }
+#wsgm-cards .wsgm-cards-title { display: flex; justify-content: space-between; gap: 12px; font-size: 16px; font-weight: 600; color: #fff; }
+#wsgm-cards .wsgm-cards-state { font-size: 12px; font-weight: 600; white-space: nowrap; color: #8b929a; }
+#wsgm-cards .wsgm-cards-state[data-inserted="true"] { color: #a3dca3; }
+#wsgm-cards .wsgm-cards-detail { font-size: 13px; color: #8b929a; overflow-wrap: anywhere; }
+#wsgm-cards .wsgm-cards-meter { height: 6px; border-radius: 3px; background: rgba(255,255,255,.12); overflow: hidden; margin-top: 4px; }
+#wsgm-cards .wsgm-cards-meter > div { height: 100%; background: var(--gpSystemBlue, #1a9fff); }
+#wsgm-cards .wsgm-cards-games { display: flex; flex-direction: column; }
+`;
+  /**
+   * Formats a byte count the way the overlay's card manager prints it.
+   * @param bytes The count.
+   * @returns Gigabytes with one decimal, or megabytes below one gigabyte.
+   */
+  const formatCardBytes = (bytes) => {
+    const gigabyte = 1024 * 1024 * 1024;
+    return bytes >= gigabyte
+      ? `${(bytes / gigabyte).toFixed(1).replace(/\.0$/, "")} GB`
+      : `${Math.round(bytes / (1024 * 1024))} MB`;
+  };
+  // What a card row says under its name: games, space with the last reading marked, tab and hidden state.
+  const cardManagerDetail = (card) => {
+    const bits = [`${card.gameCount} games`];
+    if (card.hasCapacity) {
+      bits.push(
+        `${formatCardBytes(card.freeBytes)} free of ${formatCardBytes(card.capacityBytes)}` +
+          (card.inserted ? "" : " (last reading)"),
+      );
+    }
+    if (!card.enabled) bits.push("tab off");
+    if (card.hidden) bits.push("hidden");
+    return bits.join(" · ");
+  };
+  const cardManagerRow = (h, card) => {
+    const used = card.hasCapacity ? Math.max(0, card.capacityBytes - card.freeBytes) : 0;
+    const percent = card.hasCapacity
+      ? Math.min(100, Math.round((used / card.capacityBytes) * 100))
+      : 0;
+    return h(
+      "div",
+      { className: "wsgm-cards-row" },
+      h(
+        "div",
+        { className: "wsgm-cards-title" },
+        h("span", null, card.name),
+        h(
+          "span",
+          { className: "wsgm-cards-state", "data-inserted": card.inserted ? "true" : "false" },
+          card.inserted ? "Connected" : "Not connected",
+        ),
+      ),
+      h("div", { className: "wsgm-cards-detail" }, cardManagerDetail(card)),
+      card.hasCapacity
+        ? h("div", { className: "wsgm-cards-meter" }, h("div", { style: { width: `${percent}%` } }))
+        : null,
+    );
+  };
+  /**
+   * The root level: every tracked card, connected or remembered, and a rescan.
+   * @param props Resolved components, published state, the card to put the focus back on and the open callback.
+   * @returns The list pane.
+   */
+  function CardManagerList({ ui, state, returnTo, onOpen }) {
+    const react = ui.react;
+    const h = react.createElement;
+    const cards = state.cards ?? [];
+    const connected = cards.filter((card) => card.inserted).length;
+    let body;
+    if (!state.loaded) {
+      body = renderSteamUiEmpty(react, "Scanning cards…");
+    } else if (cards.length === 0) {
+      // A read failure is never dressed up as "no cards": that invites re-formatting a card that is
+      // in fact still tracked.
+      body = renderSteamUiEmpty(
+        react,
+        state.error ??
+          "No SD-card libraries tracked yet. Format a card from Storage or add a library first.",
+        !!state.error,
+      );
+    } else {
+      body = h(
+        ui.focusable,
+        { className: "wsgm-cards-list", "flow-children": "column" },
+        ...cards.map((card) =>
+          h(
+            ui.dialogButton,
+            {
+              key: card.contentId,
+              // Back from a card lands on that card again, not on the top of the list.
+              autoFocus: card.contentId === returnTo,
+              onClick: () => onOpen(card.contentId),
+              onOKActionDescription: "Manage",
+            },
+            cardManagerRow(h, card),
+          ),
+        ),
+      );
+    }
+    return renderSteamUiPane(
+      ui,
+      { key: "list" },
+      renderSteamUiHeader(ui, {
+        title: "SD Card Manager",
+        detail: state.loaded
+          ? `${cards.length} tracked · ${connected} connected`
+          : "Scanning cards…",
+      }),
+      body,
+      renderSteamUiActions(ui, [
+        {
+          id: "refresh",
+          label: "Rescan",
+          disabled: !!state.busy,
+          onClick: () => void cardManagerAct("refresh"),
+        },
+      ]),
+    );
+  }
+  /**
+   * One card: its state and space, its tab and hidden switches, and the rename, games and forget actions.
+   * @param props Resolved components, published state, the card, and the back, games and forgotten callbacks.
+   * @returns The nested level; Back returns to the list.
+   */
+  function CardManagerCard({ ui, state, card, onBack, onGames, onForgotten }) {
+    const react = ui.react;
+    const h = react.createElement;
+    const busy = !!state.busy;
+    const used = Math.max(0, card.capacityBytes - card.freeBytes);
+    const space = card.hasCapacity
+      ? `${formatCardBytes(used)} used · ${formatCardBytes(card.freeBytes)} free · ` +
+        `${formatCardBytes(card.capacityBytes)} in all${card.inserted ? "" : " (last reading)"}`
+      : "Not read yet; connect the card once.";
+    const rows = [
+      {
+        key: "status",
+        kind: "note",
+        label: "Status",
+        text: card.inserted ? "Connected" : "Not connected (remembered)",
+      },
+      { key: "space", kind: "note", label: "Space", text: space },
+      {
+        key: "enabled",
+        kind: "boolean",
+        label: "Steam tab",
+        description: "Keep a library tab for this card in Steam",
+        checked: !!card.enabled,
+        disabled: busy,
+      },
+      {
+        key: "hidden",
+        kind: "boolean",
+        label: "Hidden",
+        description: "Keep the card tracked without a tab",
+        checked: !!card.hidden,
+        disabled: busy,
+      },
+      {
+        key: "rename",
+        kind: "action",
+        label: "Name",
+        description: card.name,
+        buttonLabel: "Rename…",
+        disabled: busy,
+      },
+      {
+        key: "games",
+        kind: "action",
+        label: "Games on this card",
+        description: `${card.gameCount} installed`,
+        buttonLabel: "View",
+      },
+      {
+        key: "forget",
+        kind: "action",
+        label: "Forget card",
+        description: "Remove its tab and tracking; the games on the card stay",
+        buttonLabel: "Forget…",
+        disabled: busy,
+      },
+    ];
+    // The switches send at once; the row keeps showing what the host last published until it answers.
+    const change = (row, value) => {
+      if (row.key === "enabled")
+        void cardManagerAct("setEnabled", { contentId: card.contentId, enabled: !!value });
+      if (row.key === "hidden")
+        void cardManagerAct("setHidden", { contentId: card.contentId, hidden: !!value });
+    };
+    const action = (row) => {
+      switch (row.key) {
+        case "rename":
+          showSteamUiPrompt(ui, {
+            title: "Rename card",
+            text: "The name is written onto the card itself, so it follows the card to any reader.",
+            label: "Card name",
+            initial: card.name,
+            confirmLabel: "Rename",
+            onConfirm: (name) => void cardManagerAct("rename", { contentId: card.contentId, name }),
+          });
+          break;
+        case "games":
+          onGames();
+          break;
+        case "forget":
+          showSteamUiConfirm(ui, {
+            title: `Forget ${card.name}?`,
+            text: "Its Steam tab and tracking are removed. The games on the card stay; reinserting the card tracks it again as new.",
+            confirmLabel: "Forget",
+            // The list is only shown once the host has forgotten the card; a refusal keeps this level
+            // and says why in the banner.
+            onConfirm: () =>
+              void request(CardManagerPatchId, "forget", { contentId: card.contentId }).then(
+                onForgotten,
+                () => {},
+              ),
+          });
+          break;
+        default:
+          break;
+      }
+    };
+    return renderSteamUiLevel(
+      ui,
+      { className: "wsgm-cards-level", onBack },
+      renderSteamUiHeader(ui, { title: card.name, detail: cardManagerDetail(card) }),
+      h(
+        ui.settingsSection,
+        { label: "Card" },
+        ...rows.map((row) => renderSteamSettingRow(ui, row, undefined, change, action)),
+      ),
+      renderSteamUiActions(ui, [{ id: "back", label: "Back", onClick: onBack }]),
+    );
+  }
+  /**
+   * The games on one card, named from Steam's library when it answered.
+   * @param props Resolved components, published state, the card and the back callback.
+   * @returns The nested level; Back returns to the card.
+   */
+  function CardManagerGames({ ui, state, card, onBack }) {
+    const react = ui.react;
+    const h = react.createElement;
+    const games = state.games && state.games.contentId === card.contentId ? state.games : null;
+    let body;
+    if (!games || games.loading) {
+      body = renderSteamUiEmpty(react, "Reading the library…");
+    } else if (games.games.length === 0) {
+      body = renderSteamUiEmpty(react, "No games recorded on this card.");
+    } else {
+      body = h(
+        "div",
+        { className: "wsgm-cards-games" },
+        ...games.games.map((game) =>
+          h(ui.valueField, { key: String(game.appId), name: game.name, value: "" }),
+        ),
+      );
+    }
+    return renderSteamUiLevel(
+      ui,
+      { className: "wsgm-cards-level", onBack },
+      renderSteamUiHeader(ui, {
+        title: `${card.name} — Games`,
+        detail: `${card.gameCount} installed`,
+      }),
+      games?.error ? renderSteamUiEmpty(react, games.error, true) : null,
+      body,
+      renderSteamUiActions(ui, [{ id: "back", label: "Back", onClick: onBack }]),
+    );
+  }
+  /**
+   * Renders the card list, one card and its games from host state, with Back walking the levels up.
+   * @param context Registered page accessors for Steam components, latest state and publication refusal.
+   * @returns The page React tree, including loading or refusal state when data is unavailable.
+   */
+  function CardManagerPage({ context }) {
+    const react = context.react();
+    const h = react.createElement;
+    const ui = context.ui();
+    const state = context.state();
+    // Where the user is: the list, one card, or that card's games. A reload of the asset starts at the
+    // list, so no stale detail outlives the state it was opened from.
+    const [level, setLevel] = react.useState({ kind: "list", id: "" });
+    const [returnTo, setReturnTo] = react.useState("");
+    const card =
+      level.kind === "list"
+        ? null
+        : (state?.cards ?? []).find((entry) => entry.contentId === level.id);
+    react.useEffect(() => {
+      void cardManagerAct("refresh");
+    }, []);
+    react.useEffect(() => {
+      // Forgotten elsewhere, or no longer tracked: the level it belonged to is gone with it.
+      if (level.kind !== "list" && state?.loaded && !card) setLevel({ kind: "list", id: "" });
+    }, [level, card, state?.loaded]);
+    if (!state) return renderSteamUiEmpty(react, context.refusal() ?? "Loading cards…");
+    const banner = state.error || state.notice;
+    const toList = (id) => {
+      setReturnTo(id);
+      setLevel({ kind: "list", id: "" });
+    };
+    let body;
+    if (level.kind === "games" && card) {
+      body = h(CardManagerGames, {
+        ui,
+        state,
+        card,
+        onBack: () => setLevel({ kind: "card", id: card.contentId }),
+      });
+    } else if (level.kind === "card" && card) {
+      body = h(CardManagerCard, {
+        ui,
+        state,
+        card,
+        onBack: () => toList(card.contentId),
+        onGames: () => {
+          void cardManagerAct("loadGames", { contentId: card.contentId });
+          setLevel({ kind: "games", id: card.contentId });
+        },
+        onForgotten: () => toList(""),
+      });
+    } else {
+      body = h(CardManagerList, {
+        ui,
+        state,
+        returnTo,
+        onOpen: (id) => setLevel({ kind: "card", id }),
+      });
+    }
+    return h(
+      "div",
+      { id: "wsgm-cards", className: "steam-ui-kit-page", "aria-label": "SD Card Manager" },
+      steamUiKitStyle(react),
+      h("style", null, cardManagerStyles),
+      banner
+        ? h(
+            "div",
+            { className: "steam-ui-kit-page-banner" },
+            renderSteamUiBanner(ui, {
+              text: banner,
+              error: !!state.error,
+              onDismiss: () => void cardManagerAct("dismiss"),
+            }),
+          )
+        : null,
+      body,
+    );
+  }
+  const cardManagerPage = registerSteamPage({
+    template: "card-manager",
+    gate: "cardManager",
+    patchId: CardManagerPatchId,
+    components: resolveSteamSettingsComponents,
+    required: [...SteamSettingsRequired, "dialogButtonPrimary", "modalRoot"],
+    status: () => ({ cards: cardManagerPage.state()?.cards?.length ?? 0 }),
+    Page: CardManagerPage,
+  });
   // @fragment consumer/chord-reset.ts
   /**
    * Observes chord-layout default resets while the host reports an active template mirror.
@@ -14768,6 +15333,49 @@
         const offer = offerFor(entry);
         const installationId = entry.id;
         const definition = manager.definitions.find((item) => item.id === entry.definitionId);
+        const shortcut = box(
+          "Steam shortcut",
+          renderSteamUiChoice(importUi, {
+            label: "Show emulator in Steam",
+            rgOptions: [
+              { data: false, label: "Off" },
+              { data: true, label: "On" },
+            ],
+            selectedOption: entry.steamShortcutEnabled !== false,
+            disabled: progress.busy,
+            onChange: (option) =>
+              option &&
+              void emulatorAct("setEmulatorShortcut", {
+                installationId,
+                enabled: option.data,
+                launchMode: entry.steamShortcutLaunchMode ?? 2,
+              }),
+          }),
+          renderSteamUiChoice(importUi, {
+            label: "Launch mode",
+            rgOptions: [
+              { data: 2, label: "Input lease" },
+              { data: 0, label: "No lease" },
+              { data: 1, label: "De-elevate" },
+              { data: 3, label: "De-elevate + input lease" },
+            ],
+            selectedOption: entry.steamShortcutLaunchMode ?? 2,
+            disabled: progress.busy,
+            onChange: (option) =>
+              option &&
+              void emulatorAct("setEmulatorShortcut", {
+                installationId,
+                enabled: entry.steamShortcutEnabled !== false,
+                launchMode: option.data,
+              }),
+          }),
+          h(
+            "p",
+            { className: "steam-ui-kit-muted" },
+            state.shortcutStatus ||
+              "Opens the current emulator installation. Input lease lets it read the controller directly.",
+          ),
+        );
         const remove = () =>
           showSteamUiConfirm(importUi, {
             title: entry.managed ? "Remove emulator?" : "Forget external installation?",
@@ -14796,6 +15404,13 @@
         const systemFiles = box(
           "System files",
           ...(entry.missingRequirements ?? []).map((text) => h("p", { key: text }, text)),
+          entry.dataPolicy?.requiresVisualCpp || entry.definitionId === "model2"
+            ? button(
+                "Install required runtimes",
+                () =>
+                  void emulatorAct("installEmulatorRuntimes", { definitionId: entry.definitionId }),
+              )
+            : null,
           fact("BIOS folder", bios.folder),
           button("Open BIOS & firmware", toBios, false),
           definition?.prerequisites?.length
@@ -14902,6 +15517,7 @@
                 notes(offer),
               ),
               systemFiles,
+              shortcut,
               maintenance,
             ),
           );
@@ -14971,6 +15587,7 @@
                   "Settings, saves and supplied firmware are preserved.",
                 ),
               ),
+              shortcut,
               maintenance,
             ),
           );
@@ -14981,10 +15598,7 @@
       if (!definition) content = h("p", {}, "That emulator is no longer listed.");
       else {
         const offer = manager.offers.find(
-          (item) =>
-            item.definitionId === definition.id &&
-            item.channel === channel &&
-            item.architecture === state.architecture,
+          (item) => item.definitionId === definition.id && item.channel === channel,
         );
         content = h(
           importUi.focusable,
@@ -15019,6 +15633,20 @@
               ),
               definition.dataPolicy?.hasCores
                 ? h("p", {}, "Installs the complete published Windows core catalogue.")
+                : null,
+              definition.dataPolicy?.requiresVisualCpp || definition.id === "model2"
+                ? button(
+                    "Install required runtimes",
+                    () =>
+                      void emulatorAct("installEmulatorRuntimes", { definitionId: definition.id }),
+                  )
+                : null,
+              definition.dataPolicy?.requiresVisualCpp || definition.id === "model2"
+                ? h(
+                    "p",
+                    { className: "steam-ui-kit-muted" },
+                    "Installs verified Microsoft components. Accept the Windows permission prompt if shown; progress stays here.",
+                  )
                 : null,
               button(
                 `Install ${channel}`,
@@ -15367,6 +15995,7 @@
       steamUiKitStyle(react),
       tabs,
       status,
+      state.shortcutStatus ? h("p", { role: "status" }, state.shortcutStatus) : null,
       h(
         importUi.focusable,
         {
@@ -15383,6 +16012,199 @@
       content,
     );
   }
+  // @fragment consumer/launch-actions.ts
+  // Both surfaces use LaunchActionService; this page supplies intent and the cog menu's exact identity.
+  const LaunchActionsPatchId = "wsgm.launch-actions";
+  function LaunchActionsPage({ context, page }) {
+    const react = context.react();
+    const h = react.createElement;
+    const ui = context.ui();
+    const state = context.state();
+    const appId = Number(page?.params?.appid ?? 0);
+    const [error, setError] = react.useState("");
+    const [busy, setBusy] = react.useState(false);
+    const [argumentsValue, setArguments] = react.useState("");
+    const alive = react.useRef(null);
+    const inFlight = react.useRef(false);
+    react.useEffect(() => {
+      const abort = new AbortController();
+      alive.current = abort;
+      setError("");
+      setBusy(false);
+      inFlight.current = false;
+      setArguments("");
+      if (appId > 0 && appId <= 0xffffffff) {
+        void request(LaunchActionsPatchId, "open", { appId }).catch((failure) => {
+          if (!abort.signal.aborted)
+            setError(failure instanceof Error ? failure.message : String(failure));
+        });
+      }
+      return () => abort.abort();
+    }, [appId]);
+    const act = async (command, payload) => {
+      const operation = alive.current;
+      if (operation?.signal.aborted || inFlight.current) return;
+      inFlight.current = true;
+      setBusy(true);
+      setError("");
+      try {
+        await request(LaunchActionsPatchId, command, { appId, ...payload });
+      } catch (failure) {
+        if (!operation?.signal.aborted)
+          setError(failure instanceof Error ? failure.message : String(failure));
+      } finally {
+        if (!operation?.signal.aborted) {
+          inFlight.current = false;
+          setBusy(false);
+        }
+      }
+    };
+    if (!appId)
+      return h(
+        "p",
+        { role: "alert" },
+        "This launch action has no game identity. Open it from the game's cog menu.",
+      );
+    if (!state || Number(state.appId) !== appId) {
+      return h(
+        "p",
+        { role: "status" },
+        error || context.refusal() || "Reading this game's launch configuration…",
+      );
+    }
+    const confirm = (label, command, payload) => {
+      const origin = alive.current;
+      if (
+        !showSteamUiConfirm(ui, {
+          title: label,
+          text: `${state.name}: replace the current launch action? ${state.canRestore ? "The recorded original will remain available." : "The original will be recorded before anything changes."}`,
+          confirmLabel: label,
+          onConfirm: () => {
+            if (!origin?.signal.aborted) void act(command, payload);
+          },
+        })
+      )
+        setError("Steam's confirmation dialog is unavailable.");
+    };
+    const custom = async () => {
+      const origin = alive.current;
+      const args = argumentsValue;
+      try {
+        const path = await showSteamFilePicker(ui, {
+          title: `Custom launch action for ${state.name}`,
+          mode: "file",
+          extensions: [".exe", ".cmd", ".bat", ".ps1"],
+          signal: origin?.signal,
+        });
+        if (path && !origin?.signal.aborted)
+          confirm("Replace launch action", "custom", { path, arguments: args });
+      } catch (failure) {
+        if (!origin?.signal.aborted)
+          setError(failure instanceof Error ? failure.message : String(failure));
+      }
+    };
+    const unavailable = busy || !!state.error;
+    return h(
+      ui.focusable,
+      { className: "steam-ui-kit-page", "flow-children": "column", style: { overflowY: "auto" } },
+      steamUiKitStyle(react),
+      h(
+        "div",
+        { className: "steam-ui-kit-pane", style: { padding: "24px 48px 72px" } },
+        renderSteamUiHeader(ui, {
+          title: "Launch Actions",
+          detail: `${state.name} · ${appId} · ${state.isShortcut ? "Non-Steam shortcut" : "Steam game"}`,
+        }),
+        h("p", { role: "status" }, `Current: ${state.ownership}`),
+        h(
+          "p",
+          null,
+          state.canRestore
+            ? "Original launch action recorded. Restore is available."
+            : "No restoration snapshot recorded.",
+        ),
+        state.externallyChanged
+          ? h(
+              "p",
+              { role: "status" },
+              "Launch fields differ from WSGM's saved action. The recorded original is still retained.",
+            )
+          : null,
+        !state.wrapperAvailable
+          ? h(
+              "p",
+              { role: "alert" },
+              "Launch wrapper missing. Repair the installation before applying wrapper actions.",
+            )
+          : null,
+        h("p", null, state.inputRoute),
+        state.target
+          ? h("p", { style: { overflowWrap: "anywhere" } }, `Target: ${state.target}`)
+          : null,
+        h(
+          "p",
+          { style: { overflowWrap: "anywhere" } },
+          `Launch options: ${state.options || "(empty)"}`,
+        ),
+        error || state.error || state.notice
+          ? renderSteamUiBanner(ui, {
+              text: error || state.error || state.notice,
+              error: !!(error || state.error),
+              onDismiss: () => {
+                setError("");
+                if (state.notice) void act("open", {});
+              },
+            })
+          : null,
+        renderSteamUiActions(
+          ui,
+          (state.actions || []).map((action) => ({
+            id: `wrapper-${action.mode}`,
+            label: action.label,
+            disabled: unavailable || !state.wrapperAvailable,
+            onClick: () => confirm(action.label, "apply", { mode: action.mode }),
+          })),
+        ),
+        h(ui.textField, {
+          label: "Custom action arguments (optional)",
+          value: argumentsValue,
+          disabled: busy,
+          onChange: (event) => setArguments(event?.target?.value ?? ""),
+        }),
+        renderSteamUiActions(ui, [
+          {
+            id: "custom",
+            label: "Custom launch action…",
+            disabled: unavailable,
+            onClick: () => void custom(),
+          },
+          {
+            id: "restore",
+            label: "Restore original launch action",
+            disabled: unavailable || !state.canRestore,
+            onClick: () => confirm("Restore original launch action", "apply", { mode: 0 }),
+          },
+          { id: "refresh", label: "Refresh", disabled: busy, onClick: () => void act("open", {}) },
+        ]),
+      ),
+    );
+  }
+  registerSteamPage({
+    template: "launch-actions",
+    gate: "launchActions",
+    patchId: LaunchActionsPatchId,
+    components: resolveSteamUiComponents,
+    required: [
+      "react",
+      "focusable",
+      "dialogButton",
+      "dialogButtonPrimary",
+      "textField",
+      "modalRoot",
+      "showModal",
+    ],
+    Page: LaunchActionsPage,
+  });
   // @fragment consumer/library-import.ts
   // Library-import frontend; shared host services own discovery, review decisions and writes.
   const LibraryImportPatchId = "wsgm.library-import";
@@ -17451,6 +18273,1154 @@
       "showModal",
     ],
     Page: EmulatorManagerPage,
+  });
+  // @fragment consumer/library-tab-manager.ts
+  // Library Tab Manager presentation. Tab validation, placement, the strip order's writes and Steam's
+  // synchronization belong to LibraryManagerService; this page edits a draft of one tab and sends
+  // the whole tab back, and moves the strip one press at a time.
+  const LibraryTabsPatchId = "wsgm.library-tabs";
+  const libraryTabsAct = wsgmPageAct(LibraryTabsPatchId);
+  // The page's own layout: where the kit's elements go, not how they look.
+  const libraryTabsStyles = `
+#wsgm-library-tabs .steam-ui-kit-pane { padding: 12px 48px 72px; }
+#wsgm-library-tabs .wsgm-tabs-level { display: flex; flex-direction: column; gap: 14px; padding: 12px 48px 72px; }
+#wsgm-library-tabs .wsgm-tabs-list { display: flex; flex-direction: column; gap: 8px; }
+#wsgm-library-tabs .wsgm-tabs-list .DialogButton { width: 100%; min-width: 0; height: auto; padding: 10px 14px; }
+#wsgm-library-tabs .wsgm-tabs-stepper { display: flex; align-items: center; gap: 8px; }
+#wsgm-library-tabs .wsgm-tabs-stepper span { min-width: 64px; text-align: center; }
+#wsgm-library-tabs .wsgm-tabs-order .DialogButton { white-space: nowrap; }
+#wsgm-library-tabs .steam-ui-kit-tool:not(.grow) { width: 200px; }
+`;
+  const libraryTabsPageSize = 200;
+  /**
+   * A fresh filter of one kind, every field in the shape the host publishes and reads back.
+   * @param kind The FilterKind name.
+   * @returns The node; a merge group starts with one Installed child, as the overlay's does.
+   */
+  const libraryTabsNewFilter = (kind) => ({
+    kind,
+    inverted: false,
+    mode: "And",
+    children: kind === "Merge" ? [libraryTabsNewFilter("Installed")] : [],
+    collectionId: "",
+    boolValue: true,
+    tagIds: [],
+    appIds: [],
+    pattern: "",
+    platform: "Steam",
+    threshold: 0,
+    condition: "Above",
+    scoreType: "SteamPercent",
+    units: "Hours",
+    daysAgo: 0,
+    year: 0,
+    month: 0,
+    day: 0,
+    cardScope: "Inserted",
+    contentId: "",
+  });
+  // A new tab, with no id: the host assigns one and its place in the list when it is saved.
+  const libraryTabsNewTab = () => ({
+    id: "",
+    name: "",
+    enabled: true,
+    position: 0,
+    categories: 1,
+    filterTree: { ...libraryTabsNewFilter("Merge"), children: [] },
+  });
+  // A hint while editing. The host's validation is the authority: it also refuses a title pattern
+  // its evaluator cannot run.
+  const libraryTabsIncomplete = (node) => {
+    switch (node.kind) {
+      case "Collection":
+        return !node.collectionId;
+      case "Tag":
+        return !(node.tagIds ?? []).length;
+      case "Regex":
+        return !node.pattern;
+      case "Whitelist":
+      case "Blacklist":
+        return !(node.appIds ?? []).length;
+      case "ReleaseDate":
+      case "LastPlayed":
+        return !(node.daysAgo > 0 || node.year > 0);
+      case "SdCard":
+        return node.cardScope === "Specific" && !node.contentId;
+      case "Merge":
+        return !(node.children ?? []).length || node.children.some(libraryTabsIncomplete);
+      default:
+        return false;
+    }
+  };
+  const libraryTabsKindLabel = (state, kind) =>
+    (state.filterKinds ?? []).find((entry) => entry.kind === kind)?.label ?? kind;
+  const libraryTabsCondition = (node) => (node.condition === "Above" ? "≥" : "<");
+  /**
+   * One line naming a filter, the way the overlay's editor lists it.
+   * @param state Published state, for tag, collection and card names.
+   * @param node The filter.
+   * @returns The description, led by NOT when inverted.
+   */
+  const libraryTabsDescribe = (state, node) => {
+    const canInvert = (state.filterKinds ?? []).find(
+      (entry) => entry.kind === node.kind,
+    )?.canInvert;
+    const prefix = node.inverted && canInvert ? "NOT " : "";
+    const cardName = (id) =>
+      (state.cards ?? []).find((card) => card.contentId === id)?.name ?? "a card";
+    const collectionName = (id) =>
+      (state.collections?.items ?? []).find((c) => c.id === id)?.name ?? "selected";
+    const number = (value) =>
+      Number(value ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+    let text;
+    switch (node.kind) {
+      case "Tag":
+        text =
+          node.tagIds?.length === 1
+            ? ((state.tags?.items ?? []).find((tag) => tag.tagId === node.tagIds[0])?.name ?? "Tag")
+            : `Tags (${node.tagIds?.length ?? 0})`;
+        break;
+      case "Installed":
+        text = node.boolValue ? "Installed" : "Not installed";
+        break;
+      case "Collection":
+        text = collectionName(node.collectionId);
+        break;
+      case "Regex":
+        text = `Title ~ ${node.pattern}`;
+        break;
+      case "SdCard":
+        text =
+          node.cardScope === "Specific"
+            ? `On ${cardName(node.contentId)}`
+            : node.cardScope === "Any"
+              ? "On any card"
+              : "On inserted card";
+        break;
+      case "TimePlayed":
+        text = `Playtime ${libraryTabsCondition(node)} ${number(node.threshold)}`;
+        break;
+      case "SizeOnDisk":
+        text = `Size ${libraryTabsCondition(node)} ${number(node.threshold)} GB`;
+        break;
+      case "ReviewScore":
+        text = `Score ${libraryTabsCondition(node)} ${Math.round(node.threshold ?? 0)}`;
+        break;
+      case "ReleaseDate":
+        text = `Released ${node.daysAgo > 0 ? `< ${node.daysAgo}d ago` : "date"}`;
+        break;
+      case "LastPlayed":
+        text = `Played ${node.daysAgo > 0 ? `< ${node.daysAgo}d ago` : "date"}`;
+        break;
+      case "Platform":
+        text = node.platform === "Steam" ? "Steam" : "Non-Steam";
+        break;
+      case "Whitelist":
+        text = `Whitelist (${node.appIds?.length ?? 0})`;
+        break;
+      case "Blacklist":
+        text = `Blacklist (${node.appIds?.length ?? 0})`;
+        break;
+      case "Merge":
+        text = `Group (${node.children?.length ?? 0})`;
+        break;
+      default:
+        text = String(node.kind);
+        break;
+    }
+    return prefix + text;
+  };
+  // The category prefilter choices the overlay offers, as a bitfield: Games, +Software, +Hidden.
+  const libraryTabsCategoryChoices = (current) => {
+    const games = 1;
+    const software = games | 2;
+    const hidden = software | 16;
+    const label = (value) => {
+      const parts = [];
+      if (value & 1) parts.push("Games");
+      if (value & 2) parts.push("Software");
+      if (value & 8192) parts.push("Music");
+      if (!parts.length) parts.push("Games");
+      if (value & 16) parts.push("+Hidden");
+      return parts.join(", ");
+    };
+    const choices = [games, software, hidden].map((value) => ({ value, label: label(value) }));
+    if (!choices.some((choice) => choice.value === current))
+      choices.push({ value: current, label: label(current) });
+    return choices;
+  };
+  // A value with − and + beside it, the overlay's stepper: a slider has no place for a count of days.
+  const libraryTabsStepper = (ui, key, label, value, min, max, step, onChange) => {
+    const h = ui.react.createElement;
+    const clamp = (next) => Math.min(max, Math.max(min, next));
+    return h(ui.valueField, {
+      key,
+      name: label,
+      focusable: false,
+      value: h(
+        ui.focusable,
+        { className: "wsgm-tabs-stepper", "flow-children": "row" },
+        h(
+          ui.smallButton,
+          { onClick: () => onChange(clamp(value - step)), disabled: value <= min },
+          "−",
+        ),
+        h("span", null, Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })),
+        h(
+          ui.smallButton,
+          { onClick: () => onChange(clamp(value + step)), disabled: value >= max },
+          "+",
+        ),
+      ),
+    });
+  };
+  const libraryTabsLevel = (ui, onBack, title, detail, ...children) =>
+    renderSteamUiLevel(
+      ui,
+      { className: "wsgm-tabs-level", onBack },
+      renderSteamUiHeader(ui, { title, detail }),
+      ...children,
+    );
+  /**
+   * The root level: the builder's tabs, the way to the strip order and a new tab.
+   * @param props Resolved components, published state, the tab to put the focus back on and the open callbacks.
+   * @returns The list pane.
+   */
+  function LibraryTabsList({ ui, state, returnTo, onNew, onOrder, onEdit }) {
+    const react = ui.react;
+    const h = react.createElement;
+    const tabs = state.tabs ?? [];
+    return renderSteamUiPane(
+      ui,
+      { key: "list" },
+      renderSteamUiHeader(ui, {
+        title: "Library Tab Manager",
+        detail: "Tabs appear in Steam's library and update automatically as you make changes.",
+      }),
+      renderSteamUiActions(ui, [
+        { id: "new", label: "New tab", primary: true, onClick: onNew },
+        { id: "order", label: "Tab order & Steam tabs", onClick: onOrder },
+      ]),
+      !state.loaded
+        ? renderSteamUiEmpty(react, "Reading your tabs…")
+        : tabs.length === 0
+          ? renderSteamUiEmpty(react, "No custom tabs yet. Build one from filters with New tab.")
+          : renderSteamUiGroup(
+              ui,
+              { key: "tabs", title: "Your tabs" },
+              h(
+                ui.focusable,
+                { className: "wsgm-tabs-list", "flow-children": "column" },
+                ...tabs.map((tab) =>
+                  h(
+                    ui.dialogButton,
+                    {
+                      key: tab.id,
+                      // Back from a tab's editor lands on that tab again, not on the top of the list.
+                      autoFocus: tab.id === returnTo,
+                      onClick: () => onEdit(tab),
+                      onOKActionDescription: "Edit",
+                    },
+                    h(
+                      "div",
+                      { className: "steam-ui-kit-select-row" },
+                      h(
+                        "span",
+                        { className: "steam-ui-kit-select-row-title" },
+                        tab.name || "(unnamed)",
+                      ),
+                      h(
+                        "span",
+                        { className: "steam-ui-kit-select-row-detail" },
+                        tab.enabled
+                          ? `${tab.filterTree?.children?.length ?? 0} filters`
+                          : "disabled",
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+    );
+  }
+  /**
+   * The strip, top to bottom here for left to right in Steam, with a move and a hide/show per row.
+   * @param props Resolved components, published state and the back callback.
+   * @returns The nested level; Back returns to the list.
+   */
+  function LibraryTabsOrder({ ui, state, onBack }) {
+    const react = ui.react;
+    const h = react.createElement;
+    const order = state.order ?? [];
+    const kindLabel = (entry) =>
+      entry.kind === "native" ? "Steam tab" : entry.kind === "card" ? "Card tab" : "Custom tab";
+    // Rows are keyed by the tab, so a move keeps the pressed button under the finger while the row
+    // takes its new place.
+    const rows = order.map((entry, index) =>
+      h(ui.valueField, {
+        key: entry.key,
+        name: entry.title,
+        description: entry.hidden ? `${kindLabel(entry)} · hidden` : kindLabel(entry),
+        focusable: false,
+        value: h(
+          ui.focusable,
+          { className: "wsgm-tabs-order", "flow-children": "row" },
+          h(
+            ui.smallButton,
+            {
+              disabled: index === 0 || !!state.busy,
+              onClick: () => void libraryTabsAct("moveTab", { key: entry.key, delta: -1 }),
+            },
+            "Move up",
+          ),
+          h(
+            ui.smallButton,
+            {
+              disabled: index === order.length - 1 || !!state.busy,
+              onClick: () => void libraryTabsAct("moveTab", { key: entry.key, delta: 1 }),
+            },
+            "Move down",
+          ),
+          entry.kind === "native"
+            ? h(
+                ui.smallButton,
+                {
+                  onClick: () =>
+                    void libraryTabsAct("setNativeHidden", {
+                      key: entry.key,
+                      hidden: !entry.hidden,
+                    }),
+                },
+                entry.hidden ? "Show" : "Hide",
+              )
+            : null,
+        ),
+      }),
+    );
+    return libraryTabsLevel(
+      ui,
+      onBack,
+      "Tab order",
+      "Top to bottom here is left to right in Steam. Steam's own tabs can be hidden; WSGM tabs disappear when disabled in their editors.",
+      h(ui.settingsSection, { label: "Strip" }, ...rows),
+      renderSteamUiActions(ui, [{ id: "back", label: "Done", onClick: onBack }]),
+    );
+  }
+  /**
+   * The filter type list, for a new filter, a replacement or a group's child.
+   * @param props Resolved components, published state, whether a group excludes nesting, the pick and back callbacks.
+   * @returns The nested level.
+   */
+  function LibraryTabsFilterPicker({ ui, state, inGroup, onPick, onBack }) {
+    const h = ui.react.createElement;
+    const kinds = (state.filterKinds ?? []).filter((kind) => !inGroup || kind.kind !== "Merge");
+    return libraryTabsLevel(
+      ui,
+      onBack,
+      inGroup ? "Add to group" : "Add filter",
+      undefined,
+      h(
+        ui.focusable,
+        { className: "wsgm-tabs-list", "flow-children": "column" },
+        ...kinds.map((kind) =>
+          renderSteamUiSelectRow(ui, {
+            key: kind.kind,
+            title: kind.label,
+            detail: kind.description,
+            onClick: () => onPick(kind.kind),
+          }),
+        ),
+      ),
+    );
+  }
+  /**
+   * Picks several of a list, with a search and the overlay's page size, as the tag and game pickers do.
+   * @param props Resolved components, the title, the published picker, how an item is labelled, the selected ids and the done callback.
+   * @returns The nested level; Done and Back both keep the selection, which lives on the draft.
+   */
+  function LibraryTabsMultiSelect({
+    ui,
+    title,
+    picker,
+    labelOf,
+    idOf,
+    selected,
+    onToggle,
+    onBack,
+  }) {
+    const react = ui.react;
+    const h = react.createElement;
+    const [search, setSearch] = react.useState("");
+    const [page, setPage] = react.useState(0);
+    const items = (picker?.items ?? []).filter(
+      (item) => !search || labelOf(item).toLowerCase().includes(search.toLowerCase()),
+    );
+    const pageCount = Math.max(1, Math.ceil(items.length / libraryTabsPageSize));
+    const current = Math.min(page, pageCount - 1);
+    const shown = items.slice(current * libraryTabsPageSize, (current + 1) * libraryTabsPageSize);
+    const body =
+      picker?.loading && !items.length
+        ? renderSteamUiEmpty(react, "Reading from Steam…")
+        : picker?.error && !items.length
+          ? renderSteamUiEmpty(react, picker.error, true)
+          : !items.length
+            ? renderSteamUiEmpty(react, search ? "Nothing matches." : "Nothing to pick from.")
+            : h(
+                ui.settingsSection,
+                { label: `${selected.size} selected` },
+                ...shown.map((item) =>
+                  h(ui.toggleField, {
+                    key: String(idOf(item)),
+                    label: labelOf(item),
+                    controlled: true,
+                    checked: selected.has(idOf(item)),
+                    onChange: () => onToggle(idOf(item)),
+                  }),
+                ),
+              );
+    return libraryTabsLevel(
+      ui,
+      onBack,
+      title,
+      picker?.error && items.length ? picker.error : undefined,
+      renderSteamUiToolbar(
+        ui,
+        renderSteamUiTool(
+          ui,
+          "Search",
+          h(ui.textField, {
+            value: search,
+            onChange: (event) => {
+              setSearch(event?.target?.value ?? "");
+              setPage(0);
+            },
+          }),
+          true,
+        ),
+      ),
+      body,
+      renderSteamUiActions(ui, [
+        ...(pageCount > 1
+          ? [
+              {
+                id: "prev",
+                label: `Page ${current + 1} of ${pageCount} · previous`,
+                disabled: current === 0,
+                onClick: () => setPage(current - 1),
+              },
+              {
+                id: "next",
+                label: "Next page",
+                disabled: current + 1 >= pageCount,
+                onClick: () => setPage(current + 1),
+              },
+            ]
+          : []),
+        { id: "done", label: "Done", primary: true, onClick: onBack },
+      ]),
+    );
+  }
+  /**
+   * Picks one collection.
+   * @param props Resolved components, the published picker, the pick and back callbacks.
+   * @returns The nested level.
+   */
+  function LibraryTabsCollectionPicker({ ui, picker, onPick, onBack }) {
+    const react = ui.react;
+    const h = react.createElement;
+    const items = picker?.items ?? [];
+    return libraryTabsLevel(
+      ui,
+      onBack,
+      "Collection",
+      picker?.error ?? undefined,
+      picker?.loading && !items.length
+        ? renderSteamUiEmpty(react, "Reading from Steam…")
+        : !items.length
+          ? renderSteamUiEmpty(react, "No collections found — is Steam open?")
+          : h(
+              ui.focusable,
+              { className: "wsgm-tabs-list", "flow-children": "column" },
+              ...items.map((item) =>
+                renderSteamUiSelectRow(ui, {
+                  key: item.id,
+                  title: item.name,
+                  detail: `${item.gameCount} games`,
+                  onClick: () => onPick(item.id),
+                }),
+              ),
+            ),
+    );
+  }
+  /**
+   * One filter's parameters, its NOT toggle and, for a group, its children.
+   * @param props Resolved components, published state, the node, its group when nested, a redraw, and the navigation callbacks.
+   * @returns The nested level; Done and Back both keep the edits, which live on the draft.
+   */
+  function LibraryTabsFilterEditor({
+    ui,
+    state,
+    node,
+    group,
+    touch,
+    onPickTags,
+    onPickCollection,
+    onPickGames,
+    onChangeType,
+    onAddChild,
+    onEditChild,
+    onRemove,
+    onBack,
+  }) {
+    const react = ui.react;
+    const h = react.createElement;
+    const set = (field, value) => {
+      node[field] = value;
+      touch();
+    };
+    const choice = (key, label, choices, current, apply) =>
+      renderSteamSettingRow(
+        ui,
+        { key, kind: "choice", label, text: current, choices },
+        undefined,
+        (_row, value) => apply(value),
+        () => {},
+      );
+    const conditionRow = () =>
+      choice(
+        "condition",
+        "Condition",
+        [
+          { value: "Above", label: "At or above" },
+          { value: "Below", label: "Below" },
+        ],
+        node.condition,
+        (v) => set("condition", v),
+      );
+    const rows = [];
+    switch (node.kind) {
+      case "Installed":
+        rows.push(
+          choice(
+            "state",
+            "State",
+            [
+              { value: false, label: "Not installed" },
+              { value: true, label: "Installed" },
+            ],
+            !!node.boolValue,
+            (v) => set("boolValue", !!v),
+          ),
+        );
+        break;
+      case "Platform":
+        rows.push(
+          choice(
+            "platform",
+            "Platform",
+            [
+              { value: "Steam", label: "Steam" },
+              { value: "NonSteam", label: "Non-Steam" },
+            ],
+            node.platform,
+            (v) => set("platform", v),
+          ),
+        );
+        break;
+      case "Regex":
+        rows.push(
+          renderSteamSettingRow(
+            ui,
+            { key: "pattern", kind: "text", label: "Title pattern", text: node.pattern ?? "" },
+            node.pattern ?? "",
+            (_row, value) => set("pattern", String(value ?? "")),
+            () => {},
+          ),
+        );
+        break;
+      case "Tag":
+        rows.push(
+          renderSteamSettingRow(
+            ui,
+            {
+              key: "tags",
+              kind: "action",
+              label: "Tags",
+              description: node.tagIds?.length
+                ? `${node.tagIds.length} selected`
+                : "Choose one or more",
+              buttonLabel: "Choose…",
+            },
+            undefined,
+            () => {},
+            onPickTags,
+          ),
+        );
+        rows.push(
+          choice(
+            "tagMode",
+            "Match",
+            [
+              { value: "And", label: "All tags (AND)" },
+              { value: "Or", label: "Any tag (OR)" },
+            ],
+            node.mode,
+            (v) => set("mode", v),
+          ),
+        );
+        break;
+      case "Collection":
+        rows.push(
+          renderSteamSettingRow(
+            ui,
+            {
+              key: "collection",
+              kind: "action",
+              label: "Collection",
+              description: node.collectionId
+                ? libraryTabsDescribe(state, { ...node, inverted: false })
+                : "Choose one",
+              buttonLabel: "Choose…",
+            },
+            undefined,
+            () => {},
+            onPickCollection,
+          ),
+        );
+        break;
+      case "Whitelist":
+      case "Blacklist":
+        rows.push(
+          renderSteamSettingRow(
+            ui,
+            {
+              key: "games",
+              kind: "action",
+              label: "Games",
+              description: node.appIds?.length ? `${node.appIds.length} selected` : "Choose games",
+              buttonLabel: "Choose…",
+            },
+            undefined,
+            () => {},
+            onPickGames,
+          ),
+        );
+        break;
+      case "ReviewScore":
+        rows.push(
+          choice(
+            "source",
+            "Source",
+            [
+              { value: "SteamPercent", label: "Steam %" },
+              { value: "Metacritic", label: "Metacritic" },
+            ],
+            node.scoreType,
+            (v) => set("scoreType", v),
+          ),
+        );
+        rows.push(conditionRow());
+        rows.push(
+          libraryTabsStepper(ui, "score", "Score", node.threshold ?? 0, 0, 100, 5, (v) =>
+            set("threshold", v),
+          ),
+        );
+        break;
+      case "TimePlayed":
+        rows.push(conditionRow());
+        rows.push(
+          choice(
+            "units",
+            "Units",
+            [
+              { value: "Minutes", label: "Minutes" },
+              { value: "Hours", label: "Hours" },
+              { value: "Days", label: "Days" },
+            ],
+            node.units,
+            (v) => set("units", v),
+          ),
+        );
+        rows.push(
+          libraryTabsStepper(ui, "amount", "Amount", node.threshold ?? 0, 0, 1000, 1, (v) =>
+            set("threshold", v),
+          ),
+        );
+        break;
+      case "SizeOnDisk":
+        rows.push(conditionRow());
+        rows.push(
+          libraryTabsStepper(ui, "size", "Size (GB)", node.threshold ?? 0, 0, 2000, 5, (v) =>
+            set("threshold", v),
+          ),
+        );
+        break;
+      case "ReleaseDate":
+      case "LastPlayed":
+        rows.push(conditionRow());
+        rows.push(
+          libraryTabsStepper(ui, "days", "Days ago", node.daysAgo ?? 0, 0, 3650, 30, (v) => {
+            node.daysAgo = v;
+            node.year = 0;
+            touch();
+          }),
+        );
+        rows.push(
+          renderSteamSettingRow(
+            ui,
+            {
+              key: "daysNote",
+              kind: "note",
+              label: "0 days = use no date",
+              text: "Absolute dates: edit the configuration file.",
+            },
+            undefined,
+            () => {},
+            () => {},
+          ),
+        );
+        break;
+      case "SdCard": {
+        const cards = (state.cards ?? []).map((card) => ({
+          value: `Specific:${card.contentId}`,
+          label: card.name,
+        }));
+        const current =
+          node.cardScope === "Specific" ? `Specific:${node.contentId}` : node.cardScope;
+        const choices = [
+          { value: "Inserted", label: "Currently inserted" },
+          { value: "Any", label: "Any tracked card" },
+          ...cards,
+        ];
+        if (!choices.some((entry) => entry.value === current))
+          choices.push({ value: current, label: "Unavailable card" });
+        rows.push(
+          choice("card", "Card", choices, current, (v) => {
+            const [scope, contentId] = String(v).split(":");
+            node.cardScope = scope === "Specific" ? "Specific" : scope;
+            node.contentId = scope === "Specific" ? (contentId ?? "") : "";
+            touch();
+          }),
+        );
+        break;
+      }
+      case "Merge":
+        rows.push(
+          choice(
+            "mode",
+            "Match",
+            [
+              { value: "And", label: "All (AND)" },
+              { value: "Or", label: "Any (OR)" },
+            ],
+            node.mode,
+            (v) => set("mode", v),
+          ),
+        );
+        break;
+      default:
+        break;
+    }
+    const canInvert = (state.filterKinds ?? []).find(
+      (entry) => entry.kind === node.kind,
+    )?.canInvert;
+    if (canInvert) {
+      rows.push(
+        choice(
+          "invert",
+          "Result",
+          [
+            { value: false, label: "Normal" },
+            { value: true, label: "Inverted (NOT)" },
+          ],
+          !!node.inverted,
+          (v) => set("inverted", !!v),
+        ),
+      );
+    }
+    const children =
+      node.kind === "Merge"
+        ? renderSteamUiGroup(
+            ui,
+            { key: "children", title: "Group filters" },
+            h(
+              ui.focusable,
+              { className: "wsgm-tabs-list", "flow-children": "column" },
+              ...(node.children ?? []).map((child, index) =>
+                renderSteamUiSelectRow(ui, {
+                  key: `${index}:${child.kind}`,
+                  title: libraryTabsDescribe(state, child),
+                  detail:
+                    libraryTabsKindLabel(state, child.kind) +
+                    (libraryTabsIncomplete(child) ? " · ⚠ incomplete" : ""),
+                  onClick: () => onEditChild(child),
+                }),
+              ),
+            ),
+            renderSteamUiActions(ui, [
+              { id: "addChild", label: "Add to group", onClick: onAddChild },
+            ]),
+          )
+        : null;
+    return libraryTabsLevel(
+      ui,
+      onBack,
+      libraryTabsKindLabel(state, node.kind),
+      group ? "Part of a group" : undefined,
+      h(ui.settingsSection, { label: "Filter" }, ...rows),
+      children,
+      renderSteamUiActions(ui, [
+        ...(group ? [] : [{ id: "changeType", label: "Change type", onClick: onChangeType }]),
+        {
+          id: "remove",
+          label: group ? "Remove from group" : "Remove filter",
+          onClick: () =>
+            showSteamUiConfirm(ui, {
+              title: "Remove this filter?",
+              text: libraryTabsDescribe(state, node),
+              confirmLabel: "Remove",
+              onConfirm: onRemove,
+            }),
+        },
+        { id: "done", label: "Done", primary: true, onClick: onBack },
+      ]),
+    );
+  }
+  /**
+   * The tab itself: its name, match mode, categories and filters, and the save, delete and cancel actions.
+   * @param props Resolved components, published state, the draft, whether it exists, a redraw, and the callbacks.
+   * @returns The nested level; Back discards the draft like Cancel.
+   */
+  function LibraryTabsEditor({
+    ui,
+    state,
+    draft,
+    existing,
+    touch,
+    onAddFilter,
+    onEditFilter,
+    onSave,
+    onDelete,
+    onBack,
+  }) {
+    const react = ui.react;
+    const h = react.createElement;
+    const filters = draft.filterTree.children ?? [];
+    const change = (row, value) => {
+      switch (row.key) {
+        case "name":
+          draft.name = String(value ?? "");
+          break;
+        case "mode":
+          draft.filterTree.mode = value;
+          break;
+        case "categories":
+          draft.categories = Number(value);
+          break;
+        default:
+          return;
+      }
+      touch();
+    };
+    const rows = [
+      renderSteamSettingRow(
+        ui,
+        {
+          key: "name",
+          kind: "text",
+          label: "Name",
+          description: draft.name ? undefined : "Required",
+          text: draft.name,
+        },
+        draft.name,
+        change,
+        () => {},
+      ),
+      renderSteamSettingRow(
+        ui,
+        {
+          key: "mode",
+          kind: "choice",
+          label: "Match",
+          text: draft.filterTree.mode,
+          choices: [
+            { value: "And", label: "All filters (AND)" },
+            { value: "Or", label: "Any filter (OR)" },
+          ],
+        },
+        undefined,
+        change,
+        () => {},
+      ),
+      renderSteamSettingRow(
+        ui,
+        {
+          key: "categories",
+          kind: "choice",
+          label: "Include",
+          text: draft.categories,
+          choices: libraryTabsCategoryChoices(draft.categories),
+        },
+        undefined,
+        change,
+        () => {},
+      ),
+    ];
+    return libraryTabsLevel(
+      ui,
+      onBack,
+      existing ? "Edit tab" : "New tab",
+      undefined,
+      h(ui.settingsSection, { label: "Tab" }, ...rows),
+      renderSteamUiGroup(
+        ui,
+        { key: "filters", title: "Filters" },
+        filters.length === 0
+          ? renderSteamUiEmpty(react, "No filters yet — add one below.")
+          : h(
+              ui.focusable,
+              { className: "wsgm-tabs-list", "flow-children": "column" },
+              ...filters.map((node, index) =>
+                renderSteamUiSelectRow(ui, {
+                  key: `${index}:${node.kind}`,
+                  title: libraryTabsDescribe(state, node),
+                  detail:
+                    libraryTabsKindLabel(state, node.kind) +
+                    (libraryTabsIncomplete(node) ? " · ⚠ incomplete" : ""),
+                  onClick: () => onEditFilter(node),
+                }),
+              ),
+            ),
+        renderSteamUiActions(ui, [{ id: "add", label: "Add filter", onClick: onAddFilter }]),
+      ),
+      renderSteamUiActions(ui, [
+        { id: "save", label: "Save tab", primary: true, disabled: !!state.busy, onClick: onSave },
+        ...(existing
+          ? [
+              {
+                id: "delete",
+                label: "Delete tab",
+                disabled: !!state.busy,
+                onClick: () =>
+                  showSteamUiConfirm(ui, {
+                    title: `Delete ${draft.name || "this tab"}?`,
+                    text: "The tab leaves Steam's library strip.",
+                    confirmLabel: "Delete",
+                    onConfirm: onDelete,
+                  }),
+              },
+            ]
+          : []),
+        { id: "cancel", label: "Cancel", onClick: onBack },
+      ]),
+    );
+  }
+  /**
+   * Renders the tab list, the strip order, one tab's editor and its filter levels from host state,
+   * with Back walking the levels up.
+   * @param context Registered page accessors for Steam components, latest state and publication refusal.
+   * @returns The page React tree, including loading or refusal state when data is unavailable.
+   */
+  function LibraryTabsPage({ context }) {
+    const react = context.react();
+    const h = react.createElement;
+    const ui = context.ui();
+    const state = context.state();
+    // The levels the user walked into, root first; a reload of the asset starts at the list, so no
+    // stale editor outlives the state it was opened from. The draft tab is edited in place and
+    // redrawn through a counter, as the overlay's editor mutates its own copy.
+    const [levels, setLevels] = react.useState([]);
+    const [draft, setDraft] = react.useState(null);
+    const [existing, setExisting] = react.useState(false);
+    const [returnTo, setReturnTo] = react.useState("");
+    const [, redraw] = react.useState(0);
+    react.useEffect(() => {
+      void libraryTabsAct("refresh");
+    }, []);
+    if (!state) return renderSteamUiEmpty(react, context.refusal() ?? "Loading library tabs…");
+    const touch = () => redraw((value) => value + 1);
+    const push = (level) => setLevels((stack) => [...stack, level]);
+    const pop = () => setLevels((stack) => stack.slice(0, -1));
+    const replaceTop = (level) => setLevels((stack) => [...stack.slice(0, -1), level]);
+    const toList = (id) => {
+      setReturnTo(id);
+      setLevels([]);
+      setDraft(null);
+    };
+    const openEditor = (tab) => {
+      setDraft(tab ? JSON.parse(JSON.stringify(tab)) : libraryTabsNewTab());
+      setExisting(!!tab);
+      setLevels([{ kind: "editor" }]);
+    };
+    const listOf = (group) => (group ? group.children : draft.filterTree.children);
+    const top = levels[levels.length - 1];
+    const banner = state.error || state.notice;
+    let body;
+    if (!top) {
+      body = h(LibraryTabsList, {
+        ui,
+        state,
+        returnTo,
+        onNew: () => openEditor(null),
+        onOrder: () => setLevels([{ kind: "order" }]),
+        onEdit: openEditor,
+      });
+    } else if (top.kind === "order") {
+      body = h(LibraryTabsOrder, { ui, state, onBack: () => toList("") });
+    } else if (!draft) {
+      body = renderSteamUiEmpty(react, "Loading…");
+    } else if (top.kind === "editor") {
+      body = h(LibraryTabsEditor, {
+        ui,
+        state,
+        draft,
+        existing,
+        touch,
+        onAddFilter: () => push({ kind: "picker", replacing: null, group: null }),
+        onEditFilter: (node) => push({ kind: "filter", node, group: null }),
+        onSave: () =>
+          void request(LibraryTabsPatchId, "saveTab", { tab: draft }).then(
+            () => toList(draft.id),
+            // The host names what is missing in the banner; the editor stays open.
+            () => {},
+          ),
+        onDelete: () =>
+          void request(LibraryTabsPatchId, "deleteTab", { id: draft.id }).then(
+            () => toList(""),
+            () => {},
+          ),
+        onBack: () => toList(existing ? draft.id : ""),
+      });
+    } else if (top.kind === "picker") {
+      body = h(LibraryTabsFilterPicker, {
+        ui,
+        state,
+        inGroup: !!top.group,
+        onBack: pop,
+        onPick: (kind) => {
+          const node = libraryTabsNewFilter(kind);
+          const list = listOf(top.group);
+          const index = top.replacing ? list.indexOf(top.replacing) : -1;
+          if (index >= 0) list[index] = node;
+          else list.push(node);
+          touch();
+          // The picker becomes the new filter's editor, so Back from it returns to where the
+          // picker was opened from.
+          replaceTop({ kind: "filter", node, group: top.group });
+        },
+      });
+    } else if (top.kind === "filter") {
+      const node = top.node;
+      body = h(LibraryTabsFilterEditor, {
+        ui,
+        state,
+        node,
+        group: top.group,
+        touch,
+        onBack: pop,
+        onPickTags: () => {
+          void libraryTabsAct("loadTags");
+          push({ kind: "tags", node });
+        },
+        onPickCollection: () => {
+          void libraryTabsAct("loadCollections");
+          push({ kind: "collections", node });
+        },
+        onPickGames: () => {
+          void libraryTabsAct("loadGames");
+          push({ kind: "games", node });
+        },
+        onChangeType: () => push({ kind: "picker", replacing: node, group: top.group }),
+        onAddChild: () => push({ kind: "picker", replacing: null, group: node }),
+        onEditChild: (child) => push({ kind: "filter", node: child, group: node }),
+        onRemove: () => {
+          const list = listOf(top.group);
+          const index = list.indexOf(node);
+          if (index >= 0) list.splice(index, 1);
+          touch();
+          pop();
+        },
+      });
+    } else if (top.kind === "tags") {
+      const node = top.node;
+      const selected = new Set((node.tagIds ?? []).map(Number));
+      body = h(LibraryTabsMultiSelect, {
+        ui,
+        title: "Tags",
+        picker: state.tags,
+        labelOf: (tag) => `${tag.name} (${tag.count})`,
+        idOf: (tag) => Number(tag.tagId),
+        selected,
+        onToggle: (id) => {
+          node.tagIds = selected.has(id)
+            ? (node.tagIds ?? []).filter((entry) => Number(entry) !== id)
+            : [...(node.tagIds ?? []), id];
+          touch();
+        },
+        onBack: pop,
+      });
+    } else if (top.kind === "games") {
+      const node = top.node;
+      const selected = new Set((node.appIds ?? []).map(Number));
+      body = h(LibraryTabsMultiSelect, {
+        ui,
+        title: "Games",
+        picker: state.games,
+        labelOf: (game) => game.name,
+        idOf: (game) => Number(game.appId),
+        selected,
+        onToggle: (id) => {
+          node.appIds = selected.has(id)
+            ? (node.appIds ?? []).filter((entry) => Number(entry) !== id)
+            : [...(node.appIds ?? []), id];
+          touch();
+        },
+        onBack: pop,
+      });
+    } else if (top.kind === "collections") {
+      const node = top.node;
+      body = h(LibraryTabsCollectionPicker, {
+        ui,
+        picker: state.collections,
+        onBack: pop,
+        onPick: (id) => {
+          node.collectionId = id;
+          touch();
+          pop();
+        },
+      });
+    }
+    return h(
+      "div",
+      {
+        id: "wsgm-library-tabs",
+        className: "steam-ui-kit-page",
+        "aria-label": "Library Tab Manager",
+      },
+      steamUiKitStyle(react),
+      h("style", null, libraryTabsStyles),
+      banner
+        ? h(
+            "div",
+            { className: "steam-ui-kit-page-banner" },
+            renderSteamUiBanner(ui, {
+              text: banner,
+              error: !!state.error,
+              onDismiss: () => void libraryTabsAct("dismiss"),
+            }),
+          )
+        : null,
+      body,
+    );
+  }
+  const libraryTabsPage = registerSteamPage({
+    template: "library-tab-manager",
+    gate: "libraryTabManager",
+    patchId: LibraryTabsPatchId,
+    components: resolveSteamSettingsComponents,
+    required: [...SteamSettingsRequired, "dialogButtonPrimary", "modalRoot"],
+    status: () => ({ tabs: libraryTabsPage.state()?.tabs?.length ?? 0 }),
+    Page: LibraryTabsPage,
   });
   // @fragment consumer/library-tabs.ts
   // WSGM's library transform shares the toolkit's React claim. It owns no dispatcher property.

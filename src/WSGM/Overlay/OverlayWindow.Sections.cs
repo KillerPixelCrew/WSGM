@@ -290,6 +290,11 @@ public partial class OverlayWindow
 
     private Control? CreatePinnedSection(string id)
     {
+        if (id.StartsWith(ProgramsService.PinPrefix, StringComparison.Ordinal))
+        {
+            return CreateProgramPin(id);
+        }
+
         if (_controlPinFactories.TryGetValue(id, out var host))
         {
             if (PinnedSectionsGrid.Children.FirstOrDefault(row => Equals(row.Tag, PinTagPrefix + id)) is { } existing)

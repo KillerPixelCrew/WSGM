@@ -50,7 +50,10 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
     /// <param name="pluginSteamUi">The admitted-package projection, or null when there is none.</param>
     /// <param name="openImport">Returns the route that opens the importer, or null without one.</param>
     /// <param name="sourceNames">The sources the library reads, for the row's detail line.</param>
-    /// <param name="sections">WSGM's own sections after the library, in order: the themes, the boot movie.</param>
+    /// <param name="sections">
+    ///     WSGM's own sections after the library, in order: the SD Card Manager, the Library Tab
+    ///     Manager, the themes, the boot movie. A section with no current item is left out.
+    /// </param>
     /// <param name="emulatorsAvailable">Whether emulator management is available in this session.</param>
     internal SteamExtensionsTabBackend(
         CommonPluginSteamUiSource? pluginSteamUi,
@@ -91,7 +94,11 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
         if (_sections.FirstOrDefault(section => id.StartsWith(section.SectionId + ".", StringComparison.Ordinal))
             is { } owner)
         {
-            return await owner.ActivateExtensionAsync(id, cancellationToken).ConfigureAwait(false);
+            // A section that has no row right now refuses its actions too: the click is a stale one
+            // from before its feature was switched off.
+            return owner.ReadExtensionsItem() is null
+                ? new SteamUiCommandResult(false, "That entry is no longer available.")
+                : await owner.ActivateExtensionAsync(id, cancellationToken).ConfigureAwait(false);
         }
 
         if (id.StartsWith(ReservedPrefix, StringComparison.Ordinal))
@@ -111,7 +118,9 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
     {
         if (_sections.FirstOrDefault(section => section.SectionId == id) is { } owner)
         {
-            return await owner.ConfigureExtensionAsync(key, value, cancellationToken).ConfigureAwait(false);
+            return owner.ReadExtensionsItem() is null
+                ? new SteamUiCommandResult(false, "That setting is no longer available.")
+                : await owner.ConfigureExtensionAsync(key, value, cancellationToken).ConfigureAwait(false);
         }
 
         // WSGM's other rows declare no settings, so a configure for one is a stale click.
@@ -151,7 +160,7 @@ internal sealed class SteamExtensionsTabBackend : ISteamExtensionsTabBackend
                 [new SteamExtensionsTabAction(OpenEmulatorsId, "Emulator Manager")]));
         }
 
-        items.AddRange(_sections.Select(section => section.ReadExtensionsItem()));
+        items.AddRange(_sections.Select(section => section.ReadExtensionsItem()).OfType<SteamExtensionsTabItem>());
 
         if (_pluginSteamUi is not null)
         {

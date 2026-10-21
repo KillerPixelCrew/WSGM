@@ -21,6 +21,9 @@ namespace WSGM.Overlay;
 /// <param name="DisplayModes">The composition's display-mode operations.</param>
 /// <param name="PowerProfiles">The session's shared Windows power-profile selection workflow.</param>
 /// <param name="Emulators">The independent emulator downloader/updater backend.</param>
+/// <param name="Programs">The shared desktop application definitions and launch-or-focus owner.</param>
+/// <param name="LaunchActions">Per-game launch configuration shared with the Steam page.</param>
+/// <param name="LibraryManager">SD Card Manager and Library Tab Manager shared with Steam, outside overlay-test.</param>
 internal sealed record OverlaySources(
     IDeviceOverlaySource? Device = null,
     PerformanceOverlayBridge? Performance = null,
@@ -36,7 +39,10 @@ internal sealed record OverlaySources(
     SteamArtworkBrowserSource? Artwork = null,
     DisplayModeAccess? DisplayModes = null,
     NativeQamPowerProfileService? PowerProfiles = null,
-    IEmulatorBackend? Emulators = null);
+    IEmulatorBackend? Emulators = null,
+    IProgramsSource? Programs = null,
+    LaunchActionService? LaunchActions = null,
+    LibraryManagerService? LibraryManager = null);
 
 /// <summary>The display-mode operations supplied by the composition, also used by pinned controls.</summary>
 /// <param name="Read">Reads modes for the sheet's current display source.</param>

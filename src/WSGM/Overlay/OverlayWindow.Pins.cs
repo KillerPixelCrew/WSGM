@@ -349,7 +349,8 @@ public partial class OverlayWindow
     /// <summary>Static actions and whole Device and Graphics sections are the pin targets.</summary>
     private bool IsPinnable(string id, Func<DeviceOverlaySnapshot?> deviceSnapshot)
     {
-        return _pinnable.ContainsKey(id) || _controlPinFactories.ContainsKey(id)
+        return id.StartsWith(ProgramsService.PinPrefix, StringComparison.Ordinal)
+               || _pinnable.ContainsKey(id) || _controlPinFactories.ContainsKey(id)
                                          || (id == "section.performance" &&
                                              _performanceSource?.Snapshot().Visible is true)
                                          || (_pins.Contains(id) && id.StartsWith("section.", StringComparison.Ordinal))

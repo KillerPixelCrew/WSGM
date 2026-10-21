@@ -423,6 +423,25 @@ core filters for search matches, missing files and absent metadata. System defau
 emulator/core editors by console family; changing them leaves existing ROM libraries and overrides
 alone. Y checks for updates in the Overlay and Steam page.
 
+Installing or registering an emulator also publishes its own interface as a managed Steam shortcut.
+Existing installations default to this on upgrade. Each installation's detail page, in Overlay and
+`/wsgm/emulators`, has the same shortcut switch and launch-mode choice: input lease (default), no
+lease, de-elevation, or de-elevation with a lease. The lease uses the current Steam Input Management
+setting, selecting the injecting route when management is off. Launch resolves the stable
+installation identity and current active version, so updates and repairs preserve the Steam app id.
+Opening the emulator interface requires its portable program and data, without requiring a ROM, core
+or game BIOS/firmware to be configured first.
+
+The emulator shortcut reconciler uses `SteamShortcutWriter`, `ShortcutRoute` and the importer's
+ownership ledger under the `wsgm-emulators` source. The importer leaves these records to the
+emulator owner. Disabling the shortcut or removing its installation removes only a shortcut whose
+command still matches the recorded fields. Hand-edited entries and uncertain creations are retained
+for review; a complete Steam read can recover one exact unconfirmed creation without adding a
+duplicate. Steam-unavailable changes remain pending until session readiness or reconnect. Changes to
+the input management setting rewrite the same shortcut. Catalogue `steamGridDbId` values select
+artwork directly; definitions without one use the ordinary title search. Without a SteamGridDB API
+key the shortcut still works and artwork is skipped.
+
 The Steam page registers its responsive cards, wrapped tabs/actions and split columns with native
 navigation containers. Grids accept both directional axes; each detail column keeps its vertical
 controls together. Opening a tab or detail mounts its native focus owner, while ordinary state and

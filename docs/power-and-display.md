@@ -1,5 +1,9 @@
 # Display profiles, power and wake locks
 
+The [GPU-scaled source-resolution editor](scaled-resolutions.md) lives in Settings > Display and
+Steam Display Settings. Its vendor catalogs are separate from display layouts and the existing
+Overlay/Quick Access active-mode pickers.
+
 What WSGM does with the display and the power state of a handheld: Windows power schemes and
 processor policy, device power presets and their assignments, Game Mode display layouts and audio
 profiles, muting during screen-off downloads, the keep-awake wake lock, refresh-rate pairing for the

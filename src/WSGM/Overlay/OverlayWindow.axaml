@@ -356,6 +356,7 @@
             <ov:LibraryTabsView x:Name="LibraryTabsHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:CardManagerView x:Name="CardManagerHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:GameLibraryView x:Name="GameLibraryHost" IsVisible="False" HorizontalAlignment="Stretch" />
+            <ov:ProgramsView x:Name="ProgramsHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:EmulatorManagerView x:Name="EmulatorManagerHost" IsVisible="False"
                                 HorizontalAlignment="Stretch" />
             <ov:ArtworkView x:Name="ArtworkHost" IsVisible="False" />
@@ -484,6 +485,10 @@
                             IconGeometry="{x:Static c:Icons.Grid4}"
                             Title="Library Importer"
                             Description="Bring games from other launchers into Steam, with their artwork" />
+              <c:ActionButton Classes="tile" Click="OnEnterCategory"
+                            CommandParameter="{x:Static ov:OverlayPage.Programs}"
+                            IconGeometry="{x:Static c:Icons.Rocket}" Title="Programs"
+                            Description="Launch or focus your tools; pin them to Quick access" />
               <c:ActionButton x:Name="EmulatorManagerTile" Classes="tile" Click="OnEnterCategory"
                             CommandParameter="{x:Static ov:OverlayPage.EmulatorManager}"
                             Tag="system.emulator-manager"

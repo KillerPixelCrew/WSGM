@@ -5,6 +5,8 @@ namespace WSGM.Core;
 
 /// <summary>Source-generated JSON metadata for the persisted <see cref="AppConfig" /> contract.</summary>
 [JsonSerializable(typeof(AppConfig))]
+[JsonSerializable(typeof(ProgramDefinition))]
+[JsonSerializable(typeof(ScaledResolutionAddition))]
 [JsonSerializable(typeof(GpuDriverConfig))]
 [JsonSerializable(typeof(GameModeLaunchRecovery))]
 [JsonSerializable(typeof(DisplayGpuPreference))]

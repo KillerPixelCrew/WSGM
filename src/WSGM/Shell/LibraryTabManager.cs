@@ -98,6 +98,27 @@ internal static class LibraryTabManager
     private static bool _closed;
 
     /// <summary>
+    ///     Raised after the card model, the custom tabs or the tab order changed in configuration: a
+    ///     manager mutation from either surface, or a sync that merged a fresh drive scan. The shared
+    ///     <see cref="LibraryManagerService" /> rebuilds its projection on it, so both the overlay and
+    ///     Steam follow a change made on the other surface or by a card insertion.
+    /// </summary>
+    /// <remarks>Raised on the thread that finished the write; handlers must not block it.</remarks>
+    internal static event Action? Changed;
+
+    private static void NotifyChanged()
+    {
+        try
+        {
+            Changed?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Library tabs: a change listener failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     ///     Recomputes every WSGM library tab and injects them into Steam's tab
     ///     strip (see <see cref="SteamLibraryTabs" />): custom filter tabs, then per-card
     ///     tabs, then genre tabs. Reactive: called after any change in the builder or on a
@@ -215,6 +236,9 @@ internal static class LibraryTabManager
             // so this never talks to Steam and cannot fail the sync.
             LibraryBadges.Update(config, discovered.Select(static card => card.ContentId)
                 .ToHashSet(StringComparer.Ordinal));
+            // The merge above may have added a card, renamed one from its marker or refreshed its
+            // capacity: the manager projections follow it the same way they follow a user change.
+            NotifyChanged();
             if (!tabsEnabled)
             {
                 // The tab strip is switched off, so there is nothing left to push and
@@ -415,7 +439,7 @@ internal static class LibraryTabManager
             return config.CardLibraries
                 .Select(c => new CardView(
                     c.ContentId, c.Name, c.Enabled, c.Hidden, c.AppIds.Count,
-                    present.Contains(c.ContentId), [.. c.AppIds]))
+                    present.Contains(c.ContentId), [.. c.AppIds], c.CapacityBytes, c.FreeBytes))
                 .ToList();
         }, cancellationToken).ConfigureAwait(false);
     }
@@ -470,6 +494,7 @@ internal static class LibraryTabManager
 
         await UpdateCardAsync(store, contentId, c => c.Name = trimmed, cancellationToken)
             .ConfigureAwait(false);
+        NotifyChanged();
 
         var notes = new List<string>();
         var steamNote = await PushLabelToSteamAsync(steam, contentId, trimmed, cancellationToken)
@@ -742,6 +767,7 @@ internal static class LibraryTabManager
         bool enabled, CancellationToken cancellationToken = default)
     {
         await UpdateCardAsync(store, contentId, c => c.Enabled = enabled, cancellationToken).ConfigureAwait(false);
+        NotifyChanged();
         StartQuietSync(store, steam, "card manager");
     }
 
@@ -756,6 +782,7 @@ internal static class LibraryTabManager
         bool hidden, CancellationToken cancellationToken = default)
     {
         await UpdateCardAsync(store, contentId, c => c.Hidden = hidden, cancellationToken).ConfigureAwait(false);
+        NotifyChanged();
         StartQuietSync(store, steam, "card manager");
     }
 
@@ -788,6 +815,7 @@ internal static class LibraryTabManager
 
             return null;
         }, cancellationToken).ConfigureAwait(false);
+        NotifyChanged();
         StartQuietSync(store, steam, "card manager");
     }
 
@@ -819,19 +847,24 @@ internal static class LibraryTabManager
     ///     move, and it falls back to a full sync when the resident script is not installed in this
     ///     Steam session yet.
     /// </remarks>
-    internal static void SaveTabOrder(ConfigStore store, SteamClient? steam, List<string> order, List<string> hidden)
+    /// <returns>
+    ///     Completion of this order's configuration write, after every earlier one; the push into Steam
+    ///     is not awaited. Already complete after the session closed, when nothing is written.
+    /// </returns>
+    internal static Task SaveTabOrder(ConfigStore store, SteamClient? steam, List<string> order, List<string> hidden)
     {
         lock (WorkGate)
         {
             if (_closed)
             {
-                return;
+                return Task.CompletedTask;
             }
 
             _tabOrderWrites = _tabOrderWrites
                 .ContinueWith(_ => SaveTabOrderAsync(store, steam, order, hidden), TaskScheduler.Default)
                 .Unwrap();
             TrackLocked(_tabOrderWrites);
+            return _tabOrderWrites;
         }
     }
 
@@ -852,6 +885,8 @@ internal static class LibraryTabManager
             Log.Warn($"Library tab order save failed: {ex.Message}");
             return;
         }
+
+        NotifyChanged();
 
         lock (WorkGate)
         {
@@ -933,6 +968,7 @@ internal static class LibraryTabManager
 
             return null;
         }).ConfigureAwait(false);
+        NotifyChanged();
         StartQuietSync(store, steam, "builder");
     }
 
@@ -1134,7 +1170,8 @@ internal static class LibraryTabManager
 
                 var name = ResolveName(label, letter);
                 var appIds = ReadAcfAppIds(Path.Combine(root, "steamapps"));
-                found.Add(new Discovered(contentId, name, appIds, label));
+                var (capacity, free) = ReadVolumeSpace(letter);
+                found.Add(new Discovered(contentId, name, appIds, label, capacity, free));
             }
             catch (Exception ex)
             {
@@ -1143,6 +1180,25 @@ internal static class LibraryTabManager
         }
 
         return found;
+    }
+
+    /// <summary>
+    ///     Reads a mounted library volume's size and free space, the figures the card manager shows and
+    ///     remembers for the card while it is ejected. Zero when Windows could not answer, which the
+    ///     merge treats as "no reading" rather than a full card.
+    /// </summary>
+    private static (long CapacityBytes, long FreeBytes) ReadVolumeSpace(char letter)
+    {
+        try
+        {
+            var drive = new DriveInfo($@"{letter}:\");
+            return drive.IsReady ? (drive.TotalSize, drive.AvailableFreeSpace) : (0, 0);
+        }
+        catch (Exception ex)
+        {
+            Log.Debug($@"Library tabs: no size for {letter}:\: {ex.Message}");
+            return (0, 0);
+        }
     }
 
     /// <summary>
@@ -1275,6 +1331,12 @@ internal static class LibraryTabManager
             }
 
             existing.AppIds = card.AppIds;
+            // The last reading survives ejection: the manager keeps showing how full the card was.
+            if (card.CapacityBytes > 0)
+            {
+                existing.CapacityBytes = card.CapacityBytes;
+                existing.FreeBytes = card.FreeBytes;
+            }
         }
     }
 
@@ -1322,6 +1384,11 @@ internal static class LibraryTabManager
     /// <param name="GameCount">Remembered installed app count.</param>
     /// <param name="Inserted">Whether the card is currently mounted.</param>
     /// <param name="AppIds">Remembered installed app ids.</param>
+    /// <param name="CapacityBytes">
+    ///     The volume's size from the last time it was mounted, 0 when it was never read. Kept while
+    ///     the card is ejected, so the row still says how large it is.
+    /// </param>
+    /// <param name="FreeBytes">The free space from that same reading; meaningful only with a capacity.</param>
     public sealed record CardView(
         string ContentId,
         string Name,
@@ -1329,7 +1396,9 @@ internal static class LibraryTabManager
         bool Hidden,
         int GameCount,
         bool Inserted,
-        IReadOnlyList<long> AppIds);
+        IReadOnlyList<long> AppIds,
+        long CapacityBytes = 0,
+        long FreeBytes = 0);
 
     /// <summary>The volume a tracked library currently lives on.</summary>
     /// <param name="Root">
@@ -1365,9 +1434,13 @@ internal static class LibraryTabManager
     ///     <c>libraryfolder.vdf</c>, empty when it has none. Authoritative: it is the
     ///     only name that travels with the media.
     /// </param>
+    /// <param name="CapacityBytes">The volume's size, 0 when Windows did not answer.</param>
+    /// <param name="FreeBytes">The volume's free space from the same reading.</param>
     internal sealed record Discovered(
         string ContentId,
         string Name,
         List<long> AppIds,
-        string MarkerLabel);
+        string MarkerLabel,
+        long CapacityBytes = 0,
+        long FreeBytes = 0);
 }

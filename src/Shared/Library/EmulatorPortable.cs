@@ -43,6 +43,7 @@ internal static class EmulatorPortable
             "eden" when Directory.Exists(Path.Combine(program, "user")) => Path.Combine(program, "user"),
             "rpcs3" when Directory.Exists(Path.Combine(program, "portable")) => Path.Combine(program, "portable"),
             "dolphin" when File.Exists(Path.Combine(program, "portable.txt")) => Path.Combine(program, "User"),
+            _ when EmulatorPortableProfiles.Supports(id) => EmulatorPortableProfiles.ReadExternal(id, program),
             _ => throw new InvalidDataException(Instruction(id))
         };
         data = PhysicalPath(data);
@@ -122,7 +123,14 @@ internal static class EmulatorPortable
 
                     VerifyDirectory(program, "User", installed.DataPath);
                     break;
-                default: throw new InvalidDataException("This emulator has no reviewed portable policy.");
+                default:
+                    if (!EmulatorPortableProfiles.Supports(installed.DefinitionId))
+                    {
+                        throw new InvalidDataException("This emulator has no reviewed portable policy.");
+                    }
+
+                    EmulatorPortableProfiles.Verify(installed);
+                    break;
             }
         }
 
@@ -222,7 +230,7 @@ internal static class EmulatorPortable
                 yield return ("settings.ini", "MemoryCards", "Card" + slot + "Path", "memcards");
             }
         }
-        else if (id == "pcsx2")
+        else if (id is "pcsx2" or "armsx2")
         {
             foreach (var (key, folder) in new[]
                      {
@@ -236,7 +244,7 @@ internal static class EmulatorPortable
                 yield return ("inis/PCSX2.ini", "Folders", key, folder);
             }
         }
-        else if (id == "eden")
+        else if (id is "eden" or "citron" or "suyu")
         {
             yield return ("config/qt-config.ini", "DataStorage", "nand_directory", "nand");
             yield return ("config/qt-config.ini", "DataStorage", "sdmc_directory", "sdmc");
@@ -245,7 +253,7 @@ internal static class EmulatorPortable
             yield return ("config/qt-config.ini", "DataStorage", "tas_directory", "tas");
             yield return ("config/qt-config.ini", "DataStorage", "save_directory", "nand");
         }
-        else if (id == "dolphin")
+        else if (id is "dolphin" or "primehack")
         {
             yield return ("Config/Dolphin.ini", "General", "NANDRootPath", "Wii");
             yield return ("Config/Dolphin.ini", "General", "DumpPath", "Dump");
@@ -267,7 +275,7 @@ internal static class EmulatorPortable
     internal static string ResolveSettingPath(EmulatorInstallation installed, string section, string key, string value)
     {
         var root = installed.DataPath;
-        if (installed.DefinitionId is "eden" or "dolphin")
+        if (installed.DefinitionId is "eden" or "citron" or "suyu" or "dolphin" or "primehack")
         {
             root = Path.GetDirectoryName(installed.ExecutablePath)!;
         }
@@ -347,7 +355,8 @@ internal static class EmulatorPortable
             return Path.GetFullPath(Path.Combine(workingDirectory, value));
         }
 
-        var option = installed.DefinitionId == "retroarch" ? "-c" : installed.DefinitionId == "dolphin" ? "-u" : "";
+        var option = installed.DefinitionId == "retroarch" ? "-c" :
+            installed.DefinitionId is "dolphin" or "primehack" ? "-u" : "";
         var expected = installed.DefinitionId == "retroarch"
             ? Path.Combine(installed.DataPath, "retroarch.cfg")
             : installed.DataPath;
@@ -360,7 +369,7 @@ internal static class EmulatorPortable
                 break;
             }
 
-            if (installed.DefinitionId == "pcsx2" && argument == "-datapath")
+            if ((installed.DefinitionId is "pcsx2" or "armsx2") && argument == "-datapath")
             {
                 throw new InvalidDataException("The legacy PCSX2 data override bypasses portable mode. Use Repair.");
             }
@@ -433,7 +442,7 @@ internal static class EmulatorPortable
                 }
             }
 
-            if (installed.DefinitionId == "dolphin" && (argument is "-C" or "--config"
+            if ((installed.DefinitionId is "dolphin" or "primehack") && (argument is "-C" or "--config"
                                                         || argument.StartsWith("--config=", StringComparison.Ordinal)
                                                         || (argument.StartsWith("-C", StringComparison.Ordinal) &&
                                                             argument.Length > 2)))
@@ -479,8 +488,47 @@ internal static class EmulatorPortable
 
     internal static string[] BindArguments(EmulatorInstallation installed, string[] arguments)
     {
+        if (installed.DefinitionId == "model2" && arguments.Length == 1 &&
+            Path.IsPathFullyQualified(arguments[0]) && File.Exists(arguments[0]))
+        {
+            // Model 2 takes a driver name; ROM search folders live in EMULATOR.INI.
+            var config = Path.Combine(installed.DataPath, "EMULATOR.INI");
+            var directory = Path.GetDirectoryName(arguments[0])!;
+            var found = false;
+            var empty = "";
+            for (var index = 1; index <= 10; index++)
+            {
+                var key = "Dir" + index;
+                var value = IniFile.ReadValue(config, key, "RomDirs")?.Trim('"');
+                if (string.IsNullOrWhiteSpace(value))
+                {
+                    if (empty.Length == 0)
+                    {
+                        empty = key;
+                    }
+                }
+                else if (Same(Path.Combine(installed.DataPath, value), directory))
+                {
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found)
+            {
+                if (empty.Length == 0)
+                {
+                    throw new InvalidDataException("Model 2's ROM search list is full. Remove an unused folder in EMULATOR.INI.");
+                }
+
+                IniFile.SetValue(config, empty, directory, "RomDirs");
+            }
+
+            arguments = [Path.GetFileNameWithoutExtension(arguments[0])];
+        }
+
         var shortOption = installed.DefinitionId == "retroarch" ? "-c" :
-            installed.DefinitionId == "dolphin" ? "-u" : "";
+            installed.DefinitionId is "dolphin" or "primehack" ? "-u" : "";
         if (shortOption.Length > 0)
         {
             var longOption = installed.DefinitionId == "retroarch" ? "--config" : "--user";

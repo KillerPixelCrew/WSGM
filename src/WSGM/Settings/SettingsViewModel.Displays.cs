@@ -14,6 +14,9 @@ public sealed partial class SettingsViewModel
     private bool _launchLoaded;
     private DisplayArrangement? _observedDisplays;
 
+    /// <summary>Immediate source-mode catalog editor, shared with Steam Display Settings.</summary>
+    public ScaledResolutionEditor ScaledResolutions { get; }
+
     /// <summary>Gets the read-only display discovery command.</summary>
     public AsyncRelayCommand RefreshDisplaysCommand { get; }
 
@@ -96,6 +99,7 @@ public sealed partial class SettingsViewModel
 
     internal void StopDisplayDiscovery()
     {
+        ScaledResolutions.Close();
         _displayDiscoveryClosed = true;
         GameAudioProfile.StopDiscovery();
         DesktopAudioProfile.StopDiscovery();

@@ -18,63 +18,69 @@ namespace WSGM.Overlay;
 /// <summary>
 ///     The gamepad-driven custom-tab builder, hosted as a Tools sub-view of the
 ///     overlay (the <c>PanelFormat</c> idiom; scaffolding in <see cref="OverlaySubView" />).
-///     All Steam contact goes through <see cref="SteamLibraryData" /> /
-///     <see cref="LibraryTabManager" />; a tab is injected into Steam's own tab strip
-///     by <see cref="SteamLibraryTabs" /> and its membership is a fake in-memory
-///     collection — no Steam collection is ever created, and user/SRM ones are never
-///     touched. Card libraries are managed by the separate
-///     <see cref="CardManagerView" />.
+///     The view is one projection of <see cref="LibraryManagerService" />, which Steam's Library
+///     Tab Manager page projects too: the tabs, the strip order, the pickers' Steam data and every
+///     save go through it, and a change made in Steam redraws the list here. A tab is injected into
+///     Steam's own tab strip by <see cref="SteamLibraryTabs" /> and its membership is a fake
+///     in-memory collection — no Steam collection is ever created, and user/SRM ones are never
+///     touched. Card libraries are managed by the separate <see cref="CardManagerView" />.
 /// </summary>
 public sealed class LibraryTabsView : OverlaySubView
 {
     // ---- Level: filter type picker ----
 
+    // The service's table, so both surfaces offer the same kinds in the same order.
     private static readonly (FilterKind Kind, string Label, string Desc)[] FilterKinds =
     [
-        (FilterKind.Tag, "Tag / Genre", "Games with a store tag"),
-        (FilterKind.Installed, "Installed", "Installed or not"),
-        (FilterKind.Collection, "Collection", "In a Steam collection"),
-        (FilterKind.Regex, "Title", "Title matches a pattern"),
-        (FilterKind.SdCard, "SD Card", "Installed on a card"),
-        (FilterKind.TimePlayed, "Playtime", "Above/below hours played"),
-        (FilterKind.SizeOnDisk, "Size", "Above/below install size"),
-        (FilterKind.ReviewScore, "Review score", "Above/below a score"),
-        (FilterKind.ReleaseDate, "Release date", "Before/after a date"),
-        (FilterKind.LastPlayed, "Last played", "Before/after a date"),
-        (FilterKind.Platform, "Platform", "Steam or non-Steam"),
-        (FilterKind.Whitelist, "Whitelist", "Only these games"),
-        (FilterKind.Blacklist, "Blacklist", "Exclude these games"),
-        (FilterKind.Merge, "Merge group", "Nested AND/OR of filters")
+        .. LibraryManagerService.FilterKinds.Select(kind =>
+            (Enum.Parse<FilterKind>(kind.Kind), kind.Label, kind.Description))
     ];
 
     // The last Steam data the pickers read, for naming a filter's collection and tag.
-    private IReadOnlyList<SteamCollectionInfo>? _collections;
-    private AppConfig _config = new();
+    private IReadOnlyList<LibraryCollectionChoice>? _collections;
     private CustomTabConfig _editing = new();
 
     // ---- Level: tab editor ----
 
     private CustomTabConfig? _editingOriginal;
-
-    private HashSet<string> _openedTabIds = new(StringComparer.Ordinal);
-
-    // ---- Level: tab order & native tabs ----
-
-    private List<LibraryTabManager.TabOrderEntry> _orderEntries = [];
+    private bool _listShown;
 
     private FilterNode? _replacingFilter;
-    private ConfigStore? _store;
-    private IReadOnlyList<SteamStoreTag>? _tags;
-
-    private ConfigStore Store =>
-        _store ?? throw new InvalidOperationException("The overlay persistence owner was not supplied.");
+    private LibraryManagerService? _service;
+    private IReadOnlyList<LibraryTagChoice>? _tags;
 
     /// <inheritdoc />
     protected override string LogScope => "Library tabs";
 
-    internal void ConfigureStore(ConfigStore store)
+    private LibraryManagerService Service =>
+        _service ?? throw new InvalidOperationException("The session library manager is unavailable.");
+
+    // The custom tabs and the strip as the service last read them.
+    private SteamLibraryTabsState State => Service.ReadTabsState();
+
+    /// <summary>Attaches the view to the session's shared manager, or detaches it with null.</summary>
+    /// <param name="service">The session's service, borrowed; null when the overlay closes or the session has none.</param>
+    internal void Attach(LibraryManagerService? service)
     {
-        _store = store;
+        if (ReferenceEquals(_service, service))
+        {
+            return;
+        }
+
+        if (_service is not null)
+        {
+            _service.Changed -= OnServiceChanged;
+        }
+
+        _service = service;
+        if (service is not null)
+        {
+            service.Changed += OnServiceChanged;
+        }
+        else
+        {
+            Leave();
+        }
     }
 
     /// <summary>
@@ -85,6 +91,12 @@ public sealed class LibraryTabsView : OverlaySubView
     {
         NavigationStack.Clear();
         CurrentLevel = null;
+        if (_service is null)
+        {
+            RenderMessage("Library Tabs", "Library tab management is unavailable in this session.");
+            return;
+        }
+
         _tags = null;
         _collections = null;
         var generation = ++NavigationGeneration;
@@ -92,51 +104,115 @@ public sealed class LibraryTabsView : OverlaySubView
         _ = RunSafelyAsync(LoadAndRenderAsync(generation), "open");
     }
 
+    /// <inheritdoc />
+    internal override void Leave()
+    {
+        _listShown = false;
+        base.Leave();
+    }
+
     private async Task LoadAndRenderAsync(int generation)
     {
-        var config = await Task.Run(() => Store.Read().Config ?? new AppConfig());
+        // The first open waits for the reading; later ones draw the last one at once and let a
+        // fresh reading redraw the list through Changed.
+        if (!State.Loaded)
+        {
+            await Service.RefreshAsync();
+        }
+        else
+        {
+            Service.RequestRefresh();
+        }
+
         if (generation != NavigationGeneration)
         {
             return;
         }
 
-        _config = config;
-        _openedTabIds = _config.CustomTabs.Select(static tab => tab.Id)
-            .ToHashSet(StringComparer.Ordinal);
         Navigate(RenderTabList);
+    }
+
+    // A change from Steam's page or from a sync: the list redraws in place, keeping the finger on
+    // the same tab. Deeper levels redraw after their own operation.
+    private void OnServiceChanged()
+    {
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_service is not null && _listShown && IsVisible && Content is not null)
+            {
+                RenderTabList(FocusedTag());
+            }
+        });
+    }
+
+    private string? FocusedTag()
+    {
+        return TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is ActionButton { Tag: string tag }
+            ? tag
+            : null;
     }
 
     // ---- Level: tab list ----
 
     private void RenderTabList()
     {
+        RenderTabList(null);
+    }
+
+    private void RenderTabList(string? focusTag)
+    {
+        _listShown = true;
+        var state = State;
         var stack = NewStack("Library Tabs");
         stack.Children.Add(Caption("Tabs appear in Steam's library and update automatically as "
                                    + "you make changes."));
 
-        stack.Children.Add(PrimaryRow("New Tab", "Build a tab from filters", Icons.FolderPlus,
-            () => OpenTabEditor(null)));
-        stack.Children.Add(Row("Tab Order & Steam Tabs", "Reorder the strip, hide Steam's own tabs",
-            Icons.Reorder, OpenTabOrder));
+        var create = PrimaryRow("New Tab", "Build a tab from filters", Icons.FolderPlus,
+            () => OpenTabEditor(null));
+        create.Tag = "new";
+        stack.Children.Add(create);
+        var order = Row("Tab Order & Steam Tabs", "Reorder the strip, hide Steam's own tabs",
+            Icons.Reorder, OpenTabOrder);
+        order.Tag = "order";
+        stack.Children.Add(order);
 
-        if (_config.CustomTabs.Count > 0)
+        if (state.Tabs.Count > 0)
         {
             stack.Children.Add(SectionLabel("YOUR TABS"));
-            foreach (var tab in _config.CustomTabs.OrderBy(t => t.Position).ToList())
+            foreach (var tab in state.Tabs)
             {
                 var t = tab;
-                var state = t.Enabled ? $"{t.FilterTree.Children.Count} filters" : "disabled";
-                stack.Children.Add(Row(string.IsNullOrWhiteSpace(t.Name) ? "(unnamed)" : t.Name,
-                    state, Icons.Wrench, () => OpenTabEditor(t)));
+                var detail = t.Enabled ? $"{t.FilterTree.Children.Count} filters" : "disabled";
+                var row = Row(string.IsNullOrWhiteSpace(t.Name) ? "(unnamed)" : t.Name,
+                    detail, Icons.Wrench, () => OpenTabEditor(t));
+                row.Tag = t.Id;
+                stack.Children.Add(row);
             }
         }
 
         SetContent(stack);
+        if (focusTag is null)
+        {
+            return;
+        }
+
+        // Posted after SetContent's own first-row focus post, so it wins.
+        Dispatcher.UIThread.Post(() =>
+        {
+            foreach (var child in stack.Children)
+            {
+                if (child is ActionButton { Tag: string tag } button && tag == focusTag)
+                {
+                    button.Focus(NavigationMethod.Directional);
+                    return;
+                }
+            }
+        });
     }
 
     private void OpenTabOrder()
     {
-        _orderEntries = LibraryTabManager.BuildTabOrder(_config);
+        _listShown = false;
         Navigate(RenderTabOrder);
     }
 
@@ -145,11 +221,10 @@ public sealed class LibraryTabsView : OverlaySubView
         var stack = NewStack("Tab Order");
         stack.Children.Add(Caption("Top to bottom here is left to right in Steam. Steam's own "
                                    + "tabs can be hidden; WSGM tabs disappear when disabled in their editors."));
-        foreach (var entry in _orderEntries)
+        foreach (var entry in State.Order)
         {
             var e = entry;
-            var kind = e.IsNative ? "Steam tab"
-                : e.Key.StartsWith("wsgm-card-", StringComparison.Ordinal) ? "Card tab" : "Custom tab";
+            var kind = KindLabel(e);
             stack.Children.Add(Row(e.Title, e.Hidden ? kind + " · hidden" : kind, Icons.Reorder,
                 () => Navigate(() => RenderTabOrderActions(e.Key))));
         }
@@ -157,24 +232,35 @@ public sealed class LibraryTabsView : OverlaySubView
         SetContent(stack);
     }
 
+    private static string KindLabel(LibraryTabOrderView entry)
+    {
+        return entry.Kind switch
+        {
+            "native" => "Steam tab",
+            "card" => "Card tab",
+            _ => "Custom tab"
+        };
+    }
+
     private void RenderTabOrderActions(string key, string? focusTitle = null)
     {
-        var index = _orderEntries.FindIndex(e => string.Equals(e.Key, key, StringComparison.Ordinal));
+        var order = State.Order;
+        var index = order.ToList().FindIndex(e => string.Equals(e.Key, key, StringComparison.Ordinal));
         if (index < 0)
         {
             Back();
             return;
         }
 
-        var entry = _orderEntries[index];
+        var entry = order[index];
         var stack = NewStack(entry.Title);
-        stack.Children.Add(Caption($"Position {index + 1} of {_orderEntries.Count}"
+        stack.Children.Add(Caption($"Position {index + 1} of {order.Count}"
                                    + (entry.Hidden ? " · hidden" : "")));
         stack.Children.Add(Row("Move up", "Earlier in the strip", Icons.ArrowUp,
             index > 0 ? () => MoveOrderEntry(key, -1) : null));
         stack.Children.Add(Row("Move down", "Later in the strip", Icons.ArrowDown,
-            index + 1 < _orderEntries.Count ? () => MoveOrderEntry(key, +1) : null));
-        if (entry.IsNative)
+            index + 1 < order.Count ? () => MoveOrderEntry(key, +1) : null));
+        if (entry.Kind == "native")
         {
             stack.Children.Add(entry.Hidden
                 ? PrimaryRow("Show tab", "Put this Steam tab back in the strip", Icons.Play,
@@ -207,45 +293,35 @@ public sealed class LibraryTabsView : OverlaySubView
         }
     }
 
+    // The service applies a move at once and writes it in press order, so repeated presses keep
+    // the finger on the same action while Steam's strip follows.
     private void MoveOrderEntry(string key, int delta)
     {
-        var index = _orderEntries.FindIndex(e => string.Equals(e.Key, key, StringComparison.Ordinal));
-        var target = index + delta;
-        if (index < 0 || target < 0 || target >= _orderEntries.Count)
-        {
-            return;
-        }
-
-        (_orderEntries[index], _orderEntries[target]) = (_orderEntries[target], _orderEntries[index]);
-        PersistTabOrder();
-        Replace(() => RenderTabOrderActions(key, delta < 0 ? "Move up" : "Move down"));
+        _ = RunSafelyAsync(ApplyOrderChangeAsync(
+            Service.MoveTabAsync(key, delta), key, delta < 0 ? "Move up" : "Move down"), "move");
     }
 
     private void SetNativeHidden(string key, bool hidden)
     {
-        var index = _orderEntries.FindIndex(e => string.Equals(e.Key, key, StringComparison.Ordinal));
-        if (index < 0)
+        _ = RunSafelyAsync(ApplyOrderChangeAsync(
+            Service.SetNativeTabHiddenAsync(key, hidden), key, hidden ? "Show tab" : "Hide tab"), "hide");
+    }
+
+    private async Task ApplyOrderChangeAsync(Task<SteamUiCommandResult> change, string key, string focusTitle)
+    {
+        var result = await change;
+        if (!result.Succeeded)
         {
+            Toast(result.Error ?? "Could not change the order.");
             return;
         }
 
-        _orderEntries[index] = _orderEntries[index] with { Hidden = hidden };
-        PersistTabOrder();
-        Replace(() => RenderTabOrderActions(key, hidden ? "Show tab" : "Hide tab"));
-    }
-
-    private void PersistTabOrder()
-    {
-        var order = _orderEntries.Select(e => e.Key).ToList();
-        var hidden = _orderEntries.Where(e => e is { IsNative: true, Hidden: true })
-            .Select(e => e.Key).ToList();
-        _config.LibraryTabOrder = order;
-        _config.HiddenNativeTabs = hidden;
-        LibraryTabManager.SaveTabOrder(Store, Steam, order, hidden);
+        Replace(() => RenderTabOrderActions(key, focusTitle));
     }
 
     private void OpenTabEditor(CustomTabConfig? existing)
     {
+        _listShown = false;
         _editingOriginal = existing;
         _editing = existing is null ? new CustomTabConfig { Id = Guid.NewGuid().ToString("N") } : Clone(existing);
         Navigate(RenderTabEditor);
@@ -305,37 +381,12 @@ public sealed class LibraryTabsView : OverlaySubView
 
     private async Task SaveTabAsync()
     {
-        if (string.IsNullOrWhiteSpace(_editing.Name))
+        // The service validates the name and the filters and assigns a new tab its place; a
+        // refusal names what is missing and the editor stays open.
+        var result = await Service.SaveTabAsync(_editing);
+        if (!result.Succeeded)
         {
-            Toast("A tab needs a name.");
-            return;
-        }
-
-        if (_editing.FilterTree.Children.Count == 0 || !_editing.FilterTree.Children.All(LibraryFilter.IsValid))
-        {
-            Toast("Finish every filter first (no ⚠).");
-            return;
-        }
-
-        if (_editingOriginal is null)
-        {
-            _editing.Position = _config.CustomTabs.Count == 0
-                ? 0
-                : _config.CustomTabs.Max(t => t.Position) + 1;
-            _config.CustomTabs.Add(_editing);
-        }
-        else
-        {
-            var index = _config.CustomTabs.IndexOf(_editingOriginal);
-            _editing.Position = _editingOriginal.Position;
-            if (index >= 0)
-            {
-                _config.CustomTabs[index] = _editing;
-            }
-        }
-
-        if (!await TryPersistTabsAsync("save"))
-        {
+            Toast(result.Error ?? "Could not save the tab. Try again.");
             return;
         }
 
@@ -356,35 +407,14 @@ public sealed class LibraryTabsView : OverlaySubView
             return;
         }
 
-        _config.CustomTabs.Remove(_editingOriginal);
-        if (!await TryPersistTabsAsync("delete"))
+        var result = await Service.DeleteTabAsync(_editingOriginal.Id);
+        if (!result.Succeeded)
         {
-            return;
+            Toast(result.Error ?? "Could not delete the tab. Try again.");
         }
 
         NavigationStack.Clear();
         Replace(RenderTabList);
-    }
-
-    private async Task<bool> TryPersistTabsAsync(string operation)
-    {
-        try
-        {
-            await LibraryTabManager.SaveCustomTabsAsync(Store, Steam, _config.CustomTabs.Select(Clone).ToList(),
-                _openedTabIds.ToHashSet(StringComparer.Ordinal));
-            _openedTabIds = _config.CustomTabs.Select(static tab => tab.Id)
-                .ToHashSet(StringComparer.Ordinal);
-            return true;
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Library tab {operation} failed: {ex.Message}");
-            _config = await Task.Run(() => Store.Read().Config ?? new AppConfig());
-            Toast($"Could not {operation} the tab. Try again.");
-            NavigationStack.Clear();
-            Replace(RenderTabList);
-            return false;
-        }
     }
 
     private void OpenFilterPicker(FilterNode? replacing)
@@ -655,20 +685,22 @@ public sealed class LibraryTabsView : OverlaySubView
     {
         Navigate(() => RenderLoading("Tags"));
         var generation = NavigationGeneration;
-        IReadOnlyList<SteamStoreTag> tags = [];
-        if (Steam is { } steam)
+        // A failed read draws the picker with what the service last read, and says why.
+        var picker = await Service.LoadTagsAsync();
+        if (generation != NavigationGeneration)
         {
-            var read = await steam.Library.ReadStoreTagsAsync();
-            if (generation != NavigationGeneration)
-            {
-                return;
-            }
+            return;
+        }
 
-            // A failed read draws the same empty list but is never kept as "no tags".
-            if (read is { Succeeded: true, Value: { } value })
-            {
-                _tags = tags = value;
-            }
+        if (picker.Error is not null)
+        {
+            Toast(picker.Error);
+        }
+
+        var tags = picker.Items;
+        if (picker.Loaded)
+        {
+            _tags = tags;
         }
 
         var selected = new HashSet<long>(node.TagIds.Select(static id => (long)id));
@@ -689,17 +721,22 @@ public sealed class LibraryTabsView : OverlaySubView
     {
         Navigate(() => RenderLoading("Games"));
         var generation = NavigationGeneration;
-        var read = await OverlayLibraryLookup.ReadAsync(Steam);
+        var picker = await Service.LoadGamesAsync();
         if (generation != NavigationGeneration)
         {
             return;
         }
 
-        // A failed read draws the same empty list.
-        var games = read.Games;
+        // A failed read draws what the service last read, and says why.
+        if (picker.Error is not null)
+        {
+            Toast(picker.Error);
+        }
+
+        var games = picker.Items;
         // Ids compare unsigned, so a shortcut saved signed by an older build still shows as selected.
         var selected = new HashSet<long>(node.AppIds.Select(static id => (long)SteamApps.NormalizeAppId(id)));
-        Replace(() => RenderMultiSelect("Games", games.Select(g => ((long)g.AppId, g.Name)), selected, () =>
+        Replace(() => RenderMultiSelect("Games", games.Select(g => (g.AppId, g.Name)), selected, () =>
         {
             node.AppIds = [.. selected];
             Back();
@@ -715,20 +752,22 @@ public sealed class LibraryTabsView : OverlaySubView
     {
         Navigate(() => RenderLoading("Collections"));
         var generation = NavigationGeneration;
-        IReadOnlyList<SteamCollectionInfo> collections = [];
-        if (Steam is { } steam)
+        var picker = await Service.LoadCollectionsAsync();
+        if (generation != NavigationGeneration)
         {
-            var read = await steam.Library.ReadCollectionsAsync();
-            if (generation != NavigationGeneration)
-            {
-                return;
-            }
+            return;
+        }
 
-            // A failed read draws the same empty list but is never kept as "no collections".
-            if (read is { Succeeded: true, Value: { } value })
-            {
-                _collections = collections = value;
-            }
+        // A failed read draws what the service last read, and says why.
+        if (picker.Error is not null)
+        {
+            Toast(picker.Error);
+        }
+
+        var collections = picker.Items;
+        if (picker.Loaded)
+        {
+            _collections = collections;
         }
 
         Replace(() =>
@@ -737,7 +776,7 @@ public sealed class LibraryTabsView : OverlaySubView
             foreach (var col in collections)
             {
                 var c = col;
-                stack.Children.Add(Row(c.Name, $"{c.AppIds.Count} games", Icons.Wrench, () =>
+                stack.Children.Add(Row(c.Name, $"{c.GameCount} games", Icons.Wrench, () =>
                 {
                     node.CollectionId = c.Id;
                     Back();
@@ -831,7 +870,7 @@ public sealed class LibraryTabsView : OverlaySubView
             ((SdCardScope.Inserted, ""), "Currently inserted"),
             ((SdCardScope.Any, ""), "Any tracked card")
         };
-        choices.AddRange(_config.CardLibraries.Select(card => ((SdCardScope.Specific, card.ContentId), card.Name)));
+        choices.AddRange(State.Cards.Select(card => ((SdCardScope.Specific, card.ContentId), card.Name)));
         if (node.CardScope == SdCardScope.Specific && choices.All(choice => choice.Value.ContentId != node.ContentId))
         {
             choices.Add(((SdCardScope.Specific, node.ContentId), "Unavailable card"));
@@ -902,7 +941,7 @@ public sealed class LibraryTabsView : OverlaySubView
 
     private string CardName(string contentId)
     {
-        return _config.CardLibraries.FirstOrDefault(c => c.ContentId == contentId)?.Name ?? "a card";
+        return State.Cards.FirstOrDefault(c => c.ContentId == contentId)?.Name ?? "a card";
     }
 
     private static string FilterKindLabel(FilterKind kind)

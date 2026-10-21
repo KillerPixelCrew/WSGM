@@ -115,6 +115,10 @@ public sealed partial class ShellSession
         _disposed = true;
         _shutdownRequested = true;
         Step(failures, "Closing library import admission failed", () => _libraryImport?.CloseAdmission());
+        var emulatorTool = _emulatorTool;
+        Step(failures, "Closing emulator operation admission failed", () => emulatorTool?.Dispose());
+        var libraryManager = _libraryManager;
+        Step(failures, "Closing library manager admission failed", () => libraryManager?.CloseAdmission());
         // Steam's Quick Access stops reaching the device, AutoTDP and GPU owners before they stop
         // below. No CEF round trip: the patches stay until the host is disposed after device cleanup.
         Step(failures, "Closing Steam UI admission failed", () => _steamUi?.CloseAdmission());
@@ -171,6 +175,17 @@ public sealed partial class ShellSession
 
         await JoinAsync(failures, "Shell startup and device power transition",
             Task.WhenAll(_startupTask ?? Task.CompletedTask, powerWork)).ConfigureAwait(false);
+        if (!ReferenceEquals(emulatorTool, _emulatorTool))
+        {
+            emulatorTool = _emulatorTool;
+            Step(failures, "Closing late emulator operation admission failed", () => emulatorTool?.Dispose());
+        }
+
+        if (!ReferenceEquals(libraryManager, _libraryManager))
+        {
+            libraryManager = _libraryManager;
+            Step(failures, "Closing late library manager admission failed", () => libraryManager?.CloseAdmission());
+        }
 
         // 2 and 3. The coordinator's shutdown restores AutoTDP's original limit first, through its still
         //    open capability path, then releases the controller, shows the pad again and stops the device.
@@ -314,8 +329,22 @@ public sealed partial class ShellSession
                 .ConfigureAwait(false);
         }
 
+        if (emulatorTool is not null)
+        {
+            await JoinAsync(failures, "Emulator operations",
+                Task.WhenAll(emulatorTool.OperationCompletion, emulatorTool.ShortcutCompletion)).ConfigureAwait(false);
+        }
+
+        await JoinAsync(failures, "Library manager work", libraryManager?.Completion ?? Task.CompletedTask)
+            .ConfigureAwait(false);
+
         await StepAsync(failures, "Disposing the Steam UI session during application shutdown failed",
             () => RetractSteamUiAsync(failures)).ConfigureAwait(false);
+        Step(failures, "Disposing the library manager during application shutdown failed", () =>
+        {
+            _libraryManager?.Dispose();
+            _libraryManager = null;
+        });
         await UiStepAsync(failures, "Disposing the Steam graphics and plugin projections during shutdown failed",
             () =>
             {
@@ -440,11 +469,19 @@ public sealed partial class ShellSession
         }).ConfigureAwait(false);
         await StepAsync(failures, "Disposing the emulator manager during application shutdown failed", () =>
         {
-            _emulatorTool?.Dispose();
             _emulatorTool = null;
             _emulators?.Dispose();
             _emulators = null;
             return Task.CompletedTask;
+        }).ConfigureAwait(false);
+        await StepAsync(failures, "Disposing Programs during application shutdown failed", async () =>
+        {
+            var programs = _programs;
+            _programs = null;
+            if (programs is not null)
+            {
+                await programs.DisposeAsync().ConfigureAwait(false);
+            }
         }).ConfigureAwait(false);
         await UiStepAsync(failures, "Disposing the library artwork stage during application shutdown failed", () =>
         {

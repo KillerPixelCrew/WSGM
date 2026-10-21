@@ -49,6 +49,9 @@ internal sealed class GpuDriverPublisher : ICapabilityPublisher, IBuiltinGpuDriv
 
     internal BuiltinGpuDriver Definition { get; }
 
+    /// <summary>Borrowed native owner; source-mode edits use its existing serialized driver lane.</summary>
+    internal GpuDriver NativeDriver => _driver;
+
     /// <summary>Reads physical output identities from the current driver descriptor generation.</summary>
     internal IReadOnlyDictionary<string, GpuDisplayTarget> DisplayTargets
     {

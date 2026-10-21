@@ -317,12 +317,12 @@ public sealed partial class EmulatorManager
                 var configured = new Dictionary<string, string>(installed.ConfiguredPrerequisites);
                 foreach (var rule in installed.DataPolicy.Prerequisites.Where(rule => !rule.NativeInstaller))
                 {
-                    var target = installed.DefinitionId == "dolphin" ? Path.Combine(folder, "GC") : folder;
-                    if (installed.DefinitionId == "dolphin")
+                    var target = installed.DefinitionId is "dolphin" or "primehack" ? Path.Combine(folder, "GC") : folder;
+                    if (installed.DefinitionId is "dolphin" or "primehack")
                     {
                         LinkBiosDirectory(Path.Combine(installed.DataPath, "GC"), target);
                     }
-                    else if (installed.DefinitionId == "eden")
+                    else if (installed.DefinitionId is "eden" or "citron" or "suyu")
                     {
                         LinkBiosDirectory(Path.Combine(installed.DataPath, "keys"), target);
                     }
@@ -337,6 +337,46 @@ public sealed partial class EmulatorManager
                         IniFile.SetValue(Path.Combine(installed.DataPath, rule.IniFile), rule.IniKey, target,
                             rule.IniSection);
                     }
+                    else if (EmulatorPortableProfiles.Supports(installed.DefinitionId))
+                    {
+                        // A data folder can contain saves too. Copy local system files through
+                        // the normal prerequisite path rather than replacing it with a BIOS link.
+                        var systemFolder = installed.Systems.Select(system => Path.Combine(folder, system))
+                            .FirstOrDefault(Directory.Exists);
+                        if (rule.Destination.Length == 0)
+                        {
+                            continue;
+                        }
+
+                        var files = BiosDefinitions.Systems.Where(system => installed.Systems.Contains(system.Id))
+                            .SelectMany(system => system.Files).Where(file => !file.Directory)
+                            .Select(file => Path.Combine(folder, file.Path)).Where(File.Exists).ToList();
+                        if (rule.Kind == "keys" && File.Exists(Path.Combine(folder, "prod.keys")))
+                        {
+                            files.AddRange(new[] { "prod.keys", "title.keys" }.Select(name => Path.Combine(folder, name))
+                                .Where(File.Exists));
+                        }
+
+                        if (systemFolder is not null)
+                        {
+                            installed = EmulatorPrerequisites.Configure(installed, systemFolder, rule.Kind, token);
+                        }
+                        else if (files.Count > 0)
+                        {
+                            foreach (var file in files.Distinct(StringComparer.OrdinalIgnoreCase).Where(file =>
+                                         rule.Extensions.Length == 0 || rule.Extensions.Contains(Path.GetExtension(file),
+                                             StringComparer.OrdinalIgnoreCase)))
+                            {
+                                installed = EmulatorPrerequisites.Configure(installed, file, rule.Kind, token);
+                            }
+                        }
+                        else
+                        {
+                            continue;
+                        }
+
+                        target = EmulatorStorage.PrerequisitePath(installed, rule);
+                    }
 
                     configured[rule.Kind] = target;
                 }
@@ -344,11 +384,16 @@ public sealed partial class EmulatorManager
                 installed = installed with { ConfiguredPrerequisites = configured };
                 foreach (var rule in installed.DataPolicy.Prerequisites.Where(rule => rule.NativeInstaller))
                 {
-                    var source = installed.DefinitionId == "rpcs3"
-                        ? Path.Combine(folder, "PS3UPDAT.PUP")
-                        : File.Exists(Path.Combine(folder, "switch", "firmware.zip"))
-                            ? Path.Combine(folder, "switch", "firmware.zip")
-                            : Path.Combine(folder, "switch", "firmware");
+                    var source = installed.DefinitionId switch
+                    {
+                        "rpcs3" => Path.Combine(folder, "PS3UPDAT.PUP"),
+                        "vita3k" => Path.Combine(folder, "PSP2UPDAT.PUP"),
+                        "eden" or "citron" or "suyu" or "ryujinx" =>
+                            File.Exists(Path.Combine(folder, "switch", "firmware.zip"))
+                                ? Path.Combine(folder, "switch", "firmware.zip")
+                                : Path.Combine(folder, "switch", "firmware"),
+                        _ => ""
+                    };
                     if ((File.Exists(source) || Directory.Exists(source))
                         && (installed.Systems.Any(system => installFirmware?.Contains(system) == true)
                             || !EmulatorStorage.PrerequisitePresent(installed, rule))

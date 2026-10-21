@@ -20,6 +20,7 @@ internal sealed record EmulatorPageState(
     public EmulatorBiosState Bios { get; init; } = new("", false, []);
     public EmulatorListItem[] Installed { get; init; } = [];
     public EmulatorCoreStatus[] CoreStatus { get; init; } = [];
+    public string ShortcutStatus { get; init; } = "";
 }
 
 internal sealed record EmulatorListItem(string Id, string Detail, string Badge, bool UpdateAvailable);
@@ -44,6 +45,9 @@ internal interface IEmulatorBackend : IChangeSource
     Task<SteamUiCommandResult> InstallEmulatorAsync(string definitionId, string channel,
         CancellationToken cancellationToken);
 
+    Task<SteamUiCommandResult> InstallEmulatorRuntimeDependenciesAsync(string definitionId,
+        CancellationToken cancellationToken);
+
     Task<SteamUiCommandResult> UpdateEmulatorAsync(string installationId, CancellationToken cancellationToken);
     Task<SteamUiCommandResult> RepairEmulatorAsync(string installationId, CancellationToken cancellationToken);
 
@@ -51,6 +55,9 @@ internal interface IEmulatorBackend : IChangeSource
         CancellationToken cancellationToken);
 
     Task<SteamUiCommandResult> RemoveEmulatorAsync(string installationId, CancellationToken cancellationToken);
+
+    Task<SteamUiCommandResult> SetEmulatorShortcutAsync(string installationId, bool enabled, int launchMode,
+        CancellationToken cancellationToken);
 
     Task<SteamUiCommandResult> IgnoreEmulatorVersionAsync(string installationId, string releaseId,
         CancellationToken cancellationToken);
@@ -86,6 +93,8 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
     private RomEmulatorState? _romState;
     private EmulatorSnapshot _snapshot = new();
     private IReadOnlyList<RomSystemProfile>? _systems;
+    private EmulatorShortcutSync? _shortcuts;
+    private string _shortcutStatus = "";
 
     internal EmulatorService(EmulatorManager manager, Action<string> openUrl)
     {
@@ -112,6 +121,9 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
         }
     }
 
+    /// <summary>Settles after shortcut admission closes and every dispatched Steam write has been recorded.</summary>
+    internal Task ShortcutCompletion => _shortcuts?.Completion ?? Task.CompletedTask;
+
     public void Dispose()
     {
         Task operation;
@@ -127,6 +139,7 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
         }
 
         _lifetime.Cancel();
+        _shortcuts?.Dispose();
         _manager.Cancel();
         operation.ContinueWith(_ => _lifetime.Dispose(), CancellationToken.None,
             TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default).ObserveFaults();
@@ -150,6 +163,7 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
                 RuntimeInformation.OSArchitecture == Architecture.Arm64 ? "arm64" : "x64")
             {
                 Bios = _manager.ReadBiosState(),
+                ShortcutStatus = _shortcutStatus,
                 CoreStatus = _coreStatus,
                 Installed = _snapshot.Installations.Select(item => new EmulatorListItem(item.Id,
                     EmulatorPresentation.Detail(item), EmulatorPresentation.Badge(_snapshot, item),
@@ -234,6 +248,57 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
         return Run(() => _manager.RemoveAsync(installationId, cancellationToken));
     }
 
+    public async Task<SteamUiCommandResult> SetEmulatorShortcutAsync(string installationId, bool enabled, int launchMode,
+        CancellationToken cancellationToken)
+    {
+        var result = await Run(() => _manager.SetSteamShortcutAsync(installationId, enabled, launchMode, cancellationToken))
+            .ConfigureAwait(false);
+        if (result.Succeeded)
+        {
+            RequestShortcutSync();
+        }
+
+        return result;
+    }
+
+    /// <summary>Attaches the existing Steam writer to this session's emulator owner once.</summary>
+    internal void AttachSteamShortcuts(ImportStateStore store, Func<SteamShortcutWriter?> writer,
+        Func<CancellationToken, Task<IReadOnlyList<ExistingShortcut>>> readLibrary,
+        Func<uint, CancellationToken, Task<ExistingShortcut?>> readShortcut,
+        Func<bool> inputManaged, Func<bool> ready,
+        Func<EmulatorDefinition, uint, CancellationToken, Task<int>> artwork)
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _shortcuts ??= new EmulatorShortcutSync(_manager, store, writer, readLibrary, readShortcut,
+                inputManaged, ready, artwork, SetShortcutStatus, () => ShortcutsChanged?.Invoke());
+        }
+    }
+
+    /// <summary>Reconciles pending shortcuts after Steam readiness, reconnect or configuration changes.</summary>
+    internal void RequestShortcutSync()
+    {
+        _shortcuts?.Request();
+    }
+
+    private void SetShortcutStatus(string status)
+    {
+        lock (_gate)
+        {
+            if (_disposed || _shortcutStatus == status)
+            {
+                return;
+            }
+
+            _shortcutStatus = status;
+            _pageState = null;
+            Interlocked.Increment(ref _catalogRevision);
+        }
+
+        Changed?.Invoke();
+    }
+
     public Task<SteamUiCommandResult> IgnoreEmulatorVersionAsync(string installationId, string releaseId,
         CancellationToken cancellationToken)
     {
@@ -244,6 +309,12 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
         string kind, CancellationToken cancellationToken)
     {
         return Run(() => _manager.ConfigurePrerequisiteAsync(installationId, path, kind, cancellationToken));
+    }
+
+    public Task<SteamUiCommandResult> InstallEmulatorRuntimeDependenciesAsync(string definitionId,
+        CancellationToken cancellationToken)
+    {
+        return Run(() => _manager.InstallRuntimeDependenciesAsync(definitionId, cancellationToken));
     }
 
     public Task<SteamUiCommandResult> SetPreferredEmulatorAsync(string systemId, string installationId, string coreId,
@@ -271,6 +342,7 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
     }
 
     internal event Action? ChoicesChanged;
+    internal event Action? ShortcutsChanged;
 
     internal EmulatorStore ReadStore()
     {

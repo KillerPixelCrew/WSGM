@@ -25,7 +25,7 @@ surface. WSGM-only features keep their own fingerprints but resolve them through
 `SteamUiModuleResolver` rather than scanning the registry themselves.
 
 These fragments hold WSGM's product data, commands and feature hooks. Reusable rendering and Steam
-ownership stay in the toolkit. Five pages register with its `registerSteamPage`:
+ownership stay in the toolkit. Seven pages register with its `registerSteamPage`:
 
 - `artwork-browser.ts`, the Change Artwork page.
 - `library-import.ts`, the Game Library's import page.
@@ -37,8 +37,14 @@ ownership stay in the toolkit. Five pages register with its `registerSteamPage`:
 - `animations.ts`, the Animations page: SteamDeckRepo's boot movies browsed, downloaded and chosen
   for Big Picture's start.
 
+- `card-manager.ts`, the SD Card Manager page: the tracked cards with their connected state and
+  space, one card's switches, rename, games and forget, over `LibraryManagerService`.
+- `library-tab-manager.ts`, the Library Tab Manager page: the custom tabs, the strip order and
+  Steam-tab hiding, and the tab editor with its filter levels and pickers, over the same service.
+
 Themes and Animations share `page-kit.ts`, which is no feature of its own: the command sender and
-the tabbed frame's tab switch and banner, which differ between them only by patch id.
+the tabbed frame's tab switch and banner, which differ between them only by patch id. The two
+manager pages use its command sender too.
 
 Four are gates of their own, registered with `registerGate`:
 
@@ -77,11 +83,12 @@ bridge uses to replace a script a previous build left running.
 
 `Shell/SteamUiSessionHost` composes the single toolkit bridge with WSGM surface factories:
 `SteamArtworkBrowserSurface`, `SteamLibraryImportSurface`, `SteamWsgmSettingsSurface`,
-`SteamThemesSurface` and `SteamAnimationsSurface`. Their service readings become publications; these
-renderers subscribe through `registerSteamPage`, send their exact semantic commands back through the
-bridge, and let the service validate/save the result. One `SteamPageSurface` merges routes, so a
-page renderer does not claim the router independently. `page-kit.ts` shares the Themes and
-Animations command/tab/banner plumbing; it has no standalone route or backend.
+`SteamThemesSurface`, `SteamAnimationsSurface`, `SteamCardManagerSurface` and
+`SteamLibraryTabsSurface`. Their service readings become publications; these renderers subscribe
+through `registerSteamPage`, send their exact semantic commands back through the bridge, and let the
+service validate/save the result. One `SteamPageSurface` merges routes, so a page renderer does not
+claim the router independently. `page-kit.ts` shares the Themes and Animations command/tab/banner
+plumbing; it has no standalone route or backend.
 
 Host pages follow CEF master enablement and remain available with custom Quick Access rows off.
 Sound packs have no renderer fragment here: the overlay owns their browser and preview, while the

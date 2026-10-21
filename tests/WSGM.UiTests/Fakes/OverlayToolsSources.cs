@@ -98,6 +98,12 @@ internal sealed class EmulatorOverlaySource : IEmulatorBackend
         return Command("InstallEmulatorAsync", cancellationToken);
     }
 
+    public Task<SteamUiCommandResult> InstallEmulatorRuntimeDependenciesAsync(string definitionId,
+        CancellationToken cancellationToken)
+    {
+        return Command("InstallEmulatorRuntimeDependenciesAsync", cancellationToken);
+    }
+
     public Task<SteamUiCommandResult> UpdateEmulatorAsync(string installationId, CancellationToken cancellationToken)
     {
         return Command("UpdateEmulatorAsync", cancellationToken);
@@ -117,6 +123,18 @@ internal sealed class EmulatorOverlaySource : IEmulatorBackend
     public Task<SteamUiCommandResult> RemoveEmulatorAsync(string installationId, CancellationToken cancellationToken)
     {
         return Command("RemoveEmulatorAsync", cancellationToken);
+    }
+
+    public Task<SteamUiCommandResult> SetEmulatorShortcutAsync(string installationId, bool enabled, int launchMode,
+        CancellationToken cancellationToken)
+    {
+        State = State with
+        {
+            Installations = State.Installations.Select(item => item.Id == installationId
+                ? item with { SteamShortcutEnabled = enabled, SteamShortcutLaunchMode = launchMode }
+                : item).ToArray()
+        };
+        return Command("SetEmulatorShortcutAsync", cancellationToken);
     }
 
     public Task<SteamUiCommandResult> IgnoreEmulatorVersionAsync(string installationId, string releaseId,

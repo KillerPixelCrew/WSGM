@@ -12,7 +12,9 @@ namespace WSGM.Core;
 ///     For a confirmed add, the fields Steam did not keep as written, or null when it kept them all.
 ///     The shortcut exists either way.
 /// </param>
-public sealed record ShortcutWriteResult(uint AppId, bool Confirmed, string? Error, string? Mismatch = null);
+/// <param name="CreationMayExist">False only when an add was definitely not sent or explicitly rejected.</param>
+public sealed record ShortcutWriteResult(uint AppId, bool Confirmed, string? Error, string? Mismatch = null,
+    bool CreationMayExist = true);
 
 /// <summary>Creates, updates and removes the non-Steam shortcuts an import generates.</summary>
 /// <remarks>

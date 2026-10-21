@@ -107,7 +107,10 @@ internal enum OverlayPage
     PowerWakeLocks,
 
     /// <summary>The standalone emulator downloader and updater under Tools.</summary>
-    EmulatorManager
+    EmulatorManager,
+
+    /// <summary>User-configured desktop programs and their shared launch-or-focus actions.</summary>
+    Programs
 }
 
 /// <summary>The single action selected by Back/B after higher-priority UI has been considered.</summary>
@@ -411,6 +414,7 @@ internal sealed class OverlayNavigation
                 or OverlayPage.SystemPlugins or OverlayPage.SystemThemes or OverlayPage.SystemArtwork
                 or OverlayPage.SteamGameLibrary or OverlayPage.SystemAnimations
                 or OverlayPage.EmulatorManager
+                or OverlayPage.Programs
                 or OverlayPage.SystemSounds
                 or OverlayPage.SystemController
                 or OverlayPage.SystemAbout

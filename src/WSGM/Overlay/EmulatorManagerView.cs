@@ -221,8 +221,7 @@ public sealed partial class EmulatorManagerView : ServiceSubView
                 RenderEmulator(definitionId);
             }));
         var offer = snapshot.Offers.FirstOrDefault(item => item.DefinitionId == definitionId
-                                                           && item.Channel == _emulatorChannel
-                                                           && item.Architecture == state?.Architecture);
+                                                           && item.Channel == _emulatorChannel);
         install.Children.Add(Caption(offer is null ? "Check for updates to read the latest release."
             : offer.Error.Length > 0 ? offer.Error : "Latest: " + offer.Version));
         AddReleaseNotes(install, offer);
@@ -238,6 +237,13 @@ public sealed partial class EmulatorManagerView : ServiceSubView
         install.Children.Add(Tagged(Row("Use an existing installation", "Choose this emulator's executable",
                 Icons.Grid4, snapshot.Busy ? null : () => _ = RunSafelyAsync(ChooseExternalAsync(), "choose emulator")),
             "emu.external"));
+        if (definition.DataPolicy.RequiresVisualCpp || definition.Id == "model2")
+        {
+            install.Children.Add(Tagged(Row("Install required runtimes",
+                "Install verified Microsoft components; Windows may request permission",
+                Icons.Grid4, snapshot.Busy ? null : () => Run(token =>
+                    _service!.InstallEmulatorRuntimeDependenciesAsync(definitionId, token))), "emu.runtimes"));
+        }
         var setup = Group(body, "Set up from your BIOS folder", "setup");
         setup.Children.Add(Caption(state?.Bios.Folder ?? "Choose your BIOS folder on the BIOS & firmware tab."));
         foreach (var prerequisite in definition.Prerequisites)
@@ -288,7 +294,29 @@ public sealed partial class EmulatorManagerView : ServiceSubView
         details.Children.Add(Caption(
             $"{installation.Version} · {installation.Channel} · {installation.Architecture} · {installation.Source}\n"
             + installation.Integrity + "\n" + installation.ExecutablePath + "\nData: " + installation.DataPath));
+        var shortcut = Group(body, "Steam shortcut", "steam-shortcut");
+        shortcut.IsEnabled = !snapshot.Busy;
+        shortcut.Children.Add(ChoiceRow("Show emulator in Steam", new[] { (false, "Off"), (true, "On") },
+            installation.SteamShortcutEnabled,
+            enabled => Run(token => _service!.SetEmulatorShortcutAsync(installationId, enabled,
+                installation.SteamShortcutLaunchMode, token))));
+        shortcut.Children.Add(ChoiceRow("Launch mode", new[]
+            {
+                (2, "Input lease"), (0, "No lease"), (1, "De-elevate"), (3, "De-elevate + input lease")
+            }, installation.SteamShortcutLaunchMode,
+            mode => Run(token => _service!.SetEmulatorShortcutAsync(installationId,
+                installation.SteamShortcutEnabled, mode, token))));
+        shortcut.Children.Add(Caption(state?.ShortcutStatus is { Length: > 0 } status
+            ? status
+            : "Opens the emulator interface using its current installation. Input lease lets it read the controller directly."));
         var setup = Group(body, "BIOS & firmware", "setup");
+        if (installation.DataPolicy.RequiresVisualCpp || installation.DefinitionId == "model2")
+        {
+            setup.Children.Add(Tagged(Row("Install required runtimes",
+                "Install verified Microsoft components, then refresh or repair this emulator",
+                Icons.Grid4, snapshot.Busy ? null : () => Run(token =>
+                    _service!.InstallEmulatorRuntimeDependenciesAsync(installation.DefinitionId, token))), "emu.runtimes"));
+        }
         foreach (var missing in installation.MissingRequirements)
         {
             setup.Children.Add(Caption("Required: " + missing));
@@ -470,6 +498,11 @@ public sealed partial class EmulatorManagerView : ServiceSubView
 
     private void AddEmulatorStatus(StackPanel body, EmulatorSnapshot snapshot)
     {
+        if (_service?.ReadPageState().ShortcutStatus is { Length: > 0 } shortcutStatus)
+        {
+            body.Children.Add(Caption(shortcutStatus));
+        }
+
         if (snapshot.Status.Length > 0)
         {
             body.Children.Add(Caption(snapshot.Status));

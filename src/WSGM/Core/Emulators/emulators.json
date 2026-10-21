@@ -2,6 +2,809 @@
   "schemaVersion": 1,
   "definitions": [
     {
+      "id": "armsx2",
+      "name": "ARMSX2",
+      "systems": ["ps2"],
+      "architectures": ["arm64"],
+      "executableNames": ["ARMSX2.exe"],
+      "launchArguments": ["-batch", "-fullscreen", "-nogui", "--", "{rom}"],
+      "packageType": "zip",
+      "validationArguments": ["-version"],
+      "validationExitCodes": [0, 1],
+      "validationOutput": "ARMSX2",
+      "sources": {
+        "nightly": {
+          "provider": "GitHub",
+          "baseUrl": "https://api.github.com/",
+          "repository": "ARMSX2/ARMSX2",
+          "assetPattern": "^ARMSX2-.*-Windows-arm64[.]zip$"
+        }
+      },
+      "dataPolicy": {
+        "portableMarkers": ["portable.txt"],
+        "dataArguments": ["-portable"],
+        "requiresVisualCpp": true,
+        "prerequisites": [
+          {
+            "kind": "bios",
+            "name": "PlayStation 2 BIOS",
+            "description": "Supply a locally dumped PS2 BIOS and select it in ARMSX2 when several are present.",
+            "extensions": [".bin", ".rom"],
+            "requiredExtensions": [".bin", ".rom"],
+            "required": true,
+            "allowDirectory": true,
+            "destination": "bios",
+            "iniFile": "inis/PCSX2.ini",
+            "iniSection": "Folders",
+            "iniKey": "Bios"
+          }
+        ]
+      }
+    },
+    {
+      "id": "model2",
+      "name": "Model 2 Emulator (EmuDeck distribution)",
+      "systems": ["model2"],
+      "architectures": ["x86"],
+      "executableNames": ["emulator_multicpu.exe"],
+      "launchArguments": ["{rom}"],
+      "packageType": "7z",
+      "validationArguments": ["{portable-layout}"],
+      "sources": {
+        "legacy": {
+          "provider": "WebPage",
+          "baseUrl": "https://raw.githubusercontent.com/EmuDeck/emudeck-we/main/functions/EmuScripts/emuDeckModel2.ps1",
+          "assetPattern": "^(?<version>[0-9]+[.][0-9]+[a-z]?)[.]7z$",
+          "checksumFile": "sha256:338c579a2ce9a9661cc6036999a76b19241140dadce42599a8c9e5fbe990fac3"
+        }
+      },
+      "dataPolicy": {
+        "prerequisites": [
+          {
+            "kind": "bios",
+            "name": "Model 2 ROM set",
+            "description": "Use your own Model 2 ZIP sets. The importer adds the game's containing directory to EMULATOR.INI. The legacy 32-bit emulator needs Microsoft's DirectX June 2010 runtime; use Install required runtimes for its required legacy DirectX DLLs. This is the exact legacy archive referenced by EmuDeck, not a new upstream release.",
+            "extensions": [".zip"],
+            "allowDirectory": true,
+            "destination": "roms"
+          }
+        ]
+      },
+      "steamGridDbId": 5316480
+    },
+    {
+      "id": "ryujinx",
+      "name": "Ryujinx (Ryubing)",
+      "systems": ["switch"],
+      "architectures": ["x64", "arm64"],
+      "executableNames": ["Ryujinx.exe"],
+      "launchArguments": ["--fullscreen", "{rom}"],
+      "packageType": "zip",
+      "validationArguments": ["{portable-layout}"],
+      "sources": {
+        "stable": {
+          "provider": "Scoop",
+          "baseUrl": "https://raw.githubusercontent.com/ScoopInstaller/Games/master/bucket/",
+          "manifest": "ryujinx.json"
+        },
+        "canary": {
+          "provider": "Scoop",
+          "baseUrl": "https://raw.githubusercontent.com/ScoopInstaller/Games/master/bucket/",
+          "manifest": "ryujinx-canary.json"
+        }
+      },
+      "dataPolicy": {
+        "portableDirectory": "portable",
+        "portableMarkers": ["portable"],
+        "prerequisites": [
+          {
+            "kind": "keys",
+            "name": "Console decryption keys",
+            "description": "Supply your locally extracted prod.keys/title.keys.",
+            "extensions": [".keys"],
+            "required": true,
+            "requiredNames": ["prod.keys"],
+            "allowDirectory": true,
+            "destination": "system"
+          },
+          {
+            "kind": "firmware",
+            "name": "Console firmware",
+            "description": "Supply your own firmware ZIP or NCA directory. The firmware is installed in this portable instance only; Ryujinx validates keys and decryption on startup.",
+            "extensions": [".zip", ".nca"],
+            "required": true,
+            "requiredExtensions": [".nca"],
+            "allowDirectory": true,
+            "destination": "bis/system/Contents/registered",
+            "nativeInstaller": true
+          }
+        ]
+      },
+      "steamGridDbId": 5258324
+    },
+    {
+      "id": "suyu",
+      "name": "Suyu",
+      "systems": ["switch"],
+      "architectures": ["x64"],
+      "executableNames": ["suyu.exe"],
+      "launchArguments": ["--fullscreen", "{rom}"],
+      "packageType": "zip",
+      "validationArguments": ["--version"],
+      "sources": {
+        "stable": {
+          "provider": "GitHub",
+          "baseUrl": "https://api.github.com/",
+          "repository": "suyu-emu/suyu-main",
+          "assetPattern": "^suyu-windows-x86_64[.]zip$"
+        }
+      },
+      "dataPolicy": {
+        "portableDirectory": "user",
+        "portableMarkers": ["user"],
+        "requiresVisualCpp": true,
+        "prerequisites": [
+          {
+            "kind": "keys",
+            "name": "Console decryption keys",
+            "description": "Supply your locally extracted prod.keys/title.keys.",
+            "extensions": [".keys"],
+            "required": true,
+            "requiredNames": ["prod.keys"],
+            "allowDirectory": true,
+            "destination": "keys"
+          },
+          {
+            "kind": "firmware",
+            "name": "Console firmware",
+            "description": "Supply your own firmware ZIP or NCA directory. Suyu validates keys and decryption on startup.",
+            "extensions": [".zip", ".nca"],
+            "required": true,
+            "requiredExtensions": [".nca"],
+            "allowDirectory": true,
+            "destination": "nand",
+            "pathSuffix": "system/Contents/registered",
+            "iniFile": "config/qt-config.ini",
+            "iniKey": "nand_directory",
+            "iniSection": "DataStorage",
+            "nativeInstaller": true
+          }
+        ]
+      },
+      "steamGridDbId": 5446361
+    },
+    {
+      "id": "citron",
+      "name": "Citron Neo",
+      "systems": ["switch"],
+      "architectures": ["x64"],
+      "executableNames": ["citron.exe"],
+      "launchArguments": ["--fullscreen", "{rom}"],
+      "packageType": "zip",
+      "validationArguments": ["--version"],
+      "sources": {
+        "stable": {
+          "provider": "GitHub",
+          "baseUrl": "https://api.github.com/",
+          "repository": "citron-neo/emulator",
+          "assetPattern": "^Citron-windows-nightly-.*-x64-msvc[.]zip$"
+        },
+        "nightly": {
+          "provider": "GitHub",
+          "baseUrl": "https://api.github.com/",
+          "repository": "citron-neo/CI",
+          "assetPattern": "^Citron-windows-nightly-.*-x64-clang-cl[.]zip$"
+        }
+      },
+      "dataPolicy": {
+        "portableDirectory": "user",
+        "portableMarkers": ["user"],
+        "requiresVisualCpp": true,
+        "prerequisites": [
+          {
+            "kind": "keys",
+            "name": "Console decryption keys",
+            "description": "Supply your locally extracted prod.keys/title.keys.",
+            "extensions": [".keys"],
+            "required": true,
+            "requiredNames": ["prod.keys"],
+            "allowDirectory": true,
+            "destination": "keys"
+          },
+          {
+            "kind": "firmware",
+            "name": "Console firmware",
+            "description": "Supply your own firmware ZIP or NCA directory. WSGM installs it into Citron's NAND; Citron validates keys and decryption on startup.",
+            "extensions": [".zip", ".nca"],
+            "required": true,
+            "requiredExtensions": [".nca"],
+            "allowDirectory": true,
+            "destination": "nand",
+            "pathSuffix": "system/Contents/registered",
+            "iniFile": "config/qt-config.ini",
+            "iniKey": "nand_directory",
+            "iniSection": "DataStorage",
+            "nativeInstaller": true
+          }
+        ]
+      },
+      "steamGridDbId": 5471414
+    },
+    {
+      "id": "mgba",
+      "name": "mGBA",
+      "systems": ["gb", "gbc", "gba"],
+      "architectures": ["x64"],
+      "executableNames": ["mGBA.exe"],
+      "launchArguments": ["-f", "{rom}"],
+      "packageType": "7z",
+      "validationArguments": ["--version"],
+      "sources": {
+        "stable": {
+          "provider": "GitHub",
+          "baseUrl": "https://api.github.com/",
+          "repository": "mgba-emu/mgba",
+          "assetPattern": "^mGBA-.*-win64[.]7z$"
+        }
+      },
+      "dataPolicy": {
+        "portableMarkers": ["portable.ini"],
+        "requiresVisualCpp": true,
+        "prerequisites": [
+          {
+            "kind": "bios",
+            "name": "Optional Game Boy / GBA boot ROMs",
+            "description": "Supply your locally dumped boot ROMs and select them in mGBA if you want authentic boot screens. The built-in HLE BIOS supports ordinary games without these files.",
+            "extensions": [".bin", ".rom"],
+            "allowDirectory": true,
+            "destination": "bios"
+          }
+        ]
+      },
+      "steamGridDbId": 5246941
+    },
+    {
+      "id": "melonds",
+      "name": "melonDS",
+      "systems": ["nds"],
+      "architectures": ["x64", "arm64"],
+      "executableNames": ["melonDS.exe"],
+      "launchArguments": ["-f", "{rom}"],
+      "packageType": "zip",
+      "validationArguments": ["{portable-layout}"],
+      "sources": {
+        "stable": {
+          "provider": "GitHub",
+          "baseUrl": "https://api.github.com/",
+          "repository": "melonDS-emu/melonDS",
+          "assetPattern": "^melonDS-.*-windows-{arch}[.]zip$",
+          "assetArchitectureNames": {
+            "x64": "x86_64",
+            "arm64": "aarch64"
+          }
+        }
+      },
+      "dataPolicy": {
+        "portableMarkers": ["melonDS.toml"],
+        "requiresVisualCpp": true,
+        "prerequisites": [
+          {
+            "kind": "system",
+            "name": "Optional DS / required DSi system files",
+            "description": "Ordinary DS games use melonDS built-in BIOS/firmware. For external BIOS or DSi mode, supply your own bios7.bin, bios9.bin, firmware.bin and DSi NAND, then select those paths in melonDS settings.",
+            "extensions": [".bin", ".rom"],
+            "allowDirectory": true,
+            "destination": "bios"
+          }
+        ]
+      },
+      "steamGridDbId": 5246939
+    },
+    {
+      "id": "ppsspp",
+      "name": "PPSSPP",
+      "systems": ["psp"],
+      "architectures": ["x64", "arm64"],
+      "executableNames": ["PPSSPPWindows64.exe", "PPSSPPWindowsARM64.exe"],
+      "launchArguments": ["{rom}", "--fullscreen"],
+      "packageType": "zip",
+      "validationArguments": ["{portable-layout}"],
+      "sources": {
+        "stable": {
+          "provider": "GitHub",
+          "baseUrl": "https://api.github.com/",
+          "repository": "hrydgard/ppsspp",
+          "assetPattern": "^PPSSPP-v.*-Windows-{arch}[.]zip$",
+          "assetArchitectureNames": {
+            "x64": "x64",
+            "arm64": "ARM64"
+          }
+        }
+      },
+      "dataPolicy": {
+        "portableMarkers": ["memstick"],
+        "requiresVisualCpp": true
+      },
+      "steamGridDbId": 36515
+    },
+    {
+      "id": "flycast",
+      "name": "Flycast",
+      "systems": ["dreamcast", "naomi", "atomiswave"],
+      "architectures": ["x64"],
+      "executableNames": ["flycast.exe"],
+      "launchArguments": ["{rom}"],
+      "packageType": "zip",
+      "validationArguments": ["{portable-layout}"],
+      "sources": {
+        "stable": {
+          "provider": "GitHub",
+          "baseUrl": "https://api.github.com/",
+          "repository": "flyinghead/flycast",
+          "assetPattern": "^flycast-win64-.*[.]zip$"
+        }
+      },
+      "dataPolicy": {
+        "portableMarkers": ["emu.cfg"],
+        "requiresVisualCpp": true,
+        "prerequisites": [
+          {
+            "kind": "bios",
+            "name": "Dreamcast / arcade BIOS",
+            "description": "Dreamcast normally uses the built-in HLE BIOS; NAOMI and Atomiswave need the BIOS for the selected hardware. Supply your own dc_boot.bin/dc_flash.bin, naomi.zip or awbios.zip as appropriate.",
+            "extensions": [".bin", ".zip"],
+            "allowDirectory": true,
+            "destination": "data"
+          }
+        ]
+      },
+      "steamGridDbId": 5266194
+    },
+    {
+      "id": "cemu",
+      "name": "Cemu",
+      "systems": ["wiiu"],
+      "architectures": ["x64"],
+      "executableNames": ["Cemu.exe"],
+      "launchArguments": ["-f", "-g", "{rom}"],
+      "packageType": "zip",
+      "validationArguments": ["--version"],
+      "sources": {
+        "stable": {
+          "provider": "GitHub",
+          "baseUrl": "https://api.github.com/",
+          "repository": "cemu-project/Cemu",
+          "assetPattern": "^cemu-.*-windows-x64[.]zip$"
+        }
+      },
+      "dataPolicy": {
+        "portableMarkers": ["portable"],
+        "requiresVisualCpp": true,
+        "prerequisites": [
+          {
+            "kind": "keys",
+            "name": "Optional Wii U keys / account data",
+            "description": "Use decrypted WUA/RPX dumps, or supply your own keys.txt for encrypted WUD/WUX images. Online play requires your own account/system dump configured in Cemu.",
+            "extensions": [".txt", ".bin", ".dat"],
+            "allowDirectory": true,
+            "destination": ""
+          }
+        ],
+        "portableDirectory": "portable"
+      },
+      "steamGridDbId": 36024
+    },
+    {
+      "id": "azahar",
+      "name": "Azahar",
+      "systems": ["3ds"],
+      "architectures": ["x64"],
+      "executableNames": ["azahar.exe"],
+      "launchArguments": ["--fullscreen", "{rom}"],
+      "packageType": "zip",
+      "validationArguments": ["--version"],
+      "sources": {
+        "stable": {
+          "provider": "GitHub",
+          "baseUrl": "https://api.github.com/",
+          "repository": "azahar-emu/azahar",
+          "assetPattern": "^azahar-windows-msvc-.*[.]zip$"
+        }
+      },
+      "dataPolicy": {
+        "portableDirectory": "user",
+        "portableMarkers": ["user"],
+        "requiresVisualCpp": true,
+        "prerequisites": [
+          {
+            "kind": "system",
+            "name": "Optional 3DS system dump",
+            "description": "Use decrypted game dumps. Supply your own 3DS sysdata when a game needs system archives; use Azahar's console setup for account/system transfer. CIA files are installed through Azahar rather than imported as launchable ROMs.",
+            "extensions": [],
+            "allowDirectory": true,
+            "destination": "sysdata"
+          }
+        ]
+      },
+      "steamGridDbId": 5480678
+    },
+    {
+      "id": "vita3k",
+      "name": "Vita3K",
+      "systems": ["psvita"],
+      "architectures": ["x64", "arm64"],
+      "executableNames": ["Vita3K.exe"],
+      "launchArguments": ["-F", "-r", "{romdir}"],
+      "packageType": "zip",
+      "validationArguments": ["--version"],
+      "sources": {
+        "continuous": {
+          "provider": "GitHub",
+          "baseUrl": "https://api.github.com/",
+          "repository": "Vita3K/Vita3K",
+          "assetPattern": "^windows{arch}-latest[.]zip$",
+          "assetArchitectureNames": {
+            "x64": "",
+            "arm64": "-arm64"
+          }
+        }
+      },
+      "dataPolicy": {
+        "portableDirectory": "portable",
+        "portableMarkers": ["portable"],
+        "requiresVisualCpp": true,
+        "prerequisites": [
+          {
+            "kind": "firmware",
+            "name": "PlayStation Vita firmware",
+            "description": "Choose a local PSP2UPDAT.PUP; Vita3K installs it. Install your legally dumped game and license in Vita3K, then import its fs/ux0/app/<title>/eboot.bin entry point.",
+            "extensions": [".pup"],
+            "required": true,
+            "requiredExtensions": [],
+            "allowDirectory": false,
+            "destination": "fs/vs0",
+            "nativeInstaller": true,
+            "installerArguments": ["--firmware", "{source}"]
+          }
+        ]
+      },
+      "steamGridDbId": 5265565
+    },
+    {
+      "id": "xemu",
+      "name": "Xemu",
+      "systems": ["xbox"],
+      "architectures": ["x64", "arm64"],
+      "executableNames": ["xemu.exe"],
+      "launchArguments": ["-dvd_path", "{rom}", "-full-screen"],
+      "packageType": "zip",
+      "validationArguments": ["--version"],
+      "sources": {
+        "stable": {
+          "provider": "GitHub",
+          "baseUrl": "https://api.github.com/",
+          "repository": "xemu-project/xemu",
+          "assetPattern": "^xemu-[0-9]+[.][0-9]+[.][0-9]+-windows-{arch}[.]zip$",
+          "assetArchitectureNames": {
+            "x64": "x86_64",
+            "arm64": "arm64"
+          }
+        }
+      },
+      "dataPolicy": {
+        "portableMarkers": ["xemu.toml"],
+        "requiresVisualCpp": true,
+        "prerequisites": [
+          {
+            "kind": "system",
+            "name": "Xbox boot ROM, flash BIOS and hard disk",
+            "description": "Supply a local folder containing mcpx_1.0.bin, bios.bin and xbox_hdd.qcow2. Rename your own dumped flash BIOS to bios.bin. Xemu needs an XISO disc image, not a raw Redump ISO. No system files or disk images are downloaded by WSGM.",
+            "extensions": [".bin", ".qcow2", ".img"],
+            "required": true,
+            "requiredNames": ["mcpx_1.0.bin", "bios.bin", "xbox_hdd.qcow2"],
+            "allowDirectory": true,
+            "destination": "bios"
+          }
+        ]
+      },
+      "steamGridDbId": 5277917
+    },
+    {
+      "id": "xenia",
+      "name": "Xenia Canary",
+      "systems": ["xbox360"],
+      "architectures": ["x64"],
+      "executableNames": ["xenia_canary.exe"],
+      "launchArguments": ["{rom}", "--fullscreen=true"],
+      "packageType": "zip",
+      "validationArguments": ["{portable-layout}"],
+      "sources": {
+        "canary": {
+          "provider": "GitHub",
+          "baseUrl": "https://api.github.com/",
+          "repository": "xenia-canary/xenia-canary-releases",
+          "assetPattern": "^xenia_canary_windows[.]zip$"
+        }
+      },
+      "dataPolicy": {
+        "portableMarkers": ["portable.txt"],
+        "requiresVisualCpp": true
+      },
+      "steamGridDbId": 5245877
+    },
+    {
+      "id": "mame",
+      "name": "MAME",
+      "systems": ["arcade"],
+      "architectures": ["x64", "arm64"],
+      "executableNames": ["mame.exe"],
+      "launchArguments": ["-rompath", "{romdir};{data}/bios", "{romname}", "-skip_gameinfo"],
+      "packageType": "exe",
+      "validationArguments": ["-help"],
+      "sources": {
+        "stable": {
+          "provider": "GitHub",
+          "baseUrl": "https://api.github.com/",
+          "repository": "mamedev/mame",
+          "assetPattern": "^mame[0-9]+b_{arch}[.]exe$",
+          "assetArchitectureNames": {
+            "x64": "x64",
+            "arm64": "arm64"
+          },
+          "checksumFile": "SHA256SUMS"
+        }
+      },
+      "dataPolicy": {
+        "requiresVisualCpp": true,
+        "prerequisites": [
+          {
+            "kind": "bios",
+            "name": "Arcade BIOS and device ROMs",
+            "description": "Use a ROM set matching this MAME version. Keep required BIOS/device archives beside the game ZIP, or add their directory to MAME's rompath. Samples and CHDs remain your own local content.",
+            "extensions": [".zip", ".7z"],
+            "allowDirectory": true,
+            "destination": "bios"
+          }
+        ]
+      },
+      "steamGridDbId": 5250066
+    },
+    {
+      "id": "supermodel",
+      "name": "Supermodel",
+      "systems": ["model3"],
+      "architectures": ["x64"],
+      "executableNames": ["Supermodel.exe"],
+      "launchArguments": ["{rom}", "-fullscreen"],
+      "packageType": "zip",
+      "validationArguments": ["-help"],
+      "sources": {
+        "continuous": {
+          "provider": "GitHub",
+          "baseUrl": "https://api.github.com/",
+          "repository": "trzy/Supermodel",
+          "assetPattern": "^supermodel-.*-windows[.]zip$"
+        }
+      },
+      "dataPolicy": {
+        "requiresVisualCpp": true
+      },
+      "steamGridDbId": 5367324
+    },
+    {
+      "id": "bigpemu",
+      "name": "BigPEmu",
+      "systems": ["jaguar", "jaguarcd"],
+      "architectures": ["x64", "arm64"],
+      "executableNames": ["BigPEmu.exe"],
+      "launchArguments": ["{rom}", "-localdata"],
+      "packageType": "zip",
+      "validationArguments": ["{portable-layout}"],
+      "sources": {
+        "stable": {
+          "provider": "WebPage",
+          "baseUrl": "https://www.richwhitehouse.com/jaguar/index.php?content=download",
+          "assetPattern": "^BigPEmu_{arch}v(?<version>[0-9]+)[.]zip$",
+          "assetArchitectureNames": {
+            "x64": "",
+            "arm64": "WinARM64_"
+          }
+        }
+      },
+      "dataPolicy": {
+        "portableDirectory": "UserData",
+        "portableMarkers": ["UserData"],
+        "interfaceArguments": ["*null", "-localdata"]
+      },
+      "steamGridDbId": 5431829
+    },
+    {
+      "id": "ares",
+      "name": "ares",
+      "systems": [
+        "nes",
+        "snes",
+        "gb",
+        "gbc",
+        "gba",
+        "n64",
+        "megadrive",
+        "mastersystem",
+        "gamegear",
+        "pcengine",
+        "psx"
+      ],
+      "architectures": ["x64", "arm64"],
+      "executableNames": ["ares.exe"],
+      "launchArguments": ["--fullscreen", "{rom}"],
+      "packageType": "zip",
+      "validationArguments": ["--help"],
+      "sources": {
+        "stable": {
+          "provider": "GitHub",
+          "baseUrl": "https://api.github.com/",
+          "repository": "ares-emulator/ares",
+          "assetPattern": "^ares-windows-{arch}[.]zip$",
+          "assetArchitectureNames": {
+            "x64": "x64",
+            "arm64": "clang-cl-arm64"
+          }
+        }
+      },
+      "dataPolicy": {
+        "portableMarkers": ["settings.bml"],
+        "requiresVisualCpp": true,
+        "prerequisites": [
+          {
+            "kind": "bios",
+            "name": "System-specific firmware",
+            "description": "Select your own firmware in ares Settings > Firmware for the system you play. Individual systems may require BIOS files; these are never downloaded.",
+            "extensions": [],
+            "allowDirectory": true,
+            "destination": "Firmware"
+          }
+        ]
+      },
+      "steamGridDbId": 5362691
+    },
+    {
+      "id": "rmg",
+      "name": "RMG",
+      "systems": ["n64"],
+      "architectures": ["x64"],
+      "executableNames": ["RMG.exe"],
+      "launchArguments": ["--fullscreen", "{rom}"],
+      "packageType": "zip",
+      "validationArguments": ["{portable-layout}"],
+      "sources": {
+        "stable": {
+          "provider": "GitHub",
+          "baseUrl": "https://api.github.com/",
+          "repository": "Rosalie241/RMG",
+          "assetPattern": "^RMG-Portable-Windows64-.*[.]zip$"
+        }
+      },
+      "dataPolicy": {
+        "portableMarkers": ["portable.txt"],
+        "requiresVisualCpp": true,
+        "prerequisites": [
+          {
+            "kind": "bios",
+            "name": "Optional Nintendo 64DD IPL",
+            "description": "Supply your own 64DD IPL when using disk-system support and select it in RMG's core settings.",
+            "extensions": [".bin", ".rom"],
+            "allowDirectory": true,
+            "destination": "bios"
+          }
+        ]
+      },
+      "steamGridDbId": 5369404
+    },
+    {
+      "id": "primehack",
+      "name": "PrimeHack",
+      "systems": ["gamecube", "wii"],
+      "architectures": ["x64"],
+      "executableNames": ["Dolphin.exe"],
+      "launchArguments": ["-b", "-e", "{rom}"],
+      "packageType": "zip",
+      "validationArguments": ["--version"],
+      "sources": {
+        "stable": {
+          "provider": "GitHub",
+          "baseUrl": "https://api.github.com/",
+          "repository": "shiiion/dolphin",
+          "assetPattern": "^PrimeHack[.]v.*[.]zip$"
+        }
+      },
+      "dataPolicy": {
+        "portableDirectory": "User",
+        "portableMarkers": ["portable.txt"],
+        "dataArguments": ["-u", "{data}"],
+        "requiresVisualCpp": true,
+        "prerequisites": [
+          {
+            "kind": "system",
+            "name": "Optional console system files",
+            "description": "Supply your local GameCube/Wii system files when needed. PrimeHack has separate configuration and saves from Dolphin.",
+            "extensions": [],
+            "allowDirectory": true,
+            "destination": ""
+          }
+        ]
+      },
+      "steamGridDbId": 5260937
+    },
+    {
+      "id": "scummvm",
+      "name": "ScummVM",
+      "systems": ["scummvm"],
+      "architectures": ["x64"],
+      "executableNames": ["scummvm.exe"],
+      "launchArguments": ["--fullscreen", "--path={romdir}", "--auto-detect"],
+      "packageType": "zip",
+      "validationArguments": ["--version"],
+      "sources": {
+        "stable": {
+          "provider": "WebPage",
+          "baseUrl": "https://www.scummvm.org/downloads/",
+          "assetPattern": "^scummvm-(?<version>[0-9]+[.][0-9]+[.][0-9]+)-win32-x86_64[.]zip$",
+          "checksumFile": "{asset}.sha256"
+        }
+      },
+      "dataPolicy": {
+        "configFile": "scummvm.ini",
+        "portableMarkers": ["scummvm.ini"],
+        "dataArguments": ["--config={config}", "--savepath={data}/saves"],
+        "prerequisites": [
+          {
+            "kind": "system",
+            "name": "Optional engine data",
+            "description": "ScummVM bundles its supported engine data. Supply extra data only when your game needs it. Put a .scummvm marker file inside each game directory for ROM import; ScummVM detects the actual game from that directory.",
+            "extensions": [],
+            "allowDirectory": true,
+            "destination": "extras"
+          }
+        ]
+      },
+      "steamGridDbId": 5248828
+    },
+    {
+      "id": "shadps4",
+      "name": "shadPS4",
+      "systems": ["ps4"],
+      "architectures": ["x64"],
+      "executableNames": ["shadPS4.exe"],
+      "launchArguments": ["--game", "{rom}", "--fullscreen", "true"],
+      "packageType": "zip",
+      "validationArguments": ["--help"],
+      "sources": {
+        "continuous": {
+          "provider": "GitHub",
+          "baseUrl": "https://api.github.com/",
+          "repository": "shadps4-emu/shadPS4",
+          "assetPattern": "^shadps4-win64-sdl-.*[.]zip$"
+        }
+      },
+      "dataPolicy": {
+        "portableDirectory": "user",
+        "portableMarkers": ["user"],
+        "interfaceArguments": ["-b", "--same-process"],
+        "requiresVisualCpp": true,
+        "prerequisites": [
+          {
+            "kind": "system",
+            "name": "PS4 system modules",
+            "description": "Supply your locally dumped system modules into user/sys_modules when the game requires them. Import the eboot.bin of a decrypted, extracted game; PKG installation is not a ROM launch path.",
+            "extensions": [".sprx", ".prx"],
+            "allowDirectory": true,
+            "destination": "sys_modules"
+          }
+        ]
+      },
+      "steamGridDbId": 5458313
+    },
+    {
       "id": "retroarch",
       "name": "RetroArch (all cores)",
       "systems": [
@@ -33,7 +836,9 @@
           "provider": "Buildbot",
           "baseUrl": "https://buildbot.libretro.com/",
           "repository": "stable",
-          "platformNames": { "x64": "x86_64" },
+          "platformNames": {
+            "x64": "x86_64"
+          },
           "packageName": "RetroArch.7z",
           "packagePattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}.*RetroArch.*[.]7z$",
           "corePath": "nightly/windows/{platform}/latest/",
@@ -43,7 +848,9 @@
           "provider": "Buildbot",
           "baseUrl": "https://buildbot.libretro.com/",
           "repository": "nightly",
-          "platformNames": { "x64": "x86_64" },
+          "platformNames": {
+            "x64": "x86_64"
+          },
           "packageName": "RetroArch.7z",
           "packagePattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}.*RetroArch.*[.]7z$",
           "corePath": "nightly/windows/{platform}/latest/",
@@ -97,7 +904,8 @@
         "probeDirectory": "",
         "nativeRoots": [],
         "environment": {}
-      }
+      },
+      "steamGridDbId": 5245768
     },
     {
       "id": "duckstation",
@@ -150,7 +958,8 @@
         "probeDirectory": "",
         "nativeRoots": [],
         "environment": {}
-      }
+      },
+      "steamGridDbId": 5267970
     },
     {
       "id": "rpcs3",
@@ -200,7 +1009,8 @@
         "probeDirectory": "",
         "nativeRoots": [],
         "environment": {}
-      }
+      },
+      "steamGridDbId": 5245879
     },
     {
       "id": "pcsx2",
@@ -250,7 +1060,8 @@
         "probeDirectory": "",
         "nativeRoots": [],
         "environment": {}
-      }
+      },
+      "steamGridDbId": 35439
     },
     {
       "id": "eden",
@@ -322,7 +1133,8 @@
         "probeDirectory": "user",
         "nativeRoots": [],
         "environment": {}
-      }
+      },
+      "steamGridDbId": 5488518
     },
     {
       "id": "dolphin",
@@ -365,7 +1177,8 @@
         "probeDirectory": "",
         "nativeRoots": [],
         "environment": {}
-      }
+      },
+      "steamGridDbId": 34346
     }
   ]
 }

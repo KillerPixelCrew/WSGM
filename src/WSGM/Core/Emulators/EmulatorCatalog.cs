@@ -29,6 +29,7 @@ internal sealed record EmulatorSource
 
 internal sealed record EmulatorPackageDefinition
 {
+    public int? SteamGridDbId { get; init; }
     public string Id { get; init; } = "";
     public string Name { get; init; } = "";
     public string[] Systems { get; init; } = [];
@@ -47,6 +48,7 @@ internal sealed record EmulatorPackageDefinition
         return new EmulatorDefinition
         {
             Id = Id,
+            SteamGridDbId = SteamGridDbId,
             Name = Name,
             Systems = [.. Systems],
             Channels = [.. Sources.Keys],
@@ -87,7 +89,8 @@ internal sealed record EmulatorCatalog
             if (!Regex.IsMatch(definition.Id, "^[a-z0-9][a-z0-9-]*$")
                 || definition.Sources.Count == 0 || definition.ExecutableNames.Length == 0
                 || definition.ExecutableNames.Any(name => Path.GetFileName(name) != name)
-                || definition.PackageType is not ("zip" or "7z") || definition.ValidationArguments.Length == 0)
+                || definition.PackageType is not ("zip" or "7z" or "exe") || definition.ValidationArguments.Length == 0
+                || definition.SteamGridDbId is <= 0)
             {
                 throw new InvalidDataException("Invalid emulator definition: " + definition.Id);
             }
@@ -95,7 +98,7 @@ internal sealed record EmulatorCatalog
             foreach (var source in definition.Sources.Values)
             {
                 EmulatorNetwork.Https(source.BaseUrl);
-                if (source.Provider is not ("GitHub" or "Forgejo" or "Scoop" or "Buildbot" or "Dolphin"))
+                if (source.Provider is not ("GitHub" or "Forgejo" or "Scoop" or "Buildbot" or "Dolphin" or "WebPage"))
                 {
                     throw new InvalidDataException("Unsupported emulator release provider: " + source.Provider);
                 }

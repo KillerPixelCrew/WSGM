@@ -61,12 +61,14 @@ and
 
 ## The overlay and Settings
 
-| Read                                         | When you want to understand                                                                                        |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| [overlay-and-input.md](overlay-and-input.md) | the quick access sheet, its in-window keyboard, utility and power surfaces, gamepad navigation, edge swipes        |
-| [ui.md](ui.md)                               | Avalonia styling and tokens, layout floors, the headless UI tests and their baselines, the splash engine           |
-| [steam-input.md](steam-input.md)             | how the overlay takes the controller from Steam and gives it back, the OEM handoff, guide chord edits              |
-| [radios.md](radios.md)                       | what WSGM decides about Wi-Fi, Bluetooth and audio; the Windows calls live in `..\external\windows-device-control` |
+| Read                                           | When you want to understand                                                                                        |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| [overlay-and-input.md](overlay-and-input.md)   | the quick access sheet, its in-window keyboard, utility and power surfaces, gamepad navigation, edge swipes        |
+| [ui.md](ui.md)                                 | Avalonia styling and tokens, layout floors, the headless UI tests and their baselines, the splash engine           |
+| [programs.md](programs.md)                     | companion application definitions, home pins, executable identity and safe launch-or-focus handoff                 |
+| [scaled-resolutions.md](scaled-resolutions.md) | physical-display GPU source sizes, explicit driver-list edits and reapplication after driver updates               |
+| [steam-input.md](steam-input.md)               | how the overlay takes the controller from Steam and gives it back, the OEM handoff, guide chord edits              |
+| [radios.md](radios.md)                         | what WSGM decides about Wi-Fi, Bluetooth and audio; the Windows calls live in `..\external\windows-device-control` |
 
 ## Steam
 

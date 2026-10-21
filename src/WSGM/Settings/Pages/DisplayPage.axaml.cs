@@ -11,6 +11,23 @@ public partial class DisplayPage : UserControl
     public DisplayPage()
     {
         InitializeComponent();
+        Loaded += (_, _) =>
+        {
+            if (DataContext is SettingsViewModel viewModel)
+            {
+                viewModel.ScaledResolutions.RefreshCommand.Execute(null);
+            }
+        };
+    }
+
+    private void OnEditScaledDimension(object? sender, RoutedEventArgs e)
+    {
+        if (TopLevel.GetTopLevel(this) is SettingsWindow window)
+        {
+            var width = (sender as Button)?.Tag as string == "Width";
+            window.ShowOnScreenKeyboard(width ? ScaledWidthBox : ScaledHeightBox,
+                width ? "Source width in pixels" : "Source height in pixels");
+        }
     }
 
     private void OnRefreshAudio(object? sender, RoutedEventArgs e)

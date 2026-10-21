@@ -10,7 +10,7 @@ using System.Threading.Tasks;
 
 namespace WSGM.Core;
 
-internal sealed record EmulatorAsset(string Name, string Url, string Sha256 = "", long Size = 0);
+internal sealed record EmulatorAsset(string Name, string Url, string Sha256 = "", long Size = 0, string Revision = "");
 
 internal sealed record EmulatorRelease(
     string Version,
@@ -115,6 +115,8 @@ internal sealed class EmulatorReleases(EmulatorNetwork network)
                 .ConfigureAwait(false),
             "Buildbot" => await BuildbotAsync(source, architecture, cancellationToken).ConfigureAwait(false),
             "Dolphin" => await DolphinAsync(source, architecture, cancellationToken).ConfigureAwait(false),
+            "WebPage" => await EmulatorWebReleases.FindAsync(network, source, architecture, cancellationToken)
+                .ConfigureAwait(false),
             _ => throw new InvalidDataException("Unsupported emulator release provider: " + source.Provider)
         };
     }
@@ -194,7 +196,7 @@ internal sealed class EmulatorReleases(EmulatorNetwork network)
                 : [document.RootElement];
             foreach (var release in releases)
             {
-                if (JsonRead.Flag(release, "draft"))
+                if (JsonRead.Flag(release, "draft") || channel == "stable" && JsonRead.Flag(release, "prerelease"))
                 {
                     continue;
                 }
@@ -240,7 +242,8 @@ internal sealed class EmulatorReleases(EmulatorNetwork network)
                         }
                     }
 
-                    return new EmulatorRelease(tag.TrimStart('v'), tag + ":" + Text(release, "id") + ":" + asset.Sha256,
+                    return new EmulatorRelease(tag.TrimStart('v'), tag + ":" + Text(release, "id") + ":" + asset.Sha256
+                        + (asset.Revision.Length > 0 ? ":" + asset.Revision : ""),
                         Text(release, "html_url"), source.Provider, asset);
                 }
             }
@@ -346,7 +349,8 @@ internal sealed class EmulatorReleases(EmulatorNetwork network)
             var digest = Text(asset, "digest");
             yield return new EmulatorAsset(Text(asset, "name"), Text(asset, "browser_download_url"),
                 digest.StartsWith("sha256:", StringComparison.Ordinal) ? digest[7..] : "",
-                asset.TryGetProperty("size", out var size) && size.TryGetInt64(out var value) ? value : 0);
+                asset.TryGetProperty("size", out var size) && size.TryGetInt64(out var value) ? value : 0,
+                Text(asset, "id") + ":" + Text(asset, "updated_at"));
         }
     }
 

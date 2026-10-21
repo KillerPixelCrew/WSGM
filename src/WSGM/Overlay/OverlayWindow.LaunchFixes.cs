@@ -1,12 +1,9 @@
 using System;
-using System.Collections.Generic;
 using System.Globalization;
-using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
-using Avalonia.Platform.Storage;
 using SteamUiToolkit;
 using WSGM.Controls;
 using WSGM.Core;
@@ -23,6 +20,14 @@ public partial class OverlayWindow
     ///     whose title reports the outcome.
     /// </summary>
     private (LaunchWrapperMode Mode, ActionButton Button)? _pendingLaunchFix;
+    private LaunchActionService? _launchActions;
+
+    /// <summary>Attaches the single session launch-action owner used by Steam and Overlay.</summary>
+    internal void AttachLaunchActions(LaunchActionService? service)
+    {
+        _launchActions = service;
+        LaunchWrapperHost.AttachLaunchActions(service);
+    }
 
     /// <summary>
     ///     Re-labels the launch-fix rows for the current CEF state. Called when
@@ -70,43 +75,21 @@ public partial class OverlayWindow
     {
         try
         {
-            IReadOnlyList<IStorageFile> files;
-            // The native picker owns input until it closes. Suspend controller
-            // navigation so it cannot drive the overlay behind the dialog.
-            SystemDialogActive?.Invoke(true);
-            try
-            {
-                files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-                {
-                    Title = "Choose a custom launch action",
-                    AllowMultiple = false,
-                    FileTypeFilter =
-                    [
-                        new FilePickerFileType("Launch actions")
-                        {
-                            Patterns = ["*.exe", "*.cmd", "*.bat", "*.ps1"]
-                        }
-                    ]
-                });
-            }
-            finally
-            {
-                SystemDialogActive?.Invoke(false);
-            }
-
-            if (_closed || files.Count == 0 || !files[0].Path.IsFile)
+            // Keep the game identity from before opening the file picker.
+            var game = await ResolveCurrentGameAsync(CustomLaunchButton);
+            var path = await PickLocalPathAsync(false, ".exe", ".cmd", ".bat", ".ps1");
+            if (_closed || path is null)
             {
                 return;
             }
 
-            var path = files[0].Path.LocalPath;
             if (!SteamCustomLaunchCommand.IsSupported(path))
             {
                 CustomLaunchButton.Title = "Unsupported file type";
                 return;
             }
 
-            LaunchWrapperHost.OpenCustom(path, await ResolveCurrentGameAsync(CustomLaunchButton));
+            LaunchWrapperHost.OpenCustom(path, game);
             if (_closed)
             {
                 return;
@@ -184,100 +167,30 @@ public partial class OverlayWindow
         _ = ApplyCustomLaunchToAsync(path, arguments, game, CustomLaunchButton);
     }
 
-    private async Task ApplyCustomLaunchToAsync(
+    private Task ApplyCustomLaunchToAsync(
         string path, string arguments, SteamLibraryApp game, ActionButton button)
     {
-        try
+        if (_launchActions is null)
         {
-            if (!File.Exists(path))
-            {
-                button.Title = "File is no longer available";
-                return;
-            }
-
-            if (_steam is not { } steam)
-            {
-                button.Title = "Steam isn't reachable";
-                return;
-            }
-
-            var details = await SteamLaunchConfig.ReadAsync(steam, game.AppId);
-            if (details is not { } current)
-            {
-                button.Title = "Steam didn't answer";
-                return;
-            }
-
-            var existing = await LaunchWrapperStore.FindAsync(_store, game.AppId);
-            var snapshot = CaptureLaunchSnapshot(game.AppId, game.Shortcut, current, existing);
-            if (snapshot is null)
-            {
-                button.Title = "Can't read the original program";
-                Log.Warn(
-                    $"Custom launch action refused for {game.Name} ({game.AppId}): the original target could not be recovered.");
-                return;
-            }
-
-            snapshot.Kind = LaunchConfigurationKind.CustomAction;
-            snapshot.Mode = LaunchWrapperMode.None;
-            snapshot.CustomActionPath = path;
-            snapshot.CustomArguments = arguments;
-            snapshot.Name = game.Name;
-            if (existing is null)
-            {
-                // Persist the only restoration copy before Steam destroys a shortcut Target.
-                await LaunchWrapperStore.RememberAsync(_store, snapshot);
-            }
-
-            var result = await SteamLaunchConfig.ApplyCustomAsync(
-                steam, game.AppId, game.Shortcut, path, arguments);
-            // A write that reached Steam keeps the snapshot even when Steam's answer was lost: it
-            // is the only record of what the game ran before. Only a write that never reached Steam
-            // or that Steam refused leaves nothing to restore.
-            switch (result.Ok)
-            {
-                case false when existing is null:
-                    await LaunchWrapperStore.ForgetAsync(_store, game.AppId);
-                    break;
-                case true when existing is not null:
-                    await LaunchWrapperStore.RememberAsync(_store, snapshot);
-                    break;
-            }
-
-            button.Title = result.Ok ? $"Applied to {game.Name}" : result.Detail;
-            if (result.Ok)
-            {
-                Log.Info($"Custom launch action written for {game.Name} ({game.AppId}).");
-                LeaveSubView(OverlayPage.SteamLaunchConfiguration);
-                await DismissAfterCopyFeedback();
-            }
+            button.Title = "Launch actions unavailable";
+            return Task.CompletedTask;
         }
-        catch (Exception ex)
-        {
-            button.Title = "Couldn't configure launch action";
-            Log.Error($"Could not configure custom launch action for {game.AppId}", ex);
-        }
+
+        LaunchWrapperHost.OpenActions(game, LaunchWrapperMode.None, path, arguments);
+        return Task.CompletedTask;
     }
 
     private void StartLaunchFix(LaunchWrapperMode mode, ActionButton button)
     {
-        // Resolve the lease route ONCE, here, before anything branches. The
-        // clipboard text, the value written into Steam and the snapshot persisted
-        // into config all flow from this, so deciding it in one place is what stops
-        // them disagreeing about how a given game blocks Steam Input.
-        mode = LaunchWrapperCommand.ForCurrentInputMode(
-            mode, (DataContext as OverlayViewModel)?.InputLeaseUsesShim ?? true);
-        var helperPath = LaunchWrapperCommand.HelperPathForCurrentDeployment();
-        if (mode != LaunchWrapperMode.None && !File.Exists(helperPath))
-        {
-            button.Title = "Launch wrapper missing";
-            Log.Warn($"Cannot configure a launch fix; wrapper not found: {helperPath}");
-            return;
-        }
-
         if (DataContext is not OverlayViewModel { ConfigureLaunchOptionsLive: true })
         {
-            _ = CopyLaunchCommandAsync(mode, button, helperPath);
+            if (mode == LaunchWrapperMode.None)
+            {
+                button.Title = "Enable Steam UI integration to restore launch actions";
+                return;
+            }
+
+            _ = CopyLaunchCommandAsync(mode, button);
             return;
         }
 
@@ -285,7 +198,7 @@ public partial class OverlayWindow
     }
 
     private async Task CopyLaunchCommandAsync(
-        LaunchWrapperMode mode, ActionButton button, string helperPath)
+        LaunchWrapperMode mode, ActionButton button)
     {
         var clipboard = GetTopLevel(this)?.Clipboard;
         if (clipboard is null)
@@ -297,14 +210,20 @@ public partial class OverlayWindow
 
         try
         {
-            await clipboard.SetTextAsync(LaunchWrapperCommand.SteamLaunchOptions(helperPath, mode));
+            if (_launchActions is null)
+            {
+                button.Title = "Launch actions unavailable";
+                return;
+            }
+
+            await clipboard.SetTextAsync(_launchActions.ClipboardCommand(mode));
             button.Title = "Copied to clipboard";
             Log.Info($"Copied the {mode} launch-option command to clipboard.");
             await DismissAfterCopyFeedback();
         }
         catch (Exception ex)
         {
-            button.Title = "Clipboard copy failed";
+            button.Title = ex.Message;
             Log.Error("Could not copy the launch command", ex);
         }
     }
@@ -368,95 +287,18 @@ public partial class OverlayWindow
         }
     }
 
-    private async Task ApplyLaunchFixToAsync(
+    private Task ApplyLaunchFixToAsync(
         LaunchWrapperMode mode, ActionButton button, long appId, string name, bool isShortcut)
     {
-        try
+        if (_launchActions is null)
         {
-            if (_steam is not { } steam)
-            {
-                button.Title = "Steam isn't reachable";
-                return;
-            }
-
-            var current = await SteamLaunchConfig.ReadAsync(steam, appId);
-            if (current is not { } details)
-            {
-                button.Title = "Steam didn't answer";
-                return;
-            }
-
-            LaunchConfigResult result;
-            if (mode == LaunchWrapperMode.None)
-            {
-                var snapshot = await LaunchWrapperStore.FindAsync(_store, appId);
-                if (snapshot is null)
-                {
-                    button.Title = $"No fix applied to {name}";
-                    return;
-                }
-
-                result = await SteamLaunchConfig.RestoreAsync(steam, snapshot);
-                // Forgotten only once Steam confirmed the restore. A restore whose answer was lost
-                // keeps the snapshot, so Remove can give the original back again.
-                if (result.Confirmed)
-                {
-                    await LaunchWrapperStore.ForgetAsync(_store, appId);
-                }
-            }
-            else
-            {
-                var existing = await LaunchWrapperStore.FindAsync(_store, appId);
-                // Snapshot BEFORE the write: configuring a shortcut overwrites its
-                // Target, so this becomes the only record of the real program. When
-                // the game is already wrapped (the user is switching modes) the
-                // values on screen are WSGM's own — keep the first snapshot instead,
-                // and when there is none (the command was pasted by hand, or the
-                // config was reset) unwrap them rather than recording the wrapper as
-                // the "original", which would make Remove restore the wrapper itself.
-                var snapshot = CaptureLaunchSnapshot(appId, isShortcut, details, existing);
-                if (snapshot is null)
-                {
-                    // A wrapped shortcut whose real program cannot be recovered has
-                    // no restorable state; writing WSGM's own values as the original
-                    // would strand it permanently.
-                    button.Title = "Can't read the original program";
-                    Log.Warn($"Launch fix refused for {name} ({appId}): the shortcut is already "
-                             + "wrapped and its original target could not be recovered.");
-                    return;
-                }
-
-                snapshot.Kind = LaunchConfigurationKind.Wrapper;
-                snapshot.Mode = mode;
-                snapshot.CustomActionPath = "";
-                snapshot.CustomArguments = "";
-                snapshot.Name = name;
-                await LaunchWrapperStore.RememberAsync(_store, snapshot);
-
-                result = await SteamLaunchConfig.ApplyAsync(steam, appId, isShortcut, mode, details);
-                if (!result.Ok && existing is null)
-                {
-                    // Nothing reached Steam or Steam refused it, so nothing was changed: leave no
-                    // snapshot behind claiming otherwise, unless one was already there. A write that
-                    // reached Steam without an answer is Ok and keeps it.
-                    await LaunchWrapperStore.ForgetAsync(_store, appId);
-                }
-            }
-
-            button.Title = result.Ok
-                ? mode == LaunchWrapperMode.None ? $"Removed from {name}" : $"Applied to {name}"
-                : result.Detail;
-            if (result.Ok)
-            {
-                Log.Info($"Launch fix {mode} written for {name} ({appId}).");
-                await DismissAfterCopyFeedback();
-            }
+            button.Title = "Launch actions unavailable";
+            return Task.CompletedTask;
         }
-        catch (Exception ex)
-        {
-            button.Title = "Couldn't reach Steam";
-            Log.Error($"Could not configure the launch fix for {appId}", ex);
-        }
+
+        LaunchWrapperHost.OpenActions(new SteamLibraryApp(SteamApps.NormalizeAppId(appId), name, isShortcut), mode);
+        EnterSubView(OverlayPage.SteamLaunchConfiguration);
+        return Task.CompletedTask;
     }
 
     /// <summary>Keeps the first restoration record, unwrapping a manually configured launch fix when needed.</summary>
@@ -468,26 +310,7 @@ public partial class OverlayWindow
     internal static LaunchWrapperConfig? CaptureLaunchSnapshot(long appId, bool isShortcut, SteamAppDetails details,
         LaunchWrapperConfig? existing)
     {
-        if (existing is not null)
-        {
-            return existing;
-        }
-
-        var originals = SteamLaunchConfig.OriginalsFrom(isShortcut, details);
-        if (isShortcut && SteamLaunchConfig.ModeFor(isShortcut, details) != LaunchWrapperMode.None
-                       && string.IsNullOrWhiteSpace(originals.Target))
-        {
-            return null;
-        }
-
-        return new LaunchWrapperConfig
-        {
-            AppId = appId,
-            IsShortcut = isShortcut,
-            OriginalTarget = originals.Target,
-            OriginalLaunchOptions = originals.LaunchOptions,
-            OriginalStartDir = originals.StartDir
-        };
+        return existing ?? LaunchActionService.CaptureSnapshot(appId, isShortcut, details, null);
     }
 
     private void OnLaunchFixGamePicked(SteamLibraryApp game)

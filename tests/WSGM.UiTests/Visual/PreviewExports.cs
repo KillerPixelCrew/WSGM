@@ -149,6 +149,8 @@ public static class PreviewExports
         PreviewAudioPanel.Export(directory);
         PreviewTools.Export(directory, width, height);
         PreviewFilePicker.Export(directory, width, height);
+        PreviewScaledResolutions.Export(directory);
+        PreviewDisplaySettings.Export(directory);
     }
 
     private sealed record Publication(CapabilityDescriptorSet Descriptors, CapabilityState[] States);

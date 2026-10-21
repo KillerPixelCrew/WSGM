@@ -66,6 +66,38 @@
   </UserControl.Resources>
   <ScrollViewer>
     <StackPanel Margin="20,16" Spacing="16">
+      <Expander Header="GPU-scaled resolutions" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+        <StackPanel DataContext="{Binding ScaledResolutions}" x:DataType="s:ScaledResolutionEditor" Spacing="10">
+          <TextBlock Text="Add source sizes without changing your active resolution, refresh rate or panel timing. This catalog is global, independent of game profiles. Edits are saved immediately." Classes="caption" TextWrapping="Wrap" />
+          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+            <ComboBox ItemsSource="{Binding Displays}" SelectedItem="{Binding Display}" HorizontalAlignment="Stretch" PlaceholderText="Choose a display" IsEnabled="{Binding !Busy}" />
+            <Button Grid.Column="1" Content="Refresh displays" Command="{Binding RefreshCommand}" IsEnabled="{Binding !Busy}" />
+          </Grid>
+          <TextBlock Text="{Binding AdapterText}" TextWrapping="Wrap" />
+          <TextBlock Text="{Binding NativeText}" Classes="caption" />
+          <TextBlock Text="{Binding CatalogText}" Classes="caption" TextWrapping="Wrap" />
+          <StackPanel Spacing="8" IsEnabled="{Binding CanEdit}">
+            <Grid ColumnDefinitions="*,Auto,*,Auto,Auto" ColumnSpacing="8">
+              <TextBox x:Name="ScaledWidthBox" Text="{Binding Width}" PlaceholderText="Width in pixels" MaxLength="5" />
+              <Button Grid.Column="1" Content="Edit width" Click="OnEditScaledDimension" Tag="Width" />
+              <TextBox Grid.Column="2" x:Name="ScaledHeightBox" Text="{Binding Height}" PlaceholderText="Height in pixels" MaxLength="5" />
+              <Button Grid.Column="3" Content="Edit height" Click="OnEditScaledDimension" Tag="Height" />
+              <Button Grid.Column="4" Content="Add resolution" Command="{Binding AddCommand}" IsEnabled="{Binding !Busy}" />
+            </Grid>
+            <Button Content="Preview 100% to 50% in 5% steps" Command="{Binding PreviewCommand}" HorizontalAlignment="Left" />
+            <TextBlock Text="{Binding PreviewText}" TextWrapping="Wrap" />
+            <Button Content="Add previewed resolutions" Command="{Binding ApplyPreviewCommand}" IsEnabled="{Binding !Busy}" HorizontalAlignment="Left" />
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+              <ComboBox ItemsSource="{Binding Additions}" SelectedItem="{Binding Addition}" PlaceholderText="WSGM additions" HorizontalAlignment="Stretch" />
+              <Button Grid.Column="1" Content="Remove addition" Command="{Binding RemoveCommand}" IsEnabled="{Binding !Busy}" />
+            </Grid>
+            <Button Content="Reapply missing additions" Command="{Binding ReapplyCommand}" IsVisible="{Binding HasMissing}" IsEnabled="{Binding !Busy}" HorizontalAlignment="Left" />
+            <TextBlock Text="Restarting the graphics driver can blank every display on this GPU and interrupt games. Restart only when you are ready." TextWrapping="Wrap" Classes="caption" IsVisible="{Binding NeedsRestart}" />
+            <Button Content="Restart this graphics driver now" Command="{Binding RestartCommand}" IsVisible="{Binding NeedsRestart}" IsEnabled="{Binding !Busy}" HorizontalAlignment="Left" />
+          </StackPanel>
+          <TextBlock Text="{Binding Status}" TextWrapping="Wrap" />
+        </StackPanel>
+      </Expander>
       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
         <StackPanel Spacing="4">
           <TextBlock Text="Display layouts" FontSize="22" FontWeight="SemiBold" />

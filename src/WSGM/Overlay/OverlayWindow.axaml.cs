@@ -137,8 +137,6 @@ public partial class OverlayWindow : Window
         _switcher = switcher;
         DataContext = viewModel;
         InitializeComponent();
-        LibraryTabsHost.ConfigureStore(store);
-        CardManagerHost.ConfigureStore(store);
         AnimationsHost.ConfigureContext(store.Context);
         ArtworkHost.ConfigureContext(store.Context);
         viewModel.PropertyChanged += OnWorkspacePolicyChanged;
@@ -393,6 +391,8 @@ public partial class OverlayWindow : Window
         _pinToastTimer = null;
         DevicePowerSchemeHost.Attach(null);
         GameLibraryHost.Attach(null);
+        AttachLibraryManager(null);
+        DetachPrograms();
         EmulatorManagerHost.Attach(null);
         ThemesHost.Attach(null);
         AnimationsHost.Attach(null);

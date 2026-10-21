@@ -489,6 +489,12 @@ public sealed class CardLibraryConfig
 
     /// <summary>App ids installed on the card (remembered while it is ejected).</summary>
     public List<long> AppIds { get; set; } = [];
+
+    /// <summary>The volume size last read while mounted; zero when no reading is available.</summary>
+    public long CapacityBytes { get; set; }
+
+    /// <summary>Free bytes from the same mounted reading, meaningful when capacity is known.</summary>
+    public long FreeBytes { get; set; }
 }
 
 /// <summary>
@@ -894,6 +900,12 @@ public sealed class AppConfig
     ///     (<c>home.desktop</c>, labelled "Return to Desktop" or "Back to Game Mode").
     /// </summary>
     public List<string> QuickAccessPins { get; set; } = ["home.desktop"];
+
+    /// <summary>User-approved Programs entries; their pins use program:{stable id} in QuickAccessPins.</summary>
+    public List<ProgramDefinition> Programs { get; set; } = [];
+
+    /// <summary>Explicit source sizes added to a physical display's driver list.</summary>
+    public List<ScaledResolutionAddition> ScaledResolutions { get; set; } = [];
 
     /// <summary>Common plugin widget pins in display order; unavailable identities are retained.</summary>
     public List<PluginWidgetPin> PluginWidgetPins { get; set; } = [];

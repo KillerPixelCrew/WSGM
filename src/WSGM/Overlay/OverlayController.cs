@@ -306,6 +306,7 @@ public sealed partial class OverlayController : IDisposable
         _disposed = true;
         _keyboardRequestCancellation?.Cancel();
         _windowReturnCancellation?.Cancel();
+        _overlay?.ReleaseProgramsPresentation();
         CloseKeyboardNow();
         // Deliberately NOT retracting the injected Steam UI (tabs, badge, Wi-Fi AP)
         // here: both the Settings preview and session shutdown call this Dispose, and
@@ -496,7 +497,6 @@ public sealed partial class OverlayController : IDisposable
         vm.ShowCardManager = config.Cef is { Enabled: true, CardManager: true };
         vm.ShowSdCard = config.Cef is { Enabled: true, SdFormat: true };
         vm.ConfigureLaunchOptionsLive = config.Cef.Enabled;
-        vm.InputLeaseUsesShim = config.SteamInputManagementEnabled;
     }
 
     /// <summary>
@@ -643,6 +643,10 @@ public sealed partial class OverlayController : IDisposable
         _overlay.AttachCommonPlugins(_sources.CommonPlugins);
         _overlay.AttachGameLibrary(_sources.GameLibrary);
         _overlay.AttachEmulators(_sources.Emulators);
+        _overlay.AttachPrograms(_sources.Programs);
+        _overlay.AttachLaunchActions(_sources.LaunchActions);
+        _overlay.AttachLibraryManager(_sources.LibraryManager);
+        _overlay.ProgramActivateRequested += ActivateProgram;
         _overlay.AttachThemes(_sources.Themes);
         _overlay.AttachAnimations(_sources.Animations);
         _overlay.AttachSounds(_sources.Sounds);

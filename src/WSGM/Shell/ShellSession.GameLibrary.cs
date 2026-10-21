@@ -13,6 +13,19 @@ namespace WSGM.Shell;
 
 public sealed partial class ShellSession
 {
+    private SteamShortcutWriter CreateSteamShortcutWriter()
+    {
+        var steam = RequireSteamClient();
+        return new SteamShortcutWriter(AddShortcutAsync,
+            async (appId, fields, token) =>
+                (await steam.Apps.SetShortcutLaunchAsync(appId, fields.Target, fields.StartDirectory,
+                    fields.LaunchOptions, token).ConfigureAwait(false)).Succeeded,
+            async (appId, token) =>
+                (await steam.Apps.RemoveShortcutAsync(appId, token).ConfigureAwait(false)).Succeeded,
+            async (appId, name, token) =>
+                (await steam.Apps.SetShortcutNameAsync(appId, name, token).ConfigureAwait(false)).Succeeded);
+    }
+
     /// <summary>Puts packages a killed launcher left exempt back under lifetime management.</summary>
     /// <remarks>
     ///     <para>
@@ -110,12 +123,12 @@ public sealed partial class ShellSession
         return added.Outcome switch
         {
             SteamClientWriteOutcome.NotSent => new ShortcutWriteResult(
-                0, false, "Steam is not reachable, so nothing was created."),
+                0, false, "Steam is not reachable, so nothing was created.", CreationMayExist: false),
             SteamClientWriteOutcome.Unknown => new ShortcutWriteResult(
                 0, false,
                 "Steam did not answer, so the shortcut may not have been created. Scan again before retrying."),
             SteamClientWriteOutcome.Rejected => new ShortcutWriteResult(
-                0, false, added.Error ?? "Steam refused to create the shortcut."),
+                0, false, added.Error ?? "Steam refused to create the shortcut.", CreationMayExist: false),
             _ => new ShortcutWriteResult(added.AppId, added.Confirmed,
                 added.Confirmed ? null : added.Error ?? "Steam did not confirm the new shortcut.", added.Mismatch)
         };

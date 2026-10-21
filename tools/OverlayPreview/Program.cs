@@ -14,6 +14,12 @@ internal static class Program
         var height = args.Length > 2 ? int.Parse(args[2], System.Globalization.CultureInfo.InvariantCulture) : 720;
         var scale = args.Length > 3 ? double.Parse(args[3], System.Globalization.CultureInfo.InvariantCulture) : 1;
         TestApplication.BuildAvaloniaApp().SetupWithoutStarting();
+        if (args.Length > 4 && args[4] == "feature-cases")
+        {
+            PreviewTools.ExportFeatureCases(output, width, height);
+            return;
+        }
+
         PreviewExports.Export(output, width, height, scale);
     }
 }

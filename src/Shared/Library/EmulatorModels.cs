@@ -15,6 +15,9 @@ namespace WSGM.Core;
 /// <summary>A reviewed emulator definition, independent of its installed version.</summary>
 public sealed record EmulatorDefinition
 {
+    /// <summary>Reviewed SteamGridDB game identity, or null to search by name.</summary>
+    public int? SteamGridDbId { get; init; }
+
     /// <summary>Reviewed data, runtime and core requirements shared by all surfaces.</summary>
     public EmulatorDataPolicy DataPolicy { get; init; } = new();
 
@@ -71,6 +74,12 @@ public sealed record EmulatorCore
 /// <summary>The stable identity and active program/data paths consumed by the managed launcher.</summary>
 public sealed record EmulatorInstallation
 {
+    /// <summary>Whether the emulator's own interface is published in Steam; existing receipts default on.</summary>
+    public bool SteamShortcutEnabled { get; init; } = true;
+
+    /// <summary>Requested wrapper behaviors: none, de-elevation, input lease, or both.</summary>
+    public int SteamShortcutLaunchMode { get; init; } = 2;
+
     /// <summary>Original archive asset name used to locate the exact retained repair package.</summary>
     public string PackageName { get; init; } = "";
 
@@ -235,6 +244,9 @@ public sealed record EmulatorDataPolicy
     /// <summary>Managed data-path arguments, separate from ordinary launch arguments.</summary>
     public string[] DataArguments { get; init; } = [];
 
+    /// <summary>Arguments opening the emulator's own UI, placed before its data-path arguments.</summary>
+    public string[] InterfaceArguments { get; init; } = [];
+
     /// <summary>Managed child-only environment path overrides.</summary>
     public Dictionary<string, string> Environment { get; init; } = new(StringComparer.Ordinal);
 
@@ -370,6 +382,30 @@ public sealed class EmulatorResolveContext
 /// <summary>Small read-only store/resolver shared with the launch helper. It never starts the app.</summary>
 public static class EmulatorStorage
 {
+    /// <summary>Resolves the current emulator UI without requiring ROMs, cores, BIOS or firmware.</summary>
+    public static EmulatorResolvedLaunch ResolveInterface(EmulatorStore store, string installationId)
+    {
+        var installed = store.Installations.SingleOrDefault(item => item.Id == installationId)
+                        ?? throw new InvalidOperationException("This emulator is no longer installed.");
+        EmulatorPortable.Verify(installed);
+        if (!File.Exists(installed.ExecutablePath))
+        {
+            throw new FileNotFoundException("The emulator executable is missing. Use Repair.", installed.ExecutablePath);
+        }
+
+        string Expand(string value)
+        {
+            return value.Replace("{data}", installed.DataPath, StringComparison.Ordinal)
+                .Replace("{config}", Path.Combine(installed.DataPath, installed.DataPolicy.ConfigFile),
+                    StringComparison.Ordinal);
+        }
+
+        return new EmulatorResolvedLaunch(installed.ExecutablePath, Path.GetDirectoryName(installed.ExecutablePath)!,
+            EmulatorPortable.BindArguments(installed, installed.DataPolicy.InterfaceArguments
+                .Concat(installed.DataPolicy.DataArguments).Select(Expand).ToArray()),
+            installed.Environment.ToDictionary(pair => pair.Key, pair => Expand(pair.Value), StringComparer.Ordinal));
+    }
+
     /// <summary>Shared camel-case serialization options for emulator metadata and receipts.</summary>
     public static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -536,6 +572,8 @@ public static class EmulatorStorage
         string Expand(string value)
         {
             return value.Replace("{rom}", romPath, StringComparison.Ordinal)
+                .Replace("{romname}", Path.GetFileNameWithoutExtension(romPath), StringComparison.Ordinal)
+                .Replace("{romdir}", Path.GetDirectoryName(romPath)!, StringComparison.Ordinal)
                 .Replace("{core}", core?.Path ?? "", StringComparison.Ordinal)
                 .Replace("{data}", installation.DataPath, StringComparison.Ordinal)
                 .Replace("{config}", Path.Combine(installation.DataPath, installation.DataPolicy.ConfigFile),
@@ -563,12 +601,36 @@ public static class EmulatorStorage
             }
         }
 
+        missing.AddRange(MissingRuntimePrerequisites(installed));
+        return [.. missing];
+    }
+
+    internal static string[] MissingRuntimePrerequisites(EmulatorInstallation installed)
+    {
+        var missing = new List<string>();
+        var runtimeFolder = Environment.GetFolderPath(installed.Architecture == "x86"
+            ? Environment.SpecialFolder.SystemX86 : Environment.SpecialFolder.System);
         if (installed.DataPolicy.RequiresVisualCpp
             && !File.Exists(Path.Combine(Path.GetDirectoryName(installed.ExecutablePath)!, "vcruntime140_1.dll"))
-            && !File.Exists(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System),
-                "vcruntime140_1.dll")))
+            && !File.Exists(Path.Combine(runtimeFolder, "vcruntime140_1.dll")))
         {
             missing.Add("Install Microsoft's Visual C++ runtime matching the emulator architecture.");
+        }
+
+        if (installed.DefinitionId == "model2")
+        {
+            // Imports verified in the exact EmuDeck 1.1a x86 package. These legacy DLLs
+            // are not included with current Windows' DirectX core runtime.
+            var program = Path.GetDirectoryName(installed.ExecutablePath)!;
+            var system = Environment.GetFolderPath(Environment.SpecialFolder.SystemX86);
+            var absent = new[] { "d3dx9_42.dll", "xinput1_3.dll" }
+                .Where(name => !File.Exists(Path.Combine(program, name)) &&
+                               !File.Exists(Path.Combine(system, name))).ToArray();
+            if (absent.Length > 0)
+            {
+                missing.Add("Install Microsoft's DirectX End-User Runtimes (June 2010), including x86 components. Missing: "
+                            + string.Join(", ", absent) + ".");
+            }
         }
 
         return [.. missing];

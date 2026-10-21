@@ -383,14 +383,4 @@ public sealed class OverlayViewModel : ObservableObject
     /// </summary>
     public bool ShowRemoveLaunchWrapper => ConfigureLaunchOptionsLive;
 
-    /// <summary>
-    ///     Gets or sets whether a per-game input-lease fix should ride Steam's
-    ///     resident shim rather than injecting.
-    /// </summary>
-    /// <remarks>
-    ///     Mirrors Steam Input Management. With it off there is no shim for a game to
-    ///     use, so the fix is written with the injecting flag instead - the launch
-    ///     option a game carries always names the route it will actually take.
-    /// </remarks>
-    public bool InputLeaseUsesShim { get; set; } = true;
 }

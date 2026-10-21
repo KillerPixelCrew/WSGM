@@ -11,6 +11,12 @@ namespace WSGM.Overlay;
 
 public partial class OverlayWindow
 {
+    internal void AttachLibraryManager(LibraryManagerService? manager)
+    {
+        LibraryTabsHost.Attach(manager);
+        CardManagerHost.Attach(manager);
+    }
+
     internal void AttachPowerPresets(DevicePowerPresetSelection selection)
     {
         DispatcherTimer refresh = new() { Interval = TimeSpan.FromSeconds(1) };

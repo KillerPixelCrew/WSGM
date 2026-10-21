@@ -768,6 +768,8 @@ answer at once and finish in the background.
 | `steam-ui.power-menu`        | `SteamPowerMenuBackend`             | its `Changed`, when the session mode changes | nothing                  |
 | `wsgm.artwork-browser`       | `SteamArtworkBrowserSource`         | its `Changed`                                | `ConfigurationChanged()` |
 | `wsgm.library-import`        | `GameLibraryService`                | its `Changed`, its artwork stage's `Changed` | reads `AppConfig` live   |
+| `wsgm.cards`                 | `LibraryManagerService`             | its `Changed`                                | `ConfigurationChanged()` |
+| `wsgm.library-tabs`          | `LibraryManagerService`             | its `Changed`                                | `ConfigurationChanged()` |
 | `steam-ui.file-picker`       | toolkit `SteamFilePickerSurface`    | nothing: commands only                       | nothing                  |
 | `wsgm.settings`              | `WsgmSteamSettingsService`          | its `Changed`, plugin changes                | `ConfigurationChanged()` |
 | `wsgm.graphics`              | `SteamGraphicsService`              | `GpuCoordinator.Changed`, its own writes     | nothing                  |
@@ -1089,6 +1091,42 @@ are.
 | Quick Access Extensions tab     | a Boot animation section: Browse and Library actions opening the page, Shuffle, the boot movie chosen from the library, and shuffle-on-start                                      |
 | `/wsgm/animations` page         | Browse (the repository's cards, sorted and searched on the page's behalf, one movie's preview and Download), Library (the choice, the cards, Add a video file, Shuffle), Settings |
 | Overlay, Tools › Video Switcher | the shared service with a separate browse/detail context, native catalog/library galleries, local WebM import, playback and settings                                              |
+
+### SD Card Manager and Library Tab Manager
+
+The overlay's card manager and tab builder are also Quick Access tools, so Game Mode storage and
+library management does not need the overlay. Both are projections of one session-owned
+`Shell\LibraryManagerService`: it reads `LibraryTabManager`'s card model, custom tabs and strip
+order into two states, answers every operation of both surfaces through the manager's one rename,
+tab, hide, forget, save and order paths, and rebuilds its reading on `LibraryTabManager.Changed`,
+which every manager write and every sync's merged drive scan raises. A change made in Steam
+therefore redraws the overlay's list, a card inserted or ejected refreshes Steam's page through the
+same sync the card monitor already runs, and nothing in CEF holds card identity, naming, tab
+construction or configuration writes of its own.
+
+Each card carries the capacity and free space read when it was last mounted
+(`CardLibraryConfig.CapacityBytes`, `FreeBytes`, refreshed by every drive scan), so a disconnected
+card still shows how full it was. The service's `Busy`, `Error` and `Notice` are the pending and
+refusal state both surfaces draw; a refused rename (an unmounted card) is the failure, a partial one
+(a label Steam or Windows did not take) is the notice.
+
+| Surface                       | What                                                                                                                                                                                                                                                                       |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Quick Access Extensions tab   | an SD Card Manager row (tracked and connected counts) and a Library Tab Manager row (custom, card and hidden Steam tab counts), each with one action opening its page; a row is absent while its switch is off                                                             |
+| `/wsgm/cards` page            | the card list with connected state, games and space meter; one card's status, space, Steam tab and Hidden switches, Rename (Steam's text prompt), its games, and Forget behind Steam's confirm modal; Rescan; Back walks the levels up and returns to the card it left     |
+| `/wsgm/library-tabs` page     | the custom tabs, New tab, the strip order with Move up/down and Hide/Show per Steam tab; a tab's editor with name, match mode, categories and filters; every filter type's parameters, NOT, groups; tag, collection and game pickers read from Steam with search and pages |
+| Overlay, Tools › Card Manager | the same list, editor, games and forget confirmation over the same service, redrawn in place on a change from Steam or a card insertion                                                                                                                                    |
+| Overlay, Tools › Library Tabs | the same builder and order editor over the same service; moves are applied at once and written in press order                                                                                                                                                              |
+
+The pages follow the overlay's switches: `Cef.CardManager` for the cards, `Cef.LibraryTabs` for the
+tabs, both under `Cef.Enabled`. A switch turned off retracts the page's publication and its
+Extensions row at the next publication, so the tab never offers a manager that cannot operate. The
+tab editor edits a draft of one tab in the page and sends the whole tab back as `saveTab`; the
+service validates it (a name, at least one complete filter, including the title pattern its
+evaluator can run), places a new tab after the last and stores it through
+`LibraryTabManager.SaveCustomTabsAsync`. Moves and native-tab hiding go through
+`LibraryTabManager.SaveTabOrder` one press at a time; the service keeps the pressed-to order while
+those chained writes land so a refresh in between cannot put an older order back.
 
 ### Artwork sources
 

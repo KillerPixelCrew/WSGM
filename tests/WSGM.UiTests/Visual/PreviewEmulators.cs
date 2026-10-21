@@ -20,7 +20,7 @@ internal static class PreviewEmulators
             new EmulatorDefinition
             {
                 Id = "pcsx2", Name = "PCSX2", Channels = ["stable", "nightly"], Systems = ["ps2"],
-                Prerequisites = [bios]
+                Prerequisites = [bios], DataPolicy = new EmulatorDataPolicy { RequiresVisualCpp = true }
             },
             new EmulatorDefinition
             {
@@ -31,7 +31,10 @@ internal static class PreviewEmulators
                 { Id = "dolphin", Name = "Dolphin", Channels = ["release"], Systems = ["gamecube", "wii"] },
             new EmulatorDefinition { Id = "rpcs3", Name = "RPCS3", Channels = ["rolling"], Systems = ["ps3"] },
             new EmulatorDefinition
-                { Id = "eden", Name = "Eden", Channels = ["stable"], Systems = ["switch"], Prerequisites = [bios] }
+            {
+                Id = "eden", Name = "Eden", Channels = ["stable"], Systems = ["switch"], Prerequisites = [bios],
+                DataPolicy = new EmulatorDataPolicy { RequiresVisualCpp = true }
+            }
         };
         var installations = definitions.Take(4).Select((definition, index) => new EmulatorInstallation
         {

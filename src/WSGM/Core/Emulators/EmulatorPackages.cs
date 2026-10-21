@@ -81,7 +81,7 @@ internal sealed class EmulatorPackages(EmulatorNetwork network)
         Directory.CreateDirectory(destination);
         Dictionary<string, string> hashes = new(StringComparer.Ordinal);
         foreach (var archive in Directory.EnumerateFiles(downloads)
-                     .Where(path => Path.GetExtension(path) is ".zip" or ".7z"))
+                     .Where(path => Path.GetExtension(path) is ".zip" or ".7z" or ".exe"))
         {
             var name = Path.GetFileName(archive);
             var target = Path.Combine(destination, name);
@@ -142,6 +142,12 @@ internal sealed class EmulatorPackages(EmulatorNetwork network)
 
     public static void Extract(string archivePath, string destination, CancellationToken cancellationToken)
     {
+        if (Path.GetExtension(archivePath).Equals(".exe", StringComparison.OrdinalIgnoreCase))
+        {
+            EmulatorSfxArchive.Extract(archivePath, destination, cancellationToken);
+            return;
+        }
+
         Directory.CreateDirectory(destination);
         using var archive = ArchiveFactory.OpenArchive(archivePath);
         var buffer = new byte[81920];

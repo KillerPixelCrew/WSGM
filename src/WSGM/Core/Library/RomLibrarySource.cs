@@ -142,7 +142,10 @@ public enum RomParserKind
     Disc,
 
     /// <summary>A verified PlayStation 3 extracted/installed EBOOT entry point.</summary>
-    Eboot
+    Eboot,
+
+    /// <summary>An installed Vita/PS4 application selected by its eboot.bin entry point.</summary>
+    InstalledEboot
 }
 
 /// <summary>The reviewed standalone profiles plus explicit installed-core system metadata.</summary>
@@ -174,7 +177,23 @@ public static class RomProfiles
             64, RomParserKind.File),
         new("wii", "Nintendo Wii", [".iso", ".wbfs", ".gcz", ".rvz", ".wia", ".ciso", ".wad", ".dol", ".elf"],
             16, RomParserKind.File),
-        new("switch", "Nintendo Switch", [".xci", ".nsp", ".nca", ".nro", ".nso"], 225, RomParserKind.File)
+        new("switch", "Nintendo Switch", [".xci", ".nsp", ".nca", ".nro", ".nso"], 225, RomParserKind.File),
+        new("3ds", "Nintendo 3DS", [".3ds", ".cci", ".cxi", ".app"], 17, RomParserKind.File),
+        new("wiiu", "Nintendo Wii U", [".wua", ".wud", ".wux", ".rpx"], 18, RomParserKind.File),
+        new("xbox", "Xbox", [".iso"], 32, RomParserKind.File),
+        new("xbox360", "Xbox 360", [".iso", ".xex"], 33, RomParserKind.File),
+        new("psvita", "PlayStation Vita (installed apps)", [".bin"], 62, RomParserKind.InstalledEboot),
+        new("ps4", "PlayStation 4 (extracted games)", [".bin"], 60, RomParserKind.InstalledEboot),
+        new("jaguar", "Atari Jaguar", [".j64", ".jag", ".rom", ".abs", ".cof", ".bin"], 27,
+            RomParserKind.File),
+        new("jaguarcd", "Atari Jaguar CD", [".cdi", ".cue", ".bigpimg"], 171, RomParserKind.Disc),
+        new("arcade", "Arcade / MAME", [".zip", ".7z"], 75, RomParserKind.File),
+        new("naomi", "Sega NAOMI", [".zip", ".7z", ".dat", ".lst"], 56, RomParserKind.File),
+        new("atomiswave", "Sammy Atomiswave", [".zip", ".7z"], 53, RomParserKind.File),
+        new("model2", "Sega Model 2", [".zip"], 54, RomParserKind.File),
+        new("model3", "Sega Model 3", [".zip"], 55, RomParserKind.File),
+        new("scummvm", "ScummVM (game folders)", [".scummvm"], 123, RomParserKind.File),
+        new("pcengine", "PC Engine / TurboGrafx-16", [".pce", ".zip", ".7z"], 31, RomParserKind.File)
     ];
 
     /// <summary>Finds a reviewed system profile by its identity.</summary>
@@ -284,7 +303,7 @@ public sealed class RomLibrarySource(RomSourceConfig source, IReadOnlyList<RomSy
                 continue;
             }
 
-            if (parser == RomParserKind.Eboot &&
+            if ((parser is RomParserKind.Eboot or RomParserKind.InstalledEboot) &&
                 !Path.GetFileName(file).Equals("EBOOT.BIN", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
@@ -309,7 +328,9 @@ public sealed class RomLibrarySource(RomSourceConfig source, IReadOnlyList<RomSy
         foreach (var (listed, key, companions) in primaries.Where(item => !companionFiles.Contains(item.File.Path)))
         {
             var file = listed.Path;
-            var rawName = parser == RomParserKind.Eboot ? EbootName(file) : Path.GetFileNameWithoutExtension(file);
+            var rawName = parser == RomParserKind.Eboot ? EbootName(file)
+                : parser == RomParserKind.InstalledEboot ? new DirectoryInfo(Path.GetDirectoryName(file)!).Name
+                : Path.GetFileNameWithoutExtension(file);
             var name = source.TitleCleanup
                 ? Regex.Replace(rawName, @"\s*[\[(][^\])]*[\])]", "", RegexOptions.CultureInvariant).Trim()
                 : rawName;
@@ -335,7 +356,7 @@ public sealed class RomLibrarySource(RomSourceConfig source, IReadOnlyList<RomSy
             ?? throw new InvalidDataException("Choose a supported ROM system.");
         var extensions = entry.RomExtensions.Count > 0 ? entry.RomExtensions : profile.Extensions;
         if (!extensions.Any(extension => resolved.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
-            || (profile.ParserKind == RomParserKind.Eboot &&
+            || ((profile.ParserKind is RomParserKind.Eboot or RomParserKind.InstalledEboot) &&
                 !Path.GetFileName(resolved).Equals("EBOOT.BIN", StringComparison.OrdinalIgnoreCase)))
         {
             return null;

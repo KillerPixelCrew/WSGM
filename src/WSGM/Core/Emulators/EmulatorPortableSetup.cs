@@ -208,7 +208,26 @@ internal static class EmulatorPortableSetup
                 break;
             case "pcsx2": Pcsx2Data.Prepare(installed, staged: staged); break;
             case "retroarch": break;
-            default: throw new InvalidDataException("This emulator has no reviewed portable layout.");
+            default:
+                if (!EmulatorPortableProfiles.Supports(installed.DefinitionId))
+                {
+                    throw new InvalidDataException("This emulator has no reviewed portable layout.");
+                }
+
+                var alias = EmulatorPortableProfiles.Alias(installed.DefinitionId);
+                if (alias.Length > 0)
+                {
+                    Link(program, alias, retainedData, token, staged, createAlias);
+                }
+                else
+                {
+                    CopyData(retainedData, program, token, packagePresent: true);
+                    installed = installed with { DataPath = program };
+                }
+
+                AdditionalEmulatorSetup.RebaseOwnedPaths(installed, previous, token);
+                AdditionalEmulatorSetup.Configure(installed);
+                break;
         }
 
         if (installed.DefinitionId == "retroarch")
@@ -241,7 +260,7 @@ internal static class EmulatorPortableSetup
             CopyPath(source, destination, token,
                 !EmulatorPortable.IsUnder((previous ?? installed).DataPath, source));
             // Preserve the source and every collision before changing the native directory setting.
-            var nativePath = installed.DefinitionId is "eden" or "dolphin" ||
+            var nativePath = installed.DefinitionId is "eden" or "citron" or "suyu" or "dolphin" or "primehack" ||
                              (installed.DefinitionId == "duckstation" && section == "MemoryCards" && key != "Directory")
                 ? destination
                 : Path.GetRelativePath(installed.DataPath, destination);
@@ -305,7 +324,10 @@ internal static class EmulatorPortableSetup
         };
         var alias = installed.DefinitionId switch
         {
-            "duckstation" => "", "eden" => "user", "rpcs3" => "portable", "dolphin" => "User", _ => null
+            "duckstation" => "", "eden" => "user", "rpcs3" => "portable", "dolphin" => "User",
+            _ when EmulatorPortableProfiles.Supports(installed.DefinitionId) =>
+                EmulatorPortableProfiles.Alias(installed.DefinitionId),
+            _ => null
         };
         if (alias is not null)
         {
@@ -1084,7 +1106,8 @@ internal static class EmulatorPortableSetup
         var aliases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var name = installed.DefinitionId switch
         {
-            "eden" => "user", "rpcs3" => "portable", "dolphin" => "User", _ => ""
+            "eden" => "user", "rpcs3" => "portable", "dolphin" => "User",
+            _ => EmulatorPortableProfiles.Alias(installed.DefinitionId)
         };
         var pending = new Stack<string>();
         pending.Push(version);

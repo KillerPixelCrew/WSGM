@@ -33,6 +33,9 @@ internal sealed class SteamGameContextMenuBackend : ISteamGameContextMenuBackend
     /// <summary>The id of WSGM's own artwork entry. Reserved: no package may use it.</summary>
     internal const string ArtworkId = "wsgm.change-artwork";
 
+    /// <summary>The single launch configuration entry; its AppID comes from the cog activation.</summary>
+    internal const string LaunchActionsId = "wsgm.launch-actions";
+
     /// <summary>The prefix every WSGM-owned entry carries.</summary>
     private const string ReservedPrefix = "wsgm.";
 
@@ -40,25 +43,40 @@ internal sealed class SteamGameContextMenuBackend : ISteamGameContextMenuBackend
     private readonly Func<uint, CancellationToken, Task<SteamUiCommandResult>>? _openArtwork;
 
     private readonly CommonPluginSteamUiSource? _pluginSteamUi;
+    private readonly Func<uint, CancellationToken, Task<SteamUiCommandResult>>? _openLaunchActions;
 
     /// <summary>Creates the menu over WSGM's artwork browser and an optional plugin source.</summary>
     /// <param name="pluginSteamUi">The admitted-package projection, or null when there is none.</param>
     /// <param name="openArtwork">Opens the artwork page for a game, or null without one.</param>
     /// <param name="artworkRoute">The route that shows the artwork page for a game.</param>
+    /// <param name="openLaunchActions">Opens the shared launch configuration for the activating AppID.</param>
     internal SteamGameContextMenuBackend(
         CommonPluginSteamUiSource? pluginSteamUi,
         Func<uint, CancellationToken, Task<SteamUiCommandResult>>? openArtwork,
-        Func<uint, string>? artworkRoute)
+        Func<uint, string>? artworkRoute,
+        Func<uint, CancellationToken, Task<SteamUiCommandResult>>? openLaunchActions = null)
     {
         _pluginSteamUi = pluginSteamUi;
         _openArtwork = openArtwork;
         _artworkRoute = artworkRoute;
+        _openLaunchActions = openLaunchActions;
     }
 
     /// <inheritdoc />
     public async Task<SteamUiCommandResult> ActivateAsync(
         uint appId, string id, CancellationToken cancellationToken)
     {
+        if (id == LaunchActionsId)
+        {
+            if (_openLaunchActions is null)
+            {
+                return new SteamUiCommandResult(false, "Launch actions are unavailable in this session.");
+            }
+
+            var opened = await _openLaunchActions(appId, cancellationToken).ConfigureAwait(false);
+            return opened.Succeeded ? SteamUiCommandResult.Route(SteamLaunchActionsSurface.RouteFor(appId)) : opened;
+        }
+
         if (id == ArtworkId)
         {
             if (_openArtwork is null || _artworkRoute is null)
@@ -97,6 +115,11 @@ internal sealed class SteamGameContextMenuBackend : ISteamGameContextMenuBackend
         if (_openArtwork is not null)
         {
             items.Add(new SteamGameContextMenuItem(ArtworkId, "Change Artwork…"));
+        }
+
+        if (_openLaunchActions is not null)
+        {
+            items.Add(new SteamGameContextMenuItem(LaunchActionsId, "Launch Actions…"));
         }
 
         if (_pluginSteamUi is not null)

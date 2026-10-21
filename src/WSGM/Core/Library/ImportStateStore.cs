@@ -602,6 +602,12 @@ public sealed class ImportStateStore
             return defect;
         }
 
+        if (entry.PendingLaunch is { } pending
+            && pending is not { Target: not null, StartDirectory: not null, LaunchOptions: not null })
+        {
+            return "an incomplete pending shortcut command";
+        }
+
         return entry.Mode is nameof(ImportMode.ControllerOnly) or nameof(ImportMode.SteamIntegration)
             ? null
             : $"unknown mode '{entry.Mode}'";

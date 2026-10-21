@@ -297,6 +297,9 @@ public sealed partial class ShellSession
             AccentPalette.Apply(Application.Current!, AccentPalette.Parse(config.AccentColor)));
         TryApply("session modes", () => _modes?.ApplyConfig(config));
         TryApply("overlay", () => _overlay?.ApplyConfig(config));
+        TryApply("programs", () => _programs?.ConfigurationChanged(config));
+        TryApply("emulator shortcuts", () => _emulatorTool?.RequestShortcutSync());
+        TryApply("library manager", () => _libraryManager?.ConfigurationChanged());
         Log.Debug($"Config reloaded at {Log.MinimumLevel} minimum log level.");
         TryApply("startup apps", () => _startupWatcher?.Apply(config.StartupApps));
         TryApply("keep awake", () => _keepAwake?.ApplyConfig(

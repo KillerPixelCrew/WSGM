@@ -41,6 +41,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         _store = store;
         _services = services ?? throw new ArgumentNullException(nameof(services));
+        ScaledResolutions = new ScaledResolutionEditor(services.ScaledResolutions);
         InstalledPackages.CollectionChanged += (_, _) => Raise(nameof(HasInstalledPackages));
         AvailablePackages.CollectionChanged += (_, _) => Raise(nameof(HasAvailablePackages));
         UnavailablePackages.CollectionChanged += (_, _) => Raise(nameof(HasUnavailablePackages));
@@ -221,16 +222,19 @@ public sealed partial class SettingsViewModel : ObservableObject
     ///     Read-only capabilities from existing resident graphics owners; standalone Settings uses
     ///     its saved catalog.
     /// </param>
+    /// <param name="scaledResolutions">Borrowed global source-resolution catalog owner shared with Steam Settings.</param>
     /// <returns>A UI-thread model with explicit production services and any configuration-read problem retained for display.</returns>
     internal static SettingsViewModel FromLoadedConfig(ConfigReadResult read, ConfigStore store,
         SteamInputShim steamInputShim, Func<IReadOnlyList<PluginActionOption>> readPluginActions,
         HandheldDefinition? definition = null,
-        Func<IReadOnlyList<DisplayGpuCapability>>? readDisplayGpu = null)
+        Func<IReadOnlyList<DisplayGpuCapability>>? readDisplayGpu = null,
+        ScaledResolutionService? scaledResolutions = null)
     {
         var viewModel = new SettingsViewModel(read.Config ?? new AppConfig(),
             SettingsServices.Windows(store, steamInputShim, readPluginActions) with
             {
-                ReadDisplayGpu = readDisplayGpu ?? (() => [])
+                ReadDisplayGpu = readDisplayGpu ?? (() => []),
+                ScaledResolutions = scaledResolutions
             }, definition, store);
         Log.Observe(viewModel.LoadPluginPackagesAsync(), "Settings plugin packages");
         viewModel.ShowConfigReadProblem(read);
@@ -313,6 +317,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         /// <summary>Reads current display driver descriptors from existing enabled session owners only.</summary>
         internal Func<IReadOnlyList<DisplayGpuCapability>> ReadDisplayGpu { get; init; } = () => [];
+
+        internal ScaledResolutionService? ScaledResolutions { get; init; }
 
         /// <summary>Composes production delegates around the caller's persistence and shim owners.</summary>
         /// <param name="store">Borrowed configuration store.</param>

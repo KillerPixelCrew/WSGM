@@ -31,7 +31,8 @@ namespace WSGM.Shell;
 /// <param name="coordinator">Borrowed device capability and rumble owner, or null for an inactive device integration.</param>
 /// <param name="profiles">Borrowed owner of the active application, editing scope and profile operations.</param>
 /// <param name="displayTimeouts">Borrowed display-timeout owner, or null to omit timeout controls.</param>
-internal sealed class SteamNativeSettingsService(
+/// <param name="scaledResolutions">Borrowed GPU-scaled resolution owner, or null to omit the source-mode editor.</param>
+internal sealed partial class SteamNativeSettingsService(
     NativeQamBrightnessService brightness,
     NativeQamResolutionService? resolution,
     PerformanceServiceNativeQamAdapter performance,
@@ -45,7 +46,8 @@ internal sealed class SteamNativeSettingsService(
     SteamGraphicsService? graphics,
     DeviceCoordinator? coordinator,
     ProfileService profiles,
-    DisplayTimeouts? displayTimeouts = null) : ISteamNativeSettingsBackend
+    DisplayTimeouts? displayTimeouts = null,
+    ScaledResolutionService? scaledResolutions = null) : ISteamNativeSettingsBackend
 {
     private readonly SemaphoreSlim _reads = new(1, 1);
     private IReadOnlyDictionary<string, Offered> _offered = new Dictionary<string, Offered>();
@@ -385,6 +387,8 @@ internal sealed class SteamNativeSettingsService(
                             "A preview is already active or controller output is unavailable.");
                 }
             }
+
+            await AddScaledResolutionSectionAsync(display, offered).ConfigureAwait(false);
 
             ProfileSection(display, "display");
             ProfileSection(power, "power");

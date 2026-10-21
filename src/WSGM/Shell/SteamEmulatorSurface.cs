@@ -35,6 +35,8 @@ internal static class SteamEmulatorSurface
             [
                 SteamUiModuleBuilder.Command(PatchId, "cancel", backend.CancelAsync),
                 SteamUiModuleBuilder.Command(PatchId, "refreshEmulators", backend.RefreshEmulatorsAsync),
+                SteamUiModuleBuilder.Command<string>(PatchId, "installEmulatorRuntimes", TryReadDefinition,
+                    backend.InstallEmulatorRuntimeDependenciesAsync, "Choose an emulator definition."),
                 SteamUiModuleBuilder.Command(PatchId, "verifyBios", backend.VerifyBiosAsync),
                 SteamUiModuleBuilder.Command<string>(PatchId, "setBiosFolder", TryReadPath,
                     backend.SetBiosFolderAsync, "Choose an existing BIOS folder."),
@@ -56,6 +58,9 @@ internal static class SteamEmulatorSurface
                 SteamUiModuleBuilder.Command<string>(PatchId, "removeEmulator", TryReadInstallation,
                     backend.RemoveEmulatorAsync,
                     "The emulator removal is invalid."),
+                SteamUiModuleBuilder.Command<ShortcutRequest>(PatchId, "setEmulatorShortcut", TryReadShortcut,
+                    (value, token) => backend.SetEmulatorShortcutAsync(value.InstallationId, value.Enabled,
+                        value.LaunchMode, token), "The emulator shortcut settings are invalid."),
                 SteamUiModuleBuilder.Command<IgnoreRequest>(PatchId, "ignoreEmulatorVersion", TryReadIgnore,
                     (value, token) => backend.IgnoreEmulatorVersionAsync(value.InstallationId, value.ReleaseId, token),
                     "The release choice is invalid."),
@@ -82,11 +87,36 @@ internal static class SteamEmulatorSurface
                SteamUiPayload.TryReadNonBlankString(payload, "installationId", out id);
     }
 
+    private static bool TryReadShortcut(JsonElement payload, out ShortcutRequest value)
+    {
+        value = default;
+        if (!SteamUiPayload.HasExactly(payload, 3)
+            || !SteamUiPayload.TryReadNonBlankString(payload, "installationId", out var id)
+            || !payload.TryGetProperty("enabled", out var enabled)
+            || enabled.ValueKind is not (JsonValueKind.True or JsonValueKind.False)
+            || !payload.TryGetProperty("launchMode", out var mode) || mode.ValueKind != JsonValueKind.Number
+            || !mode.TryGetInt32(out var launchMode)
+            || launchMode is < 0 or > 3)
+        {
+            return false;
+        }
+
+        value = new ShortcutRequest(id, enabled.GetBoolean(), launchMode);
+        return true;
+    }
+
     private static bool TryReadPath(JsonElement payload, out string path)
     {
         path = "";
         return SteamUiPayload.HasExactly(payload, 1)
                && SteamUiPayload.TryReadNonBlankString(payload, "path", out path);
+    }
+
+    private static bool TryReadDefinition(JsonElement payload, out string definitionId)
+    {
+        definitionId = "";
+        return SteamUiPayload.HasExactly(payload, 1)
+               && SteamUiPayload.TryReadNonBlankString(payload, "definitionId", out definitionId);
     }
 
     private static bool TryReadSystem(JsonElement payload, out string systemId)
@@ -198,6 +228,7 @@ internal static class SteamEmulatorSurface
     }
 
     private readonly record struct BiosRequest(string Path, string SystemId);
+    private readonly record struct ShortcutRequest(string InstallationId, bool Enabled, int LaunchMode);
 
     private readonly record struct ReleaseRequest(string DefinitionId, string Channel);
 

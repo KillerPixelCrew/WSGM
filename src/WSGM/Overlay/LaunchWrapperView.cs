@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Avalonia.Threading;
 using SteamUiToolkit;
 using WSGM.Controls;
+using WSGM.Core;
 using WSGM.Shell;
 
 namespace WSGM.Overlay;
@@ -19,7 +20,7 @@ namespace WSGM.Overlay;
 ///     resolves that game directly. It exists for the panel opened from the library
 ///     root, and for a Steam that reports no current app.
 /// </remarks>
-public sealed class LaunchWrapperView : OverlaySubView
+public sealed class LaunchWrapperView : ServiceSubView
 {
     // A full Steam library is one ActionButton per title in a non-virtualizing
     // host, so it is paged the way LibraryTabsView's multi-select is: laying out
@@ -30,6 +31,191 @@ public sealed class LaunchWrapperView : OverlaySubView
 
     private string? _customPath;
     private IReadOnlyList<SteamLibraryApp> _games = [];
+    private LaunchActionService? _actions;
+    private SteamLibraryApp? _actionGame;
+    private LaunchActionState? _state;
+    private DispatcherTimer? _refresh;
+    private bool _reading;
+    private bool _busy;
+    private string? _draftPath;
+    private string _draftArguments = "";
+    private LaunchWrapperMode _suggestedMode;
+
+    internal void AttachLaunchActions(LaunchActionService? actions)
+    {
+        _actions = actions;
+    }
+
+    /// <summary>Shows fresh per-game state and all shared launch actions.</summary>
+    internal void OpenActions(SteamLibraryApp game, LaunchWrapperMode suggestedMode,
+        string? customPath = null, string arguments = "")
+    {
+        _suggestedMode = suggestedMode;
+        _actionGame = game;
+        _state = null;
+        _draftPath = customPath;
+        _draftArguments = arguments;
+        NavigationStack.Clear();
+        CurrentLevel = null;
+        AttachSource(_actions);
+        Navigate(RenderActions);
+        _refresh ??= new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        _refresh.Tick -= OnRefresh;
+        _refresh.Tick += OnRefresh;
+        _refresh.Start();
+    }
+
+    private protected override void RenderHome()
+    {
+        RenderActions();
+    }
+
+    internal override void Leave()
+    {
+        _refresh?.Stop();
+        AttachSource(null);
+        _actionGame = null;
+        base.Leave();
+    }
+
+    private void OnRefresh(object? sender, EventArgs args)
+    {
+        if (IsEffectivelyVisible)
+        {
+            _ = RefreshActionsAsync();
+        }
+    }
+
+    private async Task RefreshActionsAsync()
+    {
+        if (_reading || _actions is null || _actionGame is not { } game)
+        {
+            return;
+        }
+
+        var generation = NavigationGeneration;
+        _reading = true;
+        try
+        {
+            var state = await _actions.ReadAsync(SteamApps.NormalizeAppId(game.AppId));
+            if (_actionGame?.AppId == game.AppId && generation == NavigationGeneration && state != _state)
+            {
+                _state = state;
+                CurrentLevel?.Invoke();
+            }
+        }
+        finally
+        {
+            _reading = false;
+        }
+    }
+
+    private void RenderActions()
+    {
+        _ = RefreshActionsAsync();
+        var body = NewStack(_actionGame?.Name ?? "Launch Actions");
+        if (_state is not { } state)
+        {
+            body.Children.Add(Caption(_actions is null ? "Launch actions unavailable" : "Reading launch configuration…"));
+            SetContent(body);
+            return;
+        }
+
+        body.Children.Add(Tagged(Caption($"Current: {state.Ownership}"), "launch.current"));
+        body.Children.Add(Tagged(Caption(state.CanRestore ? "Original launch action recorded. Restore is available." : "No restoration snapshot recorded."), "launch.restore-status"));
+        body.Children.Add(Tagged(Caption(state.InputRoute), "launch.input"));
+        body.Children.Add(Tagged(Caption(state.ExternallyChanged ? "Launch fields differ from WSGM's saved action. The recorded original is retained." : ""), "launch.external"));
+        body.Children.Add(Tagged(Caption(state.WrapperAvailable ? "" : "Launch wrapper missing. Repair the installation before applying wrapper actions."), "launch.wrapper"));
+        body.Children.Add(Tagged(Caption(state.Error ?? state.Notice ?? ""), "launch.result"));
+        body.Children.Add(Tagged(Caption(state.IsShortcut ? $"Target: {state.Target}\nLaunch arguments: {state.Options}" : $"Launch options: {state.Options}"), "launch.fields"));
+        AddMode(LaunchWrapperMode.Deelevate, "launch.deelevate");
+        AddMode(LaunchWrapperMode.InputLease, "launch.lease");
+        AddMode(LaunchWrapperMode.Both, "launch.both");
+        var custom = Tagged(Row("Custom launch action…", "Choose an executable or script", Icons.Play,
+            () => _ = ChooseCustomAsync()), "launch.custom");
+        custom.IsEnabled = !_busy && state.Error is null;
+        body.Children.Add(custom);
+        if (_draftPath is { } path)
+        {
+            var apply = Tagged(Row("Apply selected custom action", $"{path} {_draftArguments}", Icons.Play,
+                () => ConfirmChange(LaunchWrapperMode.None, path, _draftArguments)), "launch.apply-custom");
+            apply.IsEnabled = !_busy && state.Error is null;
+            body.Children.Add(apply);
+        }
+
+        var restore = Tagged(Row("Restore original launch action", "Remove WSGM changes and restore the recorded original", Icons.Restart,
+            () => ConfirmChange(LaunchWrapperMode.None)), "launch.restore");
+        restore.IsEnabled = !_busy && state.CanRestore && state.Error is null;
+        body.Children.Add(restore);
+        body.Children.Add(Tagged(Row("Refresh", "Read current launch fields from Steam", Icons.Restart,
+            () => _ = RefreshActionsAsync()), "launch.refresh"));
+        body.Children.Add(Tagged(Row("Back", "", Icons.ArrowLeft, () => Back()), "launch.back"));
+        SetContent(body);
+        return;
+
+        void AddMode(LaunchWrapperMode mode, string key)
+        {
+            var label = LaunchActionService.Label(mode);
+            var row = Tagged(mode == _suggestedMode
+                ? PrimaryRow(label, "Configure this game's launch wrapper", Icons.Play, () => ConfirmChange(mode))
+                : Row(label, "Configure this game's launch wrapper", Icons.Play, () => ConfirmChange(mode)), key);
+            row.IsEnabled = !_busy && state.WrapperAvailable && state.Error is null;
+            body.Children.Add(row);
+        }
+    }
+
+    private async Task ChooseCustomAsync()
+    {
+        var game = _actionGame;
+        var generation = NavigationGeneration;
+        var path = await PickPathAsync(false, ".exe", ".cmd", ".bat", ".ps1");
+        if (path is null || game != _actionGame || generation != NavigationGeneration)
+        {
+            return;
+        }
+
+        _draftPath = path;
+        _draftArguments = "";
+        EditText("Custom action arguments (optional)", "", 0, value =>
+        {
+            _draftArguments = value;
+            CurrentLevel?.Invoke();
+        });
+        CurrentLevel?.Invoke();
+    }
+
+    private void ConfirmChange(LaunchWrapperMode mode, string? path = null, string arguments = "")
+    {
+        if (_actions is not { } actions || _actionGame is not { } game || _busy)
+        {
+            return;
+        }
+
+        ConfirmCommand(path is not null ? "Replace launch action" : mode == LaunchWrapperMode.None ? "Restore original launch action" : LaunchActionService.Label(mode),
+            $"Replace the current launch action for {game.Name}? The recorded original is retained until restoration is confirmed.",
+            async token =>
+            {
+                if (_busy)
+                {
+                    return new SteamUiCommandResult(false, "A launch action is already being applied.");
+                }
+
+                _busy = true;
+                try
+                {
+                    var appId = SteamApps.NormalizeAppId(game.AppId);
+                    var result = path is null
+                        ? await actions.ApplyAsync(appId, mode, token)
+                        : await actions.ApplyCustomAsync(appId, path, arguments, token);
+                    return new SteamUiCommandResult(result.Ok, result.Detail);
+                }
+                finally
+                {
+                    _busy = false;
+                    Dispatcher.UIThread.Post(() => CurrentLevel?.Invoke());
+                }
+            });
+    }
 
     /// <inheritdoc />
     protected override string LogScope => "Launch wrappers";
@@ -47,6 +233,9 @@ public sealed class LaunchWrapperView : OverlaySubView
     /// <param name="heading">What the caller is about to do, as a title.</param>
     public void Open(string heading)
     {
+        _refresh?.Stop();
+        _actionGame = null;
+        AttachSource(null);
         _customPath = null;
         _customGame = null;
         NavigationStack.Clear();
@@ -62,6 +251,9 @@ public sealed class LaunchWrapperView : OverlaySubView
     /// </param>
     public void OpenCustom(string path, SteamLibraryApp? game = null)
     {
+        _refresh?.Stop();
+        _actionGame = null;
+        AttachSource(null);
         _customPath = path;
         _customArguments = "";
         _customGame = game;

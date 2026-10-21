@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Reflection.PortableExecutable;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -21,6 +22,29 @@ internal static class EmulatorValidation
             var probe = EmulatorPortableSetup.Prepare(installed, temporary, null, cancellationToken, true);
             EmulatorManager.ConfigureData(probe);
             EmulatorPortable.Verify(probe);
+
+            using (var input = File.OpenRead(installed.ExecutablePath))
+            using (PEReader image = new(input))
+            {
+                var architecture = image.PEHeaders.CoffHeader.Machine switch
+                {
+                    System.Reflection.PortableExecutable.Machine.Amd64 => "x64",
+                    System.Reflection.PortableExecutable.Machine.Arm64 => "arm64",
+                    System.Reflection.PortableExecutable.Machine.I386 => "x86",
+                    _ => ""
+                };
+                if (image.PEHeaders.PEHeader is not { AddressOfEntryPoint: > 0 } || architecture != installed.Architecture)
+                {
+                    throw new InvalidDataException("The package has no Windows executable matching the selected architecture.");
+                }
+            }
+
+            if (definition.ValidationArguments.SequenceEqual(["{portable-layout}"]))
+            {
+                // Some GUI-only upstreams have no noninteractive version/help command. Validate
+                // their PE image and real portable layout without launching a visible application.
+                return;
+            }
 
             string Expand(string value)
             {
@@ -51,7 +75,8 @@ internal static class EmulatorValidation
 
             var alias = installed.DefinitionId switch
             {
-                "eden" => "user", "rpcs3" => "portable", "dolphin" => "User", _ => ""
+                "eden" => "user", "rpcs3" => "portable", "dolphin" => "User",
+                _ => EmulatorPortableProfiles.Alias(installed.DefinitionId)
             };
             if (alias.Length > 0)
             {
@@ -70,7 +95,7 @@ internal static class EmulatorValidation
                                     && (definition.ValidationOutput.Length == 0 || output.Contains(
                                         definition.ValidationOutput,
                                         StringComparison.OrdinalIgnoreCase))
-                                    && (definition.Id != "pcsx2" || !output.Contains("Unknown parameter",
+                                    && (definition.Id is not ("pcsx2" or "armsx2") || !output.Contains("Unknown parameter",
                                         StringComparison.OrdinalIgnoreCase));
     }
 }

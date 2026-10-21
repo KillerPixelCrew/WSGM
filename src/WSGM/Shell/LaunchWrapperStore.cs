@@ -20,7 +20,7 @@ internal static class LaunchWrapperStore
         CancellationToken cancellationToken = default)
     {
         return Task.Run(
-            () => (store.Read().Config ?? new AppConfig()).LaunchWrappers.FirstOrDefault(w => w.AppId == appId),
+            () => store.Read().RequireConfig().LaunchWrappers.FirstOrDefault(w => w.AppId == appId),
             cancellationToken);
     }
 

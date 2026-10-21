@@ -66,7 +66,7 @@ function ImportEmulatorPage({ state, status, onBack }: any) {
   const matches = (text: string, value: string) => value.toLowerCase().includes(text.toLowerCase());
   const notes = (offer: any) => offer?.notesUrl ? button("Release notes",()=>void emulatorAct("openEmulatorReleaseNotes", {
     definitionId:offer.definitionId,channel:offer.channel,architecture:offer.architecture}),false) : null;
-  const pick = (title: string, mode: string, command: string, extra: any = {}) =>
+  const pick = (title: string, mode: "file" | "folder" | "any", command: string, extra: any = {}) =>
     void showSteamFilePicker(importUi,{title,mode}).then((path: string | null) => path && void emulatorAct(command,{path,...extra}));
   const setup = (installationId: string, name: string) => showSteamModal(importUi, {
     title:name+" setup", render:(close: any)=>h(ImportEmulatorSetupBody,{installationId,close})});
@@ -85,6 +85,18 @@ function ImportEmulatorPage({ state, status, onBack }: any) {
       const offer = offerFor(entry);
       const installationId = entry.id;
       const definition = manager.definitions.find((item: any)=>item.id===entry.definitionId);
+      const shortcut = box("Steam shortcut",
+        renderSteamUiChoice(importUi, {label:"Show emulator in Steam",
+          rgOptions:[{data:false,label:"Off"},{data:true,label:"On"}],
+          selectedOption:entry.steamShortcutEnabled !== false, disabled:progress.busy,
+          onChange:(option: any)=>option && void emulatorAct("setEmulatorShortcut",{
+            installationId,enabled:option.data,launchMode:entry.steamShortcutLaunchMode ?? 2})}),
+        renderSteamUiChoice(importUi, {label:"Launch mode",
+          rgOptions:[{data:2,label:"Input lease"},{data:0,label:"No lease"},{data:1,label:"De-elevate"},{data:3,label:"De-elevate + input lease"}],
+          selectedOption:entry.steamShortcutLaunchMode ?? 2,disabled:progress.busy,
+          onChange:(option: any)=>option && void emulatorAct("setEmulatorShortcut",{
+            installationId,enabled:entry.steamShortcutEnabled !== false,launchMode:option.data})}),
+        h("p",{className:"steam-ui-kit-muted"},state.shortcutStatus || "Opens the current emulator installation. Input lease lets it read the controller directly."));
       const remove = () => showSteamUiConfirm(importUi,{
         title:entry.managed ? "Remove emulator?" : "Forget external installation?",
         confirmLabel:entry.managed ? "Remove" : "Forget",
@@ -98,6 +110,8 @@ function ImportEmulatorPage({ state, status, onBack }: any) {
         h("p",{className:"steam-ui-kit-muted"},"ROMs, saves, settings and firmware stay."));
       const systemFiles = box("System files",
         ...(entry.missingRequirements ?? []).map((text: string)=>h("p",{key:text},text)),
+        entry.dataPolicy?.requiresVisualCpp || entry.definitionId==="model2"
+          ? button("Install required runtimes",()=>void emulatorAct("installEmulatorRuntimes",{definitionId:entry.definitionId})) : null,
         fact("BIOS folder",bios.folder),button("Open BIOS & firmware",toBios,false),
         definition?.prerequisites?.length ? button("Emulator-specific setup…",()=>setup(installationId,entry.name),false) : null);
       if (route.kind === "cores") {
@@ -124,7 +138,7 @@ function ImportEmulatorPage({ state, status, onBack }: any) {
           h(importUi.focusable,{className:"wsgm-emu-column","flow-children":"column"},
             box("RetroArch",fact("Installed",`${entry.version} · ${entry.channel} · ${cores.length} cores`),
               entry.managed ? button("Update installed cores",()=>void emulatorAct("updateEmulator",{installationId})) : null,notes(offer)),
-            systemFiles,maintenance));
+            systemFiles,shortcut,maintenance));
       } else {
         content = h(importUi.focusable,{className:"wsgm-emu-split","flow-children":"grid"},
           h(importUi.focusable,{className:"wsgm-emu-column","flow-children":"column"},h("h2",{},entry.name),
@@ -140,14 +154,14 @@ function ImportEmulatorPage({ state, status, onBack }: any) {
                 ? button(`Update to ${offer.version}`,()=>void emulatorAct("updateEmulator",{installationId}),true,true) : null,
               offer?.releaseId && offer.releaseId!==entry.releaseId ? button("Skip this version",()=>void emulatorAct("ignoreEmulatorVersion",{installationId,releaseId:offer.releaseId})) : null,
               offer?.releaseId===entry.ignoredReleaseId ? h("p",{},"You skipped this release. You can still install it now.") : null,
-              notes(offer),h("p",{className:"steam-ui-kit-muted"},"Settings, saves and supplied firmware are preserved.")),maintenance));
+              notes(offer),h("p",{className:"steam-ui-kit-muted"},"Settings, saves and supplied firmware are preserved.")),shortcut,maintenance));
       }
     }
   } else if (route.kind === "definition") {
     const definition = manager.definitions.find((item: any)=>item.id===route.id);
     if (!definition) content=h("p",{},"That emulator is no longer listed.");
     else {
-      const offer = manager.offers.find((item: any)=>item.definitionId===definition.id && item.channel===channel && item.architecture===state.architecture);
+      const offer = manager.offers.find((item: any)=>item.definitionId===definition.id && item.channel===channel);
       content=h(importUi.focusable,{className:"wsgm-emu-split","flow-children":"grid"},
         h(importUi.focusable,{className:"wsgm-emu-column","flow-children":"column"},h("h2",{},definition.name),fact("Source",definition.source),
           fact("Systems",definition.systems.map(systemName).join(" · ")),
@@ -158,6 +172,10 @@ function ImportEmulatorPage({ state, status, onBack }: any) {
             selectedOption:channel,onChange:(option: any)=>option && setChannel(option.data)}),
           fact("Latest",offer?.error || offer?.version || "Check for updates to read releases"),
           definition.dataPolicy?.hasCores ? h("p",{},"Installs the complete published Windows core catalogue.") : null,
+          definition.dataPolicy?.requiresVisualCpp || definition.id==="model2"
+            ? button("Install required runtimes",()=>void emulatorAct("installEmulatorRuntimes",{definitionId:definition.id})) : null,
+          definition.dataPolicy?.requiresVisualCpp || definition.id==="model2"
+            ? h("p",{className:"steam-ui-kit-muted"},"Installs verified Microsoft components. Accept the Windows permission prompt if shown; progress stays here.") : null,
           button(`Install ${channel}`,()=>void emulatorAct("installEmulator",{definitionId:definition.id,channel}),true,true),notes(offer),
           button("Use an existing installation…",()=>pick("Choose emulator executable","file","useExternalEmulator",{definitionId:definition.id}))),
           box("Already installed?",h("p",{},"Register your executable. WSGM will not own its updates or remove its files."))));
@@ -239,6 +257,7 @@ function ImportEmulatorPage({ state, status, onBack }: any) {
   }
   return renderSteamUiLevel(importUi,{className:"wsgm-emu-content",onBack:canBack ? back : undefined},
     h("style",{},emulatorStyles),steamUiKitStyle(react),tabs,status,
+    state.shortcutStatus ? h("p",{role:"status"},state.shortcutStatus) : null,
     h(importUi.focusable,{className:"wsgm-emu-toolbar","flow-children":"grid",
       onOptionsButton:()=>!progress.busy && void emulatorAct("refreshEmulators"),onOptionsActionDescription:"Check for updates"},
       canBack ? button("Back",back,false) : null,

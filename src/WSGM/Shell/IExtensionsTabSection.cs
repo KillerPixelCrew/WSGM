@@ -5,11 +5,16 @@ using SteamUiToolkit;
 
 namespace WSGM.Shell;
 
-/// <summary>One of WSGM's own sections on the Quick Access Extensions tab: the themes, the boot movie.</summary>
+/// <summary>
+///     One of WSGM's own sections on the Quick Access Extensions tab: the themes, the boot movie, the
+///     SD Card Manager, the Library Tab Manager.
+/// </summary>
 /// <remarks>
 ///     The tab's backend lists the sections and routes by id: an action whose id starts with the
 ///     section's id and a dot is the section's, and a setting on the section's item is too. A new
-///     section is one more entry in that list, not another branch in the backend.
+///     section is one more entry in that list, not another branch in the backend. A section whose
+///     feature is switched off answers no item and is left out of the tab, so the tab never offers a
+///     manager that cannot operate.
 /// </remarks>
 internal interface IExtensionsTabSection
 {
@@ -17,8 +22,8 @@ internal interface IExtensionsTabSection
     string SectionId { get; }
 
     /// <summary>The section as the tab shows it now.</summary>
-    /// <returns>The item.</returns>
-    SteamExtensionsTabItem ReadExtensionsItem();
+    /// <returns>The item, or null while the section's feature is unavailable and it has no row.</returns>
+    SteamExtensionsTabItem? ReadExtensionsItem();
 
     /// <summary>Answers one of the section's actions.</summary>
     /// <param name="id">The action id.</param>

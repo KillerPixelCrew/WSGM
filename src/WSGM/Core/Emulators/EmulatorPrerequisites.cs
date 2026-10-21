@@ -58,7 +58,7 @@ internal static class EmulatorPrerequisites
         Directory.CreateDirectory(installed.DataPath);
         if (requirement.NativeInstaller)
         {
-            if (installed.DefinitionId == "eden")
+            if (installed.DefinitionId is "eden" or "citron" or "suyu" or "ryujinx")
             {
                 EmulatorFirmware.InstallEden(installed, requirement, path, cancellationToken);
             }

@@ -177,6 +177,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         if (_emulators is not null)
         {
             _emulators.ChoicesChanged += OnEmulatorsChanged;
+            _emulators.ShortcutsChanged += NotifyManagedEntriesChanged;
         }
 
         if (_artwork is not null)
@@ -1172,6 +1173,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         if (_emulators is not null)
         {
             _emulators.ChoicesChanged -= OnEmulatorsChanged;
+            _emulators.ShortcutsChanged -= NotifyManagedEntriesChanged;
         }
 
         _shutdown.Cancel();
@@ -1650,7 +1652,8 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         })).ConfigureAwait(false);
 
         var existing = await _readLibrary(cancellationToken).ConfigureAwait(false);
-        var recorded = _store.Entries();
+        // Emulator UI shortcuts share the ownership ledger, but are reconciled by their manager.
+        var recorded = _store.Entries().Where(entry => entry.Source != EmulatorShortcutSync.Source).ToArray();
         var scanChoices = _store.Choices().ToDictionary(choice => (choice.Source, choice.Key), ImportPlan.Identity);
         var recordedSources = recorded.Select(record => record.Source).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var emulatorSnapshot = ReadEmulatorStore();

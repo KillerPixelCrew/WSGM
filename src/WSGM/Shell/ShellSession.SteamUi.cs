@@ -145,7 +145,12 @@ public sealed partial class ShellSession
         }
 
         // The one-shot jobs wait on this decision, so their ready edge is the transport's own.
+        var wasReady = _steamUiReadiness.IsReady;
         _steamUiReadiness.Observe(open);
+        if (!wasReady && _steamUiReadiness.IsReady)
+        {
+            _emulatorTool?.RequestShortcutSync();
+        }
         Log.Change("steam-ui-transport-gate", DescribeSteamUiTransportGate(open, master, inGameMode, holds));
         return open;
     }

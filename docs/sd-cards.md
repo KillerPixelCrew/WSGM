@@ -9,7 +9,10 @@ mechanism and volume-arrival wait are described below; the implementation is
 [`SdFormatManager.cs`](../src/WSGM/Shell/SdFormatManager.cs).
 
 Format SD Card is reached through Overlay Tools > Storage. Card Manager stays focused on tracked
-library management; formatting keeps the same picker and explicit erase confirmation.
+library management; formatting keeps the same picker and explicit erase confirmation. Card Manager
+is also a Quick Access Extensions tool in Steam, the same manager over the same
+`LibraryManagerService` (see [steam-cef-system.md](steam-cef-system.md), "SD Card Manager and
+Library Tab Manager"); every card remembers the capacity and free space of its last mount.
 
 ## A card is named by its own marker, never by Steam's config label
 

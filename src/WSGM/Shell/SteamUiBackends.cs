@@ -83,6 +83,15 @@ internal sealed record SteamUiBackends
     /// <summary>The emulator tool, independently available from the library importer.</summary>
     internal EmulatorService? Emulators { get; init; }
 
+    /// <summary>The SD Card Manager and Library Tab Manager shared with the Overlay.</summary>
+    internal LibraryManagerService? LibraryManager { get; init; }
+
+    /// <summary>Game launch actions shared with the Overlay.</summary>
+    internal LaunchActionService? LaunchActions { get; init; }
+
+    /// <summary>The physical-display source-size editor, independent of game profiles.</summary>
+    internal ScaledResolutionService? ScaledResolutions { get; init; }
+
     /// <summary>WSGM's settings behind its page in Steam and its row in Steam's main menu, or null.</summary>
     internal WsgmSteamSettingsService? WsgmSettings { get; init; }
 

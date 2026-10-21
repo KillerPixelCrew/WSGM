@@ -25,6 +25,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
     /// <summary>The artwork browser behind Steam's Change Artwork page, or null.</summary>
     private readonly SteamArtworkBrowserSource? _artwork;
+    private readonly LaunchActionService? _launchActions;
+    private readonly LibraryManagerService? _libraryManager;
 
     /// <summary>
     ///     Null when no audio manager exists for this session.
@@ -199,6 +201,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         // The menu exists for WSGM's own Change Artwork entry, so it is not conditional on a plugin
         // source the way it was while artwork was a package.
         _artwork = backends.Artwork;
+        _launchActions = backends.LaunchActions;
+        _libraryManager = backends.LibraryManager;
         _libraryImport = backends.LibraryImport;
         _libraryBadge = new LibraryBadgeBackend(_libraryImport is { } importer ? importer.RecheckShortcutAsync : null);
         _emulators = backends.Emulators;
@@ -209,7 +213,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _gameContextMenu = new SteamGameContextMenuBackend(
             _pluginSteamUi,
             _artwork is null ? null : _artwork.OpenAsync,
-            _artwork is null ? null : SteamArtworkBrowserSurface.RouteFor);
+            _artwork is null ? null : SteamArtworkBrowserSurface.RouteFor,
+            _launchActions is null ? null : _launchActions.OpenAsync);
         var libraryImport = _libraryImport;
         _extensionsTab = new SteamExtensionsTabBackend(
             _pluginSteamUi,
@@ -217,7 +222,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             libraryImport is null
                 ? null
                 : () => string.Join(", ", libraryImport.ReadState().Reading),
-            [.. new IExtensionsTabSection?[] { _themes, _animations }.OfType<IExtensionsTabSection>()],
+            [
+                .. new IExtensionsTabSection?[]
+                {
+                    _libraryManager?.CardsSection, _libraryManager?.TabsSection, _themes, _animations
+                }.OfType<IExtensionsTabSection>()
+            ],
             _emulators is not null);
         // One fold store for every Quick Access tab: the Extensions tab's sections and the
         // Performance and Quick Settings groups.
@@ -244,7 +254,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _brightness = backends.Brightness;
         _nativeSettings = new SteamNativeSettingsService(_brightness, _resolution, _performance, _tdp,
             _autoTdp, _powerProfiles, _powerPresets, _cpuBoost, _hybridCores, _audioFormat, _graphics,
-            _coordinator, _profiles, _displayTimeouts);
+            _coordinator, _profiles, _displayTimeouts, scaledResolutions: backends.ScaledResolutions);
         _network = backends.Radios is { } radios
             ? new NativeQamNetworkService(
                 radios,
@@ -374,6 +384,16 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _emulators.Changed += QueueStatePublication;
         }
 
+        if (_launchActions is not null)
+        {
+            _launchActions.Changed += QueueStatePublication;
+        }
+
+        if (_libraryManager is not null)
+        {
+            _libraryManager.Changed += QueueStatePublication;
+        }
+
         if (_chordMirror is not null)
         {
             _chordMirror.Changed += QueueStatePublication;
@@ -463,6 +483,16 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         if (_emulators is not null)
         {
             _emulators.Changed -= QueueStatePublication;
+        }
+
+        if (_launchActions is not null)
+        {
+            _launchActions.Changed -= QueueStatePublication;
+        }
+
+        if (_libraryManager is not null)
+        {
+            _libraryManager.Changed -= QueueStatePublication;
         }
 
         if (_chordMirror is not null)
@@ -808,6 +838,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     {
         if (snapshot.Role == SteamUiTargetRole.SharedJsContext)
         {
+            if (snapshot.Health == SteamUiTransportHealth.Ready)
+            {
+                _emulators?.RequestShortcutSync();
+            }
+
             Log.Observe(_nativeSettings.StopRumblePreviewAsync(), "Stopping rumble preview after Steam reload");
             if (_sounds is { } sounds)
             {
@@ -1116,7 +1151,20 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             modules.Add(SteamEmulatorSurface.Module(HostSteamUiEnabled, emulators));
         }
 
-        if (_libraryImport is not null || _artwork is not null || _emulators is not null)
+        if (_launchActions is { } launchActions)
+        {
+            modules.Add(SteamLaunchActionsSurface.Module(HostSteamUiEnabled, launchActions));
+        }
+
+        if (_libraryManager is { } libraryManager)
+        {
+            modules.Add(SteamCardManagerSurface.Module(
+                () => HostSteamUiEnabled() && libraryManager.CardManagerAvailable, libraryManager));
+            modules.Add(SteamLibraryTabsSurface.Module(
+                () => HostSteamUiEnabled() && libraryManager.TabManagerAvailable, libraryManager));
+        }
+
+        if (_libraryImport is not null || _artwork is not null || _emulators is not null || _launchActions is not null)
         {
             modules.Add(SteamFilePickerSurface.Module(HostSteamUiEnabled));
         }
@@ -1286,6 +1334,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private SteamPageState ReadPages()
     {
         List<SteamPage> pages = [];
+        if (_launchActions is not null)
+        {
+            pages.Add(new SteamPage("launch-actions", SteamLaunchActionsSurface.Route, "Launch Actions",
+                Template: SteamLaunchActionsSurface.Template));
+        }
+
         if (_artwork is not null)
         {
             pages.Add(new SteamPage(
@@ -1311,6 +1365,21 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 SteamEmulatorSurface.Route,
                 "Emulator Manager",
                 Template: SteamEmulatorSurface.Template));
+        }
+
+        if (_libraryManager is { } libraryManager)
+        {
+            if (libraryManager.CardManagerAvailable)
+            {
+                pages.Add(new SteamPage("card-manager", SteamCardManagerSurface.Route, "SD Card Manager",
+                    Template: SteamCardManagerSurface.Template));
+            }
+
+            if (libraryManager.TabManagerAvailable)
+            {
+                pages.Add(new SteamPage("library-tab-manager", SteamLibraryTabsSurface.Route, "Library Tab Manager",
+                    Template: SteamLibraryTabsSurface.Template));
+            }
         }
 
         if (_wsgmSettings is not null)
@@ -1579,6 +1648,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 SteamPageSurface.PatchId or SteamExtensionsTabSurface.PatchId
                     or SteamGameContextMenuSurface.PatchId or SteamPowerMenuSurface.PatchId
                     or SteamArtworkBrowserSurface.PatchId
+                    or SteamLaunchActionsSurface.PatchId
+                    or SteamCardManagerSurface.PatchId or SteamLibraryTabsSurface.PatchId
                     or SteamLibraryImportSurface.PatchId or SteamEmulatorSurface.PatchId
                     or SteamWsgmSettingsSurface.PatchId
                     or SteamNavigationPanelSurface.PatchId or SteamNativeSettingsSurface.PatchId

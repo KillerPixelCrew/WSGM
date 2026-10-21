@@ -48,7 +48,10 @@ public enum LibrarySourceKind
     Manual,
 
     /// <summary>A third-party launcher's installed-game metadata.</summary>
-    Launcher
+    Launcher,
+
+    /// <summary>The selected emulator's own interface, resolved from its active installation.</summary>
+    Emulator
 }
 
 /// <summary>The launch strategy is independent of retained availability metadata.</summary>
@@ -492,6 +495,21 @@ public static class ManagedContentStorage
         }
 
         var content = ResolveEmulatorPreference(store, record);
+        if (content.SourceKind == LibrarySourceKind.Emulator)
+        {
+            try
+            {
+                var launch = EmulatorStorage.ResolveInterface(store, content.EmulatorInstallationId);
+                return new ManagedContentCheck(ManagedContentAvailability.Available, "", Content: content, Launch: launch);
+            }
+            catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException
+                                           or ArgumentException or JsonException)
+            {
+                return new ManagedContentCheck(ManagedContentAvailability.EmulatorUnavailable, ex.Message,
+                    Content: content);
+            }
+        }
+
         var checkedContent = Validate(content, context) with { Content = content };
         if (!checkedContent.Available)
         {

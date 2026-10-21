@@ -94,6 +94,9 @@ public sealed partial class ShellSession
     private AutoTdpService? _autoTdp;
     private NativeQamBrightnessService? _brightness;
     private BuiltinGpuService? _builtinGpu;
+    private ScaledResolutionService? _scaledResolutions;
+    private LaunchActionService? _launchActions;
+    private LibraryManagerService? _libraryManager;
     private CardAcfWatcher? _cardAcfWatcher;
     private CardVolumeMonitor? _cardVolumes;
     private SteamGuideChordMirror? _chordMirror;
@@ -132,6 +135,7 @@ public sealed partial class ShellSession
     private RemovableDriveManager? _drives;
 
     private EmulatorService? _emulatorTool;
+    private ProgramsService? _programs;
 
     private EmulatorManager? _emulators;
 
@@ -379,6 +383,7 @@ public sealed partial class ShellSession
                 if (_gpu is { } graphics)
                 {
                     _builtinGpu = new BuiltinGpuService(_store, graphics);
+                    _scaledResolutions = new ScaledResolutionService(_store, _builtinGpu);
                 }
 
                 TryStart("common plugin manager", () =>
@@ -883,6 +888,11 @@ public sealed partial class ShellSession
         // Artwork reads its providers from the session's live config, so a key entered in Settings
         // applies to the next search rather than the next session.
         var steam = _steamClient ?? throw new InvalidOperationException("The Steam client was not created.");
+        TryStart("library manager", () =>
+        {
+            _libraryManager = new LibraryManagerService(_store, () => _steamClient, () => _config);
+            _libraryManager.Start();
+        });
         TryStart("artwork browser", () => _artwork = new SteamArtworkBrowserSource(
             () => _config.Artwork, new ArtworkStateStore(_store.Context.Root), steam));
 
@@ -977,16 +987,7 @@ public sealed partial class ShellSession
                 ],
                 UninstallEntries.Read,
                 _libraryImportState,
-                () => new SteamShortcutWriter(
-                    AddShortcutAsync,
-                    async (appId, fields, token) =>
-                        (await steam.Apps.SetShortcutLaunchAsync(
-                                appId, fields.Target, fields.StartDirectory, fields.LaunchOptions, token)
-                            .ConfigureAwait(false)).Succeeded,
-                    async (appId, token) =>
-                        (await steam.Apps.RemoveShortcutAsync(appId, token).ConfigureAwait(false)).Succeeded,
-                    async (appId, name, token) =>
-                        (await steam.Apps.SetShortcutNameAsync(appId, name, token).ConfigureAwait(false)).Succeeded),
+                CreateSteamShortcutWriter,
                 ReadShortcutsAsync,
                 ReadShortcutAsync,
                 _config.GameLibrary,
@@ -1010,6 +1011,20 @@ public sealed partial class ShellSession
                 _contentAvailability = new ManagedShortcutMonitor(contentWindow, _libraryImport, _emulators);
             }
         });
+
+        _launchActions ??= new LaunchActionService(_store, () => _steamClient,
+            () => _config.SteamInputManagementEnabled);
+        _emulatorTool?.AttachSteamShortcuts(_libraryImportState, CreateSteamShortcutWriter,
+            ReadShortcutsAsync, ReadShortcutAsync, () => _config.SteamInputManagementEnabled,
+            () => _steamUiReadiness.IsReady, async (definition, appId, token) =>
+            {
+                var images = await EmulatorShortcutArtwork.FindAsync(definition, _config.Artwork, token)
+                    .ConfigureAwait(false);
+                var applied = await SteamArtwork.ApplyManyFromUrlsAsync(steam, appId, images, _config.Artwork, token)
+                    .ConfigureAwait(false);
+                return applied.Count(result => result.Succeeded);
+            });
+        _emulatorTool?.RequestShortcutSync();
     }
 
     /// <summary>Starts or stops the game-mode card services from one shared policy.</summary>
@@ -1113,6 +1128,7 @@ public sealed partial class ShellSession
 
         // A crash can leave media preview files behind. No sheet exists yet, so none is in use.
         OverlayMediaPreview.DeleteStaleFiles(_store.Context.Root);
+        _programs ??= new ProgramsService(_store, _config);
         _overlay = new OverlayController(
             _config,
             _store,
@@ -1147,7 +1163,10 @@ public sealed partial class ShellSession
                     : new DisplayModeAccess(ReadOverlayDisplayModeAsync,
                         (snapshot, mode) => Task.Run(() => DisplayModes.Apply(snapshot, mode, persist: true))),
                 _powerProfiles,
-                _emulatorTool),
+                _emulatorTool,
+                _programs,
+                _launchActions,
+                _libraryManager),
             _audio,
             _audioProfiles,
             _radios,
@@ -1174,7 +1193,7 @@ public sealed partial class ShellSession
         // lists offer what is actually running.
         var settings = _settingsSurface = new SettingsSurface(
             read => SettingsViewModel.FromLoadedConfig(read, _store, _steamInput.Shim, ReadPluginActionOptions,
-                readDisplayGpu: () => _gpu?.DisplayCapabilities() ?? []),
+                readDisplayGpu: () => _gpu?.DisplayCapabilities() ?? [], scaledResolutions: _scaledResolutions),
             _store,
             _steamInput,
             () => _inGameMode,
@@ -1393,6 +1412,9 @@ public sealed partial class ShellSession
                     Artwork = _artwork,
                     LibraryImport = _libraryImport,
                     Emulators = _emulatorTool,
+                    LibraryManager = _libraryManager,
+                    LaunchActions = _launchActions,
+                    ScaledResolutions = _scaledResolutions,
                     WsgmSettings = _wsgmSettings,
                     CpuBoost = _applicationProfiles.CpuBoostAvailable
                         ? new NativeQamCpuBoostService(_applicationProfiles, _profiles)

@@ -70,6 +70,8 @@ public partial class OverlayWindow
             Title: "Library Importer", Icon: Icons.Grid4, Available: () => ViewModel.ShowGameLibrary),
         new SubView(OverlayPage.EmulatorManager, EmulatorManagerHost, PanelSystem, OverlayDestination.System,
             Title: "Emulators", Icon: Icons.Grid4, Available: () => ViewModel.ShowEmulators),
+        new SubView(OverlayPage.Programs, ProgramsHost, PanelSystem, OverlayDestination.System,
+            Title: "Programs", Icon: Icons.Rocket),
         new SubView(OverlayPage.SystemController, PanelSystemController, PanelSystem,
             OverlayDestination.System, Title: "Keyboard", Icon: Icons.Keyboard),
         new SubView(OverlayPage.SystemAbout, PanelSystemAbout, PanelSystem, OverlayDestination.System, Title: "About",

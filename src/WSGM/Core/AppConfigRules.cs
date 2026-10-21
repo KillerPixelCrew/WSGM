@@ -75,6 +75,9 @@ internal static class AppConfigRules
         config.GamepadChord ??= new GamepadChordConfig();
         config.Gestures ??= new GestureConfig();
         config.QuickAccessPins ??= [];
+        config.Programs = ProgramDefinition.Normalize(config.Programs);
+        config.ScaledResolutions = (config.ScaledResolutions ?? [])
+            .Where(entry => entry is { Valid: true }).Distinct().ToList();
         config.PluginWidgetPins = PluginWidgetPins.Normalize(config.PluginWidgetPins);
         config.QuickAccessPins =
         [
