@@ -515,8 +515,9 @@ internal sealed class SteamNativeSettingsService(
         HashSet<string> declared = new(declarations.Select(section => section.SectionId), StringComparer.Ordinal);
         var capabilities = coordinator.Capabilities.Snapshot()
             .Select(view => DeviceOverlayBridge.ToOverlayCapability(view, declared, profile.Layers))
-            .Where(capability => capability.Role is not CapabilityRole.PowerSustainedLimit
-                and not CapabilityRole.PowerSlowLimit and not CapabilityRole.VariableRefreshRate)
+            .Where(capability => !capability.UnknownSlider
+                                 && capability.Role is not CapabilityRole.PowerSustainedLimit
+                                     and not CapabilityRole.PowerSlowLimit and not CapabilityRole.VariableRefreshRate)
             .ToArray();
         foreach (var group in capabilities.GroupBy(capability => capability.PluginSectionId))
         {

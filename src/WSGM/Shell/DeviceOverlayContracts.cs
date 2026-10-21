@@ -81,6 +81,12 @@ internal sealed record DeviceOverlayCapability(
     /// </summary>
     public string? GpuPluginId { get; init; }
 
+    /// <summary>
+    ///     A slider with no value to show: nothing was read, accepted, requested or saved for it. Every
+    ///     surface leaves it out, so a control never appears as a guess and vanishes once it is touched.
+    /// </summary>
+    public bool UnknownSlider { get; init; }
+
     /// <summary>Host-owned layout emphasis.</summary>
     public CapabilityProminence Prominence { get; init; }
 

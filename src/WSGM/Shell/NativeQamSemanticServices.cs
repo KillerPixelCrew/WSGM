@@ -691,7 +691,11 @@ internal sealed class DeviceCoordinatorNativeQamTdpService : ISteamPowerLimitBac
     {
         get
         {
-            var views = _coordinator?.Capabilities.Snapshot() ?? [];
+            IReadOnlyList<DeviceCapabilityView> views =
+            [
+                .. (_coordinator?.Capabilities.Snapshot() ?? [])
+                .Where(view => !DeviceOverlayBridge.IsUnknownSlider(view))
+            ];
             var state = ProjectPowerLimits(views);
             var layers = _coordinator?.Profiles.Current.Layers;
             return state with
@@ -1100,6 +1104,8 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : ISteamDe
         IReadOnlyList<DeviceCapabilityView> views,
         Func<DeviceCapabilityView, string>? controlKey = null)
     {
+        // The same rule as the overlay: a slider with no value to show is left out.
+        views = [.. views.Where(view => !DeviceOverlayBridge.IsUnknownSlider(view))];
         var charge = ProjectUniqueRange(
             views,
             CapabilityRole.ChargeLimit);

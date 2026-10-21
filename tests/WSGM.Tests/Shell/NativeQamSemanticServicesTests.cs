@@ -137,19 +137,25 @@ public sealed partial class NativeQamSemanticServicesTests
     }
 
     [Fact]
-    public void UnknownProcessorRangeRemainsWritableWithoutAnInventedMinimumValue()
+    public void UnknownSliderIsLeftOutWhileAKnownOneIsShown()
     {
-        var view = IntegerDeviceView("processor.cpu-curve-all", CapabilityRole.GenericRange,
+        var unknown = IntegerDeviceView("processor.cpu-curve-core0", CapabilityRole.GenericRange,
             DisplayKey.CpuTemperature, -24, 12, 0, 0);
-        view = view with { Projection = view.Projection with
+        unknown = unknown with { Projection = unknown.Projection with
         {
-            State = view.Projection.State with { ObservedValue = null, Quality = HardwareStateQuality.Unknown },
+            State = unknown.Projection.State with { ObservedValue = null, Quality = HardwareStateQuality.Unknown },
             DesiredValue = null
         } };
-        var state = DeviceCoordinatorNativeQamDeviceControlsService.Project([view]);
+        var known = IntegerDeviceView("processor.cpu-curve-all", CapabilityRole.GenericRange,
+            DisplayKey.CpuTemperature, -24, 12, 0, 0);
+
+        var state = DeviceCoordinatorNativeQamDeviceControlsService.Project([unknown, known]);
+
         var row = Assert.Single(Assert.Single(state.Sections!).Rows);
-        Assert.Null(row.Number);
-        Assert.False(row.Disabled);
+        Assert.Equal(0, row.Number);
+        Assert.True(DeviceOverlayBridge.IsUnknownSlider(unknown));
+        Assert.False(DeviceOverlayBridge.IsUnknownSlider(known));
+        Assert.True(DeviceOverlayBridge.ToOverlayCapability(unknown, new HashSet<string>()).UnknownSlider);
     }
 
     [Fact]

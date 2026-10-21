@@ -227,6 +227,7 @@ internal sealed class GraphicsOverlayBridge : IGraphicsOverlaySource
                 StringComparer.Ordinal);
             var rows = publisher.Capabilities
                 .Select((capability, index) => (Row: ProjectCapability(pluginId, capability, declared), Index: index))
+                .Where(item => !item.Row.UnknownSlider)
                 .OrderBy(item => item.Row.SortOrder)
                 .ThenBy(item => item.Index)
                 .Select(item => item.Row)
