@@ -74,8 +74,7 @@ public sealed class NativeQamResolutionServiceTests
             {
                 applied.Add(new DisplayResolution(width, height));
                 return true;
-            },
-            () => new DisplayResolution(1920, 1200)));
+            }));
 
         var result = await service.SetResolutionAsync(value, CancellationToken.None);
 
@@ -93,8 +92,7 @@ public sealed class NativeQamResolutionServiceTests
             {
                 applied.Add(new DisplayResolution(width, height));
                 return true;
-            },
-            () => new DisplayResolution(1920, 1200)));
+            }));
 
         var result = await service.SetResolutionAsync(
             "1280x800",
@@ -115,8 +113,7 @@ public sealed class NativeQamResolutionServiceTests
             {
                 applied.Add(new DisplayResolution(width, height));
                 return true;
-            },
-            () => new DisplayResolution(1920, 1200)));
+            }));
 
         var result = await service.SetResolutionAsync(
             "3840x2160",

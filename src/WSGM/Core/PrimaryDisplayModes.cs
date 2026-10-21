@@ -185,21 +185,22 @@ internal static class PrimaryDisplayModes
     }
 
     /// <summary>
-    ///     Applies a resolution to the primary display without persisting it.
+    ///     Applies a resolution to the primary display and saves it as the display's resolution.
     /// </summary>
     /// <param name="width">Target width in pixels.</param>
     /// <param name="height">Target height in pixels.</param>
     /// <returns>Whether Windows accepted the change, or the display already ran at that resolution.</returns>
     /// <remarks>
-    ///     Deliberately dynamic: no <c>CDS_UPDATEREGISTRY</c>, so the user's saved display configuration is
-    ///     untouched. The resolution stays after WSGM exits, until another mode change, sign-out or restart.
+    ///     Saved like a choice in Windows Settings, because it is the user's choice: a dynamic change ended at
+    ///     the next restart, and the display came back at whatever resolution was saved before it.
     ///     <para>
     ///         The refresh rate is carried over from the current mode rather than left to the driver's
     ///         default for the new resolution. Changing one axis must not silently change the other, or a
-    ///         resolution change would undo whatever the frame-limit pairing had just set.
+    ///         resolution change would undo whatever the frame-limit pairing had just set. The saved mode
+    ///         keeps the saved refresh rate, so a rate the pairing holds never becomes the default.
     ///     </para>
     /// </remarks>
-    public static bool TryApplyTransientResolution(int width, int height)
+    public static bool TryApplyResolution(int width, int height)
     {
         if (DisplayModes.ReadPrimaryMode() is not { } current)
         {
@@ -207,12 +208,9 @@ internal static class PrimaryDisplayModes
             return false;
         }
 
-        if (current.Width == width && current.Height == height)
-        {
-            return true;
-        }
-
-        var status = DisplayModes.ApplyPrimaryModeTransient(width, height, current.RefreshHz);
+        // Not skipped when the display already shows it: an earlier dynamic change may have put it there
+        // without saving it, and the saved resolution is what the next restart comes back at.
+        var status = DisplayModes.ApplyPrimaryResolution(width, height);
         if (status != 0)
         {
             Log.Warn(
@@ -223,7 +221,7 @@ internal static class PrimaryDisplayModes
 
         Log.Info(
             $"Display modes: {current.Width}x{current.Height} -> {width}x{height} "
-            + $"at {current.RefreshHz} Hz (transient).");
+            + $"at {current.RefreshHz} Hz (saved).");
         return true;
     }
 

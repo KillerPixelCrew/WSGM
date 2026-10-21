@@ -612,6 +612,14 @@ that keeps the persisted preference unchanged. It does not prove that a process 
 restores the active timing. WSGM explicitly restores the original rate on normal release; Windows
 reconstructs display state on reboot.
 
+A resolution or mode the user picks is different: it is their choice, so it is saved with
+`CDS_UPDATEREGISTRY`, as Windows Settings saves it, from the Steam menu and the Overlay alike, and
+nothing puts it back. The Steam menu's write keeps the current refresh rate on screen and the saved
+refresh rate in the saved mode, so a rate the frame-limit pairing holds never becomes the default.
+Both writes were dynamic before, with the menu restoring the mode found before its first change when
+WSGM exited. An Ally X with 1120x630 saved came back at 1120x630 on every boot, and WSGM's exit put
+1120x630 back over the 1920x1080 the user had just picked (2026-10-20).
+
 Consequences encoded in `Core\FrameLimitPairing.cs`, `Core\PrimaryDisplayModes.cs` and
 `Core\RefreshRatePairingService.cs`:
 

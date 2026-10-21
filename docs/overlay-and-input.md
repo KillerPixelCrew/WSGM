@@ -488,12 +488,12 @@ stays in place during updates, disables when readback is unavailable, and works 
 
 The same page shows resolution and refresh for the display the overlay sheet is on. Pickers hold
 driver-validated modes, and changing resolution updates the offered refresh rates. A committed
-dropdown selection applies the mode; browsing an open popup does not. Fresh observations every five
-seconds while open replace stale choices after a reconnect, resume or profile change. Windows Device
-Control rechecks target identity and driver validation before applying and writes once. A write
-Windows accepts is the result and is not read back; a refused one gets one write-back of the
-original mode, never a retry. Ambiguous clone sources are unavailable. None of this establishes
-physical visibility.
+dropdown selection applies the mode and saves it, as Windows Settings does; browsing an open popup
+does not. Fresh observations every five seconds while open replace stale choices after a reconnect,
+resume or profile change. Windows Device Control rechecks target identity and driver validation
+before applying and writes once. A write Windows accepts is the result and is not read back; a
+refused one gets one write-back of the original mode, never a retry. Ambiguous clone sources are
+unavailable. None of this establishes physical visibility.
 
 Device provides a manual TDP mode selector when a paired capability is available. Selecting Unified
 saves the active global or per-game preference without writing hardware, and later sustained-slider

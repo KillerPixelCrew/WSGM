@@ -30,10 +30,7 @@ public sealed class DisplayResolutionServiceTests
                 }
 
                 return applySucceeds;
-            },
-            // Injected rather than read from the real display, so the suite does not depend on the
-            // machine having one.
-            () => new DisplayResolution(1920, 1200));
+            });
     }
 
     [Fact]
@@ -57,16 +54,15 @@ public sealed class DisplayResolutionServiceTests
     }
 
     [Fact]
-    public void DisplayChangeRefreshesSupportedChoicesWithoutLosingTheRestoreSnapshot()
+    public void DisplayChangeRefreshesSupportedChoices()
     {
         var modes = Accepted;
         List<DisplayResolution> applied = [];
-        var original = new DisplayResolution(1920, 1200);
         var service = new DisplayResolutionService(() => modes, (width, height) =>
         {
             applied.Add(new DisplayResolution(width, height));
             return true;
-        }, () => original);
+        });
         Assert.True(service.Apply(Accepted[0]));
         modes = [new DisplayResolution(2560, 1440)];
 
@@ -74,8 +70,7 @@ public sealed class DisplayResolutionServiceTests
 
         Assert.Equal(modes, service.Options());
         Assert.False(service.Apply(Accepted[0]));
-        Assert.True(service.Restore());
-        Assert.Equal(original, applied[^1]);
+        Assert.Equal(Accepted[0], Assert.Single(applied));
     }
 
     [Fact]
@@ -101,72 +96,22 @@ public sealed class DisplayResolutionServiceTests
     }
 
     [Fact]
-    public void RestoringWithoutHavingMovedTheDisplayDoesNothing()
+    public void TheChosenResolutionIsTheOnlyWriteSoNothingPutsAnOlderOneBack()
     {
-        List<DisplayResolution> applied = [];
-        var service = Service(applied);
-
-        Assert.True(service.Restore());
-        Assert.Empty(applied);
-    }
-
-    [Fact]
-    public void ApplyingMarksTheDisplayAsHeldUntilRestored()
-    {
-        List<DisplayResolution> applied = [];
-        var service = Service(applied);
-
-        service.Apply(new DisplayResolution(1280, 800));
-        applied.Clear();
-
-        Assert.True(service.Restore());
-        Assert.Equal(new DisplayResolution(1920, 1200), Assert.Single(applied));
-    }
-
-    [Fact]
-    public void RestorePutsBackTheModeFoundBeforeTheFirstApply()
-    {
-        // Captured once: applying a second resolution before restoring must not overwrite the
-        // user's own mode with the first one WSGM chose.
+        // An Ally X booted at a saved 1120x630; the user picked 1920x1080, and restoring the mode found
+        // before that first change put 1120x630 back when WSGM exited (2026-10-20).
         List<DisplayResolution> applied = [];
         var service = Service(applied);
 
         service.Apply(new DisplayResolution(1280, 800));
         service.Apply(new DisplayResolution(1920, 1200));
-        applied.Clear();
-        service.Restore();
 
-        Assert.Equal(new DisplayResolution(1920, 1200), Assert.Single(applied));
+        Assert.Equal([new DisplayResolution(1280, 800), new DisplayResolution(1920, 1200)], applied);
     }
 
     [Fact]
-    public void RestoreIsIdempotentSoASecondCallCannotReapplyAnOldMode()
+    public void ARefusedResolutionIsReportedAsNotApplied()
     {
-        List<DisplayResolution> applied = [];
-        var service = Service(applied);
-        service.Apply(new DisplayResolution(1280, 800));
-
-        service.Restore();
-        var afterFirst = applied.Count;
-        service.Restore();
-
-        Assert.Equal(afterFirst, applied.Count);
-    }
-
-    [Fact]
-    public void FailedRestoreKeepsTheDisplayHeldForARetry()
-    {
-        var attempts = 0;
-        DisplayResolutionService service = new(
-            () => Accepted,
-            (_, _) => ++attempts != 2,
-            () => new DisplayResolution(1920, 1200));
-        Assert.True(service.Apply(new DisplayResolution(1280, 800)));
-
-        Assert.False(service.Restore());
-        Assert.True(service.Restore());
-        // The snapshot was consumed by the successful restore, so a third call has nothing to do.
-        Assert.True(service.Restore());
-        Assert.Equal(3, attempts);
+        Assert.False(Service([], applySucceeds: false).Apply(new DisplayResolution(1280, 800)));
     }
 }

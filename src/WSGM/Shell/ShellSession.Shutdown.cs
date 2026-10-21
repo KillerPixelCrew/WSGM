@@ -371,8 +371,9 @@ public sealed partial class ShellSession
             }
         }).ConfigureAwait(false);
 
-        // The applied refresh rate and a resolution picked from the menu are transient, but leaving the
-        // desktop at a game's 48 Hz or resolution is a change the user never made and would have to hunt for.
+        // The paired refresh rate is transient, but leaving the desktop at a game's 48 Hz is a change the user
+        // never made and would have to hunt for. A resolution picked from a menu is the user's own saved
+        // choice and stays.
         Step(failures, "Restoring the pre-game display refresh rate during application shutdown failed", () =>
         {
             var pairing = _refreshPairing;
@@ -381,16 +382,6 @@ public sealed partial class ShellSession
             {
                 failures.Enqueue(
                     new InvalidOperationException("The pre-game display refresh rate could not be restored."));
-            }
-        });
-        Step(failures, "Restoring the pre-game display resolution during application shutdown failed", () =>
-        {
-            var resolutions = _resolutions;
-            _resolutions = null;
-            if (resolutions is not null && !resolutions.Restore())
-            {
-                failures.Enqueue(
-                    new InvalidOperationException("The pre-game display resolution could not be restored."));
             }
         });
 
