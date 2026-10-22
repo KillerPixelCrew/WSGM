@@ -44,6 +44,24 @@ create` defaults to the wrong repository. Always pass `--repo KillerPixelCrew/VI
 
 ## What the fork carries
 
+### Deck fidelity correction, 2026-10-22
+
+[The HIDMaestro cross-check](https://github.com/hifihedgehog/HIDMaestro/issues/72#issuecomment-6327520811)
+identified a mismatch in our cadence: stock SDL advances Deck sensor time by exactly 4 ms per report
+(`SDL_hidapi_steamdeck.c`), while our controller endpoint declared 6 ms. The endpoint now declares 4
+ms, matching the existing 4000 us connection attribute. The gyro resampler still reports the mean
+rate over each interval; averaging alone could not correct the mismatched sensor clock. WSGM now
+encodes 32768 counts per 2000 deg/s instead of 16 counts per deg/s, and sets digital trigger bits at
+29490/32767 counts, Valve's 90 percent firmware default reported in that cross-check.
+
+Deck instances reserve distinct serials through the existing identity pool. USB and both `0xAE`
+serial answers agree; the first retains `SteamDeck-0001`, and removal releases its identity for
+reuse. USB serial string index 6 leaves the keyboard/mouse interface names intact. The pool no
+longer hands out a duplicate when its old suffix range is exhausted. No consumer requirement was found for
+the extra feature replies; the existing replies remain available, without treating them as a
+prerequisite for Steam support. Earlier 6 ms performance measurements below and in `docs/perf` are
+historical, not validation of this cadence.
+
 `NOTICE.md` on the branch lists the changes against upstream; in short:
 
 - `clib`, the C library WSGM binds: add and attach as separate calls, port plug-out on remove,

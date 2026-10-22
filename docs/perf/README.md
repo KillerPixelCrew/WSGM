@@ -7,6 +7,12 @@ and analysis tool is [tools/PerfLab](../../tools/PerfLab/README.md); the trackin
 Every number here is dated evidence from one machine and one build. Re-record before trusting a
 figure after a change to the controller path, the native handheld runtime, VIIPER or the overlay.
 
+On 2026-10-22 the emulated Deck controller interval changed from 6 ms to 4 ms to match SDL's fixed
+sensor clock. The 6 ms measurements on this page describe the earlier build. See the
+[Deck fidelity correction](../../external/controller/viiper.md#deck-fidelity-correction-2026-10-22)
+for the corrected cadence, gyro scale and trigger threshold; CPU and live gyro acceptance require
+new measurements.
+
 ## Scenarios
 
 Each scenario is recorded on battery and on AC, thirty seconds at idle and sixty seconds in game.

@@ -62,15 +62,15 @@ internal static class SteamDeckNeptuneReport
     /// <summary>
     ///     The travel at which the digital trigger bit rises. Steam reads that bit as Full Pull and
     ///     the analogue value as Soft Pull, and nothing else produces Full Pull: with the bits clear
-    ///     it never fired (Xbox Ally X, 2026-09-27). HHD's Deck emulation raises the bit at 0.8 for
-    ///     every pad without a trigger click, the ROG Ally included (<c>trigger_discrete_lvl</c>).
+    ///     it never fired (Xbox Ally X, 2026-09-27). Valve's Deck firmware defaults
+    ///     SETTING_TRIGGER_THRESHOLD_PERCENT to 90: 29490 of the 32767 wire counts.
     /// </summary>
-    private const float DigitalTriggerTravel = 0.8f;
+    private const ushort DigitalTriggerThreshold = 29490;
 
     // The Deck IMU fields are signed 16-bit values over fixed physical ranges. Steam/SDL expose
     // their application-space axes as raw X, raw Z, -raw Y, so WSGM reverses that transform while
     // packing the canonical application-space sample.
-    private const float GyroCountsPerDegreePerSecond = 16f;
+    private const float GyroCountsPerDegreePerSecond = 32768f / 2000f;
     private const float AccelCountsPerG = 16384f;
 
     /// <summary>
@@ -94,6 +94,8 @@ internal static class SteamDeckNeptuneReport
         // header and the packet number itself when it re-emits, so WSGM leaves the counter alone
         // rather than inventing a sequence the device would then contradict.
         var buttons = sample.Buttons;
+        var leftTrigger = Trigger(sample.LeftTrigger);
+        var rightTrigger = Trigger(sample.RightTrigger);
         destination[8] = (byte)(((buttons & CanonicalButtons.A) != 0 ? Byte8A : 0)
                                 | ((buttons & CanonicalButtons.X) != 0 ? Byte8X : 0)
                                 | ((buttons & CanonicalButtons.B) != 0 ? Byte8B : 0)
@@ -106,8 +108,8 @@ internal static class SteamDeckNeptuneReport
                                 // Full Pull never fire (Xbox Ally X, 2026-09-27). The 2026-09-02
                                 // desktop double-click that was blamed on a mid-travel threshold
                                 // came from the 0..65535 trigger scale fixed the same day.
-                                | (sample.LeftTrigger > DigitalTriggerTravel ? Byte8L2 : 0)
-                                | (sample.RightTrigger > DigitalTriggerTravel ? Byte8R2 : 0));
+                                | (leftTrigger >= DigitalTriggerThreshold ? Byte8L2 : 0)
+                                | (rightTrigger >= DigitalTriggerThreshold ? Byte8R2 : 0));
 
         destination[9] = (byte)(((buttons & CanonicalButtons.RearPaddle3) != 0 ? Byte9L5 : 0)
                                 | ((buttons & CanonicalButtons.Menu) != 0 ? Byte9Menu : 0)
@@ -142,8 +144,8 @@ internal static class SteamDeckNeptuneReport
         WriteMotion(sample.Motion, destination);
 
         // Triggers are signed 16-bit on the wire; the canonical model is a 0..1 unit.
-        BinaryPrimitives.WriteUInt16LittleEndian(destination[44..46], Trigger(sample.LeftTrigger));
-        BinaryPrimitives.WriteUInt16LittleEndian(destination[46..48], Trigger(sample.RightTrigger));
+        BinaryPrimitives.WriteUInt16LittleEndian(destination[44..46], leftTrigger);
+        BinaryPrimitives.WriteUInt16LittleEndian(destination[46..48], rightTrigger);
 
         BinaryPrimitives.WriteInt16LittleEndian(destination[48..50], WireScale.Axis16(sample.LeftStickX));
         BinaryPrimitives.WriteInt16LittleEndian(destination[50..52], WireScale.Axis16(sample.LeftStickY));

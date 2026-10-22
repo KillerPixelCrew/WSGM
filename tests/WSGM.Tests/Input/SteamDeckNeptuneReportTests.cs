@@ -99,7 +99,7 @@ public sealed class SteamDeckNeptuneReportTests
         var frame = Frame(
             Sample(CanonicalButtons.None) with { LeftTrigger = 0.5f, RightTrigger = 1f });
 
-        // Steam reads the bits as Full Pull and nothing else fires it; HHD raises it at 0.8 travel.
+        // Steam reads the bits as Full Pull; Valve's firmware defaults to 90 percent travel.
         // Half travel is a soft pull only; a full pull carries the bit.
         Assert.Equal(0x01, frame[8]);
         // The wire fields are signed 16-bit, so full travel is 32767. A 0..65535 scale read as
@@ -123,13 +123,15 @@ public sealed class SteamDeckNeptuneReportTests
     }
 
     [Theory]
-    [InlineData(0.8f, 0x00)]
-    [InlineData(0.81f, 0x02)]
-    public void TheDigitalTriggerBitRisesJustPastEightyPercent(float travel, int expected)
+    [InlineData(29489, 0x00)]
+    [InlineData(29490, 0x02)]
+    [InlineData(29491, 0x02)]
+    public void TheDigitalTriggerBitUsesTheFirmwareThreshold(int counts, int expected)
     {
-        var frame = Frame(Sample(CanonicalButtons.None) with { LeftTrigger = travel });
+        var frame = Frame(Sample(CanonicalButtons.None) with { LeftTrigger = counts / (float)short.MaxValue });
 
         Assert.Equal(expected, frame[8] & 0x03);
+        Assert.Equal(counts, BitConverter.ToUInt16(frame, 44));
     }
 
     [Fact]
@@ -192,12 +194,29 @@ public sealed class SteamDeckNeptuneReportTests
             }
         });
 
-        Assert.Equal(1600, BitConverter.ToInt16(gyroOnly, 30));
-        Assert.Equal(-4800, BitConverter.ToInt16(gyroOnly, 32));
-        Assert.Equal(3200, BitConverter.ToInt16(gyroOnly, 34));
+        Assert.Equal(1638, BitConverter.ToInt16(gyroOnly, 30));
+        Assert.Equal(-4915, BitConverter.ToInt16(gyroOnly, 32));
+        Assert.Equal(3277, BitConverter.ToInt16(gyroOnly, 34));
         // The accelerometer was not declared, so its bytes stay zero rather than carrying a value
         // the device never reported.
         Assert.Equal(0, BitConverter.ToInt16(gyroOnly, 24));
+    }
+
+    [Theory]
+    [InlineData(90f)]
+    [InlineData(-90f)]
+    [InlineData(1000f)]
+    public void SdlDecodesTheSubmittedAngularVelocity(float degreesPerSecond)
+    {
+        var frame = Frame(Sample(CanonicalButtons.None) with
+        {
+            Motion = new MotionSample { HasGyro = true, GyroY = degreesPerSecond }
+        });
+
+        // Stock SDL decodes application Y from raw Z at 32768 counts per 2000 deg/s.
+        var decoded = BitConverter.ToInt16(frame, 34) / 32768f * 2000f;
+
+        Assert.InRange(MathF.Abs(decoded - degreesPerSecond), 0f, 2000f / 32768f);
     }
 
     [Fact]
