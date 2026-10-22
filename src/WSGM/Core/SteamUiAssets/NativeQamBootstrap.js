@@ -1543,12 +1543,17 @@
       return react.createElement(
         ui.modalRoot,
         {
-          className: options.className,
+          className:
+            [options.className, options.wide ? "steam-ui-kit-modal-wide" : ""]
+              .filter(Boolean)
+              .join(" ") || undefined,
           onCancel: cancel,
           closeModal: cancel,
           strTitle: title,
           ...(options.wide ? { bAllowFullSize: true } : {}),
         },
+        // Modal portals do not inherit the originating document's toolkit stylesheet.
+        steamUiKitStyle(react),
         options.render(close),
       );
     }
@@ -4068,6 +4073,11 @@
   const SteamUiKitStyles = `
 .steam-ui-kit-page{margin-top:var(--basicui-header-height,40px);height:calc(100% - var(--basicui-header-height,40px));display:flex;flex-direction:column;background:var(--gpSystemDarkestGrey,#0e141b);color:#dcdedf}
 .steam-ui-kit-pane{display:flex;flex-direction:column;gap:14px;padding:12px 4px 72px}
+.steam-ui-kit-content{display:flex;flex-direction:column;gap:20px;width:min(100%,960px);max-width:100%;min-width:0;box-sizing:border-box;margin-inline:auto;padding:24px clamp(20px,4vw,48px) 72px}
+.steam-ui-kit-content>*{min-width:0;flex-shrink:0}
+.steam-ui-kit-content .steam-ui-kit-toolbar{flex-wrap:wrap}
+/* Valve's dropdown uses two fixed-width wrappers; constrain the whole field inside narrow QAM groups. */
+.steam-ui-kit-group .DialogButton[role="combobox"],.steam-ui-kit-group div:has(>.DialogButton[role="combobox"]),.steam-ui-kit-group div:has(>div>.DialogButton[role="combobox"]){min-width:0!important;max-width:100%!important;box-sizing:border-box}
 .steam-ui-kit-sheet{display:flex;flex-direction:column;gap:6px;width:100%;min-width:0;max-height:min(70vh,calc(100vh - 160px));overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;scrollbar-gutter:stable}
 .steam-ui-kit-sheet>*{min-width:0;max-width:100%;box-sizing:border-box;flex-shrink:0}
 .steam-ui-kit-sheet .DialogInput,.steam-ui-kit-sheet .DialogInputWrapper,.steam-ui-kit-sheet .DialogButton{min-width:0;max-width:100%;box-sizing:border-box}
@@ -4081,6 +4091,7 @@
 .steam-ui-kit-detail{display:flex;gap:32px;padding:12px 4px 72px}
 .steam-ui-kit-detail-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:10px}
 .steam-ui-kit-detail-aside{width:300px;flex:0 0 auto;display:flex;flex-direction:column;gap:14px}
+@media(max-width:760px){.steam-ui-kit-detail{flex-direction:column;gap:20px}.steam-ui-kit-detail-aside{width:100%;flex:0 0 auto}}
 .steam-ui-kit-detail-heading{display:flex;align-items:baseline;gap:12px}
 .steam-ui-kit-detail-heading h2{margin:0;font-size:30px;font-weight:700;color:#fff}
 .steam-ui-kit-detail-heading span{font-size:16px;font-weight:700;color:#fff}
@@ -4096,6 +4107,9 @@
 .steam-ui-kit-header.sub .steam-ui-kit-header-title{font-size:13px;font-weight:600;letter-spacing:0;text-transform:none;color:rgba(255,255,255,.75)}
 .steam-ui-kit-header.sub.open .steam-ui-kit-header-title{color:#fff}
 .steam-ui-kit-header-detail{font-size:12px;color:rgba(255,255,255,.55);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.steam-ui-kit-header.page{padding:0 0 4px;margin:0}
+.steam-ui-kit-header.page .steam-ui-kit-header-title{margin:0;font-size:28px;line-height:1.2;font-weight:700;letter-spacing:0;text-transform:none;white-space:normal;overflow-wrap:anywhere}
+.steam-ui-kit-header.page .steam-ui-kit-header-detail{margin-top:8px;font-size:14px;line-height:1.5;white-space:normal;overflow-wrap:anywhere}
 .steam-ui-kit-header-caret{flex:0 0 auto;color:rgba(255,255,255,.7);display:flex}
 .steam-ui-kit-group,.steam-ui-kit-blocks > div:not(:empty),.steam-ui-kit-valve > div:not(:empty){border-radius:4px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07);padding:4px 12px 8px!important;margin:0 0 10px!important;box-sizing:border-box}
 .steam-ui-kit-group.plain{padding:8px 12px!important}
@@ -4121,6 +4135,8 @@
 .steam-ui-kit-actions button.DialogButton{display:block!important;width:auto!important;min-width:0!important;height:36px!important;line-height:36px!important;padding:0 10px!important;box-sizing:border-box!important;font-size:13px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .steam-ui-kit-actions button.DialogButton:last-child:nth-child(odd){grid-column:1 / -1}
 .steam-ui-kit-actions .DialogButton.steam-ui-kit-wide{grid-column:1 / -1}
+.steam-ui-kit-actions.compact{display:flex;flex-wrap:wrap;gap:8px}
+.steam-ui-kit-actions.compact button.DialogButton{flex:0 1 auto;max-width:100%;min-height:36px;height:auto!important;line-height:1.4!important;padding:8px 18px!important;white-space:normal;overflow-wrap:anywhere}
 .steam-ui-kit-nested{margin-left:2px;padding-left:12px;border-left:2px solid rgba(255,255,255,.12);box-sizing:border-box}
 .steam-ui-kit-nested .DialogToggle_Label{font-size:14px}
 .steam-ui-kit-nested .DialogToggle_Description{font-size:12px}
@@ -4195,7 +4211,9 @@
 .steam-ui-kit-hero.video img{object-fit:contain}
 .steam-ui-kit-modal-body{display:flex;flex-direction:column;gap:12px}
 .steam-ui-kit-modal-body p{margin:0}
+.steam-ui-kit-modal-title{margin:0 0 12px;font-size:24px;line-height:1.25;color:#fff}
 .steam-ui-kit-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:8px}
+.steam-ui-kit-modal-wide{width:min(1000px,calc(100vw - 64px))!important;max-width:calc(100vw - 64px)!important;min-width:0!important;box-sizing:border-box;padding:clamp(16px,3vw,32px)!important}
 `;
   // One stylesheet element and one icon renderer per React, so a root re-rendering on every host
   // publication hands React the same style element and the same caret elements each time rather
@@ -4275,7 +4293,7 @@
   /**
    * Creates a section heading with optional controller-accessible folding.
    * @param ui Steam's resolved React and native control components.
-   * @param props Title, optional icon/detail, fold state and toggle callback; sub selects nested styling.
+   * @param props Title, optional icon/detail, fold state and toggle callback; sub selects nested styling and page selects a full-page heading.
    * @returns A heading element; without onToggle it is not a focusable fold control.
    */
   const renderSteamUiHeader = (ui, props) => {
@@ -4288,7 +4306,7 @@
       h(
         "div",
         { className: "steam-ui-kit-header-text" },
-        h("div", { className: "steam-ui-kit-header-title" }, props.title),
+        h(props.page ? "h1" : "div", { className: "steam-ui-kit-header-title" }, props.title),
         props.detail ? h("div", { className: "steam-ui-kit-header-detail" }, props.detail) : null,
       ),
       folds
@@ -4299,7 +4317,7 @@
           )
         : null,
     ].filter((child) => child !== null);
-    const className = `steam-ui-kit-header${collapsed ? "" : " open"}${folds ? "" : " plain"}${props.sub ? " sub" : ""}`;
+    const className = `steam-ui-kit-header${collapsed ? "" : " open"}${folds ? "" : " plain"}${props.sub ? " sub" : ""}${props.page ? " page" : ""}`;
     return folds
       ? h(
           ui.focusable ?? "div",
@@ -4356,19 +4374,24 @@
    * Creates a controller-navigable grid of native action buttons.
    * @param ui Steam's resolved React and native control components.
    * @param actions Stable ids, visible labels and activation callbacks in display order.
-   * @returns A two-column grid; long labels span both columns.
+   * @param options Compact selects a wrapping toolbar of content-sized buttons instead of a grid.
+   * @returns A two-column grid or compact toolbar of native buttons.
    */
-  const renderSteamUiActions = (ui, actions) => {
+  const renderSteamUiActions = (ui, actions, options = {}) => {
     const h = ui.react.createElement;
     return h(
       ui.focusable,
-      { "flow-children": "row", className: "steam-ui-kit-actions" },
+      {
+        "flow-children": "row",
+        className: `steam-ui-kit-actions${options.compact ? " compact" : ""}`,
+      },
       ...actions.map((action) =>
         h(
           action.primary ? (ui.dialogButtonPrimary ?? ui.dialogButton) : ui.dialogButton,
           {
             key: action.id,
-            className: action.label.length > 18 ? "steam-ui-kit-wide" : undefined,
+            className:
+              !options.compact && action.label.length > 18 ? "steam-ui-kit-wide" : undefined,
             onClick: action.onClick,
             disabled: !!action.disabled,
           },
@@ -4462,13 +4485,19 @@
   /**
    * Creates a page column that acquires controller focus when mounted.
    * @param ui Steam's resolved React and native control components.
-   * @param props Optional React key and additional class name.
+   * @param props Optional React key, additional class name and bounded full-page content layout.
    * @param children Toolbar, list or other page content in navigation order.
    * @returns The focusable pane, or a plain container when Focusable is unavailable.
    */
   const renderSteamUiPane = (ui, props, ...children) => {
     const h = ui.react.createElement;
-    const className = ["steam-ui-kit-pane", props.className].filter(Boolean).join(" ");
+    const className = [
+      "steam-ui-kit-pane",
+      props.bounded ? "steam-ui-kit-content" : "",
+      props.className,
+    ]
+      .filter(Boolean)
+      .join(" ");
     return ui.focusable
       ? h(
           ui.focusable,
@@ -4480,7 +4509,7 @@
   /**
    * Creates a nested page level that handles Back before Steam leaves the route.
    * @param ui Steam's resolved React and native control components.
-   * @param props Optional class and callback returning to the previous level.
+   * @param props Optional class, bounded full-page content layout and callback returning to the previous level.
    * @param children Content of the nested level.
    * @returns A focusable level with initial focus and the supplied Back action.
    */
@@ -4488,7 +4517,10 @@
     ui.react.createElement(
       ui.focusable,
       {
-        className: props.className,
+        className:
+          [props.bounded ? "steam-ui-kit-content" : "", props.className]
+            .filter(Boolean)
+            .join(" ") || undefined,
         autoFocus: true,
         onCancelButton: props.onBack,
         onCancelActionDescription: "Back",
@@ -4800,13 +4832,14 @@
       ui.focusable,
       {
         className: "steam-ui-kit-detail",
+        "flow-children": "grid",
         autoFocus: true,
         onCancelButton: props.onBack,
         onCancelActionDescription: "Back",
       },
       h(
-        "div",
-        { className: "steam-ui-kit-detail-main" },
+        ui.focusable,
+        { className: "steam-ui-kit-detail-main", "flow-children": "column" },
         props.media ?? null,
         h(
           "div",
@@ -4817,8 +4850,8 @@
         ...props.main,
       ),
       h(
-        "div",
-        { className: "steam-ui-kit-detail-aside" },
+        ui.focusable,
+        { className: "steam-ui-kit-detail-aside", "flow-children": "column" },
         ...props.aside,
         h(ui.dialogButton, { onClick: props.onBack }, "Back"),
       ),
@@ -4839,6 +4872,7 @@
         h(
           "div",
           { className: "steam-ui-kit-modal-body" },
+          h("h2", { className: "steam-ui-kit-modal-title" }, props.title),
           h("p", null, props.text),
           h(
             ui.focusable,
@@ -4868,6 +4902,7 @@
     return h(
       "div",
       { className: "steam-ui-kit-modal-body" },
+      h("h2", { className: "steam-ui-kit-modal-title" }, props.title),
       props.text ? h("p", null, props.text) : null,
       h(ui.textField, {
         label: props.label,
@@ -6281,6 +6316,10 @@
    * Adds host actions to Steam game context menus while preserving native entries.
    * @returns Install/remove controls and diagnostics; remove must release this gate before its bridge is replaced.
    */
+  // Trusted host renderers receive only the native types observed on this exact menu.
+  const steamGameContextMenuRenderers = new Map();
+  const registerSteamGameContextMenuRenderer = (template, render) =>
+    steamGameContextMenuRenderers.set(template, render);
   function createGameContextMenu() {
     const patchId = "steam-ui.game-context-menu";
     const actionClaimKeys = {
@@ -6288,6 +6327,11 @@
       original: "__steamUiGameContextMenuActionOriginal",
     };
     const ActionMethod = "GetCollectionManagementActions";
+    const createClaimKeys = {
+      marker: "__steamUiGameContextMenuCreateClaimed",
+      original: "__steamUiGameContextMenuCreateOriginal",
+    };
+    const ManageMethod = "BuildManageSubmenu";
     const MenuTokens = ["GetTargetApps", "BuildManageSubmenu", "GetPrimaryActionMenuItem"];
     // How deep into Steam's own menu tree the item list is looked for; it bounds the walk, not the items.
     const MaximumDepth = 10;
@@ -6295,6 +6339,7 @@
     let react;
     let menuComponent = null;
     let itemType = null;
+    let submenuType = null;
     let jsxRuntime;
     let installed = false;
     let unsubscribe = null;
@@ -6351,8 +6396,22 @@
       const appId = appIdFor(context.instance);
       if (appId === null) return null;
       lastOutcome = `app=${appId} commands=${desired.items.length} native-additional-actions`;
-      return desired.items.map((item) =>
-        react.createElement(
+      return desired.items.map((item) => {
+        if (item.template) {
+          const render = steamGameContextMenuRenderers.get(item.template);
+          return submenuType && render
+            ? render({
+                react,
+                itemType,
+                submenuType,
+                appId,
+                label: item.label,
+                key: `steam-ui-game-context-menu-${item.id}`,
+                currentAppId: () => appIdFor(context.instance),
+              })
+            : null;
+        }
+        return react.createElement(
           itemType,
           {
             key: `steam-ui-game-context-menu-${item.id}`,
@@ -6376,8 +6435,8 @@
             },
           },
           item.label,
-        ),
-      );
+        );
+      });
     }
     const resolve = () => {
       runtime = getWebpackRuntime("game-context-menu");
@@ -6423,12 +6482,7 @@
       return result;
     };
     const claimMenuAction = (candidate) => {
-      if (
-        !candidate ||
-        !candidate.prototype ||
-        typeof candidate.prototype.render !== "function" ||
-        menuComponent === candidate
-      ) {
+      if (!candidate || !candidate.prototype || menuComponent === candidate) {
         return;
       }
       if (menuComponent) {
@@ -6448,6 +6502,33 @@
         lastError = "Game context menu action claim failed: " + claim.error;
         return;
       }
+      const manageClaim = claimMember(
+        candidate.prototype,
+        ManageMethod,
+        actionClaimKeys,
+        (original) =>
+          function SteamUiGameContextMenuManage(...args) {
+            const result = original.apply(this, args);
+            if (
+              installed &&
+              react.isValidElement(result) &&
+              typeof result.props?.label === "string"
+            ) {
+              const found = findItemType(result);
+              if (submenuType !== result.type || (found && itemType !== found)) {
+                submenuType = result.type;
+                if (found) itemType = found;
+                notifyAfterRender();
+              }
+            }
+            return result;
+          },
+      );
+      if (!manageClaim.ok) {
+        releaseMember(candidate.prototype, ActionMethod, actionClaimKeys);
+        lastError = "Game context submenu claim failed: " + manageClaim.error;
+        return;
+      }
       menuComponent = candidate;
       lastError = "";
     };
@@ -6456,17 +6537,23 @@
     const captureMenu = (create, candidate, props, key) => {
       if (typeof candidate !== "function") return;
       const prototype = candidate.prototype;
-      if (
-        !prototype ||
-        typeof Object.getOwnPropertyDescriptor(prototype, "render")?.value !== "function"
-      )
-        return;
-      const methods = MenuTokens.map((name) => Object.getOwnPropertyDescriptor(prototype, name));
+      if (!prototype) return;
+      // MobX may put render on an accessor or an observer superclass. Do not read it: that
+      // executes the observer getter before React supplies an instance. Match authored methods.
+      const descriptor = (name) => {
+        let owner = prototype;
+        while (owner && owner !== Object.prototype) {
+          const value = Object.getOwnPropertyDescriptor(owner, name);
+          if (value) return value;
+          owner = Object.getPrototypeOf(owner);
+        }
+      };
+      const methods = MenuTokens.map(descriptor);
       if (
         !methods.every(
           (method) => typeof method?.value === "function" || typeof method?.get === "function",
         ) ||
-        typeof Object.getOwnPropertyDescriptor(prototype, ActionMethod)?.value !== "function"
+        typeof descriptor(ActionMethod)?.value !== "function"
       )
         return;
       if (menuComponent && candidate !== menuComponent) {
@@ -6524,6 +6611,33 @@
         lastError = claim.error ?? "Game context menu JSX interception failed";
         return { ok: false, error: lastError };
       }
+      // Popup hosts may construct native menu classes through React instead of JSX.
+      const createClaim = claimMember(
+        react,
+        "createElement",
+        createClaimKeys,
+        (original) =>
+          function SteamUiGameContextMenuCreate(type, props, ...children) {
+            const supplied = children.length
+              ? { ...props, children: children.length === 1 ? children[0] : children }
+              : props;
+            const replacement = captureMenu(
+              (candidate, next, key) =>
+                original.call(react, candidate, key === undefined ? next : { ...next, key }),
+              type,
+              supplied,
+              props?.key,
+            );
+            return replacement === undefined
+              ? original.call(react, type, props, ...children)
+              : replacement;
+          },
+      );
+      if (!createClaim.ok) {
+        releaseElements(jsxRuntime, patchId);
+        lastError = "Game context menu React interception failed: " + createClaim.error;
+        return { ok: false, error: lastError };
+      }
       installed = true;
       lastError = "";
       unsubscribe = subscribe(patchId, (state) => {
@@ -6543,9 +6657,15 @@
       if (!installed) return { ok: true, absent: true };
       const releasedElements = releaseElements(jsxRuntime, patchId);
       const releasedAction = releaseMember(menuComponent?.prototype, ActionMethod, actionClaimKeys);
-      if (!releasedAction.ok || !releasedElements.ok) {
+      const releasedManage = releaseMember(menuComponent?.prototype, ManageMethod, actionClaimKeys);
+      const releasedCreate = releaseMember(react, "createElement", createClaimKeys);
+      if (!releasedAction.ok || !releasedElements.ok || !releasedManage.ok || !releasedCreate.ok) {
         lastError =
-          releasedAction.error ?? releasedElements.error ?? "Game context menu release failed";
+          releasedAction.error ??
+          releasedElements.error ??
+          releasedManage.error ??
+          releasedCreate.error ??
+          "Game context menu release failed";
         return { ok: false, error: lastError };
       }
       installed = false;
@@ -6553,6 +6673,7 @@
       desired = { items: [], revision: 0 };
       menuComponent = null;
       itemType = null;
+      submenuType = null;
       ambiguous = false;
       nativeObserved = false;
       nativeRefused = false;
@@ -6564,11 +6685,15 @@
       ok: true,
       installed,
       resolved: !!runtime && !!react,
-      observing: installed && elementsIntercepted(jsxRuntime, patchId),
+      observing:
+        installed &&
+        elementsIntercepted(jsxRuntime, patchId) &&
+        memberClaimed(react, "createElement", createClaimKeys),
       ambiguous,
       nativeObserved,
       nativeRefused,
       itemTypeResolved: !!itemType,
+      submenuTypeResolved: !!submenuType,
       nativeMenuState: !installed
         ? "removed"
         : ambiguous || nativeRefused
@@ -13885,6 +14010,35 @@
     const officialAssets = Array.isArray(state.officialAssets) ? state.officialAssets : [];
     const managed = Array.isArray(state.managedSlots) ? state.managedSlots : [];
     const active = tabs.find((tab) => tab.id === state.activeTab) || tabs[0];
+    const filtersActive = !!(
+      state.filter?.styles?.length ||
+      state.filter?.dimensions?.length ||
+      state.filter?.mimes?.length ||
+      state.filter?.static === false ||
+      state.filter?.animated === false ||
+      state.filter?.adult === false ||
+      state.filter?.humor === false ||
+      state.filter?.epilepsy === false ||
+      state.filter?.untagged === false
+    );
+    // Notices can contain both provider failures and deliberately disabled optional providers.
+    // Only the latter belong in the secondary note; retain every other reason in the status.
+    const notices = String(state.notice || "")
+      .split(/ {2,}/)
+      .filter(Boolean);
+    const disabledNotices = notices.filter((notice) =>
+      notice.endsWith(": Turned off in Settings."),
+    );
+    const providerNotice = notices.filter((notice) => !disabledNotices.includes(notice)).join("  ");
+    const gameContext = h(
+      "div",
+      { className: "sgdb-game-context" },
+      renderSteamUiHeader(artworkUi, {
+        sub: true,
+        title: state.appName ? `Artwork for ${state.appName}` : `Artwork for app ${state.appId}`,
+        detail: state.selectedGame ? `Results for ${state.selectedGame}` : undefined,
+      }),
+    );
     const openFilters = () =>
       showArtworkModal("sgdb-modal-filters", (close) =>
         h(ArtworkFilterModal, {
@@ -13943,6 +14097,7 @@
     const assetContent = h(
       "div",
       { className: "tabcontents-wrap" },
+      gameContext,
       state.loading
         ? h("div", { className: "spinnyboi" }, h("img", { src: "/images/steam_spinner.png" }))
         : null,
@@ -13952,7 +14107,11 @@
         h(
           Focusable,
           { className: "filter-buttons", "flow-children": "row" },
-          h(Button, { noFocusRing: true, onClick: openFilters }, "Filter"),
+          h(
+            Button,
+            { noFocusRing: true, onClick: openFilters },
+            filtersActive ? "Filter · Active" : "Filter",
+          ),
           officialAssets.length
             ? h(
                 Button,
@@ -13982,32 +14141,35 @@
             ? h(Button, { noFocusRing: true, onClick: openLogo }, "Adjust Logo Position")
             : null,
         ),
-        h(SliderField, {
-          className: "size-slider",
-          value: cardSize,
-          min: 100,
-          max: 260,
-          step: 5,
-          layout: "below",
-          bottomSeparator: "none",
-          onChange: setCardSize,
-        }),
+        h(
+          "div",
+          { className: "size-slider" },
+          h(SliderField, {
+            label: "Thumbnail size",
+            value: cardSize,
+            min: 100,
+            max: 260,
+            step: 5,
+            showValue: true,
+            valueSuffix: "px",
+            layout: "below",
+            bottomSeparator: "none",
+            onChange: setCardSize,
+          }),
+        ),
       ),
-      state.selectedGame || state.filter?.styles?.length || state.filter?.dimensions?.length
-        ? h(
-            Button,
-            { className: "sgdb-results-state", onClick: openFilters },
-            state.selectedGame
-              ? `Results for ${state.selectedGame}`
-              : "Some assets may be hidden due to filter",
-          )
-        : null,
-      state.error || state.notice || actionError
+      state.error || providerNotice || actionError
         ? h(
             "div",
-            { className: `sgdb-status${state.error || actionError ? " error" : ""}` },
-            state.error || actionError || state.notice,
+            {
+              className: `sgdb-status${state.error || actionError ? " error" : ""}`,
+              role: "status",
+            },
+            state.error || actionError || providerNotice,
           )
+        : null,
+      disabledNotices.length && !state.error && !actionError
+        ? h("p", { className: "steam-ui-kit-sheet-note" }, disabledNotices.join("  "))
         : null,
       h(
         Focusable,
@@ -14031,6 +14193,7 @@
     const manageContent = h(
       Focusable,
       { id: "local-images-container" },
+      gameContext,
       ...managed.map((slot) =>
         h(
           "div",
@@ -14084,6 +14247,7 @@
       "div",
       { id: "sgdb-wrap", "aria-label": `Artwork for ${state.appName}` },
       h("style", null, artworkBrowserStyles),
+      steamUiKitStyle(react),
       h(Tabs, {
         autoFocusContents: true,
         activeTab: state.activeTab,
@@ -14098,10 +14262,12 @@
 #sgdb-wrap .tabcontents-wrap{display:flex;height:100%;width:100%;flex-direction:column}
 #sgdb-wrap .spinnyboi{display:flex;align-items:center;justify-content:center;position:fixed;inset:0;z-index:10008;background:#0e141b}
 #sgdb-wrap .spinnyboi img{transform:scale(.75)}
-#sgdb-wrap .sgdb-asset-toolbar{display:flex;width:100%;gap:var(--gpSpace-Gap,.6em)}
-#sgdb-wrap .filter-buttons{align-items:center;display:flex;gap:.5em}
+#sgdb-wrap .sgdb-game-context{grid-column:1 / -1;padding:0 0 .5em;min-width:0}
+#sgdb-wrap .sgdb-asset-toolbar{display:flex;align-items:center;flex-wrap:wrap;width:100%;gap:var(--gpSpace-Gap,.6em)}
+#sgdb-wrap .filter-buttons{align-items:center;display:flex;flex-wrap:wrap;gap:.5em;min-width:0}
 #sgdb-wrap .filter-buttons>button{min-width:auto;flex:1;white-space:nowrap}
-#sgdb-wrap .size-slider{flex:1;padding:.5em 1em;justify-content:center}
+#sgdb-wrap .size-slider{flex:0 1 280px;width:280px;max-width:100%;min-width:0;margin-left:auto;box-sizing:border-box;--field-negative-horizontal-margin:0px}
+#sgdb-wrap .size-slider>*{width:100%;max-width:100%;min-width:0;box-sizing:border-box;margin-inline:0}
 #sgdb-wrap #images-container{display:grid;padding-top:1em;padding-bottom:var(--gamepadui-current-footer-height);justify-content:space-evenly;grid-auto-flow:dense;row-gap:1em;column-gap:.65em;grid-template-columns:repeat(auto-fill,minmax(min(var(--asset-size),100%),var(--asset-size)))}
 #sgdb-wrap .asset-box-wrap{display:flex;align-items:center;flex-wrap:wrap;position:relative}
 #sgdb-wrap .image-wrap{background:url('/images/defaultappimage.png') center/cover;position:relative;width:100%;margin-top:auto;outline:2px solid transparent;transition:outline-color 200ms}
@@ -14116,14 +14282,14 @@
 #sgdb-wrap .chip{display:flex;align-items:center;justify-content:center;padding:.3em .8em;min-height:2em;border-radius:0 5px 5px 0;transition:transform 300ms cubic-bezier(.33,1,.68,1)}
 #sgdb-wrap .chip.animated{background:#e2a256}.chip.nsfw{background:#e5344c}.chip.humor{background:#eec314;color:#434343}.chip.epilepsy{background:#735f9f}
 #sgdb-wrap .image-wrap.gpfocus .chip,#sgdb-wrap .image-wrap:hover .chip{transform:translateX(calc(100% - .5em - 1px));box-shadow:1px 2px 3px #0004}
-#sgdb-wrap .sgdb-results-state{margin:1em 0 0;min-width:auto}.sgdb-status,.sgdb-empty{padding:1em;text-align:center}.sgdb-status.error{color:#ff6b6b}.sgdb-load-more{display:flex;justify-content:center;padding:1em 0 3em}
+#sgdb-wrap .sgdb-status,#sgdb-wrap .sgdb-empty{padding:1em;text-align:center}#sgdb-wrap .sgdb-status.error{color:#ff6b6b}.sgdb-load-more{display:flex;justify-content:center;padding:1em 0 3em}
 #sgdb-wrap #local-images-container{display:grid;grid-template-columns:30% 1fr;gap:1em;margin-bottom:2em}
 #sgdb-wrap .asset-label{color:#fff;font-weight:500;letter-spacing:1px;text-transform:uppercase;line-height:20px;margin-bottom:.5em}
 #sgdb-wrap .manage-asset{position:relative}.manage-asset .asset{display:flex;min-height:100px;overflow:hidden;background:url('/images/defaultappimage.png') center/cover;align-items:center;justify-content:center}.manage-asset .asset-img{display:block;width:100%;max-height:260px;object-fit:contain}
 #sgdb-wrap .action-overlay{display:none;position:absolute;gap:.25em;right:.5em;bottom:.5em;z-index:2}.manage-asset.is-focused .action-overlay,.manage-asset:hover .action-overlay{display:flex}.manage-actions{grid-column:span 2;display:flex;gap:.5em}
 .sgdb-modal h2,.sgdb-modal h3{color:#fff}.sgdb-modal-details-wrapper{display:flex;gap:1em}.sgdb-modal-details-wrapper.wide{flex-direction:column}.sgdb-modal-details .modal-image{flex:1}.sgdb-modal-details .modal-image img{display:block;max-width:100%;max-height:55vh;margin:auto}.sgdb-modal-details .info{display:flex;flex-direction:column;flex:1;gap:.5em}.sgdb-modal-details .meta{text-transform:capitalize;opacity:.5;font-size:.8em;text-align:right}.sgdb-modal-details .author{margin-top:1em;font-weight:bold}.sgdb-modal-details .notes{max-width:300px;word-break:break-word}
 .sgdb-modal-official-assets .official-steam-asset{margin:0 auto 1em}.sgdb-modal-official-assets img{display:block;max-width:100%;max-height:55vh;margin:auto}.official-steam-asset-action{display:flex;align-items:center;justify-content:space-between;gap:1em;margin-top:.5em}
-.sgdb-filter-game{display:flex;align-items:end;gap:.5em}.sgdb-filter-game>div:first-child{flex:1}.sgdb-filter-field{margin-top:1em}.sgdb-filter-field>label{display:block;margin-bottom:.4em;font-weight:600}.sgdb-filter-options,.sgdb-game-matches{display:flex;flex-wrap:wrap;gap:.4em}.sgdb-filter-options>button,.sgdb-game-matches>button{min-width:auto}.sgdb-filter-selected{box-shadow:inset 0 0 0 2px var(--gpStoreLightestGrey,#fff)}.sgdb-modal-actions{display:flex;justify-content:flex-end;gap:.5em;margin-top:1em}
+.sgdb-filter-game{display:flex;align-items:end;gap:.5em}.sgdb-filter-game>:first-child{flex:1;min-width:0}.sgdb-filter-game input{width:100%;box-sizing:border-box}.sgdb-filter-game>.DialogButton{flex:0 0 auto;width:auto;min-width:0}.sgdb-filter-field{margin-top:1em}.sgdb-filter-field>label{display:block;margin-bottom:.4em;font-weight:600}.sgdb-filter-options,.sgdb-game-matches{display:flex;flex-wrap:wrap;gap:.4em}.sgdb-filter-options>button,.sgdb-game-matches>button{min-width:auto}.sgdb-filter-selected{box-shadow:inset 0 0 0 2px var(--gpStoreLightestGrey,#fff)}.sgdb-modal-actions{display:flex;justify-content:flex-end;gap:.5em;margin-top:1em}
 .sgdb-logo-preview{height:250px;position:relative;background:#1b2838;overflow:hidden}.sgdb-logo-sample{position:absolute;padding:10px;font-size:28px;font-weight:bold}.anchor-TopLeft{left:0;top:0}.anchor-TopCenter{left:50%;top:0;transform:translateX(-50%)}.anchor-TopRight{right:0;top:0}.anchor-CenterLeft{left:0;top:50%;transform:translateY(-50%)}.anchor-CenterCenter{left:50%;top:50%;transform:translate(-50%,-50%)}.anchor-CenterRight{right:0;top:50%;transform:translateY(-50%)}.anchor-BottomLeft{left:0;bottom:0}.anchor-BottomCenter{left:50%;bottom:0;transform:translateX(-50%)}.anchor-BottomRight{right:0;bottom:0}.sgdb-logo-anchors{display:grid;grid-template-columns:repeat(3,1fr);gap:.4em;margin:1em 0}.sgdb-logo-anchors>button{min-width:auto}
 `;
   const artworkBrowserPage = registerSteamPage({
@@ -14158,8 +14324,6 @@
   const cardManagerAct = wsgmPageAct(CardManagerPatchId);
   // The page's own layout: where the kit's elements go, not how they look.
   const cardManagerStyles = `
-#wsgm-cards .steam-ui-kit-pane { padding: 12px 48px 72px; }
-#wsgm-cards .wsgm-cards-level { display: flex; flex-direction: column; gap: 14px; padding: 12px 48px 72px; }
 #wsgm-cards .wsgm-cards-list { display: flex; flex-direction: column; gap: 8px; }
 #wsgm-cards .wsgm-cards-list .DialogButton { width: 100%; min-width: 0; height: auto; padding: 10px 14px; }
 #wsgm-cards .wsgm-cards-row { display: flex; flex-direction: column; gap: 4px; width: 100%; min-width: 0; text-align: left; }
@@ -14235,12 +14399,17 @@
     } else if (cards.length === 0) {
       // A read failure is never dressed up as "no cards": that invites re-formatting a card that is
       // in fact still tracked.
-      body = renderSteamUiEmpty(
-        react,
-        state.error ??
-          "No SD-card libraries tracked yet. Format a card from Storage or add a library first.",
-        !!state.error,
-      );
+      body = state.error
+        ? renderSteamUiEmpty(react, state.error, true)
+        : renderSteamUiBox(
+            react,
+            "No cards tracked yet",
+            h(
+              "p",
+              null,
+              "Connect an SD card with a Steam library, then rescan. To prepare a card or add a library, open Steam's Storage settings.",
+            ),
+          );
     } else {
       body = h(
         ui.focusable,
@@ -14262,22 +14431,37 @@
     }
     return renderSteamUiPane(
       ui,
-      { key: "list" },
+      { key: "list", bounded: true },
       renderSteamUiHeader(ui, {
+        page: true,
         title: "SD Card Manager",
         detail: state.loaded
           ? `${cards.length} tracked · ${connected} connected`
           : "Scanning cards…",
       }),
+      renderSteamUiActions(
+        ui,
+        [
+          // Steam's installed route table defines Settings.Storage as /settings/storage. This only
+          // opens the existing page; formatting and library writes remain explicit actions there.
+          {
+            id: "storage",
+            label: "Open Storage",
+            primary: cards.length === 0,
+            onClick: () => {
+              navigateSteamRoute("/settings/storage");
+            },
+          },
+          {
+            id: "refresh",
+            label: "Rescan",
+            disabled: !!state.busy,
+            onClick: () => void cardManagerAct("refresh"),
+          },
+        ],
+        { compact: true },
+      ),
       body,
-      renderSteamUiActions(ui, [
-        {
-          id: "refresh",
-          label: "Rescan",
-          disabled: !!state.busy,
-          onClick: () => void cardManagerAct("refresh"),
-        },
-      ]),
     );
   }
   /**
@@ -14384,14 +14568,14 @@
     };
     return renderSteamUiLevel(
       ui,
-      { className: "wsgm-cards-level", onBack },
-      renderSteamUiHeader(ui, { title: card.name, detail: cardManagerDetail(card) }),
+      { bounded: true, onBack },
+      renderSteamUiHeader(ui, { page: true, title: card.name, detail: cardManagerDetail(card) }),
       h(
         ui.settingsSection,
         { label: "Card" },
         ...rows.map((row) => renderSteamSettingRow(ui, row, undefined, change, action)),
       ),
-      renderSteamUiActions(ui, [{ id: "back", label: "Back", onClick: onBack }]),
+      renderSteamUiActions(ui, [{ id: "back", label: "Back", onClick: onBack }], { compact: true }),
     );
   }
   /**
@@ -14419,14 +14603,15 @@
     }
     return renderSteamUiLevel(
       ui,
-      { className: "wsgm-cards-level", onBack },
+      { bounded: true, onBack },
       renderSteamUiHeader(ui, {
+        page: true,
         title: `${card.name} — Games`,
         detail: `${card.gameCount} installed`,
       }),
       games?.error ? renderSteamUiEmpty(react, games.error, true) : null,
       body,
-      renderSteamUiActions(ui, [{ id: "back", label: "Back", onClick: onBack }]),
+      renderSteamUiActions(ui, [{ id: "back", label: "Back", onClick: onBack }], { compact: true }),
     );
   }
   /**
@@ -15181,20 +15366,24 @@
   // @fragment consumer/emulators.ts
   // Emulator management presentation. All package, BIOS and preference writes belong to EmulatorService.
   const emulatorStyles = `
-#wsgm-import.wsgm-emulators .wsgm-import-head { padding-bottom:12px; }
+#wsgm-import.wsgm-emulators .wsgm-import-head { width:100%; max-width:1136px; box-sizing:border-box; margin-inline:auto; padding-bottom:12px; }
 #wsgm-import.wsgm-emulators .wsgm-import-body { display:block; overflow:auto; padding-bottom:56px; }
-.wsgm-emu-content { display:flex; flex-direction:column; gap:14px; min-width:0; }
+.wsgm-emu-content { display:flex; flex-direction:column; gap:14px; width:100%; height:100%; min-width:0; max-width:1040px; margin-inline:auto; box-sizing:border-box; }
 .wsgm-emu-content h2,.wsgm-emu-content p { margin:0; }
-.wsgm-emu-tabs { display:flex; gap:8px; flex-wrap:wrap; border-bottom:1px solid #3d4450; padding-bottom:12px; }
-.wsgm-emu-tabs .DialogButton { width:auto; min-width:0; height:36px; }
-.wsgm-emu-tabs [aria-pressed=true] { background:var(--gpSystemBlue,#1a9fff); color:white; }
+.wsgm-emu-pane { display:flex; flex-direction:column; gap:16px; padding-top:16px; min-width:0; }
 .wsgm-emu-toolbar { display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; }
 .wsgm-emu-toolbar .DialogInputLabelGroup { margin:0; }
-.wsgm-emu-toolbar .DialogButton { width:auto; min-width:0; }
-.wsgm-emu-search { flex:1; min-width:180px; }
-.wsgm-emu-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:18px; }
-.wsgm-emu-grid .steam-ui-kit-card { width:auto; }
-.wsgm-emu-mark { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:28px; font-weight:700; color:#fff; }
+.wsgm-emu-toolbar .DialogButton { width:auto; min-width:0; max-width:100%; box-sizing:border-box; }
+.wsgm-emu-search { flex:0 1 360px; min-width:180px; max-width:100%; }
+.wsgm-emu-search .DialogInput { width:100%; height:40px; box-sizing:border-box; }
+.wsgm-emu-search .DialogLabel { font-size:12px; }
+.wsgm-emu-search .DialogInput_Wrapper { margin:0; }
+.wsgm-emu-list { display:flex; flex-direction:column; gap:4px; min-width:0; }
+.wsgm-emu-list > .DialogButton { width:100%; min-width:0; height:auto; min-height:62px; margin:0; padding:12px 16px; box-sizing:border-box; white-space:normal; }
+.wsgm-emu-list .steam-ui-kit-select-row-title { font-size:16px; font-weight:600; }
+.wsgm-emu-list .steam-ui-kit-select-row-detail { line-height:1.4; }
+.wsgm-emu-empty { align-items:flex-start; padding:20px; }
+.wsgm-emu-empty .DialogButton { width:auto; min-width:0; }
 .wsgm-emu-split { display:grid; grid-template-columns:minmax(0,2fr) minmax(240px,1fr); gap:24px; }
 .wsgm-emu-column { display:flex; flex-direction:column; gap:14px; min-width:0; }
 .wsgm-emu-actions { display:flex; gap:10px; flex-wrap:wrap; }
@@ -15216,7 +15405,9 @@
     const react = importUi.react;
     const h = react.createElement;
     const progress = useEmulatorProgress();
-    const [tab, setTab] = react.useState("installed");
+    const [tab, setTab] = react.useState(() =>
+      state.emulators?.installations?.length ? "installed" : "available",
+    );
     const [route, setRoute] = react.useState({ kind: "list", id: "" });
     const [channel, setChannel] = react.useState("");
     const [search, setSearch] = react.useState("");
@@ -15224,6 +15415,7 @@
     const [coreFilter, setCoreFilter] = react.useState("all");
     const [biosId, setBiosId] = react.useState("");
     const [biosReturn, setBiosReturn] = react.useState(null);
+    const [returnTo, setReturnTo] = react.useState("");
     const manager = state.emulators ?? {
       definitions: [],
       installations: [],
@@ -15304,22 +15496,12 @@
       setRoute({ kind: "list", id: "" });
     };
     const canBack = route.kind !== "list" || !!biosReturn || typeof onBack === "function";
-    const tabs = h(
-      importUi.focusable,
-      { className: "wsgm-emu-tabs", "flow-children": "grid" },
-      ...[
-        ["installed", `Installed ${installed.length}`],
-        ["available", `Available ${available.length}`],
-        ["bios", "BIOS & firmware"],
-        ["defaults", "System defaults"],
-      ].map(([id, label]) =>
-        h(
-          importUi.dialogButton,
-          { key: id, "aria-pressed": tab === id, onClick: () => selectTab(id) },
-          label,
-        ),
-      ),
-    );
+    const tabs = [
+      ["installed", `Installed (${installed.length})`],
+      ["available", `Available (${available.length})`],
+      ["bios", "BIOS & firmware"],
+      ["defaults", "System defaults"],
+    ];
     let content;
     if (route.kind === "installation" || route.kind === "cores") {
       const entry = installed.find((item) => item.id === route.id);
@@ -15522,13 +15704,10 @@
             ),
           );
         } else {
-          content = h(
-            importUi.focusable,
-            { className: "wsgm-emu-split", "flow-children": "grid" },
-            h(
-              importUi.focusable,
-              { className: "wsgm-emu-column", "flow-children": "column" },
-              h("h2", {}, entry.name),
+          content = renderSteamUiDetail(importUi, {
+            title: entry.name,
+            onBack: back,
+            main: [
               fact(
                 "Installed",
                 `${entry.version} · ${entry.channel} · ${entry.managed ? "Managed" : "External"}`,
@@ -15550,10 +15729,8 @@
                     false,
                   )
                 : null,
-            ),
-            h(
-              importUi.focusable,
-              { className: "wsgm-emu-column", "flow-children": "column" },
+            ],
+            aside: [
               box(
                 offer?.releaseId && offer.releaseId !== entry.releaseId
                   ? "Update available"
@@ -15589,8 +15766,8 @@
               ),
               shortcut,
               maintenance,
-            ),
-          );
+            ],
+          });
         }
       }
     } else if (route.kind === "definition") {
@@ -15600,13 +15777,10 @@
         const offer = manager.offers.find(
           (item) => item.definitionId === definition.id && item.channel === channel,
         );
-        content = h(
-          importUi.focusable,
-          { className: "wsgm-emu-split", "flow-children": "grid" },
-          h(
-            importUi.focusable,
-            { className: "wsgm-emu-column", "flow-children": "column" },
-            h("h2", {}, definition.name),
+        content = renderSteamUiDetail(importUi, {
+          title: definition.name,
+          onBack: back,
+          main: [
             fact("Source", definition.source),
             fact("Systems", definition.systems.map(systemName).join(" · ")),
             box(
@@ -15615,10 +15789,8 @@
               ...definition.prerequisites.map((rule) => fact(rule.name, rule.description)),
               button("Open BIOS & firmware", toBios, false),
             ),
-          ),
-          h(
-            importUi.focusable,
-            { className: "wsgm-emu-column", "flow-children": "column" },
+          ],
+          aside: [
             box(
               "Install",
               renderSteamUiChoice(importUi, {
@@ -15669,8 +15841,8 @@
                 "Register your executable. WSGM will not own its updates or remove its files.",
               ),
             ),
-          ),
-        );
+          ],
+        });
       }
     } else if (tab === "defaults") {
       const systems = state.romSystems ?? [];
@@ -15880,56 +16052,59 @@
       content = h(
         importUi.focusable,
         { className: "wsgm-emu-column", "flow-children": "column" },
+        entries.length
+          ? h(
+              importUi.focusable,
+              { className: "wsgm-emu-toolbar", "flow-children": "grid" },
+              h(
+                "div",
+                { className: "wsgm-emu-search" },
+                h(importUi.textField, {
+                  label: "Search emulators or systems",
+                  value: search,
+                  placeholder: "Name or system",
+                  onChange: (event) => setSearch(event?.target?.value ?? ""),
+                }),
+              ),
+              search ? button("Clear search", () => setSearch(""), false) : null,
+            )
+          : null,
         h(
-          importUi.focusable,
-          { className: "wsgm-emu-toolbar", "flow-children": "grid" },
-          h(
-            "div",
-            { className: "wsgm-emu-search" },
-            h(importUi.textField, {
-              label: "Search emulators or systems",
-              value: search,
-              onChange: (event) => setSearch(event?.target?.value ?? ""),
-            }),
-          ),
-          h(
-            "span",
-            { className: "steam-ui-kit-muted" },
-            `${installed.length} installed · ${(state.installed ?? []).filter((item) => item.updateAvailable).length} updates · ${installed.filter((item) => item.missingRequirements.length).length} need setup`,
-          ),
+          "p",
+          { className: "steam-ui-kit-muted" },
+          tab === "installed"
+            ? `${installed.length} installed · ${(state.installed ?? []).filter((item) => item.updateAvailable).length} updates · ${installed.filter((item) => item.missingRequirements.length).length} need setup`
+            : `${visible.length} emulators · Choose one to install or register an existing installation.`,
         ),
         h(
           importUi.focusable,
-          { className: "wsgm-emu-grid", "flow-children": "grid" },
+          { className: "wsgm-emu-list", "flow-children": "column" },
           ...visible.map((entry) => {
             const label = labelFor(entry);
-            const card = renderSteamUiCard(importUi, {
+            const row = renderSteamUiSelectRow(importUi, {
               key: entry.id,
               title: entry.name,
-              stats:
+              detail: [
+                (entry.systems ?? []).map(systemName).join(" · "),
                 tab === "installed"
-                  ? [
-                      { text: entry.version },
-                      { text: entry.channel },
-                      {
-                        text: entry.cores?.length
-                          ? `${entry.cores.length} cores`
-                          : entry.architecture,
-                      },
-                    ]
-                  : [],
-              badge:
-                label?.updateAvailable || entry.missingRequirements?.length
-                  ? { text: label?.badge ?? "Needs setup", warn: true }
+                  ? `${entry.version} · ${entry.channel}${entry.cores?.length ? ` · ${entry.cores.length} cores` : ""}`
+                  : "",
+              ]
+                .filter(Boolean)
+                .join(" · "),
+              status:
+                tab === "installed"
+                  ? badge(
+                      label?.badge ??
+                        (entry.missingRequirements?.length
+                          ? "Needs setup"
+                          : entry.managed
+                            ? "Installed"
+                            : "External"),
+                    )
                   : null,
-              meta:
-                tab === "installed"
-                  ? [
-                      label?.detail ?? entry.version,
-                      label?.badge ?? (entry.managed ? "Not checked" : "External"),
-                    ]
-                  : [(entry.systems ?? []).map(systemName).join(" · "), "Not installed"],
-              onActivate: () => {
+              onClick: () => {
+                setReturnTo(entry.id);
                 setRoute({
                   kind: tab === "installed" ? "installation" : "definition",
                   id: entry.id,
@@ -15937,47 +16112,26 @@
                 setChannel(entry.channels?.[0] ?? "");
               },
             });
-            // The shared card owns Steam focus. Add a text mark to its empty image surface.
-            return react.cloneElement(
-              card,
-              {},
-              ...react.Children.toArray(card.props.children).map((child, index) =>
-                index === 0
-                  ? react.cloneElement(
-                      child,
-                      {},
-                      h(
-                        "div",
-                        { className: "wsgm-emu-mark" },
-                        entry.name.replace(" (all cores)", ""),
-                      ),
-                      ...react.Children.toArray(child.props.children),
-                    )
-                  : child,
-              ),
-            );
+            return react.cloneElement(row, { autoFocus: entry.id === returnTo });
           }),
         ),
         visible.length
           ? null
-          : h(
-              "p",
-              {},
-              entries.length
-                ? "No emulators match your search."
-                : tab === "installed"
-                  ? "No emulators installed. Choose Available to install or register an emulator."
-                  : "All supported emulators are installed.",
-            ),
-        tab === "installed" && available.length
-          ? h(
-              "p",
-              { className: "steam-ui-kit-muted" },
-              "Not installed: " +
-                available.map((entry) => entry.name).join(" · ") +
-                ". Find them under Available.",
-            )
-          : null,
+          : entries.length
+            ? renderSteamUiEmpty(react, "No emulators match your search.")
+            : tab === "installed"
+              ? h(
+                  "div",
+                  { className: "steam-ui-kit-box wsgm-emu-empty" },
+                  h("h2", {}, "No emulators installed"),
+                  h(
+                    "p",
+                    {},
+                    "Browse the catalogue to install an emulator or register one you already have.",
+                  ),
+                  button("Browse available emulators", () => selectTab("available"), false, true),
+                )
+              : renderSteamUiEmpty(react, "All supported emulators are installed."),
       );
     }
     // A route removes its old focus target. Mount the new native navigation subtree once per
@@ -15988,12 +16142,9 @@
         autoFocus: true,
       });
     }
-    return renderSteamUiLevel(
-      importUi,
-      { className: "wsgm-emu-content", onBack: canBack ? back : undefined },
-      h("style", {}, emulatorStyles),
-      steamUiKitStyle(react),
-      tabs,
+    const pane = h(
+      "div",
+      { className: "wsgm-emu-pane" },
       status,
       state.shortcutStatus ? h("p", { role: "status" }, state.shortcutStatus) : null,
       h(
@@ -16011,200 +16162,284 @@
       ),
       content,
     );
+    return renderSteamUiLevel(
+      importUi,
+      { className: "wsgm-emu-content", onBack: canBack ? back : undefined },
+      h("style", {}, emulatorStyles),
+      steamUiKitStyle(react),
+      h(importUi.tabs, {
+        autoFocusContents: true,
+        activeTab: tab,
+        onShowTab: selectTab,
+        tabs: tabs.map(([id, title]) => ({ id, title, content: id === tab ? pane : null })),
+      }),
+    );
   }
   // @fragment consumer/launch-actions.ts
-  // Both surfaces use LaunchActionService; this page supplies intent and the cog menu's exact identity.
+  // The native submenu and Overlay share LaunchActionService and its exact-AppID commands.
   const LaunchActionsPatchId = "wsgm.launch-actions";
-  function LaunchActionsPage({ context, page }) {
-    const react = context.react();
+  const launchActionsMenuStore = createLocalStore();
+  let launchActionsMenuUi = null;
+  let launchActionsMenuState = null;
+  let launchActionsMenuRefusal = "";
+  let launchActionsMenuLifetime = null;
+  function LaunchActionsMenu({ native }) {
+    const { react, itemType, submenuType, appId, currentAppId } = native;
     const h = react.createElement;
-    const ui = context.ui();
-    const state = context.state();
-    const appId = Number(page?.params?.appid ?? 0);
+    react.useSyncExternalStore(
+      launchActionsMenuStore.subscribe,
+      launchActionsMenuStore.revision,
+      launchActionsMenuStore.revision,
+    );
     const [error, setError] = react.useState("");
     const [busy, setBusy] = react.useState(false);
-    const [argumentsValue, setArguments] = react.useState("");
-    const alive = react.useRef(null);
-    const inFlight = react.useRef(false);
-    react.useEffect(() => {
-      const abort = new AbortController();
-      alive.current = abort;
-      setError("");
-      setBusy(false);
-      inFlight.current = false;
-      setArguments("");
-      if (appId > 0 && appId <= 0xffffffff) {
-        void request(LaunchActionsPatchId, "open", { appId }).catch((failure) => {
-          if (!abort.signal.aborted)
-            setError(failure instanceof Error ? failure.message : String(failure));
-        });
-      }
-      return () => abort.abort();
-    }, [appId]);
+    const pending = react.useRef(false);
+    const lifetime = launchActionsMenuLifetime;
+    const ui = launchActionsMenuUi;
+    const active = () =>
+      !!ui && lifetime === launchActionsMenuLifetime && !lifetime?.signal.aborted;
+    const selected = () => active() && currentAppId() === appId;
+    const state = Number(launchActionsMenuState?.appId) === appId ? launchActionsMenuState : null;
+    const report = (failure) => {
+      if (!active()) return;
+      const message = failure instanceof Error ? failure.message : String(failure);
+      setError(message);
+      // Native action selection closes the menu. Keep a refusal visible in its owning dialog too.
+      showSteamUiConfirm(ui, {
+        title: "Launch Actions",
+        text: message,
+        confirmLabel: "OK",
+        onConfirm: () => {},
+      });
+    };
     const act = async (command, payload) => {
-      const operation = alive.current;
-      if (operation?.signal.aborted || inFlight.current) return;
-      inFlight.current = true;
+      if (!active() || pending.current) return;
+      pending.current = true;
       setBusy(true);
       setError("");
       try {
         await request(LaunchActionsPatchId, command, { appId, ...payload });
       } catch (failure) {
-        if (!operation?.signal.aborted)
-          setError(failure instanceof Error ? failure.message : String(failure));
+        report(failure);
       } finally {
-        if (!operation?.signal.aborted) {
-          inFlight.current = false;
-          setBusy(false);
-        }
+        pending.current = false;
+        if (active()) setBusy(false);
       }
     };
-    if (!appId)
-      return h(
-        "p",
-        { role: "alert" },
-        "This launch action has no game identity. Open it from the game's cog menu.",
+    react.useEffect(() => {
+      if (selected()) void act("open", {});
+    }, [appId, lifetime]);
+    const row = (id, label, onSelected, disabled = false) =>
+      h(
+        itemType,
+        {
+          key: id,
+          disabled: disabled || !ui,
+          onSelected,
+        },
+        label,
       );
-    if (!state || Number(state.appId) !== appId) {
-      return h(
-        "p",
-        { role: "status" },
-        error || context.refusal() || "Reading this game's launch configuration…",
-      );
-    }
+    if (!ui) return row("unavailable", "Launch Actions are unavailable", undefined, true);
     const confirm = (label, command, payload) => {
-      const origin = alive.current;
+      if (!active()) return;
       if (
         !showSteamUiConfirm(ui, {
           title: label,
-          text: `${state.name}: replace the current launch action? ${state.canRestore ? "The recorded original will remain available." : "The original will be recorded before anything changes."}`,
+          text: `${state.name} · ${appId}: replace the current launch action? ${state.canRestore ? "The recorded original will remain available." : "The original will be recorded before anything changes."}`,
           confirmLabel: label,
           onConfirm: () => {
-            if (!origin?.signal.aborted) void act(command, payload);
+            if (active()) void act(command, payload);
           },
         })
       )
-        setError("Steam's confirmation dialog is unavailable.");
+        report("Steam's confirmation dialog is unavailable.");
     };
-    const custom = async () => {
-      const origin = alive.current;
-      const args = argumentsValue;
+    const custom = async (argumentsValue = "") => {
+      if (!active()) return;
       try {
         const path = await showSteamFilePicker(ui, {
-          title: `Custom launch action for ${state.name}`,
+          title: `Custom launch action for ${state.name} · ${appId}`,
           mode: "file",
           extensions: [".exe", ".cmd", ".bat", ".ps1"],
-          signal: origin?.signal,
+          signal: lifetime?.signal,
         });
-        if (path && !origin?.signal.aborted)
-          confirm("Replace launch action", "custom", { path, arguments: args });
+        if (path && active())
+          confirm("Replace launch action", "custom", { path, arguments: argumentsValue });
       } catch (failure) {
-        if (!origin?.signal.aborted)
-          setError(failure instanceof Error ? failure.message : String(failure));
+        report(failure);
       }
     };
-    const unavailable = busy || !!state.error;
-    return h(
-      ui.focusable,
-      { className: "steam-ui-kit-page", "flow-children": "column", style: { overflowY: "auto" } },
-      steamUiKitStyle(react),
-      h(
-        "div",
-        { className: "steam-ui-kit-pane", style: { padding: "24px 48px 72px" } },
-        renderSteamUiHeader(ui, {
-          title: "Launch Actions",
-          detail: `${state.name} · ${appId} · ${state.isShortcut ? "Non-Steam shortcut" : "Steam game"}`,
-        }),
-        h("p", { role: "status" }, `Current: ${state.ownership}`),
-        h(
-          "p",
-          null,
-          state.canRestore
-            ? "Original launch action recorded. Restore is available."
-            : "No restoration snapshot recorded.",
+    const unavailable = busy || !!state?.error || !state;
+    const details = [
+      row("identity", state ? `${state.name} · ${appId}` : `Game ${appId}`, undefined, true),
+    ];
+    if (state) {
+      details.push(row("current", `Current: ${state.ownership}`, undefined, true));
+      details.push(
+        row(
+          "snapshot",
+          state.canRestore ? "Original launch action recorded" : "No restoration snapshot recorded",
+          undefined,
+          true,
         ),
-        state.externallyChanged
-          ? h(
-              "p",
-              { role: "status" },
-              "Launch fields differ from WSGM's saved action. The recorded original is still retained.",
-            )
-          : null,
-        !state.wrapperAvailable
-          ? h(
-              "p",
-              { role: "alert" },
-              "Launch wrapper missing. Repair the installation before applying wrapper actions.",
-            )
-          : null,
-        h("p", null, state.inputRoute),
-        state.target
-          ? h("p", { style: { overflowWrap: "anywhere" } }, `Target: ${state.target}`)
-          : null,
-        h(
-          "p",
-          { style: { overflowWrap: "anywhere" } },
-          `Launch options: ${state.options || "(empty)"}`,
-        ),
-        error || state.error || state.notice
-          ? renderSteamUiBanner(ui, {
-              text: error || state.error || state.notice,
-              error: !!(error || state.error),
-              onDismiss: () => {
-                setError("");
-                if (state.notice) void act("open", {});
-              },
-            })
-          : null,
-        renderSteamUiActions(
-          ui,
-          (state.actions || []).map((action) => ({
-            id: `wrapper-${action.mode}`,
-            label: action.label,
-            disabled: unavailable || !state.wrapperAvailable,
-            onClick: () => confirm(action.label, "apply", { mode: action.mode }),
-          })),
-        ),
-        h(ui.textField, {
-          label: "Custom action arguments (optional)",
-          value: argumentsValue,
-          disabled: busy,
-          onChange: (event) => setArguments(event?.target?.value ?? ""),
-        }),
-        renderSteamUiActions(ui, [
-          {
-            id: "custom",
-            label: "Custom launch action…",
-            disabled: unavailable,
-            onClick: () => void custom(),
+      );
+      details.push(row("input-route", state.inputRoute, undefined, true));
+      if (state.externallyChanged)
+        details.push(
+          row(
+            "changed",
+            "Launch fields changed outside WSGM; recorded original retained",
+            undefined,
+            true,
+          ),
+        );
+      if (state.target) details.push(row("target", `Target: ${state.target}`, undefined, true));
+      details.push(
+        row("options", `Launch options: ${state.options || "(empty)"}`, undefined, true),
+      );
+      if (!state.wrapperAvailable)
+        details.push(
+          row("wrapper", "Launch wrapper missing. Repair the installation.", undefined, true),
+        );
+    }
+    const rows = [
+      h(submenuType, { key: "configuration", label: "Current launch configuration" }, ...details),
+    ];
+    const reason =
+      error ||
+      launchActionsMenuRefusal ||
+      state?.error ||
+      state?.notice ||
+      (!state ? "Reading this game's launch configuration…" : "");
+    if (reason) rows.push(row("status", reason, undefined, true));
+    for (const action of state?.actions || [])
+      rows.push(
+        row(
+          `wrapper-${action.mode}`,
+          action.label,
+          () => {
+            if (selected()) confirm(action.label, "apply", { mode: action.mode });
           },
-          {
-            id: "restore",
-            label: "Restore original launch action",
-            disabled: unavailable || !state.canRestore,
-            onClick: () => confirm("Restore original launch action", "apply", { mode: 0 }),
-          },
-          { id: "refresh", label: "Refresh", disabled: busy, onClick: () => void act("open", {}) },
-        ]),
+          unavailable || !state.wrapperAvailable,
+        ),
+      );
+    rows.push(
+      row(
+        "custom",
+        "Custom executable…",
+        () => {
+          if (selected()) void custom();
+        },
+        unavailable,
       ),
     );
+    rows.push(
+      row(
+        "custom-arguments",
+        "Custom executable with arguments…",
+        () => {
+          if (!selected()) return;
+          if (
+            !showSteamUiPrompt(ui, {
+              title: `Custom launch arguments · ${state.name}`,
+              label: "Arguments",
+              text: "Enter arguments, then choose the executable. Use Custom executable for no arguments.",
+              confirmLabel: "Choose executable…",
+              onConfirm: (value) => {
+                if (active()) void custom(value);
+              },
+            })
+          )
+            report("Steam's text prompt is unavailable.");
+        },
+        unavailable,
+      ),
+    );
+    rows.push(
+      row(
+        "restore",
+        "Restore original launch action",
+        () => {
+          if (selected()) confirm("Restore original launch action", "apply", { mode: 0 });
+        },
+        unavailable || !state?.canRestore,
+      ),
+    );
+    rows.push(
+      row(
+        "refresh",
+        "Refresh",
+        () => {
+          if (selected()) void act("open", {});
+        },
+        busy,
+      ),
+    );
+    return h(submenuType, { label: native.label }, ...rows);
   }
-  registerSteamPage({
-    template: "launch-actions",
-    gate: "launchActions",
-    patchId: LaunchActionsPatchId,
-    components: resolveSteamUiComponents,
-    required: [
-      "react",
-      "focusable",
-      "dialogButton",
-      "dialogButtonPrimary",
-      "textField",
-      "modalRoot",
-      "showModal",
-    ],
-    Page: LaunchActionsPage,
-  });
+  registerSteamGameContextMenuRenderer("launch-actions", (native) =>
+    native.react.createElement(LaunchActionsMenu, { key: native.key, native }),
+  );
+  registerGate(
+    "launchActions",
+    (() => {
+      let unsubscribe = null;
+      let unsubscribeRefusal = null;
+      let lastError = "";
+      return {
+        install: () => {
+          if (launchActionsMenuLifetime) return { ok: true, alreadyInstalled: true };
+          try {
+            const ui = resolveSteamUiComponents(getWebpackRuntime("launch-actions"));
+            const missing = [
+              "react",
+              "focusable",
+              "dialogButton",
+              "textField",
+              "modalRoot",
+              "showModal",
+            ].filter((key) => !ui?.[key]);
+            if (missing.length)
+              return {
+                ok: false,
+                error: (lastError = `Native Steam components unavailable: ${missing.join(", ")}`),
+              };
+            launchActionsMenuUi = ui;
+            launchActionsMenuLifetime = new AbortController();
+            unsubscribe = subscribe(LaunchActionsPatchId, (state) => {
+              launchActionsMenuState = state;
+              launchActionsMenuStore.changed();
+            });
+            unsubscribeRefusal = subscribeRefusal(LaunchActionsPatchId, (reason) => {
+              launchActionsMenuRefusal = reason || "";
+              launchActionsMenuStore.changed();
+            });
+            launchActionsMenuStore.changed();
+            return { ok: true, installed: true };
+          } catch (failure) {
+            return { ok: false, error: (lastError = String(failure)) };
+          }
+        },
+        remove: () => {
+          launchActionsMenuLifetime?.abort();
+          launchActionsMenuLifetime = null;
+          unsubscribe = endSubscription(unsubscribe);
+          unsubscribeRefusal = endSubscription(unsubscribeRefusal);
+          launchActionsMenuUi = null;
+          launchActionsMenuState = null;
+          launchActionsMenuRefusal = "";
+          launchActionsMenuStore.changed();
+          return { ok: true, removed: true };
+        },
+        status: () => ({
+          installed: !!launchActionsMenuLifetime,
+          resolved: !!launchActionsMenuUi,
+          subscribed: !!unsubscribe,
+          lastError,
+        }),
+      };
+    })(),
+  );
   // @fragment consumer/library-import.ts
   // Library-import frontend; shared host services own discovery, review decisions and writes.
   const LibraryImportPatchId = "wsgm.library-import";
@@ -16375,8 +16610,8 @@
   const importStyles = `
 #wsgm-import { margin-top: var(--basicui-header-height, 40px); height: calc(100% - var(--basicui-header-height, 40px));
   display: flex; flex-direction: column; background: var(--gpSystemDarkestGrey, #0e141b); color: #dcdedf; }
-#wsgm-import .wsgm-import-head { display: flex; align-items: baseline; gap: 14px; padding: 24px 48px 0; flex-shrink: 0; }
-#wsgm-import .wsgm-import-head h1 { margin: 0; font-size: 30px; font-weight: 700; color: #fff; letter-spacing: 0.2px; }
+#wsgm-import .wsgm-import-head { display: flex; align-items: baseline; flex-wrap:wrap; gap: 8px 14px; padding: 24px 48px 0; flex-shrink: 0; }
+#wsgm-import .wsgm-import-head h1 { margin: 0; min-width:0; max-width:100%; overflow-wrap:anywhere; font-size: 30px; font-weight: 700; color: #fff; letter-spacing: 0.2px; }
 #wsgm-import .wsgm-import-crumb { font-size: 30px; font-weight: 700; color: #8b929a; }
 #wsgm-import .wsgm-import-crumb svg { width: 18px; height: 18px; margin: 0 -2px 2px 0; vertical-align: middle; }
 #wsgm-import .wsgm-import-muted { color: #8b929a; font-size: 14px; }
@@ -16386,19 +16621,19 @@
 #wsgm-import .wsgm-import-eyebrow { font-size: 13px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase;
   color: #dcdedf; padding: 0 10px 8px; }
 #wsgm-import .wsgm-import-sidebar .wsgm-import-custom { padding-top: 16px; }
-#wsgm-import .wsgm-import-source .DialogCheckbox_Container { display: flex; flex-direction: row; flex-wrap: nowrap;
-  align-items: center; gap: 12px; min-height: 38px; margin: 0; padding: 0 10px; border-radius: 2px; box-sizing: border-box; }
-#wsgm-import .wsgm-import-source .DialogCheckbox_Container > .DialogCheckbox { flex: 0 0 auto; margin: 0; }
+#wsgm-import .wsgm-import-source .DialogCheckbox_Container { display: grid; grid-template-columns:auto minmax(0,1fr);
+  align-items: center; gap: 2px 10px; min-height: 44px; margin: 0; padding: 6px 10px; border-radius: 2px; box-sizing: border-box; }
+#wsgm-import .wsgm-import-source .DialogCheckbox_Container > .DialogCheckbox { grid-row:1 / span 2; margin: 0; }
 #wsgm-import .wsgm-import-source .DialogCheckbox_Container > div:empty { display: none; }
-#wsgm-import .wsgm-import-source .DialogToggle_Label { flex: 1; min-width: 0; font-size: 15px; line-height: 1.2;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0; padding: 0; }
-#wsgm-import .wsgm-import-source .DialogToggle_Description { flex: 0 0 auto; margin: 0; padding: 0;
-  font-size: 13px; color: #8b929a; white-space: nowrap; }
+#wsgm-import .wsgm-import-source .DialogToggle_Label { grid-column:2; min-width: 0; font-size: 15px; line-height: 1.3;
+  white-space: normal; overflow-wrap:anywhere; margin: 0; padding: 0; }
+#wsgm-import .wsgm-import-source .DialogToggle_Description { grid-column:2; margin: 0; padding: 0;
+  font-size: 12px; line-height:1.3; color: #8b929a; white-space: normal; overflow-wrap:anywhere; }
 #wsgm-import .wsgm-import-source[data-missing="true"] .DialogCheckbox_Container { opacity: 0.6; }
 #wsgm-import .wsgm-import-sidebar > .DialogButton { margin: 8px 0 0; width: auto; min-width: auto; height: 36px; }
 #wsgm-import .wsgm-import-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 #wsgm-import .wsgm-import-pane { display: flex; flex-direction: column; gap: 14px; padding: 12px 4px 72px; }
-#wsgm-import .wsgm-import-bar { display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; }
+#wsgm-import .wsgm-import-bar { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
 #wsgm-import .wsgm-import-bar .DialogButton { width: auto; min-width: auto; height: 40px; padding: 0 16px;
   white-space: nowrap; box-sizing: border-box; }
 #wsgm-import .wsgm-import-spacer { flex: 1; }
@@ -16412,6 +16647,16 @@
 #wsgm-import .wsgm-import-status { display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: #b8bcbf; }
 #wsgm-import .wsgm-import-status:empty { display: none; }
 #wsgm-import .wsgm-import-status .wsgm-import-error { color: #ff6d6d; }
+#wsgm-import .wsgm-import-empty { max-width:640px; margin-top:12px; gap:16px; }
+#wsgm-import .wsgm-import-empty h2 { margin:0; font-size:24px; }
+#wsgm-import .wsgm-import-empty p { margin:0; line-height:1.5; }
+#wsgm-import .wsgm-import-add { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+#wsgm-import .wsgm-import-add .DialogButton { width:100%; min-width:0; height:auto; min-height:40px; margin:0; padding:8px 12px; box-sizing:border-box; white-space:normal; }
+#wsgm-import .wsgm-import-empty > .DialogButton { width:auto; align-self:flex-start; min-width:180px; }
+#wsgm-import .wsgm-import-main { overflow:auto; }
+#wsgm-import .wsgm-import-side { max-width:100%; }
+@media(max-width:1000px) { #wsgm-import .wsgm-import-body { gap:20px; padding-inline:24px; } #wsgm-import .wsgm-import-head { padding-inline:24px; } #wsgm-import .wsgm-import-sidebar { width:220px; } }
+@media(max-width:750px) { #wsgm-import .wsgm-import-add { grid-template-columns:1fr; } #wsgm-import .wsgm-import-split { flex-wrap:wrap; } }
 #wsgm-import .wsgm-import-group { display: flex; flex-direction: column; gap: 14px; margin-bottom: 8px; }
 #wsgm-import .wsgm-import-grouphead { display: flex; align-items: baseline; gap: 14px; }
 #wsgm-import .wsgm-import-grouphead .wsgm-import-eyebrow { padding: 0; }
@@ -17116,6 +17361,7 @@
       };
     });
     const [error, setError] = react.useState("");
+    const [showOptional, setShowOptional] = react.useState(false);
     const change = (fields) => setDraft((current) => ({ ...current, ...fields }));
     const field = (label, key) =>
       h(importUi.textField, {
@@ -17148,43 +17394,59 @@
     return renderSteamUiSheet(
       importUi,
       {
-        note: "Preview this command before saving it to Steam.",
         error,
         actions: [
           ...(draft.id ? [{ id: "remove", label: "Remove source…", onClick: remove }] : []),
           { id: "cancel", label: "Cancel", onClick: close },
           {
             id: "save",
-            label: "Add and preview",
+            label: draft.id ? "Save and preview" : "Add and preview",
             primary: true,
             disabled: !draft.name || !draft.target,
             onClick: save,
           },
         ],
       },
+      renderSteamUiHeader(importUi, {
+        title: draft.id ? "Edit manual shortcut" : "Add manual shortcut",
+        page: true,
+      }),
+      h(
+        "p",
+        { className: "steam-ui-kit-sheet-note" },
+        "Preview this command before saving it to Steam.",
+      ),
       field("Title", "name"),
       h(
         importUi.dialogButton,
         { onClick: () => pick("target", "Choose executable", "file") },
         draft.target || "Choose executable…",
       ),
-      field("Arguments", "arguments"),
-      h(
-        importUi.dialogButton,
-        { onClick: () => pick("workingDirectory", "Choose working folder", "folder") },
-        draft.workingDirectory || "Choose working folder…",
+      renderSteamUiGroup(
+        importUi,
+        {
+          title: "Launch options & storage",
+          collapsed: !showOptional,
+          onToggle: () => setShowOptional(!showOptional),
+        },
+        field("Arguments (optional)", "arguments"),
+        h(
+          importUi.dialogButton,
+          { onClick: () => pick("workingDirectory", "Choose working folder", "folder") },
+          draft.workingDirectory || "Working folder (optional)…",
+        ),
+        h(
+          importUi.dialogButton,
+          { onClick: () => pick("contentPath", "Choose backing game file", "file") },
+          draft.contentPath || "Backing game file (optional)…",
+        ),
+        field("Location name (optional)", "location"),
+        h(importUi.toggleField, {
+          label: "Track backing storage",
+          checked: draft.libraryBacked,
+          onChange: (value) => change({ libraryBacked: value }),
+        }),
       ),
-      h(
-        importUi.dialogButton,
-        { onClick: () => pick("contentPath", "Choose backing game file", "file") },
-        draft.contentPath || "Choose backing game file…",
-      ),
-      field("Location name", "location"),
-      h(importUi.toggleField, {
-        label: "Track backing storage",
-        checked: draft.libraryBacked,
-        onChange: (value) => change({ libraryBacked: value }),
-      }),
     );
   }
   function ImportEmulatorSetupBody({ installationId, close }) {
@@ -17277,7 +17539,7 @@
       progress.status ? h("p", { role: "status" }, progress.status) : null,
       h(
         importUi.focusable,
-        { className: "wsgm-import-bar", "flow-children": "row" },
+        { className: "wsgm-import-bar", "flow-children": "grid" },
         canGoBack
           ? h(EmulatorCommandButton, { label: "Back", run: back, requiresIdle: false })
           : null,
@@ -17773,7 +18035,7 @@
           { className: "wsgm-import-pane" },
           h(
             ui.focusable,
-            { className: "wsgm-import-bar", "flow-children": "row" },
+            { className: "wsgm-import-bar", "flow-children": "grid" },
             h(
               "div",
               { className: "wsgm-import-tool", style: { width: "290px" } },
@@ -17952,6 +18214,58 @@
               void importAct("setSourceEnabled", { id: source.id, enabled: !!value }),
           }),
         );
+      const sourceActions = h(
+        ui.focusable,
+        { className: "wsgm-import-add", "flow-children": "grid" },
+        h(
+          ui.dialogButton,
+          {
+            disabled: busy,
+            onClick: () =>
+              showSteamModal(ui, {
+                title: "Add a ROM library",
+                render: (close) => h(ImportRomSourceBody, { close }),
+              }),
+          },
+          "Add ROM library…",
+        ),
+        h(
+          ui.dialogButton,
+          {
+            disabled: busy,
+            onClick: () =>
+              showSteamModal(ui, {
+                title: "Add a ROM",
+                render: (close) => h(ImportRomSourceBody, { singleFile: true, close }),
+              }),
+          },
+          "Add a ROM…",
+        ),
+        h(
+          ui.dialogButton,
+          {
+            disabled: busy,
+            onClick: () =>
+              showSteamModal(ui, {
+                title: "Add a manual shortcut",
+                render: (close) => h(ImportManualSourceBody, { close }),
+              }),
+          },
+          "Add manual shortcut…",
+        ),
+        h(
+          ui.dialogButton,
+          {
+            disabled: busy,
+            onClick: () =>
+              showSteamModal(ui, {
+                title: "Add a shortcuts folder",
+                render: (close) => h(ImportFolderBody, { close }),
+              }),
+          },
+          "Add folder…",
+        ),
+      );
       const sidebar = h(
         ui.focusable,
         { className: "wsgm-import-sidebar", "flow-children": "column" },
@@ -18022,54 +18336,7 @@
             `Configure ${source.name}…`,
           ),
         ),
-        h(
-          ui.dialogButton,
-          {
-            disabled: busy,
-            onClick: () =>
-              showSteamModal(ui, {
-                title: "Add a ROM library",
-                render: (close) => h(ImportRomSourceBody, { close }),
-              }),
-          },
-          "Add ROM library…",
-        ),
-        h(
-          ui.dialogButton,
-          {
-            disabled: busy,
-            onClick: () =>
-              showSteamModal(ui, {
-                title: "Add a ROM",
-                render: (close) => h(ImportRomSourceBody, { singleFile: true, close }),
-              }),
-          },
-          "Add a ROM…",
-        ),
-        h(
-          ui.dialogButton,
-          {
-            disabled: busy,
-            onClick: () =>
-              showSteamModal(ui, {
-                title: "Add a manual shortcut",
-                render: (close) => h(ImportManualSourceBody, { close }),
-              }),
-          },
-          "Add manual shortcut…",
-        ),
-        h(
-          ui.dialogButton,
-          {
-            disabled: busy,
-            onClick: () =>
-              showSteamModal(ui, {
-                title: "Add a shortcuts folder",
-                render: (close) => h(ImportFolderBody, { close }),
-              }),
-          },
-          "Add folder…",
-        ),
+        entries.length ? sourceActions : null,
         h("div", { className: "wsgm-import-eyebrow wsgm-import-custom" }, "Steam"),
         h(
           "div",
@@ -18092,7 +18359,7 @@
       );
       const toolbar = h(
         ui.focusable,
-        { className: "wsgm-import-bar", "flow-children": "row" },
+        { className: "wsgm-import-bar", "flow-children": "grid" },
         h(
           "div",
           { className: "wsgm-import-tool", style: { width: "200px" } },
@@ -18163,19 +18430,43 @@
         h(
           "div",
           { key: "review", className: "wsgm-import-main" },
-          h(ui.tabs, {
-            autoFocusContents: true,
-            activeTab: active.id,
-            onShowTab: (next) => setTab(next),
-            tabs: importTabs.map((candidate) => ({
-              id: candidate.id,
-              title: `${candidate.title} ${counts[candidate.group || "all"] ?? 0}`,
-              content:
-                candidate.id === active.id
-                  ? h("div", { className: "wsgm-import-pane" }, toolbar, status, ...grid)
-                  : null,
-            })),
-          }),
+          entries.length
+            ? h(ui.tabs, {
+                autoFocusContents: true,
+                activeTab: active.id,
+                onShowTab: (next) => setTab(next),
+                tabs: importTabs.map((candidate) => ({
+                  id: candidate.id,
+                  title: `${candidate.title} ${counts[candidate.group || "all"] ?? 0}`,
+                  content:
+                    candidate.id === active.id
+                      ? h("div", { className: "wsgm-import-pane" }, toolbar, status, ...grid)
+                      : null,
+                })),
+              })
+            : h(
+                ui.focusable,
+                { className: "wsgm-import-pane", "flow-children": "column", autoFocus: true },
+                status,
+                h(
+                  "div",
+                  { className: "steam-ui-kit-box wsgm-import-empty" },
+                  h("h2", {}, busy ? "Finding your games…" : "Add games to Steam"),
+                  h(
+                    "p",
+                    {},
+                    "Scan the checked sources to review your games before saving. You can also add ROMs, a shortcut or a folder.",
+                  ),
+                  busy
+                    ? h(ui.dialogButton, { onClick: () => void importAct("cancel") }, "Stop scan")
+                    : h(
+                        ui.dialogButtonPrimary,
+                        { autoFocus: true, onClick: () => void importAct("scan") },
+                        "Scan for games",
+                      ),
+                  sourceActions,
+                ),
+              ),
         ),
       ];
     }
@@ -18183,6 +18474,7 @@
       "div",
       { id: "wsgm-import", "aria-label": "Game Library" },
       h("style", null, importStyles),
+      steamUiKitStyle(react),
       header,
       h("div", { className: "wsgm-import-body" }, ...(Array.isArray(body) ? body : [body])),
     );
@@ -18267,6 +18559,7 @@
       "toggleField",
       "dropdown",
       "textField",
+      "tabs",
       "dialogButton",
       "dialogButtonPrimary",
       "modalRoot",
@@ -18282,13 +18575,10 @@
   const libraryTabsAct = wsgmPageAct(LibraryTabsPatchId);
   // The page's own layout: where the kit's elements go, not how they look.
   const libraryTabsStyles = `
-#wsgm-library-tabs .steam-ui-kit-pane { padding: 12px 48px 72px; }
-#wsgm-library-tabs .wsgm-tabs-level { display: flex; flex-direction: column; gap: 14px; padding: 12px 48px 72px; }
 #wsgm-library-tabs .wsgm-tabs-list { display: flex; flex-direction: column; gap: 8px; }
 #wsgm-library-tabs .wsgm-tabs-list .DialogButton { width: 100%; min-width: 0; height: auto; padding: 10px 14px; }
 #wsgm-library-tabs .wsgm-tabs-stepper { display: flex; align-items: center; gap: 8px; }
 #wsgm-library-tabs .wsgm-tabs-stepper span { min-width: 64px; text-align: center; }
-#wsgm-library-tabs .wsgm-tabs-order .DialogButton { white-space: nowrap; }
 #wsgm-library-tabs .steam-ui-kit-tool:not(.grow) { width: 200px; }
 `;
   const libraryTabsPageSize = 200;
@@ -18477,8 +18767,8 @@
   const libraryTabsLevel = (ui, onBack, title, detail, ...children) =>
     renderSteamUiLevel(
       ui,
-      { className: "wsgm-tabs-level", onBack },
-      renderSteamUiHeader(ui, { title, detail }),
+      { bounded: true, onBack },
+      renderSteamUiHeader(ui, { page: true, title, detail }),
       ...children,
     );
   /**
@@ -18492,19 +18782,32 @@
     const tabs = state.tabs ?? [];
     return renderSteamUiPane(
       ui,
-      { key: "list" },
+      { key: "list", bounded: true },
       renderSteamUiHeader(ui, {
+        page: true,
         title: "Library Tab Manager",
         detail: "Tabs appear in Steam's library and update automatically as you make changes.",
       }),
-      renderSteamUiActions(ui, [
-        { id: "new", label: "New tab", primary: true, onClick: onNew },
-        { id: "order", label: "Tab order & Steam tabs", onClick: onOrder },
-      ]),
+      renderSteamUiActions(
+        ui,
+        [
+          { id: "new", label: "New tab", primary: true, onClick: onNew },
+          { id: "order", label: "Tab order & Steam tabs", onClick: onOrder },
+        ],
+        { compact: true },
+      ),
       !state.loaded
         ? renderSteamUiEmpty(react, "Reading your tabs…")
         : tabs.length === 0
-          ? renderSteamUiEmpty(react, "No custom tabs yet. Build one from filters with New tab.")
+          ? renderSteamUiBox(
+              react,
+              "Make the library your own",
+              h(
+                "p",
+                null,
+                "Create a tab from filters such as installed games, collections or SD cards. Use Tab order & Steam tabs to arrange the library strip.",
+              ),
+            )
           : renderSteamUiGroup(
               ui,
               { key: "tabs", title: "Your tabs" },
@@ -18562,38 +18865,37 @@
         name: entry.title,
         description: entry.hidden ? `${kindLabel(entry)} · hidden` : kindLabel(entry),
         focusable: false,
-        value: h(
-          ui.focusable,
-          { className: "wsgm-tabs-order", "flow-children": "row" },
-          h(
-            ui.smallButton,
+        value: renderSteamUiActions(
+          ui,
+          [
             {
+              id: "up",
+              label: "Move up",
               disabled: index === 0 || !!state.busy,
               onClick: () => void libraryTabsAct("moveTab", { key: entry.key, delta: -1 }),
             },
-            "Move up",
-          ),
-          h(
-            ui.smallButton,
             {
+              id: "down",
+              label: "Move down",
               disabled: index === order.length - 1 || !!state.busy,
               onClick: () => void libraryTabsAct("moveTab", { key: entry.key, delta: 1 }),
             },
-            "Move down",
-          ),
-          entry.kind === "native"
-            ? h(
-                ui.smallButton,
-                {
-                  onClick: () =>
-                    void libraryTabsAct("setNativeHidden", {
-                      key: entry.key,
-                      hidden: !entry.hidden,
-                    }),
-                },
-                entry.hidden ? "Show" : "Hide",
-              )
-            : null,
+            ...(entry.kind === "native"
+              ? [
+                  {
+                    id: "visibility",
+                    label: entry.hidden ? "Show" : "Hide",
+                    disabled: !!state.busy,
+                    onClick: () =>
+                      void libraryTabsAct("setNativeHidden", {
+                        key: entry.key,
+                        hidden: !entry.hidden,
+                      }),
+                  },
+                ]
+              : []),
+          ],
+          { compact: true },
         ),
       }),
     );
@@ -18603,7 +18905,7 @@
       "Tab order",
       "Top to bottom here is left to right in Steam. Steam's own tabs can be hidden; WSGM tabs disappear when disabled in their editors.",
       h(ui.settingsSection, { label: "Strip" }, ...rows),
-      renderSteamUiActions(ui, [{ id: "back", label: "Done", onClick: onBack }]),
+      renderSteamUiActions(ui, [{ id: "back", label: "Done", onClick: onBack }], { compact: true }),
     );
   }
   /**
@@ -18699,25 +19001,29 @@
         ),
       ),
       body,
-      renderSteamUiActions(ui, [
-        ...(pageCount > 1
-          ? [
-              {
-                id: "prev",
-                label: `Page ${current + 1} of ${pageCount} · previous`,
-                disabled: current === 0,
-                onClick: () => setPage(current - 1),
-              },
-              {
-                id: "next",
-                label: "Next page",
-                disabled: current + 1 >= pageCount,
-                onClick: () => setPage(current + 1),
-              },
-            ]
-          : []),
-        { id: "done", label: "Done", primary: true, onClick: onBack },
-      ]),
+      renderSteamUiActions(
+        ui,
+        [
+          ...(pageCount > 1
+            ? [
+                {
+                  id: "prev",
+                  label: `Page ${current + 1} of ${pageCount} · previous`,
+                  disabled: current === 0,
+                  onClick: () => setPage(current - 1),
+                },
+                {
+                  id: "next",
+                  label: "Next page",
+                  disabled: current + 1 >= pageCount,
+                  onClick: () => setPage(current + 1),
+                },
+              ]
+            : []),
+          { id: "done", label: "Done", primary: true, onClick: onBack },
+        ],
+        { compact: true },
+      ),
     );
   }
   /**
@@ -19057,9 +19363,11 @@
                 }),
               ),
             ),
-            renderSteamUiActions(ui, [
-              { id: "addChild", label: "Add to group", onClick: onAddChild },
-            ]),
+            renderSteamUiActions(
+              ui,
+              [{ id: "addChild", label: "Add to group", onClick: onAddChild }],
+              { compact: true },
+            ),
           )
         : null;
     return libraryTabsLevel(
@@ -19069,21 +19377,25 @@
       group ? "Part of a group" : undefined,
       h(ui.settingsSection, { label: "Filter" }, ...rows),
       children,
-      renderSteamUiActions(ui, [
-        ...(group ? [] : [{ id: "changeType", label: "Change type", onClick: onChangeType }]),
-        {
-          id: "remove",
-          label: group ? "Remove from group" : "Remove filter",
-          onClick: () =>
-            showSteamUiConfirm(ui, {
-              title: "Remove this filter?",
-              text: libraryTabsDescribe(state, node),
-              confirmLabel: "Remove",
-              onConfirm: onRemove,
-            }),
-        },
-        { id: "done", label: "Done", primary: true, onClick: onBack },
-      ]),
+      renderSteamUiActions(
+        ui,
+        [
+          ...(group ? [] : [{ id: "changeType", label: "Change type", onClick: onChangeType }]),
+          {
+            id: "remove",
+            label: group ? "Remove from group" : "Remove filter",
+            onClick: () =>
+              showSteamUiConfirm(ui, {
+                title: "Remove this filter?",
+                text: libraryTabsDescribe(state, node),
+                confirmLabel: "Remove",
+                onConfirm: onRemove,
+              }),
+          },
+          { id: "done", label: "Done", primary: true, onClick: onBack },
+        ],
+        { compact: true },
+      ),
     );
   }
   /**
@@ -19191,28 +19503,34 @@
                 }),
               ),
             ),
-        renderSteamUiActions(ui, [{ id: "add", label: "Add filter", onClick: onAddFilter }]),
+        renderSteamUiActions(ui, [{ id: "add", label: "Add filter", onClick: onAddFilter }], {
+          compact: true,
+        }),
       ),
-      renderSteamUiActions(ui, [
-        { id: "save", label: "Save tab", primary: true, disabled: !!state.busy, onClick: onSave },
-        ...(existing
-          ? [
-              {
-                id: "delete",
-                label: "Delete tab",
-                disabled: !!state.busy,
-                onClick: () =>
-                  showSteamUiConfirm(ui, {
-                    title: `Delete ${draft.name || "this tab"}?`,
-                    text: "The tab leaves Steam's library strip.",
-                    confirmLabel: "Delete",
-                    onConfirm: onDelete,
-                  }),
-              },
-            ]
-          : []),
-        { id: "cancel", label: "Cancel", onClick: onBack },
-      ]),
+      renderSteamUiActions(
+        ui,
+        [
+          { id: "save", label: "Save tab", primary: true, disabled: !!state.busy, onClick: onSave },
+          ...(existing
+            ? [
+                {
+                  id: "delete",
+                  label: "Delete tab",
+                  disabled: !!state.busy,
+                  onClick: () =>
+                    showSteamUiConfirm(ui, {
+                      title: `Delete ${draft.name || "this tab"}?`,
+                      text: "The tab leaves Steam's library strip.",
+                      confirmLabel: "Delete",
+                      onConfirm: onDelete,
+                    }),
+                },
+              ]
+            : []),
+          { id: "cancel", label: "Cancel", onClick: onBack },
+        ],
+        { compact: true },
+      ),
     );
   }
   /**

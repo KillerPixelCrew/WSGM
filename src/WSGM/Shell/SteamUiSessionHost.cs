@@ -1334,12 +1334,6 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private SteamPageState ReadPages()
     {
         List<SteamPage> pages = [];
-        if (_launchActions is not null)
-        {
-            pages.Add(new SteamPage("launch-actions", SteamLaunchActionsSurface.Route, "Launch Actions",
-                Template: SteamLaunchActionsSurface.Template));
-        }
-
         if (_artwork is not null)
         {
             pages.Add(new SteamPage(

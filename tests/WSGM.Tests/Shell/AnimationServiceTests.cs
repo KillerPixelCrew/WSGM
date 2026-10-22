@@ -45,11 +45,28 @@ public sealed class AnimationServiceTests : IDisposable
             () => _config, change => change(_config), () => _temporary.GetPath("steam"), new Random(3));
         service.Start();
         Assert.True((await service.DownloadAsync("neon", CancellationToken.None)).Succeeded);
-        await AsyncConditions.WaitForAsync(() => !service.ReadState().Busy);
+        await service.Completion;
 
-        Assert.Contains("slot failed", service.ReadState().Error);
+        Assert.False(service.ReadState().Busy);
+        Assert.Equal("The movie operation could not be completed. See wsgm.log for details.", service.ReadState().Error);
         Assert.True((await service.DownloadAsync("calm", CancellationToken.None)).Succeeded);
-        await AsyncConditions.WaitForAsync(() => !service.ReadState().Busy);
+        await service.Completion;
+        Assert.False(service.ReadState().Busy);
+    }
+
+    [Fact]
+    public void StartingAndReadingSteamsOwnChoiceWithoutOverridesPublishesNoErrorAndCreatesNothing()
+    {
+        using var service = Service();
+
+        service.Start();
+        var state = service.ReadState();
+
+        Assert.Null(state.Error);
+        Assert.Equal(string.Empty, state.Selected);
+        Assert.False(state.Settings.RestartNeeded);
+        Assert.False(Directory.Exists(Path.GetDirectoryName(Override)));
+        Assert.Empty(_writes);
     }
 
     private AnimationLibrary Library()

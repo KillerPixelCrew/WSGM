@@ -6,8 +6,6 @@ const cardManagerAct = wsgmPageAct(CardManagerPatchId);
 
 // The page's own layout: where the kit's elements go, not how they look.
 const cardManagerStyles = `
-#wsgm-cards .steam-ui-kit-pane { padding: 12px 48px 72px; }
-#wsgm-cards .wsgm-cards-level { display: flex; flex-direction: column; gap: 14px; padding: 12px 48px 72px; }
 #wsgm-cards .wsgm-cards-list { display: flex; flex-direction: column; gap: 8px; }
 #wsgm-cards .wsgm-cards-list .DialogButton { width: 100%; min-width: 0; height: auto; padding: 10px 14px; }
 #wsgm-cards .wsgm-cards-row { display: flex; flex-direction: column; gap: 4px; width: 100%; min-width: 0; text-align: left; }
@@ -80,11 +78,13 @@ function CardManagerList({ ui, state, returnTo, onOpen }: any) {
   } else if (cards.length === 0) {
     // A read failure is never dressed up as "no cards": that invites re-formatting a card that is
     // in fact still tracked.
-    body = renderSteamUiEmpty(
-      react,
-      state.error ?? "No SD-card libraries tracked yet. Format a card from Storage or add a library first.",
-      !!state.error,
-    );
+    body = state.error
+      ? renderSteamUiEmpty(react, state.error, true)
+      : renderSteamUiBox(
+          react,
+          "No cards tracked yet",
+          h("p", null, "Connect an SD card with a Steam library, then rescan. To prepare a card or add a library, open Steam's Storage settings."),
+        );
   } else {
     body = h(
       ui.focusable,
@@ -106,15 +106,24 @@ function CardManagerList({ ui, state, returnTo, onOpen }: any) {
   }
   return renderSteamUiPane(
     ui,
-    { key: "list" },
+    { key: "list", bounded: true },
     renderSteamUiHeader(ui, {
+      page: true,
       title: "SD Card Manager",
       detail: state.loaded ? `${cards.length} tracked · ${connected} connected` : "Scanning cards…",
     }),
-    body,
     renderSteamUiActions(ui, [
+      // Steam's installed route table defines Settings.Storage as /settings/storage. This only
+      // opens the existing page; formatting and library writes remain explicit actions there.
+      {
+        id: "storage",
+        label: "Open Storage",
+        primary: cards.length === 0,
+        onClick: () => { navigateSteamRoute("/settings/storage"); },
+      },
       { id: "refresh", label: "Rescan", disabled: !!state.busy, onClick: () => void cardManagerAct("refresh") },
-    ]),
+    ], { compact: true }),
+    body,
   );
 }
 
@@ -204,10 +213,10 @@ function CardManagerCard({ ui, state, card, onBack, onGames, onForgotten }: any)
   };
   return renderSteamUiLevel(
     ui,
-    { className: "wsgm-cards-level", onBack },
-    renderSteamUiHeader(ui, { title: card.name, detail: cardManagerDetail(card) }),
+    { bounded: true, onBack },
+    renderSteamUiHeader(ui, { page: true, title: card.name, detail: cardManagerDetail(card) }),
     h(ui.settingsSection, { label: "Card" }, ...rows.map((row) => renderSteamSettingRow(ui, row, undefined, change, action))),
-    renderSteamUiActions(ui, [{ id: "back", label: "Back", onClick: onBack }]),
+    renderSteamUiActions(ui, [{ id: "back", label: "Back", onClick: onBack }], { compact: true }),
   );
 }
 
@@ -234,11 +243,11 @@ function CardManagerGames({ ui, state, card, onBack }: any) {
   }
   return renderSteamUiLevel(
     ui,
-    { className: "wsgm-cards-level", onBack },
-    renderSteamUiHeader(ui, { title: `${card.name} — Games`, detail: `${card.gameCount} installed` }),
+    { bounded: true, onBack },
+    renderSteamUiHeader(ui, { page: true, title: `${card.name} — Games`, detail: `${card.gameCount} installed` }),
     games?.error ? renderSteamUiEmpty(react, games.error, true) : null,
     body,
-    renderSteamUiActions(ui, [{ id: "back", label: "Back", onClick: onBack }]),
+    renderSteamUiActions(ui, [{ id: "back", label: "Back", onClick: onBack }], { compact: true }),
   );
 }
 

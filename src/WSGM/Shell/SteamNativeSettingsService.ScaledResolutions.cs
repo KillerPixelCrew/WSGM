@@ -73,7 +73,7 @@ internal sealed partial class SteamNativeSettingsService
         if (state.Catalog is { } catalog)
         {
             rows.Add(new SteamSettingsRow("scaled.adapter", SteamSettingsRowKind.Note, "Driving GPU",
-                Text: catalog.AdapterName + " · " + catalog.AdapterIdentity
+                Text: catalog.AdapterName
                     + (catalog.OutputSpecific ? " · This output" : " · All outputs on this adapter")));
             rows.Add(new SteamSettingsRow("scaled.existing", SteamSettingsRowKind.Note, "Existing source sizes",
                 Text: string.Join(", ", catalog.Modes.Select(mode => $"{mode.Width} × {mode.Height}"))));

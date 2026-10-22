@@ -19,7 +19,10 @@ const asset = readFileSync(
   "utf8",
 );
 const hooks = createHooks();
-const react = createReact(hooks);
+const react = createReact({
+  ...hooks,
+  useState: (initial) => hooks.useState(typeof initial === "function" ? initial() : initial),
+});
 // The shared fixture preserves keys on clones; real React replaces an explicitly supplied key.
 const clone = react.cloneElement;
 react.cloneElement = (source, props, ...children) => ({
@@ -30,6 +33,7 @@ const Focusable = "NativeFocusable";
 const Button = "NativeButton";
 const TextField = "NativeTextField";
 const Dropdown = "NativeDropdown";
+const Tabs = "NativeTabs";
 const ui = {
   react,
   focusable: Focusable,
@@ -37,6 +41,7 @@ const ui = {
   dialogButtonPrimary: Button,
   textField: TextField,
   dropdownControl: Dropdown,
+  tabs: Tabs,
 };
 const progress = { busy: false, status: "" };
 const commands = [];
@@ -89,7 +94,19 @@ const state = {
 };
 const render = () => {
   hooks.reset();
-  return Page({ state });
+  const tree = Page({ state });
+  const tabs = tree.props.children.at(-1);
+  // Valve owns tab navigation. Expose only its selected content to the inert tree traversal.
+  return react.cloneElement(
+    tree,
+    {},
+    ...tree.props.children.slice(0, -1),
+    react.cloneElement(
+      tabs,
+      {},
+      tabs.props.tabs.find((item) => item.id === tabs.props.activeTab)?.content,
+    ),
+  );
 };
 const classNode = (tree, name) => find(react, tree, (node) => node.props.className === name)[0];
 const text = (node) =>
@@ -99,11 +116,13 @@ const text = (node) =>
 const button = (tree, label) =>
   find(react, tree, (node) => node.type === Button && text(node) === label)[0];
 const tab = (tree, label) => {
-  const target = button(tree, label);
+  const tabs = find(react, tree, (node) => node.type === Tabs)[0];
+  const target = tabs.props.tabs.find((item) => item.title === label);
   assert.ok(target, label);
-  target.props.onClick();
+  tabs.props.onShowTab(target.id);
   return render();
 };
+const routeContent = (tree) => classNode(tree, "wsgm-emu-pane").props.children.at(-1);
 
 // Plain divs do not register navigation nodes. Their native descendants register with the
 // nearest native ancestor, which is why the split needs both a grid and column containers.
@@ -136,42 +155,37 @@ const move = (group, current, direction, columns = 2) => {
 };
 
 let tree = render();
-const installedContent = tree.props.children.at(-1);
+const installedContent = routeContent(tree);
 assert.equal(installedContent.props.autoFocus, true, "the mounted route takes native focus");
-const tabs = classNode(tree, "wsgm-emu-tabs");
-const tabButtons = children(tabs);
-assert.equal(move(tabs, tabButtons[0], "right", 4), tabButtons[1], "Right reaches Available");
-assert.equal(move(tabs, tabButtons[1], "left", 4), tabButtons[0], "Left reaches Installed");
-assert.equal(
-  move(tabs, tabButtons[0], "down", 2),
-  tabButtons[2],
-  "wrapped tabs remain reachable vertically",
+const tabs = find(react, tree, (node) => node.type === Tabs)[0];
+assert.equal(tabs.props.autoFocusContents, true, "Valve owns entry into the active tab");
+assert.deepEqual(
+  tabs.props.tabs.map((item) => item.id),
+  ["installed", "available", "bios", "defaults"],
 );
 
-for (const label of ["Installed 3", "Available 3"]) {
+for (const label of ["Installed (3)", "Available (3)"]) {
   tree = tab(tree, label);
-  const grid = classNode(tree, "wsgm-emu-grid");
-  const cards = children(grid);
-  assert.equal(cards.length, 3);
-  assert.equal(move(grid, cards[0], "right"), cards[1], `${label}: Right moves between cards`);
-  assert.equal(move(grid, cards[1], "left"), cards[0], `${label}: Left moves between cards`);
-  assert.equal(move(grid, cards[0], "down"), cards[2], `${label}: Down reaches the second row`);
-  assert.equal(move(grid, cards[2], "up"), cards[0], `${label}: Up returns to the first row`);
+  const list = classNode(tree, "wsgm-emu-list");
+  const rows = children(list);
+  assert.equal(rows.length, 3);
+  assert.equal(move(list, rows[0], "down"), rows[1], `${label}: Down moves to the next row`);
+  assert.equal(move(list, rows[1], "up"), rows[0], `${label}: Up returns to the previous row`);
   assert.equal(
-    move(grid, cards[0], "down", 1),
-    cards[1],
-    `${label}: one-column layouts still move Down`,
+    find(react, list, (node) => node.props.className === "steam-ui-kit-card-shot").length,
+    0,
+    "emulators do not have fake artwork",
   );
-  const content = tree.props.children.at(-1);
+  const content = routeContent(tree);
   progress.status = "Checking releases";
-  const refreshed = render().props.children.at(-1);
+  const refreshed = routeContent(render());
   assert.equal(refreshed.key, content.key, "publications retain the current route's focus owner");
   progress.status = "";
-  cards[0].props.onActivate();
+  rows[0].props.onClick();
   tree = render();
-  const detail = tree.props.children.at(-1);
+  const detail = routeContent(tree);
   assert.notEqual(detail.key, content.key, "opening a card mounts a new route focus owner");
-  const split = classNode(tree, "wsgm-emu-split");
+  const split = classNode(tree, "steam-ui-kit-detail");
   const columns = children(split);
   assert.equal(
     columns.length,
@@ -189,7 +203,12 @@ for (const label of ["Installed 3", "Available 3"]) {
   assert.equal(columns[1].props["flow-children"], "column");
   tree.props.onCancelButton();
   tree = render();
-  assert.equal(tree.props.children.at(-1).key, content.key, "Back returns to the list route");
+  assert.equal(routeContent(tree).key, content.key, "Back returns to the list route");
+  assert.equal(
+    children(classNode(tree, "wsgm-emu-list"))[0].props.autoFocus,
+    true,
+    "Back restores focus to the opened row",
+  );
 }
 tree = tab(tree, "BIOS & firmware");
 const biosSplit = classNode(tree, "wsgm-emu-split");
@@ -207,7 +226,24 @@ assert.equal(
   "grid",
   "stacked default editors retain vertical navigation",
 );
+state.emulators.installations = [];
+tree = tab(render(), "Installed (0)");
+const browse = button(tree, "Browse available emulators");
+assert.ok(browse, "an empty installed list has an actionable catalogue entry");
+browse.props.onClick();
+tree = render();
+assert.equal(find(react, tree, (node) => node.type === Tabs)[0].props.activeTab, "available");
+const freshHooks = createHooks();
+ui.react = createReact({
+  ...freshHooks,
+  useState: (initial) => freshHooks.useState(typeof initial === "function" ? initial() : initial),
+});
+assert.equal(
+  Page({ state }).props.children.at(-1).props.activeTab,
+  "available",
+  "an empty installation opens directly into the available catalogue",
+);
 assert.deepEqual(commands, [], "directional traversal never performs a backend write");
 console.log(
-  "Emulator native navigation: tabs, multi-row/one-column cards, detail columns, route focus lifetime and BIOS/default groups passed.",
+  "Emulator native navigation: Valve tabs, list rows, detail columns, return focus and BIOS/default groups passed.",
 );

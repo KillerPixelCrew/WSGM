@@ -65,10 +65,10 @@ internal static class LibraryTabManager
     ///     the patch host installs once the transport opens, so the wait runs inside Steam rather than
     ///     as a round trip per check. It settles on its own before the evaluation's deadline.
     /// </remarks>
-    private static readonly string LibraryReadyProbe =
+    private static string LibraryReadyProbe(bool requireTabClaim) =>
         "(async()=>{const ns=" + SteamCef.JsString(SteamUiBridgeIdentity.Namespace) + ";"
-        + "const ready=()=>!!window.webpackChunksteamui&&!!window.collectionStore&&!!window.appStore"
-        + "&&!!window[ns]?.gate('wsgmLibraryTabs');"
+        + "const ready=()=>!!window.webpackChunksteamui&&window.appStore?.m_bIsInitialized===true"
+        + (requireTabClaim ? "&&!!window.collectionStore&&!!window[ns]?.gate('wsgmLibraryTabs')" : "") + ";"
         + "const until=Date.now()+" + LibraryReadyProbeBudget.TotalMilliseconds.ToString(CultureInfo.InvariantCulture) +
         ";"
         + "while(!ready()){if(Date.now()>until)return 'false';await new Promise(r=>setTimeout(r,250));}"
@@ -321,14 +321,16 @@ internal static class LibraryTabManager
     /// <summary>Waits for library readiness using requests within the transport's operation bound.</summary>
     /// <param name="steam">The session's Steam client.</param>
     /// <param name="cancellationToken">Cancels the wait.</param>
-    internal static async Task<bool> WaitForLibraryAsync(SteamClient steam, CancellationToken cancellationToken)
+    /// <param name="requireTabClaim">Whether this caller also needs the injected library tab claim.</param>
+    internal static async Task<bool> WaitForLibraryAsync(SteamClient steam, CancellationToken cancellationToken,
+        bool requireTabClaim = true)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(LibraryReadyBudget);
         while (!deadline.IsCancellationRequested)
         {
             var probe = await steam.EvaluateAsync(
-                    SteamUiTargetRole.SharedJsContext, LibraryReadyProbe,
+                    SteamUiTargetRole.SharedJsContext, LibraryReadyProbe(requireTabClaim),
                     LibraryReadyProbeBudget + TimeSpan.FromSeconds(5), deadline.Token)
                 .ConfigureAwait(false);
             if (!probe.Answered || probe.Error is not null)

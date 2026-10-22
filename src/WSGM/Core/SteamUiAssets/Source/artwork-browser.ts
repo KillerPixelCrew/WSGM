@@ -410,6 +410,26 @@ function ArtworkBrowserPage({ context }: any) {
     const officialAssets = Array.isArray(state.officialAssets) ? state.officialAssets : [];
     const managed = Array.isArray(state.managedSlots) ? state.managedSlots : [];
     const active = tabs.find((tab) => tab.id === state.activeTab) || tabs[0];
+    const filtersActive = !!(
+      state.filter?.styles?.length || state.filter?.dimensions?.length || state.filter?.mimes?.length
+      || state.filter?.static === false || state.filter?.animated === false
+      || state.filter?.adult === false || state.filter?.humor === false
+      || state.filter?.epilepsy === false || state.filter?.untagged === false
+    );
+    // Notices can contain both provider failures and deliberately disabled optional providers.
+    // Only the latter belong in the secondary note; retain every other reason in the status.
+    const notices = String(state.notice || "").split(/ {2,}/).filter(Boolean);
+    const disabledNotices = notices.filter((notice) => notice.endsWith(": Turned off in Settings."));
+    const providerNotice = notices.filter((notice) => !disabledNotices.includes(notice)).join("  ");
+    const gameContext = h(
+      "div",
+      { className: "sgdb-game-context" },
+      renderSteamUiHeader(artworkUi, {
+        sub: true,
+        title: state.appName ? `Artwork for ${state.appName}` : `Artwork for app ${state.appId}`,
+        detail: state.selectedGame ? `Results for ${state.selectedGame}` : undefined,
+      }),
+    );
 
     const openFilters = () =>
       showArtworkModal("sgdb-modal-filters", (close) =>
@@ -470,6 +490,7 @@ function ArtworkBrowserPage({ context }: any) {
     const assetContent = h(
       "div",
       { className: "tabcontents-wrap" },
+      gameContext,
       state.loading
         ? h("div", { className: "spinnyboi" }, h("img", { src: "/images/steam_spinner.png" }))
         : null,
@@ -479,7 +500,7 @@ function ArtworkBrowserPage({ context }: any) {
         h(
           Focusable,
           { className: "filter-buttons", "flow-children": "row" },
-          h(Button, { noFocusRing: true, onClick: openFilters }, "Filter"),
+          h(Button, { noFocusRing: true, onClick: openFilters }, filtersActive ? "Filter · Active" : "Filter"),
           officialAssets.length
             ? h(
                 Button,
@@ -513,32 +534,32 @@ function ArtworkBrowserPage({ context }: any) {
               )
             : null,
         ),
-        h(SliderField, {
-          className: "size-slider",
-          value: cardSize,
-          min: 100,
-          max: 260,
-          step: 5,
-          layout: "below",
-          bottomSeparator: "none",
-          onChange: setCardSize,
-        }),
+        h(
+          "div",
+          { className: "size-slider" },
+          h(SliderField, {
+            label: "Thumbnail size",
+            value: cardSize,
+            min: 100,
+            max: 260,
+            step: 5,
+            showValue: true,
+            valueSuffix: "px",
+            layout: "below",
+            bottomSeparator: "none",
+            onChange: setCardSize,
+          }),
+        ),
       ),
-      state.selectedGame || state.filter?.styles?.length || state.filter?.dimensions?.length
-        ? h(
-            Button,
-            { className: "sgdb-results-state", onClick: openFilters },
-            state.selectedGame
-              ? `Results for ${state.selectedGame}`
-              : "Some assets may be hidden due to filter",
-          )
-        : null,
-      state.error || state.notice || actionError
+      state.error || providerNotice || actionError
         ? h(
             "div",
-            { className: `sgdb-status${state.error || actionError ? " error" : ""}` },
-            state.error || actionError || state.notice,
+            { className: `sgdb-status${state.error || actionError ? " error" : ""}`, role: "status" },
+            state.error || actionError || providerNotice,
           )
+        : null,
+      disabledNotices.length && !state.error && !actionError
+        ? h("p", { className: "steam-ui-kit-sheet-note" }, disabledNotices.join("  "))
         : null,
       h(
         Focusable,
@@ -563,6 +584,7 @@ function ArtworkBrowserPage({ context }: any) {
     const manageContent = h(
       Focusable,
       { id: "local-images-container" },
+      gameContext,
       ...managed.map((slot) =>
         h(
           "div",
@@ -614,6 +636,7 @@ function ArtworkBrowserPage({ context }: any) {
       "div",
       { id: "sgdb-wrap", "aria-label": `Artwork for ${state.appName}` },
       h("style", null, artworkBrowserStyles),
+      steamUiKitStyle(react),
       h(Tabs, {
         autoFocusContents: true,
         activeTab: state.activeTab,
@@ -629,10 +652,12 @@ const artworkBrowserStyles = `
 #sgdb-wrap .tabcontents-wrap{display:flex;height:100%;width:100%;flex-direction:column}
 #sgdb-wrap .spinnyboi{display:flex;align-items:center;justify-content:center;position:fixed;inset:0;z-index:10008;background:#0e141b}
 #sgdb-wrap .spinnyboi img{transform:scale(.75)}
-#sgdb-wrap .sgdb-asset-toolbar{display:flex;width:100%;gap:var(--gpSpace-Gap,.6em)}
-#sgdb-wrap .filter-buttons{align-items:center;display:flex;gap:.5em}
+#sgdb-wrap .sgdb-game-context{grid-column:1 / -1;padding:0 0 .5em;min-width:0}
+#sgdb-wrap .sgdb-asset-toolbar{display:flex;align-items:center;flex-wrap:wrap;width:100%;gap:var(--gpSpace-Gap,.6em)}
+#sgdb-wrap .filter-buttons{align-items:center;display:flex;flex-wrap:wrap;gap:.5em;min-width:0}
 #sgdb-wrap .filter-buttons>button{min-width:auto;flex:1;white-space:nowrap}
-#sgdb-wrap .size-slider{flex:1;padding:.5em 1em;justify-content:center}
+#sgdb-wrap .size-slider{flex:0 1 280px;width:280px;max-width:100%;min-width:0;margin-left:auto;box-sizing:border-box;--field-negative-horizontal-margin:0px}
+#sgdb-wrap .size-slider>*{width:100%;max-width:100%;min-width:0;box-sizing:border-box;margin-inline:0}
 #sgdb-wrap #images-container{display:grid;padding-top:1em;padding-bottom:var(--gamepadui-current-footer-height);justify-content:space-evenly;grid-auto-flow:dense;row-gap:1em;column-gap:.65em;grid-template-columns:repeat(auto-fill,minmax(min(var(--asset-size),100%),var(--asset-size)))}
 #sgdb-wrap .asset-box-wrap{display:flex;align-items:center;flex-wrap:wrap;position:relative}
 #sgdb-wrap .image-wrap{background:url('/images/defaultappimage.png') center/cover;position:relative;width:100%;margin-top:auto;outline:2px solid transparent;transition:outline-color 200ms}
@@ -647,14 +672,14 @@ const artworkBrowserStyles = `
 #sgdb-wrap .chip{display:flex;align-items:center;justify-content:center;padding:.3em .8em;min-height:2em;border-radius:0 5px 5px 0;transition:transform 300ms cubic-bezier(.33,1,.68,1)}
 #sgdb-wrap .chip.animated{background:#e2a256}.chip.nsfw{background:#e5344c}.chip.humor{background:#eec314;color:#434343}.chip.epilepsy{background:#735f9f}
 #sgdb-wrap .image-wrap.gpfocus .chip,#sgdb-wrap .image-wrap:hover .chip{transform:translateX(calc(100% - .5em - 1px));box-shadow:1px 2px 3px #0004}
-#sgdb-wrap .sgdb-results-state{margin:1em 0 0;min-width:auto}.sgdb-status,.sgdb-empty{padding:1em;text-align:center}.sgdb-status.error{color:#ff6b6b}.sgdb-load-more{display:flex;justify-content:center;padding:1em 0 3em}
+#sgdb-wrap .sgdb-status,#sgdb-wrap .sgdb-empty{padding:1em;text-align:center}#sgdb-wrap .sgdb-status.error{color:#ff6b6b}.sgdb-load-more{display:flex;justify-content:center;padding:1em 0 3em}
 #sgdb-wrap #local-images-container{display:grid;grid-template-columns:30% 1fr;gap:1em;margin-bottom:2em}
 #sgdb-wrap .asset-label{color:#fff;font-weight:500;letter-spacing:1px;text-transform:uppercase;line-height:20px;margin-bottom:.5em}
 #sgdb-wrap .manage-asset{position:relative}.manage-asset .asset{display:flex;min-height:100px;overflow:hidden;background:url('/images/defaultappimage.png') center/cover;align-items:center;justify-content:center}.manage-asset .asset-img{display:block;width:100%;max-height:260px;object-fit:contain}
 #sgdb-wrap .action-overlay{display:none;position:absolute;gap:.25em;right:.5em;bottom:.5em;z-index:2}.manage-asset.is-focused .action-overlay,.manage-asset:hover .action-overlay{display:flex}.manage-actions{grid-column:span 2;display:flex;gap:.5em}
 .sgdb-modal h2,.sgdb-modal h3{color:#fff}.sgdb-modal-details-wrapper{display:flex;gap:1em}.sgdb-modal-details-wrapper.wide{flex-direction:column}.sgdb-modal-details .modal-image{flex:1}.sgdb-modal-details .modal-image img{display:block;max-width:100%;max-height:55vh;margin:auto}.sgdb-modal-details .info{display:flex;flex-direction:column;flex:1;gap:.5em}.sgdb-modal-details .meta{text-transform:capitalize;opacity:.5;font-size:.8em;text-align:right}.sgdb-modal-details .author{margin-top:1em;font-weight:bold}.sgdb-modal-details .notes{max-width:300px;word-break:break-word}
 .sgdb-modal-official-assets .official-steam-asset{margin:0 auto 1em}.sgdb-modal-official-assets img{display:block;max-width:100%;max-height:55vh;margin:auto}.official-steam-asset-action{display:flex;align-items:center;justify-content:space-between;gap:1em;margin-top:.5em}
-.sgdb-filter-game{display:flex;align-items:end;gap:.5em}.sgdb-filter-game>div:first-child{flex:1}.sgdb-filter-field{margin-top:1em}.sgdb-filter-field>label{display:block;margin-bottom:.4em;font-weight:600}.sgdb-filter-options,.sgdb-game-matches{display:flex;flex-wrap:wrap;gap:.4em}.sgdb-filter-options>button,.sgdb-game-matches>button{min-width:auto}.sgdb-filter-selected{box-shadow:inset 0 0 0 2px var(--gpStoreLightestGrey,#fff)}.sgdb-modal-actions{display:flex;justify-content:flex-end;gap:.5em;margin-top:1em}
+.sgdb-filter-game{display:flex;align-items:end;gap:.5em}.sgdb-filter-game>:first-child{flex:1;min-width:0}.sgdb-filter-game input{width:100%;box-sizing:border-box}.sgdb-filter-game>.DialogButton{flex:0 0 auto;width:auto;min-width:0}.sgdb-filter-field{margin-top:1em}.sgdb-filter-field>label{display:block;margin-bottom:.4em;font-weight:600}.sgdb-filter-options,.sgdb-game-matches{display:flex;flex-wrap:wrap;gap:.4em}.sgdb-filter-options>button,.sgdb-game-matches>button{min-width:auto}.sgdb-filter-selected{box-shadow:inset 0 0 0 2px var(--gpStoreLightestGrey,#fff)}.sgdb-modal-actions{display:flex;justify-content:flex-end;gap:.5em;margin-top:1em}
 .sgdb-logo-preview{height:250px;position:relative;background:#1b2838;overflow:hidden}.sgdb-logo-sample{position:absolute;padding:10px;font-size:28px;font-weight:bold}.anchor-TopLeft{left:0;top:0}.anchor-TopCenter{left:50%;top:0;transform:translateX(-50%)}.anchor-TopRight{right:0;top:0}.anchor-CenterLeft{left:0;top:50%;transform:translateY(-50%)}.anchor-CenterCenter{left:50%;top:50%;transform:translate(-50%,-50%)}.anchor-CenterRight{right:0;top:50%;transform:translateY(-50%)}.anchor-BottomLeft{left:0;bottom:0}.anchor-BottomCenter{left:50%;bottom:0;transform:translateX(-50%)}.anchor-BottomRight{right:0;bottom:0}.sgdb-logo-anchors{display:grid;grid-template-columns:repeat(3,1fr);gap:.4em;margin:1em 0}.sgdb-logo-anchors>button{min-width:auto}
 `;
 

@@ -24,6 +24,40 @@ Related:
 - [sd-cards.md](sd-cards.md): the card manager and format UI that call into library registration.
 - [elevation.md](elevation.md): the launch wrapper and the non-Steam shortcut rules.
 
+## Live interface review, 2026-10-22
+
+Reviewed the installed Steam Big Picture session on the desktop at a 1280×800 CSS viewport, opening
+the real entry points and inspecting saved screenshots. Patch `Verified` was insufficient: the game
+cog menu had neither WSGM entry, and the first emulator layout revision mounted native tabs in a
+zero-height container. Both defects were found in the rendered session and corrected. The toolkit
+skill now requires this live review, inspected before/after images and coordinator acceptance of
+delegated work. A frozen inspection session was restarted with the maintainer's direction;
+subsequent connections used fresh identities after current-run startup-log confirmation.
+
+Screenshots, DOM observations, build/deployment logs and installed-file hashes are under
+`artifacts/cef-review-20261022`. Failed and preview captures are identified separately. The review
+covered these workflows individually:
+
+| Surface                            | Finding and correction                                                                                                                                                                                              | Live coverage                                                                                                                               |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Game cog and Launch Actions        | Missing entries; a full-page launch editor was unnecessary. Observe the native menu through React and JSX, retain artwork/plugin actions, and use Valve's side submenu.                                             | Entry, nested menu, current configuration, custom prompt/picker and cancel; no launch settings applied.                                     |
+| Shared dialogs and picker          | Prompt/confirm titles were invisible, portal styles were missing, and `wide` still rendered at 660 CSS pixels. Carry styles into the portal, draw headings and size only the opted-in dialog.                       | Visible prompt, picker, keyboard Back/cancel; no executable selected.                                                                       |
+| SD Card Manager                    | Section-sized title and a page-wide Rescan bar. Use a bounded content column, real page heading, compact actions and an actionable empty state.                                                                     | Empty state, Open Storage and return. No removable card was available.                                                                      |
+| Library Tab Manager                | Oversized actions and edge-to-edge editor; order controls stacked into tall rows. Use bounded page levels and compact native actions.                                                                               | Empty list, unsaved editor, filter entry, order list and nested Back. No tab configuration saved.                                           |
+| Emulator Manager                   | Repeated oversized names as fake artwork, a long missing-emulator paragraph and zero-height native tab content. Use native tabs, readable rows, useful empty state, real detail focus columns and a sized tab host. | Catalogue, empty Installed tab, definition details, BIOS/default tabs and Back; no emulator/runtime installed.                              |
+| Startup shortcut reads             | Transport readiness preceded complete app-overview data and retained a startup failure. Read the initialized app store directly and reuse the bounded library-ready wait before reconciliation.                     | Fresh startup and complete shortcut read; failed reads remain refusals, not empty lists.                                                    |
+| Game Library import                | Sidebar names clipped, initial scan was buried, and the manual editor had no heading. Wrap source descriptions and lead the empty state with scan/manual actions.                                                   | Empty state, real scan/results, manual editor, picker and cancel. No Save to Steam action.                                                  |
+| Artwork browser                    | Unlabelled page-wide size slider and dominant generic filter/provider notices. Add game context, bound and label size, and keep optional-disabled-provider notes secondary.                                         | Real cog entry, fetched assets, tabs, filter and Manage views; no artwork applied.                                                          |
+| Boot animations                    | No override directory caused raw `IO_PathNotFound_Path` during startup cleanup. Missing ownership is an unchanged result; invalid or inaccessible ownership remains a refusal with readable context.                | Browse, empty library and settings; no movie installed or selected.                                                                         |
+| Themes                             | Existing native tabs, gallery and detail hierarchy were usable.                                                                                                                                                     | Browse and detail screenshots, Back; no theme installed or enabled.                                                                         |
+| Quick Access and GPU rows          | Native dropdown wrappers exceeded their narrow group. Constrain the field and both wrappers within the owning group.                                                                                                | Display/audio/performance, folds, GPU rows and Reset-last placement; no hardware settings changed.                                          |
+| Native settings, library and menus | Retain Valve's structure; supply Display 1 when Windows reports no friendly name, and keep the PCI identity out of the GPU caption.                                                                                 | WSGM settings, Display/Storage, library tabs/badges, download controls and power-menu entry. No sorting, erase or shell transition invoked. |
+
+This establishes rendered desktop layout and the exercised mouse/keyboard paths. It does not
+establish physical-controller navigation, handheld scaling, removable-media transitions,
+installation, hardware writes or game launch acceptance. Synthetic checks and deployment hashes are
+recorded separately from those live observations.
+
 ## Home carousel after the client update of 2026-09-22
 
 After Steam updated itself on 2026-09-22 (22:46 in `wsgm.log`) the Home carousel patch refused three

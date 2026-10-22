@@ -71,12 +71,12 @@ is not opened a second time. Do not start Explorer just to open a link.
 Steam Input lease. It replaced `WSGM.Deelevate.exe` and `steam-input-lease.exe`, which the installer
 deletes on update; a user who pasted one of the old commands has to re-apply the fix.
 
-The game's Steam cog menu opens **Launch Actions…** beside **Change Artwork…**. The exact AppID from
-that activation stays with the page, confirmations and custom-action picker. The Overlay's launch
-tools and this page use the same session `LaunchActionService` for current Steam fields, wrapper
-modes, custom actions and restoration. Custom actions accept EXE, CMD, BAT and PS1 files; Steam uses
-the toolkit's native picker and the Overlay uses its in-window picker. Both revalidate the file
-before writing.
+The game's Steam cog menu opens a native **Launch Actions** side submenu beside **Change Artwork…**.
+The exact AppID from that activation stays with the submenu, confirmations and custom-action picker.
+The Overlay's launch tools and this submenu use the same session `LaunchActionService` for current
+Steam fields, wrapper modes, custom actions and restoration. Custom actions accept EXE, CMD, BAT and
+PS1 files; Steam uses the toolkit's native picker and the Overlay uses its in-window picker. Both
+revalidate the file before writing.
 
 The service records the original fields before replacing a shortcut target. A write with a lost
 answer retains that record; a confirmed restoration removes it. Current ownership comes from fresh

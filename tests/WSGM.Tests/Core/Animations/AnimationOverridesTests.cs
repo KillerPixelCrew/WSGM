@@ -24,6 +24,64 @@ public sealed class AnimationOverridesTests : IDisposable
     }
 
     [Fact]
+    public void SteamsOwnWithoutAnOverrideFolderIsAnUnchangedSuccessAndCreatesNothing()
+    {
+        var overrides = AnimationOverrides.Directory(Root);
+
+        Assert.Equal(new AnimationApplyReport(false, null), AnimationOverrides.Apply(overrides, null));
+        Assert.Equal(new AnimationApplyReport(false, null), AnimationOverrides.Apply(overrides, null));
+        Assert.False(Directory.Exists(Root));
+    }
+
+    [Fact]
+    public void AMissingMovieWithoutAnOverrideFolderReportsOnlyTheMissingChoiceAndCreatesNothing()
+    {
+        var report = AnimationOverrides.Apply(AnimationOverrides.Directory(Root), Path.Combine(Root, "gone.webm"));
+
+        Assert.False(report.Changed);
+        Assert.Equal("The chosen movie is missing, so Steam's own plays.", report.Error);
+        Assert.False(Directory.Exists(Root));
+    }
+
+    [Theory]
+    [InlineData(AnimationOverrides.MarkerSuffix)]
+    [InlineData(AnimationOverrides.MarkerSuffix + ".pending")]
+    public void ACorruptOwnershipMarkerRefusesCleanupAndPreservesEveryFile(string suffix)
+    {
+        var overrides = Path.Combine(Root, "movies");
+        Directory.CreateDirectory(overrides);
+        var target = Path.Combine(overrides, AnimationOverrides.BootFileName);
+        var marker = target + suffix;
+        File.WriteAllBytes(target, [7]);
+        File.WriteAllText(marker, "corrupt ownership");
+
+        var report = AnimationOverrides.Apply(overrides, null);
+
+        Assert.False(report.Changed);
+        Assert.Contains("ownership marker is invalid", report.Error, StringComparison.Ordinal);
+        Assert.Equal([7], File.ReadAllBytes(target));
+        Assert.Equal("corrupt ownership", File.ReadAllText(marker));
+        Assert.Equal(2, Directory.GetFileSystemEntries(overrides).Length);
+    }
+
+    [Fact]
+    public void AnUnreadableOwnershipMarkerIsAnAccessFailureAndPreservesTheOverride()
+    {
+        var overrides = Path.Combine(Root, "movies");
+        Directory.CreateDirectory(overrides);
+        var target = Path.Combine(overrides, AnimationOverrides.BootFileName);
+        File.WriteAllBytes(target, [7]);
+        Directory.CreateDirectory(target + AnimationOverrides.MarkerSuffix);
+
+        var report = AnimationOverrides.Apply(overrides, null);
+
+        Assert.False(report.Changed);
+        Assert.Contains("could not access", report.Error, StringComparison.Ordinal);
+        Assert.Equal([7], File.ReadAllBytes(target));
+        Assert.True(Directory.Exists(target + AnimationOverrides.MarkerSuffix));
+    }
+
+    [Fact]
     public void ApplyCopiesAChangeLeavesItsLastCopyAloneAndRemovesTheOverrideForSteamsOwn()
     {
         Directory.CreateDirectory(Root);

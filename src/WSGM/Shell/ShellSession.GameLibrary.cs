@@ -74,7 +74,16 @@ public sealed partial class ShellSession
     private async Task<IReadOnlyList<ExistingShortcut>> ReadShortcutsAsync(
         CancellationToken cancellationToken)
     {
-        var listed = await RequireSteamClient().Apps.ListShortcutsAsync(cancellationToken).ConfigureAwait(false);
+        var steam = RequireSteamClient();
+        // Transport readiness precedes Steam's complete app-overview update. The bounded read wait
+        // keeps startup reconciliation from retaining a transient library-initialization failure.
+        if (!await LibraryTabManager.WaitForLibraryAsync(steam, cancellationToken, requireTabClaim: false)
+                .ConfigureAwait(false))
+        {
+            throw new InvalidOperationException("Steam's library is not ready. Shortcut changes remain pending.");
+        }
+
+        var listed = await steam.Apps.ListShortcutsAsync(cancellationToken).ConfigureAwait(false);
         if (listed is not { Succeeded: true, Value: { } shortcuts })
         {
             throw new InvalidOperationException(listed.Dispatch == SteamUiDispatch.Answered

@@ -1,5 +1,4 @@
 using System;
-using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using SteamUiToolkit;
@@ -7,22 +6,16 @@ using WSGM.Core;
 
 namespace WSGM.Shell;
 
-/// <summary>The game-specific Steam page; every command carries its originating AppID.</summary>
+/// <summary>The native game-menu submenu; every command carries its originating AppID.</summary>
 internal static class SteamLaunchActionsSurface
 {
     internal const string PatchId = "wsgm.launch-actions";
-    internal const string Route = "/wsgm/launch-actions/:appid";
     internal const string Template = "launch-actions";
-
-    internal static string RouteFor(uint appId)
-    {
-        return "/wsgm/launch-actions/" + appId.ToString(CultureInfo.InvariantCulture);
-    }
 
     internal static ISteamUiModule Module(Func<bool> enabled, LaunchActionService service)
     {
         return new SteamUiModule(Template,
-            [SteamPagePatch.Create(PatchId, "launchActions", "wsgm-launch-actions-v1:steam-page", "Launch Actions",
+            [SteamPagePatch.Create(PatchId, "launchActions", "wsgm-launch-actions-v2:native-submenu", "Launch Actions",
                 [SteamPageProbe.React, SteamPageProbe.Focusable, SteamPageProbe.Fields, SteamPageProbe.Modal, SteamPageProbe.ShowModal])],
             [SteamUiModuleBuilder.Publication(PatchId, enabled, service.ReadStateAsync,
                 LaunchActionsJsonContext.Default.LaunchActionState)],

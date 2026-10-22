@@ -128,6 +128,41 @@ Prefer the smallest extension of an existing surface, module, gate, publication,
 ownership primitive. A new row does not imply a new gate or state channel. Do not create a parallel
 transport, bridge, or patch lifecycle.
 
+## Validate the actual Big Picture UI
+
+For a Steam UI change, build and deploy it, then open the affected workflow in a live Big Picture
+session after the startup preflight above. Live visual review is part of completing the work. Patch
+verification, generated-asset checks, DOM text, synthetic renders and a successful build do not
+establish that the result looks good or works in Steam.
+
+- Start from the real entry point and inspect each changed page, menu, submenu, modal and relevant
+  empty/loading/error state. Compare with nearby Valve UI. Prefer an existing cog-menu submenu,
+  native row or dialog for a small contextual action; a new full page needs a concrete workflow
+  reason. Preserve Overlay functionality without forcing both surfaces into the same layout.
+- Save before/after screenshots of the actual visible target, including open menus and focused
+  controls, and **open and inspect the images**. Check sizing, spacing, alignment, typography,
+  density, clipping, scrolling, dialog width, readable labels and consistency with Steam. A file
+  existing is not screenshot review. Use MainWindow's verified target shape; inspect the relevant
+  portal when the control lives in another document.
+- Exercise entry, focus, selection, nested Back/cancel and return-focus behavior. Check keyboard
+  navigation and controller navigation when a controller is available; distinguish their proof. Do
+  not trigger unrelated launches, installs, purchases or hardware changes just to inspect UI.
+- Fix observed defects, redeploy, and repeat the affected live path and screenshots before calling
+  it accepted. Keep one concise record with the source/build identity, scenario, screenshot paths,
+  actual observations, corrections and remaining acceptance gaps.
+- With delegated work, assign exclusive files and require the coordinator to inspect the final live
+  screenshots and navigation personally. One owner controls the live Steam session and shared
+  build/deployment; workers must not attach or navigate concurrently. A worker's claim that it
+  passed is not the coordinator's visual review.
+- If Steam becomes unresponsive, stop issuing probes against stale targets. When restart authority
+  is already granted, restart Steam and repeat the startup preflight with fresh target identities
+  before resuming the same scenario. Preserve the failed capture as failed evidence.
+
+The task's authority governs live navigation and deployment. If access or authority is missing,
+request the specific missing input during the work and finish independent authorized changes. Report
+the visual acceptance as blocked; do not silently substitute offline checks or label the UI
+finished. Do not add another approval step when the maintainer already authorized the action.
+
 ## Finish with evidence
 
 The toolkit [source map](../../../external/steam-ui-toolkit/docs/code-map.md) and

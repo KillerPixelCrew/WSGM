@@ -163,8 +163,8 @@ const importGlyph = (react: any, name: keyof typeof importGlyphs) =>
 const importStyles = `
 #wsgm-import { margin-top: var(--basicui-header-height, 40px); height: calc(100% - var(--basicui-header-height, 40px));
   display: flex; flex-direction: column; background: var(--gpSystemDarkestGrey, #0e141b); color: #dcdedf; }
-#wsgm-import .wsgm-import-head { display: flex; align-items: baseline; gap: 14px; padding: 24px 48px 0; flex-shrink: 0; }
-#wsgm-import .wsgm-import-head h1 { margin: 0; font-size: 30px; font-weight: 700; color: #fff; letter-spacing: 0.2px; }
+#wsgm-import .wsgm-import-head { display: flex; align-items: baseline; flex-wrap:wrap; gap: 8px 14px; padding: 24px 48px 0; flex-shrink: 0; }
+#wsgm-import .wsgm-import-head h1 { margin: 0; min-width:0; max-width:100%; overflow-wrap:anywhere; font-size: 30px; font-weight: 700; color: #fff; letter-spacing: 0.2px; }
 #wsgm-import .wsgm-import-crumb { font-size: 30px; font-weight: 700; color: #8b929a; }
 #wsgm-import .wsgm-import-crumb svg { width: 18px; height: 18px; margin: 0 -2px 2px 0; vertical-align: middle; }
 #wsgm-import .wsgm-import-muted { color: #8b929a; font-size: 14px; }
@@ -174,19 +174,19 @@ const importStyles = `
 #wsgm-import .wsgm-import-eyebrow { font-size: 13px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase;
   color: #dcdedf; padding: 0 10px 8px; }
 #wsgm-import .wsgm-import-sidebar .wsgm-import-custom { padding-top: 16px; }
-#wsgm-import .wsgm-import-source .DialogCheckbox_Container { display: flex; flex-direction: row; flex-wrap: nowrap;
-  align-items: center; gap: 12px; min-height: 38px; margin: 0; padding: 0 10px; border-radius: 2px; box-sizing: border-box; }
-#wsgm-import .wsgm-import-source .DialogCheckbox_Container > .DialogCheckbox { flex: 0 0 auto; margin: 0; }
+#wsgm-import .wsgm-import-source .DialogCheckbox_Container { display: grid; grid-template-columns:auto minmax(0,1fr);
+  align-items: center; gap: 2px 10px; min-height: 44px; margin: 0; padding: 6px 10px; border-radius: 2px; box-sizing: border-box; }
+#wsgm-import .wsgm-import-source .DialogCheckbox_Container > .DialogCheckbox { grid-row:1 / span 2; margin: 0; }
 #wsgm-import .wsgm-import-source .DialogCheckbox_Container > div:empty { display: none; }
-#wsgm-import .wsgm-import-source .DialogToggle_Label { flex: 1; min-width: 0; font-size: 15px; line-height: 1.2;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0; padding: 0; }
-#wsgm-import .wsgm-import-source .DialogToggle_Description { flex: 0 0 auto; margin: 0; padding: 0;
-  font-size: 13px; color: #8b929a; white-space: nowrap; }
+#wsgm-import .wsgm-import-source .DialogToggle_Label { grid-column:2; min-width: 0; font-size: 15px; line-height: 1.3;
+  white-space: normal; overflow-wrap:anywhere; margin: 0; padding: 0; }
+#wsgm-import .wsgm-import-source .DialogToggle_Description { grid-column:2; margin: 0; padding: 0;
+  font-size: 12px; line-height:1.3; color: #8b929a; white-space: normal; overflow-wrap:anywhere; }
 #wsgm-import .wsgm-import-source[data-missing="true"] .DialogCheckbox_Container { opacity: 0.6; }
 #wsgm-import .wsgm-import-sidebar > .DialogButton { margin: 8px 0 0; width: auto; min-width: auto; height: 36px; }
 #wsgm-import .wsgm-import-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 #wsgm-import .wsgm-import-pane { display: flex; flex-direction: column; gap: 14px; padding: 12px 4px 72px; }
-#wsgm-import .wsgm-import-bar { display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; }
+#wsgm-import .wsgm-import-bar { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
 #wsgm-import .wsgm-import-bar .DialogButton { width: auto; min-width: auto; height: 40px; padding: 0 16px;
   white-space: nowrap; box-sizing: border-box; }
 #wsgm-import .wsgm-import-spacer { flex: 1; }
@@ -200,6 +200,16 @@ const importStyles = `
 #wsgm-import .wsgm-import-status { display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: #b8bcbf; }
 #wsgm-import .wsgm-import-status:empty { display: none; }
 #wsgm-import .wsgm-import-status .wsgm-import-error { color: #ff6d6d; }
+#wsgm-import .wsgm-import-empty { max-width:640px; margin-top:12px; gap:16px; }
+#wsgm-import .wsgm-import-empty h2 { margin:0; font-size:24px; }
+#wsgm-import .wsgm-import-empty p { margin:0; line-height:1.5; }
+#wsgm-import .wsgm-import-add { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+#wsgm-import .wsgm-import-add .DialogButton { width:100%; min-width:0; height:auto; min-height:40px; margin:0; padding:8px 12px; box-sizing:border-box; white-space:normal; }
+#wsgm-import .wsgm-import-empty > .DialogButton { width:auto; align-self:flex-start; min-width:180px; }
+#wsgm-import .wsgm-import-main { overflow:auto; }
+#wsgm-import .wsgm-import-side { max-width:100%; }
+@media(max-width:1000px) { #wsgm-import .wsgm-import-body { gap:20px; padding-inline:24px; } #wsgm-import .wsgm-import-head { padding-inline:24px; } #wsgm-import .wsgm-import-sidebar { width:220px; } }
+@media(max-width:750px) { #wsgm-import .wsgm-import-add { grid-template-columns:1fr; } #wsgm-import .wsgm-import-split { flex-wrap:wrap; } }
 #wsgm-import .wsgm-import-group { display: flex; flex-direction: column; gap: 14px; margin-bottom: 8px; }
 #wsgm-import .wsgm-import-grouphead { display: flex; align-items: baseline; gap: 14px; }
 #wsgm-import .wsgm-import-grouphead .wsgm-import-eyebrow { padding: 0; }
@@ -925,6 +935,7 @@ function ImportManualSourceBody({ sourceId, close }: any) {
     };
   });
   const [error, setError] = react.useState("");
+  const [showOptional, setShowOptional] = react.useState(false);
   const change = (fields: any) => setDraft((current: any) => ({ ...current, ...fields }));
   const field = (label: string, key: string) =>
     h(importUi.textField, {
@@ -957,43 +968,45 @@ function ImportManualSourceBody({ sourceId, close }: any) {
   return renderSteamUiSheet(
     importUi,
     {
-      note: "Preview this command before saving it to Steam.",
       error,
       actions: [
         ...(draft.id ? [{ id: "remove", label: "Remove source…", onClick: remove }] : []),
         { id: "cancel", label: "Cancel", onClick: close },
         {
           id: "save",
-          label: "Add and preview",
+          label: draft.id ? "Save and preview" : "Add and preview",
           primary: true,
           disabled: !draft.name || !draft.target,
           onClick: save,
         },
       ],
     },
+    renderSteamUiHeader(importUi,{title:draft.id ? "Edit manual shortcut" : "Add manual shortcut",page:true}),
+    h("p",{className:"steam-ui-kit-sheet-note"},"Preview this command before saving it to Steam."),
     field("Title", "name"),
     h(
       importUi.dialogButton,
       { onClick: () => pick("target", "Choose executable", "file") },
       draft.target || "Choose executable…",
     ),
-    field("Arguments", "arguments"),
+    renderSteamUiGroup(importUi,{title:"Launch options & storage",collapsed:!showOptional,onToggle:()=>setShowOptional(!showOptional)},
+    field("Arguments (optional)", "arguments"),
     h(
       importUi.dialogButton,
       { onClick: () => pick("workingDirectory", "Choose working folder", "folder") },
-      draft.workingDirectory || "Choose working folder…",
+      draft.workingDirectory || "Working folder (optional)…",
     ),
     h(
       importUi.dialogButton,
       { onClick: () => pick("contentPath", "Choose backing game file", "file") },
-      draft.contentPath || "Choose backing game file…",
+      draft.contentPath || "Backing game file (optional)…",
     ),
-    field("Location name", "location"),
+    field("Location name (optional)", "location"),
     h(importUi.toggleField, {
       label: "Track backing storage",
       checked: draft.libraryBacked,
       onChange: (value: boolean) => change({ libraryBacked: value }),
-    }),
+    })),
   );
 }
 
@@ -1090,7 +1103,7 @@ function EmulatorProgressToolbar({ back, canGoBack }: any) {
     progress.status ? h("p", { role: "status" }, progress.status) : null,
     h(
       importUi.focusable,
-      { className: "wsgm-import-bar", "flow-children": "row" },
+      { className: "wsgm-import-bar", "flow-children": "grid" },
       canGoBack
         ? h(EmulatorCommandButton, { label: "Back", run: back, requiresIdle: false })
         : null,
@@ -1590,7 +1603,7 @@ function LibraryImportPage({ context, page }: any) {
         { className: "wsgm-import-pane" },
         h(
           ui.focusable,
-          { className: "wsgm-import-bar", "flow-children": "row" },
+          { className: "wsgm-import-bar", "flow-children": "grid" },
           h(
             "div",
             { className: "wsgm-import-tool", style: { width: "290px" } },
@@ -1772,6 +1785,56 @@ function LibraryImportPage({ context, page }: any) {
             void importAct("setSourceEnabled", { id: source.id, enabled: !!value }),
         }),
       );
+    const sourceActions = h(ui.focusable,{className:"wsgm-import-add","flow-children":"grid"},
+      h(
+        ui.dialogButton,
+        {
+          disabled: busy,
+          onClick: () =>
+            showSteamModal(ui, {
+              title: "Add a ROM library",
+              render: (close) => h(ImportRomSourceBody, { close }),
+            }),
+        },
+        "Add ROM library…",
+      ),
+      h(
+        ui.dialogButton,
+        {
+          disabled: busy,
+          onClick: () =>
+            showSteamModal(ui, {
+              title: "Add a ROM",
+              render: (close) => h(ImportRomSourceBody, { singleFile: true, close }),
+            }),
+        },
+        "Add a ROM…",
+      ),
+      h(
+        ui.dialogButton,
+        {
+          disabled: busy,
+          onClick: () =>
+            showSteamModal(ui, {
+              title: "Add a manual shortcut",
+              render: (close) => h(ImportManualSourceBody, { close }),
+            }),
+        },
+        "Add manual shortcut…",
+      ),
+      h(
+        ui.dialogButton,
+        {
+          disabled: busy,
+          onClick: () =>
+            showSteamModal(ui, {
+              title: "Add a shortcuts folder",
+              render: (close) => h(ImportFolderBody, { close }),
+            }),
+        },
+        "Add folder…",
+      ),
+    );
     const sidebar = h(
       ui.focusable,
       { className: "wsgm-import-sidebar", "flow-children": "column" },
@@ -1841,54 +1904,7 @@ function LibraryImportPage({ context, page }: any) {
           `Configure ${source.name}…`,
         ),
       ),
-      h(
-        ui.dialogButton,
-        {
-          disabled: busy,
-          onClick: () =>
-            showSteamModal(ui, {
-              title: "Add a ROM library",
-              render: (close) => h(ImportRomSourceBody, { close }),
-            }),
-        },
-        "Add ROM library…",
-      ),
-      h(
-        ui.dialogButton,
-        {
-          disabled: busy,
-          onClick: () =>
-            showSteamModal(ui, {
-              title: "Add a ROM",
-              render: (close) => h(ImportRomSourceBody, { singleFile: true, close }),
-            }),
-        },
-        "Add a ROM…",
-      ),
-      h(
-        ui.dialogButton,
-        {
-          disabled: busy,
-          onClick: () =>
-            showSteamModal(ui, {
-              title: "Add a manual shortcut",
-              render: (close) => h(ImportManualSourceBody, { close }),
-            }),
-        },
-        "Add manual shortcut…",
-      ),
-      h(
-        ui.dialogButton,
-        {
-          disabled: busy,
-          onClick: () =>
-            showSteamModal(ui, {
-              title: "Add a shortcuts folder",
-              render: (close) => h(ImportFolderBody, { close }),
-            }),
-        },
-        "Add folder…",
-      ),
+      entries.length ? sourceActions : null,
       h("div", { className: "wsgm-import-eyebrow wsgm-import-custom" }, "Steam"),
       h(
         "div",
@@ -1912,7 +1928,7 @@ function LibraryImportPage({ context, page }: any) {
     );
     const toolbar = h(
       ui.focusable,
-      { className: "wsgm-import-bar", "flow-children": "row" },
+      { className: "wsgm-import-bar", "flow-children": "grid" },
       h(
         "div",
         { className: "wsgm-import-tool", style: { width: "200px" } },
@@ -1984,7 +2000,7 @@ function LibraryImportPage({ context, page }: any) {
       h(
         "div",
         { key: "review", className: "wsgm-import-main" },
-        h(ui.tabs, {
+        entries.length ? h(ui.tabs, {
           autoFocusContents: true,
           activeTab: active.id,
           onShowTab: (next: string) => setTab(next),
@@ -1996,7 +2012,14 @@ function LibraryImportPage({ context, page }: any) {
                 ? h("div", { className: "wsgm-import-pane" }, toolbar, status, ...grid)
                 : null,
           })),
-        }),
+        }) : h(ui.focusable,{className:"wsgm-import-pane","flow-children":"column",autoFocus:true},
+          status,
+          h("div",{className:"steam-ui-kit-box wsgm-import-empty"},
+            h("h2",{},busy ? "Finding your games…" : "Add games to Steam"),
+            h("p",{},"Scan the checked sources to review your games before saving. You can also add ROMs, a shortcut or a folder."),
+            busy ? h(ui.dialogButton,{onClick:()=>void importAct("cancel")},"Stop scan")
+              : h(ui.dialogButtonPrimary,{autoFocus:true,onClick:()=>void importAct("scan")},"Scan for games"),
+            sourceActions)),
       ),
     ];
   }
@@ -2005,6 +2028,7 @@ function LibraryImportPage({ context, page }: any) {
     "div",
     { id: "wsgm-import", "aria-label": "Game Library" },
     h("style", null, importStyles),
+    steamUiKitStyle(react),
     header,
     h("div", { className: "wsgm-import-body" }, ...(Array.isArray(body) ? body : [body])),
   );
@@ -2092,6 +2116,7 @@ const emulatorPage = registerSteamPage({
     "toggleField",
     "dropdown",
     "textField",
+    "tabs",
     "dialogButton",
     "dialogButtonPrimary",
     "modalRoot",

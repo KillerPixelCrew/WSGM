@@ -13,6 +13,24 @@ namespace WSGM.Tests.Shell;
 /// </remarks>
 public sealed class SteamGameContextMenuBackendTests
 {
+    [Fact]
+    public async Task LaunchActionsUsesANativeSubmenuAndNeverAnswersWithAPageRoute()
+    {
+        uint opened = 0;
+        var backend = new SteamGameContextMenuBackend(null, null, null, (appId, _) =>
+        {
+            opened = appId;
+            return Task.FromResult(SteamUiCommandResult.Applied);
+        });
+        var item = Assert.Single(backend.ReadState().Items);
+        Assert.Equal("Launch Actions", item.Label);
+        Assert.Equal(SteamLaunchActionsSurface.Template, item.Template);
+        var result = await backend.ActivateAsync(2147483650u, item.Id, CancellationToken.None);
+        Assert.True(result.Succeeded);
+        Assert.Equal(2147483650u, opened);
+        Assert.Null(result.Payload);
+    }
+
     private static SteamGameContextMenuBackend WithArtwork(
         Func<uint, CancellationToken, Task<SteamUiCommandResult>>? open = null)
     {

@@ -85,12 +85,15 @@ public static class AnimationOverrides
         var pending = marker + ".pending";
         try
         {
-            if (File.Exists(pending))
+            var markerText = ReadMarker(marker);
+            var pendingText = ReadMarker(pending);
+            if (pendingText is not null)
             {
                 var file = new FileInfo(target);
-                if (file.Exists && File.ReadAllText(pending).StartsWith(Stamp(file) + "|", StringComparison.Ordinal))
+                if (FileExists(target) && pendingText.StartsWith(Stamp(file) + "|", StringComparison.Ordinal))
                 {
                     File.Move(pending, marker, true);
+                    markerText = pendingText;
                 }
                 else
                 {
@@ -98,19 +101,25 @@ public static class AnimationOverrides
                 }
             }
 
-            if (source is null || !File.Exists(source))
+            if (source is null || !FileExists(source))
             {
                 var changed = false;
-                if (Owned(target, marker))
+                if (Owned(target, markerText))
                 {
                     File.Delete(target);
                     changed = true;
                 }
 
-                File.Delete(marker);
+                // No marker (or override folder) is the normal state before the first choice.
+                // Do not touch Steam's files merely to confirm that state.
+                if (markerText is not null)
+                {
+                    File.Delete(marker);
+                }
+
                 // What WSGM set aside comes back once WSGM's copy is gone, and only then: a file
                 // someone put there since stays theirs.
-                if (!File.Exists(target) && File.Exists(original))
+                if (!FileExists(target) && FileExists(original))
                 {
                     File.Move(original, target);
                     changed = true;
@@ -120,16 +129,16 @@ public static class AnimationOverrides
                     source is null ? null : "The chosen movie is missing, so Steam's own plays.");
             }
 
-            var owned = Owned(target, marker);
+            var owned = Owned(target, markerText);
             if (owned && Same(source, target) && RecordedVolume(marker) == volume)
             {
                 return new AnimationApplyReport(false, null);
             }
 
             System.IO.Directory.CreateDirectory(directory);
-            if (!owned && File.Exists(target))
+            if (!owned && FileExists(target))
             {
-                if (File.Exists(original))
+                if (FileExists(original))
                 {
                     return new AnimationApplyReport(false,
                         "An original movie backup already exists and the current override is not owned by WSGM. Both were preserved.");
@@ -166,19 +175,73 @@ public static class AnimationOverrides
                     ? null
                     : "This movie's sound is not Opus, so its volume cannot be set; Steam plays it twice over, louder than the file.");
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
         {
-            return new AnimationApplyReport(false, ex.Message);
+            Log.Warn($"Animations: could not reconcile the boot override in '{directory}': {ex}");
+            var error = ex switch
+            {
+                UnauthorizedAccessException =>
+                    "WSGM could not access Steam's boot animation override. Check file permissions. See wsgm.log for details.",
+                InvalidDataException =>
+                    "Steam's boot animation ownership marker is invalid. Existing files were preserved. See wsgm.log for details.",
+                _ => "Steam's boot animation override could not be updated. See wsgm.log for details."
+            };
+            return new AnimationApplyReport(false, error);
+        }
+    }
+
+    /// <summary>Reads ownership without treating access failures or malformed records as absence.</summary>
+    private static string? ReadMarker(string path)
+    {
+        string text;
+        try
+        {
+            text = File.ReadAllText(path).Trim();
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return null;
+        }
+
+        var fields = text.Split('|');
+        if (fields.Length != 3
+            || !long.TryParse(fields[0], NumberStyles.None, CultureInfo.InvariantCulture, out _)
+            || !long.TryParse(fields[1], NumberStyles.None, CultureInfo.InvariantCulture, out var ticks)
+            || ticks > DateTime.MaxValue.Ticks
+            || !int.TryParse(fields[2], NumberStyles.None, CultureInfo.InvariantCulture, out var volume)
+            || volume > FullVolume)
+        {
+            throw new InvalidDataException($"Invalid animation ownership marker '{path}'.");
+        }
+
+        return text;
+    }
+
+    /// <summary>Checks absence without swallowing access errors as File.Exists does.</summary>
+    private static bool FileExists(string path)
+    {
+        try
+        {
+            if ((File.GetAttributes(path) & FileAttributes.Directory) != 0)
+            {
+                throw new IOException($"Expected an animation file at '{path}', but found a directory.");
+            }
+
+            return true;
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return false;
         }
     }
 
     /// <summary>Whether the override is the copy WSGM last wrote, as its marker records it.</summary>
-    private static bool Owned(string target, string marker)
+    private static bool Owned(string target, string? markerText)
     {
         FileInfo file = new(target);
-        return file.Exists
-               && File.Exists(marker)
-               && File.ReadAllText(marker).Trim().StartsWith(Stamp(file) + "|", StringComparison.Ordinal);
+        return markerText is not null
+               && FileExists(target)
+               && markerText.StartsWith(Stamp(file) + "|", StringComparison.Ordinal);
     }
 
     /// <summary>The volume the marker records the copy was written at.</summary>

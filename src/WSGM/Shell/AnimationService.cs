@@ -1167,9 +1167,14 @@ internal sealed class AnimationService : ISteamAnimationsBackend, IDisposable, I
             {
                 error = "Cancelled.";
             }
-            catch (Exception ex) when (ex is not OutOfMemoryException)
+            catch (AnimationRepoException ex)
             {
                 error = ex.Message;
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                Log.Warn($"Animations: movie operation failed: {ex}");
+                error = "The movie operation could not be completed. See wsgm.log for details.";
             }
             finally
             {

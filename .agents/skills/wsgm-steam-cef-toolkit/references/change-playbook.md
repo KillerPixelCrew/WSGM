@@ -1,5 +1,10 @@
 # Steam CEF change playbook
 
+UI delivery includes the live Big Picture review and inspected screenshots required by
+[the toolkit skill](../SKILL.md#validate-the-actual-big-picture-ui). Review the real entry point and
+native layout before choosing a page. Small per-game actions usually belong in the existing cog
+menu/submenu; do not create a separate page merely because a page renderer is convenient.
+
 ## Never attach during startup
 
 Before any debugger/CDP/MCP connection, even read-only target discovery, establish from the current

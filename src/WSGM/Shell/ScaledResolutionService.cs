@@ -54,8 +54,10 @@ internal sealed class ScaledResolutionService
         {
             await _ready().WaitAsync(token).ConfigureAwait(false);
             var displays = DisplayLayouts.Observe().Targets.Where(target => target.Available).ToArray();
-            var choices = displays.Select(display => new ScaledResolutionDisplay(display.Target.DevicePath,
-                display.Target.FriendlyName)).ToArray();
+            var choices = displays.Select((display, index) => new ScaledResolutionDisplay(display.Target.DevicePath,
+                string.IsNullOrWhiteSpace(display.Target.FriendlyName)
+                    ? $"Display {index + 1}"
+                    : display.Target.FriendlyName)).ToArray();
             var selected = selectedPath is null ? displays.FirstOrDefault()
                 : displays.FirstOrDefault(display => string.Equals(display.Target.DevicePath, selectedPath,
                     StringComparison.OrdinalIgnoreCase));

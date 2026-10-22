@@ -73,8 +73,7 @@ internal sealed class SteamGameContextMenuBackend : ISteamGameContextMenuBackend
                 return new SteamUiCommandResult(false, "Launch actions are unavailable in this session.");
             }
 
-            var opened = await _openLaunchActions(appId, cancellationToken).ConfigureAwait(false);
-            return opened.Succeeded ? SteamUiCommandResult.Route(SteamLaunchActionsSurface.RouteFor(appId)) : opened;
+            return await _openLaunchActions(appId, cancellationToken).ConfigureAwait(false);
         }
 
         if (id == ArtworkId)
@@ -119,7 +118,7 @@ internal sealed class SteamGameContextMenuBackend : ISteamGameContextMenuBackend
 
         if (_openLaunchActions is not null)
         {
-            items.Add(new SteamGameContextMenuItem(LaunchActionsId, "Launch Actions…"));
+            items.Add(new SteamGameContextMenuItem(LaunchActionsId, "Launch Actions", SteamLaunchActionsSurface.Template));
         }
 
         if (_pluginSteamUi is not null)

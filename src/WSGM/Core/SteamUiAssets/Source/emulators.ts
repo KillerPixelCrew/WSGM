@@ -1,19 +1,23 @@
 // Emulator management presentation. All package, BIOS and preference writes belong to EmulatorService.
 const emulatorStyles = `
-#wsgm-import.wsgm-emulators .wsgm-import-head { padding-bottom:12px; }
+#wsgm-import.wsgm-emulators .wsgm-import-head { width:100%; max-width:1136px; box-sizing:border-box; margin-inline:auto; padding-bottom:12px; }
 #wsgm-import.wsgm-emulators .wsgm-import-body { display:block; overflow:auto; padding-bottom:56px; }
-.wsgm-emu-content { display:flex; flex-direction:column; gap:14px; min-width:0; }
+.wsgm-emu-content { display:flex; flex-direction:column; gap:14px; width:100%; height:100%; min-width:0; max-width:1040px; margin-inline:auto; box-sizing:border-box; }
 .wsgm-emu-content h2,.wsgm-emu-content p { margin:0; }
-.wsgm-emu-tabs { display:flex; gap:8px; flex-wrap:wrap; border-bottom:1px solid #3d4450; padding-bottom:12px; }
-.wsgm-emu-tabs .DialogButton { width:auto; min-width:0; height:36px; }
-.wsgm-emu-tabs [aria-pressed=true] { background:var(--gpSystemBlue,#1a9fff); color:white; }
+.wsgm-emu-pane { display:flex; flex-direction:column; gap:16px; padding-top:16px; min-width:0; }
 .wsgm-emu-toolbar { display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; }
 .wsgm-emu-toolbar .DialogInputLabelGroup { margin:0; }
-.wsgm-emu-toolbar .DialogButton { width:auto; min-width:0; }
-.wsgm-emu-search { flex:1; min-width:180px; }
-.wsgm-emu-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:18px; }
-.wsgm-emu-grid .steam-ui-kit-card { width:auto; }
-.wsgm-emu-mark { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:28px; font-weight:700; color:#fff; }
+.wsgm-emu-toolbar .DialogButton { width:auto; min-width:0; max-width:100%; box-sizing:border-box; }
+.wsgm-emu-search { flex:0 1 360px; min-width:180px; max-width:100%; }
+.wsgm-emu-search .DialogInput { width:100%; height:40px; box-sizing:border-box; }
+.wsgm-emu-search .DialogLabel { font-size:12px; }
+.wsgm-emu-search .DialogInput_Wrapper { margin:0; }
+.wsgm-emu-list { display:flex; flex-direction:column; gap:4px; min-width:0; }
+.wsgm-emu-list > .DialogButton { width:100%; min-width:0; height:auto; min-height:62px; margin:0; padding:12px 16px; box-sizing:border-box; white-space:normal; }
+.wsgm-emu-list .steam-ui-kit-select-row-title { font-size:16px; font-weight:600; }
+.wsgm-emu-list .steam-ui-kit-select-row-detail { line-height:1.4; }
+.wsgm-emu-empty { align-items:flex-start; padding:20px; }
+.wsgm-emu-empty .DialogButton { width:auto; min-width:0; }
 .wsgm-emu-split { display:grid; grid-template-columns:minmax(0,2fr) minmax(240px,1fr); gap:24px; }
 .wsgm-emu-column { display:flex; flex-direction:column; gap:14px; min-width:0; }
 .wsgm-emu-actions { display:flex; gap:10px; flex-wrap:wrap; }
@@ -36,7 +40,7 @@ function ImportEmulatorPage({ state, status, onBack }: any) {
   const react = importUi.react;
   const h = react.createElement;
   const progress = useEmulatorProgress();
-  const [tab, setTab] = react.useState("installed");
+  const [tab, setTab] = react.useState(() => state.emulators?.installations?.length ? "installed" : "available");
   const [route, setRoute] = react.useState({ kind: "list", id: "" });
   const [channel, setChannel] = react.useState("");
   const [search, setSearch] = react.useState("");
@@ -44,6 +48,7 @@ function ImportEmulatorPage({ state, status, onBack }: any) {
   const [coreFilter, setCoreFilter] = react.useState("all");
   const [biosId, setBiosId] = react.useState("");
   const [biosReturn, setBiosReturn] = react.useState(null as any);
+  const [returnTo, setReturnTo] = react.useState("");
   const manager = state.emulators ?? { definitions: [], installations: [], offers: [], systemPreferences: [] };
   const bios = state.bios ?? { folder: "", checked: false, systems: [] };
   const installed = manager.installations ?? [];
@@ -72,10 +77,8 @@ function ImportEmulatorPage({ state, status, onBack }: any) {
     title:name+" setup", render:(close: any)=>h(ImportEmulatorSetupBody,{installationId,close})});
   const toBios = () => {setBiosReturn({tab,route});setTab("bios");setRoute({kind:"list",id:""});};
   const canBack = route.kind !== "list" || !!biosReturn || typeof onBack === "function";
-  const tabs = h(importUi.focusable,{className:"wsgm-emu-tabs","flow-children":"grid"},
-    ...[["installed",`Installed ${installed.length}`],["available",`Available ${available.length}`],
-      ["bios","BIOS & firmware"],["defaults","System defaults"]].map(([id,label])=>h(importUi.dialogButton,
-      {key:id,"aria-pressed":tab===id,onClick:()=>selectTab(id)},label)));
+  const tabs = [["installed",`Installed (${installed.length})`],["available",`Available (${available.length})`],
+    ["bios","BIOS & firmware"],["defaults","System defaults"]];
   let content: any;
   if (route.kind === "installation" || route.kind === "cores") {
     const entry = installed.find((item: any)=>item.id===route.id);
@@ -140,21 +143,20 @@ function ImportEmulatorPage({ state, status, onBack }: any) {
               entry.managed ? button("Update installed cores",()=>void emulatorAct("updateEmulator",{installationId})) : null,notes(offer)),
             systemFiles,shortcut,maintenance));
       } else {
-        content = h(importUi.focusable,{className:"wsgm-emu-split","flow-children":"grid"},
-          h(importUi.focusable,{className:"wsgm-emu-column","flow-children":"column"},h("h2",{},entry.name),
+        content = renderSteamUiDetail(importUi,{title:entry.name,onBack:back,main:[
             fact("Installed",`${entry.version} · ${entry.channel} · ${entry.managed ? "Managed" : "External"}`),
             fact("Systems",(entry.systems ?? []).map(systemName).join(" · ")),systemFiles,
             box("Installation",fact("Source",entry.source),fact("Verification",entry.integrity),fact("Architecture",entry.architecture),
               fact("Executable",entry.executablePath),fact("Data",entry.dataPath)),
-            entry.cores?.length ? button(`Installed cores (${entry.cores.length})`,()=>setRoute({kind:"cores",id:installationId}),false) : null),
-          h(importUi.focusable,{className:"wsgm-emu-column","flow-children":"column"},
+            entry.cores?.length ? button(`Installed cores (${entry.cores.length})`,()=>setRoute({kind:"cores",id:installationId}),false) : null],
+          aside:[
             box(offer?.releaseId && offer.releaseId!==entry.releaseId ? "Update available" : "Release",
               fact("Latest",offer?.error || offer?.version || "Check for updates"),
               offer?.releaseId && offer.releaseId!==entry.releaseId && entry.managed
                 ? button(`Update to ${offer.version}`,()=>void emulatorAct("updateEmulator",{installationId}),true,true) : null,
               offer?.releaseId && offer.releaseId!==entry.releaseId ? button("Skip this version",()=>void emulatorAct("ignoreEmulatorVersion",{installationId,releaseId:offer.releaseId})) : null,
               offer?.releaseId===entry.ignoredReleaseId ? h("p",{},"You skipped this release. You can still install it now.") : null,
-              notes(offer),h("p",{className:"steam-ui-kit-muted"},"Settings, saves and supplied firmware are preserved.")),shortcut,maintenance));
+              notes(offer),h("p",{className:"steam-ui-kit-muted"},"Settings, saves and supplied firmware are preserved.")),shortcut,maintenance]});
       }
     }
   } else if (route.kind === "definition") {
@@ -162,12 +164,11 @@ function ImportEmulatorPage({ state, status, onBack }: any) {
     if (!definition) content=h("p",{},"That emulator is no longer listed.");
     else {
       const offer = manager.offers.find((item: any)=>item.definitionId===definition.id && item.channel===channel);
-      content=h(importUi.focusable,{className:"wsgm-emu-split","flow-children":"grid"},
-        h(importUi.focusable,{className:"wsgm-emu-column","flow-children":"column"},h("h2",{},definition.name),fact("Source",definition.source),
+      content=renderSteamUiDetail(importUi,{title:definition.name,onBack:back,main:[fact("Source",definition.source),
           fact("Systems",definition.systems.map(systemName).join(" · ")),
           box("Set up from your BIOS folder",fact("BIOS folder",bios.folder),
-            ...definition.prerequisites.map((rule: any)=>fact(rule.name,rule.description)),button("Open BIOS & firmware",toBios,false))),
-        h(importUi.focusable,{className:"wsgm-emu-column","flow-children":"column"},box("Install",
+            ...definition.prerequisites.map((rule: any)=>fact(rule.name,rule.description)),button("Open BIOS & firmware",toBios,false))],
+        aside:[box("Install",
           renderSteamUiChoice(importUi,{label:"Release channel",rgOptions:definition.channels.map((value: string)=>({data:value,label:value})),
             selectedOption:channel,onChange:(option: any)=>option && setChannel(option.data)}),
           fact("Latest",offer?.error || offer?.version || "Check for updates to read releases"),
@@ -178,7 +179,7 @@ function ImportEmulatorPage({ state, status, onBack }: any) {
             ? h("p",{className:"steam-ui-kit-muted"},"Installs verified Microsoft components. Accept the Windows permission prompt if shown; progress stays here.") : null,
           button(`Install ${channel}`,()=>void emulatorAct("installEmulator",{definitionId:definition.id,channel}),true,true),notes(offer),
           button("Use an existing installation…",()=>pick("Choose emulator executable","file","useExternalEmulator",{definitionId:definition.id}))),
-          box("Already installed?",h("p",{},"Register your executable. WSGM will not own its updates or remove its files."))));
+          box("Already installed?",h("p",{},"Register your executable. WSGM will not own its updates or remove its files."))]});
     }
   } else if (tab === "defaults") {
     const systems = state.romSystems ?? [];
@@ -232,31 +233,33 @@ function ImportEmulatorPage({ state, status, onBack }: any) {
     const entries = tab === "installed" ? installed : available;
     const visible = entries.filter((entry: any)=>matches(search,`${entry.name} ${(entry.systems ?? []).map(systemName).join(" ")}`));
     content=h(importUi.focusable,{className:"wsgm-emu-column","flow-children":"column"},
-      h(importUi.focusable,{className:"wsgm-emu-toolbar","flow-children":"grid"},h("div",{className:"wsgm-emu-search"},h(importUi.textField,{
-        label:"Search emulators or systems",value:search,onChange:(event: any)=>setSearch(event?.target?.value ?? "")})),
-        h("span",{className:"steam-ui-kit-muted"},`${installed.length} installed · ${(state.installed ?? []).filter((item: any)=>item.updateAvailable).length} updates · ${installed.filter((item: any)=>item.missingRequirements.length).length} need setup`)),
-      h(importUi.focusable,{className:"wsgm-emu-grid","flow-children":"grid"},...visible.map((entry: any)=>{
+      entries.length ? h(importUi.focusable,{className:"wsgm-emu-toolbar","flow-children":"grid"},h("div",{className:"wsgm-emu-search"},h(importUi.textField,{
+        label:"Search emulators or systems",value:search,placeholder:"Name or system",onChange:(event: any)=>setSearch(event?.target?.value ?? "")})),
+        search ? button("Clear search",()=>setSearch(""),false) : null) : null,
+      h("p",{className:"steam-ui-kit-muted"},tab==="installed"
+        ? `${installed.length} installed · ${(state.installed ?? []).filter((item: any)=>item.updateAvailable).length} updates · ${installed.filter((item: any)=>item.missingRequirements.length).length} need setup`
+        : `${visible.length} emulators · Choose one to install or register an existing installation.`),
+      h(importUi.focusable,{className:"wsgm-emu-list","flow-children":"column"},...visible.map((entry: any)=>{
         const label = labelFor(entry);
-        const card = renderSteamUiCard(importUi,{key:entry.id,title:entry.name,
-          stats:tab==="installed" ? [{text:entry.version},{text:entry.channel},{text:entry.cores?.length ? `${entry.cores.length} cores` : entry.architecture}] : [],
-          badge:label?.updateAvailable || entry.missingRequirements?.length ? {text:label?.badge ?? "Needs setup",warn:true} : null,
-          meta:tab==="installed" ? [label?.detail ?? entry.version,label?.badge ?? (entry.managed ? "Not checked" : "External")]
-            : [(entry.systems ?? []).map(systemName).join(" · "),"Not installed"],
-          onActivate:()=>{setRoute({kind:tab==="installed" ? "installation" : "definition",id:entry.id});setChannel(entry.channels?.[0] ?? "");}});
-        // The shared card owns Steam focus. Add a text mark to its empty image surface.
-        return react.cloneElement(card,{},...react.Children.toArray(card.props.children).map((child: any,index: number)=>index===0
-          ? react.cloneElement(child,{},h("div",{className:"wsgm-emu-mark"},entry.name.replace(" (all cores)","")),...react.Children.toArray(child.props.children)) : child));
+        const row = renderSteamUiSelectRow(importUi,{key:entry.id,title:entry.name,
+          detail: [(entry.systems ?? []).map(systemName).join(" · "),
+            tab==="installed" ? `${entry.version} · ${entry.channel}${entry.cores?.length ? ` · ${entry.cores.length} cores` : ""}` : ""].filter(Boolean).join(" · "),
+          status:tab==="installed" ? badge(label?.badge ?? (entry.missingRequirements?.length ? "Needs setup" : entry.managed ? "Installed" : "External")) : null,
+          onClick:()=>{setReturnTo(entry.id);setRoute({kind:tab==="installed" ? "installation" : "definition",id:entry.id});setChannel(entry.channels?.[0] ?? "");}});
+        return react.cloneElement(row,{autoFocus:entry.id===returnTo});
       })),
-      visible.length ? null : h("p",{},entries.length ? "No emulators match your search." : tab==="installed" ? "No emulators installed. Choose Available to install or register an emulator." : "All supported emulators are installed."),
-      tab==="installed" && available.length ? h("p",{className:"steam-ui-kit-muted"},"Not installed: "+available.map((entry: any)=>entry.name).join(" · ")+". Find them under Available.") : null);
+      visible.length ? null : entries.length ? renderSteamUiEmpty(react,"No emulators match your search.")
+        : tab==="installed" ? h("div",{className:"steam-ui-kit-box wsgm-emu-empty"},h("h2",{},"No emulators installed"),
+          h("p",{},"Browse the catalogue to install an emulator or register one you already have."),
+          button("Browse available emulators",()=>selectTab("available"),false,true))
+          : renderSteamUiEmpty(react,"All supported emulators are installed."));
   }
   // A route removes its old focus target. Mount the new native navigation subtree once per
   // route, so Steam enters it; ordinary state/progress updates retain the same focus owner.
   if (content.type === importUi.focusable) {
     content = react.cloneElement(content,{key:`${tab}:${route.kind}:${route.id}`,autoFocus:true});
   }
-  return renderSteamUiLevel(importUi,{className:"wsgm-emu-content",onBack:canBack ? back : undefined},
-    h("style",{},emulatorStyles),steamUiKitStyle(react),tabs,status,
+  const pane = h("div",{className:"wsgm-emu-pane"},status,
     state.shortcutStatus ? h("p",{role:"status"},state.shortcutStatus) : null,
     h(importUi.focusable,{className:"wsgm-emu-toolbar","flow-children":"grid",
       onOptionsButton:()=>!progress.busy && void emulatorAct("refreshEmulators"),onOptionsActionDescription:"Check for updates"},
@@ -264,4 +267,8 @@ function ImportEmulatorPage({ state, status, onBack }: any) {
       button("Check for updates",()=>void emulatorAct("refreshEmulators")),
       progress.busy ? button("Stop operation",()=>void emulatorAct("cancel"),false) : null,
       progress.status ? h("span",{role:"status"},progress.status) : null),content);
+  return renderSteamUiLevel(importUi,{className:"wsgm-emu-content",onBack:canBack ? back : undefined},
+    h("style",{},emulatorStyles),steamUiKitStyle(react),h(importUi.tabs,{
+      autoFocusContents:true,activeTab:tab,onShowTab:selectTab,
+      tabs:tabs.map(([id,title])=>({id,title,content:id===tab ? pane : null}))}));
 }

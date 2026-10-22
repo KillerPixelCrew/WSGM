@@ -7,13 +7,10 @@ const libraryTabsAct = wsgmPageAct(LibraryTabsPatchId);
 
 // The page's own layout: where the kit's elements go, not how they look.
 const libraryTabsStyles = `
-#wsgm-library-tabs .steam-ui-kit-pane { padding: 12px 48px 72px; }
-#wsgm-library-tabs .wsgm-tabs-level { display: flex; flex-direction: column; gap: 14px; padding: 12px 48px 72px; }
 #wsgm-library-tabs .wsgm-tabs-list { display: flex; flex-direction: column; gap: 8px; }
 #wsgm-library-tabs .wsgm-tabs-list .DialogButton { width: 100%; min-width: 0; height: auto; padding: 10px 14px; }
 #wsgm-library-tabs .wsgm-tabs-stepper { display: flex; align-items: center; gap: 8px; }
 #wsgm-library-tabs .wsgm-tabs-stepper span { min-width: 64px; text-align: center; }
-#wsgm-library-tabs .wsgm-tabs-order .DialogButton { white-space: nowrap; }
 #wsgm-library-tabs .steam-ui-kit-tool:not(.grow) { width: 200px; }
 `;
 
@@ -193,8 +190,8 @@ const libraryTabsStepper = (ui, key: string, label: string, value: number, min: 
 const libraryTabsLevel = (ui, onBack, title: string, detail: string | undefined, ...children) =>
   renderSteamUiLevel(
     ui,
-    { className: "wsgm-tabs-level", onBack },
-    renderSteamUiHeader(ui, { title, detail }),
+    { bounded: true, onBack },
+    renderSteamUiHeader(ui, { page: true, title, detail }),
     ...children,
   );
 
@@ -209,19 +206,20 @@ function LibraryTabsList({ ui, state, returnTo, onNew, onOrder, onEdit }: any) {
   const tabs = state.tabs ?? [];
   return renderSteamUiPane(
     ui,
-    { key: "list" },
+    { key: "list", bounded: true },
     renderSteamUiHeader(ui, {
+      page: true,
       title: "Library Tab Manager",
       detail: "Tabs appear in Steam's library and update automatically as you make changes.",
     }),
     renderSteamUiActions(ui, [
       { id: "new", label: "New tab", primary: true, onClick: onNew },
       { id: "order", label: "Tab order & Steam tabs", onClick: onOrder },
-    ]),
+    ], { compact: true }),
     !state.loaded
       ? renderSteamUiEmpty(react, "Reading your tabs…")
       : tabs.length === 0
-        ? renderSteamUiEmpty(react, "No custom tabs yet. Build one from filters with New tab.")
+        ? renderSteamUiBox(react, "Make the library your own", h("p", null, "Create a tab from filters such as installed games, collections or SD cards. Use Tab order & Steam tabs to arrange the library strip."))
         : renderSteamUiGroup(
             ui,
             { key: "tabs", title: "Your tabs" },
@@ -273,30 +271,15 @@ function LibraryTabsOrder({ ui, state, onBack }: any) {
       name: entry.title,
       description: entry.hidden ? `${kindLabel(entry)} · hidden` : kindLabel(entry),
       focusable: false,
-      value: h(
-        ui.focusable,
-        { className: "wsgm-tabs-order", "flow-children": "row" },
-        h(
-          ui.smallButton,
-          { disabled: index === 0 || !!state.busy, onClick: () => void libraryTabsAct("moveTab", { key: entry.key, delta: -1 }) },
-          "Move up",
-        ),
-        h(
-          ui.smallButton,
-          {
-            disabled: index === order.length - 1 || !!state.busy,
-            onClick: () => void libraryTabsAct("moveTab", { key: entry.key, delta: 1 }),
-          },
-          "Move down",
-        ),
-        entry.kind === "native"
-          ? h(
-              ui.smallButton,
-              { onClick: () => void libraryTabsAct("setNativeHidden", { key: entry.key, hidden: !entry.hidden }) },
-              entry.hidden ? "Show" : "Hide",
-            )
-          : null,
-      ),
+      value: renderSteamUiActions(ui, [
+        { id: "up", label: "Move up", disabled: index === 0 || !!state.busy,
+          onClick: () => void libraryTabsAct("moveTab", { key: entry.key, delta: -1 }) },
+        { id: "down", label: "Move down", disabled: index === order.length - 1 || !!state.busy,
+          onClick: () => void libraryTabsAct("moveTab", { key: entry.key, delta: 1 }) },
+        ...(entry.kind === "native" ? [{ id: "visibility", label: entry.hidden ? "Show" : "Hide",
+          disabled: !!state.busy,
+          onClick: () => void libraryTabsAct("setNativeHidden", { key: entry.key, hidden: !entry.hidden }) }] : [])
+      ], { compact: true }),
     }),
   );
   return libraryTabsLevel(
@@ -305,7 +288,7 @@ function LibraryTabsOrder({ ui, state, onBack }: any) {
     "Tab order",
     "Top to bottom here is left to right in Steam. Steam's own tabs can be hidden; WSGM tabs disappear when disabled in their editors.",
     h(ui.settingsSection, { label: "Strip" }, ...rows),
-    renderSteamUiActions(ui, [{ id: "back", label: "Done", onClick: onBack }]),
+    renderSteamUiActions(ui, [{ id: "back", label: "Done", onClick: onBack }], { compact: true }),
   );
 }
 
@@ -388,7 +371,7 @@ function LibraryTabsMultiSelect({ ui, title, picker, labelOf, idOf, selected, on
           ]
         : []),
       { id: "done", label: "Done", primary: true, onClick: onBack },
-    ]),
+    ], { compact: true }),
   );
 }
 
@@ -564,7 +547,7 @@ function LibraryTabsFilterEditor({ ui, state, node, group, touch, onPickTags, on
               }),
             ),
           ),
-          renderSteamUiActions(ui, [{ id: "addChild", label: "Add to group", onClick: onAddChild }]),
+          renderSteamUiActions(ui, [{ id: "addChild", label: "Add to group", onClick: onAddChild }], { compact: true }),
         )
       : null;
   return libraryTabsLevel(
@@ -582,7 +565,7 @@ function LibraryTabsFilterEditor({ ui, state, node, group, touch, onPickTags, on
         onClick: () => showSteamUiConfirm(ui, { title: "Remove this filter?", text: libraryTabsDescribe(state, node), confirmLabel: "Remove", onConfirm: onRemove }),
       },
       { id: "done", label: "Done", primary: true, onClick: onBack },
-    ]),
+    ], { compact: true }),
   );
 }
 
@@ -651,7 +634,7 @@ function LibraryTabsEditor({ ui, state, draft, existing, touch, onAddFilter, onE
               }),
             ),
           ),
-      renderSteamUiActions(ui, [{ id: "add", label: "Add filter", onClick: onAddFilter }]),
+      renderSteamUiActions(ui, [{ id: "add", label: "Add filter", onClick: onAddFilter }], { compact: true }),
     ),
     renderSteamUiActions(ui, [
       { id: "save", label: "Save tab", primary: true, disabled: !!state.busy, onClick: onSave },
@@ -667,7 +650,7 @@ function LibraryTabsEditor({ ui, state, draft, existing, touch, onAddFilter, onE
           ]
         : []),
       { id: "cancel", label: "Cancel", onClick: onBack },
-    ]),
+    ], { compact: true }),
   );
 }
 
