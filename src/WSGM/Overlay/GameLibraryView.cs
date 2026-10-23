@@ -135,7 +135,7 @@ public sealed partial class GameLibraryView : ServiceSubView
         stack.Children.Add(Tagged(
             Row("Add a shortcuts folder", "Choose a folder, recursion and file types", Icons.Grid4,
                 () => Navigate(RenderAddFolder)), "add-folder"));
-        stack.Children.Add(Tagged(Row("Add a ROM library", "Choose a system, parser and emulator", Icons.Grid4,
+        stack.Children.Add(Tagged(Row("Add a ROM library", "Choose a system folder or a collection; preview before choosing an emulator", Icons.Grid4,
             () => OpenRomSource(null)), "add-rom"));
         stack.Children.Add(Tagged(Row("Add a ROM", "Choose a single game file and its emulator", Icons.Grid4,
             () => OpenRomSource(null, true)), "add-rom-file"));

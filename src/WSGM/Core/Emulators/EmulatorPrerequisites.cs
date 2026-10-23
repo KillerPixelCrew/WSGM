@@ -55,6 +55,11 @@ internal static class EmulatorPrerequisites
             throw new InvalidDataException("That prerequisite file type is not supported.");
         }
 
+        if (File.Exists(path) && new FileInfo(path).Length == 0)
+        {
+            throw new InvalidDataException("That prerequisite file is empty. Choose your complete local dump.");
+        }
+
         Directory.CreateDirectory(installed.DataPath);
         if (requirement.NativeInstaller)
         {

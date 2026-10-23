@@ -37,6 +37,10 @@ internal sealed partial class GameLibraryService
 
             copy.Root.AbsolutePath = Path.GetFullPath(copy.Root.AbsolutePath);
             var single = !copy.Root.Directory || File.Exists(copy.Root.AbsolutePath);
+            if (single && copy.SystemId == "auto")
+            {
+                return Refuse("Choose a system for a single ROM file.");
+            }
             if (copy.Root.VolumeId.Length == 0)
             {
                 copy.Root = ManagedContentStorage.CapturePath(copy.Root.AbsolutePath, !single);
@@ -321,7 +325,7 @@ internal sealed partial class GameLibraryService
     public IReadOnlyList<RomSystemProfile> ReadRomSystems()
     {
         _ = ReadRomState();
-        return _romSystems ?? RomProfiles.All;
+        return [RomProfiles.Automatic, .. _romSystems ?? RomProfiles.All];
     }
 
     public RomEmulatorState ReadRomState()

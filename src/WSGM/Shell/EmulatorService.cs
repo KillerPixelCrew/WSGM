@@ -17,6 +17,7 @@ internal sealed record EmulatorPageState(
     IReadOnlyList<EmulatorDependencyCount> Dependencies,
     string Architecture)
 {
+    public IReadOnlyList<RomSystemProfile> RomSourceSystems => [RomProfiles.Automatic, .. RomSystems];
     public EmulatorBiosState Bios { get; init; } = new("", false, []);
     public EmulatorListItem[] Installed { get; init; } = [];
     public EmulatorCoreStatus[] CoreStatus { get; init; } = [];

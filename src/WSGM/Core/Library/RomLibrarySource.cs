@@ -151,6 +151,9 @@ public enum RomParserKind
 /// <summary>The reviewed standalone profiles plus explicit installed-core system metadata.</summary>
 public static class RomProfiles
 {
+    /// <summary>Recognizes system folders beneath a collection root, or the selected system folder itself.</summary>
+    public static RomSystemProfile Automatic { get; } = new("auto", "Detect system folders", [], 0, RomParserKind.File);
+
     /// <summary>The reviewed first-release system profiles.</summary>
     public static IReadOnlyList<RomSystemProfile> All { get; } =
     [
@@ -160,24 +163,27 @@ public static class RomProfiles
         new("gb", "Game Boy", [".gb", ".zip", ".7z"], 9, RomParserKind.File),
         new("gbc", "Game Boy Color", [".gbc", ".zip", ".7z"], 10, RomParserKind.File),
         new("gba", "Game Boy Advance", [".gba", ".zip", ".7z"], 12, RomParserKind.File),
-        new("n64", "Nintendo 64", [".n64", ".z64", ".v64", ".zip"], 14, RomParserKind.File),
+        new("n64", "Nintendo 64", [".n64", ".z64", ".v64", ".zip", ".7z"], 14, RomParserKind.File),
         new("nds", "Nintendo DS", [".nds", ".zip"], 15, RomParserKind.File),
         new("megadrive", "Mega Drive / Genesis", [".md", ".gen", ".bin", ".zip", ".7z"], 1,
             RomParserKind.File),
         new("mastersystem", "Sega Master System", [".sms", ".zip", ".7z"], 2, RomParserKind.File),
         new("gamegear", "Sega Game Gear", [".gg", ".zip", ".7z"], 21, RomParserKind.File),
+        new("sega32x", "Sega 32X", [".32x", ".bin", ".zip", ".7z"], 19, RomParserKind.File),
+        new("pico", "Sega Pico", [".md", ".bin", ".zip", ".7z"], 0, RomParserKind.File),
         new("saturn", "Sega Saturn", [".cue", ".chd", ".m3u"], 22, RomParserKind.Disc),
         new("dreamcast", "Sega Dreamcast", [".gdi", ".cdi", ".chd", ".m3u"], 23, RomParserKind.Disc),
-        new("psp", "PlayStation Portable", [".iso", ".cso", ".pbp"], 13, RomParserKind.File),
+        new("psp", "PlayStation Portable", [".iso", ".cso", ".pbp", ".chd"], 13, RomParserKind.File),
         new("psx", "PlayStation", [".cue", ".chd", ".pbp", ".m3u"], 57, RomParserKind.Disc),
-        new("ps2", "PlayStation 2", [".iso", ".chd", ".cso", ".bin", ".img", ".mdf", ".gz"], 58,
+        new("ps2", "PlayStation 2", [".iso", ".chd", ".cso", ".bin", ".img", ".mdf", ".gz", ".m3u"], 58,
             RomParserKind.Disc),
         new("ps3", "PlayStation 3", [".bin"], 59, RomParserKind.Eboot),
         new("gamecube", "Nintendo GameCube", [".iso", ".gcm", ".gcz", ".rvz", ".wia", ".ciso", ".dol", ".elf"],
             64, RomParserKind.File),
         new("wii", "Nintendo Wii", [".iso", ".wbfs", ".gcz", ".rvz", ".wia", ".ciso", ".wad", ".dol", ".elf"],
             16, RomParserKind.File),
-        new("switch", "Nintendo Switch", [".xci", ".nsp", ".nca", ".nro", ".nso"], 225, RomParserKind.File),
+        new("switch", "Nintendo Switch", [".xci", ".nsp", ".nca", ".nro", ".nso", ".nsz", ".xcz"], 225,
+            RomParserKind.File),
         new("3ds", "Nintendo 3DS", [".3ds", ".cci", ".cxi", ".app"], 17, RomParserKind.File),
         new("wiiu", "Nintendo Wii U", [".wua", ".wud", ".wux", ".rpx"], 18, RomParserKind.File),
         new("xbox", "Xbox", [".iso"], 32, RomParserKind.File),
@@ -276,14 +282,44 @@ public sealed class RomLibrarySource(RomSourceConfig source, IReadOnlyList<RomSy
     {
         var root = source.ResolveRoot();
         var systemId = EmulatorStorage.NormalizeSystemId(source.SystemId);
-        var profile = (profiles ?? RomProfiles.All).FirstOrDefault(value => value.Id == systemId)
+        var known = profiles ?? RomProfiles.All;
+        if (systemId == "auto")
+        {
+            RomSystemProfile? Match(string path) => known.FirstOrDefault(profile =>
+                profile.Id == EmulatorStorage.NormalizeSystemId(Path.GetFileName(path.TrimEnd('\\', '/'))));
+            if (Match(root) is { } selected)
+            {
+                return Discover(root, selected, cancellationToken);
+            }
+
+            List<DiscoveredGame> collection = [];
+            foreach (var directory in LibraryFiles.List(root).Where(item => item.IsDirectory))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if ((directory.Attributes & (FileAttributes.ReparsePoint | FileAttributes.Hidden | FileAttributes.System)) == 0
+                    && Match(directory.Path) is { } system)
+                {
+                    collection.AddRange(Discover(directory.Path, system, cancellationToken));
+                }
+            }
+
+            return collection;
+        }
+
+        var profile = known.FirstOrDefault(value => value.Id == systemId)
                       ?? throw new InvalidDataException("Choose a supported ROM system.");
+        return Discover(root, profile, cancellationToken);
+    }
+
+    private IReadOnlyList<DiscoveredGame> Discover(string root, RomSystemProfile profile, CancellationToken cancellationToken)
+    {
+        var systemId = profile.Id;
         var parser = profile.ParserKind;
         var extensions = source.Extensions.Count > 0
             ? GameLibraryRules.NormalizeExtensions(source.Extensions)
             : profile.Extensions;
-        var files = Walk(root, cancellationToken).ToArray();
-        var parent = root;
+        var parent = source.ResolveRoot();
+        var files = Walk(root, parent, parser, systemId == "switch", cancellationToken);
         var binding = source.Root.Copy();
         binding.AbsolutePath = parent;
         binding.Directory = true;
@@ -296,9 +332,8 @@ public sealed class RomLibrarySource(RomSourceConfig source, IReadOnlyList<RomSy
             var file = listed.Path;
             var key = Path.GetRelativePath(parent, file);
             if (!extensions.Any(extension => file.EndsWith(extension, StringComparison.OrdinalIgnoreCase))
-                || source.Exclusions.Any(pattern => FileSystemName.MatchesSimpleExpression(pattern, key)
-                                                    || FileSystemName.MatchesSimpleExpression(pattern,
-                                                        Path.GetFileName(file))))
+                || Excluded(key)
+                || (systemId == "switch" && RomMetadata.IsSwitchAddOn(key)))
             {
                 continue;
             }
@@ -328,19 +363,49 @@ public sealed class RomLibrarySource(RomSourceConfig source, IReadOnlyList<RomSy
         foreach (var (listed, key, companions) in primaries.Where(item => !companionFiles.Contains(item.File.Path)))
         {
             var file = listed.Path;
-            var rawName = parser == RomParserKind.Eboot ? EbootName(file)
-                : parser == RomParserKind.InstalledEboot ? new DirectoryInfo(Path.GetDirectoryName(file)!).Name
-                : Path.GetFileNameWithoutExtension(file);
-            var name = source.TitleCleanup
-                ? Regex.Replace(rawName, @"\s*[\[(][^\])]*[\])]", "", RegexOptions.CultureInvariant).Trim()
-                : rawName;
-            if (name.Length == 0)
+            var metadata = parser is RomParserKind.Eboot or RomParserKind.InstalledEboot
+                ? RomMetadata.ReadSfo(file) : null;
+            if (parser == RomParserKind.Eboot && metadata?.Category == "GD")
             {
-                name = rawName;
+                continue;
             }
 
-            games.Add(CreateRom(Id, key, name, source.Name, listed, binding, companions, profile,
-                source.EmulatorInstallationId, source.CoreId, source.Arguments));
+            var rawName = metadata?.Title is { Length: > 0 } title ? title
+                : parser == RomParserKind.Eboot ? EbootName(file)
+                : parser == RomParserKind.InstalledEboot ? new DirectoryInfo(Path.GetDirectoryName(file)!).Name
+                : Path.GetFileNameWithoutExtension(file);
+            var name = source.TitleCleanup && metadata?.Title is not { Length: > 0 }
+                ? RomMetadata.CleanTitle(rawName) : rawName;
+
+            var game = CreateRom(Id, key, name, source.Name, listed, binding, companions, profile,
+                source.EmulatorInstallationId, source.CoreId, source.Arguments);
+            var rawFileName = Path.GetFileNameWithoutExtension(file);
+            if (source.TitleCleanup && metadata?.Title is not { Length: > 0 } && rawFileName != name)
+            {
+                game = game with { Notes = [.. game.Notes, "File: " + Path.GetFileName(file)] };
+            }
+
+            if (metadata?.TitleId is { Length: > 0 } titleId)
+            {
+                game = game with { Notes = [.. game.Notes, "Title ID: " + titleId] };
+            }
+
+            games.Add(game);
+        }
+
+        if (source.TitleCleanup && parser is not (RomParserKind.Eboot or RomParserKind.InstalledEboot))
+        {
+            foreach (var group in games.Select((game, index) => (Game: game, Index: index))
+                         .GroupBy(item => item.Game.Name, StringComparer.OrdinalIgnoreCase).Where(group => group.Count() > 1))
+            {
+                foreach (var (game, index) in group)
+                {
+                    var name = Path.GetFileNameWithoutExtension(game.InstallPath) + " ["
+                               + Path.GetExtension(game.InstallPath).TrimStart('.').ToUpperInvariant() + "]";
+                    games[index] = game with { Name = name };
+                    games[index].Content!.Name = name;
+                }
+            }
         }
 
         return games;
@@ -389,12 +454,47 @@ public sealed class RomLibrarySource(RomSourceConfig source, IReadOnlyList<RomSy
         ShortcutRoute route = new("managed", "Managed emulator", "", "", "",
             "Resolves the selected emulator and this ROM's storage when launched.", ManagedId: content.Id);
         return DiscoveredGame.Command(sourceId, key, name, file.Path, [route], content, true,
-            new LibraryArtworkQuery("screenscraper", profile.ScreenscraperSystemId, Path.GetFileName(file.Path),
-                file.Length));
+            new LibraryArtworkQuery("screenscraper", profile.ScreenscraperSystemId,
+                profile.ParserKind is RomParserKind.Eboot or RomParserKind.InstalledEboot ? name
+                    : Path.GetFileName(file.Path),
+                profile.ParserKind is RomParserKind.Eboot or RomParserKind.InstalledEboot ? 0 : file.Length)) with
+        {
+            Notes = profile.Id == "ps2" && Path.GetExtension(file.Path).Equals(".m3u", StringComparison.OrdinalIgnoreCase)
+                ? ["Starts the first disc. Use the emulator's Change Disc menu to switch to another disc in this playlist."]
+                : []
+        };
     }
 
-    private IEnumerable<FolderEntry> Walk(string root, CancellationToken token)
+    private bool Excluded(string key)
     {
+        key = key.Replace('\\', '/');
+        return source.Exclusions.Any(value =>
+        {
+            var pattern = value.Replace('\\', '/');
+            return FileSystemName.MatchesSimpleExpression(pattern, key)
+                   || FileSystemName.MatchesSimpleExpression(pattern, Path.GetFileName(key.TrimEnd('/')))
+                   || (pattern.StartsWith("*/", StringComparison.Ordinal)
+                       && FileSystemName.MatchesSimpleExpression(pattern.AsSpan(2), key));
+        });
+    }
+
+    private IEnumerable<FolderEntry> Walk(string root, string sourceRoot, RomParserKind parser, bool switchContent,
+        CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
+        if (parser == RomParserKind.Eboot)
+        {
+            var directory = new DirectoryInfo(Path.Combine(root, "USRDIR"));
+            var eboot = new FileInfo(Path.Combine(directory.FullName, "EBOOT.BIN"));
+            const FileAttributes ignored = FileAttributes.ReparsePoint | FileAttributes.Hidden | FileAttributes.System;
+            if (directory.Exists && (directory.Attributes & ignored) == 0
+                                 && eboot.Exists && (eboot.Attributes & ignored) == 0)
+            {
+                yield return new FolderEntry(eboot.FullName, false, eboot.Attributes, eboot.Length);
+                yield break;
+            }
+        }
+
         foreach (var item in LibraryFiles.List(root))
         {
             token.ThrowIfCancellationRequested();
@@ -406,9 +506,10 @@ public sealed class RomLibrarySource(RomSourceConfig source, IReadOnlyList<RomSy
 
             if ((attributes & FileAttributes.Directory) != 0)
             {
-                if (source.IncludeSubfolders)
+                if (source.IncludeSubfolders && !Excluded(Path.GetRelativePath(sourceRoot, item.Path) + "/")
+                    && !(switchContent && RomMetadata.IsSwitchAddOn(Path.GetRelativePath(sourceRoot, item.Path) + "/_")))
                 {
-                    foreach (var file in Walk(item.Path, token))
+                    foreach (var file in Walk(item.Path, sourceRoot, parser, switchContent, token))
                     {
                         yield return file;
                     }

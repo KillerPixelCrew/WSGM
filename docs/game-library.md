@@ -486,12 +486,24 @@ share one admission gate with the launcher while activating a version or startin
 installations can be registered without granting WSGM ownership of their files. Removal preserves
 user data by default and retains dependent ROM shortcuts.
 
-ROM setup chooses a system, source path, emulator and RetroArch core, file types, recursion and
-exclusions. Installed core metadata extends the profile list. Disc descriptors/playlists retain
-required companions. PS3 profiles use extracted-disc or installed-title EBOOTs; raw PKG installation
-is separate, and direct PS3 ISO boot is not claimed. System defaults, source templates and per-title
-emulator/core/argument overrides use explicit path tokens. Steam ROM Manager presets and reviewed
-EmuDeck Windows behavior inform the defaults.
+ROM setup accepts a system folder or a collection root with **Detect system folders**. Folder
+aliases include `gc`, `n3ds` and `genesis`; Sega Pico and 32X are available through compatible
+RetroArch cores. An emulator can be chosen later: discovery and preview work before installation,
+while launch still requires a compatible emulator/core and its prerequisites. File types, recursion
+and exclusions remain editable; exclusion paths accept both slash styles. Installed core metadata
+extends the profile list. PSP CHD and N64 7z are recognized. Switch update/DLC folders and tagged
+update/add-on title IDs are excluded. NSZ/XCZ files appear with a conversion requirement instead of
+being offered as bootable games; the supported Switch releases require NSP/XCI.
+
+Disc descriptors/playlists retain required companions. PS2 playlists launch their first image
+through PCSX2 rather than passing it an unsupported M3U; use the emulator's Change Disc menu for
+later discs. Title cleanup preserves disc numbers, and multiple copies/regions/revisions remain
+visible but need explicit selection. PS3 discovery reads bounded `PARAM.SFO` metadata for
+titles/artwork and stops at each game root rather than traversing its data tree. Raw PKG
+installation is separate, and direct PS3 ISO boot is not claimed. PSN titles still need their
+legitimate licenses and RPCS3-native installed layout; discovering an EBOOT does not certify that
+setup. System defaults, source templates and per-title emulator/core/argument overrides use explicit
+path tokens. Steam ROM Manager presets and reviewed EmuDeck Windows behavior inform the defaults.
 
 Managed records retain stable title/source ids, volume identity and relative paths. Their shortcut
 Target includes the quoted helper and a unique `--managed` id, preserving Steam AppId, artwork and

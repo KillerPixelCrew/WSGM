@@ -1095,9 +1095,6 @@
             onButtonDown: pages > 1 ? onSteamTriggers(turn) : undefined,
           },
           steamUiKitStyle(react),
-          // The dialog Steam draws around the picker shows no title of its own in Big Picture,
-          // so the picker draws the one the page asked for.
-          h("div", { className: "steam-ui-kit-picker-title" }, title),
           h(
             ui.focusable,
             { className: "steam-ui-kit-picker-actions", "flow-children": "row" },
@@ -1554,6 +1551,7 @@
         },
         // Modal portals do not inherit the originating document's toolkit stylesheet.
         steamUiKitStyle(react),
+        title ? react.createElement("h2", { className: "steam-ui-kit-modal-title" }, title) : null,
         options.render(close),
       );
     }
@@ -4194,7 +4192,10 @@
 .steam-ui-kit-content .steam-ui-kit-toolbar{flex-wrap:wrap}
 /* Valve's dropdown uses two fixed-width wrappers; constrain the whole field inside narrow QAM groups. */
 .steam-ui-kit-group .DialogButton[role="combobox"],.steam-ui-kit-group div:has(>.DialogButton[role="combobox"]),.steam-ui-kit-group div:has(>div>.DialogButton[role="combobox"]){min-width:0!important;max-width:100%!important;box-sizing:border-box}
-.steam-ui-kit-sheet{display:flex;flex-direction:column;gap:6px;width:100%;min-width:0;max-height:min(70vh,calc(100vh - 160px));overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;scrollbar-gutter:stable}
+.steam-ui-kit-sheet{display:flex;flex-direction:column;gap:6px;width:100%;min-width:0;max-height:min(70vh,calc(100vh - 160px));overflow:hidden}
+.steam-ui-kit-sheet-content{display:flex;flex-direction:column;gap:6px;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;scrollbar-gutter:stable}
+.steam-ui-kit-sheet-content>*{min-width:0;max-width:100%;box-sizing:border-box;flex-shrink:0}
+.steam-ui-kit-sheet>.steam-ui-kit-sheet-content{flex-shrink:1}
 .steam-ui-kit-sheet>*{min-width:0;max-width:100%;box-sizing:border-box;flex-shrink:0}
 .steam-ui-kit-sheet .DialogInput,.steam-ui-kit-sheet .DialogInputWrapper,.steam-ui-kit-sheet .DialogButton{min-width:0;max-width:100%;box-sizing:border-box}
 .steam-ui-kit-sheet-note{font-size:14px;color:#8b929a;line-height:1.45;margin:0 0 12px}
@@ -4302,7 +4303,6 @@
 .steam-ui-kit-select-row-title{min-width:0;overflow-wrap:anywhere}
 .steam-ui-kit-select-row-detail{grid-column:1 / -1;min-width:0;font-size:13px;color:#8b929a;white-space:normal;overflow-wrap:anywhere}
 .steam-ui-kit-picker{display:flex;flex-direction:column;gap:12px;min-width:0;width:900px;max-width:100%;box-sizing:border-box}
-.steam-ui-kit-picker-title{font-size:22px;line-height:30px;font-weight:700;color:#fff;min-width:0;overflow-wrap:anywhere}
 .steam-ui-kit-picker-body{display:grid;grid-template-columns:minmax(140px,1fr) minmax(0,2fr);gap:16px;min-height:0;height:clamp(200px,90vh - 310px,520px)}
 .steam-ui-kit-picker-places,.steam-ui-kit-picker-files{min-width:0;min-height:0;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;gap:6px;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.12);border-radius:4px;padding:8px;box-sizing:border-box}
 .steam-ui-kit-picker-heading{padding:4px 8px 8px;border-bottom:1px solid #3d4450;font-size:12px;font-weight:600;color:#8b929a;text-transform:uppercase;letter-spacing:.06em}
@@ -4508,8 +4508,11 @@
             key: action.id,
             className:
               !options.compact && action.label.length > 18 ? "steam-ui-kit-wide" : undefined,
-            onClick: action.onClick,
+            onClick: () => {
+              if (!action.disabled) action.onClick();
+            },
             disabled: !!action.disabled,
+            "aria-disabled": !!action.disabled,
           },
           action.label,
         ),
@@ -4527,9 +4530,13 @@
         "flow-children": "column",
       },
       steamUiKitStyle(ui.react),
-      props.note ? h("p", { className: "steam-ui-kit-sheet-note" }, props.note) : null,
-      ...children,
-      props.error ? h("p", { className: "steam-ui-kit-sheet-error" }, props.error) : null,
+      h(
+        ui.focusable ?? "div",
+        { className: "steam-ui-kit-sheet-content", "flow-children": "column" },
+        props.note ? h("p", { className: "steam-ui-kit-sheet-note" }, props.note) : null,
+        ...children,
+        props.error ? h("p", { className: "steam-ui-kit-sheet-error" }, props.error) : null,
+      ),
       props.actions?.length
         ? h(
             "div",
@@ -4988,7 +4995,6 @@
         h(
           "div",
           { className: "steam-ui-kit-modal-body" },
-          h("h2", { className: "steam-ui-kit-modal-title" }, props.title),
           h("p", null, props.text),
           h(
             ui.focusable,
@@ -5018,7 +5024,6 @@
     return h(
       "div",
       { className: "steam-ui-kit-modal-body" },
-      h("h2", { className: "steam-ui-kit-modal-title" }, props.title),
       props.text ? h("p", null, props.text) : null,
       h(ui.textField, {
         label: props.label,
@@ -16625,7 +16630,7 @@
     importEditorStore.changed();
   };
   const receiveRomChoices = (state) => {
-    importRomSystems = state?.romSystems ?? [];
+    importRomSystems = state?.romSourceSystems ?? state?.romSystems ?? [];
     importRomState = {
       choices: state?.choices ?? [],
       systemPreferences: state?.emulators?.systemPreferences ?? [],
@@ -17257,10 +17262,16 @@
   function ImportRomLaunchControls({ state, systemId, installationId, coreId, choose }) {
     const h = importUi.react.createElement;
     useImportEditorState();
+    if (systemId === "auto")
+      return h(
+        "div",
+        { style: { color: "#b8bcbf" } },
+        "Recognizes system folders such as gc, n3ds and genesis. Each system uses its preferred emulator. You can preview before installing an emulator.",
+      );
     const installations = importSystemChoices(state, systemId);
     const selected = installations.find((installation) => installation.id === installationId);
     const options = [
-      { data: "", label: "Choose an installed emulator" },
+      { data: "", label: "System default" },
       ...installations.map((installation) => ({
         data: installation.id,
         label: installation.label,
@@ -17309,7 +17320,8 @@
         : null;
       const source = (importLatest?.romSources ?? []).find((item) => item.id === sourceId);
       const system =
-        state?.romSystems?.find((item) => item.id === manual?.systemId) ?? state?.romSystems?.[0];
+        state?.romSystems?.find((item) => item.id === manual?.systemId) ??
+        state?.romSystems?.find((item) => !singleFile || item.id !== "auto");
       const preferred = importRomState.systemPreferences.find(
         (item) => item.systemId === system?.id,
       );
@@ -17351,7 +17363,7 @@
     });
     const [error, setError] = react.useState("");
     const change = (fields) => setDraft((current) => ({ ...current, ...fields }));
-    const systems = state?.romSystems ?? [];
+    const systems = (state?.romSystems ?? []).filter((item) => !singleFile || item.id !== "auto");
     const field = (label, value, onChange) =>
       h(importUi.textField, {
         label,
@@ -17398,15 +17410,7 @@
         id: "save",
         label: "Save and preview",
         primary: true,
-        disabled:
-          state?.loading ||
-          !draft.root.absolutePath ||
-          !draft.systemId ||
-          !draft.emulatorInstallationId ||
-          (importSystemChoices(state, draft.systemId).find(
-            (item) => item.id === draft.emulatorInstallationId,
-          )?.requiresCore &&
-            !draft.coreId),
+        disabled: state?.loading || !draft.root.absolutePath || !draft.systemId,
         onClick: save,
       },
     ];

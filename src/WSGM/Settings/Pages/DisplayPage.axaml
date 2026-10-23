@@ -66,47 +66,7 @@
   </UserControl.Resources>
   <ScrollViewer>
     <StackPanel Margin="20,16" Spacing="16">
-      <Expander Header="GPU-scaled resolutions" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
-        <StackPanel DataContext="{Binding ScaledResolutions}" x:DataType="s:ScaledResolutionEditor" Spacing="10">
-          <TextBlock Text="Changes are saved immediately. Your active resolution stays the same. The native resolution is protected." Classes="caption" TextWrapping="Wrap" />
-          <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
-            <ComboBox ItemsSource="{Binding Displays}" SelectedItem="{Binding Display}" HorizontalAlignment="Stretch" PlaceholderText="Choose a display" IsEnabled="{Binding !Busy}" />
-            <Button Grid.Column="1" Content="Refresh" Command="{Binding RefreshCommand}" IsEnabled="{Binding !Busy}" />
-          </Grid>
-          <TextBlock Text="{Binding AdapterText}" Classes="caption" TextWrapping="Wrap" />
-          <StackPanel Spacing="8" IsEnabled="{Binding CanEdit}">
-            <StackPanel Spacing="8" IsEnabled="{Binding !Busy}">
-              <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
-                <TextBox x:Name="ScaledSizeBox" Text="{Binding Size}" PlaceholderText="Width × height" MaxLength="13"
-                         AutomationProperties.Name="Custom resolution in pixels" />
-                <Button Grid.Column="1" Content="Edit" Click="OnEditScaledSize" />
-                <Button Grid.Column="2" Content="Add" Command="{Binding AddCommand}" IsEnabled="{Binding CanAdd}" />
-              </Grid>
-              <ListBox ItemsSource="{Binding Resolutions}" SelectedItem="{Binding Resolution}" Height="168"
-                       AutomationProperties.Name="Resolutions" />
-              <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
-                <Button Content="Remove" Command="{Binding RemoveCommand}" IsEnabled="{Binding CanRemove}"
-                        ToolTip.Tip="Remove the selected entry from the driver's resolution list." />
-                <Button Grid.Column="1" Content="Restore original list" Command="{Binding RestoreCommand}" IsEnabled="{Binding CanRestore}"
-                        HorizontalAlignment="Left" ToolTip.Tip="Restore the list saved before your first edit. The native resolution is protected." />
-                <Button Grid.Column="2" Content="Add 5% steps" Command="{Binding AddStepsCommand}" IsEnabled="{Binding CanAddSteps}"
-                        ToolTip.Tip="Add native 100% down to 50%, in 5% steps. Existing resolutions are preserved." />
-              </Grid>
-              <TextBlock Text="5% steps: native 100% down to 50%." Classes="caption" />
-              <Expander Header="Driver options" IsVisible="{Binding HasDriverOptions}" HorizontalAlignment="Stretch"
-                        HorizontalContentAlignment="Stretch">
-                <StackPanel Spacing="8">
-                  <Button Content="Restore missing resolutions" Command="{Binding ReapplyCommand}" IsVisible="{Binding HasMissing}" HorizontalAlignment="Left" />
-                  <TextBlock Text="Restart the driver to activate changes. Displays may go blank and games may be interrupted."
-                             TextWrapping="Wrap" Classes="caption" IsVisible="{Binding NeedsRestart}" />
-                  <Button Content="Restart graphics driver" Command="{Binding RestartCommand}" IsVisible="{Binding NeedsRestart}" HorizontalAlignment="Left" />
-                </StackPanel>
-              </Expander>
-            </StackPanel>
-          </StackPanel>
-          <TextBlock Text="{Binding Status}" TextWrapping="Wrap" />
-        </StackPanel>
-      </Expander>
+
       <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
         <StackPanel Spacing="4">
           <TextBlock Text="Display layouts" FontSize="22" FontWeight="SemiBold" />
@@ -226,6 +186,54 @@
       </Expander>
       <TextBlock Text="Save changes to apply these layouts on the next switch. Your current desktop stays as it is."
                  Classes="caption" />
+      <Border x:Name="CustomResolutionsSection" BorderThickness="0,1,0,0"
+              BorderBrush="{StaticResource HcControlBorderBrush}" Padding="0,16,0,0">
+        <StackPanel Spacing="12">
+          <StackPanel Spacing="4">
+            <TextBlock Text="Custom resolutions" FontSize="22" FontWeight="SemiBold" />
+            <TextBlock Text="Manage the GPU driver's resolution list for each display." Classes="caption" TextWrapping="Wrap" />
+          </StackPanel>
+          <StackPanel DataContext="{Binding ScaledResolutions}" x:DataType="s:ScaledResolutionEditor" Spacing="10">
+            <TextBlock Text="Changes are saved immediately. Your active resolution stays the same. The native resolution is protected." Classes="caption" TextWrapping="Wrap" />
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+              <ComboBox ItemsSource="{Binding Displays}" SelectedItem="{Binding Display}" HorizontalAlignment="Stretch" PlaceholderText="Choose a display" IsEnabled="{Binding !Busy}" />
+              <Button Grid.Column="1" Content="Refresh" Command="{Binding RefreshCommand}" IsEnabled="{Binding !Busy}" />
+            </Grid>
+            <TextBlock Text="{Binding AdapterText}" Classes="caption" TextWrapping="Wrap" />
+            <StackPanel Spacing="8" IsEnabled="{Binding CanEdit}">
+              <StackPanel Spacing="8" IsEnabled="{Binding !Busy}">
+                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                  <TextBox x:Name="ScaledSizeBox" Text="{Binding Size}" PlaceholderText="Width × height" MaxLength="13"
+                           AutomationProperties.Name="Custom resolution in pixels" />
+                  <Button Grid.Column="1" Content="Edit" Click="OnEditScaledSize" />
+                  <Button Grid.Column="2" Content="Add" Command="{Binding AddCommand}" IsEnabled="{Binding CanAdd}" />
+                </Grid>
+                <ListBox ItemsSource="{Binding Resolutions}" SelectedItem="{Binding Resolution}" Height="168"
+                         AutomationProperties.Name="Resolutions" />
+                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+                  <Button Content="Remove" Command="{Binding RemoveCommand}" IsEnabled="{Binding CanRemove}"
+                          ToolTip.Tip="Remove the selected entry from the driver's resolution list." />
+                  <Button Grid.Column="1" Content="Restore original list" Command="{Binding RestoreCommand}" IsEnabled="{Binding CanRestore}"
+                          HorizontalAlignment="Left" ToolTip.Tip="Restore the list saved before your first edit. The native resolution is protected." />
+                  <Button Grid.Column="2" Content="Add 5% steps" Command="{Binding AddStepsCommand}" IsEnabled="{Binding CanAddSteps}"
+                          ToolTip.Tip="Add native 100% down to 50%, in 5% steps. Existing resolutions are preserved." />
+                </Grid>
+                <TextBlock Text="5% steps: native 100% down to 50%." Classes="caption" />
+                <Expander Header="Driver options" IsVisible="{Binding HasDriverOptions}" HorizontalAlignment="Stretch"
+                          HorizontalContentAlignment="Stretch">
+                  <StackPanel Spacing="8">
+                    <Button Content="Restore missing resolutions" Command="{Binding ReapplyCommand}" IsVisible="{Binding HasMissing}" HorizontalAlignment="Left" />
+                    <TextBlock Text="Restart the driver to activate changes. Displays may go blank and games may be interrupted."
+                               TextWrapping="Wrap" Classes="caption" IsVisible="{Binding NeedsRestart}" />
+                    <Button Content="Restart graphics driver" Command="{Binding RestartCommand}" IsVisible="{Binding NeedsRestart}" HorizontalAlignment="Left" />
+                  </StackPanel>
+                </Expander>
+              </StackPanel>
+            </StackPanel>
+            <TextBlock Text="{Binding Status}" TextWrapping="Wrap" />
+          </StackPanel>
+        </StackPanel>
+      </Border>
     </StackPanel>
   </ScrollViewer>
 </UserControl>

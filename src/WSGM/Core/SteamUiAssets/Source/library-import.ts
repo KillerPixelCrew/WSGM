@@ -40,7 +40,7 @@ const updateImportEditorState = () => {
   importEditorStore.changed();
 };
 const receiveRomChoices = (state: any) => {
-  importRomSystems = state?.romSystems ?? [];
+  importRomSystems = state?.romSourceSystems ?? state?.romSystems ?? [];
   importRomState = {
     choices: state?.choices ?? [],
     systemPreferences: state?.emulators?.systemPreferences ?? [],
@@ -682,10 +682,13 @@ function ImportArgumentsBody({ tokens, onSave, close }: any) {
 function ImportRomLaunchControls({ state, systemId, installationId, coreId, choose }: any) {
   const h = importUi.react.createElement;
   useImportEditorState();
+  if (systemId === "auto")
+    return h("div", { style: { color: "#b8bcbf" } },
+      "Recognizes system folders such as gc, n3ds and genesis. Each system uses its preferred emulator. You can preview before installing an emulator.");
   const installations = importSystemChoices(state, systemId);
   const selected = installations.find((installation: any) => installation.id === installationId);
   const options = [
-    { data: "", label: "Choose an installed emulator" },
+    { data: "", label: "System default" },
     ...installations.map((installation: any) => ({
       data: installation.id,
       label: installation.label,
@@ -736,7 +739,7 @@ function ImportRomSourceBody({ sourceId, singleFile = false, close }: any) {
     const source = (importLatest?.romSources ?? []).find((item: any) => item.id === sourceId);
     const system =
       state?.romSystems?.find((item: any) => item.id === manual?.systemId) ??
-      state?.romSystems?.[0];
+      state?.romSystems?.find((item: any) => !singleFile || item.id !== "auto");
     const preferred = importRomState.systemPreferences.find(
       (item: any) => item.systemId === system?.id,
     );
@@ -778,7 +781,7 @@ function ImportRomSourceBody({ sourceId, singleFile = false, close }: any) {
   });
   const [error, setError] = react.useState("");
   const change = (fields: any) => setDraft((current: any) => ({ ...current, ...fields }));
-  const systems = state?.romSystems ?? [];
+  const systems = (state?.romSystems ?? []).filter((item: any) => !singleFile || item.id !== "auto");
   const field = (label: string, value: string, onChange: any) =>
     h(importUi.textField, {
       label,
@@ -825,12 +828,7 @@ function ImportRomSourceBody({ sourceId, singleFile = false, close }: any) {
       disabled:
         state?.loading ||
         !draft.root.absolutePath ||
-        !draft.systemId ||
-        !draft.emulatorInstallationId ||
-        (importSystemChoices(state, draft.systemId).find(
-          (item: any) => item.id === draft.emulatorInstallationId,
-        )?.requiresCore &&
-          !draft.coreId),
+        !draft.systemId,
       onClick: save,
     },
   ];

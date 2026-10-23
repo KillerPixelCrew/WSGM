@@ -19,7 +19,7 @@ public sealed partial class GameLibraryView
         var state = _service?.ReadState();
         var existing = state?.RomSources?.FirstOrDefault(source => source.Id == id);
         var manual = singleFile ? state?.ManualSources?.FirstOrDefault(source => source.Id == id) : null;
-        var system = _service?.ReadRomSystems().FirstOrDefault();
+        var system = _service?.ReadRomSystems().FirstOrDefault(profile => !singleFile || profile.Id != "auto");
         var preferred = _service?.ReadRomState().SystemPreferences.FirstOrDefault(item => item.SystemId == system?.Id);
         _romSingleFile = singleFile;
         if (manual?.RomPath is { } path)
@@ -74,7 +74,7 @@ public sealed partial class GameLibraryView
         body.Children.Add(Tagged(Row(_romSingleFile ? "Choose ROM file" : "Choose ROM folder", draft.Root.AbsolutePath,
             Icons.Grid4,
             () => _ = RunSafelyAsync(ChooseRomFolderAsync(), "ROM folder")), "rom.path"));
-        var systems = _service!.ReadRomSystems();
+        var systems = _service!.ReadRomSystems().Where(profile => !_romSingleFile || profile.Id != "auto").ToArray();
         body.Children.Add(ChoiceRow("System", systems.Select(system => (system.Id, system.Name)).ToArray(),
             draft.SystemId,
             value =>
@@ -141,10 +141,6 @@ public sealed partial class GameLibraryView
         body.Children.Add(Tagged(PrimaryRow(_romSingleFile ? "Save ROM and preview" : "Save library and preview",
             "Scan the configured libraries without writing to Steam",
             Icons.Play, state.Loading || draft.Root.AbsolutePath.Length == 0 || draft.SystemId.Length == 0
-                        || draft.EmulatorInstallationId.Length == 0
-                        || (_service.ReadRomState().Choices.FirstOrDefault(item => item.SystemId == draft.SystemId)
-                                ?.Installations.FirstOrDefault(item => item.Id == draft.EmulatorInstallationId)
-                            is { RequiresCore: true } && draft.CoreId.Length == 0)
                 ? null
                 : () => _ = RunSafelyAsync(SaveRomSourceAsync(), "save ROM source")), "rom.save"));
         if (draft.Id.Length > 0)
@@ -243,11 +239,17 @@ public sealed partial class GameLibraryView
     private void AddRomLaunchChoices(StackPanel body, string systemId, string installationId,
         string coreId, Action<string, string> choose)
     {
+        if (systemId == "auto")
+        {
+            body.Children.Add(Caption("Recognizes system folders such as gc, n3ds and genesis. Each system uses its preferred emulator. You can preview before installing an emulator."));
+            return;
+        }
+
         var installations = _service?.ReadRomState().Choices.FirstOrDefault(item => item.SystemId == systemId)
                                 ?.Installations ??
                             [];
         var choices = installations.Select(item => (item.Id, item.Label)).ToList();
-        choices.Insert(0, ("", "Choose an installed emulator"));
+        choices.Insert(0, ("", "System default"));
         if (installationId.Length > 0 && installations.All(item => item.Id != installationId))
         {
             choices.Add((installationId, "Selected emulator is unavailable"));

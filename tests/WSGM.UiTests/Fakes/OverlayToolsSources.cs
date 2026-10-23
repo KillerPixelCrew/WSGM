@@ -650,7 +650,7 @@ internal sealed class FakeLibrarySource : IGameLibraryOverlaySource
 
     public IReadOnlyList<RomSystemProfile> ReadRomSystems()
     {
-        return RomProfiles.All;
+        return [RomProfiles.Automatic, .. RomProfiles.All];
     }
 
     public Task<SteamUiCommandResult> AddRomSourceAsync(RomSourceConfig source, CancellationToken cancellationToken)

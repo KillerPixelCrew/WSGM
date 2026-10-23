@@ -415,9 +415,15 @@ public static class EmulatorStorage
     /// <summary>Maps upstream aliases to the importer's canonical system identity.</summary>
     public static string NormalizeSystemId(string systemId)
     {
-        return systemId.Equals("genesis", StringComparison.OrdinalIgnoreCase)
-            ? "megadrive"
-            : systemId.ToLowerInvariant();
+        return systemId.ToLowerInvariant() switch
+        {
+            "genesis" => "megadrive",
+            "gc" => "gamecube",
+            "n3ds" => "3ds",
+            "32x" => "sega32x",
+            "segapico" => "pico",
+            _ => systemId.ToLowerInvariant()
+        };
     }
 
     /// <summary>Checks the shared compatible-system rule used by preferences and launch resolution.</summary>
@@ -432,6 +438,7 @@ public static class EmulatorStorage
     {
         return installation.Cores
             .Where(core => core.MetadataMissing || core.Systems.Length == 0
+                                                || (core.Id == "picodrive_libretro" && NormalizeSystemId(systemId) is "pico" or "sega32x")
                                                 || core.Systems.Any(system =>
                                                     NormalizeSystemId(system) == NormalizeSystemId(systemId)))
             .ToArray();
@@ -512,10 +519,57 @@ public static class EmulatorStorage
         string? coreId, string romPath, IReadOnlyList<string>? launchArguments = null,
         EmulatorResolveContext? context = null)
     {
+        if (NormalizeSystemId(systemId) == "switch"
+            && Path.GetExtension(romPath).ToLowerInvariant() is ".nsz" or ".xcz")
+        {
+            throw new InvalidOperationException(
+                "Compressed NSZ/XCZ content cannot be launched by the supported Switch emulators. "
+                + "Decompress your file to NSP/XCI, then scan again.");
+        }
+
+        if (NormalizeSystemId(systemId) == "ps2"
+            && Path.GetExtension(romPath).Equals(".m3u", StringComparison.OrdinalIgnoreCase))
+        {
+            using var playlist = File.OpenRead(romPath);
+            if (playlist.Length > 1024 * 1024)
+            {
+                throw new InvalidDataException("The disc playlist exceeds 1 MiB.");
+            }
+
+            using StreamReader reader = new(playlist);
+            string? disc = null;
+            while (reader.ReadLine() is { } line)
+            {
+                var value = line.Trim().Trim('"');
+                if (value.Length > 0 && !value.StartsWith('#'))
+                {
+                    disc = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(romPath)!, value));
+                    break;
+                }
+            }
+
+            if (disc is null || Path.GetExtension(disc).Equals(".m3u", StringComparison.OrdinalIgnoreCase)
+                || !File.Exists(disc))
+            {
+                throw new InvalidDataException("The first disc in this playlist is missing or invalid.");
+            }
+
+            // PCSX2 takes a disc image, not an M3U. Discovery retains the playlist and
+            // all its discs for availability, while launch resolves its current first disc.
+            romPath = disc;
+        }
+
         var installation = store.Installations.SingleOrDefault(item => item.Id == installationId)
                            ?? throw new InvalidOperationException(
                                "The selected emulator is not installed. Reinstall or choose another emulator.");
         var core = ValidateSelection(installation, systemId, coreId);
+        var extension = Path.GetExtension(romPath).TrimStart('.').ToLowerInvariant();
+        if (core is { Extensions.Length: > 0 } && extension is not ("zip" or "7z")
+            && !core.Extensions.Any(value => value.TrimStart('.').Equals(extension, StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidOperationException("The selected core does not support " + Path.GetExtension(romPath)
+                                                + " files. Choose a compatible core or convert the file.");
+        }
 
         void CheckInstallation()
         {
@@ -553,7 +607,7 @@ public static class EmulatorStorage
         {
             foreach (var path in required)
             {
-                if (!File.Exists(path) && !Directory.Exists(path))
+                if (!UsablePrerequisiteFile(path) && !Directory.Exists(path))
                 {
                     throw new FileNotFoundException("An emulator prerequisite is missing: " + path, path);
                 }
@@ -639,14 +693,44 @@ public static class EmulatorStorage
     internal static bool PrerequisitePresent(EmulatorInstallation installed, EmulatorPrerequisite rule)
     {
         var path = PrerequisitePath(installed, rule);
+        bool Usable(string file)
+        {
+            if (!UsablePrerequisiteFile(file))
+            {
+                return false;
+            }
+
+            if (rule.Kind == "keys")
+            {
+                if (new FileInfo(file).Length > 1024 * 1024)
+                {
+                    return false;
+                }
+
+                return File.ReadLines(file).Any(line =>
+                {
+                    var parts = line.Split('=', 2, StringSplitOptions.TrimEntries);
+                    return parts.Length == 2 && parts[0].Length > 0 && parts[1].Length is 32 or 64
+                           && parts[1].All(Uri.IsHexDigit);
+                });
+            }
+
+            return true;
+        }
+
         return rule.RequiredNames.Length > 0
-            ? rule.RequiredNames.All(name => File.Exists(Path.Combine(path, name)))
+            ? rule.RequiredNames.All(name => Usable(Path.Combine(path, name)))
             : rule.RequiredExtensions.Length > 0
                 ? Directory.Exists(path) && Directory.EnumerateFiles(path).Any(file =>
-                    rule.RequiredExtensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase))
+                    rule.RequiredExtensions.Contains(Path.GetExtension(file), StringComparer.OrdinalIgnoreCase) && Usable(file))
                 : rule.NativeInstaller
-                    ? Directory.Exists(path) && Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).Any()
-                    : Directory.Exists(path) || File.Exists(path);
+                    ? Directory.Exists(path) && Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories).Any(Usable)
+                    : Directory.Exists(path) ? Directory.EnumerateFiles(path).Any(Usable) : Usable(path);
+    }
+
+    private static bool UsablePrerequisiteFile(string path)
+    {
+        return File.Exists(path) && new FileInfo(path).Length > 0;
     }
 
     /// <summary>Acquires launch/activation admission; dispose on this same thread.</summary>

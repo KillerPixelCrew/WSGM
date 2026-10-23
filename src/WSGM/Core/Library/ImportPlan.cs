@@ -375,6 +375,11 @@ public static class ImportPlan
         // an adoption would let one run adopt it and then delete it as the other title's removal.
         HashSet<uint> claimed = [.. records.Values.Where(record => record.AppId > 0).Select(record => record.AppId)];
         Context context = new(byId, existing, claimed, launcherTarget, defaultMode, includeUnroutable);
+        var duplicateNames = discovered.Where(game => game.Content?.SourceKind == LibrarySourceKind.Rom)
+            .GroupBy(game => (game.Content!.SystemId.ToUpperInvariant(), RomMetadata.CleanTitle(game.Name).ToUpperInvariant()))
+            .Where(group => group.Count() > 1)
+            .SelectMany(group => group.Select(game => (game.SourceId, game.Key)))
+            .ToHashSet(IdentityComparer.Instance);
 
         List<ImportPlanEntry> plan = [];
         HashSet<(string Source, string Key)> seen = new(IdentityComparer.Instance);
@@ -411,6 +416,26 @@ public static class ImportPlan
             if ((game.Packaged ? Describe(game, record, context) : DescribeCommand(game, record, context))
                 is { } entry)
             {
+                if (record is null && entry.Action == ImportAction.Add && duplicateNames.Contains((game.SourceId, game.Key)))
+                {
+                    entry = entry with
+                    {
+                        Reason = "Multiple copies or versions found. Choose the file you want to import. " + game.Key,
+                        Preselect = false
+                    };
+                }
+
+                if (game.Content?.SystemId == "switch"
+                    && Path.GetExtension(game.InstallPath).ToLowerInvariant() is ".nsz" or ".xcz")
+                {
+                    entry = entry with
+                    {
+                        Reason = "Decompress this NSZ/XCZ file to NSP/XCI before importing it.",
+                        Selectable = false,
+                        Preselect = false
+                    };
+                }
+
                 plan.Add(entry);
                 if (entry.Action == ImportAction.Adopt)
                 {

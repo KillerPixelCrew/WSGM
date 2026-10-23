@@ -1,9 +1,38 @@
 using WSGM.Core;
+using WSGM.Testing;
 
 namespace WSGM.Tests.Core;
 
 public sealed class EmulatorStorageTests
 {
+    [Theory]
+    [InlineData("")]
+    [InlineData("not a key file")]
+    [InlineData("master_key_00 = invalid")]
+    public void EmptyOrMalformedPrerequisitesDoNotMakeAnEmulatorReady(string keyText)
+    {
+        using TemporaryDirectory temporary = new();
+        var keys = temporary.GetPath("keys");
+        Directory.CreateDirectory(keys);
+        File.WriteAllText(Path.Combine(keys, "prod.keys"), keyText);
+        var installed = new EmulatorInstallation
+        {
+            DataPath = temporary.Root,
+            DataPolicy = new EmulatorDataPolicy
+            {
+                Prerequisites = [new EmulatorPrerequisite
+                {
+                    Kind = "keys", Name = "Console keys", Required = true, Destination = "keys",
+                    RequiredNames = ["prod.keys"]
+                }]
+            }
+        };
+
+        Assert.Single(EmulatorStorage.MissingPrerequisites(installed));
+        File.WriteAllText(Path.Combine(keys, "prod.keys"), "master_key_00 = 0123456789abcdef0123456789abcdef");
+        Assert.Empty(EmulatorStorage.MissingPrerequisites(installed));
+    }
+
     [Fact]
     public void ValidateSelection_AcceptsSystemAliasesWithoutRequiringRuntimeFiles()
     {

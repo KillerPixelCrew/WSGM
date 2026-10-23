@@ -19,7 +19,7 @@ public static class PreviewTools
         Directory.CreateDirectory(directory);
         PreviewScaledResolutions.Export(directory);
         PreviewDisplaySettings.Export(directory);
-        Export(directory, width, height, ["emulators-detail", "emulators-install"]);
+        Export(directory, width, height, ["emulators-detail", "emulators-install", "importer-rom-source"]);
     }
 
     internal static OverlayWindow Create(UiFixture fixture, int width = 1280, int height = 800)
@@ -47,7 +47,7 @@ public static class PreviewTools
                  {
                      "themes-installed", "themes-browse", "themes-profiles", "themes-settings", "movies-library",
                      "movies-browse", "movies-settings", "artwork", "artwork-manage", "artwork-logo", "importer",
-                     "importer-review", "importer-artwork", "importer-all-artwork", "emulators-installed",
+                     "importer-review", "importer-artwork", "importer-all-artwork", "importer-rom-source", "emulators-installed",
                      "emulators-detail", "emulators-install", "emulators-cores", "emulators-defaults", "emulators-bios",
                      "programs", "programs-detail", "programs-unavailable", "programs-pins"
                  })
@@ -141,7 +141,12 @@ public static class PreviewTools
                 }
             }
 
-            if (scenario.StartsWith("importer-", StringComparison.Ordinal))
+            if (scenario == "importer-rom-source")
+            {
+                Click($"Sources ({OverlayToolFixtures.Library.Reading.Count} on)");
+                Click("Add a ROM library");
+            }
+            else if (scenario.StartsWith("importer-", StringComparison.Ordinal))
             {
                 Click("Review (3)");
                 if (scenario == "importer-artwork")

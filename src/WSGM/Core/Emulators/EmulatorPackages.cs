@@ -32,6 +32,7 @@ internal sealed class EmulatorPackages(EmulatorNetwork network)
         ["genesis"] = ["megadrive"], ["megadrive"] = ["megadrive"],
         ["Sega - Master System - Mark III"] = ["mastersystem"], ["master_system"] = ["mastersystem"],
         ["Sega - Game Gear"] = ["gamegear"], ["game_gear"] = ["gamegear"],
+        ["Sega - 32X"] = ["sega32x"], ["Sega - PICO"] = ["pico"],
         ["Sega - Sega Saturn"] = ["saturn"], ["saturn"] = ["saturn"],
         ["Sega - Dreamcast"] = ["dreamcast"], ["dreamcast"] = ["dreamcast"],
         ["NEC - PC Engine - TurboGrafx 16"] = ["pcengine"], ["pc_engine"] = ["pcengine"],

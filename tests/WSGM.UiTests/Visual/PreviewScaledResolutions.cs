@@ -36,10 +36,10 @@ internal static class PreviewScaledResolutions
         {
             Available = [new GpuScaledResolution(800, 600)]
         });
-        var expander = window.GetVisualDescendants().OfType<Expander>()
-            .Single(item => item.Header as string == "GPU-scaled resolutions");
-        expander.ContentTransition = null;
-        expander.IsExpanded = true;
+        Dispatcher.UIThread.RunJobs();
+        var section = window.GetVisualDescendants().OfType<Border>()
+            .Single(item => item.Name == "CustomResolutionsSection");
+        section.BringIntoView();
         Dispatcher.UIThread.RunJobs();
         return window;
     }
