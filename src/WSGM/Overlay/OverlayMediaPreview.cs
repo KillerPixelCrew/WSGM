@@ -9,12 +9,10 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
-using Avalonia.Platform;
 using Microsoft.Web.WebView2.Core;
 using SkiaSharp;
 using WSGM.Controls;
 using WSGM.Core;
-using WSGM.Interop;
 
 namespace WSGM.Overlay;
 
@@ -97,7 +95,7 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
         }
     }
 
-    internal sealed class MediaViewport : NativeControlHost
+    internal sealed class MediaViewport : OverlayNativeWebViewHost
     {
         private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(60) };
         private readonly UserDataContext _context;
@@ -123,25 +121,13 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
         internal event Action<string>? Status;
 
         /// <inheritdoc />
-        protected override IPlatformHandle CreateNativeControlCore(IPlatformHandle parent)
+        protected override void OnNativeCreated(nint handle)
         {
-            if (parent.HandleDescriptor != "HWND")
-            {
-                return base.CreateNativeControlCore(parent);
-            }
-
-            _handle = NativeMethods.CreateWindowExW(0, "STATIC", "WSGM media", 0x4e000000,
-                0, 0, 1, 1, parent.Handle, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
-            if (_handle == IntPtr.Zero)
-            {
-                throw new InvalidOperationException("The media viewport could not be created.");
-            }
-
-            return new PlatformHandle(_handle, "HWND");
+            _handle = handle;
         }
 
         /// <inheritdoc />
-        protected override void DestroyNativeControlCore(IPlatformHandle control)
+        protected override void OnNativeDestroying(nint handle)
         {
             _load?.Cancel();
             _load?.Dispose();
@@ -150,15 +136,6 @@ internal sealed class OverlayMediaPreview : StackPanel, IOverlayRefreshable
             _controller = null;
             _ready = false;
             _handle = IntPtr.Zero;
-            if (control.HandleDescriptor == "HWND")
-            {
-                NativeMethods.DestroyWindow(control.Handle);
-            }
-            else
-            {
-                base.DestroyNativeControlCore(control);
-            }
-
             ClearMedia();
         }
 

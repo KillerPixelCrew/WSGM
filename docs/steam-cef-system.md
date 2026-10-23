@@ -429,6 +429,37 @@ reason; the overlay's cycle skips forbidden presets and names the bound in the r
 means never for the display and disabled for the screensaver, so it satisfies every bound and
 imposes none. The rows follow the CEF master switch and are not declared in overlay-test.
 
+The host's existing two-second publication also samples `Interop\LastInput` (`GetLastInputInfo`)
+through `Shell\ScreensaverInputActivity`, including keyboard, mouse and touch outside Steam's
+window. The unsigned tick subtraction handles Windows tick wrap; a failed read publishes no
+activity. No new input hook, polling service or controller event is involved.
+
+`screensaver-activity.ts` combines that observation with the native Screensaver active state at the
+existing, named `Screensaver.NotifyActiveStateChanged#1` handlers. A native activation becomes
+visible only after both Steam and Windows report genuine idleness, using Steam's applicable
+AC/battery screensaver timeout. Real Windows activity dismisses an already visible saver. Steam's
+controller/touch dismissal still wins immediately; an explicit preview remains visible until later
+input. `ForceScreensaver(false)` alone cannot repair automatic activation: the current native
+handler clears forced-preview mode and immediately reevaluates its original idle query.
+
+The filter reaches already registered subscribers and future `GetActiveState` readers. It never
+changes the configured timeouts or the display-off boundary. A five-second observation lease
+restores native behavior if the host stops publishing. Removal restores the exact service and
+registry members, cancels the lease and republishes native state; a CEF generation replacement
+starts afresh. Module fingerprints and protobuf/registry shapes must resolve uniquely; unavailable
+activity integration is reported in the gate's `inputActivity` status while timeout rows remain
+usable.
+
+`Shell\ScreensaverService` is the shared owner for local image folders and manifest packs. The same
+surface publishes its catalogue and validated commands; the Overlay uses the same service.
+`screensaver-content.ts` appends source identities to native `GetLocalScreensavers` results while
+retaining stock entries. Native activation starts a separate medium-integrity renderer under an
+owned kill-on-close job. Pack HTML and JavaScript never enter Steam's execution context. Generation
+replacement, disabling the surface and host retirement stop the player. The existing publication
+also consumes folder-watch changes and detects a missing active root. See
+[local screensavers and the scene boundary](screensavers.md) for the package model, limits, fallback
+and cleanup contracts.
+
 ## 5. The injected asset
 
 ### Build
@@ -1091,6 +1122,42 @@ are.
 | Quick Access Extensions tab     | a Boot animation section: Browse and Library actions opening the page, Shuffle, the boot movie chosen from the library, and shuffle-on-start                                      |
 | `/wsgm/animations` page         | Browse (the repository's cards, sorted and searched on the page's behalf, one movie's preview and Download), Library (the choice, the cards, Add a video file, Shuffle), Settings |
 | Overlay, Tools › Video Switcher | the shared service with a separate browse/detail context, native catalog/library galleries, local WebM import, playback and settings                                              |
+
+### Customization hub
+
+Steam's Settings > Customization page is where Big Picture's look and sound are chosen. The
+`wsgmCustomization` gate (`Core\SteamUiAssets\Source\customization.ts`, declared by
+`Shell\SteamCustomizationSurface`) adds three native sections in front of Valve's Startup Movie
+section: Themes, UI sounds and Boot animation. Valve's LED, Startup Movie, Screensaver and Advanced
+sections render as Steam draws them, and the Screensaver section, with what the toolkit's
+`SteamScreensaverSurface` adds to it, stays the page's one screensaver entry.
+
+The gate is a transform on the toolkit's shared `useMemo` claim, found the way the screensaver gate
+finds the page: the route table's `Settings.Customization()` and the one page-list entry with that
+route. Its wrapper calls whatever renders the page, Valve's component or the screensaver gate's
+wrapper, so the two compose in either registration order. The hub is inserted once, keyed, in front
+of the child whose source names `#Settings_Customization_StartupVideo`, or last on a client without
+it; a list it already transformed is passed through. Removal hands the claim back and an open page
+re-renders without the hub, and a CEF reload installs it again over the new document, so a reload or
+reconnect never leaves two hubs or a stranded one.
+
+The hub has no state or command of its own. Each section subscribes to the publication its page
+already receives (`wsgm.themes`, `wsgm.sounds`, `wsgm.animations`) and sends that page's commands,
+so `ThemeService`, `SoundPackService` and `AnimationService` remain the only authority for install,
+apply, update and reset. A session without one of those services shows no section for it.
+
+| Section        | Inline                                                                                                               | Browse and manage                     |
+| -------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| Themes         | Use themes (off is Steam's own look; themes stay installed), the profile, one switch per installed theme, Update All | `/wsgm/themes`, Installed or Browse   |
+| UI sounds      | The sound pack, Steam default first, with the service's compatibility and integration text                           | `/wsgm/sounds`                        |
+| Boot animation | The boot movie, Steam's own first, the restart note, and why suspend and standby movies are not offered on Windows   | `/wsgm/animations`, Library or Browse |
+
+Steam's own Startup Movie section stays: its Points Shop and local movies, shuffle and resume
+options are Valve's. While a WSGM movie is chosen, the hub says that Steam's choice is set aside and
+comes back when Steam's own is chosen again, as `AnimationService` already does. The Overlay keeps
+the same three capabilities on Tools › CSS Loader, Sounds and Video Switcher over the same services.
+`eng/check-customization-hub.mjs` exercises the emitted gate against an inert fixture, beside the
+screensaver gate in both orders.
 
 ### SD Card Manager and Library Tab Manager
 

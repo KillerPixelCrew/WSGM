@@ -2,6 +2,7 @@ using System;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using WSGM.Input;
 
 namespace WSGM.Overlay;
@@ -24,12 +25,22 @@ public partial class KeyboardPanel : UserControl
     /// <param name="initial">The starting text.</param>
     /// <param name="maxLength">Maximum accepted character count; 0 accepts any length.</param>
     /// <param name="sensitive">Whether to mask credential text while editing.</param>
-    public KeyboardPanel(string prompt, string initial, int maxLength, bool sensitive = false)
+    /// <param name="multiline">Whether Enter starts a new line; Accept remains the explicit commit.</param>
+    public KeyboardPanel(string prompt, string initial, int maxLength, bool sensitive = false, bool multiline = false)
     {
         InitializeComponent();
         PromptText.Text = prompt;
         Input.Text = initial;
         Input.MaxLength = maxLength;
+        if (multiline && !sensitive)
+        {
+            Input.AcceptsReturn = true;
+            Input.TextWrapping = TextWrapping.Wrap;
+            Input.MinHeight = 96;
+            Input.MaxHeight = 176;
+        }
+
+        Input.TextChanged += (_, _) => TextChanged?.Invoke(Input.Text ?? "");
         Input.PasswordChar = sensitive ? '●' : '\0';
         RevealButton.IsVisible = sensitive;
         Keyboard.Target = Input;
@@ -61,6 +72,9 @@ public partial class KeyboardPanel : UserControl
 
     /// <summary>Raised with the final text when the user accepts.</summary>
     public event Action<string>? Accepted;
+
+    /// <summary>Raised with the current text after every edit, before any accept or cancel.</summary>
+    public event Action<string>? TextChanged;
 
 
     private void OnReveal(object? sender, RoutedEventArgs e)

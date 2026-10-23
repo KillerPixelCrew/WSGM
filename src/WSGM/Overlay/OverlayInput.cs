@@ -15,7 +15,7 @@ internal static class OverlayInput
     internal static GamepadNavigation Create(OverlayWindow window, IUiButtonSource buttons, Action back,
         Func<bool>? isNintendoLayout = null)
     {
-        return new GamepadNavigation(buttons, window, back,
+        return new GamepadNavigation(window.BrowserInput(buttons, isNintendoLayout), window, back,
             isNintendoLayout,
             () => window.DefaultFocusTarget,
             focused =>

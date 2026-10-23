@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -26,6 +27,7 @@ internal sealed record ProgramUiCandidate(WindowFinder.AppWindow Window, string 
 internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
 {
     internal const string PinPrefix = "program:";
+    private const int ErrorCancelled = 1223;
     private readonly ConfigStore _store;
     private readonly SemaphoreSlim _commands = new(initialCount: 1, maxCount: 1);
     private readonly CancellationTokenSource _lifetime = new();
@@ -72,29 +74,38 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
     /// <summary>Only explicit executable selection or replacement approval updates the launch fingerprint.</summary>
     public Task SaveAsync(ProgramDefinition definition, bool approveExecutable) => CommandAsync(() =>
     {
-        var entry = definition with { };
-        entry.Name = entry.Name.Trim();
-        if (entry.Name.Length == 0)
+        var name = definition.Name.Trim();
+        if (name.Length == 0)
         {
             throw new InvalidOperationException("Enter a program name.");
         }
 
-        if (approveExecutable)
-        {
-            entry.Executable = ValidateExecutable(entry.Executable);
-            entry.ExecutableHash = Hash(entry.Executable, fresh: true);
-            entry.UiExecutable = "";
-            entry.UiExecutableHash = "";
-        }
-
-        if (entry.WorkingDirectory.Length > 0 && !Directory.Exists(entry.WorkingDirectory))
+        var executable = approveExecutable ? ValidateExecutable(definition.Executable) : "";
+        var hash = approveExecutable ? Hash(executable, fresh: true) : "";
+        if (definition.WorkingDirectory.Length > 0 && !Directory.Exists(definition.WorkingDirectory))
         {
             throw new InvalidOperationException("The working directory is unavailable.");
         }
 
         Persist(config =>
         {
-            var index = config.Programs.FindIndex(existing => existing.Id == entry.Id);
+            var index = config.Programs.FindIndex(existing => existing.Id == definition.Id);
+            if (index < 0 && !approveExecutable)
+            {
+                throw new InvalidOperationException("This program was removed.");
+            }
+
+            // Identities come from the stored entry: only executable approval or explicit UI selection
+            // changes them, never a stale editor snapshot.
+            var stored = index < 0 ? null : config.Programs[index];
+            var entry = definition with
+            {
+                Name = name,
+                Executable = approveExecutable ? executable : stored!.Executable,
+                ExecutableHash = approveExecutable ? hash : stored!.ExecutableHash,
+                UiExecutable = approveExecutable ? "" : stored!.UiExecutable,
+                UiExecutableHash = approveExecutable ? "" : stored!.UiExecutableHash
+            };
             if (index < 0)
             {
                 config.Programs.Add(entry);
@@ -147,7 +158,7 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
         var hash = Hash(ValidateExecutable(process.Path), fresh: true);
         Persist(config =>
         {
-            var entry = config.Programs.First(item => item.Id == id);
+            var entry = Stored(config, id);
             entry.UiExecutable = process.Path;
             entry.UiExecutableHash = hash;
         });
@@ -156,10 +167,14 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
 
     public Task ForgetUiAsync(string id) => CommandAsync(() => Persist(config =>
     {
-        var entry = config.Programs.First(item => item.Id == id);
+        var entry = Stored(config, id);
         entry.UiExecutable = "";
         entry.UiExecutableHash = "";
     }));
+
+    private static ProgramDefinition Stored(AppConfig config, string id) =>
+        config.Programs.FirstOrDefault(item => item.Id == id)
+        ?? throw new InvalidOperationException("This program was removed.");
 
     public Task ClearPendingAsync(string id) => CommandAsync(() => _pending.Remove(id));
 
@@ -230,12 +245,23 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
             _pending.Add(id); // Dispatch uncertainty must never become an automatic duplicate attempt.
             if (entry.Elevated)
             {
-                using var launched = Process.Start(new ProcessStartInfo(entry.Executable, entry.Arguments)
+                try
                 {
-                    UseShellExecute = true,
-                    Verb = "runas",
-                    WorkingDirectory = WorkingDirectory(entry)
-                });
+                    using var launched = Process.Start(new ProcessStartInfo(entry.Executable, entry.Arguments)
+                    {
+                        UseShellExecute = true,
+                        Verb = "runas",
+                        WorkingDirectory = WorkingDirectory(entry)
+                    });
+                }
+                catch (Win32Exception ex)
+                {
+                    // ShellExecuteEx refused before creating a process, so nothing is pending.
+                    _pending.Remove(id);
+                    return ex.NativeErrorCode == ErrorCancelled
+                        ? "Administrator elevation was declined. Nothing was started."
+                        : $"Windows did not start the program: {ex.Message}";
+                }
             }
             else
             {
@@ -294,7 +320,9 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
         token.ThrowIfCancellationRequested();
         WindowFinder.BringToForeground(window.Hwnd);
         await Task.Delay(150, token).ConfigureAwait(false);
-        if (NativeMethods.GetForegroundWindow() != window.Hwnd)
+        // The application may hand activation to its own owned or modal window.
+        NativeMethods.GetWindowThreadProcessId(NativeMethods.GetForegroundWindow(), out var foreground);
+        if (foreground != owner)
         {
             return "Windows or the foreground game prevented application activation.";
         }
@@ -523,23 +551,37 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
 
     private static ProgramProcess? ReadProcess(uint id)
     {
-        var name = "";
         try
         {
             using var process = Process.GetProcessById(checked((int)id));
+            return ReadProcess(process, started: true);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Reconciliation reads only the image path; a birth time is needed only for UI selection.</summary>
+    private static ProgramProcess? ReadProcess(Process process, bool started)
+    {
+        var name = "";
+        try
+        {
             name = process.ProcessName;
             if (process.SessionId != WindowFinder.CurrentSessionId || process.HasExited)
             {
                 return null;
             }
 
-            return new ProgramProcess(id, NativeShellProcess.TryGetImagePath(id) ?? "", process.ProcessName,
-                process.StartTime.ToUniversalTime());
+            var id = checked((uint)process.Id);
+            return new ProgramProcess(id, NativeShellProcess.TryGetImagePath(id) ?? "", name,
+                started ? process.StartTime.ToUniversalTime() : default);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             // An uninspectable same-name candidate can block launching but can never authorize focus.
-            return name.Length > 0 ? new ProgramProcess(id, "", name) : null;
+            return name.Length > 0 ? new ProgramProcess(checked((uint)process.Id), "", name) : null;
         }
     }
 
@@ -550,7 +592,7 @@ internal sealed class ProgramsService : IProgramsSource, IAsyncDisposable
         {
             using (process)
             {
-                if (ReadProcess(checked((uint)process.Id)) is { } captured)
+                if (ReadProcess(process, started: false) is { } captured)
                 {
                     result.Add(captured);
                 }

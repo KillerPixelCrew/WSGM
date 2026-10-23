@@ -1,11 +1,13 @@
 # Steam UI sound packs
 
-Tools > Sounds installs, previews and selects Audio Loader-compatible sound packs. WSGM stores the
-library under its per-user `sounds` folder. Preview uses Windows Media Foundation and the default
-Windows audio route; it does not change the selected pack or system volume. Leaving the page or
-closing the Overlay stops the preview. Stop does not wait on a repository request and invalidates
-queued playback requests from the outgoing page. Sound-library and preview groups retain expansion
-through service refresh and Overlay reopen within the resident session.
+Tools > Sounds in the Overlay and the `/wsgm/sounds` page in Steam install, preview and select Audio
+Loader-compatible sound packs, and Steam's Settings > Customization page offers the selection inline
+(see [the Customization hub](steam-cef-system.md#customization-hub)). WSGM stores the library under
+its per-user `sounds` folder. Preview uses Windows Media Foundation and the default Windows audio
+route; it does not change the selected pack or system volume. Leaving the page or closing the
+Overlay stops the preview. Stop does not wait on a repository request and invalidates queued
+playback requests from the outgoing page. Sound-library and preview groups retain expansion through
+service refresh and Overlay reopen within the resident session.
 
 ## Pack format and compatibility
 
@@ -94,13 +96,14 @@ manual pass under the contributor guide's manual-first policy.
 
 ## Code path
 
-| Layer                         | Source and contract                                                                                                                                                                                |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Pack discovery and validation | `Core/Sounds/`: manifest/resource models, local library and ZIP installation. Current Steam filenames are the resource vocabulary; unsupported or missing mappings remain explicit.                |
-| Session policy                | `Shell/SoundPackService.cs`: serialized actions, selection persistence, detached data URLs, publication revision and decoder-status reconciliation.                                                |
-| Overlay and preview           | `Overlay/SoundsView.cs` projects the service; `SoundPackService` owns a WindowsDeviceControl `AudioFilePreview` for Media Foundation playback and invalidates outgoing preview requests.           |
-| Host composition              | `Shell/SteamUiSessionHost.cs` registers `SteamSoundOverrideSurface.Module` with CEF host-surface enablement, the current revision and `ReportPlaybackStatus`. Custom QAM rows need not be enabled. |
-| Steam playback                | Toolkit `Surfaces/SteamSoundOverrideSurface.cs` and `SteamUiAssets/Source/gates/sound-overrides.ts` validate status, decode replacement variants and restore the claimed audio-manager member.     |
+| Layer                         | Source and contract                                                                                                                                                                                           |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pack discovery and validation | `Core/Sounds/`: manifest/resource models, local library and ZIP installation. Current Steam filenames are the resource vocabulary; unsupported or missing mappings remain explicit.                           |
+| Session policy                | `Shell/SoundPackService.cs`: serialized actions, selection persistence, detached data URLs, publication revision and decoder-status reconciliation.                                                           |
+| Overlay and preview           | `Overlay/SoundsView.cs` projects the service; `SoundPackService` owns a WindowsDeviceControl `AudioFilePreview` for Media Foundation playback and invalidates outgoing preview requests.                      |
+| Steam page                    | `Shell/SteamSoundsSurface.cs` projects the service (state revision, listings with installed versions) and maps the page's commands onto it; `Core/SteamUiAssets/Source/sounds.ts` draws Installed and Browse. |
+| Host composition              | `Shell/SteamUiSessionHost.cs` registers `SteamSoundOverrideSurface.Module` with CEF host-surface enablement, the current revision and `ReportPlaybackStatus`. Custom QAM rows need not be enabled.            |
+| Steam playback                | Toolkit `Surfaces/SteamSoundOverrideSurface.cs` and `SteamUiAssets/Source/gates/sound-overrides.ts` validate status, decode replacement variants and restore the claimed audio-manager member.                |
 
 The [toolkit sound contract](../external/steam-ui-toolkit/docs/sound-overrides.md) defines the wire
 state and status report. The bridge sends large host publications in 262,144-character parts; that

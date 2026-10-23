@@ -184,6 +184,14 @@ function New-SetupPayload([string]$Destination, [bool]$Bundled) {
     # The recovery owner uses a distinct image name so stopping WSGM.exe leaves it alive.
     Copy-Item -LiteralPath "$appPublish\WSGM.exe" -Destination "$payloadApp\WSGM.ShellAnchor.exe"
     Copy-Item -LiteralPath "$appPublish\Resources" -Destination "$payloadApp\Resources" -Recurse
+    if (-not (Test-Path -LiteralPath "$appPublish\Browser\WSGM.BrowserHost.exe" -PathType Leaf)) {
+        throw 'The isolated Browser helper was not published.'
+    }
+    Copy-Item -LiteralPath "$appPublish\Browser" -Destination "$payloadApp\Browser" -Recurse
+    if (-not (Test-Path -LiteralPath "$appPublish\Screensaver\WSGM.ScreensaverHost.exe" -PathType Leaf)) {
+        throw 'The isolated screensaver helper was not published.'
+    }
+    Copy-Item -LiteralPath "$appPublish\Screensaver" -Destination "$payloadApp\Screensaver" -Recurse
     Get-ChildItem -LiteralPath $appPublish -File | Where-Object {
         ($_.Extension -eq ".dll" -and $_.Name -ne "libviiper.dll") -or $_.Name -like "SteamInputLease-*"
     } | Copy-Item -Destination $payloadApp

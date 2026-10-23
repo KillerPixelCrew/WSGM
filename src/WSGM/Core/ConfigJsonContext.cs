@@ -13,6 +13,8 @@ namespace WSGM.Core;
 [JsonSerializable(typeof(DisplayGpuPreference))]
 [JsonSerializable(typeof(DisplayGpuCapability))]
 [JsonSerializable(typeof(CefConfig))]
+[JsonSerializable(typeof(BrowserOptions))]
+[JsonSerializable(typeof(ScreensaverConfig))]
 [JsonSerializable(typeof(SplashConfig))]
 [JsonSerializable(typeof(LaunchWrapperConfig))]
 [JsonSerializable(typeof(CardLibraryConfig))]

@@ -298,6 +298,8 @@ public sealed partial class ShellSession
         TryApply("session modes", () => _modes?.ApplyConfig(config));
         TryApply("overlay", () => _overlay?.ApplyConfig(config));
         TryApply("programs", () => _programs?.ConfigurationChanged(config));
+        TryApply("browser", () => _browser?.ApplyOptions(config.Browser));
+        TryApply("screensavers", () => _screensavers?.ConfigurationChanged());
         TryApply("emulator shortcuts", () => _emulatorTool?.RequestShortcutSync());
         TryApply("library manager", () => _libraryManager?.ConfigurationChanged());
         Log.Debug($"Config reloaded at {Log.MinimumLevel} minimum log level.");

@@ -18,6 +18,14 @@ Project paths below are relative to `src/`. Every first-party project in the sol
 The desktop application uses CoreCLR and Avalonia; the smaller executables have their own entry
 points and should not be assumed to initialize a resident UI session.
 
+Two disposable web-content executables also live in the solution:
+
+- [`Browser/WSGM.BrowserHost`](../src/Browser/WSGM.BrowserHost/Program.cs) hosts the Overlay browser
+  at medium integrity; `Shell/BrowserSession` supervises it. See [Browser](browser.md).
+- [`Screensaver/WSGM.ScreensaverHost`](../src/Screensaver/WSGM.ScreensaverHost/Program.cs) hosts
+  allowlisted image playlists and restricted scenes; `Shell/ScreensaverService` owns discovery,
+  configuration and process cleanup. See [Screensavers](screensavers.md).
+
 | Project                 | Start reading                                                                                                                                                                                                                       | Purpose and documentation                                                                                                                                                                                                                                                                                                                         |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `WSGM`                  | [`Program.cs`](../src/WSGM/Program.cs), `StartupOptions.cs`, `App.axaml.cs`                                                                                                                                                         | Early recovery and command modes, then Settings, resident shell or overlay preview. [Boot and shell](boot-and-shell.md), [UI](ui.md), and the application map below.                                                                                                                                                                              |

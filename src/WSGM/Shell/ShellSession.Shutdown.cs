@@ -158,6 +158,7 @@ public sealed partial class ShellSession
         });
         Step(failures, "Disposing the brightness service during application shutdown failed",
             () => _brightness?.Dispose());
+        Step(failures, "Closing the browser during application shutdown failed", () => _browser?.Dispose());
 
         // 1. Join the startup task and the device power queue, so neither still commands the device when
         //    it stops. An unadopted coordinator is disposed by startup's own finally, and a power
@@ -210,6 +211,7 @@ public sealed partial class ShellSession
         await JoinAsync(failures, "Profile work",
             Task.WhenAll(_profiles.Completion, _profileFanOut?.Completion ?? Task.CompletedTask)).ConfigureAwait(false);
         await JoinAsync(failures, "Other-manager startup work", _managerStartup).ConfigureAwait(false);
+        await JoinAsync(failures, "Browser cleanup", _browser?.ShutdownCompletion ?? Task.CompletedTask).ConfigureAwait(false);
         await JoinAsync(failures, "Steam Input shim reconcile", _steamInputReconcile).ConfigureAwait(false);
         await JoinAsync(failures, "Steam Input management apply",
             _wsgmSettings?.SteamInputApplyCompletion ?? Task.CompletedTask).ConfigureAwait(false);
@@ -481,6 +483,25 @@ public sealed partial class ShellSession
             if (programs is not null)
             {
                 await programs.DisposeAsync().ConfigureAwait(false);
+            }
+        }).ConfigureAwait(false);
+        await StepAsync(failures, "Disposing Notes during application shutdown failed", async () =>
+        {
+            var notes = _notes;
+            _notes = null;
+            if (notes is not null)
+            {
+                await notes.DisposeAsync().ConfigureAwait(false);
+                (notes.Countdown as WSGM.Overlay.NotesCountdown)?.Close();
+            }
+        }).ConfigureAwait(false);
+        await StepAsync(failures, "Disposing screensavers during application shutdown failed", async () =>
+        {
+            var screensavers = _screensavers;
+            _screensavers = null;
+            if (screensavers is not null)
+            {
+                await screensavers.DisposeAsync().ConfigureAwait(false);
             }
         }).ConfigureAwait(false);
         await UiStepAsync(failures, "Disposing the library artwork stage during application shutdown failed", () =>

@@ -6,6 +6,14 @@ disagree, fix the mechanism doc. Dated entries carry the day the maintainer deci
 
 ## Install and per-user state
 
+**Arbitrary web content stays outside privileged application contexts (2026-10-23).** The Overlay
+browser and custom screensaver scenes use separate medium-integrity WebView2 helpers with no WSGM,
+Steam, plugin, Node or filesystem bridge. Reuse the installed Evergreen runtime rather than shipping
+another Chromium distribution. Steam's browser remains Valve-owned in a game overlay; custom scene
+scripts never enter Steam CEF. Local packs need no repository, and stock screensavers remain the
+fallback. [Browser](browser.md) and [screensavers](screensavers.md) define the boundaries and
+lifetimes.
+
 **Offer online and offline setup (2026-10-12).** Both distributions carry the application and its
 .NET runtime. Online setup acquires the large WebView2, USB/IP, HidHide and RTSS prerequisites only
 when needed; offline setup includes them. Exact hashes and existing signer pins apply before

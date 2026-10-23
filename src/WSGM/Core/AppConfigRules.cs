@@ -64,6 +64,9 @@ internal static class AppConfigRules
         diagnostics.AddRange(AnimationRules.Normalize(config.Animations));
         config.Sounds ??= new SoundsConfig();
         config.Sounds.Selected ??= string.Empty;
+        config.Browser = (config.Browser ?? new BrowserOptions()).Normalize();
+        config.Screensavers ??= new ScreensaverConfig();
+        config.Screensavers.Normalize();
         config.RumbleCalibration ??= new RumbleCalibrationConfig();
         config.RumbleCalibration.StrengthPercent = Math.Clamp(config.RumbleCalibration.StrengthPercent, 0, 100);
         config.RumbleCalibration.MinimumStrengthPercent =

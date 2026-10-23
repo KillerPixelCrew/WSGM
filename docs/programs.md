@@ -8,9 +8,11 @@ closing the Overlay never terminates the application.
 
 Definitions live in `AppConfig.Programs`, with stable IDs and `program:{id}` Quick access pins.
 Executable selection records its absolute path and SHA-256. Missing or changed executables stay
-configured and require explicit replacement selection or approval before another launch. Normal
+configured and require explicit replacement selection or approval before another launch. Editing a
+name, arguments or options never changes the approved executable or resolved UI identity. Normal
 applications use WSGM's least-privilege interactive scheduled-task launcher. Administrator elevation
-is an explicit per-program choice; a failed normal launch never silently escalates.
+is an explicit per-program choice; a failed normal launch never silently escalates. A declined UAC
+prompt starts nothing and leaves no pending launch behind.
 
 Matching uses the selected exact executable image paths in the current interactive session. File
 fingerprints gate another launch; an already-running image can still be focused if its disk file was

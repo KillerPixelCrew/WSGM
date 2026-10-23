@@ -63,6 +63,7 @@ public sealed partial class SettingsViewModel
         config.OtherManagersTakeoverAccepted = OtherManagersTakeoverAccepted;
         ApplyLaunchTo(config.GameModeLaunch);
         config.SteamInputLeaseEnabled = SteamInputLeaseEnabled;
+        config.Browser.MemoryBehavior = (BrowserMemoryBehavior)BrowserMemoryBehaviorIndex;
         config.SteamInputManagementEnabled = SteamInputManagementEnabled;
         // The tab strip's order is the row order, and its default follows the tab it names.
         config.Artwork.SteamGridDbApiKey = ArtworkSteamGridDbApiKey;

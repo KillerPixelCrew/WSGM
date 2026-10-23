@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "wsgm.example.quiet-orbit",
+  "name": "Quiet Orbit",
+  "author": "WSGM",
+  "version": "1.0.0",
+  "type": "scene",
+  "entry": "index.html",
+  "assets": ["index.html", "style.css", "scene.js"],
+  "minimumWsgm": "2.4.0"
+}

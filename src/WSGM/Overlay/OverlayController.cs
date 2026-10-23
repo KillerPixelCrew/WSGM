@@ -307,6 +307,7 @@ public sealed partial class OverlayController : IDisposable
         _keyboardRequestCancellation?.Cancel();
         _windowReturnCancellation?.Cancel();
         _overlay?.ReleaseProgramsPresentation();
+        DisposeNotes();
         CloseKeyboardNow();
         // Deliberately NOT retracting the injected Steam UI (tabs, badge, Wi-Fi AP)
         // here: both the Settings preview and session shutdown call this Dispose, and
@@ -646,6 +647,12 @@ public sealed partial class OverlayController : IDisposable
         _overlay.AttachPrograms(_sources.Programs);
         _overlay.AttachLaunchActions(_sources.LaunchActions);
         _overlay.AttachLibraryManager(_sources.LibraryManager);
+        AttachNotes(_overlay);
+        _overlay.AttachScreensavers(_sources.Screensavers);
+        if (_sources.Browser is { } browser)
+        {
+            _overlay.AttachBrowserSession(browser);
+        }
         _overlay.ProgramActivateRequested += ActivateProgram;
         _overlay.AttachThemes(_sources.Themes);
         _overlay.AttachAnimations(_sources.Animations);

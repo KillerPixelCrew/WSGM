@@ -645,6 +645,12 @@ public sealed class AppConfig
     /// <summary>The active Audio Loader-compatible Steam UI sound pack.</summary>
     public SoundsConfig Sounds { get; set; } = new();
 
+    /// <summary>Lazy Overlay browser memory and page zoom preferences; independent of Steam's browser.</summary>
+    public BrowserOptions Browser { get; set; } = new();
+
+    /// <summary>User-registered local screensaver image folders and scene packs.</summary>
+    public ScreensaverConfig Screensavers { get; set; } = new();
+
     /// <summary>Per-user rumble strength and bounded-pulse perception calibration.</summary>
     public RumbleCalibrationConfig RumbleCalibration { get; set; } = new();
 

@@ -25,7 +25,7 @@ surface. WSGM-only features keep their own fingerprints but resolve them through
 `SteamUiModuleResolver` rather than scanning the registry themselves.
 
 These fragments hold WSGM's product data, commands and feature hooks. Reusable rendering and Steam
-ownership stay in the toolkit. Seven pages register with its `registerSteamPage`:
+ownership stay in the toolkit. Eight pages register with its `registerSteamPage`:
 
 - `artwork-browser.ts`, the Change Artwork page.
 - `library-import.ts`, the Game Library's import page.
@@ -36,6 +36,8 @@ ownership stay in the toolkit. Seven pages register with its `registerSteamPage`
   managed.
 - `animations.ts`, the Animations page: SteamDeckRepo's boot movies browsed, downloaded and chosen
   for Big Picture's start.
+- `sounds.ts`, the UI sounds page: Audio Loader packs chosen, previewed, imported and removed, and
+  DeckThemes' packs browsed and installed, over `SoundPackService`.
 
 - `card-manager.ts`, the SD Card Manager page: the tracked cards with their connected state and
   space, one card's switches, rename, games and forget, over `LibraryManagerService`.
@@ -46,7 +48,7 @@ Themes and Animations share `page-kit.ts`, which is no feature of its own: the c
 the tabbed frame's tab switch and banner, which differ between them only by patch id. The two
 manager pages use its command sender too.
 
-Four are gates of their own, registered with `registerGate`:
+Five are gates of their own, registered with `registerGate`:
 
 - `chord-reset.ts`, the guide-chord editor's reset hook. It claims
   `SteamClient.Input.SetSelectedConfigForApp` with the toolkit's `claimMember` and reports a reset
@@ -57,6 +59,10 @@ Four are gates of their own, registered with `registerGate`:
   capability bits the active glyph profile marks absent (trackpads, touch-sensing sticks) on WSGM's
   virtual pad, so the pages stop drawing settings for controls the handheld does not have. See
   docs/steam-cef.md, "Physical glyphs are CSS".
+- `customization.ts`, the hub on Steam's Settings > Customization page: Themes, UI sounds and Boot
+  animation sections in front of Valve's Startup Movie section, on the toolkit's shared `useMemo`
+  claim beside its screensaver gate. It reads the three pages' publications, sends their commands
+  and owns no state. See docs/steam-cef-system.md, "Customization hub".
 - `download-sort.ts`, the Name / Size / Type buttons in the download queue's header. Its header
   transform sits on the toolkit's shared JSX-runtime claim, and a sort renumbers the queue through
   `SteamClient.Downloads.SetQueueIndex`, reporting the positions Steam refused to WSGM

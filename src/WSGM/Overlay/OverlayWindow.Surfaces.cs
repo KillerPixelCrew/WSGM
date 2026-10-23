@@ -62,13 +62,35 @@ public partial class OverlayWindow
     /// <returns>True when a keyboard was created; false after the window closed.</returns>
     internal bool RequestText(string prompt, string initial, int maxLength, Action<string> onAccept)
     {
+        return RequestText(prompt, initial, maxLength, onAccept, false, null);
+    }
+
+    /// <summary>Opens the local keyboard surface for a single-line or multiline field.</summary>
+    /// <param name="prompt">Accessible field label.</param>
+    /// <param name="initial">Text copied into the editor.</param>
+    /// <param name="maxLength">Character limit, or zero for no explicit limit.</param>
+    /// <param name="onAccept">UI-thread callback invoked once with accepted text; cancellation does not invoke it.</param>
+    /// <param name="multiline">Whether Enter starts a new line instead of accepting.</param>
+    /// <param name="changed">
+    ///     UI-thread callback with the text after every edit, so an owner can keep a draft that outlives a
+    ///     cancelled or closed surface; null when the caller only needs the accepted text.
+    /// </param>
+    /// <returns>True when a keyboard was created; false after the window closed.</returns>
+    internal bool RequestText(string prompt, string initial, int maxLength, Action<string> onAccept, bool multiline,
+        Action<string>? changed)
+    {
         if (_closed)
         {
             return false;
         }
 
-        var keyboard = new KeyboardPanel(prompt, initial, maxLength);
+        var keyboard = new KeyboardPanel(prompt, initial, maxLength, multiline: multiline);
         keyboard.Accepted += onAccept;
+        if (changed is not null)
+        {
+            keyboard.TextChanged += changed;
+        }
+
         ShowKeyboardSurface(keyboard);
         return true;
     }
@@ -270,6 +292,7 @@ public partial class OverlayWindow
 
     private void CoverMedia(bool covered)
     {
+        CoverBrowserPage(covered);
         foreach (var viewport in this.GetVisualDescendants().OfType<OverlayMediaPreview.MediaViewport>())
         {
             viewport.Suspend(covered);

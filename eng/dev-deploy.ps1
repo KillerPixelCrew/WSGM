@@ -195,6 +195,29 @@ if ($wsgmProcesses.Count -ne 0) {
     }
 }
 
+# Browser exits with its resident parent. Wait for that normal shutdown before touching its files;
+# a verified installed helper is the only additional process this deployment may stop.
+foreach ($helper in @(@{ Name = 'WSGM.BrowserHost'; Path = 'Browser\WSGM.BrowserHost.exe' },
+        @{ Name = 'WSGM.ScreensaverHost'; Path = 'Screensaver\WSGM.ScreensaverHost.exe' })) {
+    $installedHelper = Join-Path $appDirectory $helper.Path
+    foreach ($helperProcess in @(Get-Process -Name $helper.Name -ErrorAction SilentlyContinue |
+            Where-Object SessionId -eq $sessionId)) {
+        try {
+            if (-not [string]::Equals($helperProcess.Path, $installedHelper, [StringComparison]::OrdinalIgnoreCase)) {
+                continue
+            }
+            if (-not $helperProcess.WaitForExit(5000)) {
+                $helperProcess.Kill($true)
+                if (-not $helperProcess.WaitForExit(5000)) {
+                    throw "The installed $($helper.Name) helper did not exit; its files were not replaced."
+                }
+            }
+        } finally {
+            $helperProcess.Dispose()
+        }
+    }
+}
+
 # What the setup payload would place in App: WSGM.exe, the launch wrappers and the managed and native
 # libraries. The ShellAnchor is the same binary under the shell-registration name; leaving it stale
 # would run two different builds in one session. WSGM.deps.json is in this list because the host
@@ -215,6 +238,32 @@ foreach ($pattern in $copyPatterns) {
     foreach ($file in @(Get-ChildItem -LiteralPath $appPublish -Filter $pattern -ErrorAction SilentlyContinue)) {
         $copies.Add(@{ Source = $file.FullName; Name = $file.Name; Process = '' })
     }
+}
+
+$browserPublish = Join-Path $appPublish 'Browser'
+foreach ($required in 'WSGM.BrowserHost.exe', 'WSGM.BrowserHost.dll', 'WSGM.BrowserHost.deps.json',
+    'WSGM.BrowserHost.runtimeconfig.json', 'System.Windows.Forms.dll', 'coreclr.dll', 'hostfxr.dll',
+    'Microsoft.Web.WebView2.Core.dll', 'WebView2Loader.dll') {
+    if (-not (Test-Path -LiteralPath (Join-Path $browserPublish $required) -PathType Leaf)) {
+        throw "Missing isolated browser dependency $required. Publish WSGM again before deploying."
+    }
+}
+foreach ($file in @(Get-ChildItem -LiteralPath $browserPublish -File -Recurse)) {
+    $name = [IO.Path]::GetRelativePath($appPublish, $file.FullName)
+    $copies.Add(@{ Source = $file.FullName; Name = $name; Process = '' })
+}
+
+$screensaverPublish = Join-Path $appPublish 'Screensaver'
+foreach ($required in 'WSGM.ScreensaverHost.exe', 'WSGM.ScreensaverHost.dll', 'WSGM.ScreensaverHost.deps.json',
+    'WSGM.ScreensaverHost.runtimeconfig.json', 'System.Windows.Forms.dll', 'coreclr.dll', 'hostfxr.dll',
+    'Microsoft.Web.WebView2.Core.dll', 'WebView2Loader.dll') {
+    if (-not (Test-Path -LiteralPath (Join-Path $screensaverPublish $required) -PathType Leaf)) {
+        throw "Missing isolated screensaver dependency $required. Publish WSGM again before deploying."
+    }
+}
+foreach ($file in @(Get-ChildItem -LiteralPath $screensaverPublish -File -Recurse)) {
+    $name = [IO.Path]::GetRelativePath($appPublish, $file.FullName)
+    $copies.Add(@{ Source = $file.FullName; Name = $name; Process = '' })
 }
 
 foreach ($name in 'Resources\Intel\KX\KX.exe', 'Resources\Intel\KX\kx.lock.json',

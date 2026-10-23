@@ -357,6 +357,9 @@
             <ov:CardManagerView x:Name="CardManagerHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:GameLibraryView x:Name="GameLibraryHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:ProgramsView x:Name="ProgramsHost" IsVisible="False" HorizontalAlignment="Stretch" />
+            <ov:NotesView x:Name="NotesHost" IsVisible="False" HorizontalAlignment="Stretch" />
+            <ov:BrowserView x:Name="BrowserHost" IsVisible="False" HorizontalAlignment="Stretch" />
+            <ov:ScreensaversView x:Name="ScreensaversHost" IsVisible="False" HorizontalAlignment="Stretch" />
             <ov:EmulatorManagerView x:Name="EmulatorManagerHost" IsVisible="False"
                                 HorizontalAlignment="Stretch" />
             <ov:ArtworkView x:Name="ArtworkHost" IsVisible="False" />
@@ -489,6 +492,14 @@
                             CommandParameter="{x:Static ov:OverlayPage.Programs}"
                             IconGeometry="{x:Static c:Icons.Rocket}" Title="Programs"
                             Description="Launch or focus your tools; pin them to Quick access" />
+              <c:ActionButton Classes="tile" Click="OnEnterCategory" Tag="system.notes"
+                            CommandParameter="{x:Static ov:OverlayPage.Notes}"
+                            IconGeometry="{x:Static c:Icons.ListLines}" Title="Notes"
+                            Description="Game notes with text, drawings and screenshots" />
+              <c:ActionButton Classes="tile" Click="OnEnterCategory" Tag="system.screensavers"
+                            CommandParameter="{x:Static ov:OverlayPage.Screensavers}"
+                            IconGeometry="{x:Static c:Icons.Monitor}" Title="Screensavers"
+                            Description="Local image folders and scene packs" />
               <c:ActionButton x:Name="EmulatorManagerTile" Classes="tile" Click="OnEnterCategory"
                             CommandParameter="{x:Static ov:OverlayPage.EmulatorManager}"
                             Tag="system.emulator-manager"

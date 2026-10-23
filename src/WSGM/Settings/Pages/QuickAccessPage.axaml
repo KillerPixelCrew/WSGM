@@ -6,6 +6,7 @@
   <!-- Quick access sheet. Element order preserved (controller tab order):
          sheet test → blur slider → lease toggle → glyph style → hotkey recorder → chord
          recorder → top edge → bottom edge → Steam menu edge → Steam QAM edge. -->
+  <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
   <Border Padding="16,10,16,10">
     <Grid ColumnDefinitions="*,24,*">
       <StackPanel Grid.Column="0">
@@ -56,6 +57,20 @@
             <ComboBox Grid.Column="1" ItemsSource="{Binding GlyphStyles}" SelectedIndex="{Binding GlyphStyleIndex}"
                       VerticalAlignment="Center" />
           </Grid>
+        </Border>
+        <Border Classes="section-header">
+          <TextBlock Text="BROWSER" />
+        </Border>
+        <Border Classes="setting-row alt">
+          <StackPanel Spacing="8">
+            <TextBlock Text="Browser memory behavior" Classes="setting-title" />
+            <TextBlock Text="Unload releases memory and opens a fresh page next time. Keep alive retains your guide for faster reopening. Site sign-in stays saved. Steam controls its own in-game browser."
+                       Classes="caption" TextWrapping="Wrap" />
+            <ComboBox ItemsSource="{Binding BrowserMemoryBehaviors}"
+                      SelectedIndex="{Binding BrowserMemoryBehaviorIndex}"
+                      HorizontalAlignment="Stretch"
+                      AutomationProperties.Name="Browser memory behavior" />
+          </StackPanel>
         </Border>
       </StackPanel>
 
@@ -127,4 +142,5 @@
       </StackPanel>
     </Grid>
   </Border>
+  </ScrollViewer>
 </UserControl>

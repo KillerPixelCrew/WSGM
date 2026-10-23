@@ -24,6 +24,9 @@ namespace WSGM.Overlay;
 /// <param name="Programs">The shared desktop application definitions and launch-or-focus owner.</param>
 /// <param name="LaunchActions">Per-game launch configuration shared with the Steam page.</param>
 /// <param name="LibraryManager">SD Card Manager and Library Tab Manager shared with Steam, outside overlay-test.</param>
+/// <param name="Notes">Structured game notebooks shared with Steam.</param>
+/// <param name="Browser">The session-owned browser, initialized only on explicit opening.</param>
+/// <param name="Screensavers">Local screensaver sources shared with Steam.</param>
 internal sealed record OverlaySources(
     IDeviceOverlaySource? Device = null,
     PerformanceOverlayBridge? Performance = null,
@@ -42,7 +45,10 @@ internal sealed record OverlaySources(
     IEmulatorBackend? Emulators = null,
     IProgramsSource? Programs = null,
     LaunchActionService? LaunchActions = null,
-    LibraryManagerService? LibraryManager = null);
+    LibraryManagerService? LibraryManager = null,
+    NotesService? Notes = null,
+    BrowserSession? Browser = null,
+    ScreensaverService? Screensavers = null);
 
 /// <summary>The display-mode operations supplied by the composition, also used by pinned controls.</summary>
 /// <param name="Read">Reads modes for the sheet's current display source.</param>

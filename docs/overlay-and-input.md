@@ -252,10 +252,11 @@ native windows and acquire no navigation, input capture or lease of their own.
 
 `OverlayWindow.RequestText` opens `KeyboardPanel` for an internal text field. The keyboard stretches
 across the bottom of the overlay. Accept returns the text once; cancel leaves the original value
-unchanged. Radio password and PIN entry use the same keyboard with masked input. The radio panel
-stays attached below the keyboard, so its pending pairing ceremony and subscriptions stay alive.
-Closing the keyboard restores the radio prompt, whose explicit Cancel action can decline the
-ceremony.
+unchanged. Its multiline variant inserts a line on Enter and commits with Accept; an optional change
+callback retains drafts. Notes uses that full-width surface for its multiline editor. Radio password
+and PIN entry use the same keyboard with masked input. The radio panel stays attached below the
+keyboard, so its pending pairing ceremony and subscriptions stay alive. Closing the keyboard
+restores the radio prompt, whose explicit Cancel action can decline the ceremony.
 
 The editor keyboard includes F1–F12, one-shot Ctrl/Alt/Shift/Win modifiers, latched Caps Lock, and
 navigation and editing keys. Ctrl+A/C/X/V, selection and navigation use the local TextBox's real key

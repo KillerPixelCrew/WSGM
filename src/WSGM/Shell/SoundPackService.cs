@@ -45,6 +45,7 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
     private AudioFilePreview? _preview;
     private long _previewEpoch;
     private long _revision;
+    private long _stateRevision;
     private SoundPackState _state = new([], "", false, null, "Not checked yet.", [], 0, 0);
 
     internal SoundPackService(SoundPackLibrary library, Func<string> readSelected, Action<string> saveSelected,
@@ -61,6 +62,9 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
     }
 
     internal long Revision => Interlocked.Read(ref _revision);
+
+    /// <summary>Advances with every change announcement, so a page's projection republishes busy and error states.</summary>
+    internal long StateRevision => Interlocked.Read(ref _stateRevision);
 
     public async ValueTask DisposeAsync()
     {
@@ -93,6 +97,12 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
 
     public event Action? Changed;
 
+    private void RaiseChanged()
+    {
+        Interlocked.Increment(ref _stateRevision);
+        Changed?.Invoke();
+    }
+
     /// <summary>Says what Steam's sound integration is doing, from the host switch and the override patch.</summary>
     /// <param name="hostOn">Whether WSGM's own Steam surfaces are on.</param>
     /// <param name="soundPatch">The sound override patch after a synchronization, or null before the first one.</param>
@@ -122,7 +132,7 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
             _state = _state with { Integration = status };
         }
 
-        Changed?.Invoke();
+        RaiseChanged();
     }
 
     internal void ReportPlaybackStatus(SteamSoundOverrideStatus status)
@@ -149,7 +159,7 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
             _state = _state with { Integration = text };
         }
 
-        Changed?.Invoke();
+        RaiseChanged();
     }
 
     private static string PlaybackText(SteamSoundOverrideStatus? status, int requested)
@@ -403,6 +413,14 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
         }
     }
 
+    /// <summary>The address of a store blob, such as a listing's screenshot.</summary>
+    /// <param name="blobId">The blob id.</param>
+    /// <returns>The address.</returns>
+    internal string BlobUrl(string blobId)
+    {
+        return _store.BlobUrl(blobId);
+    }
+
     internal string[] PreviewAssets(SoundPack pack)
     {
         return pack.Assets;
@@ -424,7 +442,7 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
             }
 
             _report($"Sounds preview failed: {failure.Error}, HRESULT 0x{failure.HResult:X8}: {failure.Message}");
-            Changed?.Invoke();
+            RaiseChanged();
         };
         return preview;
     }
@@ -525,7 +543,7 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
                 _state = _state with { Busy = true, Error = null };
             }
 
-            Changed?.Invoke();
+            RaiseChanged();
             await Task.Run(action, linked.Token).ConfigureAwait(false);
             return new SteamUiCommandResult(true, null);
         }
@@ -547,7 +565,7 @@ internal sealed class SoundPackService : IChangeSource, IAsyncDisposable
             }
 
             _operations.Release();
-            Changed?.Invoke();
+            RaiseChanged();
         }
     }
 }

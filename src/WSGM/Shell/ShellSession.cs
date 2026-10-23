@@ -136,6 +136,8 @@ public sealed partial class ShellSession
 
     private EmulatorService? _emulatorTool;
     private ProgramsService? _programs;
+    private NotesService? _notes;
+    private ScreensaverService? _screensavers;
 
     private EmulatorManager? _emulators;
 
@@ -1129,6 +1131,35 @@ public sealed partial class ShellSession
         // A crash can leave media preview files behind. No sheet exists yet, so none is in use.
         OverlayMediaPreview.DeleteStaleFiles(_store.Context.Root);
         _programs ??= new ProgramsService(_store, _config);
+        TryStart("browser", InitializeBrowser);
+        _screensavers ??= new ScreensaverService(_store.Context, () => _config.Screensavers,
+            change => _config.Screensavers = CommitWsgmSetting(config => change(config.Screensavers), false).Screensavers,
+            () => _config.Cef.Enabled && _steamUiTransport?.GetSnapshots().Any(snapshot =>
+                snapshot.Role == SteamUiTargetRole.SharedJsContext && snapshot.Health == SteamUiTransportHealth.Ready) == true);
+        _screensavers.ConfigurationChanged();
+        _notes ??= new NotesService(
+            new NoteStore(Path.Combine(_store.Context.Root, "notes")),
+            () => _runningApplications?.Current ?? RunningApplicationTargetSnapshot.Initial(),
+            appId => _libraryImportState.EntriesIfLoaded()?.FirstOrDefault(entry => entry.AppId == appId)
+                is { } entry
+                ? (entry.Source, entry.Key, entry.Name)
+                : null,
+            _steamClient is null
+                ? null
+                : async (appId, token) =>
+                    (await _steamClient.Apps.ReadDetailsAsync(appId, token).ConfigureAwait(false)).Value?.Name)
+        {
+            Countdown = new NotesCountdown()
+        };
+        if (!_overlayTestOnly)
+        {
+            var steamNotes = new NotesSteamCaptureSurface(
+                () => _config.Cef.Enabled ? _steamUiTransport : null, () => _steamClient);
+            _notes.SteamOverlayOpen = steamNotes.OverlayOpenAsync;
+            _notes.SteamCapturePorts = new NotesCapturePorts(steamNotes, _notes.Countdown!,
+                (target, token) => NotesGameCapture.CaptureAsync(target, steamNotes.OverlayOpenAsync, token),
+                NotesGameCapture.IsAlive);
+        }
         _overlay = new OverlayController(
             _config,
             _store,
@@ -1166,7 +1197,10 @@ public sealed partial class ShellSession
                 _emulatorTool,
                 _programs,
                 _launchActions,
-                _libraryManager),
+                _libraryManager,
+                Notes: _notes,
+                Screensavers: _screensavers,
+                Browser: _browser),
             _audio,
             _audioProfiles,
             _radios,
@@ -1413,6 +1447,8 @@ public sealed partial class ShellSession
                     LibraryImport = _libraryImport,
                     Emulators = _emulatorTool,
                     LibraryManager = _libraryManager,
+                    Notes = _notes,
+                    Screensavers = _screensavers,
                     LaunchActions = _launchActions,
                     ScaledResolutions = _scaledResolutions,
                     WsgmSettings = _wsgmSettings,

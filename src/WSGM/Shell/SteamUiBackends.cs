@@ -14,6 +14,12 @@ namespace WSGM.Shell;
 /// </remarks>
 internal sealed record SteamUiBackends
 {
+    /// <summary>The shared structured notebooks behind Steam's Notes page.</summary>
+    internal NotesService? Notes { get; init; }
+
+    /// <summary>Local screensaver sources and their isolated disposable player.</summary>
+    internal ScreensaverService? Screensavers { get; init; }
+
     /// <summary>The RTSS-backed performance service.</summary>
     internal required PerformanceService Performance { get; init; }
 

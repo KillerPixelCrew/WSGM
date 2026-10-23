@@ -8,6 +8,8 @@
   <Folder Name="/src/">
     <Project Path="src/Avalonia.LiveBackdrop/Avalonia.LiveBackdrop.csproj"/>
     <Project Path="src/WSGM/WSGM.csproj"/>
+    <Project Path="src/Browser/WSGM.BrowserHost/WSGM.BrowserHost.csproj"/>
+    <Project Path="src/Screensaver/WSGM.ScreensaverHost/WSGM.ScreensaverHost.csproj"/>
     <Project Path="src/WSGM.Plugin.Sdk/WSGM.Plugin.Sdk.csproj"/>
     <Project Path="src/WSGM.Plugin.Ir/WSGM.Plugin.Ir.csproj"/>
     <Project Path="src/WSGM.DeviceLab/WSGM.DeviceLab.csproj"/>

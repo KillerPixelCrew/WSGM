@@ -42,6 +42,16 @@ Require-File "App\WSGM.LogonService.exe"
 Require-File "App\LICENSE.txt"
 Require-File "App\WebView2Loader.dll"
 Require-File "App\Microsoft.Web.WebView2.Core.dll"
+foreach ($browserFile in @("WSGM.BrowserHost.exe", "WSGM.BrowserHost.dll", "WSGM.BrowserHost.deps.json",
+        "WSGM.BrowserHost.runtimeconfig.json", "Microsoft.Web.WebView2.Core.dll", "WebView2Loader.dll",
+        "System.Windows.Forms.dll", "coreclr.dll", "hostfxr.dll")) {
+    Require-File "App\Browser\$browserFile"
+}
+foreach ($screensaverFile in @("WSGM.ScreensaverHost.exe", "WSGM.ScreensaverHost.dll",
+        "WSGM.ScreensaverHost.deps.json", "WSGM.ScreensaverHost.runtimeconfig.json",
+        "Microsoft.Web.WebView2.Core.dll", "WebView2Loader.dll", "System.Windows.Forms.dll", "coreclr.dll")) {
+    Require-File "App\Screensaver\$screensaverFile"
+}
 Require-File "App\WebView2-LICENSE.txt"
 Require-File "App\Microsoft.Data.Sqlite-MIT.txt"
 Require-File "App\SQLitePCLRaw-Apache-2.0.txt"

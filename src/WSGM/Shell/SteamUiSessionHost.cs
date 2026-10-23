@@ -27,6 +27,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     private readonly SteamArtworkBrowserSource? _artwork;
     private readonly LaunchActionService? _launchActions;
     private readonly LibraryManagerService? _libraryManager;
+    private readonly NotesService? _notes;
+    private readonly ScreensaverService? _screensavers;
 
     /// <summary>
     ///     Null when no audio manager exists for this session.
@@ -61,6 +63,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
 
     /// <summary>The session's display-off timeouts, shared with the overlay, or null without one.</summary>
     private readonly DisplayTimeouts? _displayTimeouts;
+    private readonly ScreensaverInputActivity _screensaverInput = new();
 
     // Serializes the start of disposal; every caller gets the one disposal task.
     private readonly Lock _disposeGate = new();
@@ -203,6 +206,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         _artwork = backends.Artwork;
         _launchActions = backends.LaunchActions;
         _libraryManager = backends.LibraryManager;
+        _notes = backends.Notes;
+        _screensavers = backends.Screensavers;
         _libraryImport = backends.LibraryImport;
         _libraryBadge = new LibraryBadgeBackend(_libraryImport is { } importer ? importer.RecheckShortcutAsync : null);
         _emulators = backends.Emulators;
@@ -225,7 +230,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             [
                 .. new IExtensionsTabSection?[]
                 {
-                    _libraryManager?.CardsSection, _libraryManager?.TabsSection, _themes, _animations
+                    _libraryManager?.CardsSection, _libraryManager?.TabsSection, _themes, _animations, _notes,
+                    new BrowserExtensionsSection()
                 }.OfType<IExtensionsTabSection>()
             ],
             _emulators is not null);
@@ -331,6 +337,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <summary>Hears every change source that moves a published state. The constructor's last step.</summary>
     private void Subscribe()
     {
+        if (_screensavers is not null)
+        {
+            _screensavers.Changed += QueueStatePublication;
+        }
         _runtime.ModuleFailed += OnModuleFailed;
         _patches.Synchronized += OnPatchesSynchronized;
         _transport.GenerationChanged += OnGenerationChanged;
@@ -393,6 +403,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             _libraryManager.Changed += QueueStatePublication;
         }
+        if (_notes is not null)
+        {
+            _notes.Changed += QueueStatePublication;
+        }
 
         if (_chordMirror is not null)
         {
@@ -443,6 +457,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <summary>Detaches everything <see cref="Subscribe" /> attached.</summary>
     private void Unsubscribe()
     {
+        if (_screensavers is not null)
+        {
+            _screensavers.Changed -= QueueStatePublication;
+        }
         _runtime.ModuleFailed -= OnModuleFailed;
         _patches.Synchronized -= OnPatchesSynchronized;
         _transport.GenerationChanged -= OnGenerationChanged;
@@ -493,6 +511,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         if (_libraryManager is not null)
         {
             _libraryManager.Changed -= QueueStatePublication;
+        }
+        if (_notes is not null)
+        {
+            _notes.Changed -= QueueStatePublication;
         }
 
         if (_chordMirror is not null)
@@ -589,6 +611,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
 
         _retired = true;
+        if (_screensavers is not null)
+        {
+            await _screensavers.StopForSteamAsync().ConfigureAwait(false);
+        }
         // The session's services outlive this host: only the handlers attached to them go here.
         Unsubscribe();
         if (_bluetooth is not null)
@@ -677,6 +703,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         if (previous.ScreensaverRows && !next.ScreensaverRows)
         {
             _displayTimeouts?.ForgetSteam();
+            if (_screensavers is not null)
+            {
+                Log.Observe(_screensavers.StopForSteamAsync(), "Stopping custom screensaver after disabling its surface");
+            }
         }
 
         if (previous.NetworkIndicator && !next.NetworkIndicator && !next.NativeQuickAccess)
@@ -857,6 +887,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             CancelAllInflightRequests();
             // A new document is a new client until its screensaver surface reports again.
             _displayTimeouts?.ForgetSteam();
+            if (_screensavers is not null)
+            {
+                Log.Observe(_screensavers.StopForSteamAsync(), "Stopping custom screensaver after Steam reload");
+            }
         }
 
         // The patch manager marks patches for every changed target role, so every role change must
@@ -947,6 +981,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         if (!ScreensaverReportHolds(surface))
         {
             _displayTimeouts.ForgetSteam();
+            if (_screensavers is not null)
+            {
+                Log.Observe(_screensavers.StopForSteamAsync(), "Stopping custom screensaver after its Steam surface retired");
+            }
         }
     }
 
@@ -1164,7 +1202,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 () => HostSteamUiEnabled() && libraryManager.TabManagerAvailable, libraryManager));
         }
 
-        if (_libraryImport is not null || _artwork is not null || _emulators is not null || _launchActions is not null)
+        if (_libraryImport is not null || _artwork is not null || _emulators is not null || _launchActions is not null
+            || _screensavers is not null)
         {
             modules.Add(SteamFilePickerSurface.Module(HostSteamUiEnabled));
         }
@@ -1214,6 +1253,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             modules.Add(SteamSoundOverrideSurface.Module(HostSteamUiEnabled,
                 () => new ValueTask<SteamSoundOverrideState?>(sounds.ReadOverrides()), () => sounds.Revision,
                 reportStatus: sounds.ReportPlaybackStatus));
+            // The UI sounds page, where packs are browsed, previewed, installed and chosen.
+            modules.Add(SteamSoundsSurface.Module(HostSteamUiEnabled, sounds));
         }
 
         // The boot movie's page. Follows CEF itself, like the themes' page.
@@ -1224,6 +1265,16 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 () => new ValueTask<SteamAnimationsState?>(animations.ReadState()),
                 () => animations.Revision,
                 animations));
+        }
+
+        // Settings > Customization as the hub for the three above. It reads their pages'
+        // publications and sends their commands, so it declares none of its own.
+        modules.Add(SteamCustomizationSurface.Module());
+        modules.Add(SteamBrowserSurface.Module(HostSteamUiEnabled));
+
+        if (_notes is { } notes)
+        {
+            modules.Add(NotesSteamSurface.Module(HostSteamUiEnabled, notes));
         }
 
         // Which Quick Access sections the user opened. Declared unconditionally: the sections exist
@@ -1253,8 +1304,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         {
             modules.Add(SteamScreensaverSurface.Module(
                 () => _switches.ScreensaverRows,
-                () => new ValueTask<SteamScreensaverState?>(timeouts.ReadState()),
-                timeouts));
+                () => new ValueTask<SteamScreensaverState?>(timeouts.ReadState() with
+                {
+                    Activity = _screensaverInput.Read(),
+                    Content = _screensavers?.ReadState()
+                }),
+                timeouts, content: _screensavers));
         }
 
         if (_resolution is { } resolution)
@@ -1385,6 +1440,12 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 Template: SteamWsgmSettingsSurface.Template));
         }
 
+        if (_notes is not null)
+        {
+            pages.Add(new SteamPage("notes", NotesSteamSurface.Route, "Notes", Template: NotesSteamSurface.Template));
+        }
+        pages.Add(new SteamPage("browser", SteamBrowserSurface.Route, "Browser", Template: SteamBrowserSurface.Template));
+
         if (_themes is not null)
         {
             pages.Add(new SteamPage(
@@ -1392,6 +1453,15 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 SteamThemesSurface.Route,
                 "Themes",
                 Template: SteamThemesSurface.Template));
+        }
+
+        if (_sounds is not null)
+        {
+            pages.Add(new SteamPage(
+                "sounds",
+                SteamSoundsSurface.Route,
+                "UI sounds",
+                Template: SteamSoundsSurface.Template));
         }
 
         if (_animations is not null)
@@ -1648,7 +1718,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                     or SteamWsgmSettingsSurface.PatchId
                     or SteamNavigationPanelSurface.PatchId or SteamNativeSettingsSurface.PatchId
                     or SteamThemesSurface.PatchId
-                    or SteamAnimationsSurface.PatchId or SteamSoundOverrideSurface.PatchId => host,
+                    or SteamAnimationsSurface.PatchId or SteamSoundOverrideSurface.PatchId
+                    or SteamSoundsSurface.PatchId or SteamCustomizationSurface.PatchId
+                    or NotesSteamSurface.PatchId or SteamBrowserSurface.PatchId => host,
                 // The cascade follows the themes' own switch as well; off, the gate is retracted and
                 // every owned node leaves every window.
                 SteamThemeStyleSurface.PatchId => host && _themes is { Enabled: true },

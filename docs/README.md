@@ -11,6 +11,10 @@ trusting the change. Product decisions live in [decisions.md](decisions.md).
 
 Release changes are recorded in the [changelog](../CHANGELOG.md).
 
+Local image folders and restricted HTML/CSS/JS packs are described in
+[screensavers.md](screensavers.md). The Overlay browser and native Steam guide lookup are described
+in [browser.md](browser.md).
+
 ## Start with the code
 
 | Read                                                                                     | When you want to understand                                                                             |

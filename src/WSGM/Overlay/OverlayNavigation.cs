@@ -110,7 +110,16 @@ internal enum OverlayPage
     EmulatorManager,
 
     /// <summary>User-configured desktop programs and their shared launch-or-focus actions.</summary>
-    Programs
+    Programs,
+
+    /// <summary>Structured game notebooks, ink and screenshot captures.</summary>
+    Notes,
+
+    /// <summary>The session's browser and guide lookup.</summary>
+    SystemBrowser,
+
+    /// <summary>Local image and scene screensaver sources.</summary>
+    Screensavers
 }
 
 /// <summary>The single action selected by Back/B after higher-priority UI has been considered.</summary>
@@ -415,6 +424,7 @@ internal sealed class OverlayNavigation
                 or OverlayPage.SteamGameLibrary or OverlayPage.SystemAnimations
                 or OverlayPage.EmulatorManager
                 or OverlayPage.Programs
+                or OverlayPage.Notes or OverlayPage.SystemBrowser or OverlayPage.Screensavers
                 or OverlayPage.SystemSounds
                 or OverlayPage.SystemController
                 or OverlayPage.SystemAbout

@@ -1572,12 +1572,40 @@
     event?.stopPropagation?.();
     step(button === SteamGamepadButton.TriggerRight ? 1 : -1);
   };
+  /**
+   * The Steam window an interaction happened in: Big Picture's main window or one game's overlay window.
+   * In a game, Quick Access and the side menus are drawn in that game's overlay window, so a page opened
+   * from them belongs there rather than in the hidden main window. Resolve it when the user acts: the
+   * window that holds the element, else the one with a side menu open, else the one whose document has
+   * focus.
+   * @param element An element of the control that was used, when the caller has one.
+   * @returns The window instance, or null when none can be told, which keeps the main window.
+   */
+  const steamInteractionWindow = (element) => {
+    const windows = window.SteamUIStore?.WindowStore?.SteamUIWindows;
+    if (!Array.isArray(windows)) return null;
+    const find = (test) =>
+      windows.find((candidate) => {
+        try {
+          return !!candidate && test(candidate);
+        } catch (_) {
+          return false;
+        }
+      }) ?? null;
+    const view = element?.ownerDocument?.defaultView;
+    return (
+      (view ? find((candidate) => candidate.BrowserWindow === view) : null) ??
+      find((candidate) => (candidate.MenuStore?.GetOpenSideMenu?.() ?? 0) !== 0) ??
+      find((candidate) => candidate.BrowserWindow?.document?.hasFocus?.() === true)
+    );
+  };
   // Closes whichever side panel is open, so a route followed from inside one is not rendered behind
-  // it. Valve's own main-window instance owns the operation; SteamNativeSurfaceCommands drives the
-  // same MenuStore.CloseSideMenus for the keyboard overlay. Reports whether the panel is now closed,
-  // which for a caller that was never in a panel is trivially true.
-  const closeSteamSideMenus = () => {
-    const menus = window.SteamUIStore?.WindowStore?.MainWindowInstance?.MenuStore;
+  // it. Valve's own window instance owns the operation: the given one (see steamInteractionWindow),
+  // else the main window; SteamNativeSurfaceCommands drives the same MenuStore.CloseSideMenus for the
+  // keyboard overlay. Reports whether the panel is now closed, which for a caller that was never in a
+  // panel is trivially true.
+  const closeSteamSideMenus = (owner) => {
+    const menus = (owner ?? window.SteamUIStore?.WindowStore?.MainWindowInstance)?.MenuStore;
     if (typeof menus?.CloseSideMenus !== "function") return false;
     try {
       menus.CloseSideMenus();
@@ -1603,11 +1631,18 @@
   /**
    * Pushes an absolute non-root route through the existing Steam history.
    * @param route Route without control characters; no length bound is imposed.
+   * @param owner The window the request came from (steamInteractionWindow). A game's gamepad overlay
+   * window navigates itself, as Steam opens its own pages over a game; any other or none uses the main
+   * window's history.
    * @returns False for an invalid route or missing history; true after push. History exceptions propagate.
    */
-  const navigateSteamRoute = (route) => {
+  const navigateSteamRoute = (route, owner) => {
     if (!isNavigableRoute(route)) {
       return false;
+    }
+    if (owner?.IsGamepadUIOverlayWindow?.() === true && typeof owner.Navigate === "function") {
+      owner.Navigate(route);
+      return true;
     }
     const history = window.tempNavStore?.m_history;
     if (!history || typeof history.push !== "function") return false;
@@ -2806,6 +2841,200 @@
     return requirePresent;
   }
   // @steam-ui-module-resolver-end
+  // @fragment overlay-browser.ts
+  /** Resolves trusted lookup chrome's handoff to the actual game's Steam-owned browser. */
+  function resolveSteamOverlayBrowser(runtime) {
+    const useWindow = runtime.exported(
+      ["createContext(null)", "VirtualKeyboardManager", "instance"],
+      (value) => typeof value === "function" && String(value).includes(".useContext("),
+    );
+    const routes = runtime.exported(
+      ["GameAPIOSK:", "/gameapiosk"],
+      (value) => typeof value?.GamepadUI?.ExternalWeb === "function",
+    );
+    const externalPath = routes?.GamepadUI?.ExternalWeb();
+    if (
+      typeof useWindow !== "function" ||
+      typeof externalPath !== "string" ||
+      !/^\/[a-z0-9/_-]+$/iu.test(externalPath) ||
+      externalPath.startsWith("//") ||
+      externalPath.length > 512
+    )
+      return null;
+    let disposed = false;
+    const retained = new WeakMap();
+    const subscriptions = new Set();
+    const validId = (value) => Number.isInteger(value) && value > 0 && value <= 0xffffffff;
+    const identify = (instance) => {
+      if (disposed) return null;
+      const windows = window.SteamUIStore?.WindowStore?.OverlayWindows;
+      if (!instance || !Array.isArray(windows) || !windows.includes(instance)) return null;
+      const gamepad = instance.IsGamepadUIOverlayWindow?.() === true;
+      const desktop = instance.IsDesktopOverlayWindow?.() === true;
+      if (gamepad === desktop) return null;
+      const info = instance.params?.browserInfo;
+      if (
+        !validId(info?.m_unPID) ||
+        !validId(info?.m_unAppID) ||
+        typeof info?.m_gameID !== "string" ||
+        !/^[1-9][0-9]{0,19}$/u.test(info.m_gameID) ||
+        BigInt(info.m_gameID) > 0xffffffffffffffffn
+      )
+        return null;
+      const matches = windows.filter((candidate) => {
+        const other = candidate?.params?.browserInfo;
+        return (
+          other?.m_unPID === info.m_unPID &&
+          other?.m_unAppID === info.m_unAppID &&
+          other?.m_gameID === info.m_gameID
+        );
+      });
+      if (matches.length !== 1 || matches[0] !== instance) return null;
+      let title = "";
+      try {
+        const name = window.appStore?.GetAppOverviewByAppID(info.m_unAppID)?.display_name;
+        if (typeof name === "string") title = name.slice(0, 512);
+      } catch {
+        // Optional metadata must not substitute another window's game identity.
+      }
+      return {
+        appId: info.m_unAppID,
+        processId: info.m_unPID,
+        gameId: info.m_gameID,
+        title,
+        kind: gamepad ? "gamepad" : "desktop",
+      };
+    };
+    const allowed = (value) => {
+      if (value === "about:blank") return true;
+      if (typeof value !== "string" || value.length > 4096) return false;
+      try {
+        const url = new URL(value);
+        return ["https:", "http:"].includes(url.protocol) && !url.username && !url.password;
+      } catch {
+        return false;
+      }
+    };
+    const sameTarget = (left, right) =>
+      left &&
+      right &&
+      left.appId === right.appId &&
+      left.processId === right.processId &&
+      left.gameId === right.gameId &&
+      left.kind === right.kind;
+    const release = (entry) => {
+      entry.stop?.();
+      entry.stop = null;
+      entry.saved = null;
+      subscriptions.delete(entry.reference);
+    };
+    const watch = (instance, target) => {
+      const history = instance.History;
+      if (
+        typeof history?.listen !== "function" ||
+        typeof history?.push !== "function" ||
+        typeof instance.Navigate !== "function"
+      )
+        return null;
+      let entry = retained.get(instance);
+      if (entry && (entry.history !== history || !sameTarget(entry.target, target))) {
+        release(entry);
+        retained.delete(instance);
+        entry = null;
+      }
+      if (entry) return entry;
+      // Neither this registry nor the callback keeps a closed overlay instance alive.
+      for (const reference of subscriptions) {
+        if (!reference.deref()) subscriptions.delete(reference);
+      }
+      const owner = new WeakRef(instance);
+      entry = { history, target, saved: null, stop: null, reference: null };
+      const current = entry;
+      entry.reference = new WeakRef(entry);
+      const capture = (location) => {
+        const active = owner.deref();
+        if (
+          !active ||
+          !sameTarget(identify(active), current.target) ||
+          active.History !== history
+        ) {
+          release(current);
+          if (active) retained.delete(active);
+          return;
+        }
+        if (location?.pathname !== externalPath) return;
+        const state = location.state;
+        const initial = state?.initialIndex;
+        const final = state?.finalIndex;
+        // Steam supplies these indices after creating its browser session. Its loading state
+        // can temporarily have finalIndex one below initialIndex; never invent either index.
+        if (
+          !Number.isSafeInteger(initial) ||
+          initial < 0 ||
+          (final !== undefined &&
+            (!Number.isSafeInteger(final) || final < 0 || final < initial - 1)) ||
+          (state.url !== undefined && !allowed(state.url))
+        ) {
+          current.saved = null;
+          return;
+        }
+        const saved = { initialIndex: initial };
+        if (final !== undefined) saved.finalIndex = final;
+        if (state.url !== undefined) saved.url = state.url;
+        current.saved = saved;
+      };
+      const stop = history.listen(capture);
+      if (typeof stop !== "function") return null;
+      entry.stop = stop;
+      retained.set(instance, entry);
+      subscriptions.add(entry.reference);
+      capture(history.location);
+      return retained.get(instance) ?? null;
+    };
+    const open = (instance, url, home = "about:blank") => {
+      const target = identify(instance);
+      if (!target || (url !== undefined && !allowed(url)) || !allowed(home)) return false;
+      if (target.kind === "gamepad") {
+        if (typeof instance.Navigator?.ExternalWeb !== "function") return false;
+        const entry = watch(instance, target);
+        if (!entry) return false;
+        if (url === undefined && entry.saved) {
+          // ExternalWeb(undefined) loads Steam's store. Restore the native route's own
+          // session state through its window navigator so the retained page is resumed.
+          instance.Navigate(externalPath, false, false, { ...entry.saved });
+        } else {
+          entry.saved = null;
+          instance.Navigator.ExternalWeb(url ?? home);
+        }
+        return true;
+      }
+      const browser = instance.DesktopOverlay;
+      if (
+        typeof browser?.AddWebPageRequest !== "function" ||
+        typeof browser?.SetWindowVisibility !== "function" ||
+        typeof browser?.BringWindowToFront !== "function"
+      )
+        return false;
+      if (url !== undefined) browser.AddWebPageRequest(url, true);
+      else {
+        browser.LoadWebRequestsIfNeeded?.();
+        if (!browser.web_requests?.length) browser.AddWebPageRequest(home, true);
+        else browser.SetWindowVisibility("Browser", 1);
+      }
+      browser.BringWindowToFront("Browser");
+      return true;
+    };
+    const dispose = () => {
+      if (disposed) return;
+      disposed = true;
+      for (const reference of subscriptions) {
+        const entry = reference.deref();
+        if (entry) release(entry);
+      }
+      subscriptions.clear();
+    };
+    return { useWindow, identify, open, dispose };
+  }
   // @fragment page-gate.ts
   /**
    * Registers a renderer and generation-bound gate for one host page.
@@ -3523,6 +3752,722 @@
       ),
     );
   };
+  // @fragment screensaver-activity.ts
+  // Steam's native controller-idle clock does not include Windows session input outside its views.
+  // Merge that second real producer at the Screensaver service's existing notification boundary.
+  // Neither the native clock, controller events nor the user's timeout preferences are changed.
+  function createScreensaverActivity(readSettings, hasBattery = () => true, onActive = () => {}) {
+    const notice = "Screensaver.NotifyActiveStateChanged#1";
+    const nativeTokens = ["Screensaver.GetActiveState#1", "Screensaver.ForceScreensaver#1"];
+    const registryTokens = [
+      "Multiple attempts to set a default WebUI message handler registry: overriding previous",
+    ];
+    const protoTokens = ["InitFromMsg(", "SetBodyJSON(", "SerializeBody("];
+    const keys = {
+      marker: "__steamUiScreensaverActivity",
+      original: "__steamUiScreensaverActivityOriginal",
+    };
+    let native;
+    let registry;
+    let proto;
+    let packet;
+    let installed = false;
+    let generation = 0;
+    let nativeObservation = 0;
+    let nativeActive = false;
+    let displayed = null;
+    let previewStarted = 0;
+    let preview = false;
+    let sample = null;
+    let sampled = 0;
+    let expiry = null;
+    let lastError = "";
+    const effective = () => {
+      if (!installed || !nativeActive || preview || !sample || performance.now() - sampled > 5000)
+        return nativeActive;
+      const values = readSettings();
+      const setting =
+        sample.onBattery === true && hasBattery()
+          ? "system_idle_screensaver_battery_sec"
+          : "system_idle_screensaver_ac_sec";
+      const timeout = values?.[setting];
+      if (!Number.isInteger(timeout) || timeout <= 0) return nativeActive;
+      return sample.ageMilliseconds + performance.now() - sampled >= timeout * 1000;
+    };
+    // Existing subscribers may predate our install. Dispatch only this named service's existing
+    // handlers, using Valve's own protobuf and packet implementations, including on removal.
+    const reconcile = (force = false) => {
+      const active = effective();
+      if (!packet || (!force && displayed === active)) return;
+      displayed = active;
+      if (installed) onActive(active);
+      const message = proto.InitFromObject(native.NotifyActiveStateChangedHandler.request, {
+        active,
+      });
+      message.Hdr().set_target_job_name(notice);
+      const incoming = proto.InitFromPacket(
+        native.NotifyActiveStateChangedHandler.request,
+        new packet(message.Serialize()),
+      );
+      const handlers = registry.m_mapServiceMethodHandlers.get(notice);
+      for (const handler of handlers?.slice() ?? []) {
+        try {
+          handler.invoke(incoming, () => {});
+        } catch (error) {
+          lastError = "Screensaver subscriber failed: " + String(error);
+        }
+      }
+    };
+    const observe = (activity) => {
+      if (!installed) return;
+      if (expiry !== null) clearTimeout(expiry);
+      expiry = null;
+      const valid =
+        activity &&
+        Number.isSafeInteger(activity.revision) &&
+        activity.revision > 0 &&
+        Number.isInteger(activity.ageMilliseconds) &&
+        activity.ageMilliseconds >= 0 &&
+        activity.ageMilliseconds <= 0xffffffff;
+      if (!valid) {
+        sample = null;
+        reconcile();
+        return;
+      }
+      const changed = sample && sample.revision !== activity.revision;
+      sample = activity;
+      sampled = performance.now();
+      if (preview && changed && Date.now() - activity.ageMilliseconds > previewStarted + 250) {
+        preview = false;
+        void Promise.resolve(native.ForceScreensaver({ enabled: false })).catch((error) => {
+          lastError = String(error);
+        });
+      }
+      reconcile();
+      // A lost host must restore native behavior. This is an expiring observation lease, not
+      // another input poller; the session host remains the sole source of Windows samples.
+      expiry = setTimeout(() => {
+        expiry = null;
+        sample = null;
+        reconcile();
+      }, 5100);
+    };
+    const stop = () => {
+      installed = false;
+      generation++;
+      if (expiry !== null) clearTimeout(expiry);
+      expiry = null;
+      sample = null;
+      preview = false;
+      const releases = [
+        releaseMember(registry, "DispatchMsgToHandlers", keys),
+        releaseMember(native, "GetActiveState", keys),
+        releaseMember(native, "ForceScreensaver", keys),
+      ];
+      reconcile(true);
+      packet = null;
+      displayed = null;
+      return releases.find((value) => !value.ok) ?? { ok: true };
+    };
+    const start = (runtime) => {
+      if (installed) return { ok: true };
+      const current = ++generation;
+      try {
+        native = runtime.exported(
+          nativeTokens,
+          (value) =>
+            typeof value?.GetActiveState === "function" &&
+            typeof value?.ForceScreensaver === "function" &&
+            !!value?.NotifyActiveStateChangedHandler?.request,
+        );
+        const getRegistry = runtime.exported(
+          registryTokens,
+          (value) => typeof value === "function",
+        );
+        registry = getRegistry().GetDefaultHandlerRegistry();
+        proto = runtime.exported(
+          protoTokens,
+          (value) =>
+            typeof value?.InitFromMsg === "function" &&
+            typeof value?.InitFromObject === "function" &&
+            typeof value?.InitFromPacket === "function",
+        );
+        if (
+          !(registry?.m_mapServiceMethodHandlers instanceof Map) ||
+          typeof registry.DispatchMsgToHandlers !== "function"
+        )
+          throw new Error("Screensaver notification registry shape changed");
+        const dispatch = claimMember(
+          registry,
+          "DispatchMsgToHandlers",
+          keys,
+          (original) =>
+            function (message, ...rest) {
+              if (installed && message.Hdr().target_job_name() === notice) {
+                packet = message.m_netPacket?.constructor;
+                if (typeof packet !== "function") return original.call(this, message, ...rest);
+                const decoded = proto.InitFromMsg(
+                  native.NotifyActiveStateChangedHandler.request,
+                  message,
+                );
+                nativeObservation++;
+                nativeActive = decoded.Body().active() === true;
+                if (!nativeActive) preview = false;
+                reconcile(true);
+                return true;
+              }
+              return original.call(this, message, ...rest);
+            },
+        );
+        if (!dispatch.ok) throw new Error(dispatch.error);
+        const get = claimMember(
+          native,
+          "GetActiveState",
+          keys,
+          (original) =>
+            function (...args) {
+              const requested = generation;
+              const observation = nativeObservation;
+              return Promise.resolve(original.apply(this, args)).then((message) => {
+                if (installed && requested === generation) {
+                  packet = message.m_netPacket?.constructor ?? packet;
+                  if (observation === nativeObservation)
+                    nativeActive = message.Body().active() === true;
+                  message.Body().set_active(effective());
+                }
+                return message;
+              });
+            },
+        );
+        if (!get.ok) throw new Error(get.error);
+        const force = claimMember(
+          native,
+          "ForceScreensaver",
+          keys,
+          (original) =>
+            function (options, ...rest) {
+              preview = options?.enabled === true;
+              if (preview) previewStarted = Date.now();
+              // Native activation may already be true while Windows input keeps it hidden.
+              // Force(true) emits no native change in that state, so Preview must publish the
+              // effective transition itself. The same applies when ending a preview.
+              reconcile();
+              return original.call(this, options, ...rest);
+            },
+        );
+        if (!force.ok) throw new Error(force.error);
+        installed = true;
+        void native
+          .GetActiveState({})
+          .then(() => {
+            if (installed && current === generation) reconcile(true);
+          })
+          .catch((error) => {
+            lastError = String(error);
+          });
+        return { ok: true };
+      } catch (error) {
+        lastError = String(error);
+        stop();
+        return { ok: false, error: lastError };
+      }
+    };
+    return {
+      start,
+      observe,
+      stop,
+      status: () => ({ installed, nativeActive, displayed, preview, lastError }),
+    };
+  }
+  // @fragment screensaver-content.ts
+  // Trusted chooser/configuration chrome only. Pack HTML/JS never enters this Steam execution context.
+  function createScreensaverContent(readSettings) {
+    const patchId = "steam-ui.screensaver";
+    const keys = {
+      marker: "__steamUiScreensaverSources",
+      original: "__steamUiScreensaverSourcesOriginal",
+    };
+    const local = createLocalStore();
+    const catalog = createLocalStore();
+    let state = null;
+    let native = null;
+    let setSetting = null;
+    let ui = null;
+    let installed = false;
+    let retiring = false;
+    let active = false;
+    let fallback = "";
+    let catalogKey = "";
+    let lastPlayback = "";
+    let lastError = "";
+    let lastSelection = 0;
+    let lastDismiss = null;
+    let pendingSelection = null;
+    let generation = 0;
+    const act = (action, payload = {}) => request(patchId, "content", { action, ...payload });
+    const selected = () => String(readSettings()?.screensaver_current_id || "steam-gameslideshow");
+    const currentSource = () => state?.sources?.find((source) => source.selectorId === selected());
+    const reportPlayback = () => {
+      if (!installed || retiring || !state) return;
+      const source = currentSource();
+      const reading = { active, id: source?.id ?? "", selectorId: selected() };
+      const signature = JSON.stringify(reading);
+      if (signature === lastPlayback) return;
+      lastPlayback = signature;
+      void act("playback", reading).catch((error) => {
+        if (lastPlayback === signature) lastPlayback = "";
+        lastError = String(error);
+        local.changed();
+      });
+    };
+    const finishSelection = (operation, error) => {
+      if (pendingSelection !== operation) return;
+      pendingSelection = null;
+      void act("selectionResult", { revision: operation.revision, error }).catch((failure) => {
+        lastError = String(failure);
+        local.changed();
+      });
+    };
+    const reconcileSelection = () => {
+      if (!installed || retiring || !pendingSelection) return;
+      const operation = pendingSelection;
+      if (selected() === operation.selectorId) {
+        if (operation.preview) {
+          void Promise.resolve(native.ForceScreensaver({ enabled: true })).catch((error) => {
+            lastError = String(error);
+            local.changed();
+          });
+        }
+        finishSelection(operation, null);
+      } else if (performance.now() >= operation.deadline) {
+        finishSelection(
+          operation,
+          "Steam did not confirm the selection. Check the current choice before trying again.",
+        );
+      }
+    };
+    const normalize = (value) => {
+      if (!value || !Array.isArray(value.sources) || value.sources.length > 32) return null;
+      const ids = new Set();
+      const selectors = new Set();
+      for (const source of value.sources) {
+        if (
+          !source ||
+          typeof source.id !== "string" ||
+          !source.id ||
+          source.id.length > 64 ||
+          ids.has(source.id) ||
+          typeof source.selectorId !== "string" ||
+          !source.selectorId.startsWith("uioverride-") ||
+          source.selectorId.length > 2048 ||
+          selectors.has(source.selectorId) ||
+          typeof source.name !== "string" ||
+          !source.name ||
+          source.name.length > 128 ||
+          typeof source.folder !== "string" ||
+          source.folder.length > 4096 ||
+          !Number.isInteger(source.intervalSeconds) ||
+          source.intervalSeconds < 2 ||
+          source.intervalSeconds > 3600 ||
+          !Number.isInteger(source.framesPerSecond) ||
+          source.framesPerSecond < 1 ||
+          source.framesPerSecond > 60 ||
+          typeof source.shuffle !== "boolean" ||
+          typeof source.fill !== "boolean" ||
+          typeof source.available !== "boolean" ||
+          typeof source.detail !== "string"
+        )
+          return null;
+        ids.add(source.id);
+        selectors.add(source.selectorId);
+      }
+      return value;
+    };
+    const update = (value) => {
+      const next = value === null || value === undefined ? null : normalize(value);
+      if (value && !next) {
+        lastError = "The screensaver source state was rejected.";
+        return;
+      }
+      state = next;
+      const key = JSON.stringify(
+        next?.sources?.map((source) => [source.id, source.selectorId]) ?? [],
+      );
+      if (key !== catalogKey) {
+        catalogKey = key;
+        catalog.changed();
+      }
+      if (next && installed) {
+        if (lastDismiss === null) lastDismiss = next.dismissRevision;
+        else if (Number.isSafeInteger(next.dismissRevision) && next.dismissRevision > lastDismiss) {
+          lastDismiss = next.dismissRevision;
+          void Promise.resolve(native.ForceScreensaver({ enabled: false })).catch((error) => {
+            lastError = String(error);
+          });
+        }
+        if (
+          typeof next.selectionRequest === "string" &&
+          Number.isSafeInteger(next.selectionRevision) &&
+          next.selectionRevision > lastSelection
+        ) {
+          lastSelection = next.selectionRevision;
+          const selectorId = next.selectionRequest;
+          const allowed =
+            ["steam-gameslideshow", "steam-bouncinglogo"].includes(selectorId) ||
+            next.sources.some((source) => source.selectorId === selectorId);
+          const operation = {
+            revision: next.selectionRevision,
+            selectorId,
+            preview: next.previewSelection === true,
+            deadline: performance.now() + 5000,
+          };
+          pendingSelection = operation;
+          if (!allowed) finishSelection(operation, "The requested screensaver is unavailable.");
+          else {
+            try {
+              void Promise.resolve(setSetting("screensaver_current_id", selectorId)).catch(
+                (error) => {
+                  finishSelection(operation, String(error).slice(0, 512));
+                },
+              );
+            } catch (error) {
+              finishSelection(operation, String(error).slice(0, 512));
+            }
+          }
+        }
+        reconcileSelection();
+        reportPlayback();
+      }
+      local.changed();
+    };
+    function Controls() {
+      const react = ui.react;
+      const h = react.createElement;
+      react.useSyncExternalStore(local.subscribe, local.revision);
+      const [name, setName] = react.useState("");
+      const [editing, setEditing] = react.useState("");
+      const [busy, setBusy] = react.useState(false);
+      if (!installed || !state) return null;
+      const row = (props, change = (_value) => {}, action = () => {}) =>
+        renderSteamSettingRow(ui, props, undefined, (_row, value) => change(value), action);
+      const perform = async (action, payload = {}) => {
+        setBusy(true);
+        try {
+          await act(action, payload);
+          lastError = "";
+        } catch (error) {
+          lastError = String(error);
+        } finally {
+          setBusy(false);
+          local.changed();
+        }
+      };
+      const add = async (pack) => {
+        const current = generation;
+        const chosen = await runSteamFilePicker(ui, {
+          mode: "folder",
+          title: pack ? "Choose screensaver pack" : "Choose image folder",
+        });
+        if (!installed || current !== generation || chosen.outcome !== "selected") return;
+        const label =
+          name.trim() ||
+          chosen.path
+            .replace(/[\\/]+$/u, "")
+            .split(/[\\/]/u)
+            .pop() ||
+          "Screensaver";
+        await perform(pack ? "addPack" : "addImages", { name: label, folder: chosen.path });
+      };
+      const source =
+        state.sources.find((item) => item.id === editing) ??
+        state.sources.find((item) => item.id === state.selectedId) ??
+        state.sources[0];
+      const configure = (option, value) =>
+        void perform("configure", { id: source.id, option, value });
+      const controls = [
+        row({
+          key: "sources-policy",
+          kind: "note",
+          label: "Custom sources",
+          text: state.error || lastError || state.status,
+        }),
+        row(
+          {
+            key: "source-name",
+            kind: "text",
+            label: "New source name",
+            text: name,
+            maximumLength: 128,
+            description: "Optional; the folder name is used when this is empty.",
+            disabled: busy,
+          },
+          (value) => setName(String(value)),
+        ),
+        row(
+          {
+            key: "add-images",
+            kind: "action",
+            label: "Image folder",
+            description: "PNG, JPEG, WebP, GIF and BMP; files are read in place.",
+            buttonLabel: "Add folder",
+            disabled: busy,
+          },
+          undefined,
+          () => void add(false),
+        ),
+        row(
+          {
+            key: "add-pack",
+            kind: "action",
+            label: "Local scene or image pack",
+            description:
+              "A folder containing screensaver.json. Scenes run in an isolated browser without system access.",
+            buttonLabel: "Add pack",
+            disabled: busy,
+          },
+          undefined,
+          () => void add(true),
+        ),
+        row(
+          {
+            key: "refresh-sources",
+            kind: "action",
+            label: "Refresh sources",
+            description: "Reload changed files and retry unavailable or repaired sources.",
+            buttonLabel: "Refresh",
+            disabled: busy,
+          },
+          undefined,
+          () => void perform("refresh"),
+        ),
+      ];
+      if (source) {
+        controls.push(
+          row(
+            {
+              key: "edit-source",
+              kind: "choice",
+              label: "Source options",
+              text: source.id,
+              choices: state.sources.map((item) => ({
+                value: item.id,
+                label: item.name,
+              })),
+              disabled: busy,
+            },
+            (value) => setEditing(String(value)),
+          ),
+          row({
+            key: "source-detail",
+            kind: "note",
+            label: source.name,
+            text: source.detail + " · " + source.folder,
+          }),
+          row(
+            {
+              key: "use-source",
+              kind: "action",
+              label: "Use " + source.name,
+              buttonLabel: "Select",
+              disabled: busy,
+            },
+            undefined,
+            () => void perform("select", { id: source.id }),
+          ),
+          row(
+            {
+              key: "preview-source",
+              kind: "action",
+              label: "Preview " + source.name,
+              buttonLabel: "Preview",
+              disabled: busy || !source.available,
+            },
+            undefined,
+            () => void perform("preview", { id: source.id }),
+          ),
+        );
+        if (source.type !== "scene") {
+          controls.push(
+            row(
+              {
+                key: "shuffle-source",
+                kind: "boolean",
+                label: "Shuffle images",
+                checked: source.shuffle,
+                disabled: busy,
+              },
+              (value) => configure("shuffle", !!value),
+            ),
+            row(
+              {
+                key: "fill-source",
+                kind: "boolean",
+                label: "Fill display",
+                description: "Crop to fill; off fits the whole image.",
+                checked: source.fill,
+                disabled: busy,
+              },
+              (value) => configure("fill", !!value),
+            ),
+            row(
+              {
+                key: "interval-source",
+                kind: "choice",
+                label: "Image interval",
+                text: String(source.intervalSeconds),
+                disabled: busy,
+                choices: [
+                  ...new Set([2, 5, 10, 15, 30, 60, 120, 300, 900, 3600, source.intervalSeconds]),
+                ]
+                  .sort((a, b) => a - b)
+                  .map((value) => ({
+                    value: String(value),
+                    label: value < 60 ? `${value} seconds` : `${value / 60} minutes`,
+                  })),
+              },
+              (value) => configure("intervalSeconds", Number(value)),
+            ),
+          );
+        } else {
+          controls.push(
+            row(
+              {
+                key: "scene-rate",
+                kind: "choice",
+                label: "Scene animation rate",
+                text: String(source.framesPerSecond),
+                disabled: busy,
+                description: "Limits animation callbacks to reduce idle rendering work.",
+                choices: [...new Set([10, 15, 24, 30, 60, source.framesPerSecond])]
+                  .sort((a, b) => a - b)
+                  .map((value) => ({ value: String(value), label: `${value} fps` })),
+              },
+              (value) => configure("framesPerSecond", Number(value)),
+            ),
+          );
+        }
+        controls.push(
+          row(
+            {
+              key: "remove-source",
+              kind: "action",
+              label: "Remove source",
+              description: "Remove it from the chooser; keep its files.",
+              buttonLabel: "Remove",
+              disabled: busy,
+            },
+            undefined,
+            () => void perform("remove", { id: source.id }),
+          ),
+        );
+      }
+      return h(react.Fragment, null, ...controls);
+    }
+    const start = (runtime) => {
+      if (installed) return { ok: true };
+      try {
+        native = runtime.exported(
+          ["Screensaver.GetActiveState#1", "Screensaver.GetLocalScreensavers#1"],
+          (value) =>
+            typeof value?.GetLocalScreensavers === "function" &&
+            typeof value?.ForceScreensaver === "function",
+        );
+        setSetting = runtime.exported(
+          [...SettingsTokens],
+          (value) =>
+            typeof value === "function" &&
+            String(value).includes("SteamClient.Settings.SetSetting") &&
+            String(value).includes("serializeBinaryToWriter"),
+        );
+        ui = resolveSteamSettingsComponents(runtime);
+        const claim = claimMember(
+          native,
+          "GetLocalScreensavers",
+          keys,
+          (original) =>
+            function (...args) {
+              return Promise.resolve(original.apply(this, args)).then((response) => {
+                const body = response.Body();
+                const stock = body.screensavers();
+                if (!Array.isArray(stock)) return response;
+                fallback = stock.find((item) => item.id() === "steam-bouncinglogo")?.path() ?? "";
+                if (!/^[a-z0-9.-]+\.steamscreensavers\.host$/iu.test(fallback)) return response;
+                const ids = new Set(stock.map((item) => item.id()));
+                const additions = (state?.sources ?? [])
+                  .filter((source) => !ids.has(source.selectorId))
+                  .map((source) => ({
+                    id: () => source.selectorId,
+                    path: () => fallback,
+                  }));
+                const projected = new Proxy(body, {
+                  get: (target, member) => {
+                    if (member === "screensavers") return () => [...stock, ...additions];
+                    const value = Reflect.get(target, member, target);
+                    return typeof value === "function" ? value.bind(target) : value;
+                  },
+                });
+                return new Proxy(response, {
+                  get: (target, member) => {
+                    if (member === "Body") return () => projected;
+                    const value = Reflect.get(target, member, target);
+                    return typeof value === "function" ? value.bind(target) : value;
+                  },
+                });
+              });
+            },
+        );
+        if (!claim.ok) throw new Error(claim.error);
+        installed = true;
+        retiring = false;
+        generation++;
+        lastError = "";
+        return { ok: true };
+      } catch (error) {
+        lastError = String(error);
+        releaseMember(native, "GetLocalScreensavers", keys);
+        return { ok: false, error: lastError };
+      }
+    };
+    const stop = () => {
+      retiring = true;
+      generation++;
+      pendingSelection = null;
+      if (installed && state)
+        void act("playback", { active: false, id: "", selectorId: selected() }).catch(() => {});
+      const result = releaseMember(native, "GetLocalScreensavers", keys);
+      if (!result.ok) return result;
+      installed = false;
+      state = null;
+      lastPlayback = "";
+      lastSelection = 0;
+      lastDismiss = null;
+      fallback = "";
+      local.changed();
+      catalog.changed();
+      return { ok: true };
+    };
+    return {
+      start,
+      update,
+      stop,
+      catalog,
+      active: (value) => {
+        active = value;
+        reportPlayback();
+      },
+      render: () =>
+        installed && state && ui?.react && ui?.textField && ui?.dialogButton && ui?.showModal
+          ? ui.react.createElement(Controls, { key: "steam-ui-screensaver-content" })
+          : null,
+      status: () => ({
+        installed,
+        sources: state?.sources?.length ?? 0,
+        fallback,
+        lastError,
+        controls: !!ui?.textField,
+      }),
+    };
+  }
   // @fragment settings.ts
   // Host settings use Steam's native routed sidebar and fields. Missing component contracts refuse
   // installation; descriptors and command policy belong to the host.
@@ -5983,7 +6928,9 @@
           tab: icon("extensions", 22),
           steamUiExtensionsTab: true,
           initialVisibility: !!visible,
-          panel: react.createElement(ExtensionsTabPanel, { key: "steam-ui.extensions-panel" }),
+          panel: react.createElement(ExtensionsTabPanel, {
+            key: "steam-ui.extensions-panel",
+          }),
         });
         insertedInto = tabs;
       }
@@ -6123,12 +7070,16 @@
       const h = react.createElement;
       const items = desired.items;
       const activate = (id) => {
+        // The window the tab is drawn in, read while its flyout is still open: over a game that is the
+        // game's overlay window, and the page opens there.
+        const owner = steamInteractionWindow();
         void request(patchId, "activate", { id }).then(
           (answer) => {
             // An action may answer with a page to open. The panel is closed first: this tab is
             // rendered inside the Quick Access flyout, so navigating with it open leaves the page
             // behind the panel, which on a controller is indistinguishable from a dead button.
-            if (answer?.route && closeSteamSideMenus()) navigateSteamRoute(answer.route);
+            if (answer?.route && closeSteamSideMenus(owner))
+              navigateSteamRoute(answer.route, owner);
           },
           () => {
             // The host's refusal is already logged and the row remains truthful on the next state
@@ -6540,6 +7491,8 @@
               if (!installed || ambiguous || nativeRefused) return;
               const currentAppId = appIdFor(context.instance);
               if (currentAppId === null) return;
+              // The window the menu was used in; a game's overlay opens the page itself.
+              const owner = steamInteractionWindow();
               void request(
                 patchId,
                 "activate",
@@ -6547,7 +7500,7 @@
                 nextActionGeneration(patchId),
               ).then(
                 (answer) => {
-                  if (answer?.route) navigateSteamRoute(answer.route);
+                  if (answer?.route) navigateSteamRoute(answer.route, owner);
                 },
                 () => {
                   // A refusal stays host-authoritative and must not make Steam's menu fail.
@@ -8440,11 +9393,13 @@
       (item.glyph ? renderSteamGlyph(react, item.glyph) : null) ??
       (item.icon && icon ? icon(item.icon) : null);
     const activate = (id) => {
+      // Read while the menu is open: over a game the menu, and the page, are the game overlay's.
+      const owner = steamInteractionWindow();
       void request(patchId, "activate", { id }, nextActionGeneration(patchId)).then(
         (answer) => {
           // An action may answer with a page to open. The menu is a side panel, so it is
           // closed first; a page opened behind it is, on a controller, a dead button.
-          if (answer?.route && closeSteamSideMenus()) navigateSteamRoute(answer.route);
+          if (answer?.route && closeSteamSideMenus(owner)) navigateSteamRoute(answer.route, owner);
         },
         () => {
           // The host's refusal is already logged; a rejected press must not break the menu.
@@ -9662,6 +10617,12 @@
     let lastReport = "";
     let unsubscribe = null;
     let reportTimer = null;
+    const content = createScreensaverContent(() => settings?.clientSettings);
+    const inputActivity = createScreensaverActivity(
+      () => settings?.clientSettings,
+      () => window.SystemPowerStore?.batteryState?.bHasBattery === true,
+      (active) => content.active(active),
+    );
     // The host's rows, replaced whole on each publication.
     let rows = [];
     const pending = new Set();
@@ -9763,7 +10724,8 @@
         report(readScreensaver(), false);
       }, [signature]);
       if (!installed) return null;
-      if (!rows.length) {
+      const custom = content.render();
+      if (!rows.length && !custom) {
         lastOutcome = "no rows published";
         return null;
       }
@@ -9783,6 +10745,7 @@
             onChange: (option) => select(row, option?.data),
           }),
         ),
+        ...(custom ? [custom] : []),
       );
     }
     const childrenOf = (element) => {
@@ -9804,7 +10767,9 @@
           section,
           undefined,
           ...childrenOf(section),
-          react.createElement(SteamUiScreensaverTimeouts, { key: "steam-ui-screensaver-timeouts" }),
+          react.createElement(SteamUiScreensaverTimeouts, {
+            key: "steam-ui-screensaver-timeouts",
+          }),
         );
       };
       sectionCache.set(original, wrapped);
@@ -9814,13 +10779,20 @@
       let wrapped = pageCache.get(original);
       if (wrapped) return wrapped;
       wrapped = function SteamUiCustomizationPage(props) {
+        const catalogRevision = react.useSyncExternalStore(
+          content.catalog.subscribe,
+          content.catalog.revision,
+        );
         const tree = original(props);
         if (!installed || !react.isValidElement(tree)) return tree;
         let found = 0;
         const children = childrenOf(tree).map((child) => {
           if (!react.isValidElement(child) || !isSection(child.type)) return child;
           found += 1;
-          return react.createElement(sectionFor(child.type), keyed(child));
+          return react.createElement(sectionFor(child.type), {
+            ...keyed(child),
+            key: `${child.key ?? "screensaver"}:sources:${catalogRevision}`,
+          });
         });
         if (found !== 1) {
           lastOutcome = found
@@ -9914,9 +10886,16 @@
       });
       if (!resolved) return { ok: false, error: lastError };
       installed = true;
+      content.start(runtime);
+      const activity = inputActivity.start(runtime);
+      if (!activity.ok) {
+        lastError = activity.error ?? "Steam screensaver activity contract unavailable";
+      }
       const intercepted = interceptMemo(react, MemoName, transformPages);
       if (!intercepted.ok) {
         installed = false;
+        inputActivity.stop();
+        content.stop();
         lastError = intercepted.error ?? "React useMemo could not be intercepted";
         return { ok: false, error: lastError };
       }
@@ -9928,6 +10907,8 @@
           return;
         }
         rows = next;
+        content.update(published?.content);
+        inputActivity.observe(published?.activity);
         local.changed();
       });
       reportWhenReady(0);
@@ -9942,6 +10923,10 @@
         lastError = released.error ?? "React useMemo could not be released";
         return { ok: false, error: lastError };
       }
+      const sources = content.stop();
+      if (!sources.ok) return { ok: false, error: sources.error };
+      const activity = inputActivity.stop();
+      if (!activity.ok) return { ok: false, error: activity.error };
       installed = false;
       unsubscribe = endSubscription(unsubscribe);
       if (reportTimer) {
@@ -9965,6 +10950,8 @@
       route,
       settings: !!settings,
       tracking: !!useObserver,
+      inputActivity: inputActivity.status(),
+      content: content.status(),
       rows: rows.length,
       lastOutcome,
       lastReport,
@@ -14466,6 +15453,150 @@
     status: () => ({ appId: artworkBrowserPage.state()?.appId ?? 0 }),
     Page: ArtworkBrowserPage,
   });
+  // @fragment consumer/browser.ts
+  // This trusted page never renders a website. It hands a validated, user-initiated request to
+  // Valve's browser for the actual overlay instance supplied by Steam's React WindowContext.
+  const BrowserPatchId = "wsgm.browser";
+  let browserNative = null;
+  function BrowserGuidePage({ context }) {
+    const ui = context.ui();
+    const react = ui.react;
+    const h = react.createElement;
+    const instance = browserNative.useWindow();
+    const target = browserNative.identify(instance);
+    const [query, setQuery] = react.useState("");
+    const [error, setError] = react.useState("");
+    const state = context.state();
+    const allowed = (address) => {
+      if (address === "about:blank") return true;
+      try {
+        const url = new URL(address);
+        return (
+          address.length <= 4096 &&
+          ["https:", "http:"].includes(url.protocol) &&
+          !url.username &&
+          !url.password
+        );
+      } catch {
+        return false;
+      }
+    };
+    const lookup = (withGame = false) => {
+      try {
+        const text = String(query).trim();
+        if (!state || !target)
+          throw new Error("Open Browser from the Steam Game Overlay of a running game.");
+        if (!text || text.length > 4096)
+          throw new Error("Enter an address or search (up to 4096 characters).");
+        let address;
+        if (!withGame && allowed(text)) address = text;
+        else if (!withGame && text.includes("://"))
+          throw new Error("Only HTTP and HTTPS addresses are allowed.");
+        else if (
+          !withGame &&
+          !text.includes(" ") &&
+          text.includes(".") &&
+          allowed(`https://${text}`)
+        )
+          address = `https://${text}`;
+        else {
+          if (!withGame && /^(?:[a-z][a-z0-9+.-]*):/i.test(text))
+            throw new Error("Only HTTP and HTTPS addresses are allowed.");
+          const search = withGame ? `${target.title} ${text}` : text;
+          address = `${state.searchPrefix}${encodeURIComponent(search)}`;
+        }
+        if (!allowed(address)) throw new Error("This address is not allowed.");
+        if (!browserNative.open(instance, address))
+          throw new Error("Steam's native overlay browser is unavailable.");
+        setError("");
+      } catch (failure) {
+        setError(String(failure instanceof Error ? failure.message : failure));
+      }
+    };
+    const resume = () => {
+      if (!target || !browserNative.open(instance, undefined, state?.home)) {
+        setError(
+          "Steam's native overlay browser is unavailable. Return to the game and reopen the overlay.",
+        );
+      }
+    };
+    const content = renderSteamUiLevel(
+      ui,
+      { bounded: true },
+      h("h2", null, "Browser / guides"),
+      h(
+        "p",
+        { className: "steam-ui-kit-muted" },
+        target
+          ? `Quick lookups for ${target.title || "this game"}`
+          : "Open this page from Steam's in-game overlay.",
+      ),
+      h(ui.textField, {
+        label: "Search or enter an address",
+        value: query,
+        maxLength: 4096,
+        disabled: !target,
+        onChange: (event) => setQuery(String(event?.target?.value ?? "")),
+        onKeyDown: (event) => {
+          if (event.key === "Enter") lookup();
+        },
+      }),
+      renderSteamUiActions(ui, [
+        {
+          id: "lookup",
+          label: "Open lookup",
+          primary: true,
+          disabled: !target || !query.trim(),
+          onClick: () => lookup(),
+        },
+        {
+          id: "game-search",
+          label: `Search ${target?.title || "current game"}…`,
+          disabled: !target?.title || !query.trim(),
+          onClick: () => lookup(true),
+        },
+        { id: "resume", label: "Resume native browser", disabled: !target, onClick: resume },
+      ]),
+      error ? h("p", { role: "alert" }, error) : null,
+      h(
+        "p",
+        { className: "steam-ui-kit-muted" },
+        "Use Steam's browser controls and keyboard, then close the overlay to return to your game. Resume reopens your last lookup.",
+      ),
+      h(
+        "p",
+        { className: "steam-ui-kit-muted" },
+        "Steam manages its browser's memory, downloads and link prompts. WSGM's memory setting applies to its own Overlay browser.",
+      ),
+      h(
+        "p",
+        { className: "steam-ui-kit-muted" },
+        "Search current game adds the game title only when you choose it. Your search goes directly to the search provider.",
+      ),
+    );
+    return h(
+      "div",
+      { id: "wsgm-browser", className: "steam-ui-kit-page", "aria-label": "Browser / guides" },
+      steamUiKitStyle(react),
+      h("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } }, content),
+    );
+  }
+  const browserGuidePage = registerSteamPage({
+    template: "browser",
+    gate: "browser",
+    patchId: BrowserPatchId,
+    components: resolveSteamSettingsComponents,
+    required: ["react", "focusable", "dialogButton", "dialogButtonPrimary", "textField"],
+    prepare: (_ui, runtime) => {
+      browserNative = resolveSteamOverlayBrowser(runtime);
+      return browserNative ? null : "Steam's native overlay browser contract is unavailable.";
+    },
+    release: () => {
+      browserNative?.dispose?.();
+      browserNative = null;
+    },
+    Page: BrowserGuidePage,
+  });
   // @fragment consumer/card-manager.ts
   // SD Card Manager presentation. Card identity, naming, tab state, capacity and every write belong
   // to LibraryManagerService; this page draws its state and sends its exact commands back.
@@ -15116,6 +16247,459 @@
     return { install, remove, status };
   }
   registerGate("wsgmControllerCaps", createWsgmControllerCaps());
+  // @fragment consumer/customization.ts
+  // Steam's Settings > Customization page as the hub for WSGM's themes, UI sounds and boot animation.
+  // The page stays Valve's: its LED, Startup Movie, Screensaver and Advanced sections render as Steam
+  // draws them, and the toolkit's screensaver gate keeps decorating its own section. This gate adds
+  // three native sections in front of Valve's Startup Movie section. They read the publications the
+  // Themes, UI sounds and Animations pages already receive and send those pages' own commands, so the
+  // services behind them stay the only authority for install, apply, update and reset.
+  const createWsgmCustomization = () => {
+    const MemoName = "wsgm.customization";
+    const HubKey = "wsgm-customization-hub";
+    // The route table, by the on-screen keyboard route only it declares, as the screensaver gate finds it.
+    const CustomizationRouteTokens = ["GameAPIOSK:", "/gameapiosk"];
+    // Valve's Startup Movie section names its heading; WSGM's sections go in front of it.
+    const StartupMovieToken = '"#Settings_Customization_StartupVideo"';
+    const Sources = {
+      themes: { patchId: "wsgm.themes", route: "/wsgm/themes" },
+      sounds: { patchId: "wsgm.sounds", route: "/wsgm/sounds" },
+      animations: { patchId: "wsgm.animations", route: "/wsgm/animations" },
+    };
+    let react = null;
+    let ui = null;
+    let route = "";
+    let installed = false;
+    let lastError = "";
+    let lastOutcome = "never rendered";
+    const local = createLocalStore();
+    // Each source's last publication; null until it arrives, absent when this session has no such service.
+    const states = { themes: null, sounds: null, animations: null };
+    const available = { themes: false, sounds: false, animations: false };
+    const unsubscribes = [];
+    const pageCache = new Map();
+    const listCache = new WeakMap();
+    const wrappers = new WeakSet();
+    const act = (source, command, payload = {}) =>
+      request(Sources[source].patchId, command, payload).catch((error) => {
+        lastError = `${source} ${command} failed: ${String(error)}`;
+        return undefined;
+      });
+    // Opens a source's page, on the tab that suits what the user has so far.
+    const open = (source, tab) => {
+      const go = () => {
+        if (!navigateSteamRoute(Sources[source].route))
+          lastError = `could not open ${Sources[source].route}`;
+      };
+      if (tab) void act(source, "setTab", { tab }).then(go);
+      else go();
+    };
+    const row = (props, change = () => {}, action = () => {}) =>
+      renderSteamSettingRow(
+        ui,
+        props,
+        undefined,
+        (_row, value, commit = true) => {
+          if (commit) change(value);
+        },
+        action,
+      );
+    const manage = (key, label, description, onOpen) =>
+      row({ key, kind: "action", label, description, buttonLabel: "Open" }, undefined, onOpen);
+    const waiting = (key, text) => row({ key, kind: "note", label: text, text: "" });
+    const themesSection = () => {
+      const state = states.themes;
+      const h = react.createElement;
+      if (!state)
+        return h(
+          ui.settingsSection,
+          { key: "themes", label: "Themes" },
+          waiting("themes-wait", "Loading themes…"),
+        );
+      const themes = state.themes ?? [];
+      const presets = state.presets ?? [];
+      const on = !!state.settings?.enabled;
+      const enabled = themes.filter((theme) => theme.enabled).length;
+      const summary = !on
+        ? "Off: Steam's own look. Your themes stay installed and come back when this is on."
+        : themes.length
+          ? `${enabled} of ${themes.length} themes on${state.selectedPreset ? ` · Profile: ${state.selectedPreset}` : ""}`
+          : "No themes installed yet.";
+      return h(
+        ui.settingsSection,
+        { key: "themes", label: "Themes" },
+        row(
+          {
+            key: "themes-on",
+            kind: "boolean",
+            label: "Use themes",
+            description: summary,
+            checked: on,
+            disabled: !!state.busy,
+          },
+          (value) => void act("themes", "setSetting", { key: "enabled", value: !!value }),
+        ),
+        presets.length
+          ? row(
+              {
+                key: "themes-profile",
+                kind: "choice",
+                label: "Profile",
+                description: "Turns a saved set of themes and their settings on together.",
+                text: state.selectedPreset ?? "",
+                disabled: !on || !!state.busy,
+                choices: [
+                  ...(state.selectedPreset === "Invalid State"
+                    ? [{ value: "Invalid State", label: "Invalid State" }]
+                    : []),
+                  { value: "", label: "None" },
+                  ...presets.map((preset) => ({ value: preset.name, label: preset.displayName })),
+                ],
+              },
+              (value) => void act("themes", "setProfile", { name: String(value ?? "") }),
+            )
+          : null,
+        ...themes.map((theme) =>
+          h(
+            "div",
+            { key: `theme-${theme.name}`, className: "steam-ui-kit-nested" },
+            row(
+              {
+                key: `themes-theme-${theme.name}`,
+                kind: "boolean",
+                label: theme.displayName,
+                description:
+                  theme.status === "outdated"
+                    ? `Update available (${theme.latestVersion})`
+                    : [theme.version, theme.author].filter(Boolean).join(" · "),
+                checked: !!theme.enabled,
+                disabled: !on || !!state.busy,
+              },
+              (value) => void act("themes", "setEnabled", { name: theme.name, enabled: !!value }),
+            ),
+          ),
+        ),
+        state.updates > 0
+          ? row(
+              {
+                key: "themes-update",
+                kind: "action",
+                label: `Updates for ${state.updates} theme${state.updates === 1 ? "" : "s"}`,
+                buttonLabel: "Update All",
+                disabled: !!state.busy,
+              },
+              undefined,
+              () => void act("themes", "updateAll"),
+            )
+          : null,
+        state.error
+          ? row({
+              key: "themes-error",
+              kind: "note",
+              label: "Last change failed",
+              text: "",
+              description: state.error,
+            })
+          : null,
+        manage(
+          "themes-manage",
+          "Browse and manage themes",
+          "Screenshots, install, update and remove, each theme's options and profiles.",
+          () => open("themes", themes.length ? "installed" : "browse"),
+        ),
+      );
+    };
+    const soundsSection = () => {
+      const state = states.sounds;
+      const h = react.createElement;
+      if (!state)
+        return h(
+          ui.settingsSection,
+          { key: "sounds", label: "UI sounds" },
+          waiting("sounds-wait", "Loading sound packs…"),
+        );
+      const packs = (state.packs ?? []).filter((pack) => !pack.error);
+      const known = !state.selected || packs.some((pack) => pack.id === state.selected);
+      return h(
+        ui.settingsSection,
+        { key: "sounds", label: "UI sounds" },
+        row(
+          {
+            key: "sounds-pack",
+            kind: "choice",
+            label: "Sound pack",
+            // With no pack chosen the coverage line only repeats that Steam's sounds play.
+            description: [state.selected ? state.compatibility : "", state.integration]
+              .filter(Boolean)
+              .join(" "),
+            text: state.selected ?? "",
+            disabled: !!state.busy,
+            choices: [
+              { value: "", label: "Steam default" },
+              ...(known ? [] : [{ value: state.selected, label: "Unavailable pack" }]),
+              ...packs.map((pack) => ({ value: pack.id, label: pack.name })),
+            ],
+          },
+          (value) => void act("sounds", "select", { id: String(value ?? "") }),
+        ),
+        state.error
+          ? row({
+              key: "sounds-error",
+              kind: "note",
+              label: "Last change failed",
+              text: "",
+              description: state.error,
+            })
+          : null,
+        manage(
+          "sounds-manage",
+          "Browse and manage sound packs",
+          "DeckThemes Audio Loader packs, previews, ZIP import, update and remove.",
+          () => open("sounds"),
+        ),
+      );
+    };
+    const animationsSection = () => {
+      const state = states.animations;
+      const h = react.createElement;
+      if (!state)
+        return h(
+          ui.settingsSection,
+          { key: "animations", label: "Boot animation" },
+          waiting("animations-wait", "Loading boot movies…"),
+        );
+      const library = state.library ?? [];
+      const known = !state.selected || library.some((item) => item.id === state.selected);
+      const description = state.selected
+        ? "Plays when Big Picture starts. Steam's Startup Movie choice below is set aside while it does, and comes back when you choose Steam's own here."
+        : "Steam's Startup Movie choice below decides what plays.";
+      return h(
+        ui.settingsSection,
+        { key: "animations", label: "Boot animation" },
+        row(
+          {
+            key: "animations-boot",
+            kind: "choice",
+            label: "Boot movie",
+            description,
+            text: state.selected ?? "",
+            disabled: !!state.busy,
+            choices: [
+              { value: "", label: state.stockName || "Steam's own" },
+              ...(known ? [] : [{ value: state.selected, label: "Unavailable movie" }]),
+              ...library.map((item) => ({ value: item.id, label: item.name })),
+            ],
+          },
+          (value) => void act("animations", "select", { id: String(value ?? "") }),
+        ),
+        state.settings?.restartNeeded
+          ? row({
+              key: "animations-restart",
+              kind: "note",
+              label: "Restart Steam to see the change",
+              text: "",
+              description: "Steam reads its startup movie when it starts.",
+              accent: true,
+            })
+          : null,
+        row({
+          key: "animations-suspend",
+          kind: "note",
+          label: "Suspend and standby movies",
+          text: "",
+          description:
+            "Steam plays these only in its own suspend flow, which Windows does not run, so the boot movie is the one Steam shows here.",
+        }),
+        state.error
+          ? row({
+              key: "animations-error",
+              kind: "note",
+              label: "Last change failed",
+              text: "",
+              description: state.error,
+            })
+          : null,
+        manage(
+          "animations-manage",
+          "Browse and manage boot animations",
+          "SteamDeckRepo movies with previews, your own WebM files, shuffle and volume.",
+          () => open("animations", library.length ? "library" : "browse"),
+        ),
+      );
+    };
+    function WsgmCustomizationHub() {
+      react.useSyncExternalStore(local.subscribe, local.revision);
+      if (!installed) return null;
+      const sections = [
+        available.themes ? themesSection() : null,
+        available.sounds ? soundsSection() : null,
+        available.animations ? animationsSection() : null,
+      ].filter(Boolean);
+      lastOutcome = `rendered ${sections.length} section(s)`;
+      return react.createElement(react.Fragment, null, steamUiKitStyle(react), ...sections);
+    }
+    const childrenOf = (element) => {
+      const children = element.props?.children;
+      return Array.isArray(children) ? children : children === undefined ? [] : [children];
+    };
+    const isStartupMovie = (child) =>
+      react.isValidElement(child) &&
+      typeof child.type === "function" &&
+      String(child.type).includes(StartupMovieToken);
+    const isHub = (child) => react.isValidElement(child) && child.key === HubKey;
+    // Whatever renders the page: Valve's component, or another gate's wrapper around it. The hub is
+    // inserted once, in front of Valve's Startup Movie section, or last when this client has none.
+    const pageFor = (original) => {
+      let wrapped = pageCache.get(original);
+      if (wrapped) return wrapped;
+      wrapped = function WsgmCustomizationPage(props) {
+        const tree = original(props);
+        if (!installed || !react.isValidElement(tree)) return tree;
+        const children = childrenOf(tree);
+        if (children.some(isHub)) return tree;
+        const hub = react.createElement(WsgmCustomizationHub, { key: HubKey });
+        const at = children.findIndex(isStartupMovie);
+        if (at < 0) lastOutcome = "Steam's Startup Movie section was not found; the hub is last";
+        const next =
+          at < 0 ? [...children, hub] : [...children.slice(0, at), hub, ...children.slice(at)];
+        return react.cloneElement(tree, undefined, ...next);
+      };
+      pageCache.set(original, wrapped);
+      wrappers.add(wrapped);
+      return wrapped;
+    };
+    // The Settings page list, with the customization page's content wrapped. The same input list
+    // always maps to the same output list, so memo consumers downstream see a stable identity.
+    const transformPages = (value) => {
+      if (!installed || !Array.isArray(value) || !value.length) return value;
+      const first = value[0];
+      if (!first || typeof first !== "object" || !("route" in first) || !("content" in first))
+        return value;
+      const cached = listCache.get(value);
+      if (cached) return cached;
+      let index = -1;
+      for (let at = 0; at < value.length; at++) {
+        const item = value[at];
+        if (
+          item &&
+          typeof item === "object" &&
+          item.route === route &&
+          react.isValidElement(item.content)
+        ) {
+          if (index >= 0) return value;
+          index = at;
+        }
+      }
+      if (index < 0) return value;
+      const content = value[index].content;
+      if (typeof content.type !== "function" || wrappers.has(content.type)) return value;
+      const next = value.slice();
+      next[index] = {
+        ...value[index],
+        content: react.createElement(pageFor(content.type), keyed(content)),
+      };
+      listCache.set(value, next);
+      return next;
+    };
+    const resolve = () => {
+      const runtime = getWebpackRuntime("customization-hub");
+      ui = resolveSteamSettingsComponents(runtime);
+      react = ui?.react ?? null;
+      if (!react || typeof react.useSyncExternalStore !== "function") {
+        lastError = "React with useSyncExternalStore is unavailable";
+        return false;
+      }
+      const missing = [
+        "settingsSection",
+        "toggleField",
+        "dropdown",
+        "valueField",
+        "dialogButton",
+      ].filter((name) => !ui[name]);
+      if (missing.length) {
+        lastError = `Steam settings components unavailable: ${missing.join(", ")}`;
+        return false;
+      }
+      const pages = runtime.exported(
+        [...CustomizationRouteTokens],
+        (value) => typeof value?.Settings?.Customization === "function",
+      );
+      route = pages.Settings.Customization();
+      if (typeof route !== "string" || !route.startsWith("/")) {
+        lastError = "the customization settings route is unavailable";
+        return false;
+      }
+      return true;
+    };
+    const install = () => {
+      if (installed) return { ok: true, alreadyInstalled: true };
+      if (
+        !attemptResolution(
+          resolve,
+          (error) => (lastError = "customization hub resolution failed: " + String(error)),
+        )
+      )
+        return { ok: false, error: lastError };
+      installed = true;
+      const intercepted = interceptMemo(react, MemoName, transformPages);
+      if (!intercepted.ok) {
+        installed = false;
+        lastError = intercepted.error ?? "React useMemo could not be intercepted";
+        return { ok: false, error: lastError };
+      }
+      lastError = "";
+      for (const source of Object.keys(Sources)) {
+        // A session without the service has no publication to subscribe to, and no section to show.
+        try {
+          unsubscribes.push(
+            subscribe(Sources[source].patchId, (published) => {
+              states[source] = published && typeof published === "object" ? published : null;
+              local.changed();
+            }),
+          );
+          available[source] = true;
+        } catch {
+          available[source] = false;
+        }
+      }
+      local.changed();
+      return { ok: true, installed: true };
+    };
+    const remove = () => {
+      if (!installed) return { ok: true, absent: true };
+      const released = releaseMemo(react, MemoName);
+      if (!released.ok) {
+        lastError = released.error ?? "React useMemo could not be released";
+        return { ok: false, error: lastError };
+      }
+      installed = false;
+      while (unsubscribes.length) endSubscription(unsubscribes.pop() ?? null);
+      for (const source of Object.keys(Sources)) {
+        states[source] = null;
+        available[source] = false;
+      }
+      // An open page re-renders without the hub; its wrapper passes Steam's own tree through.
+      local.changed();
+      pageCache.clear();
+      return { ok: true, removed: true };
+    };
+    const status = () => ({
+      ok: true,
+      installed,
+      registered: !!react && memoIntercepted(react, MemoName),
+      route,
+      sources: Object.fromEntries(
+        Object.keys(Sources).map((source) => [
+          source,
+          available[source] ? (states[source] ? "state" : "waiting") : "absent",
+        ]),
+      ),
+      lastOutcome,
+      lastError,
+    });
+    return { install, remove, status };
+  };
+  registerGate("wsgmCustomization", createWsgmCustomization());
   // @fragment consumer/download-sort.ts
   /**
    * Adds host-defined download ordering through reversible Steam render and method claims.
@@ -19914,6 +21498,1198 @@
     };
   })();
   registerGate("wsgmLibraryTabs", libraryTabsClaim);
+  // @fragment consumer/notes.ts
+  // Notes presentation in Steam: the same structured pages the WSGM overlay edits, drawn in Big Picture and in
+  // a game's Steam overlay. NotesService owns every page, revision, image and screenshot; this page draws its
+  // state and sends exact commands carrying the revision they were made against. Nothing is stored in the
+  // page: a reload of Steam's frontend loses nothing and creates nothing.
+  const NotesPatchId = "wsgm.notes";
+  const NotesPageWidth = 1280;
+  const notesPalette = [
+    ["#FFFFFF", "White"],
+    ["#FFD93D", "Yellow"],
+    ["#FF5A5A", "Red"],
+    ["#5BD46B", "Green"],
+    ["#4DA3FF", "Blue"],
+    ["#111111", "Black"],
+  ];
+  const notesWidths = [
+    [3, "Fine"],
+    [6, "Medium"],
+    [12, "Bold"],
+  ];
+  // The page's own layout: where the kit's elements go, not how they look.
+  const notesStyles = `
+#wsgm-notes .wsgm-notes-list { display: flex; flex-direction: column; gap: 8px; }
+#wsgm-notes .wsgm-notes-list .DialogButton { width: 100%; min-width: 0; height: auto; padding: 10px 14px; text-align: left; }
+#wsgm-notes .wsgm-notes-row-title { font-size: 16px; font-weight: 600; color: #fff; }
+#wsgm-notes .wsgm-notes-row-detail { font-size: 13px; color: #8b929a; overflow-wrap: anywhere; }
+#wsgm-notes .wsgm-notes-surface { position: relative; width: 100%; overflow: hidden; border-radius: 6px; background: #1d2128; margin: 8px 0; }
+#wsgm-notes .wsgm-notes-surface[data-mode="ink"] { touch-action: none; outline: 2px solid var(--gpSystemBlue, #1a9fff); }
+#wsgm-notes .wsgm-notes-text { position: absolute; box-sizing: border-box; white-space: pre-wrap; overflow-wrap: anywhere; color: #fff; background: rgba(255,255,255,.06); border-radius: 6px; }
+#wsgm-notes .wsgm-notes-image { position: absolute; object-fit: fill; user-select: none; -webkit-user-drag: none; }
+#wsgm-notes .wsgm-notes-image-missing { position: absolute; display: flex; align-items: center; justify-content: center; color: #8b929a; background: rgba(255,255,255,.08); }
+#wsgm-notes .wsgm-notes-selected { outline: 3px solid var(--gpSystemBlue, #1a9fff); }
+#wsgm-notes .wsgm-notes-ink { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; }
+#wsgm-notes .wsgm-notes-surface[data-mode="ink"] .wsgm-notes-ink { pointer-events: auto; }
+#wsgm-notes .wsgm-notes-editor { width: 100%; min-height: 180px; box-sizing: border-box; font-size: 18px; resize: vertical; }
+#wsgm-notes .wsgm-notes-swatch { display: inline-block; width: 14px; height: 14px; border-radius: 7px; margin-right: 6px; vertical-align: middle; border: 1px solid rgba(255,255,255,.4); }
+`;
+  // The editor's revision-checked command sender. A refusal resolves to its reason; the host marks a refusal
+  // caused by a newer revision with a fixed prefix, which is how a conflict is told from any other refusal.
+  const NotesConflictPrefix = "Conflict: ";
+  const notesSend = (command, payload = {}) =>
+    request(NotesPatchId, command, payload).then(
+      (answer) => ({ ok: true, answer, error: "", conflict: false }),
+      (error) => {
+        const reason = String(error?.message ?? error ?? "The change was refused.");
+        const conflict = reason.startsWith(NotesConflictPrefix);
+        return {
+          ok: false,
+          answer: null,
+          error: conflict ? reason.slice(NotesConflictPrefix.length) : reason,
+          conflict,
+        };
+      },
+    );
+  /**
+   * The Steam window a page element is drawn in: Big Picture's main window or one game's overlay window.
+   * @param element An element of the page.
+   * @returns The window instance, or null when it cannot be told.
+   */
+  const notesWindowOf = (element) => {
+    const view = element?.ownerDocument?.defaultView;
+    const windows = window.SteamUIStore?.WindowStore?.SteamUIWindows;
+    if (!view || !Array.isArray(windows)) return null;
+    return (
+      windows.find((candidate) => {
+        try {
+          return candidate?.BrowserWindow === view;
+        } catch {
+          return false;
+        }
+      }) ?? null
+    );
+  };
+  /**
+   * What the page's browser can do, measured rather than assumed: Steam's CEF is older than current Chromium.
+   * @param view The page's window object.
+   * @returns The capabilities, including whether ink authoring is offered.
+   */
+  const notesCapabilities = (view) => {
+    const doc = view?.document;
+    const pointer = typeof view?.PointerEvent === "function";
+    const coalesced =
+      pointer && typeof view.PointerEvent.prototype?.getCoalescedEvents === "function";
+    const touchAction = !!view?.CSS?.supports?.("touch-action", "none");
+    const svg = !!doc?.createElementNS?.("http://www.w3.org/2000/svg", "svg")?.createSVGPoint;
+    const capture = pointer && typeof view.Element?.prototype?.setPointerCapture === "function";
+    const resize = typeof view?.ResizeObserver === "function";
+    return {
+      pointer,
+      coalesced,
+      touchAction,
+      svg,
+      capture,
+      resize,
+      chrome: String(view?.navigator?.userAgent ?? "").match(/Chrome\/[\d.]+/)?.[0] ?? "unknown",
+      ink: pointer && touchAction && svg && capture,
+    };
+  };
+  // Steam's own virtual-keyboard input hook, the one its text fields and its Notes editor attach to their
+  // input elements: focus makes the element the keyboard's target and activation opens the keyboard in the
+  // window it belongs to, Big Picture or a game overlay. Found by its source, never by module id.
+  let notesKeyboardHook = undefined;
+  const notesResolveKeyboardHook = () => {
+    if (notesKeyboardHook !== undefined) return notesKeyboardHook;
+    try {
+      notesKeyboardHook = getWebpackRuntime("notes").exported(
+        ["TakeFocusAndShowKeyboard", "BIsElementValidForInput", "CreateVirtualKeyboardRef"],
+        (value) => typeof value === "function" && value.length === 2,
+      );
+    } catch {
+      notesKeyboardHook = null;
+    }
+    return notesKeyboardHook;
+  };
+  const notesContentHeight = (page) => {
+    let bottom = (NotesPageWidth * 10) / 16;
+    for (const element of page?.elements ?? [])
+      bottom = Math.max(bottom, element.y + element.height + 240);
+    for (const stroke of page?.strokes ?? []) {
+      for (let index = 1; index < stroke.points.length; index += 2)
+        bottom = Math.max(bottom, stroke.points[index] + 240);
+    }
+    return bottom;
+  };
+  const notesNewId = () => {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+  };
+  const notesDistance = (ax, ay, bx, by) => Math.hypot(ax - bx, ay - by);
+  const notesSegmentDistance = (px, py, ax, ay, bx, by) => {
+    const dx = bx - ax;
+    const dy = by - ay;
+    const length = dx * dx + dy * dy;
+    if (length <= 0) return notesDistance(px, py, ax, ay);
+    const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / length));
+    return notesDistance(px, py, ax + t * dx, ay + t * dy);
+  };
+  // The same stroke eraser as the overlay's: a touched stroke goes whole, so undo restores it whole.
+  const notesStrokesAt = (page, x, y, radius) => {
+    const hits = [];
+    for (const stroke of page?.strokes ?? []) {
+      const reach = radius + stroke.width / 2;
+      const p = stroke.points;
+      if (p.length === 2) {
+        if (notesDistance(x, y, p[0], p[1]) <= reach) hits.push(stroke.id);
+        continue;
+      }
+      for (let index = 2; index + 1 < p.length; index += 2) {
+        if (
+          notesSegmentDistance(x, y, p[index - 2], p[index - 1], p[index], p[index + 1]) <= reach
+        ) {
+          hits.push(stroke.id);
+          break;
+        }
+      }
+    }
+    return hits;
+  };
+  // Drops points closer than a quarter of the stroke width, keeping the first and last.
+  const notesSimplify = (points, width) => {
+    const kept = [];
+    const minimum = Math.max(0.5, width / 4);
+    const count = points.length / 2;
+    for (let index = 0; index < count; index++) {
+      const x = points[index * 2];
+      const y = points[index * 2 + 1];
+      const last = index === count - 1;
+      if (
+        kept.length >= 2 &&
+        !last &&
+        notesDistance(x, y, kept[kept.length - 2], kept[kept.length - 1]) < minimum
+      )
+        continue;
+      kept.push(Math.round(x * 10) / 10, Math.round(y * 10) / 10);
+    }
+    return kept;
+  };
+  const notesPolyline = (points) => {
+    const parts = [];
+    for (let index = 0; index + 1 < points.length; index += 2)
+      parts.push(`${points[index]},${points[index + 1]}`);
+    if (points.length === 2) parts.push(`${points[0] + 0.01},${points[1]}`);
+    return parts.join(" ");
+  };
+  const notesFirstLine = (text) => {
+    const line = String(text ?? "")
+      .split("\n", 1)[0]
+      .trim();
+    return line.length === 0 ? "Empty text" : line.length > 80 ? `${line.slice(0, 80)}…` : line;
+  };
+  // Images arrive by request, one per asset, and live only in memory while their page is open.
+  const notesImages = new Map();
+  /**
+   * Draws one page: text blocks and images positioned on it, and the vector ink above them.
+   * @param props Page, mode, tool settings, selection, image loader and the edit callbacks.
+   * @returns The scaled page surface.
+   */
+  function NotesSurface(props) {
+    const react = props.ui.react;
+    const h = react.createElement;
+    const { page, mode, tool, color, width } = props;
+    const surfaceRef = react.useRef(null);
+    const liveRef = react.useRef(null);
+    const draw = react.useRef(null);
+    const [scale, setScale] = react.useState(0.5);
+    const [, setImagesRevision] = react.useState(0);
+    const [drag, setDrag] = react.useState(null);
+    react.useEffect(() => {
+      const element = surfaceRef.current;
+      const view = element?.ownerDocument?.defaultView;
+      if (!element || typeof view?.ResizeObserver !== "function") return undefined;
+      const observer = new view.ResizeObserver(() =>
+        setScale(element.clientWidth / NotesPageWidth || 0.5),
+      );
+      observer.observe(element);
+      setScale(element.clientWidth / NotesPageWidth || 0.5);
+      return () => observer.disconnect();
+    }, []);
+    react.useEffect(() => {
+      let live = true;
+      for (const element of page.elements) {
+        if (element.kind !== "image" || notesImages.has(element.asset)) continue;
+        notesImages.set(element.asset, null);
+        void request(NotesPatchId, "image", { asset: element.asset }).then(
+          (answer) => {
+            notesImages.set(element.asset, answer?.dataUrl ?? null);
+            if (live) setImagesRevision((value) => value + 1);
+          },
+          () => notesImages.delete(element.asset),
+        );
+      }
+      return () => {
+        live = false;
+      };
+    }, [page]);
+    const height = notesContentHeight(page);
+    const toPage = (event) => {
+      const rect = surfaceRef.current.getBoundingClientRect();
+      return [(event.clientX - rect.left) / scale, (event.clientY - rect.top) / scale];
+    };
+    const inkDown = (event) => {
+      if (mode !== "ink" || !props.inkCapable) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      const [x, y] = toPage(event);
+      if (tool === "eraser") {
+        draw.current = { erase: new Set(notesStrokesAt(page, x, y, 14 / scale)) };
+      } else {
+        draw.current = { points: [x, y] };
+      }
+      if (liveRef.current) liveRef.current.setAttribute("points", notesPolyline([x, y]));
+    };
+    const inkMove = (event) => {
+      const current = draw.current;
+      if (!current) return;
+      event.preventDefault();
+      event.stopPropagation();
+      // Every sample the digitizer produced since the last event, where the browser reports them.
+      const samples =
+        typeof event.getCoalescedEvents === "function" ? event.getCoalescedEvents() : [event];
+      for (const sample of samples.length ? samples : [event]) {
+        const [x, y] = toPage(sample);
+        if (current.erase)
+          for (const id of notesStrokesAt(page, x, y, 14 / scale)) current.erase.add(id);
+        else current.points.push(x, y);
+      }
+      if (current.points && liveRef.current)
+        liveRef.current.setAttribute("points", notesPolyline(current.points));
+    };
+    const inkUp = (event) => {
+      const current = draw.current;
+      draw.current = null;
+      if (!current) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (liveRef.current) liveRef.current.setAttribute("points", "");
+      if (current.erase) {
+        if (current.erase.size) props.onErase([...current.erase]);
+        return;
+      }
+      const strokeWidth = tool === "highlighter" ? width * 3 : width;
+      props.onStroke({
+        id: notesNewId(),
+        tool: tool === "highlighter" ? "highlighter" : "pen",
+        color,
+        width: strokeWidth,
+        points: notesSimplify(current.points, strokeWidth),
+        pressure: [],
+      });
+    };
+    const elementDown = (event, element) => {
+      if (mode === "ink") return;
+      event.stopPropagation();
+      if (mode === "text" && element.kind === "text") {
+        props.onEditText(element);
+        return;
+      }
+      props.onSelect(element.id);
+      if (mode !== "navigate") return;
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      setDrag({
+        id: element.id,
+        startX: event.clientX,
+        startY: event.clientY,
+        x: element.x,
+        y: element.y,
+        moved: false,
+      });
+    };
+    const elementMove = (event) => {
+      if (!drag) return;
+      const dx = (event.clientX - drag.startX) / scale;
+      const dy = (event.clientY - drag.startY) / scale;
+      setDrag({ ...drag, dx, dy, moved: drag.moved || Math.abs(dx) + Math.abs(dy) > 6 / scale });
+    };
+    const elementUp = (element) => {
+      if (drag?.id === element.id && drag.moved) {
+        props.onPlace(
+          element,
+          Math.max(0, drag.x + drag.dx),
+          Math.max(0, drag.y + drag.dy),
+          element.width,
+          element.height,
+        );
+      }
+      setDrag(null);
+    };
+    const surfaceClick = (event) => {
+      if (mode !== "text" || event.target !== surfaceRef.current) return;
+      const [x, y] = toPage(event);
+      props.onAddText(x, y);
+    };
+    const children = page.elements.map((element) => {
+      const moving = drag?.id === element.id && drag.moved;
+      const x = moving ? Math.max(0, drag.x + drag.dx) : element.x;
+      const y = moving ? Math.max(0, drag.y + drag.dy) : element.y;
+      const style = {
+        left: `${x * scale}px`,
+        top: `${y * scale}px`,
+        width: `${element.width * scale}px`,
+        minHeight: element.kind === "text" ? `${element.height * scale}px` : undefined,
+        height: element.kind === "image" ? `${element.height * scale}px` : undefined,
+        fontSize: `${24 * scale}px`,
+        padding: element.kind === "text" ? `${8 * scale}px ${12 * scale}px` : undefined,
+        touchAction: mode === "navigate" ? "none" : undefined,
+      };
+      const common = {
+        key: element.id,
+        style,
+        onPointerDown: (event) => elementDown(event, element),
+        onPointerMove: elementMove,
+        onPointerUp: () => elementUp(element),
+        onPointerCancel: () => setDrag(null),
+      };
+      const selected = element.id === props.selected ? " wsgm-notes-selected" : "";
+      if (element.kind === "image") {
+        const url = notesImages.get(element.asset);
+        return url
+          ? h("img", {
+              ...common,
+              className: `wsgm-notes-image${selected}`,
+              src: url,
+              alt: "Screenshot",
+              draggable: false,
+            })
+          : h(
+              "div",
+              { ...common, className: `wsgm-notes-image-missing${selected}` },
+              url === null ? "Loading…" : "Image missing",
+            );
+      }
+      // Plain text, never markup: React escapes it, so note content cannot run as web content.
+      return h("div", { ...common, className: `wsgm-notes-text${selected}` }, element.text || " ");
+    });
+    return h(
+      "div",
+      {
+        ref: surfaceRef,
+        className: "wsgm-notes-surface",
+        "data-mode": mode,
+        style: { height: `${height * scale}px` },
+        onClick: surfaceClick,
+      },
+      ...children,
+      h(
+        "svg",
+        {
+          className: "wsgm-notes-ink",
+          viewBox: `0 0 ${NotesPageWidth} ${height}`,
+          preserveAspectRatio: "none",
+          onPointerDown: inkDown,
+          onPointerMove: inkMove,
+          onPointerUp: inkUp,
+          onPointerCancel: () => {
+            draw.current = null;
+            liveRef.current?.setAttribute("points", "");
+          },
+        },
+        ...page.strokes.map((stroke) =>
+          h("polyline", {
+            key: stroke.id,
+            points: notesPolyline(stroke.points),
+            fill: "none",
+            stroke: stroke.color,
+            strokeWidth: stroke.width,
+            strokeOpacity: stroke.tool === "highlighter" ? 0.4 : 1,
+            strokeLinecap: "round",
+            strokeLinejoin: "round",
+          }),
+        ),
+        h("polyline", {
+          ref: liveRef,
+          fill: "none",
+          stroke: color,
+          strokeWidth: tool === "highlighter" ? width * 3 : width,
+          strokeOpacity: tool === "highlighter" ? 0.4 : 1,
+          strokeLinecap: "round",
+          strokeLinejoin: "round",
+        }),
+      ),
+    );
+  }
+  /**
+   * The multiline text editor: a textarea wired to Steam's own keyboard where the client exposes it, so the
+   * controller's keyboard appears in the window the page is in. A physical keyboard types directly.
+   * @param props Resolved components, the draft text and the save, discard and change callbacks.
+   * @returns The editor level.
+   */
+  function NotesTextEditor(props) {
+    const ui = props.ui;
+    const react = ui.react;
+    const h = react.createElement;
+    const hook = props.keyboardHook;
+    const imperative = react.useRef(null);
+    // The hook is chosen once per page install, so the hook order never changes between renders.
+    const keyboardRef = hook ? hook({}, imperative) : null;
+    const [text, setText] = react.useState(props.initial ?? "");
+    const change = (value) => {
+      setText(value);
+      props.onChange(value);
+    };
+    return renderSteamUiLevel(
+      ui,
+      { bounded: true, onBack: props.onDiscard },
+      renderSteamUiHeader(ui, {
+        page: true,
+        title: props.title,
+        detail: "Enter starts a new line. Save keeps it on the page.",
+      }),
+      h(
+        ui.focusable,
+        {
+          className: "DialogInput_Wrapper",
+          onActivate: () => imperative.current?.TakeFocusAndShowKeyboard?.(),
+          onOKActionDescription: "Type",
+        },
+        h("textarea", {
+          ref: keyboardRef ?? undefined,
+          className: "DialogTextInputBase wsgm-notes-editor",
+          value: text,
+          autoFocus: true,
+          onChange: (event) => change(event?.target?.value ?? ""),
+        }),
+      ),
+      renderSteamUiActions(
+        ui,
+        [
+          { id: "save", label: "Save", primary: true, onClick: () => props.onSave(text) },
+          { id: "discard", label: "Discard", onClick: props.onDiscard },
+        ],
+        { compact: true },
+      ),
+    );
+  }
+  /**
+   * The capture sheet: the countdown choice and start, or the pending countdown and its cancel.
+   * @param props Resolved components, published state, the page and close callback.
+   * @returns The level.
+   */
+  function NotesCaptureLevel({ ui, state, page, onBack }) {
+    const react = ui.react;
+    const h = react.createElement;
+    const capture = state.capture;
+    const [seconds, setSeconds] = react.useState(state.countdown);
+    if (capture.phase !== "idle") {
+      return renderSteamUiLevel(
+        ui,
+        { bounded: true, onBack },
+        renderSteamUiHeader(ui, {
+          page: true,
+          title: "Screenshot pending",
+          detail: capture.phase === "countdown" ? `${capture.remaining} s left` : "Capturing…",
+        }),
+        renderSteamUiActions(
+          ui,
+          [
+            {
+              id: "cancel",
+              label: "Cancel screenshot",
+              primary: true,
+              onClick: () => void notesSend("cancelCapture"),
+            },
+          ],
+          {
+            compact: true,
+          },
+        ),
+      );
+    }
+    const choices = [];
+    for (let value = 5; value <= 10; value++) {
+      choices.push({
+        id: `s${value}`,
+        label: `${value} s`,
+        primary: value === seconds,
+        onClick: () => setSeconds(value),
+      });
+    }
+    return renderSteamUiLevel(
+      ui,
+      { bounded: true, onBack },
+      renderSteamUiHeader(ui, { page: true, title: "Add screenshot", detail: page.title }),
+      renderSteamUiBox(
+        react,
+        "How it works",
+        h(
+          "p",
+          null,
+          "Steam's overlay closes and the game comes back. Use the countdown to unpause, open the map or move the camera. The game's own window is captured when it ends, and this page opens again with the screenshot added.",
+        ),
+      ),
+      !state.captureAvailable
+        ? renderSteamUiEmpty(
+            react,
+            "Screenshots are taken from a game's Steam overlay. Open Notes over a running game.",
+            true,
+          )
+        : null,
+      renderSteamUiToolbar(
+        ui,
+        renderSteamUiTool(
+          ui,
+          "Countdown",
+          renderSteamUiActions(ui, choices, { compact: true }),
+          true,
+        ),
+      ),
+      renderSteamUiActions(
+        ui,
+        [
+          {
+            id: "start",
+            label: "Start countdown",
+            primary: true,
+            disabled: !state.captureAvailable,
+            onClick: () => void notesSend("capture", { pageId: page.id, seconds }).then(onBack),
+          },
+          { id: "cancel", label: "Cancel", onClick: onBack },
+        ],
+        { compact: true },
+      ),
+    );
+  }
+  /**
+   * One page: its surface, mode and tool bars, the selection's actions and its element list.
+   * @param props Resolved components, published state, the page, ink capability and navigation callbacks.
+   * @returns The page level.
+   */
+  function NotesPageLevel(props) {
+    const { ui, state, page, inkCapable, keyboardHook, onBack } = props;
+    const react = ui.react;
+    const h = react.createElement;
+    const [mode, setMode] = react.useState("navigate");
+    const [tool, setTool] = react.useState("pen");
+    const [color, setColor] = react.useState("#FFFFFF");
+    const [width, setWidth] = react.useState(6);
+    const [selected, setSelected] = react.useState(null);
+    const [editor, setEditor] = react.useState(null);
+    const [capturing, setCapturing] = react.useState(false);
+    const [conflict, setConflict] = react.useState(null);
+    const undo = react.useRef([]);
+    const redo = react.useRef([]);
+    const [, setHistory] = react.useState(0);
+    const readOnly = !!state.pageReadOnly;
+    const revision = page.revision;
+    react.useEffect(() => {
+      // Leaving the page drops its images and its undo history.
+      return () => {
+        notesImages.clear();
+      };
+    }, [page.id]);
+    react.useEffect(() => {
+      if (state.capture?.insertedElementId && state.capture.pageId === page.id)
+        setSelected(state.capture.insertedElementId);
+    }, [state.capture?.insertedElementId]);
+    // Sends an edit made against `base`. A refusal on a page whose revision moved is a conflict: the page
+    // already shows the newest version, and the caller decides whether to offer reapplying.
+    const edit = async (command, payload, base, onConflict) => {
+      const result = await notesSend(command, { pageId: page.id, revision: base, ...payload });
+      if (result.ok) {
+        setConflict(null);
+        return result;
+      }
+      if (result.conflict) {
+        undo.current = [];
+        redo.current = [];
+        setHistory((value) => value + 1);
+        if (onConflict) onConflict();
+        else
+          setConflict(
+            "This page changed in the WSGM overlay. It now shows the newest version; nothing was overwritten.",
+          );
+      } else {
+        setConflict(result.error);
+      }
+      return result;
+    };
+    const report = (result) => {
+      if (!result.ok) setConflict(result.error);
+    };
+    const pushUndo = (step) => {
+      undo.current = [...undo.current, step];
+      redo.current = [];
+      setHistory((value) => value + 1);
+    };
+    const applyStep = async (step, reverse) => {
+      const remove = step.added === reverse;
+      return remove
+        ? edit("removeStrokes", { strokeIds: step.strokes.map((stroke) => stroke.id) }, revision)
+        : edit(
+            "restoreStrokes",
+            {
+              strokes: step.strokes,
+              indices: step.indices ?? step.strokes.map((_, i) => page.strokes.length + i),
+            },
+            revision,
+          );
+    };
+    const doUndo = async () => {
+      const step = undo.current[undo.current.length - 1];
+      if (!step) return;
+      if ((await applyStep(step, true)).ok) {
+        undo.current = undo.current.slice(0, -1);
+        redo.current = [...redo.current, step];
+        setHistory((value) => value + 1);
+      }
+    };
+    const doRedo = async () => {
+      const step = redo.current[redo.current.length - 1];
+      if (!step) return;
+      if ((await applyStep(step, false)).ok) {
+        redo.current = redo.current.slice(0, -1);
+        undo.current = [...undo.current, step];
+        setHistory((value) => value + 1);
+      }
+    };
+    const onStroke = async (stroke) => {
+      const base = revision;
+      const result = await edit("addStroke", { stroke }, base, () =>
+        setConflict(
+          "This page changed in the WSGM overlay while you drew. Your stroke was not saved; draw it again on the newest version.",
+        ),
+      );
+      if (result.ok) pushUndo({ strokes: [stroke], indices: null, added: true });
+    };
+    const onErase = async (ids) => {
+      const removed = [];
+      const indices = [];
+      page.strokes.forEach((stroke, index) => {
+        if (ids.includes(stroke.id)) {
+          removed.push(stroke);
+          indices.push(index);
+        }
+      });
+      if (!removed.length) return;
+      const result = await edit("removeStrokes", { strokeIds: ids }, revision);
+      if (result.ok) pushUndo({ strokes: removed, indices, added: false });
+    };
+    const place = (element, x, y, w, hgt) =>
+      void edit("place", { elementId: element.id, x, y, width: w, height: hgt }, revision);
+    const openEditor = (element) =>
+      setEditor({
+        elementId: element?.id ?? null,
+        base: revision,
+        text: element?.text ?? "",
+        x: 40,
+        y: 40,
+        ...element?.at,
+      });
+    if (editor) {
+      const save = async (text) => {
+        const command = editor.elementId ? "setText" : "addText";
+        const payload = editor.elementId
+          ? { elementId: editor.elementId, text }
+          : { x: editor.x, y: editor.y, text };
+        const result = await edit(command, payload, editor.base, () =>
+          setEditor({ ...editor, text, conflict: true }),
+        );
+        if (result.ok) {
+          setEditor(null);
+          if (result.answer?.id) setSelected(result.answer.id);
+        }
+      };
+      if (editor.conflict) {
+        const exists =
+          !editor.elementId || page.elements.some((element) => element.id === editor.elementId);
+        const actions = [];
+        if (exists) {
+          actions.push({
+            id: "apply",
+            label: editor.elementId ? "Replace with my text" : "Add my text to the newest version",
+            primary: true,
+            onClick: () => setEditor({ ...editor, base: revision, conflict: false, retry: true }),
+          });
+        }
+        actions.push({
+          id: "copy",
+          label: "Add my text as a new block",
+          onClick: () =>
+            setEditor({ ...editor, elementId: null, base: revision, conflict: false, retry: true }),
+        });
+        actions.push({ id: "discard", label: "Discard my text", onClick: () => setEditor(null) });
+        return renderSteamUiLevel(
+          ui,
+          { bounded: true, onBack: () => setEditor(null) },
+          renderSteamUiHeader(ui, {
+            page: true,
+            title: "Changed in the WSGM overlay",
+            detail: "Nothing was overwritten.",
+          }),
+          renderSteamUiBox(react, "Your text", h("p", null, notesFirstLine(editor.text))),
+          renderSteamUiActions(ui, actions, { compact: true }),
+        );
+      }
+      return h(NotesTextEditor, {
+        key: `${editor.elementId ?? "new"}:${editor.base}:${editor.retry ? 1 : 0}`,
+        ui,
+        keyboardHook,
+        title: editor.elementId ? "Edit text" : "New text",
+        initial: editor.text,
+        onChange: (text) => (editor.text = text),
+        onSave: save,
+        onDiscard: () => setEditor(null),
+      });
+    }
+    if (capturing || state.capture?.phase !== "idle") {
+      return h(NotesCaptureLevel, { ui, state, page, onBack: () => setCapturing(false) });
+    }
+    const element = page.elements.find((item) => item.id === selected) ?? null;
+    const modeActions = [
+      {
+        id: "navigate",
+        label: "Navigate",
+        primary: mode === "navigate",
+        onClick: () => setMode("navigate"),
+      },
+      {
+        id: "text",
+        label: "Text",
+        primary: mode === "text",
+        disabled: readOnly,
+        onClick: () => setMode("text"),
+      },
+      {
+        id: "ink",
+        label: inkCapable ? "Ink" : "Ink (WSGM overlay only)",
+        primary: mode === "ink",
+        disabled: readOnly || !inkCapable,
+        onClick: () => setMode("ink"),
+      },
+    ];
+    const toolbars = [renderSteamUiActions(ui, modeActions, { compact: true })];
+    if (mode === "ink" && !readOnly) {
+      toolbars.push(
+        renderSteamUiActions(
+          ui,
+          [
+            { id: "pen", label: "Pen", primary: tool === "pen", onClick: () => setTool("pen") },
+            {
+              id: "highlighter",
+              label: "Highlighter",
+              primary: tool === "highlighter",
+              onClick: () => setTool("highlighter"),
+            },
+            {
+              id: "eraser",
+              label: "Eraser",
+              primary: tool === "eraser",
+              onClick: () => setTool("eraser"),
+            },
+            {
+              id: "undo",
+              label: "Undo",
+              disabled: undo.current.length === 0,
+              onClick: () => void doUndo(),
+            },
+            {
+              id: "redo",
+              label: "Redo",
+              disabled: redo.current.length === 0,
+              onClick: () => void doRedo(),
+            },
+            {
+              id: "clear",
+              label: "Clear ink…",
+              disabled: page.strokes.length === 0,
+              onClick: () =>
+                showSteamUiConfirm(ui, {
+                  title: "Clear ink",
+                  text: "Remove every drawing on this page? Text and screenshots stay. Undo can bring it back.",
+                  confirmLabel: "Clear",
+                  onConfirm: () => {
+                    const strokes = page.strokes;
+                    void edit("clearInk", {}, revision).then((result) => {
+                      if (result.ok)
+                        pushUndo({ strokes, indices: strokes.map((_, i) => i), added: false });
+                    });
+                  },
+                }),
+            },
+          ],
+          { compact: true },
+        ),
+        renderSteamUiActions(
+          ui,
+          [
+            ...notesWidths.map(([value, name]) => ({
+              id: `w${value}`,
+              label: String(name),
+              primary: width === value,
+              onClick: () => setWidth(value),
+            })),
+            ...notesPalette.map(([value, name]) => ({
+              id: `c${name}`,
+              label: String(name),
+              primary: color === value,
+              onClick: () => {
+                setColor(value);
+                if (tool === "eraser") setTool("pen");
+              },
+            })),
+          ],
+          { compact: true },
+        ),
+      );
+    }
+    if (!readOnly) {
+      toolbars.push(
+        renderSteamUiActions(
+          ui,
+          [
+            { id: "addText", label: "Add text", onClick: () => openEditor(null) },
+            { id: "capture", label: "Add screenshot…", onClick: () => setCapturing(true) },
+            {
+              id: "rename",
+              label: "Rename…",
+              onClick: () =>
+                showSteamUiPrompt(ui, {
+                  title: "Rename page",
+                  label: "Title",
+                  initial: page.title,
+                  confirmLabel: "Rename",
+                  onConfirm: (title) => void edit("rename", { title }, revision),
+                }),
+            },
+            {
+              id: "pin",
+              label: page.pinned ? "Unpin" : "Pin",
+              onClick: () =>
+                void notesSend("pin", { pageId: page.id, pinned: !page.pinned }).then(report),
+            },
+          ],
+          { compact: true },
+        ),
+      );
+    }
+    const selection = [];
+    if (element && !readOnly) {
+      const nudge = (dx, dy, factor) =>
+        place(
+          element,
+          Math.max(0, element.x + dx),
+          Math.max(0, element.y + dy),
+          element.width * factor,
+          element.height * factor,
+        );
+      selection.push(
+        renderSteamUiHeader(ui, {
+          title: element.kind === "image" ? "Selected screenshot" : "Selected text",
+          sub: true,
+        }),
+        renderSteamUiActions(
+          ui,
+          [
+            ...(element.kind === "text"
+              ? [
+                  {
+                    id: "edit",
+                    label: "Edit text",
+                    primary: true,
+                    onClick: () => openEditor(element),
+                  },
+                ]
+              : []),
+            { id: "left", label: "◀", onClick: () => nudge(-40, 0, 1) },
+            { id: "up", label: "▲", onClick: () => nudge(0, -40, 1) },
+            { id: "down", label: "▼", onClick: () => nudge(0, 40, 1) },
+            { id: "right", label: "▶", onClick: () => nudge(40, 0, 1) },
+            { id: "smaller", label: "Smaller", onClick: () => nudge(0, 0, 0.85) },
+            { id: "bigger", label: "Bigger", onClick: () => nudge(0, 0, 1.15) },
+            {
+              id: "front",
+              label: "To front",
+              onClick: () => void edit("raise", { elementId: element.id }, revision),
+            },
+            {
+              id: "delete",
+              label: element.kind === "image" ? "Delete screenshot" : "Delete text",
+              onClick: () =>
+                void edit("remove", { elementId: element.id }, revision).then(() =>
+                  setSelected(null),
+                ),
+            },
+          ],
+          { compact: true },
+        ),
+      );
+    }
+    const list = page.elements.map((item) =>
+      h(
+        ui.dialogButton,
+        { key: item.id, onClick: () => setSelected(item.id === selected ? null : item.id) },
+        h(
+          "div",
+          { className: "wsgm-notes-row-title" },
+          `${item.id === selected ? "● " : ""}${item.kind === "image" ? `Screenshot ${item.pixelWidth}×${item.pixelHeight}` : notesFirstLine(item.text)}`,
+        ),
+      ),
+    );
+    return renderSteamUiLevel(
+      ui,
+      { bounded: true, onBack },
+      renderSteamUiHeader(ui, {
+        page: true,
+        title: page.title,
+        detail: `${state.scopeTitle}${readOnly ? " · read-only (saved by a newer WSGM)" : ""}`,
+      }),
+      conflict
+        ? renderSteamUiBanner(ui, {
+            text: conflict,
+            error: true,
+            onDismiss: () => setConflict(null),
+          })
+        : null,
+      ...toolbars,
+      h(NotesSurface, {
+        ui,
+        page,
+        mode,
+        tool,
+        color,
+        width,
+        selected,
+        inkCapable,
+        onStroke: (stroke) => void onStroke(stroke),
+        onErase: (ids) => void onErase(ids),
+        onSelect: (id) => setSelected(id),
+        onPlace: place,
+        onEditText: (item) => openEditor(item),
+        onAddText: (x, y) => setEditor({ elementId: null, base: revision, text: "", x, y }),
+      }),
+      ...selection,
+      renderSteamUiHeader(ui, { title: "On this page", sub: true }),
+      list.length
+        ? h(ui.focusable, { className: "wsgm-notes-list", "flow-children": "column" }, ...list)
+        : renderSteamUiEmpty(
+            react,
+            "Nothing here yet: add text, draw in Ink mode, or add a screenshot.",
+          ),
+      readOnly
+        ? null
+        : renderSteamUiActions(
+            ui,
+            [
+              {
+                id: "up",
+                label: "Move page up",
+                onClick: () => void notesSend("move", { pageId: page.id, delta: -1 }).then(report),
+              },
+              {
+                id: "down",
+                label: "Move page down",
+                onClick: () => void notesSend("move", { pageId: page.id, delta: 1 }).then(report),
+              },
+              {
+                id: "delete",
+                label: "Delete page…",
+                onClick: () =>
+                  showSteamUiConfirm(ui, {
+                    title: "Delete page",
+                    text: `Delete “${page.title}”? This removes its text, drawings and screenshots and cannot be undone.`,
+                    confirmLabel: "Delete",
+                    onConfirm: () =>
+                      void notesSend("deletePage", { pageId: page.id, revision }).then(report),
+                  }),
+              },
+            ],
+            { compact: true },
+          ),
+    );
+  }
+  /**
+   * The notebook: its pages, a new page, and switching to Global or another game's notebook.
+   * @param props Resolved components, published state and the switch flag/callbacks.
+   * @returns The list pane or the notebook picker.
+   */
+  function NotesNotebookLevel({ ui, state, choosing, onChoose, onChosen }) {
+    const react = ui.react;
+    const h = react.createElement;
+    if (choosing) {
+      return renderSteamUiLevel(
+        ui,
+        { bounded: true, onBack: onChosen },
+        renderSteamUiHeader(ui, { page: true, title: "Notebooks" }),
+        h(
+          ui.focusable,
+          { className: "wsgm-notes-list", "flow-children": "column" },
+          ...state.notebooks.map((book) =>
+            h(
+              ui.dialogButton,
+              {
+                key: book.scope,
+                autoFocus: book.scope === state.scope,
+                onClick: () => void notesSend("selectScope", { scope: book.scope }).then(onChosen),
+              },
+              h("div", { className: "wsgm-notes-row-title" }, book.title),
+              h(
+                "div",
+                { className: "wsgm-notes-row-detail" },
+                `${book.scope === state.game.scope ? "Running now · " : ""}${book.pages} pages`,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    const game = state.game;
+    const detail =
+      state.scope === "global"
+        ? game.state === "unknown"
+          ? `Global notes. ${game.detail ?? ""} Nothing is saved to a game's notebook until it is known.`
+          : game.state === "game"
+            ? `Global notes. ${game.title} has its own notebook.`
+            : "Global notes, not tied to any game."
+        : state.scope === game.scope
+          ? `Notes for ${game.title}, the game running now.`
+          : "Notes for this game.";
+    const pages = state.pages.map((page) =>
+      h(
+        ui.dialogButton,
+        {
+          key: page.id,
+          onClick: () => void notesSend("openPage", { pageId: page.id }),
+          onOKActionDescription: "Open",
+        },
+        h("div", { className: "wsgm-notes-row-title" }, `${page.pinned ? "★ " : ""}${page.title}`),
+        h(
+          "div",
+          { className: "wsgm-notes-row-detail" },
+          [
+            page.preview,
+            page.texts ? `${page.texts} text` : "",
+            page.images ? `${page.images} screenshots` : "",
+            page.strokes ? `${page.strokes} strokes` : "",
+            page.readOnly ? "read-only" : "",
+          ]
+            .filter(Boolean)
+            .join(" · ") || "Empty page",
+        ),
+      ),
+    );
+    return renderSteamUiPane(
+      ui,
+      { key: "notebook", bounded: true },
+      renderSteamUiHeader(ui, { page: true, title: state.scopeTitle, detail }),
+      renderSteamUiActions(
+        ui,
+        [
+          {
+            id: "create",
+            label: "New page",
+            primary: true,
+            onClick: () => void notesSend("create", { scope: state.scope }),
+          },
+          { id: "switch", label: "Switch notebook", onClick: onChoose },
+        ],
+        { compact: true },
+      ),
+      pages.length
+        ? h(ui.focusable, { className: "wsgm-notes-list", "flow-children": "column" }, ...pages)
+        : renderSteamUiEmpty(
+            react,
+            "No pages yet. A page can hold typed text, drawings and game screenshots.",
+          ),
+    );
+  }
+  /**
+   * Renders Notes from host state: the notebook, its page editor, and the capture and conflict levels.
+   * @param context Registered page accessors for Steam components, latest state and publication refusal.
+   * @returns The page React tree.
+   */
+  function NotesPage({ context }) {
+    const react = context.react();
+    const h = react.createElement;
+    const ui = context.ui();
+    const state = context.state();
+    const rootRef = react.useRef(null);
+    const [choosing, setChoosing] = react.useState(false);
+    const [capabilities, setCapabilities] = react.useState(null);
+    react.useEffect(() => {
+      // Which window this page is in decides its game: a game's overlay names its own app and process.
+      const instance = notesWindowOf(rootRef.current);
+      const overlay = instance?.IsGamepadUIOverlayWindow?.() === true;
+      const info = overlay ? instance.params?.browserInfo : null;
+      const found = notesCapabilities(rootRef.current?.ownerDocument?.defaultView);
+      setCapabilities(found);
+      void notesSend("open", {
+        appId: Number.isInteger(info?.m_unAppID) ? info.m_unAppID : 0,
+        processId: Number.isInteger(info?.m_unPID) ? info.m_unPID : 0,
+      });
+      void notesSend("report", { capabilities: JSON.stringify({ ...found, overlay }) });
+    }, []);
+    const banner =
+      state?.error ||
+      state?.notice ||
+      (state?.capture?.phase === "idle" ? state.capture.outcome : null);
+    let body;
+    if (!state || !state.loaded) {
+      body = renderSteamUiEmpty(react, context.refusal() ?? "Opening your notes…");
+    } else if (state.page) {
+      body = h(NotesPageLevel, {
+        key: state.page.id,
+        ui,
+        state,
+        page: state.page,
+        inkCapable: !!capabilities?.ink,
+        keyboardHook: notesResolveKeyboardHook(),
+        onBack: () => void notesSend("closePage"),
+      });
+    } else {
+      body = h(NotesNotebookLevel, {
+        ui,
+        state,
+        choosing,
+        onChoose: () => setChoosing(true),
+        onChosen: () => setChoosing(false),
+      });
+    }
+    return h(
+      "div",
+      { id: "wsgm-notes", ref: rootRef, className: "steam-ui-kit-page", "aria-label": "Notes" },
+      steamUiKitStyle(react),
+      h("style", null, notesStyles),
+      banner
+        ? h(
+            "div",
+            { className: "steam-ui-kit-page-banner" },
+            renderSteamUiBanner(ui, {
+              text: banner,
+              error: !!state?.error || !!state?.capture?.outcomeIsError,
+              onDismiss: () => void notesSend("dismiss"),
+            }),
+          )
+        : null,
+      body,
+    );
+  }
+  const notesPage = registerSteamPage({
+    template: "notes",
+    gate: "notes",
+    patchId: NotesPatchId,
+    components: resolveSteamSettingsComponents,
+    required: [...SteamSettingsRequired, "dialogButtonPrimary", "modalRoot"],
+    status: () => ({
+      loaded: !!notesPage.state()?.loaded,
+      keyboard: notesKeyboardHook ? "hook" : notesKeyboardHook === null ? "none" : "unresolved",
+    }),
+    release: () => notesImages.clear(),
+    Page: NotesPage,
+  });
   // @fragment consumer/page-kit.ts
   /**
    * Creates a command sender for pages whose error banner comes from host state.
@@ -19939,6 +22715,419 @@
         : null,
     };
   }
+  // @fragment consumer/sounds.ts
+  // UI sounds frontend; SoundPackService owns the library, the store, the choice and the previews.
+  const SoundsPatchId = "wsgm.sounds";
+  const SoundsRoute = "/wsgm/sounds";
+  let soundsUi = null;
+  const soundsAct = wsgmPageAct(SoundsPatchId);
+  const soundsTabs = [
+    { id: "installed", title: "Installed" },
+    { id: "browse", title: "Browse" },
+  ];
+  // The store's pages: the next page asks the store again, as the overlay pages through it.
+  const soundsBrowse = (page, search) => void soundsAct("browse", { page, search });
+  const soundsPackLine = (pack) =>
+    [pack.author ? `By ${pack.author}` : "", pack.version].filter(Boolean).join(" · ");
+  // A card in the store's grid: the screenshot, counts, an Installed or Update badge, author and date.
+  const soundsCard = (ui, item, open) => {
+    const react = ui.react;
+    const badge =
+      item.installedVersion == null
+        ? null
+        : item.installedVersion === item.version
+          ? { text: "Installed" }
+          : { text: "Update", warn: true };
+    return renderSteamUiCard(ui, {
+      key: item.id,
+      image: item.imageUrl,
+      stats: [
+        { glyph: renderSteamUiGlyph(react, "download"), text: String(item.downloads ?? 0) },
+        { glyph: renderSteamUiGlyph(react, "star"), text: String(item.stars ?? 0) },
+      ],
+      badge,
+      title: item.name,
+      meta: [
+        item.updated ? `${item.version} - Last Updated ${item.updated}` : item.version,
+        item.author ? `By ${item.author}` : "",
+      ],
+      onActivate: () => open(item.id),
+    });
+  };
+  function SoundsListing({ state, item, onBack }) {
+    const ui = soundsUi;
+    const react = ui.react;
+    const h = react.createElement;
+    const installed = item.installedVersion != null;
+    const label = !installed
+      ? "Install"
+      : item.installedVersion === item.version
+        ? "Reinstall"
+        : "Update";
+    return renderSteamUiDetail(ui, {
+      title: item.name,
+      badge: item.version,
+      media: item.imageUrl
+        ? h("img", { className: "wsgm-sounds-shot", src: item.imageUrl, alt: "" })
+        : null,
+      main: [
+        h(
+          "div",
+          { className: "steam-ui-kit-muted" },
+          [
+            item.author ? `By ${item.author}` : "",
+            item.updated ? `Last Updated ${item.updated}` : "",
+          ]
+            .filter(Boolean)
+            .join(" · "),
+        ),
+        h(
+          "p",
+          { className: "steam-ui-kit-muted" },
+          installed
+            ? `Installed: ${item.installedVersion}. Choose it under Installed or on Settings > Customization.`
+            : "An Audio Loader pack from DeckThemes. Sounds it does not cover keep Steam's own.",
+        ),
+      ],
+      aside: [
+        renderSteamUiBox(
+          react,
+          `${label} ${item.name}`,
+          h("div", { className: "steam-ui-kit-muted" }, `${item.downloads ?? 0} Downloads`),
+          h(
+            ui.dialogButtonPrimary,
+            { disabled: !!state.busy, onClick: () => void soundsAct("install", { id: item.id }) },
+            state.busy ? "Working…" : label,
+          ),
+          h("div", { className: "steam-ui-kit-muted" }, "Downloads into WSGM's sound library."),
+        ),
+      ],
+      onBack,
+    });
+  }
+  function SoundsPack({ state, pack, onBack }) {
+    const ui = soundsUi;
+    const react = ui.react;
+    const h = react.createElement;
+    const selected = state.selected === pack.id;
+    const usable = !pack.error;
+    const back = () => {
+      void soundsAct("stopPreview");
+      onBack();
+    };
+    const list = (title, items) =>
+      items.length
+        ? h(
+            react.Fragment,
+            null,
+            h("h3", null, title),
+            h("div", { className: "steam-ui-kit-muted wsgm-sounds-list" }, items.join(", ")),
+          )
+        : null;
+    return renderSteamUiDetail(ui, {
+      title: pack.name,
+      badge: pack.version,
+      main: [
+        h("div", { className: "steam-ui-kit-muted" }, soundsPackLine(pack)),
+        h("h3", null, "Description"),
+        h(
+          "p",
+          { className: pack.description ? "" : "steam-ui-kit-muted" },
+          pack.error || pack.description || "No description provided.",
+        ),
+        pack.source
+          ? h("div", { className: "steam-ui-kit-muted" }, `Source: ${pack.source}`)
+          : null,
+        pack.compatibility
+          ? h(
+              react.Fragment,
+              null,
+              h("h3", null, "Client compatibility"),
+              h("p", null, pack.compatibility),
+            )
+          : null,
+        list("Replaced", pack.mapped ?? []),
+        list("Steam's own sound", pack.defaults ?? []),
+        list("Problems", pack.problems ?? []),
+        usable && (pack.assets ?? []).length
+          ? h(
+              react.Fragment,
+              null,
+              h("h3", null, "Preview"),
+              renderSteamUiChips(ui, [
+                ...pack.assets.map((asset) => ({
+                  label: asset,
+                  description: "Play",
+                  onClick: () => void soundsAct("preview", { id: pack.id, asset }),
+                })),
+                { label: "Stop", onClick: () => void soundsAct("stopPreview") },
+              ]),
+            )
+          : null,
+      ],
+      aside: [
+        usable
+          ? renderSteamUiBox(
+              react,
+              selected ? "Playing in Steam" : "Use in Steam",
+              h(
+                ui.dialogButtonPrimary,
+                {
+                  disabled: selected || !!state.busy,
+                  onClick: () => void soundsAct("select", { id: pack.id }),
+                },
+                selected ? "Selected" : "Use these sounds",
+              ),
+              h(
+                "div",
+                { className: "steam-ui-kit-muted" },
+                "Sounds the pack does not cover keep Steam's own.",
+              ),
+            )
+          : null,
+        pack.storeId
+          ? h(
+              ui.dialogButton,
+              {
+                disabled: !!state.busy,
+                onClick: () => void soundsAct("install", { id: pack.storeId }),
+              },
+              "Update from DeckThemes",
+            )
+          : null,
+        h(
+          ui.dialogButton,
+          {
+            disabled: !!state.busy,
+            onClick: () =>
+              showSteamUiConfirm(ui, {
+                title: "Remove Sound Pack",
+                text: selected
+                  ? `Remove ${pack.name}? Steam's own sounds play again.`
+                  : `Remove ${pack.name} from WSGM's sound library?`,
+                confirmLabel: "Remove",
+                onConfirm: () => void soundsAct("delete", { id: pack.id }).then(back),
+              }),
+          },
+          "Remove",
+        ),
+      ],
+      onBack: back,
+    });
+  }
+  function SoundsInstalled({ state }) {
+    const ui = soundsUi;
+    const react = ui.react;
+    const h = react.createElement;
+    const [open, setOpen] = react.useState("");
+    const packs = state.packs ?? [];
+    const pack = packs.find((candidate) => candidate.id === open);
+    if (pack) return h(SoundsPack, { state, pack, onBack: () => setOpen("") });
+    const importZip = () =>
+      void showSteamFilePicker(ui, {
+        title: "Choose an Audio Loader ZIP",
+        mode: "file",
+        extensions: [".zip"],
+      }).then((chosen) => chosen && soundsAct("import", { path: chosen }));
+    const choice = renderSteamSettingRow(
+      ui,
+      {
+        key: "sounds-selected",
+        kind: "choice",
+        label: "Sound pack",
+        // With no pack chosen the coverage line only repeats that Steam's sounds play.
+        description: state.selected ? state.compatibility : undefined,
+        text: state.selected ?? "",
+        choices: [
+          { value: "", label: "Steam default" },
+          ...packs
+            .filter((item) => !item.error)
+            .map((item) => ({ value: item.id, label: item.name })),
+        ],
+      },
+      undefined,
+      (_row, value, commit = true) => {
+        if (commit) void soundsAct("select", { id: String(value ?? "") });
+      },
+      () => {},
+    );
+    return renderSteamUiPane(
+      ui,
+      {},
+      renderSteamUiToolbar(
+        ui,
+        h(
+          ui.dialogButton,
+          { disabled: !!state.busy, onClick: () => void soundsAct("refresh") },
+          "Refresh",
+        ),
+        h(ui.dialogButton, { disabled: !!state.busy, onClick: importZip }, "Import a ZIP…"),
+        h(
+          ui.dialogButton,
+          {
+            disabled: !!state.busy || !state.selected,
+            onClick: () => void soundsAct("select", { id: "" }),
+          },
+          "Restore Steam Defaults",
+        ),
+      ),
+      h(
+        ui.settingsSection,
+        { label: "Steam UI sounds" },
+        choice,
+        renderSteamSettingRow(
+          ui,
+          {
+            key: "sounds-integration",
+            kind: "note",
+            label: "Steam integration",
+            text: "",
+            description: state.integration,
+          },
+          undefined,
+          () => {},
+          () => {},
+        ),
+      ),
+      packs.length === 0
+        ? renderSteamUiEmpty(
+            react,
+            "No sound packs installed. Get one under Browse, or import an Audio Loader ZIP.",
+          )
+        : h(
+            ui.settingsSection,
+            { label: "Installed packs" },
+            ...packs.map((item) =>
+              renderSteamUiSelectRow(ui, {
+                key: item.id,
+                title: item.name,
+                detail: item.error ?? soundsPackLine(item),
+                status:
+                  state.selected === item.id
+                    ? h("span", { className: "wsgm-sounds-active" }, "Selected")
+                    : null,
+                selected: state.selected === item.id,
+                onClick: () => setOpen(item.id),
+              }),
+            ),
+          ),
+    );
+  }
+  function SoundsBrowse({ state }) {
+    const ui = soundsUi;
+    const react = ui.react;
+    const h = react.createElement;
+    const browse = state.browse ?? {};
+    const [search, setSearch] = react.useState("");
+    const [searched, setSearched] = react.useState("");
+    const [open, setOpen] = react.useState("");
+    // The first look at the store is the page's own: nothing is fetched until someone opens the tab.
+    react.useEffect(() => {
+      if (!browse.page && !state.busy) soundsBrowse(1, "");
+    }, []);
+    const items = browse.items ?? [];
+    const item = items.find((candidate) => candidate.id === open);
+    if (item) return h(SoundsListing, { state, item, onBack: () => setOpen("") });
+    const page = browse.page ?? 0;
+    const pages = Math.max(1, Math.ceil((browse.total ?? 0) / Math.max(1, browse.pageSize ?? 1)));
+    return renderSteamUiPane(
+      ui,
+      {},
+      renderSteamUiToolbar(
+        ui,
+        renderSteamUiTool(
+          ui,
+          null,
+          h(ui.textField, {
+            label: "Search",
+            value: search,
+            onChange: (event) => setSearch(event?.target?.value ?? ""),
+            onBlur: () => {
+              if (search === searched) return;
+              setSearched(search);
+              soundsBrowse(1, search);
+            },
+          }),
+          true,
+        ),
+        h(
+          ui.dialogButton,
+          { disabled: !!state.busy, onClick: () => soundsBrowse(Math.max(1, page), searched) },
+          "Refresh",
+        ),
+      ),
+      renderSteamUiGrid(
+        ui,
+        items.map((listing) => soundsCard(ui, listing, setOpen)),
+      ),
+      state.busy && items.length === 0
+        ? renderSteamUiEmpty(react, "Asking the store…")
+        : page && items.length === 0
+          ? renderSteamUiEmpty(react, "Nothing matched.")
+          : null,
+      page > 0 && pages > 1
+        ? renderSteamUiActions(ui, [
+            {
+              id: "previous",
+              label: "Previous Page",
+              disabled: !!state.busy || page <= 1,
+              onClick: () => soundsBrowse(page - 1, searched),
+            },
+            {
+              id: "next",
+              label: `Next Page (${page} of ${pages})`,
+              disabled: !!state.busy || page >= pages,
+              onClick: () => soundsBrowse(page + 1, searched),
+            },
+          ])
+        : null,
+    );
+  }
+  /**
+   * Renders sound-pack selection, details, previews and the DeckThemes store from host state.
+   * @param context Registered page accessors for Steam components, latest state and publication refusal.
+   * @returns The page React tree, including loading or refusal state when data is unavailable.
+   */
+  function SoundsPage({ context }) {
+    const react = context.react();
+    const h = react.createElement;
+    const ui = context.ui();
+    soundsUi = ui;
+    const state = context.state();
+    const [tab, setTab] = react.useState("installed");
+    // A preview belongs to the page: leaving it stops whatever is playing.
+    react.useEffect(() => () => void soundsAct("stopPreview"), []);
+    if (!state) return renderSteamUiEmpty(react, context.refusal() ?? "Loading sound packs…");
+    return renderSteamUiTabbedPage(ui, {
+      id: "wsgm-sounds",
+      label: "UI sounds",
+      style: soundsStyles,
+      tabs: soundsTabs,
+      active: tab,
+      onTab: setTab,
+      // The service reports the last refusal until its next operation; there is nothing to dismiss.
+      banner: state.error
+        ? { text: state.error, error: true, onDismiss: () => void soundsAct("refresh") }
+        : null,
+      content: (id) =>
+        id === "browse" ? h(SoundsBrowse, { state }) : h(SoundsInstalled, { state }),
+    });
+  }
+  // The page's own layout: where the kit's elements go, not how they look.
+  const soundsStyles = `
+#wsgm-sounds .wsgm-sounds-active { color: #59bf40; margin-left: auto; }
+#wsgm-sounds .wsgm-sounds-list { line-height: 1.5; }
+#wsgm-sounds .wsgm-sounds-shot { width: 100%; max-height: 320px; object-fit: contain; border-radius: 4px; }
+`;
+  const soundsPage = registerSteamPage({
+    template: "sounds",
+    gate: "sounds",
+    patchId: SoundsPatchId,
+    components: resolveSteamSettingsComponents,
+    required: SteamUiTabbedPageRequired,
+    status: () => ({ packs: soundsPage.state()?.packs?.length ?? 0 }),
+    Page: SoundsPage,
+  });
   // @fragment consumer/themes.ts
   // Theme frontend; shared host services own catalogue, profiles, settings and CSS deployment.
   const ThemesPatchId = "wsgm.themes";

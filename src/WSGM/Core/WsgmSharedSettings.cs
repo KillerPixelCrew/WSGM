@@ -16,6 +16,8 @@ internal static class WsgmSharedSettings
     /// <summary>Gets the shared fields whose concurrent external edits participate in Settings merge.</summary>
     internal static IReadOnlyList<WsgmSharedSetting> All { get; } =
     [
+        new("Browser.MemoryBehavior", config => config.Browser.MemoryBehavior,
+            (config, value) => config.Browser.MemoryBehavior = (BrowserMemoryBehavior)value),
         new("Cef.Enabled", config => config.Cef.Enabled, (config, value) => config.Cef.Enabled = (bool)value),
         new("Cef.LibraryTabs", config => config.Cef.LibraryTabs,
             (config, value) => config.Cef.LibraryTabs = (bool)value),

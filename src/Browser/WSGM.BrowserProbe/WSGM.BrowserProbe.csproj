@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- The production helper checks its resident parent name. This isolated probe is never shipped. -->
+    <AssemblyName>WSGM</AssemblyName>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <ApplicationManifest>../WSGM.BrowserHost/app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../WSGM/Core/Browser/BrowserWire.cs" Link="BrowserWire.cs" />
+    <Compile Include="../../WSGM/Interop/BrowserNative.cs" Link="BrowserNative.cs" />
+  </ItemGroup>
+</Project>

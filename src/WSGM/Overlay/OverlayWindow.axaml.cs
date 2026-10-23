@@ -393,6 +393,8 @@ public partial class OverlayWindow : Window
         GameLibraryHost.Attach(null);
         AttachLibraryManager(null);
         DetachPrograms();
+        AttachNotes(null);
+        AttachScreensavers(null);
         EmulatorManagerHost.Attach(null);
         ThemesHost.Attach(null);
         AnimationsHost.Attach(null);

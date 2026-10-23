@@ -72,6 +72,12 @@ public partial class OverlayWindow
             Title: "Emulators", Icon: Icons.Grid4, Available: () => ViewModel.ShowEmulators),
         new SubView(OverlayPage.Programs, ProgramsHost, PanelSystem, OverlayDestination.System,
             Title: "Programs", Icon: Icons.Rocket),
+        new SubView(OverlayPage.Notes, NotesHost, PanelSystem, OverlayDestination.System,
+            Title: "Notes", Icon: Icons.ListLines),
+        new SubView(OverlayPage.SystemBrowser, BrowserHost, PanelSystem, OverlayDestination.System,
+            Title: "Browser", Icon: Icons.Monitor),
+        new SubView(OverlayPage.Screensavers, ScreensaversHost, PanelSystem, OverlayDestination.System,
+            Title: "Screensavers", Icon: Icons.Monitor),
         new SubView(OverlayPage.SystemController, PanelSystemController, PanelSystem,
             OverlayDestination.System, Title: "Keyboard", Icon: Icons.Keyboard),
         new SubView(OverlayPage.SystemAbout, PanelSystemAbout, PanelSystem, OverlayDestination.System, Title: "About",
@@ -189,6 +195,7 @@ public partial class OverlayWindow
 
         view.Parent.IsVisible = false;
         view.Host.IsVisible = true;
+        RefreshBrowserPageLifetime();
         ContentScroller.Offset = default;
         if (page == OverlayPage.DeviceGpu)
         {
@@ -480,6 +487,11 @@ public partial class OverlayWindow
     /// <returns>True when the current nested editor or route consumes Back; false when rail/home handling should continue.</returns>
     internal bool TryCancelSubView()
     {
+        if (TryReturnBrowserToChrome())
+        {
+            return true;
+        }
+
         var handled = CancelOpenPage();
         SyncBackAffordance();
         return handled;

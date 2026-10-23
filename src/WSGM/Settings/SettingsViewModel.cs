@@ -112,6 +112,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         OtherManagersTakeoverAccepted = _config.OtherManagersTakeoverAccepted;
         OtherManagersStatusText = DescribeOtherManagers(_config);
         SteamInputLeaseEnabled = _config.SteamInputLeaseEnabled;
+        BrowserMemoryBehaviorIndex = (int)_config.Browser.MemoryBehavior;
         SteamInputManagementEnabled = _config.SteamInputManagementEnabled;
         ArtworkSteamGridDbApiKey = _config.Artwork.SteamGridDbApiKey;
         ArtworkScreenscraperEnabled = _config.Artwork.ScreenscraperEnabled;
