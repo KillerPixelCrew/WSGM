@@ -20,13 +20,11 @@ public partial class DisplayPage : UserControl
         };
     }
 
-    private void OnEditScaledDimension(object? sender, RoutedEventArgs e)
+    private void OnEditScaledSize(object? sender, RoutedEventArgs e)
     {
         if (TopLevel.GetTopLevel(this) is SettingsWindow window)
         {
-            var width = (sender as Button)?.Tag as string == "Width";
-            window.ShowOnScreenKeyboard(width ? ScaledWidthBox : ScaledHeightBox,
-                width ? "Source width in pixels" : "Source height in pixels");
+            window.ShowOnScreenKeyboard(ScaledSizeBox, "Resolution in pixels (width × height)");
         }
     }
 

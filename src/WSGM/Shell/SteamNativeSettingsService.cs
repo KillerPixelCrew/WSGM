@@ -645,6 +645,7 @@ internal sealed partial class SteamNativeSettingsService(
             SteamSettingsRowKind.Text => value.ValueKind is JsonValueKind.String
                                          && (row.MaximumLength is null ||
                                              value.GetString()!.Length <= row.MaximumLength),
+            SteamSettingsRowKind.ResolutionList => ValidResolutionEdit(row, value),
             SteamSettingsRowKind.Color => TryColor(value, out _),
             SteamSettingsRowKind.Action => value.ValueKind is JsonValueKind.True,
             _ => false

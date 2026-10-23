@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -25,6 +26,13 @@ internal sealed record ScaledResolutionState(
     string Detail)
 {
     internal IReadOnlyList<GpuScaledResolution> Available { get; init; } = [];
+    internal ScaledResolutionBackup? Original { get; init; }
+
+    internal IReadOnlyList<GpuScaledResolution> Resolutions => (Catalog?.Modes ?? [])
+        .Distinct().OrderByDescending(mode => mode.Width).ThenByDescending(mode => mode.Height).ToArray();
+
+    internal string ResolutionLabel(GpuScaledResolution mode) => $"{mode.Width} × {mode.Height}"
+        + (mode == Native ? " · native" : "");
 }
 
 /// <summary>Shared Display-settings policy over existing serialized native owners, independent of game profiles.</summary>
@@ -101,7 +109,8 @@ internal sealed class ScaledResolutionService
                 Log.Warn("Scaled resolution native-size discovery: " + error.Message);
             }
 
-            var remembered = _store.Read().RequireConfig().ScaledResolutions.Where(addition => addition.Valid
+            var config = _store.Read().RequireConfig();
+            var remembered = config.ScaledResolutions.Where(addition => addition.Valid
                 && catalog is not null && Belongs(addition, catalog)).ToArray();
             var missing = catalog is { Supported: true }
                 ? remembered.Where(addition => !catalog.Modes.Contains(new GpuScaledResolution(addition.Width,
@@ -119,7 +128,8 @@ internal sealed class ScaledResolutionService
             return new ScaledResolutionState(choices, target.DevicePath, catalog, native, remembered, missing,
                 catalog?.Detail ?? "No enabled GPU driver owner could resolve this display's driving adapter. Enable its built-in GPU integration in Plugins.")
             {
-                Available = available
+                Available = available,
+                Original = catalog is null ? null : config.ScaledResolutionBackups.FirstOrDefault(item => Belongs(item, catalog))
             };
         }, token).ConfigureAwait(false);
     }
@@ -142,6 +152,21 @@ internal sealed class ScaledResolutionService
                 (int)Math.Round(native.Width * percent / 100d, MidpointRounding.AwayFromZero),
                 (int)Math.Round(native.Height * percent / 100d, MidpointRounding.AwayFromZero)))
             .Where(mode => mode.Valid).Distinct().ToArray();
+    }
+
+    internal static bool TryParseResolution(string text, out GpuScaledResolution resolution)
+    {
+        var dimensions = text.Split(['×', 'x', 'X'], StringSplitOptions.TrimEntries);
+        if (dimensions.Length == 2
+            && int.TryParse(dimensions[0], NumberStyles.None, CultureInfo.InvariantCulture, out var width)
+            && int.TryParse(dimensions[1], NumberStyles.None, CultureInfo.InvariantCulture, out var height))
+        {
+            resolution = new GpuScaledResolution(width, height);
+            return resolution.Valid;
+        }
+
+        resolution = new GpuScaledResolution(0, 0);
+        return false;
     }
 
     internal async Task<GpuScaledResolutionResult> AddAsync(GpuScaledResolutionCatalog observed,
@@ -170,6 +195,7 @@ internal sealed class ScaledResolutionService
             }
 
             var changed = false;
+            var originalSaved = false;
             var last = new GpuScaledResolutionResult(true, false, GpuScaledResolutionActivation.Immediate,
                 "These source sizes already exist; existing modes were preserved.");
             foreach (var mode in modes.Distinct())
@@ -179,6 +205,12 @@ internal sealed class ScaledResolutionService
                     && !fresh.Remembered.Any(item => item.Width == mode.Width && item.Height == mode.Height))
                 {
                     continue;
+                }
+
+                if (!originalSaved)
+                {
+                    RememberOriginal(fresh.Catalog!);
+                    originalSaved = true;
                 }
 
                 last = await driver.SetScaledResolutionAsync(observed, mode, remove: false, token)
@@ -226,14 +258,21 @@ internal sealed class ScaledResolutionService
     }
 
     internal async Task<GpuScaledResolutionResult> RemoveAsync(GpuScaledResolutionCatalog observed,
-        ScaledResolutionAddition addition, CancellationToken token = default)
+        GpuScaledResolution mode, CancellationToken token = default)
     {
         await _edits.WaitAsync(token).ConfigureAwait(false);
         try
         {
-            if (!_store.Read().RequireConfig().ScaledResolutions.Contains(addition) || !Belongs(addition, observed))
+            _store.Read().RequireConfig();
+            var fresh = await ReadAsync(observed.Display.DevicePath, token).ConfigureAwait(false);
+            if (!Same(observed, fresh.Catalog) || !fresh.Catalog!.Modes.Contains(mode))
             {
-                return Refused("Only WSGM's remembered additions can be removed here.");
+                return Refused("The driver list or display changed. Refresh before removing this resolution.");
+            }
+
+            if (mode == fresh.Native)
+            {
+                return Refused("The display's native resolution cannot be removed.");
             }
 
             var driver = await DriverAsync(observed, token).ConfigureAwait(false);
@@ -242,12 +281,11 @@ internal sealed class ScaledResolutionService
                 return Refused("The driving adapter changed or its GPU integration is unavailable.");
             }
 
-            var result = await driver.SetScaledResolutionAsync(observed,
-                new GpuScaledResolution(addition.Width, addition.Height), remove: true, token).ConfigureAwait(false);
+            RememberOriginal(fresh.Catalog!);
+            var result = await driver.SetScaledResolutionAsync(observed, mode, remove: true, token).ConfigureAwait(false);
             if (result.Accepted)
             {
-                _store.Update(config => config.ScaledResolutions.RemoveAll(item => Belongs(item, observed)
-                    && item.Width == addition.Width && item.Height == addition.Height) > 0);
+                ForgetAddition(observed, mode);
             }
 
             return result;
@@ -257,6 +295,83 @@ internal sealed class ScaledResolutionService
             _edits.Release();
         }
     }
+
+    internal async Task<GpuScaledResolutionResult> RestoreOriginalAsync(GpuScaledResolutionCatalog observed,
+        CancellationToken token = default)
+    {
+        await _edits.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            var state = await ReadAsync(observed.Display.DevicePath, token).ConfigureAwait(false);
+            if (!Same(observed, state.Catalog) || state.Original is not { } original)
+            {
+                return Refused("No original list is saved for this display and driving adapter.");
+            }
+
+            var driver = await DriverAsync(observed, token).ConfigureAwait(false);
+            if (driver is null)
+            {
+                return Refused("The driving GPU integration is unavailable.");
+            }
+
+            var changes = RestoreEdits(original, state.Catalog!.Modes, state.Native);
+            var changed = false;
+            var last = new GpuScaledResolutionResult(true, false, GpuScaledResolutionActivation.Immediate,
+                "The original resolution list is already restored.");
+            foreach (var (mode, remove) in changes)
+            {
+                last = await driver.SetScaledResolutionAsync(observed, mode, remove, token).ConfigureAwait(false);
+                changed |= last.Changed;
+                if (!last.Accepted)
+                {
+                    return last with { Changed = changed, Detail = (changed ? "Earlier changes were saved. " : "") + last.Detail };
+                }
+
+                if (remove)
+                {
+                    ForgetAddition(observed, mode);
+                }
+            }
+
+            return last with { Changed = changed, Detail = changed ? "Original resolution list restored. " + last.Detail : last.Detail };
+        }
+        finally
+        {
+            _edits.Release();
+        }
+    }
+
+    internal static IReadOnlyList<(GpuScaledResolution Mode, bool Remove)> RestoreEdits(
+        ScaledResolutionBackup original, IReadOnlyList<GpuScaledResolution> current, GpuScaledResolution? native)
+    {
+        var modes = original.Modes.Select(mode => new GpuScaledResolution(mode.Width, mode.Height)).ToArray();
+        return modes.Except(current).Select(mode => (Mode: mode, Remove: false))
+            .Concat(current.Except(modes).Where(mode => mode != native).Select(mode => (Mode: mode, Remove: true)))
+            .ToArray();
+    }
+
+    private void RememberOriginal(GpuScaledResolutionCatalog catalog)
+    {
+        _store.Update(config =>
+        {
+            if (config.ScaledResolutionBackups.Any(item => Belongs(item, catalog)))
+            {
+                return false;
+            }
+
+            config.ScaledResolutionBackups.Add(new ScaledResolutionBackup
+            {
+                DisplayPath = catalog.Display.DevicePath!, EdidIdentity = catalog.Display.EdidIdentity,
+                AdapterIdentity = catalog.AdapterIdentity, OutputSpecific = catalog.OutputSpecific,
+                Modes = catalog.Modes.Select(mode => new ScaledResolutionSize(mode.Width, mode.Height)).Distinct().ToList()
+            });
+            return true;
+        });
+    }
+
+    private void ForgetAddition(GpuScaledResolutionCatalog catalog, GpuScaledResolution mode) =>
+        _store.Update(config => config.ScaledResolutions.RemoveAll(item => Belongs(item, catalog)
+            && item.Width == mode.Width && item.Height == mode.Height) > 0);
 
     internal async Task<GpuScaledResolutionResult> ReapplyAsync(GpuScaledResolutionCatalog observed,
         CancellationToken token = default)
@@ -323,6 +438,11 @@ internal sealed class ScaledResolutionService
             || string.Equals(addition.DisplayPath, catalog.Display.DevicePath, StringComparison.OrdinalIgnoreCase)
             && addition.EdidIdentity == catalog.Display.EdidIdentity);
     }
+
+    private static bool Belongs(ScaledResolutionBackup backup, GpuScaledResolutionCatalog catalog) =>
+        backup.AdapterIdentity == catalog.AdapterIdentity && backup.OutputSpecific == catalog.OutputSpecific
+        && (!catalog.OutputSpecific || string.Equals(backup.DisplayPath, catalog.Display.DevicePath, StringComparison.OrdinalIgnoreCase)
+            && backup.EdidIdentity == catalog.Display.EdidIdentity);
 
     private static GpuScaledResolutionResult Refused(string detail)
     {

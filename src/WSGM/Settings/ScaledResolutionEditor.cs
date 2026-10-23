@@ -1,6 +1,5 @@
 using System;
 using System.Collections.ObjectModel;
-using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -17,6 +16,13 @@ public sealed record ScaledResolutionChoice(string Path, string Name)
     public override string ToString() => Name;
 }
 
+/// <summary>A resolution in the selected display's list.</summary>
+public sealed record ScaledResolutionItem(int Width, int Height, string Label)
+{
+    /// <inheritdoc />
+    public override string ToString() => Label;
+}
+
 /// <summary>Controller-accessible editor over the same source-mode service used by Steam Display Settings.</summary>
 public sealed class ScaledResolutionEditor : ObservableObject
 {
@@ -24,36 +30,33 @@ public sealed class ScaledResolutionEditor : ObservableObject
     private readonly CancellationTokenSource _lifetime = new();
     private ScaledResolutionState? _state;
     private bool _loading;
-    private GpuScaledResolutionCatalog? _previewCatalog;
-    private GpuScaledResolution? _previewNative;
-    private GpuScaledResolution[] _preview = [];
 
     internal ScaledResolutionEditor(ScaledResolutionService? service)
     {
         _service = service;
         RefreshCommand = new AsyncRelayCommand(RefreshAsync);
-        PreviewCommand = new RelayCommand(Preview);
         AddCommand = new AsyncRelayCommand(AddAsync);
-        ApplyPreviewCommand = new AsyncRelayCommand(ApplyPreviewAsync);
+        AddStepsCommand = new AsyncRelayCommand(AddStepsAsync);
         RemoveCommand = new AsyncRelayCommand(RemoveAsync);
+        RestoreCommand = new AsyncRelayCommand(RestoreAsync);
         ReapplyCommand = new AsyncRelayCommand(ReapplyAsync);
         RestartCommand = new AsyncRelayCommand(RestartAsync);
     }
 
     /// <summary>Connected monitor choices.</summary>
     public ObservableCollection<ScaledResolutionChoice> Displays { get; } = [];
-    /// <summary>Only additions remembered by WSGM, including entries missing after driver replacement.</summary>
-    public ObservableCollection<ScaledResolutionAddition> Additions { get; } = [];
+    /// <summary>Editable source sizes reported by the driver.</summary>
+    public ObservableCollection<ScaledResolutionItem> Resolutions { get; } = [];
     /// <summary>Reads displays, driving adapter and custom source sizes.</summary>
     public AsyncRelayCommand RefreshCommand { get; }
-    /// <summary>Builds the percentage preview without writing anything.</summary>
-    public RelayCommand PreviewCommand { get; }
     /// <summary>Adds the entered width-height pair without selecting it.</summary>
     public AsyncRelayCommand AddCommand { get; }
-    /// <summary>Adds the displayed percentage preview.</summary>
-    public AsyncRelayCommand ApplyPreviewCommand { get; }
-    /// <summary>Removes the selected WSGM addition.</summary>
+    /// <summary>Adds native 100% down to 50%, in 5% steps.</summary>
+    public AsyncRelayCommand AddStepsCommand { get; }
+    /// <summary>Removes the selected driver-list entry.</summary>
     public AsyncRelayCommand RemoveCommand { get; }
+    /// <summary>Restores the list captured before the first explicit edit.</summary>
+    public AsyncRelayCommand RestoreCommand { get; }
     /// <summary>Explicitly reapplies missing remembered entries.</summary>
     public AsyncRelayCommand ReapplyCommand { get; }
     /// <summary>Explicitly restarts the selected display's graphics driver.</summary>
@@ -67,51 +70,65 @@ public sealed class ScaledResolutionEditor : ObservableObject
         {
             if (SetFieldIfChanged(ref field, value, nameof(Display)) && !_loading)
             {
-                PreviewText = "";
                 Log.Observe(RefreshAsync(), "Scaled resolution display selection");
             }
         }
     }
 
-    /// <summary>Selected remembered addition.</summary>
-    public ScaledResolutionAddition? Addition { get; set; }
-    /// <summary>Entered pixel width.</summary>
-    public string Width { get; set; } = "1760";
-    /// <summary>Entered pixel height.</summary>
-    public string Height { get; set; } = "1100";
+    /// <summary>Selected resolution; selection alone does not change the active display mode.</summary>
+    public ScaledResolutionItem? Resolution
+    {
+        get;
+        set
+        {
+            SetField(ref field, value, nameof(Resolution));
+            Raise(nameof(CanRemove));
+        }
+    }
+    /// <summary>Custom pixel dimensions, entered as width × height.</summary>
+    public string Size
+    {
+        get;
+        set
+        {
+            SetField(ref field, value, nameof(Size));
+            Raise(nameof(CanAdd));
+        }
+    } = "";
     /// <summary>Whether an editor operation is running.</summary>
     public bool Busy
     {
         get;
         private set => SetField(ref field, value, nameof(Busy));
     }
-    /// <summary>Driving GPU identity and list scope.</summary>
+    /// <summary>Driving GPU and native size.</summary>
     public string AdapterText => _state?.Catalog is { } catalog
-        ? catalog.AdapterName + " · " + catalog.AdapterIdentity + (catalog.OutputSpecific ? " · This output" : " · All outputs on this adapter")
+        ? catalog.AdapterName + (_state.Native is { } native ? $" · Native {native.Width} × {native.Height}" : "")
         : "Driving GPU unavailable";
-    /// <summary>Current native source-size basis.</summary>
-    public string NativeText => _state?.Native is { } native ? $"Native {native.Width} × {native.Height}" : "Native size unavailable; percentage generation is disabled.";
-    /// <summary>Existing custom catalog, including entries owned by other software.</summary>
-    public string CatalogText => _state?.Catalog is { } catalog
-        ? string.Join(", ", catalog.Modes.Select(mode => $"{mode.Width} × {mode.Height}")) : "";
     /// <summary>Last operation result or support explanation.</summary>
     public string Status
     {
         get;
         private set => SetField(ref field, value, nameof(Status));
     } = "Refresh to read the display's driving GPU.";
-    /// <summary>Source-size percentage preview; constructing it writes nothing.</summary>
-    public string PreviewText
-    {
-        get;
-        private set => SetField(ref field, value, nameof(PreviewText));
-    } = "";
     /// <summary>Whether the current list can be edited.</summary>
     public bool CanEdit => _state?.Catalog is { Supported: true };
+    /// <summary>Whether the custom dimensions can be added.</summary>
+    public bool CanAdd => CanEdit && ScaledResolutionService.TryParseResolution(Size, out _);
+    /// <summary>Whether the native size is known for percentage generation.</summary>
+    public bool CanAddSteps => CanEdit && _state?.Native is not null;
+    /// <summary>Whether the selected size is in the driver's editable list.</summary>
+    public bool CanRemove => CanEdit && Resolution is { } selected
+        && new GpuScaledResolution(selected.Width, selected.Height) != _state!.Native
+        && _state.Catalog!.Modes.Contains(new GpuScaledResolution(selected.Width, selected.Height));
+    /// <summary>Whether an original list was saved for this driver route.</summary>
+    public bool CanRestore => CanEdit && _state?.Original is not null;
     /// <summary>Whether remembered additions are missing.</summary>
     public bool HasMissing => _state?.Missing.Count > 0;
     /// <summary>Whether this vendor stores adapter lists requiring restart.</summary>
     public bool NeedsRestart => _state?.Catalog is { Supported: true, OutputSpecific: false };
+    /// <summary>Whether optional driver maintenance is available.</summary>
+    public bool HasDriverOptions => HasMissing || NeedsRestart;
 
     internal void Close() => _lifetime.Cancel();
 
@@ -150,13 +167,6 @@ public sealed class ScaledResolutionEditor : ObservableObject
     internal void ApplySnapshot(ScaledResolutionState state)
     {
         _state = state;
-        if (_previewCatalog is not null && (!ScaledResolutionService.Same(_previewCatalog, state.Catalog)
-            || _previewNative != state.Native))
-        {
-            _preview = [];
-            _previewCatalog = null;
-            PreviewText = "";
-        }
         _loading = true;
         try
         {
@@ -167,15 +177,16 @@ public sealed class ScaledResolutionEditor : ObservableObject
             }
 
             Display = Displays.FirstOrDefault(display => display.Path == state.SelectedPath);
-            Additions.Clear();
-            foreach (var addition in state.Remembered)
+            var previous = Resolution;
+            Resolutions.Clear();
+            foreach (var mode in state.Resolutions)
             {
-                Additions.Add(addition);
+                Resolutions.Add(new ScaledResolutionItem(mode.Width, mode.Height, state.ResolutionLabel(mode)));
             }
 
-            Addition = Additions.FirstOrDefault();
-            Raise(nameof(Addition));
-            foreach (var name in new[] { nameof(AdapterText), nameof(NativeText), nameof(CatalogText), nameof(CanEdit), nameof(HasMissing), nameof(NeedsRestart) })
+            Resolution = Resolutions.FirstOrDefault(mode => mode.Width == previous?.Width && mode.Height == previous?.Height)
+                ?? Resolutions.FirstOrDefault();
+            foreach (var name in new[] { nameof(AdapterText), nameof(CanEdit), nameof(CanAdd), nameof(CanAddSteps), nameof(CanRestore), nameof(HasMissing), nameof(NeedsRestart), nameof(HasDriverOptions) })
             {
                 Raise(name);
             }
@@ -188,51 +199,39 @@ public sealed class ScaledResolutionEditor : ObservableObject
         Status = state.Detail;
     }
 
-    private void Preview()
-    {
-        _previewNative = _state?.Native;
-        _previewCatalog = _state?.Catalog;
-        _preview = _previewNative is { } basis ? ScaledResolutionService.PercentagePreview(basis).ToArray() : [];
-        PreviewText = _preview.Length > 0
-            ? string.Join(Environment.NewLine, _preview
-                .Select((mode, index) => $"{100 - index * 5}%: {mode.Width} × {mode.Height}"))
-            : "Read the display's native size before generating percentages.";
-    }
-
     private Task AddAsync()
     {
         return RunAsync(async () =>
         {
             if (_service is null || _state?.Catalog is not { Supported: true } catalog
-                || !int.TryParse(Width, NumberStyles.None, CultureInfo.InvariantCulture, out var width)
-                || !int.TryParse(Height, NumberStyles.None, CultureInfo.InvariantCulture, out var height))
+                || !ScaledResolutionService.TryParseResolution(Size, out var mode))
             {
-                Status = "Choose a supported display and enter pixel width and height.";
+                Status = "Enter width × height, for example 1760 × 1100. Each dimension must be 100 to 15999 pixels.";
                 return;
             }
 
-            await FinishAsync(await _service.AddAsync(catalog, [new GpuScaledResolution(width, height)], _lifetime.Token));
+            await FinishAsync(await _service.AddAsync(catalog, [mode], _lifetime.Token));
         });
     }
 
-    private Task ApplyPreviewAsync()
+    private Task AddStepsAsync()
     {
         return RunAsync(async () =>
         {
             if (_service is not null && _state?.Catalog is { Supported: true } catalog
-                && _previewCatalog is not null && ScaledResolutionService.Same(_previewCatalog, catalog)
-                && _previewNative == _state.Native && _preview.Length > 0)
+                && _state.Native is { } native)
             {
-                await FinishAsync(await _service.AddAsync(catalog, _preview, _lifetime.Token));
+                await FinishAsync(await _service.AddAsync(catalog, ScaledResolutionService.PercentagePreview(native), _lifetime.Token));
             }
         });
     }
 
     private Task RemoveAsync() => RunAsync(async () =>
     {
-        if (_service is not null && _state?.Catalog is { } catalog && Addition is { } addition)
+        if (_service is not null && _state?.Catalog is { } catalog && Resolution is { } selected)
         {
-            await FinishAsync(await _service.RemoveAsync(catalog, addition, _lifetime.Token));
+            await FinishAsync(await _service.RemoveAsync(catalog,
+                new GpuScaledResolution(selected.Width, selected.Height), _lifetime.Token));
         }
     });
 
@@ -241,6 +240,14 @@ public sealed class ScaledResolutionEditor : ObservableObject
         if (_service is not null && _state?.Catalog is { } catalog)
         {
             await FinishAsync(await _service.ReapplyAsync(catalog, _lifetime.Token));
+        }
+    });
+
+    private Task RestoreAsync() => RunAsync(async () =>
+    {
+        if (_service is not null && _state?.Catalog is { } catalog)
+        {
+            await FinishAsync(await _service.RestoreOriginalAsync(catalog, _lifetime.Token));
         }
     });
 

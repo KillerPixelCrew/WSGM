@@ -907,6 +907,9 @@ public sealed class AppConfig
     /// <summary>Explicit source sizes added to a physical display's driver list.</summary>
     public List<ScaledResolutionAddition> ScaledResolutions { get; set; } = [];
 
+    /// <summary>Original driver source lists captured before explicit edits.</summary>
+    public List<ScaledResolutionBackup> ScaledResolutionBackups { get; set; } = [];
+
     /// <summary>Common plugin widget pins in display order; unavailable identities are retained.</summary>
     public List<PluginWidgetPin> PluginWidgetPins { get; set; } = [];
 

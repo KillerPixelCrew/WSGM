@@ -15,12 +15,8 @@ namespace WSGM.Shell;
 internal sealed partial class SteamNativeSettingsService
 {
     private string? _scaledDisplay;
-    private string _scaledWidth = "1760";
-    private string _scaledHeight = "1100";
     private string _scaledStatus = "";
-    private GpuScaledResolutionCatalog? _scaledPreviewCatalog;
-    private GpuScaledResolution? _scaledPreviewNative;
-    private IReadOnlyList<GpuScaledResolution> _scaledPreview = [];
+    private bool _scaledDriverOptions;
 
     private async Task AddScaledResolutionSectionAsync(List<SteamSettingsSection> display,
         Dictionary<string, Offered> offered)
@@ -38,7 +34,7 @@ internal sealed partial class SteamNativeSettingsService
         }
         catch (Exception error) when (error is not OutOfMemoryException)
         {
-            rows.Add(new SteamSettingsRow("scaled.error", SteamSettingsRowKind.Note, "Source-mode catalog",
+            rows.Add(new SteamSettingsRow("scaled.error", SteamSettingsRowKind.Note, "Resolutions unavailable",
                 Text: error.Message));
             Section(display, "GPU-scaled resolutions", "scaled-resolutions", rows);
             return;
@@ -52,112 +48,89 @@ internal sealed partial class SteamNativeSettingsService
                 selectedCatalog.Display.AdapterHighPart?.ToString(CultureInfo.InvariantCulture),
                 selectedCatalog.Display.TargetId?.ToString(CultureInfo.InvariantCulture))))) : "unavailable";
         Add(new SteamSettingsRow("scaled.display", SteamSettingsRowKind.Choice, "Display",
-            "Choose the display whose driving GPU owns the source-mode list.", Text: _scaledDisplay ?? "",
+            state.Catalog is { } gpu ? gpu.AdapterName : null, Text: _scaledDisplay ?? "",
             Choices: state.Displays.Select(item => new SteamSettingsChoice(item.Path, item.Name)).ToArray()),
             (value, _) =>
             {
                 _scaledDisplay = value.GetString();
-                _scaledPreview = [];
-                _scaledPreviewCatalog = null;
                 _scaledStatus = "";
                 return Task.FromResult(SteamUiCommandResult.Applied);
             });
-        Add(new SteamSettingsRow("scaled.refresh", SteamSettingsRowKind.Action, "Refresh displays and modes",
+        if (state.Catalog is { Supported: true } catalog)
+        {
+            var choices = state.Resolutions.Select(mode => new SteamSettingsChoice(
+                $"{mode.Width}x{mode.Height}", state.ResolutionLabel(mode))).ToArray();
+            Add(new SteamSettingsRow("scaled.editor/target/" + targetKey, SteamSettingsRowKind.ResolutionList, "Resolutions",
+                "Changes are saved immediately. Your active resolution stays the same. The native resolution is protected.", Choices: choices,
+                ResolutionEditor: new SteamSettingsResolutionEditor(
+                    state.Resolutions.Where(mode => mode != state.Native).Select(mode => $"{mode.Width}x{mode.Height}").ToArray(),
+                    state.Native?.Width, state.Native?.Height, state.Original is not null)), async (value, token) =>
+            {
+                var operation = value.GetProperty("operation").GetString();
+                if (operation == "refresh")
+                {
+                    await scaledResolutions.RefreshTopologyAsync(token).ConfigureAwait(false);
+                    _scaledStatus = "";
+                    return SteamUiCommandResult.Applied;
+                }
+
+                if (operation == "restore")
+                {
+                    return await Apply(() => scaledResolutions.RestoreOriginalAsync(catalog, token)).ConfigureAwait(false);
+                }
+
+                var mode = new GpuScaledResolution(value.GetProperty("width").GetInt32(), value.GetProperty("height").GetInt32());
+                return await Apply(operation switch
+                {
+                    "add" => () => scaledResolutions.AddAsync(catalog, [mode], token),
+                    "remove" => () => scaledResolutions.RemoveAsync(catalog, mode, token),
+                    "steps" => () => scaledResolutions.AddAsync(catalog, ScaledResolutionService.PercentagePreview(mode), token),
+                    _ => throw new InvalidOperationException("Unknown resolution edit.")
+                }).ConfigureAwait(false);
+            });
+
+            if (state.Missing.Count > 0 || !catalog.OutputSpecific)
+            {
+                Add(new SteamSettingsRow("scaled.driver-options", SteamSettingsRowKind.Action, "Driver options",
+                    catalog.OutputSpecific ? null : "Restart the driver to activate changes.",
+                    ButtonLabel: _scaledDriverOptions ? "Hide" : "Show"), (_, _) =>
+                    {
+                        _scaledDriverOptions = !_scaledDriverOptions;
+                        return Task.FromResult(SteamUiCommandResult.Applied);
+                    });
+                if (_scaledDriverOptions)
+                {
+                    if (state.Missing.Count > 0)
+                    {
+                        Action("scaled.reapply", "Restore missing resolutions",
+                            $"{state.Missing.Count} resolutions are missing, for example after a driver update.",
+                            token => scaledResolutions.ReapplyAsync(catalog, token), "Restore");
+                    }
+
+                    if (!catalog.OutputSpecific)
+                    {
+                        Action("scaled.restart", "Restart graphics driver",
+                            "Activates changes. Displays may go blank and games may be interrupted.",
+                            token => scaledResolutions.RestartAsync(catalog, token), "Restart");
+                    }
+                }
+            }
+        }
+        else
+        {
+            rows.Add(new SteamSettingsRow("scaled.support", SteamSettingsRowKind.Note, "Resolutions unavailable",
+                Text: state.Detail));
+            Add(new SteamSettingsRow("scaled.refresh", SteamSettingsRowKind.Action, "Refresh displays and resolutions",
                 ButtonLabel: "Refresh"), async (_, token) =>
             {
                 await scaledResolutions.RefreshTopologyAsync(token).ConfigureAwait(false);
                 return SteamUiCommandResult.Applied;
             });
-        rows.Add(new SteamSettingsRow("scaled.support", SteamSettingsRowKind.Note, "Source-mode catalog",
-            Text: state.Detail + " This catalog is global, independent of game profiles."));
-        if (state.Catalog is { } catalog)
-        {
-            rows.Add(new SteamSettingsRow("scaled.adapter", SteamSettingsRowKind.Note, "Driving GPU",
-                Text: catalog.AdapterName
-                    + (catalog.OutputSpecific ? " · This output" : " · All outputs on this adapter")));
-            rows.Add(new SteamSettingsRow("scaled.existing", SteamSettingsRowKind.Note, "Existing source sizes",
-                Text: string.Join(", ", catalog.Modes.Select(mode => $"{mode.Width} × {mode.Height}"))));
-            if (catalog.Supported)
-            {
-                Add(new SteamSettingsRow("scaled.width", SteamSettingsRowKind.Text, "Width in pixels",
-                    Text: _scaledWidth, MaximumLength: 5), (value, _) =>
-                {
-                    _scaledWidth = value.GetString() ?? "";
-                    return Task.FromResult(SteamUiCommandResult.Applied);
-                });
-                Add(new SteamSettingsRow("scaled.height", SteamSettingsRowKind.Text, "Height in pixels",
-                    Text: _scaledHeight, MaximumLength: 5), (value, _) =>
-                {
-                    _scaledHeight = value.GetString() ?? "";
-                    return Task.FromResult(SteamUiCommandResult.Applied);
-                });
-                Action("scaled.add", "Add resolution", "Makes this size available without switching the active mode.",
-                    async token =>
-                    {
-                        if (!int.TryParse(_scaledWidth, NumberStyles.None, CultureInfo.InvariantCulture, out var width)
-                            || !int.TryParse(_scaledHeight, NumberStyles.None, CultureInfo.InvariantCulture, out var height))
-                        {
-                            return new GpuScaledResolutionResult(false, false, GpuScaledResolutionActivation.Immediate,
-                                "Enter pixel width and height as whole numbers.");
-                        }
-
-                        return await scaledResolutions.AddAsync(catalog, [new GpuScaledResolution(width, height)], token)
-                            .ConfigureAwait(false);
-                    });
-                if (state.Native is { } native)
-                {
-                    Add(new SteamSettingsRow("scaled.preview", SteamSettingsRowKind.Action,
-                        "Preview percentage steps", $"Native {native.Width} × {native.Height}. 100% down to 50% in 5% steps of width and height.",
-                        ButtonLabel: "Preview"), (_, _) =>
-                    {
-                        _scaledPreview = ScaledResolutionService.PercentagePreview(native);
-                        _scaledPreviewCatalog = catalog;
-                        _scaledPreviewNative = native;
-                        return Task.FromResult(SteamUiCommandResult.Applied);
-                    });
-                    if (_scaledPreviewCatalog is not null && ScaledResolutionService.Same(_scaledPreviewCatalog, catalog)
-                        && _scaledPreviewNative == native && _scaledPreview.Count > 0)
-                    {
-                        rows.Add(new SteamSettingsRow("scaled.preview-list", SteamSettingsRowKind.Note, "Percentage preview",
-                            Text: string.Join("; ", _scaledPreview.Select((mode, index) =>
-                                $"{100 - index * 5}%: {mode.Width} × {mode.Height}"))));
-                        var preview = _scaledPreview.ToArray();
-                        Action("scaled.apply-preview", "Add previewed resolutions", "Existing entries are preserved. The active mode stays as it is.",
-                            token => scaledResolutions.AddAsync(catalog, preview, token));
-                    }
-                }
-                else
-                {
-                    rows.Add(new SteamSettingsRow("scaled.native-unavailable", SteamSettingsRowKind.Note, "Percentage generation",
-                        Text: "The display did not report its native size. Enter a source size manually."));
-                }
-
-                foreach (var addition in state.Remembered)
-                {
-                    Action($"scaled.remove/{addition.Width}/{addition.Height}", $"Remove {addition.Width} × {addition.Height}",
-                        "Removes this WSGM addition from the driver list and remembered additions.",
-                        token => scaledResolutions.RemoveAsync(catalog, addition, token));
-                }
-
-                if (state.Missing.Count > 0)
-                {
-                    Action("scaled.reapply", "Reapply missing additions",
-                        $"{state.Missing.Count} remembered source sizes are absent, for example after a driver update.",
-                        token => scaledResolutions.ReapplyAsync(catalog, token));
-                }
-
-                if (!catalog.OutputSpecific)
-                {
-                    Action("scaled.restart", "Restart this graphics driver now",
-                        "Explicit action: every display on this GPU can go blank and games can lose their graphics device. Restart only when ready.",
-                        token => scaledResolutions.RestartAsync(catalog, token));
-                }
-            }
         }
 
         if (_scaledStatus.Length > 0)
         {
-            rows.Add(new SteamSettingsRow("scaled.status", SteamSettingsRowKind.Note, "Last source-mode operation",
+            rows.Add(new SteamSettingsRow("scaled.status", SteamSettingsRowKind.Note, "Status",
                 Text: _scaledStatus));
         }
 
@@ -169,24 +142,63 @@ internal sealed partial class SteamNativeSettingsService
             offered.Add(row.Key, new Offered(row, write, null));
         }
 
-        void Action(string key, string label, string description,
-            Func<CancellationToken, Task<GpuScaledResolutionResult>> write)
+        void Action(string key, string label, string? description,
+            Func<CancellationToken, Task<GpuScaledResolutionResult>> write, string buttonLabel, bool disabled = false)
         {
-            Add(new SteamSettingsRow(key + "/target/" + targetKey, SteamSettingsRowKind.Action, label, description, ButtonLabel: label),
-                async (_, token) =>
-                {
-                    try
-                    {
-                        var result = await write(token).ConfigureAwait(false);
-                        _scaledStatus = result.Detail;
-                        return new SteamUiCommandResult(result.Accepted, result.Detail);
-                    }
-                    catch (Exception error) when (error is not OutOfMemoryException)
-                    {
-                        _scaledStatus = error.Message + " Refresh before another explicit action.";
-                        return new SteamUiCommandResult(false, _scaledStatus);
-                    }
-                });
+            Add(new SteamSettingsRow(key + "/target/" + targetKey, SteamSettingsRowKind.Action, label, description,
+                    Disabled: disabled, ButtonLabel: buttonLabel),
+                (_, token) => Apply(() => write(token)));
         }
+
+        async Task<SteamUiCommandResult> Apply(Func<Task<GpuScaledResolutionResult>> write)
+        {
+            try
+            {
+                var result = await write().ConfigureAwait(false);
+                _scaledStatus = result.Detail;
+                return new SteamUiCommandResult(result.Accepted, result.Detail);
+            }
+            catch (Exception error) when (error is not OutOfMemoryException)
+            {
+                _scaledStatus = error.Message + " Refresh before another explicit action.";
+                return new SteamUiCommandResult(false, _scaledStatus);
+            }
+        }
+    }
+
+    internal static bool ValidResolutionEdit(SteamSettingsRow row, JsonElement value)
+    {
+        if (value.ValueKind != JsonValueKind.Object || row.ResolutionEditor is not { } editor
+            || !value.TryGetProperty("operation", out var operation) || operation.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        if (operation.GetString() == "refresh")
+        {
+            return true;
+        }
+
+        if (operation.GetString() == "restore")
+        {
+            return editor.RestoreAvailable;
+        }
+
+        if (!value.TryGetProperty("width", out var widthValue) || widthValue.ValueKind != JsonValueKind.Number
+            || !widthValue.TryGetInt32(out var width)
+            || !value.TryGetProperty("height", out var heightValue) || heightValue.ValueKind != JsonValueKind.Number
+            || !heightValue.TryGetInt32(out var height)
+            || !new GpuScaledResolution(width, height).Valid)
+        {
+            return false;
+        }
+
+        return operation.GetString() switch
+        {
+            "add" => true,
+            "remove" => editor.Removable.Contains($"{width}x{height}"),
+            "steps" => width == editor.NativeWidth && height == editor.NativeHeight,
+            _ => false
+        };
     }
 }

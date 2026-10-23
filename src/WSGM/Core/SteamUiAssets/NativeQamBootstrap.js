@@ -3435,6 +3435,96 @@
     };
   }
   registerGate("pluginFrontends", createPluginFrontends());
+  // @fragment resolution-editor.ts
+  // A size editor built around Steam's inline list-builder input and native buttons.
+  // Selection is local; only an explicit add, remove, percentage or refresh action reaches the host.
+  const SteamUiResolutionEditor = ({ ui, row, send, busy = false }) => {
+    const react = ui.react;
+    const h = react.createElement;
+    const [size, setSize] = react.useState("");
+    const [selected, setSelected] = react.useState(row.choices?.[0]?.value ?? "");
+    const choices = row.choices ?? [];
+    const editor = row.resolutionEditor ?? {};
+    const disabled = !!row.disabled || busy;
+    react.useEffect(() => {
+      if (!choices.some((item) => item.value === selected)) setSelected(choices[0]?.value ?? "");
+    }, [choices, selected]);
+    if (!ui.listBuilder) {
+      return h(ui.valueField, { name: row.label, value: "Steam's native list is unavailable." });
+    }
+    const dimensions = size.match(/^\s*(\d{3,5})\s*[x×X]\s*(\d{3,5})\s*$/);
+    const width = Number(dimensions?.[1]);
+    const height = Number(dimensions?.[2]);
+    const valid = dimensions && width >= 100 && width <= 15999 && height >= 100 && height <= 15999;
+    const button = (label, blocked, onClick) =>
+      h(ui.smallButton, { disabled: disabled || blocked, onClick }, label);
+    const [selectedWidth, selectedHeight] = selected.split("x").map(Number);
+    return h(
+      "div",
+      { className: "steam-ui-kit-resolution-editor", role: "group", "aria-label": row.label },
+      h(
+        "div",
+        { className: "steam-ui-kit-resolution-list", "aria-label": row.label },
+        h(
+          ui.listBuilder,
+          {
+            label: row.label,
+            value: size,
+            disabled,
+            maxLength: 13,
+            placeholder: "Width × height",
+            "aria-label": "Custom resolution in pixels",
+            onChange: (event) => setSize(event?.target?.value ?? ""),
+          },
+          h(
+            ui.focusable,
+            { className: "steam-ui-kit-resolution-items", "flow-children": "column" },
+            ...choices.map((item) =>
+              h(
+                ui.smallButton,
+                {
+                  key: item.value,
+                  disabled,
+                  "aria-label": item.label,
+                  "aria-pressed": item.value === selected,
+                  onClick: (event) => {
+                    event?.stopPropagation?.();
+                    event?.preventDefault?.();
+                    setSelected(item.value);
+                  },
+                },
+                item.label,
+              ),
+            ),
+          ),
+        ),
+        choices.length === 0 ? h("p", null, "No resolutions available.") : null,
+      ),
+      h(
+        ui.focusable,
+        { className: "steam-ui-kit-resolution-actions", "flow-children": "row" },
+        button("Add", !valid, () => send({ operation: "add", width, height })),
+        button("Remove", !(editor.removable ?? []).includes(selected), () =>
+          send({ operation: "remove", width: selectedWidth, height: selectedHeight }),
+        ),
+        button("Refresh", false, () => send({ operation: "refresh" })),
+        button("Restore original list", !editor.restoreAvailable, () =>
+          send({ operation: "restore" }),
+        ),
+        button("Add 5% steps", !editor.nativeWidth || !editor.nativeHeight, () =>
+          send({ operation: "steps", width: editor.nativeWidth, height: editor.nativeHeight }),
+        ),
+      ),
+      h("p", { className: "steam-ui-kit-resolution-note" }, row.description),
+      h(
+        "p",
+        { className: "steam-ui-kit-resolution-note" },
+        editor.nativeWidth && editor.nativeHeight
+          ? `5% steps: native ${editor.nativeWidth} × ${editor.nativeHeight}, 100% down to 50%.`
+          : "Native size unavailable; add custom dimensions instead.",
+      ),
+    );
+  };
   // @fragment settings.ts
   // Host settings use Steam's native routed sidebar and fields. Missing component contracts refuse
   // installation; descriptors and command policy belong to the host.
@@ -3465,6 +3555,11 @@
       );
     });
     const smallButton = uniqueSteamExport(fields, (value) => isSteamDialogButton(value, "Small"));
+    // Steam's inline list-builder input is independent of the popup menu lifecycle.
+    const listBuilder = uniqueSteamExport(fields, (value) => {
+      const source = sourceOfSteamComponent(value);
+      return source.includes("DialogListBuilderInput_List") && source.includes("OnBackgroundClick");
+    });
     const routedPages = optionalSteamExport(
       runtime,
       [...SteamRoutedPagesTokens],
@@ -3477,7 +3572,15 @@
       const source = sourceOfSteamComponent(value);
       return SteamConfirmModalTokens.every((token) => source.includes(token));
     });
-    return { ...ui, settingsSection, valueField, smallButton, routedPages, confirmModal };
+    return {
+      ...ui,
+      settingsSection,
+      valueField,
+      smallButton,
+      listBuilder,
+      routedPages,
+      confirmModal,
+    };
   };
   /**
    * Component names required to draw every supported host Settings row.
@@ -3688,6 +3791,8 @@
       }
     };
     switch (row.kind) {
+      case "resolution-list":
+        return h(SteamUiResolutionEditor, { key, ui, row, send, busy: draft !== undefined });
       case "curve": {
         const points = draft !== undefined ? draft : (row.curve ?? []);
         return h(
@@ -4071,6 +4176,17 @@
   // Shared elements around Steam's native fields. Use Steam React/Focusable and render the kit
   // stylesheet in each consuming document. CSS selectors preserve Valve layout and focus behavior.
   const SteamUiKitStyles = `
+.steam-ui-kit-resolution-editor{display:flex;flex-direction:column;gap:10px;padding:12px 0;min-width:0;max-width:100%;box-sizing:border-box}
+.steam-ui-kit-resolution-actions .DialogButton{width:auto;min-width:80px;flex:0 0 auto}
+.steam-ui-kit-resolution-list .DialogListBuilderInput_List{max-height:240px;overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;gap:6px}
+.steam-ui-kit-resolution-list .DialogListBuilderInput_ListItem{width:100%;min-width:0;box-sizing:border-box}
+.steam-ui-kit-resolution-items{display:flex;flex-direction:column;gap:4px;width:100%;min-width:0}
+.steam-ui-kit-resolution-list .DialogButton{width:100%;min-width:0;box-sizing:border-box;text-align:left}
+.steam-ui-kit-resolution-list .DialogButton[aria-pressed=true]{box-shadow:inset 3px 0 0 var(--gpColorBlue,#1a9fff)}
+.steam-ui-kit-resolution-list .DialogListBuilderInput_Input{order:-1;position:sticky;top:0;width:100%;min-width:0;max-width:none!important;box-sizing:border-box;min-height:36px;background:var(--gpSystemDarkGrey,#23262e);z-index:1}
+.steam-ui-kit-resolution-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.steam-ui-kit-resolution-actions>.DialogButton:last-child{margin-left:auto}
+.steam-ui-kit-resolution-note{margin:0;font-size:14px;color:#8b929a;line-height:1.4}
 .steam-ui-kit-page{margin-top:var(--basicui-header-height,40px);height:calc(100% - var(--basicui-header-height,40px));display:flex;flex-direction:column;background:var(--gpSystemDarkestGrey,#0e141b);color:#dcdedf}
 .steam-ui-kit-pane{display:flex;flex-direction:column;gap:14px;padding:12px 4px 72px}
 .steam-ui-kit-content{display:flex;flex-direction:column;gap:20px;width:min(100%,960px);max-width:100%;min-width:0;box-sizing:border-box;margin-inline:auto;padding:24px clamp(20px,4vw,48px) 72px}
@@ -7852,7 +7968,16 @@
       audio: "Audio",
       controller: "Controller",
     };
-    const RowKinds = new Set(["boolean", "choice", "range", "text", "color", "action", "note"]);
+    const RowKinds = new Set([
+      "boolean",
+      "choice",
+      "range",
+      "text",
+      "color",
+      "action",
+      "note",
+      "resolution-list",
+    ]);
     let ui = null;
     let react = null;
     let jsxRuntime = null;
@@ -7900,13 +8025,32 @@
             )
               return null;
             if (
-              row.kind === "choice" &&
+              (row.kind === "choice" || row.kind === "resolution-list") &&
               (!Array.isArray(row.choices) ||
                 row.choices.some(
                   (choice) => typeof choice?.value !== "string" || typeof choice.label !== "string",
                 ))
             )
               return null;
+            if (row.kind === "resolution-list") {
+              const editor = row.resolutionEditor;
+              const validDimension = (value) =>
+                Number.isSafeInteger(value) && value >= 100 && value <= 15999;
+              if (
+                !editor ||
+                row.choices.length > 512 ||
+                !Array.isArray(editor.removable) ||
+                (editor.restoreAvailable != null && typeof editor.restoreAvailable !== "boolean") ||
+                editor.removable.some(
+                  (value) => !row.choices.some((item) => item.value === value),
+                ) ||
+                !(
+                  (editor.nativeWidth == null && editor.nativeHeight == null) ||
+                  (validDimension(editor.nativeWidth) && validDimension(editor.nativeHeight))
+                )
+              )
+                return null;
+            }
             if (
               row.kind === "range" &&
               (!Number.isFinite(row.number) ||

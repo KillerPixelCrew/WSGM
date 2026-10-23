@@ -24,6 +24,19 @@ Related:
 - [sd-cards.md](sd-cards.md): the card manager and format UI that call into library registration.
 - [elevation.md](elevation.md): the launch wrapper and the non-Steam shortcut rules.
 
+## Resolution editor review, 2026-10-23
+
+Reviewed the simplified editor in the installed Big Picture session after log-confirmed startup. It
+uses Steam's inline list-builder rather than a dropdown and lists the driver's source entries. The
+existing Intel 1760 × 1100 entry is selected with Remove enabled. The native resolution is
+protected; Restore original list becomes available after the first edit captures its baseline. The
+5% generator still covers native 100% down to 50%. No driver modes were changed during this UI
+review. The final capture is `artifacts/resolution-editor-20261023/06-cef-final.png`.
+
+Settings was rendered and reviewed at 1024 × 640 and 1280 × 800. The focused checks cover selection,
+native protection, original-list serialization and restore deltas. Live driver removal/restoration
+and physical-controller acceptance remain separate from that UI and policy evidence.
+
 ## Live interface review, 2026-10-22
 
 Reviewed the installed Steam Big Picture session on the desktop at a 1280×800 CSS viewport, opening

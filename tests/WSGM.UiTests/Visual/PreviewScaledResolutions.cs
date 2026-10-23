@@ -6,7 +6,6 @@ using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using LibGPUDriverInteract;
-using WSGM.Core;
 using WSGM.Settings;
 using WSGM.Shell;
 using WSGM.UiTests.Infrastructure;
@@ -18,7 +17,7 @@ internal static class PreviewScaledResolutions
 {
     internal static SettingsWindow Create(UiFixture fixture, int width, bool intel)
     {
-        var window = fixture.Settings(width);
+        var window = fixture.Settings(width, height: width == 1024 ? 640 : 800);
         UiFixture.Click(window, UiFixture.Tab(window, 6));
         var model = (SettingsViewModel)window.DataContext!;
         var display = new GpuDisplayTarget
@@ -26,21 +25,21 @@ internal static class PreviewScaledResolutions
             DevicePath = "fixture-monitor", EdidIdentity = "fixture-edid", AdapterLowPart = 1,
             AdapterHighPart = 0, TargetId = 2
         };
-        var addition = new ScaledResolutionAddition
-        {
-            DisplayPath = "fixture-monitor", EdidIdentity = "fixture-edid", AdapterIdentity = "PCI\\FIXTURE",
-            Width = 1760, Height = 1100
-        };
+        var native = new GpuScaledResolution(3840, 2160);
         var catalog = new GpuScaledResolutionCatalog(display, intel ? GpuVendor.Intel : GpuVendor.Amd,
             "PCI\\FIXTURE", intel ? "Intel UHD Graphics" : "AMD Radeon Graphics", intel, true,
-            [new GpuScaledResolution(1760, 1100)], intel ? "Available immediately." : "Graphics-driver restart required.");
+            ScaledResolutionService.PercentagePreview(native).Append(new GpuScaledResolution(1760, 1100)).ToArray(),
+            intel ? "Available immediately." : "Graphics-driver restart required.");
         model.ScaledResolutions.ApplySnapshot(new ScaledResolutionState(
             [new ScaledResolutionDisplay("fixture-monitor", "Internal display")], "fixture-monitor", catalog,
-            new GpuScaledResolution(3840, 2160), [addition], [], catalog.Detail));
+            native, [], [], catalog.Detail)
+        {
+            Available = [new GpuScaledResolution(800, 600)]
+        });
         var expander = window.GetVisualDescendants().OfType<Expander>()
             .Single(item => item.Header as string == "GPU-scaled resolutions");
+        expander.ContentTransition = null;
         expander.IsExpanded = true;
-        model.ScaledResolutions.PreviewCommand.Execute(null);
         Dispatcher.UIThread.RunJobs();
         return window;
     }
