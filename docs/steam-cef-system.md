@@ -1240,13 +1240,17 @@ through `cdp.mjs`.
 | `art-test.mjs`                                                              | SteamGridDB apply                                                                                                                | mutating, needs `SGDB_KEY`                                                                                                                               |
 | `capture-steam-window.ps1 -OutputPath <png>`                                | saves a PNG of the Big Picture window; reads nothing from CEF                                                                    | attended; restores and focuses the Big Picture window                                                                                                    |
 
-The `.mcp.json` server `steam-cef` is `chrome-devtools-mcp` attached to the existing endpoint.
-Listing targets and bounded read-only evaluation are observation, and `close_page` closes Steam's
-real window. The raw helpers do not all prove that port 8080 belongs to Steam, and `run-file*.mjs`
-does not turn JavaScript `exceptionDetails` into a failing exit code. Verify the listener owner and
-loopback websocket target only after the log-confirmed startup preflight below; inspect output
-rather than trusting exit zero, and do not treat `qam-harness.mjs status` as pure observation.
-Neither the harness nor the MCP relaxes the fingerprint rule.
+The project installs `chrome-devtools-mcp` with `npm ci`. Both Claude's `.mcp.json` and Codex's
+`.codex/config.toml` start `node eng/steam-cef-mcp.mjs` from the checkout. The shared launcher uses
+the pinned local package, attaches to Steam's existing loopback endpoint, disables usage statistics
+and CrUX lookups, and roots relative screenshot paths in this checkout. It never starts a browser.
+Open agent sessions need to reconnect their MCP server after configuration changes. Listing targets
+and bounded read-only evaluation are observation, and `close_page` closes Steam's real window. The
+raw helpers do not all prove that port 8080 belongs to Steam, and `run-file*.mjs` does not turn
+JavaScript `exceptionDetails` into a failing exit code. Verify the listener owner and loopback
+websocket target only after the log-confirmed startup preflight below; inspect output rather than
+trusting exit zero, and do not treat `qam-harness.mjs status` as pure observation. Neither the
+harness nor the MCP relaxes the fingerprint rule.
 
 `node eng\check-steam-fingerprints.mjs [<Steam directory>]` answers whether a Steam update moved a
 fingerprint without attaching to Steam. It reads every token conjunction out of the toolkit's
@@ -1313,3 +1317,6 @@ running client and recorded in [steam-cef.md](steam-cef.md).
   routes: `wsgm.artwork-browser` and `wsgm.library-import`. Regression checks cover those seams;
   live visual acceptance remains open. Completing a live 1:1 comparison of the artwork page with
   Decky SteamGridDB remains an acceptance task.
+
+Project MCP file output follows the client's advertised workspace roots. A client without roots can
+save captures in the temporary directory and copy them into the checkout.

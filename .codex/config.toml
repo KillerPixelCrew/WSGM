@@ -19,17 +19,8 @@
 # close_page closes a real Steam window and must never be used as generic cleanup.
 
 [mcp_servers.steam-cef]
-command = "cmd"
+command = "node"
 args = [
-  "/c",
-  "npx",
-  "-y",
-  "chrome-devtools-mcp@1.8.0",
-  "--browserUrl",
-  "http://127.0.0.1:8080",
-  "--usageStatistics",
-  "false",
-  "--performanceCrux",
-  "false",
+  "eng/steam-cef-mcp.mjs",
 ]
 startup_timeout_sec = 60
