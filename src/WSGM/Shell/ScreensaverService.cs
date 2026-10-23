@@ -5,6 +5,7 @@ using System.IO;
 using System.IO.Pipes;
 using System.Linq;
 using System.Security.Principal;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
@@ -24,6 +25,8 @@ internal sealed class ScreensaverService : ISteamScreensaverContentBackend, IAsy
     private readonly Lock _state = new();
     private readonly Lock _workGate = new();
     private readonly SemaphoreSlim _scan = new(1, 1);
+    private readonly SemaphoreSlim _thumbnailGate = new(1, 1);
+    private readonly Dictionary<string, (string Revision, byte[] Bytes)> _thumbnails = [];
     private readonly CancellationTokenSource _lifetime = new();
     private readonly List<FileSystemWatcher> _watchers = [];
     private Entry[] _entries = [];
@@ -125,6 +128,23 @@ internal sealed class ScreensaverService : ISteamScreensaverContentBackend, IAsy
         {
             switch (command.Action)
             {
+                case "thumbnail":
+                    var thumbnail = await ReadThumbnailAsync(command.Id, cancellationToken).ConfigureAwait(false);
+                    var image = thumbnail is null ? null : "data:image/jpeg;base64," + Convert.ToBase64String(thumbnail);
+                    return new SteamUiCommandResult(true, null,
+                        JsonSerializer.SerializeToElement(image, ScreensaverJson.Default.String));
+                case "rename":
+                    Rename(command.Id, command.Name);
+                    break;
+                case "relocate":
+                    var replacement = ValidateFolder(command.Folder);
+                    _persist(config =>
+                    {
+                        var source = config.Sources.FirstOrDefault(source => source.Id == command.Id)
+                                     ?? throw new InvalidOperationException("This source was removed.");
+                        source.Folder = replacement;
+                    });
+                    break;
                 case "addImages":
                 case "addPack":
                     Add(command.Name, command.Folder, command.Action == "addPack");
@@ -198,6 +218,14 @@ internal sealed class ScreensaverService : ISteamScreensaverContentBackend, IAsy
             }
 
             Interlocked.Exchange(ref _dirty, 1);
+            lock (_state)
+            {
+                if (_failedForActivation is null)
+                {
+                    _error = null;
+                }
+            }
+
             await Task.Run(RefreshCatalog, cancellationToken).ConfigureAwait(false);
             Publish();
             return SteamUiCommandResult.Applied;
@@ -228,6 +256,74 @@ internal sealed class ScreensaverService : ISteamScreensaverContentBackend, IAsy
         return QueuePlayer(null);
     }
 
+    internal async Task<byte[]?> ReadThumbnailAsync(string id, CancellationToken cancellationToken)
+    {
+        CancellationTokenSource lifetime;
+        lock (_workGate)
+        {
+            if (_disposed)
+            {
+                return null;
+            }
+
+            lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
+        }
+
+        using (lifetime)
+        {
+            await _thumbnailGate.WaitAsync(lifetime.Token).ConfigureAwait(false);
+            try
+            {
+                Entry? entry;
+                HashSet<string> currentIds;
+                lock (_state)
+                {
+                    entry = _entries.FirstOrDefault(item => item.Source.Id == id);
+                    currentIds = _entries.Select(item => item.Source.Id).ToHashSet(StringComparer.Ordinal);
+                }
+
+                foreach (var removed in _thumbnails.Keys.Where(key => !currentIds.Contains(key)).ToArray())
+                {
+                    _thumbnails.Remove(removed);
+                }
+
+                if (entry?.Content.Preview is not { } preview)
+                {
+                    return null;
+                }
+
+                if (_thumbnails.TryGetValue(id, out var cached) && cached.Revision == entry.Content.PreviewRevision)
+                {
+                    return cached.Bytes;
+                }
+
+                if (!entry.Content.Available)
+                {
+                    return null;
+                }
+
+                var relative = Path.GetRelativePath(entry.Source.Folder, preview);
+                var path = ScreensaverContent.AssetPath(entry.Source.Folder, relative);
+                var bytes = await Task.Run(() => ScreensaverThumbnail.Read(path), lifetime.Token).ConfigureAwait(false);
+                lifetime.Token.ThrowIfCancellationRequested();
+                if (bytes is not null)
+                {
+                    _thumbnails[id] = (entry.Content.PreviewRevision, bytes);
+                }
+
+                return bytes;
+            }
+            catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException)
+            {
+                return null;
+            }
+            finally
+            {
+                _thumbnailGate.Release();
+            }
+        }
+    }
+
     public ValueTask DisposeAsync()
     {
         lock (_workGate)
@@ -255,6 +351,9 @@ internal sealed class ScreensaverService : ISteamScreensaverContentBackend, IAsy
             finally
             {
                 _scan.Release();
+                await _thumbnailGate.WaitAsync().ConfigureAwait(false);
+                _thumbnails.Clear();
+                _thumbnailGate.Release();
                 _lifetime.Dispose();
             }
         }
@@ -288,17 +387,8 @@ internal sealed class ScreensaverService : ISteamScreensaverContentBackend, IAsy
     private void Add(string name, string folder, bool pack)
     {
         name = name.Trim();
-        if (name.Length is < 1 or > 128 || name.Any(char.IsControl) || !Path.IsPathFullyQualified(folder)
-            || folder.StartsWith("\\\\", StringComparison.Ordinal))
-        {
-            throw new ArgumentException("Choose a name and an absolute local folder path.");
-        }
-
-        var root = Path.GetPathRoot(folder);
-        if (root is null || new DriveInfo(root).DriveType == DriveType.Network)
-        {
-            throw new ArgumentException("Screensaver sources must be on a local or removable drive.");
-        }
+        ValidateName(name);
+        folder = ValidateFolder(folder);
 
         _persist(config =>
         {
@@ -314,9 +404,60 @@ internal sealed class ScreensaverService : ISteamScreensaverContentBackend, IAsy
 
             config.Sources.Add(new ScreensaverSourceConfig
             {
-                Id = Guid.NewGuid().ToString("N"), Name = name, Folder = Path.GetFullPath(folder), Pack = pack
+                Id = Guid.NewGuid().ToString("N"), Name = name, Folder = folder, Pack = pack
             });
         });
+    }
+
+    private static void ValidateName(string name)
+    {
+        if (name.Length is < 1 or > 128 || name.Any(char.IsControl))
+        {
+            throw new ArgumentException("Choose a name from 1 to 128 characters.");
+        }
+    }
+
+    private static string ValidateFolder(string folder)
+    {
+        if (!Path.IsPathFullyQualified(folder) || folder.StartsWith("\\\\", StringComparison.Ordinal))
+        {
+            throw new ArgumentException("Choose an absolute local folder path.");
+        }
+
+        var root = Path.GetPathRoot(folder);
+        if (root is null || new DriveInfo(root).DriveType == DriveType.Network)
+        {
+            throw new ArgumentException("Screensaver sources must be on a local or removable drive.");
+        }
+
+        return Path.GetFullPath(folder);
+    }
+
+    private void Rename(string id, string name)
+    {
+        name = name.Trim();
+        ValidateName(name);
+        _persist(config =>
+        {
+            var source = config.Sources.FirstOrDefault(source => source.Id == id)
+                         ?? throw new InvalidOperationException("This source was removed.");
+            if (config.Sources.Any(other => other.Id != id
+                && string.Equals(other.Name, name, StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new InvalidOperationException("A source already has that name. Choose a different name.");
+            }
+
+            source.Name = name;
+        });
+        lock (_state)
+        {
+            if (_selected == id)
+            {
+                _selectionRequest = ScreensaverContent.SelectorId(name);
+                _selectionRevision++;
+                _previewSelection = false;
+            }
+        }
     }
 
     private SteamUiCommandResult Select(string id, bool preview)
@@ -387,7 +528,17 @@ internal sealed class ScreensaverService : ISteamScreensaverContentBackend, IAsy
             Interlocked.Exchange(ref _dirty, 0);
             var version = typeof(AppConfig).Assembly.GetName().Version ?? new Version(2, 3, 2);
             var sources = _configuration().Sources.Take(32).Select(Clone).ToArray();
-            var next = sources.Select(source => new Entry(source, ScreensaverContent.Read(source, version))).ToArray();
+            var next = sources.Select(source =>
+            {
+                var content = ScreensaverContent.Read(source, version);
+                var previous = _entries.FirstOrDefault(entry => entry.Source.Id == source.Id && entry.Source.Folder == source.Folder);
+                if (!content.Available && previous is not null)
+                {
+                    content = content with { Preview = previous.Content.Preview, PreviewRevision = previous.Content.PreviewRevision };
+                }
+
+                return new Entry(source, content);
+            }).ToArray();
             if (_disposed)
             {
                 return;
@@ -788,6 +939,8 @@ internal sealed class ScreensaverService : ISteamScreensaverContentBackend, IAsy
         {
             Id = source.Id, SelectorId = ScreensaverContent.SelectorId(source.Name), Name = source.Name,
             Type = content.Type, Folder = source.Folder, Available = content.Available, Detail = content.Detail,
+            Pack = source.Pack, ImageCount = content.Playback?.Images.Count ?? 0,
+            HasPreview = content.Preview is not null, PreviewRevision = content.PreviewRevision,
             Shuffle = source.Shuffle, IntervalSeconds = source.IntervalSeconds, Fill = source.Fill,
             FramesPerSecond = source.FramesPerSecond
         };

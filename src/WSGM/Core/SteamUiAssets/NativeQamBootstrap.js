@@ -1143,7 +1143,13 @@
                 }),
               ),
               entries.length === 0 && !loading && !error && current
-                ? h("p", {}, "This folder is empty.")
+                ? h(
+                    "p",
+                    {},
+                    mode === "folder"
+                      ? "No subfolders. Use this folder to select it."
+                      : "No files match this filter.",
+                  )
                 : null,
             ),
           ),
@@ -4004,7 +4010,15 @@
     let lastDismiss = null;
     let pendingSelection = null;
     let generation = 0;
-    const act = (action, payload = {}) => request(patchId, "content", { action, ...payload });
+    const act = (action, payload = {}, signal) =>
+      request(patchId, "content", { action, ...payload }, undefined, signal);
+    const library = createScreensaverLibrary({
+      getUi: () => ui,
+      getState: () => state,
+      local,
+      act,
+      ready: () => installed && !retiring,
+    });
     const selected = () => String(readSettings()?.screensaver_current_id || "steam-gameslideshow");
     const currentSource = () => state?.sources?.find((source) => source.selectorId === selected());
     const reportPlayback = () => {
@@ -4141,227 +4155,8 @@
       local.changed();
     };
     function Controls() {
-      const react = ui.react;
-      const h = react.createElement;
-      react.useSyncExternalStore(local.subscribe, local.revision);
-      const [name, setName] = react.useState("");
-      const [editing, setEditing] = react.useState("");
-      const [busy, setBusy] = react.useState(false);
-      if (!installed || !state) return null;
-      const row = (props, change = (_value) => {}, action = () => {}) =>
-        renderSteamSettingRow(ui, props, undefined, (_row, value) => change(value), action);
-      const perform = async (action, payload = {}) => {
-        setBusy(true);
-        try {
-          await act(action, payload);
-          lastError = "";
-        } catch (error) {
-          lastError = String(error);
-        } finally {
-          setBusy(false);
-          local.changed();
-        }
-      };
-      const add = async (pack) => {
-        const current = generation;
-        const chosen = await runSteamFilePicker(ui, {
-          mode: "folder",
-          title: pack ? "Choose screensaver pack" : "Choose image folder",
-        });
-        if (!installed || current !== generation || chosen.outcome !== "selected") return;
-        const label =
-          name.trim() ||
-          chosen.path
-            .replace(/[\\/]+$/u, "")
-            .split(/[\\/]/u)
-            .pop() ||
-          "Screensaver";
-        await perform(pack ? "addPack" : "addImages", { name: label, folder: chosen.path });
-      };
-      const source =
-        state.sources.find((item) => item.id === editing) ??
-        state.sources.find((item) => item.id === state.selectedId) ??
-        state.sources[0];
-      const configure = (option, value) =>
-        void perform("configure", { id: source.id, option, value });
-      const controls = [
-        row({
-          key: "sources-policy",
-          kind: "note",
-          label: "Custom sources",
-          text: state.error || lastError || state.status,
-        }),
-        row(
-          {
-            key: "source-name",
-            kind: "text",
-            label: "New source name",
-            text: name,
-            maximumLength: 128,
-            description: "Optional; the folder name is used when this is empty.",
-            disabled: busy,
-          },
-          (value) => setName(String(value)),
-        ),
-        row(
-          {
-            key: "add-images",
-            kind: "action",
-            label: "Image folder",
-            description: "PNG, JPEG, WebP, GIF and BMP; files are read in place.",
-            buttonLabel: "Add folder",
-            disabled: busy,
-          },
-          undefined,
-          () => void add(false),
-        ),
-        row(
-          {
-            key: "add-pack",
-            kind: "action",
-            label: "Local scene or image pack",
-            description:
-              "A folder containing screensaver.json. Scenes run in an isolated browser without system access.",
-            buttonLabel: "Add pack",
-            disabled: busy,
-          },
-          undefined,
-          () => void add(true),
-        ),
-        row(
-          {
-            key: "refresh-sources",
-            kind: "action",
-            label: "Refresh sources",
-            description: "Reload changed files and retry unavailable or repaired sources.",
-            buttonLabel: "Refresh",
-            disabled: busy,
-          },
-          undefined,
-          () => void perform("refresh"),
-        ),
-      ];
-      if (source) {
-        controls.push(
-          row(
-            {
-              key: "edit-source",
-              kind: "choice",
-              label: "Source options",
-              text: source.id,
-              choices: state.sources.map((item) => ({
-                value: item.id,
-                label: item.name,
-              })),
-              disabled: busy,
-            },
-            (value) => setEditing(String(value)),
-          ),
-          row({
-            key: "source-detail",
-            kind: "note",
-            label: source.name,
-            text: source.detail + " · " + source.folder,
-          }),
-          row(
-            {
-              key: "use-source",
-              kind: "action",
-              label: "Use " + source.name,
-              buttonLabel: "Select",
-              disabled: busy,
-            },
-            undefined,
-            () => void perform("select", { id: source.id }),
-          ),
-          row(
-            {
-              key: "preview-source",
-              kind: "action",
-              label: "Preview " + source.name,
-              buttonLabel: "Preview",
-              disabled: busy || !source.available,
-            },
-            undefined,
-            () => void perform("preview", { id: source.id }),
-          ),
-        );
-        if (source.type !== "scene") {
-          controls.push(
-            row(
-              {
-                key: "shuffle-source",
-                kind: "boolean",
-                label: "Shuffle images",
-                checked: source.shuffle,
-                disabled: busy,
-              },
-              (value) => configure("shuffle", !!value),
-            ),
-            row(
-              {
-                key: "fill-source",
-                kind: "boolean",
-                label: "Fill display",
-                description: "Crop to fill; off fits the whole image.",
-                checked: source.fill,
-                disabled: busy,
-              },
-              (value) => configure("fill", !!value),
-            ),
-            row(
-              {
-                key: "interval-source",
-                kind: "choice",
-                label: "Image interval",
-                text: String(source.intervalSeconds),
-                disabled: busy,
-                choices: [
-                  ...new Set([2, 5, 10, 15, 30, 60, 120, 300, 900, 3600, source.intervalSeconds]),
-                ]
-                  .sort((a, b) => a - b)
-                  .map((value) => ({
-                    value: String(value),
-                    label: value < 60 ? `${value} seconds` : `${value / 60} minutes`,
-                  })),
-              },
-              (value) => configure("intervalSeconds", Number(value)),
-            ),
-          );
-        } else {
-          controls.push(
-            row(
-              {
-                key: "scene-rate",
-                kind: "choice",
-                label: "Scene animation rate",
-                text: String(source.framesPerSecond),
-                disabled: busy,
-                description: "Limits animation callbacks to reduce idle rendering work.",
-                choices: [...new Set([10, 15, 24, 30, 60, source.framesPerSecond])]
-                  .sort((a, b) => a - b)
-                  .map((value) => ({ value: String(value), label: `${value} fps` })),
-              },
-              (value) => configure("framesPerSecond", Number(value)),
-            ),
-          );
-        }
-        controls.push(
-          row(
-            {
-              key: "remove-source",
-              kind: "action",
-              label: "Remove source",
-              description: "Remove it from the chooser; keep its files.",
-              buttonLabel: "Remove",
-              disabled: busy,
-            },
-            undefined,
-            () => void perform("remove", { id: source.id }),
-          ),
-        );
-      }
-      return h(react.Fragment, null, ...controls);
+      ui.react.useSyncExternalStore(local.subscribe, local.revision);
+      return library.render();
     }
     const start = (runtime) => {
       if (installed) return { ok: true };
@@ -4429,6 +4224,7 @@
       }
     };
     const stop = () => {
+      library.dispose();
       retiring = true;
       generation++;
       pendingSelection = null;
@@ -4466,6 +4262,499 @@
         lastError,
         controls: !!ui?.textField,
       }),
+    };
+  }
+  // @fragment screensaver-library.ts
+  // Trusted configuration UI. Covers are requested by source identity only; scene code never runs here.
+  function createScreensaverLibrary({ getUi, getState, local, act, ready }) {
+    let closeManager = null;
+    const kind = (source) =>
+      source.type === "scene" ? "Scene pack" : source.pack ? "Image pack" : "Image folder";
+    const duration = (seconds) =>
+      seconds < 60 ? `${seconds} seconds` : seconds < 3600 ? `${seconds / 60} minutes` : "1 hour";
+    const describe = (source) =>
+      source.type === "scene"
+        ? `${source.framesPerSecond} fps animation`
+        : `${source.imageCount ?? 0} ${(source.imageCount ?? 0) === 1 ? "image" : "images"} · ${source.shuffle ? "Shuffle" : "Filename order"} · ${duration(source.intervalSeconds)}`;
+    function useCover(source) {
+      const react = getUi().react;
+      const [image, setImage] = react.useState(null);
+      react.useEffect(() => {
+        const abort = new AbortController();
+        setImage(null);
+        if (source?.hasPreview) {
+          void act("thumbnail", { id: source.id }, abort.signal)
+            .then((value) => {
+              if (
+                !abort.signal.aborted &&
+                typeof value === "string" &&
+                value.length < 100000 &&
+                value.startsWith("data:image/jpeg;base64,")
+              )
+                setImage(value);
+            })
+            .catch(() => {});
+        }
+        return () => abort.abort();
+      }, [source?.id, source?.previewRevision]);
+      return image;
+    }
+    function SourceCard({ source, selected, open }) {
+      const ui = getUi();
+      return renderSteamUiCard(ui, {
+        key: source.id,
+        image: useCover(source),
+        placeholder: kind(source),
+        title: source.name,
+        badge: !source.available
+          ? { text: "Needs attention", warn: true }
+          : selected
+            ? { text: "Selected" }
+            : null,
+        stats: [{ text: kind(source) }],
+        meta: [source.available ? describe(source) : source.detail],
+        onActivate: open,
+      });
+    }
+    function SourceEditor({ source, selected, perform, busy, back, abort, fail }) {
+      const ui = getUi();
+      const h = ui.react.createElement;
+      const [name, setName] = ui.react.useState(source.name);
+      ui.react.useEffect(() => setName(source.name), [source.id, source.name]);
+      const image = useCover(source);
+      const row = (props, change = (_value) => {}, action = () => {}) =>
+        renderSteamSettingRow(
+          ui,
+          { ...props, disabled: busy || props.disabled },
+          undefined,
+          (_row, value) => change(value),
+          action,
+        );
+      const configure = (option, value) =>
+        void perform("configure", { id: source.id, option, value });
+      const relocate = async () => {
+        const chosen = await runSteamFilePicker(ui, {
+          mode: "folder",
+          start: source.folder,
+          title: "Choose source folder",
+          signal: abort.signal,
+        });
+        if (!abort.signal.aborted && chosen.outcome === "selected")
+          await perform("relocate", { id: source.id, folder: chosen.path });
+        else if (!abort.signal.aborted && chosen.outcome === "failed") fail(chosen.reason);
+      };
+      const options =
+        source.type === "scene"
+          ? [
+              row(
+                {
+                  key: "rate",
+                  kind: "choice",
+                  label: "Animation rate",
+                  layout: "below",
+                  text: String(source.framesPerSecond),
+                  choices: [...new Set([10, 15, 24, 30, 60, source.framesPerSecond])]
+                    .sort((a, b) => a - b)
+                    .map((value) => ({
+                      value: String(value),
+                      label: `${value} fps`,
+                    })),
+                },
+                (value) => configure("framesPerSecond", Number(value)),
+              ),
+            ]
+          : [
+              row(
+                {
+                  key: "order",
+                  kind: "choice",
+                  label: "Image order",
+                  layout: "below",
+                  text: source.shuffle ? "shuffle" : "sequential",
+                  choices: [
+                    { value: "shuffle", label: "Shuffle" },
+                    { value: "sequential", label: "Filename order" },
+                  ],
+                },
+                (value) => configure("shuffle", value === "shuffle"),
+              ),
+              row(
+                {
+                  key: "interval",
+                  kind: "choice",
+                  label: "Change image every",
+                  layout: "below",
+                  text: String(source.intervalSeconds),
+                  choices: [
+                    ...new Set([2, 5, 10, 15, 30, 60, 120, 300, 900, 3600, source.intervalSeconds]),
+                  ]
+                    .sort((a, b) => a - b)
+                    .map((value) => ({
+                      value: String(value),
+                      label: duration(value),
+                    })),
+                },
+                (value) => configure("intervalSeconds", Number(value)),
+              ),
+              row(
+                {
+                  key: "sizing",
+                  kind: "choice",
+                  label: "Image sizing",
+                  description: source.fill ? "Crop to fill the display" : "Show the whole image",
+                  layout: "below",
+                  text: source.fill ? "fill" : "fit",
+                  choices: [
+                    { value: "fit", label: "Fit" },
+                    { value: "fill", label: "Fill" },
+                  ],
+                },
+                (value) => configure("fill", value === "fill"),
+              ),
+            ];
+      return renderSteamUiDetail(ui, {
+        title: source.name,
+        badge: selected ? "Selected" : kind(source),
+        media: renderSteamUiImagePreview(ui, image, source.fill, kind(source)),
+        main: [
+          h(
+            "p",
+            { className: "steam-ui-kit-muted" },
+            source.available ? describe(source) : source.detail,
+          ),
+          renderSteamUiToolbar(
+            ui,
+            renderSteamUiTool(
+              ui,
+              null,
+              h(ui.textField, {
+                label: "Name",
+                value: name,
+                maxLength: 128,
+                disabled: busy,
+                onChange: (event) => setName(event?.target?.value ?? ""),
+              }),
+              true,
+            ),
+            h(
+              ui.dialogButton,
+              {
+                disabled: busy || !name.trim() || name.trim() === source.name,
+                onClick: () => void perform("rename", { id: source.id, name: name.trim() }),
+              },
+              "Rename",
+            ),
+          ),
+          row(
+            {
+              key: "folder",
+              kind: "action",
+              label: "Folder",
+              description: source.folder,
+              buttonLabel: "Change",
+            },
+            undefined,
+            () => void relocate(),
+          ),
+          renderSteamUiActions(
+            ui,
+            [
+              {
+                id: "remove",
+                label: "Remove from library",
+                disabled: busy,
+                onClick: () =>
+                  showSteamUiConfirm(ui, {
+                    title: `Remove ${source.name}?`,
+                    text: "Remove this source from your screensaver library? Its files will be kept.",
+                    confirmLabel: "Remove",
+                    onConfirm: () =>
+                      void perform("remove", { id: source.id }).then((ok) => {
+                        if (ok) back();
+                      }),
+                  }),
+              },
+            ],
+            { compact: true },
+          ),
+        ],
+        aside: [
+          renderSteamUiBox(
+            ui.react,
+            source.type === "scene" ? "Scene settings" : "Slideshow settings",
+            ...options,
+          ),
+        ],
+        onBack: back,
+        showBack: false,
+      });
+    }
+    function Manager({ close }) {
+      const ui = getUi();
+      const react = ui.react;
+      const h = react.createElement;
+      react.useSyncExternalStore(local.subscribe, local.revision);
+      const [editing, setEditing] = react.useState("");
+      const [adding, setAdding] = react.useState(null);
+      const [busy, setBusy] = react.useState(false);
+      const [error, setError] = react.useState("");
+      const [filter, setFilter] = react.useState("");
+      const [abort] = react.useState(() => new AbortController());
+      react.useEffect(() => {
+        closeManager = close;
+        return () => {
+          abort.abort();
+          if (closeManager === close) closeManager = null;
+        };
+      }, []);
+      const state = getState();
+      if (!ready() || !state) return null;
+      const source = state.sources.find((item) => item.id === editing);
+      const perform = async (action, payload = {}) => {
+        setBusy(true);
+        setError("");
+        try {
+          await act(action, payload);
+          return !abort.signal.aborted;
+        } catch (failure) {
+          if (!abort.signal.aborted) setError(String(failure));
+          return false;
+        } finally {
+          if (!abort.signal.aborted) setBusy(false);
+        }
+      };
+      const back = () => {
+        setEditing("");
+        setAdding(null);
+        setError("");
+      };
+      const choose = async (pack) => {
+        const chosen = await runSteamFilePicker(ui, {
+          mode: "folder",
+          title: pack ? "Choose screensaver pack" : "Choose image folder",
+          signal: abort.signal,
+        });
+        if (abort.signal.aborted) return;
+        if (chosen.outcome === "failed") {
+          setError(chosen.reason);
+          return;
+        }
+        if (chosen.outcome !== "selected") return;
+        const name =
+          chosen.path
+            .replace(/[\\/]+$/u, "")
+            .split(/[\\/]/u)
+            .pop() || "My screensaver";
+        setEditing("");
+        setError("");
+        setAdding({ pack, folder: chosen.path, name });
+      };
+      const add = async () => {
+        if (
+          adding &&
+          (await perform(adding.pack ? "addPack" : "addImages", {
+            folder: adding.folder,
+            name: adding.name.trim(),
+          }))
+        )
+          setAdding(null);
+      };
+      const visible = state.sources.filter(
+        (item) => !filter || item.name.toLowerCase().includes(filter.toLowerCase()),
+      );
+      let body;
+      if (adding) {
+        body = h(
+          "div",
+          { className: "steam-ui-kit-modal-body" },
+          h("h3", null, adding.pack ? "Import screensaver pack" : "Create image slideshow"),
+          h(ui.textField, {
+            label: "Name",
+            value: adding.name,
+            maxLength: 128,
+            disabled: busy,
+            onChange: (event) => setAdding({ ...adding, name: event?.target?.value ?? "" }),
+          }),
+          renderSteamUiBox(
+            react,
+            "Folder",
+            h("p", { className: "steam-ui-kit-muted" }, adding.folder),
+          ),
+          h(
+            "p",
+            { className: "steam-ui-kit-muted" },
+            adding.pack
+              ? "Import the pack's images or scene. Files stay in this folder."
+              : "PNG, JPEG, WebP, GIF and BMP. Images are read from this folder without copying them.",
+          ),
+        );
+      } else if (source) {
+        body = h(SourceEditor, {
+          source,
+          selected: state.selectedId === source.id,
+          perform,
+          busy,
+          back,
+          abort,
+          fail: setError,
+        });
+      } else if (!state.sources.length) {
+        body = h(
+          "div",
+          { className: "steam-ui-kit-library-empty" },
+          h("h3", null, "No custom screensavers yet"),
+          h(
+            "p",
+            null,
+            "Add a folder of photos to create a slideshow, or import an image or scene pack. Your files stay in their folder.",
+          ),
+        );
+      } else {
+        body = visible.length
+          ? renderSteamUiGrid(
+              ui,
+              visible.map((item) =>
+                h(SourceCard, {
+                  key: item.id,
+                  source: item,
+                  selected: state.selectedId === item.id,
+                  open: () => setEditing(item.id),
+                }),
+              ),
+            )
+          : renderSteamUiEmpty(react, "No sources match this name.");
+      }
+      const toolbar =
+        source || adding
+          ? null
+          : renderSteamUiActions(
+              ui,
+              [
+                {
+                  id: "images",
+                  label: "Add image folder",
+                  primary: true,
+                  disabled: busy,
+                  onClick: () => void choose(false),
+                },
+                {
+                  id: "pack",
+                  label: "Import pack",
+                  disabled: busy,
+                  onClick: () => void choose(true),
+                },
+                {
+                  id: "refresh",
+                  label: "Refresh",
+                  disabled: busy,
+                  onClick: () => void perform("refresh"),
+                },
+              ],
+              { compact: true },
+            );
+      const footer = adding
+        ? [
+            { id: "cancel", label: "Back", disabled: busy, onClick: back },
+            {
+              id: "add",
+              label: adding.pack ? "Import pack" : "Add slideshow",
+              primary: true,
+              disabled: busy || !adding.name.trim(),
+              onClick: () => void add(),
+            },
+          ]
+        : source
+          ? [
+              { id: "back", label: "All sources", onClick: back },
+              {
+                id: "preview",
+                label: "Preview fullscreen",
+                disabled: busy || !source.available,
+                onClick: () => void perform("preview", { id: source.id }),
+              },
+              {
+                id: "use",
+                label: state.selectedId === source.id ? "Selected" : "Use screensaver",
+                primary: true,
+                disabled: busy || !source.available || state.selectedId === source.id,
+                onClick: () => void perform("select", { id: source.id }),
+              },
+            ]
+          : [{ id: "done", label: "Done", onClick: close }];
+      return h(
+        ui.focusable,
+        {
+          className: "steam-ui-kit-library",
+          onCancelButton: source || adding ? back : close,
+          onCancelActionDescription: "Back",
+          "flow-children": "column",
+        },
+        toolbar,
+        state.error ? renderSteamUiBanner(ui, { text: state.error, error: true }) : null,
+        !source && !adding && state.sources.length > 5
+          ? h(ui.textField, {
+              label: "Search sources",
+              value: filter,
+              onChange: (event) => setFilter(event?.target?.value ?? ""),
+            })
+          : null,
+        error
+          ? renderSteamUiBanner(ui, {
+              text: error,
+              error: true,
+              onDismiss: () => setError(""),
+            })
+          : null,
+        h("div", { className: "steam-ui-kit-library-body" }, body),
+        h(
+          "div",
+          {
+            className: "steam-ui-kit-library-footer" + (source || adding ? " with-back" : ""),
+          },
+          renderSteamUiActions(ui, footer, { compact: true }),
+        ),
+      );
+    }
+    const open = () => {
+      if (closeManager) {
+        closeManager();
+        closeManager = null;
+      }
+      return showSteamModal(getUi(), {
+        title: "Custom screensavers",
+        wide: true,
+        className: "steam-ui-kit-modal",
+        render: (close) => getUi().react.createElement(Manager, { close }),
+      });
+    };
+    return {
+      open,
+      dispose: () => {
+        closeManager?.();
+        closeManager = null;
+      },
+      render: () => {
+        const state = getState();
+        const ui = getUi();
+        if (!ready() || !state || !ui) return null;
+        const selected = state.sources.find((source) => source.id === state.selectedId);
+        const count = state.sources.length;
+        return renderSteamSettingRow(
+          ui,
+          {
+            key: "source-library",
+            kind: "action",
+            label: "Custom screensavers",
+            description: count
+              ? `${count} ${count === 1 ? "source" : "sources"}${selected ? ` · ${selected.name} selected` : ""}`
+              : "Create a slideshow from your photos or import a local scene pack.",
+            buttonLabel: count ? "Manage sources" : "Add sources",
+          },
+          undefined,
+          () => {},
+          open,
+        );
+      },
     };
   }
   // @fragment settings.ts
@@ -5209,6 +5498,19 @@
 .steam-ui-kit-card.gpfocus,.steam-ui-kit-card:hover{background:#ACB2C947;outline-color:#fff}
 .steam-ui-kit-card-shot{position:relative;aspect-ratio:16 / 10;background:#10151c;overflow:hidden}
 .steam-ui-kit-card-shot img{width:100%;height:100%;object-fit:cover;display:block}
+.steam-ui-kit-card-placeholder{height:100%;display:grid;place-items:center;background:linear-gradient(135deg,#26374a,#10151c);color:#aebdcd;font-size:18px;font-weight:600}
+.steam-ui-kit-library{display:flex;flex-direction:column;gap:16px;min-width:0}
+.steam-ui-kit-library-body{overflow-y:auto;max-height:calc(100vh - 300px);min-height:160px;padding:3px 4px 8px;scrollbar-gutter:stable}
+.steam-ui-kit-library-footer .steam-ui-kit-actions{justify-content:flex-end;width:100%}
+.steam-ui-kit-library-footer.with-back .steam-ui-kit-actions>:first-child{margin-right:auto}
+.steam-ui-kit-library .steam-ui-kit-detail{padding:0 0 8px;gap:24px}
+.steam-ui-kit-library .steam-ui-kit-detail-aside{min-width:0}
+.steam-ui-kit-library .steam-ui-kit-card-meta{font-size:12px}
+.steam-ui-kit-library-empty{padding:40px 24px;text-align:center;border:1px dashed rgba(255,255,255,.2);border-radius:6px;background:rgba(255,255,255,.025)}
+.steam-ui-kit-library-empty h3{margin:0 0 12px;font-size:22px;color:#fff}
+.steam-ui-kit-library-empty p{max-width:480px;margin:0 auto;color:#aeb8c4;line-height:1.5}
+.steam-ui-kit-image-preview{aspect-ratio:16 / 10;background:#080c12;overflow:hidden;border-radius:4px;min-width:0}
+.steam-ui-kit-image-preview img{display:block;width:100%;height:100%}
 .steam-ui-kit-card-stats{position:absolute;left:0;right:0;bottom:0;display:flex;gap:12px;padding:6px 8px;font-size:12px;color:#fff;background:linear-gradient(180deg,transparent,rgba(0,0,0,.75))}
 .steam-ui-kit-card-stats span{display:inline-flex;align-items:center;gap:4px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .steam-ui-kit-card-stats svg{width:13px;height:13px;flex:0 0 auto}
@@ -5622,7 +5924,11 @@
       h(
         "div",
         { className: "steam-ui-kit-card-shot" },
-        props.image ? h("img", { src: props.image, alt: "", loading: "lazy" }) : null,
+        props.image
+          ? h("img", { src: props.image, alt: "", loading: "lazy" })
+          : props.placeholder
+            ? h("div", { className: "steam-ui-kit-card-placeholder" }, props.placeholder)
+            : null,
         props.stats?.length
           ? h(
               "div",
@@ -5658,6 +5964,19 @@
       { className: "steam-ui-kit-grid", "flow-children": "grid" },
       ...cards,
     );
+  /** Draws a still-image preview in a display-shaped frame, including aspect fit/fill. */
+  const renderSteamUiImagePreview = (ui, image, fill = false, empty = "No preview") =>
+    ui.react.createElement(
+      "div",
+      { className: "steam-ui-kit-image-preview" },
+      image
+        ? ui.react.createElement("img", {
+            src: image,
+            alt: "",
+            style: { objectFit: fill ? "cover" : "contain" },
+          })
+        : ui.react.createElement("div", { className: "steam-ui-kit-card-placeholder" }, empty),
+    );
   /**
    * Creates an empty-list explanation or error message.
    * @param react Steam's React instance used by the consuming root.
@@ -5679,7 +5998,9 @@
       "div",
       { className: `steam-ui-kit-banner${props.error ? " error" : ""}` },
       h("span", null, props.text),
-      h(ui.smallButton ?? ui.dialogButton, { onClick: props.onDismiss }, "Dismiss"),
+      props.onDismiss
+        ? h(ui.smallButton ?? ui.dialogButton, { onClick: props.onDismiss }, "Dismiss")
+        : null,
     );
   };
   /**
@@ -5921,7 +6242,7 @@
         ui.focusable,
         { className: "steam-ui-kit-detail-aside", "flow-children": "column" },
         ...props.aside,
-        h(ui.dialogButton, { onClick: props.onBack }, "Back"),
+        props.showBack === false ? null : h(ui.dialogButton, { onClick: props.onBack }, "Back"),
       ),
     );
   };
@@ -10907,8 +11228,8 @@
           return;
         }
         rows = next;
-        content.update(published?.content);
         inputActivity.observe(published?.activity);
+        content.update(published?.content);
         local.changed();
       });
       reportWhenReady(0);

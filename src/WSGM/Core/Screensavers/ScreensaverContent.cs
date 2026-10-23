@@ -50,6 +50,8 @@ internal sealed class ScreensaverPlayback
 internal sealed record ScreensaverContentResult(ScreensaverPlayback? Playback, string Type, string Detail)
 {
     internal bool Available => Playback is not null;
+    internal string? Preview { get; init; }
+    internal string PreviewRevision { get; init; } = "";
 }
 
 /// <summary>Bounded local discovery and the same no-follow asset boundary used by the scene process.</summary>
@@ -95,6 +97,7 @@ internal static class ScreensaverContent
             }
 
             RequireNoLinks(root);
+            string? previewPath = null;
             var playback = new ScreensaverPlayback
             {
                 Root = root,
@@ -175,6 +178,7 @@ internal static class ScreensaverContent
 
                     CheckFile(AssetPath(playback.Type == "scene" ? playback.Root :
                         Path.GetFullPath(source.Folder), preview));
+                    previewPath = AssetPath(Path.GetFullPath(source.Folder), preview);
                 }
             }
 
@@ -200,6 +204,7 @@ internal static class ScreensaverContent
                 }
 
                 playback.Assets = playback.Images;
+                previewPath ??= AssetPath(playback.Root, playback.Images[0]);
             }
 
             var identity = string.Join('\n', playback.Assets.Select(asset =>
@@ -208,9 +213,15 @@ internal static class ScreensaverContent
                 return $"{asset}\t{info.Length}\t{info.LastWriteTimeUtc.Ticks}";
             }));
             playback.Revision = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity)));
+            var previewInfo = previewPath is null ? null : new FileInfo(previewPath);
             return new ScreensaverContentResult(playback, playback.Type,
-                playback.Type == "images" ? $"{playback.Images.Count} images" :
-                    $"Sandboxed scene; {playback.Assets.Count} packaged assets, {playback.FramesPerSecond} fps limit");
+                playback.Type == "images" ? $"{playback.Images.Count} {(playback.Images.Count == 1 ? "image" : "images")}" :
+                    $"Sandboxed scene; {playback.Assets.Count} packaged assets, {playback.FramesPerSecond} fps limit")
+            {
+                Preview = previewPath,
+                PreviewRevision = previewInfo is null ? "" : Convert.ToHexString(SHA256.HashData(
+                    Encoding.UTF8.GetBytes($"{previewPath}|{previewInfo.Length}|{previewInfo.LastWriteTimeUtc.Ticks}")))
+            };
         }
         catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException
                                       or JsonException or NotSupportedException)

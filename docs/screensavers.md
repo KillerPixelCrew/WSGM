@@ -1,15 +1,22 @@
 # Local screensavers
 
-In Big Picture, open **Settings > Customization > Screensaver**. Add an image folder or a pack
-folder, then choose it in Steam's usual Screensaver chooser. Steam's game slideshow and bouncing
-logo remain available. The WSGM Overlay has the same source controls under **Tools > Screensavers**.
-Steam must be running with WSGM integration enabled to change its selection or preview it.
+In Big Picture, open **Settings > Customization > Screensaver > Custom screensavers**. The source
+library shows cover cards for your image folders and packs. **Add image folder** opens a folder
+picker, then lets you name the slideshow; it uses the folder's name to start. **Import pack** adds
+an image or scene pack. Opening a card shows its preview, settings and **Use screensaver** action.
+Steam's usual Screensaver chooser also lists these sources beside its game slideshow and bouncing
+logo. The WSGM Overlay has the same library under **Tools > Screensavers**. Steam must be running
+with WSGM integration enabled to change its selection or preview it.
 
 Image folders are read in place. PNG, JPEG, WebP, GIF and BMP are supported. Choose shuffle or
 filename order, an interval from 2 seconds to 1 hour, and Fit or Fill. Changes are discovered while
 Steam runs; Refresh also rescans and retries a repaired source. A missing or removable folder keeps
 its registration and uses the stock fallback until it returns. Removing a source from WSGM never
-deletes its files.
+deletes its files. Each source can be renamed or pointed at a different folder without losing its
+playback settings. A disconnected source stays in the library with its error and cached cover;
+reconnect it and refresh, or use **Change** to locate its folder again. Cover images load only while
+their cards or editor are open and are bounded JPEG thumbnails; scene scripts never run in the
+library. **Preview fullscreen** starts the actual screensaver and returns on input.
 
 Steam owns idle timing. Real Windows session keyboard/mouse activity is merged with native Steam
 activity without changing the idle preferences or generating controller input. Native
@@ -39,11 +46,12 @@ A local pack is a folder containing `screensaver.json`:
 location. `type` is `scene` or `images`. Scenes require a relative HTML `entry`; every other
 resource must be listed in `assets`. The entry is included automatically. Image packs use
 `"type": "images", "folder": "photos"` instead of `entry`; `folder` defaults to the pack root.
-`preview` is an optional relative PNG/JPEG/WebP/GIF/BMP thumbnail. It is metadata for consumers;
-Steam's current native chooser displays source names. Assets are local HTML, CSS, JS, JSON,
-supported raster images or WOFF/WOFF2 fonts. All paths must stay within the pack. Absolute paths,
-alternate data streams, traversal, URL-encoded paths, symbolic links and junctions are refused.
-Unknown manifest fields or unsupported versions are refused instead of guessed.
+`preview` is an optional relative PNG/JPEG/WebP/GIF/BMP cover for the source library; image folders
+otherwise use their first image. Steam's native chooser displays source names. Assets are local
+HTML, CSS, JS, JSON, supported raster images or WOFF/WOFF2 fonts. All paths must stay within the
+pack. Absolute paths, alternate data streams, traversal, URL-encoded paths, symbolic links and
+junctions are refused. Unknown manifest fields or unsupported versions are refused instead of
+guessed.
 
 Folders may be local or removable, including offline folders that return later. Network shares are
 not sources. Limits are 32 registered sources, 4096 directory entries, 2048 images, 16 MiB per

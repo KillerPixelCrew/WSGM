@@ -23,6 +23,8 @@ internal sealed class OverlayPreviewImage : Border, IOverlayRefreshable
     private static readonly Dictionary<string, byte[]> Cache = [];
     private static int _cachedBytes;
     private readonly string? _source;
+    private readonly Func<CancellationToken, Task<byte[]>>? _read;
+    private readonly Stretch _stretch;
     private readonly List<Visual> _visibilityOwners = [];
     private Bitmap? _bitmap;
     private CancellationTokenSource? _load;
@@ -30,9 +32,11 @@ internal sealed class OverlayPreviewImage : Border, IOverlayRefreshable
     /// <summary>Creates a lazy thumbnail whose load and bitmap lifetime follow mounting and visibility.</summary>
     /// <param name="source">Local path, HTTPS URL or supported data URI; null/empty renders No preview.</param>
     /// <param name="height">Thumbnail height in device-independent pixels.</param>
-    internal OverlayPreviewImage(string? source, double height = 140)
+    /// <param name="stretch">Whether the preview fits its frame or fills it by cropping.</param>
+    internal OverlayPreviewImage(string? source, double height = 140, Stretch stretch = Stretch.Uniform)
     {
         _source = source;
+        _stretch = stretch;
         Height = height;
         Child = new TextBlock
         {
@@ -71,10 +75,18 @@ internal sealed class OverlayPreviewImage : Border, IOverlayRefreshable
         };
     }
 
+    /// <summary>Loads a thumbnail lazily through its existing service rather than exposing file paths.</summary>
+    internal OverlayPreviewImage(string key, Func<CancellationToken, Task<byte[]>> read, double height = 140,
+        Stretch stretch = Stretch.Uniform) : this(key, height, stretch)
+    {
+        _read = read;
+    }
+
     /// <inheritdoc />
-    /// <remarks>No-op: the image source is immutable. The parent must replace this control when source identity changes.</remarks>
+    /// <remarks>The image source is immutable; resizing keeps the decoded bitmap.</remarks>
     public void RefreshFrom(Control replacement)
     {
+        Height = replacement.Height;
     }
 
     private void OnVisibilityChanged(object? sender, AvaloniaPropertyChangedEventArgs e)
@@ -115,7 +127,7 @@ internal sealed class OverlayPreviewImage : Border, IOverlayRefreshable
     {
         try
         {
-            var bytes = await ReadAsync(_source!, token);
+            var bytes = _read is null ? await ReadAsync(_source!, token) : await _read(token);
             var bitmap = await Task.Run(() =>
             {
                 using var stream = new MemoryStream(bytes, false);
@@ -139,7 +151,7 @@ internal sealed class OverlayPreviewImage : Border, IOverlayRefreshable
             }
 
             _bitmap = bitmap;
-            Child = new Image { Source = bitmap, Stretch = Stretch.Uniform };
+            Child = new Image { Source = bitmap, Stretch = _stretch };
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested)
         {
