@@ -1195,9 +1195,9 @@ internal sealed class NotesService : IChangeSource, IExtensionsTabSection, IAsyn
     {
         var first = page.Elements.FirstOrDefault(element => element.Kind == NoteElement.TextKind
                                                             && !string.IsNullOrWhiteSpace(element.Text))?.Text ?? "";
-        var line = first.Split('\n', 2)[0].Trim();
+        var preview = first.Trim();
         return new NotePageSummary(page.Id, page.Title, page.Pinned, page.Modified, page.Revision,
-            _readOnly.Contains(page.Id), line.Length > 120 ? line[..120] + "…" : line,
+            _readOnly.Contains(page.Id), preview.Length > 240 ? preview[..240] + "…" : preview,
             page.Elements.Count(element => element.Kind == NoteElement.TextKind),
             page.Elements.Count(element => element.Kind == NoteElement.ImageKind), page.Strokes.Count);
     }

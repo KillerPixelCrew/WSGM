@@ -6,6 +6,18 @@ and in Steam's Big Picture and in-game overlay (Quick Access > Extensions > Note
 `Shell/NotesService`. Notes stay on this PC: nothing is uploaded, synchronized or sent to a search
 provider.
 
+The notebook chooser keeps the current game or Global scope visible. Pages appear as preview cards
+with their first text, content types, edited date and pin/read-only status. A blank notebook
+explains what its pages can contain and offers **New page**.
+
+Opening a card gives the page the main workspace. Navigate, Text, Ink, Add text and Screenshot stay
+near the canvas; Ink shows its own pen, eraser, width and color tools. **Page…** in the Overlay and
+**Page options** in Steam hold rename, pin, ordering and confirmed deletion. **Page contents** lets
+a controller select a text block or image; arrangement tools remain available for the selection.
+Returning from these views keeps the canvas, drawing history and position. Steam image requests
+belong to the open page, survive its secondary views and cancel on exit; different page instances do
+not share a mutable image cache.
+
 Over a game, Quick Access is drawn in that game's Steam overlay window. The toolkit's
 `steamInteractionWindow` resolves the window an action came from, and `navigateSteamRoute` opens the
 page in that overlay window with its own `Navigate`, the way Steam opens its own pages over a game;
@@ -191,7 +203,9 @@ the Browser is a later integration and is not required for Notes to work.
 
 Offline: the document, store, service, transaction and Steam request rules have focused tests
 (`NoteStoreTests`, `NotesServiceTests`, `NotesCaptureTransactionTests`); the Steam fragment
-type-checks in the combined asset. Live Big Picture rendering, Steam's virtual keyboard on the
-textarea, pointer ink in a game overlay window, the overlay-window return navigation, Windows
-Graphics Capture against real games (borderless, exclusive fullscreen, HDR) and touch/pen behavior
-on the device need attended acceptance; source and tests do not establish them.
+type-checks in the combined asset. The redesigned library and editor were reviewed in live Big
+Picture, including creation, rename, multiline save and compact layout. Overlay renders cover
+980×640, 1024×640 and 1280×800. Steam's virtual keyboard on the textarea, pointer ink in a game
+overlay window, the overlay-window return navigation, Windows Graphics Capture against real games
+(borderless, exclusive fullscreen, HDR) and touch/pen behavior on the device need attended
+acceptance; source and tests do not establish them.

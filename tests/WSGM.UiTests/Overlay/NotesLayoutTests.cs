@@ -20,6 +20,7 @@ public sealed class NotesLayoutTests
     [AvaloniaTheory]
     [InlineData(1280, 800)]
     [InlineData(1024, 640)]
+    [InlineData(980, 640)]
     public void APageWithTextInkAndAScreenshotIsDrawnAndItsModesAreReachable(int width, int height)
     {
         using var fixture = new UiFixture();
@@ -32,11 +33,37 @@ public sealed class NotesLayoutTests
         DrainUntilDecoded(canvas, asset);
         var directory = CaptureDirectory(width, height);
         DevicePageCaptureTests.Capture(window, Path.Combine(directory, "page.png"));
+        Assert.True(canvas.TranslatePoint(new Point(0, canvas.Bounds.Height), window)?.Y <= height - 65,
+            "The canvas must fit above the Overlay footer.");
+        Assert.DoesNotContain(window.GetVisualDescendants().OfType<Control>(), control => Equals(control.Tag, "notes.delete"));
+        var notes = UiFixture.Named<NotesView>(window, "NotesHost");
+        UiFixture.Click(window, Tagged(window, "notes.options"));
+        Dispatcher.UIThread.RunJobs();
+        Assert.True(Tagged(window, "notes.pin").IsEffectivelyVisible);
+        Assert.True(Tagged(window, "notes.delete").IsEffectivelyVisible);
+        DevicePageCaptureTests.Capture(window, Path.Combine(directory, "options.png"));
+        notes.Back();
+        Dispatcher.UIThread.RunJobs();
+        Assert.Same(canvas, Assert.Single(window.GetVisualDescendants().OfType<NotesCanvas>()));
+        UiFixture.Click(window, Tagged(window, "notes.options"));
+        Dispatcher.UIThread.RunJobs();
+        UiFixture.Click(window, Tagged(window, "notes.contents"));
+        Dispatcher.UIThread.RunJobs();
+        UiFixture.Click(window, Tagged(window, "notes.element:" + page.Elements[0].Id));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(page.Elements[0].Id, canvas.SelectedElement);
+        Assert.Same(canvas, Assert.Single(window.GetVisualDescendants().OfType<NotesCanvas>()));
 
         UiFixture.Click(window, Tagged(window, "notes.mode.ink"));
         Dispatcher.UIThread.RunJobs();
         Assert.Equal(NotesCanvasMode.Ink, canvas.Mode);
         Assert.True(Tagged(window, "notes.tool.eraser").IsEffectivelyVisible);
+        File.WriteAllLines(Path.Combine(directory, "ink-layout.txt"),
+            new[] { "notes.mode.ink", "notes.add.text", "notes.add.screenshot", "notes.options" }.Select(tag =>
+            {
+                var control = Tagged(window, tag);
+                return $"{tag}: visible={control.IsEffectivelyVisible} bounds={control.Bounds} at={control.TranslatePoint(default, window)} parent={(control.Parent as Control)?.Bounds}";
+            }));
         DevicePageCaptureTests.Capture(window, Path.Combine(directory, "ink.png"));
 
         UiFixture.Click(window, Tagged(window, "notes.add.text"));
@@ -55,15 +82,36 @@ public sealed class NotesLayoutTests
     [AvaloniaTheory]
     [InlineData(1280, 800)]
     [InlineData(1024, 640)]
+    [InlineData(980, 640)]
     public void TheNotebookListsItsPagesAndOffersANewPage(int width, int height)
     {
         using var fixture = new UiFixture();
         var (service, page) = SeededNotes(fixture);
+        service.SetPinned(page.Id, true);
+        service.CreatePage(NoteScope.Global, "Boss strategy and routes for the final area");
+        service.CreatePage(NoteScope.Global, "Next session");
         var window = OpenNotes(fixture, service, width, height);
 
         Assert.True(Tagged(window, "notes.create").IsEffectivelyVisible);
         Assert.True(Tagged(window, "notes.page:" + page.Id).IsEffectivelyVisible);
+        Assert.Empty(window.GetVisualDescendants().OfType<NotesCanvas>());
+        Assert.Equal(3, window.GetVisualDescendants().OfType<StackPanel>().Count(panel => panel.Tag is string tag && tag.StartsWith("notes.card:", StringComparison.Ordinal)));
         DevicePageCaptureTests.Capture(window, Path.Combine(CaptureDirectory(width, height), "notebook.png"));
+    }
+
+    [AvaloniaTheory]
+    [InlineData(1280, 800)]
+    [InlineData(1024, 640)]
+    [InlineData(980, 640)]
+    public void EmptyNotebookExplainsWhatNewPagesCanContain(int width, int height)
+    {
+        using var fixture = new UiFixture();
+        var service = new NotesService(new NoteStore(Path.Combine(fixture.Store.Context.Root, "notes")), null, null, null);
+        service.EnsureLoaded();
+        var window = OpenNotes(fixture, service, width, height);
+        Assert.True(Tagged(window, "notes.create").IsEffectivelyVisible);
+        Assert.Empty(window.GetVisualDescendants().OfType<NotesCanvas>());
+        DevicePageCaptureTests.Capture(window, Path.Combine(CaptureDirectory(width, height), "empty.png"));
     }
 
     private static OverlayWindow OpenNotes(UiFixture fixture, NotesService service, int width, int height)

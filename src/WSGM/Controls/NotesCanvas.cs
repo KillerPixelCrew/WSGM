@@ -278,7 +278,7 @@ public sealed class NotesCanvas : Control
                     rect = DrawText(context, element, rect, text, group);
                 }
 
-                if (element.Id == SelectedElement)
+                if (element.Id == SelectedElement && Mode != NotesCanvasMode.Ink)
                 {
                     context.DrawRectangle(new Pen(accent, 3 / scale), rect.Inflate(4 / scale));
                     var handle = HandleSize / scale;

@@ -55,6 +55,36 @@ The validation budget below overrides older gate recipes in skills and documenta
   Access, subject to the two exceptions in docs/decisions.md. Every Big Picture feature has Overlay
   parity through the same backend, actions and state, using each surface's established controls.
 
+## UI design
+
+- Use [WSGM UI](.agents/skills/wsgm-ui/SKILL.md) for UI design, implementation and review. Read the
+  owning UI guide, existing controls and current screens before changing a workflow.
+  Design the complete browse/create/edit/use/back flow, including empty, loading, unavailable,
+  failure and recovery states. Backend integration and a collection of fields alone do not finish UI work.
+- Give each screen a clear hierarchy: purpose and current scope, primary action, content, then
+  supporting controls. Collections use readable cards or native lists with useful content previews,
+  names, status and concise metadata. Show selection and failures without requiring an item to open.
+- Editors give the document, image or other content the main workspace. Keep frequent tools compact
+  and nearby; put organization, advanced properties and destructive actions in focused secondary
+  views or contextual controls. Avoid permanent stacks of every possible command around the content.
+- Reuse Steam's native controls and the toolkit UI kit; use the Overlay's established controls,
+  shared theme tokens and in-window surfaces. Extend shared helpers for reusable behavior. Follow
+  each surface's navigation and visual language, with the same backend, actions and state on both.
+- Make creation follow the user's task: select the source/context, supply sensible defaults, then
+  confirm any required details. Keep names editable, explain failures where they occur, confirm
+  destructive actions and preserve files and drafts on cancellation. Never expose implementation
+  details as ordinary workflow steps.
+- Fit the actual controls pane and the 980 x 640 DIP Overlay floor. Check compact and larger sizes,
+  resizing, long names/paths and populated/empty/error cases. Keep primary actions and Back reachable;
+  prevent clipped labels, overlapping footers and horizontal overflow. Use deliberate scrolling.
+- Preserve keyboard, controller, mouse, touch and pen semantics supported by the feature: visible
+  focus, meaningful accessible names, predictable Back, input ownership and draft/selection/scroll
+  retention through state refresh. Load previews only when needed and release owned resources on exit.
+- Render affected layouts and personally inspect the images. Review live Steam screenshots for
+  authorized Steam UI work before claiming visual acceptance; compilation and synthetic component
+  checks do not establish appearance or input usability. Correct visible defects within the same
+  task, follow the validation budget below, and state genuine live/hardware gaps plainly.
+
 ## Validation budget
 
 - Manual testing comes first: build, perform the authorized deployment and let the maintainer try

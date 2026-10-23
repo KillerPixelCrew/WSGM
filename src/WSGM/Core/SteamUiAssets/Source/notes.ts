@@ -35,6 +35,17 @@ const notesStyles = `
 #wsgm-notes .wsgm-notes-surface[data-mode="ink"] .wsgm-notes-ink { pointer-events: auto; }
 #wsgm-notes .wsgm-notes-editor { width: 100%; min-height: 180px; box-sizing: border-box; font-size: 18px; resize: vertical; }
 #wsgm-notes .wsgm-notes-swatch { display: inline-block; width: 14px; height: 14px; border-radius: 7px; margin-right: 6px; vertical-align: middle; border: 1px solid rgba(255,255,255,.4); }
+#wsgm-notes .wsgm-notes-preview { height:100%; box-sizing:border-box; padding:24px; background:linear-gradient(145deg,#273340,#18212c); color:#dce4ec; font-size:18px; line-height:1.6; overflow:hidden; white-space:pre-wrap; overflow-wrap:anywhere; }
+#wsgm-notes .wsgm-notes-preview p { margin:0; display:-webkit-box; -webkit-line-clamp:5; -webkit-box-orient:vertical; overflow:hidden; }
+#wsgm-notes .wsgm-notes-preview small { display:block; color:#9aafc3; font-size:11px; letter-spacing:.12em; margin-bottom:16px; }
+#wsgm-notes .wsgm-notes-canvas-scroll { height:clamp(180px,calc(100vh - 380px),620px); overflow:auto; overscroll-behavior:contain; border:1px solid rgba(255,255,255,.12); border-radius:8px; background:#1d2128; }
+#wsgm-notes .wsgm-notes-canvas-scroll.ink { height:clamp(160px,calc(100vh - 460px),540px); }
+#wsgm-notes .wsgm-notes-canvas-scroll .wsgm-notes-surface { margin:0; border-radius:0; }
+#wsgm-notes .wsgm-notes-canvas-empty { position:absolute; top:100px; left:10%; right:10%; text-align:center; color:#9aafc3; font-size:18px; pointer-events:none; }
+#wsgm-notes .wsgm-notes-canvas-empty strong { display:block; font-size:24px; color:#fff; margin-bottom:12px; }
+#wsgm-notes .wsgm-notes-ink-options { display:flex; flex-wrap:wrap; gap:12px; align-items:end; }
+#wsgm-notes .wsgm-notes-ink-options .steam-ui-kit-choice { flex:1 1 160px; min-width:0; }
+#wsgm-notes .wsgm-notes-status { color:#9aa7b5; font-size:12px; margin-top:10px; }
 `;
 
 // The editor's revision-checked command sender. A refusal resolves to its reason; the host marks a refusal
@@ -201,8 +212,6 @@ const notesFirstLine = (text) => {
 };
 
 // Images arrive by request, one per asset, and live only in memory while their page is open.
-const notesImages = new Map<string, string | null>();
-
 /**
  * Draws one page: text blocks and images positioned on it, and the vector ink above them.
  * @param props Page, mode, tool settings, selection, image loader and the edit callbacks.
@@ -212,6 +221,14 @@ function NotesSurface(props: any) {
   const react = props.ui.react;
   const h = react.createElement;
   const { page, mode, tool, color, width } = props;
+  const images: Map<string, string | null> = props.images;
+  const assets = [
+    ...new Set<string>(
+      page.elements.filter((element) => element.kind === "image").map((element) => element.asset),
+    ),
+  ]
+    .sort()
+    .join("|");
   const surfaceRef = react.useRef(null);
   const liveRef = react.useRef(null);
   const draw = react.useRef(null);
@@ -231,21 +248,30 @@ function NotesSurface(props: any) {
   }, []);
   react.useEffect(() => {
     let live = true;
+    const abort = new AbortController();
+    const pending = new Set<string>();
     for (const element of page.elements) {
-      if (element.kind !== "image" || notesImages.has(element.asset)) continue;
-      notesImages.set(element.asset, null);
-      void request(NotesPatchId, "image", { asset: element.asset }).then(
+      if (element.kind !== "image" || images.has(element.asset)) continue;
+      pending.add(element.asset);
+      images.set(element.asset, null);
+      void request(NotesPatchId, "image", { asset: element.asset }, undefined, abort.signal).then(
         (answer: any) => {
-          notesImages.set(element.asset, answer?.dataUrl ?? null);
-          if (live) setImagesRevision((value) => value + 1);
+          if (!live) return;
+          pending.delete(element.asset);
+          images.set(element.asset, answer?.dataUrl ?? null);
+          setImagesRevision((value) => value + 1);
         },
-        () => notesImages.delete(element.asset),
+        () => {
+          if (live) images.delete(element.asset);
+        },
       );
     }
     return () => {
       live = false;
+      abort.abort();
+      for (const asset of pending) if (images.get(asset) === null) images.delete(asset);
     };
-  }, [page]);
+  }, [page.id, assets]);
 
   const height = notesContentHeight(page);
   const toPage = (event) => {
@@ -368,9 +394,9 @@ function NotesSurface(props: any) {
       onPointerUp: () => elementUp(element),
       onPointerCancel: () => setDrag(null),
     };
-    const selected = element.id === props.selected ? " wsgm-notes-selected" : "";
+    const selected = element.id === props.selected && mode !== "ink" ? " wsgm-notes-selected" : "";
     if (element.kind === "image") {
-      const url = notesImages.get(element.asset);
+      const url = images.get(element.asset);
       return url
         ? h("img", {
             ...common,
@@ -399,6 +425,14 @@ function NotesSurface(props: any) {
       onClick: surfaceClick,
     },
     ...children,
+    !page.elements.length && !page.strokes.length && mode !== "ink"
+      ? h(
+          "div",
+          { className: "wsgm-notes-canvas-empty" },
+          h("strong", null, "Your page starts here"),
+          "Add text, draw in Ink mode or insert a game screenshot.",
+        )
+      : null,
     h(
       "svg",
       {
@@ -598,8 +632,13 @@ function NotesPageLevel(props: any) {
   const [editor, setEditor] = react.useState(null);
   const [capturing, setCapturing] = react.useState(false);
   const [conflict, setConflict] = react.useState(null);
+  const [panel, setPanel] = react.useState("");
+  const viewport = react.useRef(null);
+  const viewportWidth = react.useRef(640);
+  const scroll = react.useRef(0);
   const undo = react.useRef([]);
   const redo = react.useRef([]);
+  const images = react.useRef(new Map<string, string | null>());
   const [, setHistory] = react.useState(0);
   const readOnly = !!state.pageReadOnly;
   const revision = page.revision;
@@ -607,7 +646,7 @@ function NotesPageLevel(props: any) {
   react.useEffect(() => {
     // Leaving the page drops its images and its undo history.
     return () => {
-      notesImages.clear();
+      images.current.clear();
     };
   }, [page.id]);
   react.useEffect(() => {
@@ -639,6 +678,10 @@ function NotesPageLevel(props: any) {
   };
   const report = (result) => {
     if (!result.ok) setConflict(result.error);
+  };
+  const openPanel = (value) => {
+    scroll.current = viewport.current?.scrollTop ?? scroll.current;
+    setPanel(value);
   };
   const pushUndo = (step) => {
     undo.current = [...undo.current, step];
@@ -793,88 +836,99 @@ function NotesPageLevel(props: any) {
       onClick: () => setMode("ink"),
     },
   ];
+  if (!readOnly)
+    modeActions.push(
+      {
+        id: "addText",
+        label: "Add text",
+        primary: false,
+        disabled: false,
+        onClick: () => openEditor(null),
+      },
+      {
+        id: "capture",
+        label: "Add screenshot…",
+        primary: false,
+        disabled: false,
+        onClick: () => setCapturing(true),
+      },
+    );
   const toolbars: any[] = [renderSteamUiActions(ui, modeActions, { compact: true })];
   if (mode === "ink" && !readOnly) {
+    const history = renderSteamUiActions(
+      ui,
+      [
+        {
+          id: "undo",
+          label: "Undo",
+          disabled: undo.current.length === 0,
+          onClick: () => void doUndo(),
+        },
+        {
+          id: "redo",
+          label: "Redo",
+          disabled: redo.current.length === 0,
+          onClick: () => void doRedo(),
+        },
+        {
+          id: "clear",
+          label: "Clear ink…",
+          disabled: page.strokes.length === 0,
+          onClick: () =>
+            showSteamUiConfirm(ui, {
+              title: "Clear ink",
+              text: "Remove every drawing on this page? Text and screenshots stay. Undo can bring it back.",
+              confirmLabel: "Clear",
+              onConfirm: () => {
+                const strokes = page.strokes;
+                void edit("clearInk", {}, revision).then((result) => {
+                  if (result.ok)
+                    pushUndo({ strokes, indices: strokes.map((_, i) => i), added: false });
+                });
+              },
+            }),
+        },
+      ],
+      { compact: true },
+    );
     toolbars.push(
-      renderSteamUiActions(
-        ui,
-        [
-          { id: "pen", label: "Pen", primary: tool === "pen", onClick: () => setTool("pen") },
-          {
-            id: "highlighter",
-            label: "Highlighter",
-            primary: tool === "highlighter",
-            onClick: () => setTool("highlighter"),
+      h(
+        ui.focusable,
+        { className: "wsgm-notes-ink-options", "flow-children": "row" },
+        renderSteamUiChoice(ui, {
+          label: "Tool",
+          selectedOption: tool,
+          rgOptions: [
+            { data: "pen", label: "Pen" },
+            { data: "highlighter", label: "Highlighter" },
+            { data: "eraser", label: "Eraser" },
+          ],
+          onChange: (option) => setTool(option.data),
+        }),
+        renderSteamUiChoice(ui, {
+          label: "Width",
+          selectedOption: width,
+          rgOptions: notesWidths.map(([data, label]) => ({ data, label: String(label) })),
+          onChange: (option) => setWidth(option.data),
+        }),
+        renderSteamUiChoice(ui, {
+          label: "Color",
+          selectedOption: color,
+          rgOptions: notesPalette.map(([data, label]) => ({ data, label: String(label) })),
+          onChange: (option) => {
+            setColor(option.data);
+            if (tool === "eraser") setTool("pen");
           },
-          {
-            id: "eraser",
-            label: "Eraser",
-            primary: tool === "eraser",
-            onClick: () => setTool("eraser"),
-          },
-          {
-            id: "undo",
-            label: "Undo",
-            disabled: undo.current.length === 0,
-            onClick: () => void doUndo(),
-          },
-          {
-            id: "redo",
-            label: "Redo",
-            disabled: redo.current.length === 0,
-            onClick: () => void doRedo(),
-          },
-          {
-            id: "clear",
-            label: "Clear ink…",
-            disabled: page.strokes.length === 0,
-            onClick: () =>
-              showSteamUiConfirm(ui, {
-                title: "Clear ink",
-                text: "Remove every drawing on this page? Text and screenshots stay. Undo can bring it back.",
-                confirmLabel: "Clear",
-                onConfirm: () => {
-                  const strokes = page.strokes;
-                  void edit("clearInk", {}, revision).then((result) => {
-                    if (result.ok)
-                      pushUndo({ strokes, indices: strokes.map((_, i) => i), added: false });
-                  });
-                },
-              }),
-          },
-        ],
-        { compact: true },
-      ),
-      renderSteamUiActions(
-        ui,
-        [
-          ...notesWidths.map(([value, name]) => ({
-            id: `w${value}`,
-            label: String(name),
-            primary: width === value,
-            onClick: () => setWidth(value),
-          })),
-          ...notesPalette.map(([value, name]) => ({
-            id: `c${name}`,
-            label: String(name),
-            primary: color === value,
-            onClick: () => {
-              setColor(value);
-              if (tool === "eraser") setTool("pen");
-            },
-          })),
-        ],
-        { compact: true },
+        }),
+        history,
       ),
     );
   }
-  if (!readOnly) {
-    toolbars.push(
-      renderSteamUiActions(
+  const pageActions = readOnly
+    ? null
+    : renderSteamUiActions(
         ui,
         [
-          { id: "addText", label: "Add text", onClick: () => openEditor(null) },
-          { id: "capture", label: "Add screenshot…", onClick: () => setCapturing(true) },
           {
             id: "rename",
             label: "Rename…",
@@ -893,11 +947,31 @@ function NotesPageLevel(props: any) {
             onClick: () =>
               void notesSend("pin", { pageId: page.id, pinned: !page.pinned }).then(report),
           },
+          {
+            id: "moveUp",
+            label: "Move page up",
+            onClick: () => void notesSend("move", { pageId: page.id, delta: -1 }).then(report),
+          },
+          {
+            id: "moveDown",
+            label: "Move page down",
+            onClick: () => void notesSend("move", { pageId: page.id, delta: 1 }).then(report),
+          },
+          {
+            id: "deletePage",
+            label: "Delete page…",
+            onClick: () =>
+              showSteamUiConfirm(ui, {
+                title: "Delete page",
+                text: `Delete “${page.title}”? This removes its text, drawings and screenshots and cannot be undone.`,
+                confirmLabel: "Delete",
+                onConfirm: () =>
+                  void notesSend("deletePage", { pageId: page.id, revision }).then(report),
+              }),
+          },
         ],
         { compact: true },
-      ),
-    );
-  }
+      );
   const selection: any[] = [];
   if (element && !readOnly) {
     const nudge = (dx, dy, factor) =>
@@ -941,9 +1015,15 @@ function NotesPageLevel(props: any) {
             id: "delete",
             label: element.kind === "image" ? "Delete screenshot" : "Delete text",
             onClick: () =>
-              void edit("remove", { elementId: element.id }, revision).then(() =>
-                setSelected(null),
-              ),
+              showSteamUiConfirm(ui, {
+                title: element.kind === "image" ? "Delete screenshot" : "Delete text",
+                text: "Remove this item? The rest of the page stays.",
+                confirmLabel: "Delete",
+                onConfirm: () =>
+                  void edit("remove", { elementId: element.id }, revision).then((result) => {
+                    if (result.ok) setSelected(null);
+                  }),
+              }),
           },
         ],
         { compact: true },
@@ -953,7 +1033,14 @@ function NotesPageLevel(props: any) {
   const list = page.elements.map((item) =>
     h(
       ui.dialogButton,
-      { key: item.id, onClick: () => setSelected(item.id === selected ? null : item.id) },
+      {
+        key: item.id,
+        onClick: () => {
+          setSelected(item.id);
+          scroll.current = (Math.max(0, item.y - 40) * viewportWidth.current) / NotesPageWidth;
+          setPanel("");
+        },
+      },
       h(
         "div",
         { className: "wsgm-notes-row-title" },
@@ -961,6 +1048,36 @@ function NotesPageLevel(props: any) {
       ),
     ),
   );
+  if (panel)
+    return renderSteamUiLevel(
+      ui,
+      { bounded: true, onBack: () => setPanel("") },
+      renderSteamUiHeader(ui, {
+        page: true,
+        title:
+          panel === "contents"
+            ? "Page contents"
+            : panel === "selection"
+              ? "Arrange selection"
+              : "Page options",
+        detail: page.title,
+      }),
+      panel === "contents"
+        ? list.length
+          ? h(ui.focusable, { className: "wsgm-notes-list", "flow-children": "column" }, ...list)
+          : renderSteamUiEmpty(
+              react,
+              "No text or images yet. Return to add text, ink or a screenshot.",
+            )
+        : panel === "selection"
+          ? selection
+          : pageActions,
+      renderSteamUiActions(
+        ui,
+        [{ id: "back", label: "Back to page", onClick: () => setPanel("") }],
+        { compact: true },
+      ),
+    );
   return renderSteamUiLevel(
     ui,
     { bounded: true, onBack },
@@ -973,60 +1090,85 @@ function NotesPageLevel(props: any) {
       ? renderSteamUiBanner(ui, { text: conflict, error: true, onDismiss: () => setConflict(null) })
       : null,
     ...toolbars,
-    h(NotesSurface, {
+    h(
+      "div",
+      {
+        className: "wsgm-notes-canvas-scroll" + (mode === "ink" ? " ink" : ""),
+        ref: (element) => {
+          viewport.current = element;
+          if (element) {
+            viewportWidth.current = element.clientWidth || viewportWidth.current;
+            element.scrollTop = scroll.current;
+          }
+        },
+        onScroll: (event) => {
+          scroll.current = event.currentTarget.scrollTop;
+        },
+      },
+      h(NotesSurface, {
+        ui,
+        page,
+        images: images.current,
+        mode,
+        tool,
+        color,
+        width,
+        selected,
+        inkCapable,
+        onStroke: (stroke) => void onStroke(stroke),
+        onErase: (ids) => void onErase(ids),
+        onSelect: (id) => setSelected(id),
+        onPlace: place,
+        onEditText: (item) => openEditor(item),
+        onAddText: (x, y) => setEditor({ elementId: null, base: revision, text: "", x, y }),
+      }),
+    ),
+    renderSteamUiActions(
       ui,
-      page,
-      mode,
-      tool,
-      color,
-      width,
-      selected,
-      inkCapable,
-      onStroke: (stroke) => void onStroke(stroke),
-      onErase: (ids) => void onErase(ids),
-      onSelect: (id) => setSelected(id),
-      onPlace: place,
-      onEditText: (item) => openEditor(item),
-      onAddText: (x, y) => setEditor({ elementId: null, base: revision, text: "", x, y }),
-    }),
-    ...selection,
-    renderSteamUiHeader(ui, { title: "On this page", sub: true }),
-    list.length
-      ? h(ui.focusable, { className: "wsgm-notes-list", "flow-children": "column" }, ...list)
-      : renderSteamUiEmpty(
-          react,
-          "Nothing here yet: add text, draw in Ink mode, or add a screenshot.",
-        ),
-    readOnly
-      ? null
-      : renderSteamUiActions(
-          ui,
-          [
-            {
-              id: "up",
-              label: "Move page up",
-              onClick: () => void notesSend("move", { pageId: page.id, delta: -1 }).then(report),
-            },
-            {
-              id: "down",
-              label: "Move page down",
-              onClick: () => void notesSend("move", { pageId: page.id, delta: 1 }).then(report),
-            },
-            {
-              id: "delete",
-              label: "Delete page…",
-              onClick: () =>
-                showSteamUiConfirm(ui, {
-                  title: "Delete page",
-                  text: `Delete “${page.title}”? This removes its text, drawings and screenshots and cannot be undone.`,
-                  confirmLabel: "Delete",
-                  onConfirm: () =>
-                    void notesSend("deletePage", { pageId: page.id, revision }).then(report),
-                }),
-            },
-          ],
-          { compact: true },
-        ),
+      [
+        { id: "pages", label: "All pages", onClick: onBack },
+        {
+          id: "contents",
+          label: `Page contents (${page.elements.length})`,
+          onClick: () => openPanel("contents"),
+        },
+        { id: "options", label: "Page options", onClick: () => openPanel("options") },
+        {
+          id: "pageUp",
+          label: "Page up",
+          onClick: () =>
+            viewport.current?.scrollBy({
+              top: -Math.max(120, viewport.current.clientHeight * 0.8),
+            }),
+        },
+        {
+          id: "pageDown",
+          label: "Page down",
+          onClick: () =>
+            viewport.current?.scrollBy({ top: Math.max(120, viewport.current.clientHeight * 0.8) }),
+        },
+        ...(element && !readOnly
+          ? [
+              ...(element.kind === "text"
+                ? [
+                    {
+                      id: "editSelected",
+                      label: "Edit selected text",
+                      onClick: () => openEditor(element),
+                    },
+                  ]
+                : []),
+              { id: "arrange", label: "Arrange selection", onClick: () => openPanel("selection") },
+            ]
+          : []),
+      ],
+      { compact: true },
+    ),
+    h(
+      "div",
+      { className: "wsgm-notes-status" },
+      `Saved on this PC · ${new Date(page.modified).toLocaleString()}`,
+    ),
   );
 }
 
@@ -1035,36 +1177,9 @@ function NotesPageLevel(props: any) {
  * @param props Resolved components, published state and the switch flag/callbacks.
  * @returns The list pane or the notebook picker.
  */
-function NotesNotebookLevel({ ui, state, choosing, onChoose, onChosen }: any) {
+function NotesNotebookLevel({ ui, state }: any) {
   const react = ui.react;
   const h = react.createElement;
-  if (choosing) {
-    return renderSteamUiLevel(
-      ui,
-      { bounded: true, onBack: onChosen },
-      renderSteamUiHeader(ui, { page: true, title: "Notebooks" }),
-      h(
-        ui.focusable,
-        { className: "wsgm-notes-list", "flow-children": "column" },
-        ...state.notebooks.map((book) =>
-          h(
-            ui.dialogButton,
-            {
-              key: book.scope,
-              autoFocus: book.scope === state.scope,
-              onClick: () => void notesSend("selectScope", { scope: book.scope }).then(onChosen),
-            },
-            h("div", { className: "wsgm-notes-row-title" }, book.title),
-            h(
-              "div",
-              { className: "wsgm-notes-row-detail" },
-              `${book.scope === state.game.scope ? "Running now · " : ""}${book.pages} pages`,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
   const game = state.game;
   const detail =
     state.scope === "global"
@@ -1077,33 +1192,51 @@ function NotesNotebookLevel({ ui, state, choosing, onChoose, onChosen }: any) {
         ? `Notes for ${game.title}, the game running now.`
         : "Notes for this game.";
   const pages = state.pages.map((page) =>
-    h(
-      ui.dialogButton,
-      {
-        key: page.id,
-        onClick: () => void notesSend("openPage", { pageId: page.id }),
-        onOKActionDescription: "Open",
-      },
-      h("div", { className: "wsgm-notes-row-title" }, `${page.pinned ? "★ " : ""}${page.title}`),
-      h(
+    renderSteamUiCard(ui, {
+      key: page.id,
+      title: page.title,
+      media: h(
         "div",
-        { className: "wsgm-notes-row-detail" },
+        { className: "wsgm-notes-preview" },
+        h("small", null, page.readOnly ? "READ ONLY" : "NOTE PAGE"),
+        h(
+          "p",
+          null,
+          page.preview ||
+            (page.images
+              ? "Screenshots and annotations"
+              : page.strokes
+                ? "Handwritten notes"
+                : "A fresh page for your next idea"),
+        ),
+      ),
+      badge: page.pinned ? { text: "Pinned" } : page.readOnly ? { text: "Read only" } : null,
+      meta: [
         [
-          page.preview,
-          page.texts ? `${page.texts} text` : "",
-          page.images ? `${page.images} screenshots` : "",
-          page.strokes ? `${page.strokes} strokes` : "",
-          page.readOnly ? "read-only" : "",
+          page.texts ? `${page.texts} text ${page.texts === 1 ? "block" : "blocks"}` : "",
+          page.images ? `${page.images} ${page.images === 1 ? "image" : "images"}` : "",
+          page.strokes ? "Ink" : "",
         ]
           .filter(Boolean)
           .join(" · ") || "Empty page",
-      ),
-    ),
+        "Edited " + new Date(page.modified).toLocaleDateString(undefined, { dateStyle: "medium" }),
+      ],
+      onActivate: () => void notesSend("openPage", { pageId: page.id }),
+    }),
   );
   return renderSteamUiPane(
     ui,
     { key: "notebook", bounded: true },
-    renderSteamUiHeader(ui, { page: true, title: state.scopeTitle, detail }),
+    renderSteamUiHeader(ui, { page: true, title: "Notes", detail }),
+    renderSteamUiChoice(ui, {
+      label: "Notebook",
+      selectedOption: state.scope,
+      rgOptions: state.notebooks.map((book) => ({
+        data: book.scope,
+        label: `${book.title}${book.scope === game.scope ? " · Running now" : ""} · ${book.pages} ${book.pages === 1 ? "page" : "pages"}`,
+      })),
+      onChange: (option) => void notesSend("selectScope", { scope: option.data }),
+    }),
     renderSteamUiActions(
       ui,
       [
@@ -1113,15 +1246,20 @@ function NotesNotebookLevel({ ui, state, choosing, onChoose, onChosen }: any) {
           primary: true,
           onClick: () => void notesSend("create", { scope: state.scope }),
         },
-        { id: "switch", label: "Switch notebook", onClick: onChoose },
       ],
       { compact: true },
     ),
     pages.length
-      ? h(ui.focusable, { className: "wsgm-notes-list", "flow-children": "column" }, ...pages)
-      : renderSteamUiEmpty(
+      ? renderSteamUiGrid(ui, pages)
+      : renderSteamUiBox(
           react,
-          "No pages yet. A page can hold typed text, drawings and game screenshots.",
+          "Your notebook starts here",
+          h(
+            "p",
+            null,
+            `Create a page in ${state.scopeTitle} for text, drawings and game screenshots.`,
+          ),
+          h("p", { className: "steam-ui-kit-muted" }, "Changes stay on this PC."),
         ),
   );
 }
@@ -1137,7 +1275,6 @@ function NotesPage({ context }: any) {
   const ui = context.ui();
   const state = context.state();
   const rootRef = react.useRef(null);
-  const [choosing, setChoosing] = react.useState(false);
   const [capabilities, setCapabilities] = react.useState(null);
   react.useEffect(() => {
     // Which window this page is in decides its game: a game's overlay names its own app and process.
@@ -1173,9 +1310,6 @@ function NotesPage({ context }: any) {
     body = h(NotesNotebookLevel, {
       ui,
       state,
-      choosing,
-      onChoose: () => setChoosing(true),
-      onChosen: () => setChoosing(false),
     });
   }
   return h(
@@ -1208,6 +1342,5 @@ const notesPage = registerSteamPage({
     loaded: !!notesPage.state()?.loaded,
     keyboard: notesKeyboardHook ? "hook" : notesKeyboardHook === null ? "none" : "unresolved",
   }),
-  release: () => notesImages.clear(),
   Page: NotesPage,
 });

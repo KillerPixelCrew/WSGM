@@ -52,6 +52,19 @@ public sealed class NotesServiceTests : IDisposable
     }
 
     [Fact]
+    public void CardPreviewsKeepParagraphsBoundedWithoutChangingTheDocument()
+    {
+        var service = Create();
+        var page = service.CreatePage(NoteScope.Global, "Route").Page!;
+        var text = "North door\nThen the stairs\n" + new string('x', 300);
+        service.AddText(page.Id, page.Revision, 0, 0, text);
+        var preview = Assert.Single(service.ReadPages(NoteScope.Global)).Preview;
+        Assert.StartsWith("North door\nThen the stairs\n", preview, StringComparison.Ordinal);
+        Assert.InRange(preview.Length, 1, 241);
+        Assert.Equal(text, Assert.Single(service.ReadPage(page.Id)!.Elements).Text);
+    }
+
+    [Fact]
     public void ChangesSurviveARestartAndCreateNoDuplicates()
     {
         var service = Create();

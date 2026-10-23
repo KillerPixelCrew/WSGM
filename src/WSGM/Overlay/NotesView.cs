@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Shapes;
 using Avalonia.Input;
 using Avalonia.Layout;
@@ -66,6 +67,47 @@ public sealed class NotesView : ServiceSubView
     private string _inkColor = "#FFFFFF";
     private NotesInkTool _inkTool = NotesInkTool.Pen;
     private double _inkWidth = 6;
+    private TopLevel? _window;
+    private int _columns = 2;
+
+    /// <summary>Keeps the notebook and editor fitted to the current Overlay window.</summary>
+    public NotesView()
+    {
+        AttachedToVisualTree += (_, _) =>
+        {
+            _window = TopLevel.GetTopLevel(this);
+            if (_window is not null)
+            {
+                _window.SizeChanged += WindowResized;
+            }
+        };
+        DetachedFromVisualTree += (_, _) =>
+        {
+            if (_window is not null)
+            {
+                _window.SizeChanged -= WindowResized;
+            }
+
+            _window = null;
+        };
+        SizeChanged += (_, args) =>
+        {
+            var columns = args.NewSize.Width < 500 ? 1 : 2;
+            if (_columns != columns)
+            {
+                _columns = columns;
+                CurrentLevel?.Invoke();
+            }
+        };
+    }
+
+    private void WindowResized(object? sender, SizeChangedEventArgs args)
+    {
+        if (_canvas is not null)
+        {
+            SizeCanvas();
+        }
+    }
 
     /// <summary>Starts an Add Screenshot from this overlay for a page; set by the overlay controller.</summary>
     internal Func<string, int, SteamUiCommandResult>? StartCapture { get; set; }
@@ -169,52 +211,53 @@ public sealed class NotesView : ServiceSubView
         _pageRoot = null;
         service.OverlayLocation = service.OverlayLocation with { Scope = scope, PageId = null };
         var title = service.NotebookTitle(scope);
-        var body = NewStack(title);
+        var body = NewStack("Notes");
+        body.Children.Add(ChoiceRow("Notebook", service.ReadNotebooks(_game)
+            .Select(book => (book.Scope, book.Title + (book.Scope == _game.Scope ? " · Running now" : ""))).ToArray(), scope,
+            selected =>
+            {
+                NavigationStack.Clear();
+                Replace(() => RenderNotebook(selected));
+            }));
         body.Children.Add(Tagged(Caption(ScopeCaption(scope)), "notes.scope"));
         AddCaptureOutcome(body, service);
-        body.Children.Add(Tagged(PrimaryRow("New page", $"Add a page to {title}", Icons.FolderPlus,
-            () => Create(scope)), "notes.create"));
+        body.Children.Add(Toolbar(Tool("notes.create", "New page", true, () => Create(scope))));
         var pages = service.ReadPages(scope);
+        var grid = new UniformGrid { Columns = _columns, Tag = "notes.library:" + _columns };
         foreach (var summary in pages)
         {
-            var detail = string.Join(" · ", new[]
+            var card = new StackPanel { Spacing = 0, Margin = new Thickness(0, 0, 12, 12), Tag = "notes.card:" + summary.Id };
+            var preview = new StackPanel { Spacing = 10, Margin = new Thickness(18) };
+            var kind = summary.ReadOnly ? "READ ONLY" : summary.Pinned ? "PINNED PAGE" : "NOTE PAGE";
+            preview.Children.Add(SectionLabel(kind));
+            preview.Children.Add(new TextBlock
             {
-                summary.Preview.Length > 0 ? summary.Preview : null,
-                Count(summary.Texts, "text"), Count(summary.Images, "screenshot"), Count(summary.Strokes, "stroke"),
-                summary.Modified.ToLocalTime().ToString("g", CultureInfo.CurrentCulture), summary.ReadOnly ? "read-only" : null
-            }.Where(part => !string.IsNullOrEmpty(part)));
-            body.Children.Add(Tagged(Row((summary.Pinned ? "★ " : "") + summary.Title,
-                detail.Length > 0 ? detail : "Empty page", Icons.ListLines,
+                Text = summary.Preview.Length > 0 ? summary.Preview : summary.Images > 0 ? "Screenshots and annotations"
+                    : summary.Strokes > 0 ? "Handwritten notes" : "A fresh page for your next idea",
+                FontSize = 17, TextWrapping = TextWrapping.Wrap, MaxLines = 4, TextTrimming = TextTrimming.CharacterEllipsis
+            });
+            var cover = new Border { Child = preview, Height = 142, CornerRadius = new CornerRadius(8, 8, 0, 0), ClipToBounds = true };
+            cover.Bind(Border.BackgroundProperty, cover.GetResourceObservable("DeckGroupBrush"));
+            card.Children.Add(cover);
+            var detail = string.Join(" · ", new[] { Count(summary.Texts, "text block"), Count(summary.Images, "image"),
+                summary.Strokes > 0 ? "Ink" : null }.Where(part => part is not null));
+            card.Children.Add(Tagged(Row(summary.Title, detail.Length > 0 ? detail : "Empty page", null,
                 () => Navigate(() => RenderPage(summary.Id))), "notes.page:" + summary.Id));
+            card.Children.Add(Caption("Edited " + summary.Modified.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)));
+            grid.Children.Add(card);
         }
 
         if (pages.Count == 0)
         {
-            body.Children.Add(Caption("No pages yet. A page can hold typed text, drawings and game screenshots."));
+            var empty = new StackPanel { Spacing = 14, Margin = new Thickness(24, 36) };
+            empty.Children.Add(new TextBlock { Text = "Your notebook starts here", FontSize = 24, FontWeight = FontWeight.SemiBold });
+            empty.Children.Add(Caption($"Create a page in {title} for text, drawings and game screenshots. Changes stay on this PC."));
+            body.Children.Add(empty);
         }
-
-        body.Children.Add(SectionLabel("Notebooks"));
-        body.Children.Add(Tagged(Row("Switch notebook", "Global or another game's notes", Icons.Grid4,
-            () => Navigate(RenderNotebooks)), "notes.notebooks"));
-        SetContent(body);
-    }
-
-    private void RenderNotebooks()
-    {
-        var service = _service!;
-        var body = NewStack("Notebooks");
-        foreach (var book in service.ReadNotebooks(_game))
+        else
         {
-            var current = book.Scope == _game.Scope ? "Running now · " : "";
-            body.Children.Add(Tagged(Row(book.Title, $"{current}{book.Pages} pages",
-                book.Scope == NoteScope.Global ? Icons.Info : Icons.Play, () =>
-                {
-                    NavigationStack.Clear();
-                    CurrentLevel = null;
-                    Navigate(() => RenderNotebook(book.Scope));
-                }), "notes.book:" + book.Scope));
+            body.Children.Add(grid);
         }
-
         SetContent(body);
     }
 
@@ -287,18 +330,20 @@ public sealed class NotesView : ServiceSubView
 
         _page = page;
         service.OverlayLocation = service.OverlayLocation with { Scope = page.Scope, PageId = page.Id };
-        if (_pageRoot is not null && ReferenceEquals(Content, _pageRoot) && _canvas is not null)
+        if (_pageRoot is not null && _canvas is not null)
         {
             // A publication while the page is open: refresh in place so a drag, the mode and focus survive.
             _canvas.Page = page;
             RenderDetails();
+            if (!ReferenceEquals(Content, _pageRoot))
+            {
+                SetContent(_pageRoot);
+            }
             return;
         }
 
         var location = service.OverlayLocation;
-        var body = NewStack("");
-        body.Children.Add(Tagged(Row(page.Title, "Rename this page", Icons.ListLines,
-            () => EditTitle()), "notes.title"));
+        var body = NewStack(page.Title);
         _canvas = new NotesCanvas
         {
             Page = page, Height = 380, Mode = ParseMode(location.Mode), InkTool = _inkTool, InkColor = _inkColor,
@@ -323,6 +368,7 @@ public sealed class NotesView : ServiceSubView
         body.Children.Add(_details);
         _pageRoot = body;
         RenderDetails();
+        SizeCanvas();
         SetContent(body);
         LoadImages(page);
     }
@@ -338,6 +384,10 @@ public sealed class NotesView : ServiceSubView
         var readOnly = service.IsReadOnly(page.Id);
         _details.Children.Clear();
         _tools.Children.Clear();
+        if (_pageRoot?.Children.FirstOrDefault() is TextBlock heading)
+        {
+            heading.Text = page.Title;
+        }
         if (_pendingConflict is { } conflict)
         {
             _tools.Children.Add(Tagged(Caption(conflict), "notes.conflict"));
@@ -373,9 +423,10 @@ public sealed class NotesView : ServiceSubView
                 :
                 [
                     Tool("notes.add.text", "Add text", false, () => OnTextRequested(null, _canvas.VisibleCenter())),
-                    Tool("notes.add.screenshot", "Add screenshot…", false, () => Navigate(RenderCapture),
+                    Tool("notes.add.screenshot", "Screenshot", false, () => Navigate(RenderCapture),
                         StartCapture is not null && !service.Capture.Pending)
-                ]
+                ],
+            Tool("notes.options", "Page…", false, () => Navigate(RenderPageOptions))
         ]));
         if (mode == NotesCanvasMode.Ink && !readOnly)
         {
@@ -387,9 +438,11 @@ public sealed class NotesView : ServiceSubView
                 Tool("notes.undo", "Undo", false, Undo, _undo.Count > 0),
                 Tool("notes.redo", "Redo", false, Redo, _redo.Count > 0),
                 Tool("notes.clear", "Clear ink…", false, ConfirmClearInk, page.Strokes.Count > 0)));
+            var widthChoice = ChoiceRow("Width", Widths.Select(width => (width.Width, width.Name)).ToArray(), _inkWidth, SetWidth);
+            widthChoice.Width = 240;
+            widthChoice.Margin = new Thickness(0, 0, 8, 8);
             _tools.Children.Add(Toolbar([
-                .. Widths.Select(width => Tool("notes.width:" + width.Name, width.Name,
-                    Math.Abs(_inkWidth - width.Width) < 0.01, () => SetWidth(width.Width))),
+                widthChoice,
                 .. Palette.Select(color => Swatch(color.Color, color.Name))
             ]));
         }
@@ -400,48 +453,9 @@ public sealed class NotesView : ServiceSubView
                 Tool("notes.zoom.in", "Zoom +", false, () => SetZoom(_canvas.Zoom + 0.5), _canvas.Zoom < 4),
                 Tool("notes.scroll.up", "Page up", false, () => _canvas.ScrollBy(new Vector(0, -360))),
                 Tool("notes.scroll.down", "Page down", false, () => _canvas.ScrollBy(new Vector(0, 360)))));
-            _tools.Children.Add(Caption(mode == NotesCanvasMode.Text
-                ? "Text: tap a text block to edit it, or empty space to write there."
-                : "Navigate: drag to scroll, tap to select, drag a selection to move it and its corner to resize."));
         }
 
-        AddSelection(page, readOnly);
-        _details.Children.Add(SectionLabel("On this page"));
-        var number = 0;
-        foreach (var element in page.Elements)
-        {
-            number++;
-            var selected = element.Id == _canvas.SelectedElement;
-            var label = element.Kind == NoteElement.ImageKind
-                ? $"Screenshot {element.PixelWidth}×{element.PixelHeight}"
-                : FirstLine(element.Text);
-            _details.Children.Add(Tagged(Row((selected ? "● " : "") + label,
-                element.Kind == NoteElement.ImageKind ? "Select to move, resize or delete" : "Select to edit, move or delete",
-                element.Kind == NoteElement.ImageKind ? Icons.Monitor : Icons.ListLines,
-                () => Select(element.Id)), "notes.element:" + element.Id));
-        }
-
-        if (number == 0)
-        {
-            _details.Children.Add(Caption("Nothing here yet: add text, draw in Ink mode, or add a screenshot."));
-        }
-
-        _details.Children.Add(SectionLabel("Page"));
-        if (!readOnly)
-        {
-            _details.Children.Add(Tagged(Row(page.Pinned ? "Unpin page" : "Pin page",
-                "Pinned pages stay at the top of the notebook", Icons.Pin,
-                () => Run(_ => Task.FromResult(service.SetPinned(page.Id, !page.Pinned).ToCommandResult()))),
-                "notes.pin"));
-            _details.Children.Add(Toolbar(
-                Tool("notes.move.up", "Move page up", false,
-                    () => Run(_ => Task.FromResult(service.MovePage(page.Id, -1).ToCommandResult()))),
-                Tool("notes.move.down", "Move page down", false,
-                    () => Run(_ => Task.FromResult(service.MovePage(page.Id, 1).ToCommandResult())))));
-            _details.Children.Add(Tagged(DangerRow("Delete page", "Removes its text, drawings and screenshots",
-                Icons.Close, () => ConfirmCommand("Delete page", $"Delete “{page.Title}”? This cannot be undone.",
-                    _ => Task.FromResult(DeleteAndReturn(page)))), "notes.delete"));
-        }
+        SizeCanvas();
 
         if (focusedTag is not null && _tools.GetLogicalDescendants().Concat(_details.GetLogicalDescendants())
                 .OfType<Control>().FirstOrDefault(control => Equals(control.Tag, focusedTag) && control.Focusable)
@@ -451,23 +465,121 @@ public sealed class NotesView : ServiceSubView
         }
     }
 
-    private void AddSelection(NotePage page, bool readOnly)
+    private void RenderContents()
+    {
+        if (_page is null || _service?.ReadPage(_page.Id) is not { } page)
+        {
+            Back();
+            return;
+        }
+
+        _page = page;
+        var body = NewStack("Page contents");
+        body.Children.Add(Caption("Select a text block or screenshot to bring it into view on the page."));
+        foreach (var element in page.Elements)
+        {
+            body.Children.Add(Tagged(Row(element.Kind == NoteElement.ImageKind ? "Screenshot" : FirstLine(element.Text),
+                element.Kind == NoteElement.ImageKind ? $"{element.PixelWidth} × {element.PixelHeight}" : "Text block",
+                element.Kind == NoteElement.ImageKind ? Icons.Monitor : Icons.ListLines, () =>
+                {
+                    Select(element.Id);
+                    PopIfAny();
+                    Back();
+                }), "notes.element:" + element.Id));
+        }
+
+        if (page.Elements.Count == 0)
+        {
+            body.Children.Add(Caption("This page has no text or images yet. Return to add text, ink or a screenshot."));
+        }
+
+        SetContent(body);
+    }
+
+    private void RenderPageOptions()
+    {
+        if (_page is null || _service is not { } service || service.ReadPage(_page.Id) is not { } page)
+        {
+            Back();
+            return;
+        }
+
+        _page = page;
+        var body = NewStack("Page options");
+        body.Children.Add(Caption($"{service.NotebookTitle(page.Scope)} · Saved on this PC · {page.Modified.ToLocalTime():g}"));
+        body.Children.Add(Tagged(Row("Page contents", $"{page.Elements.Count} items", Icons.ListLines,
+            () => Navigate(RenderContents)), "notes.contents"));
+        if (_canvas?.SelectedElement is { } selectedId && page.Elements.Find(item => item.Id == selectedId) is { } selected
+            && !service.IsReadOnly(page.Id))
+        {
+            if (selected.Kind == NoteElement.TextKind)
+            {
+                body.Children.Add(Tagged(Row("Edit selected text", FirstLine(selected.Text), Icons.Keyboard,
+                    () => OnTextRequested(selected.Id, default)), "notes.selection.edit"));
+            }
+
+            body.Children.Add(Tagged(Row("Arrange selection", "Move, resize, bring to front or remove", Icons.Grid4,
+                () => Navigate(RenderSelection)), "notes.selection.arrange"));
+        }
+        if (!service.IsReadOnly(page.Id))
+        {
+            body.Children.Add(Tagged(Row("Rename page", page.Title, Icons.Keyboard, EditTitle), "notes.title"));
+            body.Children.Add(Tagged(Row(page.Pinned ? "Unpin page" : "Pin page", "Pinned pages stay at the top", Icons.Pin,
+                () => Run(_ => Task.FromResult(service.SetPinned(page.Id, !page.Pinned).ToCommandResult()))), "notes.pin"));
+            body.Children.Add(Toolbar(
+                Tool("notes.move.up", "Move page up", false, () => Run(_ => Task.FromResult(service.MovePage(page.Id, -1).ToCommandResult()))),
+                Tool("notes.move.down", "Move page down", false, () => Run(_ => Task.FromResult(service.MovePage(page.Id, 1).ToCommandResult())))));
+            body.Children.Add(Tagged(DangerRow("Delete page", "Removes its text, drawings and screenshots", Icons.Close,
+                () => ConfirmCommand("Delete page", $"Delete “{page.Title}”? This cannot be undone.",
+                    _ => Task.FromResult(DeleteAndReturn(page)))), "notes.delete"));
+        }
+        else
+        {
+            body.Children.Add(Caption("This page was saved by a newer WSGM and is read-only."));
+        }
+
+        SetContent(body);
+    }
+
+    private void RenderSelection()
+    {
+        if (_page is null || _service?.ReadPage(_page.Id) is not { } page)
+        {
+            Back();
+            return;
+        }
+
+        _page = page;
+        var body = NewStack("Arrange selection");
+        AddSelection(body, page, _service.IsReadOnly(page.Id));
+        SetContent(body);
+    }
+
+    private void SizeCanvas()
+    {
+        if (_canvas is not null)
+        {
+            _canvas.Height = Math.Clamp((_window?.Bounds.Height ?? 800) - (_canvas.Mode == NotesCanvasMode.Ink ? 470 : 430), 180, 430);
+        }
+    }
+
+    private void AddSelection(StackPanel target, NotePage page, bool readOnly)
     {
         if (_canvas?.SelectedElement is not { } id || page.Elements.Find(item => item.Id == id) is not { } element
-                                                   || readOnly || _details is null)
+                                                   || readOnly)
         {
             return;
         }
 
         var revision = page.Revision;
-        _details.Children.Add(SectionLabel(element.Kind == NoteElement.ImageKind ? "Selected screenshot" : "Selected text"));
+        target.Children.Add(SectionLabel(element.Kind == NoteElement.ImageKind ? "Selected screenshot" : "Selected text"));
         if (element.Kind == NoteElement.TextKind)
         {
-            _details.Children.Add(Tagged(PrimaryRow("Edit text", FirstLine(element.Text), Icons.Keyboard,
+            target.Children.Add(Tagged(PrimaryRow("Edit text", FirstLine(element.Text), Icons.Keyboard,
                 () => OnTextRequested(element.Id, default)), "notes.selection.edit"));
         }
 
-        _details.Children.Add(Toolbar(
+        target.Children.Add(Toolbar(
             Tool("notes.selection.left", "◀", false, () => Place(element, -Nudge, 0, 1)),
             Tool("notes.selection.up", "▲", false, () => Place(element, 0, -Nudge, 1)),
             Tool("notes.selection.down", "▼", false, () => Place(element, 0, Nudge, 1)),
@@ -476,9 +588,10 @@ public sealed class NotesView : ServiceSubView
             Tool("notes.selection.bigger", "Bigger", false, () => Place(element, 0, 0, 1.15)),
             Tool("notes.selection.front", "To front", false,
                 () => Edit(() => _service!.RaiseElement(page.Id, revision, element.Id)))));
-        _details.Children.Add(Tagged(DangerRow(element.Kind == NoteElement.ImageKind ? "Delete screenshot" : "Delete text",
+        target.Children.Add(Tagged(DangerRow(element.Kind == NoteElement.ImageKind ? "Delete screenshot" : "Delete text",
             "The rest of the page stays", Icons.Close,
-            () => Edit(() => _service!.RemoveElement(page.Id, revision, element.Id))), "notes.selection.delete"));
+            () => ConfirmCommand("Delete selection", "Remove this item? The rest of the page stays.",
+                _ => Task.FromResult(_service!.RemoveElement(page.Id, revision, element.Id).ToCommandResult()))), "notes.selection.delete"));
     }
 
     private SteamUiCommandResult DeleteAndReturn(NotePage page)
@@ -1062,7 +1175,8 @@ public sealed class NotesView : ServiceSubView
     {
         var button = (OverlayActionButton)Row(label, "", null, enabled ? onClick : null);
         button.Tag = tag;
-        button.MinWidth = 84;
+        button.MinWidth = 52;
+        button.Padding = new Thickness(6, 6);
         button.Margin = new Thickness(0, 0, 8, 8);
         button.Classes.Set("primary", selected);
         return button;
@@ -1075,7 +1189,7 @@ public sealed class NotesView : ServiceSubView
         var selected = _inkColor == color;
         Button button = new()
         {
-            Tag = "notes.color:" + name, MinWidth = 56, MinHeight = 44, Margin = new Thickness(0, 0, 8, 8),
+            Tag = "notes.color:" + name, MinWidth = 40, MinHeight = 44, Margin = new Thickness(0, 0, 8, 8),
             HorizontalContentAlignment = HorizontalAlignment.Center,
             VerticalContentAlignment = VerticalAlignment.Center,
             Content = new Ellipse
