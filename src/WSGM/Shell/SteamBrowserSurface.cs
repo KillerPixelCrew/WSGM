@@ -15,7 +15,7 @@ internal static class SteamBrowserSurface
     internal const string GateName = "browser";
 
     internal static ISteamUiPatch Patch { get; } = SteamPagePatch.Create(
-        PatchId, GateName, "wsgm-browser-v1:native-game-overlay", "Browser",
+        PatchId, GateName, "wsgm-browser-v2:native-steam-window", "Browser",
         [SteamPageProbe.React, SteamPageProbe.Focusable, SteamPageProbe.Fields, SteamPageProbe.ShowModal]);
 
     internal static ISteamUiModule Module(Func<bool> enabled)

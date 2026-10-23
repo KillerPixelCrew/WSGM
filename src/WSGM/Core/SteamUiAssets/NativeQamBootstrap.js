@@ -2848,7 +2848,7 @@
   }
   // @steam-ui-module-resolver-end
   // @fragment overlay-browser.ts
-  /** Resolves trusted lookup chrome's handoff to the actual game's Steam-owned browser. */
+  /** Resolves trusted lookup chrome's handoff to a Steam-owned Big Picture or game browser. */
   function resolveSteamOverlayBrowser(runtime) {
     const useWindow = runtime.exported(
       ["createContext(null)", "VirtualKeyboardManager", "instance"],
@@ -2873,8 +2873,20 @@
     const validId = (value) => Number.isInteger(value) && value > 0 && value <= 0xffffffff;
     const identify = (instance) => {
       if (disposed) return null;
-      const windows = window.SteamUIStore?.WindowStore?.OverlayWindows;
-      if (!instance || !Array.isArray(windows) || !windows.includes(instance)) return null;
+      const store = window.SteamUIStore?.WindowStore;
+      if (!instance || !store) return null;
+      if (instance.IsMainGamepadUIWindow?.() === true) {
+        const windows = store.SteamUIWindows;
+        if (!Array.isArray(windows) || instance.IsOverlayWindow?.() === true) return null;
+        const matches = windows.filter(
+          (candidate) => candidate?.IsMainGamepadUIWindow?.() === true,
+        );
+        return matches.length === 1 && matches[0] === instance
+          ? { appId: null, processId: null, gameId: null, title: "", kind: "main" }
+          : null;
+      }
+      const windows = store.OverlayWindows;
+      if (!Array.isArray(windows) || !windows.includes(instance)) return null;
       const gamepad = instance.IsGamepadUIOverlayWindow?.() === true;
       const desktop = instance.IsDesktopOverlayWindow?.() === true;
       if (gamepad === desktop) return null;
@@ -2892,7 +2904,9 @@
         return (
           other?.m_unPID === info.m_unPID &&
           other?.m_unAppID === info.m_unAppID &&
-          other?.m_gameID === info.m_gameID
+          other?.m_gameID === info.m_gameID &&
+          (candidate.IsGamepadUIOverlayWindow?.() === true) === gamepad &&
+          (candidate.IsDesktopOverlayWindow?.() === true) === desktop
         );
       });
       if (matches.length !== 1 || matches[0] !== instance) return null;
@@ -3000,7 +3014,7 @@
     const open = (instance, url, home = "about:blank") => {
       const target = identify(instance);
       if (!target || (url !== undefined && !allowed(url)) || !allowed(home)) return false;
-      if (target.kind === "gamepad") {
+      if (target.kind === "gamepad" || target.kind === "main") {
         if (typeof instance.Navigator?.ExternalWeb !== "function") return false;
         const entry = watch(instance, target);
         if (!entry) return false;
@@ -15777,7 +15791,7 @@
   });
   // @fragment consumer/browser.ts
   // This trusted page never renders a website. It hands a validated, user-initiated request to
-  // Valve's browser for the actual overlay instance supplied by Steam's React WindowContext.
+  // Valve's browser for the Big Picture or game-overlay instance supplied by Steam's WindowContext.
   const BrowserPatchId = "wsgm.browser";
   let browserNative = null;
   function BrowserGuidePage({ context }) {
@@ -15807,7 +15821,9 @@
       try {
         const text = String(query).trim();
         if (!state || !target)
-          throw new Error("Open Browser from the Steam Game Overlay of a running game.");
+          throw new Error(
+            "Steam's browser is unavailable in this window. Reopen Browser from Quick Access.",
+          );
         if (!text || text.length > 4096)
           throw new Error("Enter an address or search (up to 4096 characters).");
         let address;
@@ -15829,7 +15845,7 @@
         }
         if (!allowed(address)) throw new Error("This address is not allowed.");
         if (!browserNative.open(instance, address))
-          throw new Error("Steam's native overlay browser is unavailable.");
+          throw new Error("Steam's native browser is unavailable.");
         setError("");
       } catch (failure) {
         setError(String(failure instanceof Error ? failure.message : failure));
@@ -15837,9 +15853,7 @@
     };
     const resume = () => {
       if (!target || !browserNative.open(instance, undefined, state?.home)) {
-        setError(
-          "Steam's native overlay browser is unavailable. Return to the game and reopen the overlay.",
-        );
+        setError("Steam's native browser is unavailable. Reopen Browser from Quick Access.");
       }
     };
     const content = renderSteamUiLevel(
@@ -15850,8 +15864,10 @@
         "p",
         { className: "steam-ui-kit-muted" },
         target
-          ? `Quick lookups for ${target.title || "this game"}`
-          : "Open this page from Steam's in-game overlay.",
+          ? target.kind === "main"
+            ? "Open a website or search without leaving Steam."
+            : `Quick lookups for ${target.title || "this game"}`
+          : "Steam's browser is unavailable in this window. Reopen Browser from Quick Access.",
       ),
       h(ui.textField, {
         label: "Search or enter an address",
@@ -15871,19 +15887,23 @@
           disabled: !target || !query.trim(),
           onClick: () => lookup(),
         },
-        {
-          id: "game-search",
-          label: `Search ${target?.title || "current game"}…`,
-          disabled: !target?.title || !query.trim(),
-          onClick: () => lookup(true),
-        },
+        ...(target?.title
+          ? [
+              {
+                id: "game-search",
+                label: `Search ${target?.title || "current game"}…`,
+                disabled: !target?.title || !query.trim(),
+                onClick: () => lookup(true),
+              },
+            ]
+          : []),
         { id: "resume", label: "Resume native browser", disabled: !target, onClick: resume },
       ]),
       error ? h("p", { role: "alert" }, error) : null,
       h(
         "p",
         { className: "steam-ui-kit-muted" },
-        "Use Steam's browser controls and keyboard, then close the overlay to return to your game. Resume reopens your last lookup.",
+        "Use Steam's browser controls and keyboard. Back returns here; Resume reopens your last lookup.",
       ),
       h(
         "p",
@@ -15911,7 +15931,7 @@
     required: ["react", "focusable", "dialogButton", "dialogButtonPrimary", "textField"],
     prepare: (_ui, runtime) => {
       browserNative = resolveSteamOverlayBrowser(runtime);
-      return browserNative ? null : "Steam's native overlay browser contract is unavailable.";
+      return browserNative ? null : "Steam's native browser contract is unavailable.";
     },
     release: () => {
       browserNative?.dispose?.();

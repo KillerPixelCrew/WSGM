@@ -18,11 +18,13 @@ of running content elevated. Websites have no WSGM/Steam/plugin bridge, host obj
 endpoint. Downloads, file URLs, permissions and custom protocols are refused. Opening HTTP/HTTPS
 externally requires an explicit browser-control action.
 
-Steam Quick Access exposes **Browser** over a running game. Its lookup page hands an explicit
-address or query to Valve's native browser in that exact game-overlay window. Resume restores
+Steam Quick Access exposes **Browser** in Big Picture and over a running game. Its lookup page hands
+an explicit address or query to Valve's native browser in that exact Steam window. Resume restores
 Steam's saved native history state. Steam owns that browser's memory, downloads and external-link
 prompts; WSGM's Keep alive/Unload setting controls the WSGM Overlay browser. Without a uniquely
-identified game overlay, the lookup page explains why its actions are unavailable.
+identified main or game-overlay window, the lookup page explains why its actions are unavailable.
+Game-aware search appears when the overlay identifies the game's title. Big Picture browsing does
+not require a running game and never fabricates a game identity.
 
 `Shell/BrowserSession` owns the WSGM engine lifetime. `Overlay/BrowserView`, `BrowserViewport` and
 `OverlayNativeWebViewHost` own chrome, clipping and input forwarding. `Core/Browser` defines the

@@ -13,7 +13,7 @@ internal sealed class BrowserExtensionsSection : IExtensionsTabSection
     public SteamExtensionsTabItem ReadExtensionsItem()
     {
         return new SteamExtensionsTabItem(SectionId, "Browser", "", "Ready",
-            "Look up a guide in Steam's browser for this game.",
+            "Browse the web in Steam or look up a guide for your game.",
             [new SteamExtensionsTabAction(SectionId + ".open", "Open Browser")]);
     }
 
