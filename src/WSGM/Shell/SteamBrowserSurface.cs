@@ -6,7 +6,7 @@ using WSGM.Browser;
 
 namespace WSGM.Shell;
 
-/// <summary>Trusted quick-lookup chrome. Valve's isolated native browser owns all arbitrary content.</summary>
+/// <summary>Trusted native-browser entry. Valve's isolated browser owns all arbitrary content.</summary>
 internal static class SteamBrowserSurface
 {
     internal const string PatchId = "wsgm.browser";
@@ -15,8 +15,8 @@ internal static class SteamBrowserSurface
     internal const string GateName = "browser";
 
     internal static ISteamUiPatch Patch { get; } = SteamPagePatch.Create(
-        PatchId, GateName, "wsgm-browser-v2:native-steam-window", "Browser",
-        [SteamPageProbe.React, SteamPageProbe.Focusable, SteamPageProbe.Fields, SteamPageProbe.ShowModal]);
+        PatchId, GateName, "wsgm-browser-v3:native-address-editor", "Browser",
+        [SteamPageProbe.React, SteamPageProbe.Focusable, SteamPageProbe.Fields]);
 
     internal static ISteamUiModule Module(Func<bool> enabled)
     {

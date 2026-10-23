@@ -98,6 +98,9 @@ internal sealed class BrowserViewport : OverlayNativeWebViewHost
 
     private void Resize()
     {
+        // NativeControlHost normally moves its HWND after rendering. Apply the current
+        // arrangement before sampling it, including the first frame after modal resume.
+        TryUpdateNativeControlPosition();
         // The native anchor already has the final physical size, including the Overlay's
         // content transform. Reading it avoids multiplying only by monitor DPI and missing
         // RootScale at the 980x640 layout floor.

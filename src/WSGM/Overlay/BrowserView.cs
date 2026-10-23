@@ -16,7 +16,9 @@ namespace WSGM.Overlay;
 /// <summary>Quick lookup chrome; the native viewport never owns application policy or input leases.</summary>
 public sealed class BrowserView : OverlaySubView
 {
-    private readonly BrowserViewport _viewport = new() { Height = 320, MinHeight = 240 };
+    private readonly BrowserViewport _viewport = new();
+    private readonly Grid _viewportFrame = new() { Height = 320, MinHeight = 240 };
+    private readonly TextBlock _emptyViewport;
     private readonly Button _address = new() { MinHeight = 44, HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly TextBlock _addressText = new() { TextTrimming = Avalonia.Media.TextTrimming.CharacterEllipsis, MaxLines = 1 };
     private readonly Button _gameSearch = new() { MinHeight = 44, MaxWidth = 210, IsVisible = false };
@@ -30,6 +32,7 @@ public sealed class BrowserView : OverlaySubView
     private BrowserSession? _session;
     private readonly StackPanel _stack;
     private bool _entered;
+    private bool _covered;
     private string? _pendingPageText;
     private BrowserMemoryBehavior? _renderedPolicy;
 
@@ -79,16 +82,21 @@ public sealed class BrowserView : OverlaySubView
         AddButton(commands, "+", () => _session?.SetZoom((_session?.Options.ZoomFactor ?? 1) + 0.1));
         _stack.Children.Add(commands);
         _stack.Children.Add(_status);
-        _stack.Children.Add(_viewport);
+        _emptyViewport = Caption("Enter an address or search above to open a page.");
+        _emptyViewport.HorizontalAlignment = HorizontalAlignment.Center;
+        _emptyViewport.VerticalAlignment = VerticalAlignment.Center;
+        _viewportFrame.Children.Add(_emptyViewport);
+        _viewportFrame.Children.Add(_viewport);
+        _stack.Children.Add(_viewportFrame);
         var secondary = new WrapPanel { Orientation = Orientation.Horizontal };
         AddButton(secondary, "Home", () => _session?.Navigate(BrowserNavigation.Home));
         AddButton(secondary, "External", () => _session?.OpenExternally());
         _stack.Children.Add(secondary);
         _memory = MemoryChoice(BrowserMemoryBehavior.UnloadWhenClosed);
-        _memory.DropDownOpened += (_, _) => _session?.Cover(true);
+        _memory.DropDownOpened += (_, _) => UpdateViewportVisibility();
         _memory.DropDownClosed += (_, _) =>
         {
-            _session?.Cover(TopLevel.GetTopLevel(this) is OverlayWindow { HasActiveSurface: true });
+            UpdateViewportVisibility();
             _renderedPolicy = null;
             Refresh();
         };
@@ -148,7 +156,6 @@ public sealed class BrowserView : OverlaySubView
     internal void Enter()
     {
         _entered = true;
-        _viewport.IsVisible = true;
         _session?.Open();
         Refresh();
     }
@@ -163,7 +170,7 @@ public sealed class BrowserView : OverlaySubView
         _entered = false;
         _pendingPageText = null;
         _session?.Close();
-        _viewport.IsVisible = false;
+        UpdateViewportVisibility();
         // Keep the ordinary Avalonia chrome mounted. KeepAlive belongs to BrowserSession,
         // and survives destruction/recreation of this native anchor or the entire OverlayWindow.
     }
@@ -183,8 +190,21 @@ public sealed class BrowserView : OverlaySubView
 
     internal void Cover(bool covered)
     {
+        _covered = covered;
+        UpdateViewportVisibility();
+    }
+
+    private void UpdateViewportVisibility()
+    {
+        var covered = _covered || _memory.IsDropDownOpen;
         _session?.Cover(covered);
-        if (!covered && _pendingPageText is { } text)
+        var hasPage = _session is { Lifecycle: BrowserLifecycle.Active, Address: not BrowserNavigation.Home };
+        _emptyViewport.IsVisible = !hasPage;
+        _viewport.IsVisible = _entered && hasPage && !covered;
+        // A child HWND has its own airspace. Hiding only the WebView leaves the native
+        // anchor above Avalonia's keyboard. Hide the whole attachment before showing a surface.
+        _viewport.TryUpdateNativeControlPosition();
+        if (_entered && hasPage && !covered && _pendingPageText is { } text)
         {
             _pendingPageText = null;
             _session?.InsertText(text);
@@ -241,7 +261,7 @@ public sealed class BrowserView : OverlaySubView
 
         var scroller = this.GetVisualAncestors().OfType<ScrollViewer>().FirstOrDefault();
         if (scroller is null || scroller.Viewport.Height <= 0
-            || _viewport.TranslatePoint(default, scroller) is not { } origin)
+            || _viewportFrame.TranslatePoint(default, scroller) is not { } origin)
         {
             return;
         }
@@ -249,11 +269,11 @@ public sealed class BrowserView : OverlaySubView
         // The shared deck measures page stacks with unbounded height. Reserve its actual viewport
         // for address/navigation and the native page; secondary options remain below it in the deck.
         // Add the scroll offset back so visiting those options never changes the page's size.
-        var height = Math.Max(_viewport.MinHeight,
+        var height = Math.Max(_viewportFrame.MinHeight,
             scroller.Viewport.Height - origin.Y - scroller.Offset.Y - _stack.Spacing);
-        if (Math.Abs(height - _viewport.Height) > 0.5)
+        if (Math.Abs(height - _viewportFrame.Height) > 0.5)
         {
-            _viewport.Height = height;
+            _viewportFrame.Height = height;
         }
     }
 
@@ -320,9 +340,10 @@ public sealed class BrowserView : OverlaySubView
             BrowserLifecycle.NotCreated => "Open",
             _ => session?.Loading == true ? "Stop" : "Reload"
         };
-        _enter.IsEnabled = session?.Lifecycle == BrowserLifecycle.Active;
+        _enter.IsEnabled = session is { Lifecycle: BrowserLifecycle.Active, Address: not BrowserNavigation.Home };
         _zoom.Text = $"{(session?.Options.ZoomFactor ?? 1):P0}";
         _status.Text = session?.Status ?? "Browser is unavailable in this session.";
+        UpdateViewportVisibility();
         _gameSearch.IsVisible = session?.CurrentGame is not null;
         _gameSearch.Content = session?.CurrentGame is { } game ? "Search " + game.Title + "…" : "Search current game…";
         var behavior = session?.Options.MemoryBehavior;

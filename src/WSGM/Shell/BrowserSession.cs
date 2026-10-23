@@ -149,6 +149,11 @@ internal sealed class BrowserSession : IDisposable
 
     internal void Cover(bool covered)
     {
+        if (_covered == covered)
+        {
+            return;
+        }
+
         _covered = covered;
         if (covered)
         {
@@ -188,9 +193,11 @@ internal sealed class BrowserSession : IDisposable
             return;
         }
 
-        Close();
         BrowserNative.Detach(_child);
         _viewport = 0;
+        // The selected page owns Open/Close. Losing an HWND during a window or
+        // visual-tree transition must not silently close a still-selected browser.
+        UpdateVisibility();
     }
 
     internal void Resize(int width, int height)

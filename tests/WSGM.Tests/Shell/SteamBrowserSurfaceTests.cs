@@ -5,7 +5,7 @@ namespace WSGM.Tests.Shell;
 public sealed class SteamBrowserSurfaceTests
 {
     [Fact]
-    public void LookupPresentationRegistersNoPrivilegedWebsiteCommandChannel()
+    public void NativeBrowserEntryRegistersNoPrivilegedWebsiteCommandChannel()
     {
         var module = SteamBrowserSurface.Module(() => true);
 

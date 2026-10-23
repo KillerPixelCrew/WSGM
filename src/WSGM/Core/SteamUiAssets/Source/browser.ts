@@ -1,5 +1,5 @@
-// This trusted page never renders a website. It hands a validated, user-initiated request to
-// Valve's browser for the Big Picture or game-overlay instance supplied by Steam's WindowContext.
+// This trusted route hands off to Valve's browser in Steam's exact WindowContext. Websites
+// never render in this document and receive no WSGM/Steam bridge.
 const BrowserPatchId = "wsgm.browser";
 let browserNative: any = null;
 
@@ -8,127 +8,43 @@ function BrowserGuidePage({ context }: any) {
   const react = ui.react;
   const h = react.createElement;
   const instance = browserNative.useWindow();
-  const target = browserNative.identify(instance);
-  const [query, setQuery] = react.useState("");
-  const [error, setError] = react.useState("");
   const state = context.state();
-
-  const allowed = (address: string) => {
-    if (address === "about:blank") return true;
+  const attempted = react.useRef(false);
+  const [error, setError] = react.useState("");
+  const open = () => {
     try {
-      const url = new URL(address);
-      return (
-        address.length <= 4096 &&
-        ["https:", "http:"].includes(url.protocol) &&
-        !url.username &&
-        !url.password
-      );
-    } catch {
-      return false;
-    }
-  };
-
-  const lookup = (withGame = false) => {
-    try {
-      const text = String(query).trim();
-      if (!state || !target)
-        throw new Error(
-          "Steam's browser is unavailable in this window. Reopen Browser from Quick Access.",
-        );
-      if (!text || text.length > 4096)
-        throw new Error("Enter an address or search (up to 4096 characters).");
-      let address: string;
-      if (!withGame && allowed(text)) address = text;
-      else if (!withGame && text.includes("://"))
-        throw new Error("Only HTTP and HTTPS addresses are allowed.");
-      else if (!withGame && !text.includes(" ") && text.includes(".") && allowed(`https://${text}`))
-        address = `https://${text}`;
-      else {
-        if (!withGame && /^(?:[a-z][a-z0-9+.-]*):/i.test(text))
-          throw new Error("Only HTTP and HTTPS addresses are allowed.");
-        const search = withGame ? `${target.title} ${text}` : text;
-        address = `${state.searchPrefix}${encodeURIComponent(search)}`;
-      }
-      if (!allowed(address)) throw new Error("This address is not allowed.");
-      if (!browserNative.open(instance, address))
-        throw new Error("Steam's native browser is unavailable.");
+      const target = browserNative.identify(instance);
+      if (!state || !target || !browserNative.open(instance, undefined, state.home, true))
+        throw new Error("Steam's browser is unavailable in this window. Reopen Browser from Quick Access.");
+      // Gamepad/MainWindow replaces this handoff route, so native Back returns to its caller.
+      // Desktop Overlay opens a separate native browser window and returns its hidden caller.
+      if (target.kind === "desktop") instance.History?.goBack?.();
       setError("");
     } catch (failure) {
       setError(String(failure instanceof Error ? failure.message : failure));
     }
   };
+  react.useEffect(() => {
+    if (!state || attempted.current) return;
+    attempted.current = true;
+    open();
+  }, [instance, !!state]);
 
-  const resume = () => {
-    if (!target || !browserNative.open(instance, undefined, state?.home)) {
-      setError("Steam's native browser is unavailable. Reopen Browser from Quick Access.");
-    }
-  };
-
-  const content = renderSteamUiLevel(
-    ui,
-    { bounded: true },
-    h("h2", null, "Browser / guides"),
-    h(
-      "p",
-      { className: "steam-ui-kit-muted" },
-      target
-        ? target.kind === "main"
-          ? "Open a website or search without leaving Steam."
-          : `Quick lookups for ${target.title || "this game"}`
-        : "Steam's browser is unavailable in this window. Reopen Browser from Quick Access.",
-    ),
-    h(ui.textField, {
-      label: "Search or enter an address",
-      value: query,
-      maxLength: 4096,
-      disabled: !target,
-      onChange: (event: any) => setQuery(String(event?.target?.value ?? "")),
-      onKeyDown: (event: any) => {
-        if (event.key === "Enter") lookup();
-      },
-    }),
-    renderSteamUiActions(ui, [
-      {
-        id: "lookup",
-        label: "Open lookup",
-        primary: true,
-        disabled: !target || !query.trim(),
-        onClick: () => lookup(),
-      },
-      ...(target?.title
-        ? [
-            {
-              id: "game-search",
-              label: `Search ${target?.title || "current game"}…`,
-              disabled: !target?.title || !query.trim(),
-              onClick: () => lookup(true),
-            },
-          ]
-        : []),
-      { id: "resume", label: "Resume native browser", disabled: !target, onClick: resume },
-    ]),
-    error ? h("p", { role: "alert" }, error) : null,
-    h(
-      "p",
-      { className: "steam-ui-kit-muted" },
-      "Use Steam's browser controls and keyboard. Back returns here; Resume reopens your last lookup.",
-    ),
-    h(
-      "p",
-      { className: "steam-ui-kit-muted" },
-      "Steam manages its browser's memory, downloads and link prompts. WSGM's memory setting applies to its own Overlay browser.",
-    ),
-    h(
-      "p",
-      { className: "steam-ui-kit-muted" },
-      "Search current game adds the game title only when you choose it. Your search goes directly to the search provider.",
-    ),
-  );
   return h(
     "div",
-    { id: "wsgm-browser", className: "steam-ui-kit-page", "aria-label": "Browser / guides" },
+    { id: "wsgm-browser", className: "steam-ui-kit-page", "aria-label": "Browser" },
     steamUiKitStyle(react),
-    h("div", { style: { flex: 1, minHeight: 0, overflowY: "auto" } }, content),
+    renderSteamUiLevel(
+      ui,
+      { bounded: true },
+      h("h2", null, "Browser"),
+      h("p", { role: error ? "alert" : "status" }, error || "Opening Steam's browser…"),
+      error
+        ? renderSteamUiActions(ui, [
+            { id: "retry", label: "Try again", primary: true, onClick: open },
+          ])
+        : null,
+    ),
   );
 }
 
@@ -137,10 +53,16 @@ const browserGuidePage = registerSteamPage({
   gate: "browser",
   patchId: BrowserPatchId,
   components: resolveSteamSettingsComponents,
-  required: ["react", "focusable", "dialogButton", "dialogButtonPrimary", "textField"],
-  prepare: (_ui, runtime) => {
+  required: ["react", "focusable", "dialogButton"],
+  prepare: (ui, runtime) => {
     browserNative = resolveSteamOverlayBrowser(runtime);
-    return browserNative ? null : "Steam's native browser contract is unavailable.";
+    if (!browserNative) return "Steam's native browser contract is unavailable.";
+    if (!browserNative.installChrome(ui, () => browserGuidePage.state()?.searchPrefix)) {
+      browserNative.dispose();
+      browserNative = null;
+      return "Steam's native address editor is unavailable.";
+    }
+    return null;
   },
   release: () => {
     browserNative?.dispose?.();

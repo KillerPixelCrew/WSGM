@@ -358,8 +358,12 @@ internal sealed class BrowserWindow : Form
             controller.Bounds = ClientRectangle;
             controller.NotifyParentWindowPositionChanged();
             controller.IsVisible = true;
-            await web.CallDevToolsProtocolMethodAsync("Input.setIgnoreInputEvents", "{\"ignore\":false}");
-            Publish(_pageStatus);
+            await web.CallDevToolsProtocolMethodAsync("Input.setIgnoreInputEvents", "{\"ignore\":false}")
+                .WaitAsync(TimeSpan.FromSeconds(2));
+            if (!_closing && generation == _visibilityGeneration)
+            {
+                Publish(_pageStatus);
+            }
         }
         else
         {
@@ -370,6 +374,11 @@ internal sealed class BrowserWindow : Form
             {
                 await web.CallDevToolsProtocolMethodAsync("Input.setIgnoreInputEvents", "{\"ignore\":true}")
                     .WaitAsync(TimeSpan.FromSeconds(2));
+                if (_closing || generation != _visibilityGeneration)
+                {
+                    return;
+                }
+
                 // Pause ordinary top-level media. Muting also covers cross-origin frames; suspension
                 // is best effort, with a bounded wait so a hung page cannot block reopening forever.
                 await web.ExecuteScriptAsync("document.querySelectorAll('audio,video').forEach(m=>m.pause())")
@@ -379,7 +388,7 @@ internal sealed class BrowserWindow : Form
                     return;
                 }
 
-                var suspended = await web.TrySuspendAsync().WaitAsync(TimeSpan.FromSeconds(2));
+                var suspended = await SuspendAsync(web).WaitAsync(TimeSpan.FromSeconds(2));
                 if (!_closing && generation == _visibilityGeneration)
                 {
                     Publish(suspended ? "Retained, muted and suspended" : "Retained and muted; this page cannot suspend", lifecycle: true);
@@ -387,7 +396,27 @@ internal sealed class BrowserWindow : Form
             }
             catch (Exception) when (!_closing)
             {
-                Publish("Retained and muted", lifecycle: true);
+                if (generation == _visibilityGeneration)
+                {
+                    Publish("Retained and muted", lifecycle: true);
+                }
+            }
+        }
+    }
+
+    private async Task<bool> SuspendAsync(CoreWebView2 web)
+    {
+        try
+        {
+            return await web.TrySuspendAsync();
+        }
+        finally
+        {
+            // WaitAsync bounds the caller, not Chromium's operation. Even a late completion
+            // must honor a page that reopened while suspension was pending.
+            if (!_closing && _visible && ReferenceEquals(_controller?.CoreWebView2, web))
+            {
+                web.Resume();
             }
         }
     }

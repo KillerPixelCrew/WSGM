@@ -2,7 +2,6 @@
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import {
-  declarations,
   fragment,
   instantiate,
   loadAsset,
@@ -29,6 +28,9 @@ const makeHistory = () => {
       this.pushes.push({ pathname, state });
       this.change(pathname, state);
     },
+    replace(pathname, state) {
+      this.change(pathname, state);
+    },
     change(pathname, state) {
       this.location = { pathname, state };
       for (const callback of [...listeners]) callback(this.location, "REPLACE");
@@ -46,7 +48,8 @@ const makeWindow = (appId = 220, processId = 1234, gameId = "220", kind = "gamep
     navigations: [],
     Navigate(pathname, replace, sameRoute, state) {
       this.navigations.push({ pathname, replace, sameRoute, state });
-      this.History.push(pathname, state);
+      if (replace) this.History.replace(pathname, state);
+      else this.History.push(pathname, state);
     },
     Navigator: {
       ExternalWeb(url) {
@@ -125,6 +128,13 @@ const setup = (windows) => {
   });
   assert.notEqual(game.navigations.at(-1).state, nativeState, "native route state is copied");
   assert.equal(nativeState.nativeOnly.untouched, true);
+  helper.open(game, undefined, "about:blank", true);
+  assert.equal(game.navigations.at(-1).replace, true, "direct entry removes its handoff route");
+  assert.equal(
+    game.navigations.at(-1).state.initialIndex,
+    4,
+    "direct entry retains native browser history",
+  );
   game.History.change(route, { ...nativeState, finalIndex: 8 });
   game.History.change("/wsgm/browser");
   helper.open(game);
@@ -278,99 +288,84 @@ for (const state of [
 }
 
 {
-  const pageSource =
-    declarations(asset, "ui-kit.ts", [
-      "SteamUiKitStyles",
-      "steamUiKitStyles",
-      "steamUiKitStyle",
-      "renderSteamUiLevel",
-    ]) +
-    "\n" +
-    fragment(asset, "consumer/browser.ts");
-  for (const [query, action, expected] of [
-    ["https://example.com/guide", "lookup", "https://example.com/guide"],
-    ["example.com/guide", "lookup", "https://example.com/guide"],
-    ["shield & poison", "lookup", "https://www.google.com/search?q=shield%20%26%20poison"],
-    [
-      "shield & poison",
-      "game-search",
-      "https://www.google.com/search?q=Game%20220%20shield%20%26%20poison",
-    ],
-    ["steam://run/example.com", "lookup", null],
-    ["file:///C:/secret.com", "lookup", null],
-    ["https://name:pass@example.com", "lookup", null],
-    ["javascript:alert(1)", "lookup", null],
-  ]) {
+  const pageSource = fragment(asset, "consumer/browser.ts");
+  for (const kind of ["main", "gamepad", "desktop", "unavailable"]) {
     const opened = [];
+    const effects = [];
     const errors = [];
-    let states = 0;
-    let actions;
+    let returned = 0;
+    const attempt = { current: false };
+    const state = { home: "about:blank", searchPrefix: "https://www.google.com/search?q=" };
     const ui = {
       focusable: "focusable",
       react: {
         createElement: (type, props, ...children) => ({ type, props, children }),
-        useState: () => [states++ === 0 ? query : "", (value) => errors.push(value)],
+        useState: () => ["", (value) => errors.push(value)],
+        useRef: () => attempt,
+        useEffect: (callback) => effects.push(callback),
       },
-      textField: "text-field",
     };
-    const instance = {};
+    const instance = {
+      History: {
+        goBack: () => {
+          returned++;
+        },
+      },
+    };
+    let chromeReleased = false;
     const native = {
       useWindow: () => instance,
-      identify: () => ({ title: "Game 220", appId: 220 }),
-      open: (window, url) => {
+      identify: () => (kind === "unavailable" ? null : { kind }),
+      open: (window, url, home, replace) => {
         assert.equal(window, instance);
-        opened.push(url);
+        opened.push({ url, home, replace });
         return true;
+      },
+      installChrome: (components, provider) => {
+        assert.equal(components, ui);
+        assert.equal(provider(), state.searchPrefix);
+        return true;
+      },
+      dispose: () => {
+        chromeReleased = true;
       },
     };
     const page = instantiate(
       {
-        registerSteamPage: (options) => options,
+        registerSteamPage: (options) => ({ ...options, state: () => state }),
         resolveSteamSettingsComponents: () => ui,
         resolveSteamOverlayBrowser: () => native,
-        renderSteamUiActions: (_ui, value) => {
-          actions = value;
-          return value;
-        },
+        steamUiKitStyle: () => null,
+        renderSteamUiLevel: (_ui, _options, ...children) => children,
+        renderSteamUiActions: (_ui, actions) => actions,
       },
       pageSource,
       "browserGuidePage",
     );
     assert.equal(page.prepare(ui, {}), null);
-    const rendered = page.Page({
-      context: {
-        ui: () => ui,
-        state: () => ({ home: "about:blank", searchPrefix: "https://www.google.com/search?q=" }),
-      },
-    });
+    const rendered = page.Page({ context: { ui: () => ui, state: () => state } });
+    assert.equal(rendered.props.className, "steam-ui-kit-page");
+    assert.deepEqual(opened, [], "render does not navigate during React reconciliation");
+    effects.forEach((effect) => effect());
+    if (kind === "unavailable") {
+      assert.equal(opened.length, 0);
+      assert.ok(errors.some((error) => error.includes("unavailable")));
+    } else {
+      assert.deepEqual(opened, [{ url: undefined, home: "about:blank", replace: true }]);
+      assert.equal(returned, kind === "desktop" ? 1 : 0);
+      assert.ok(errors.every((error) => error === ""));
+    }
+    effects.forEach((effect) => effect());
     assert.equal(
-      rendered.props.className,
-      "steam-ui-kit-page",
-      "native header inset belongs to the standard page shell",
+      opened.length,
+      kind === "unavailable" ? 0 : 1,
+      "publication refresh cannot reopen the page",
     );
-    assert.equal(
-      rendered.children[0].type,
-      "style",
-      "content helpers require their stylesheet in this document",
-    );
-    assert.ok(rendered.children[0].children.join("").includes("--basicui-header-height"));
-    assert.equal(
-      rendered.children[1].props.style.overflowY,
-      "auto",
-      "short viewports retain a scrollable body",
-    );
-    assert.deepEqual(opened, [], "rendering never transmits game identity or opens a site");
-    actions.find((candidate) => candidate.id === action).onClick();
-    assert.deepEqual(
-      opened,
-      expected === null ? [] : [expected],
-      `explicit ${action} handles ${query}`,
-    );
-    if (expected === null) assert.ok(errors.some((error) => error.includes("Only HTTP")));
     page.release();
+    assert.equal(chromeReleased, true);
   }
 }
 
 console.log(
-  "Overlay browser: semantic identity, native resume, generations, disposal and safe user-initiated lookup passed.",
+  "Overlay browser: semantic identity, native resume, generations, disposal and direct native entry passed.",
 );

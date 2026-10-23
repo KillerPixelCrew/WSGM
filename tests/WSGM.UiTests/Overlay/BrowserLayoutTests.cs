@@ -42,15 +42,20 @@ public sealed class BrowserLayoutTests
         address.BringIntoView();
         Dispatcher.UIThread.RunJobs();
         var viewport = Assert.Single(page.GetVisualDescendants().OfType<BrowserViewport>());
+        var viewportFrame = Assert.IsType<Grid>(viewport.GetVisualParent());
         var scroller = UiFixture.Named<ScrollViewer>(window, "ContentScroller");
-        var origin = viewport.TranslatePoint(default, scroller)!.Value;
-        Assert.True(viewport.Bounds.Height >= 240);
-        Assert.InRange(origin.Y, 0, scroller.Viewport.Height - viewport.Bounds.Height + 1);
+        var origin = viewportFrame.TranslatePoint(default, scroller)!.Value;
+        Assert.True(viewportFrame.Bounds.Height >= 240);
+        Assert.InRange(origin.Y, 0, scroller.Viewport.Height - viewportFrame.Bounds.Height + 1);
+        Assert.False(viewport.IsVisible);
+        Assert.Contains(page.GetVisualDescendants().OfType<TextBlock>(),
+            text => text.IsEffectivelyVisible && text.Text == "Enter an address or search above to open a page.");
         var directory = CaptureDirectory(width, height);
         DevicePageCaptureTests.Capture(window, Path.Combine(directory, "chrome.png"));
         UiFixture.Click(window, keyboard);
         Dispatcher.UIThread.RunJobs();
         Assert.True(window.HasActiveSurface);
+        Assert.False(viewport.IsVisible);
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(),
             text => text.IsEffectivelyVisible && text.Text == "Type into the selected web field");
         DevicePageCaptureTests.Capture(window, Path.Combine(directory, "keyboard.png"));
