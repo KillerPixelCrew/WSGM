@@ -323,7 +323,7 @@ public partial class OverlayWindow : Window
         _dock(this);
         _glassBackdrop = LiveBackdrop.Attach(this, _blurRadius);
         _glassBackdrop.StateChanged += OnGlassBackdropChanged;
-        ApplyGlassTransparency();
+        OnGlassBackdropChanged(_glassBackdrop, EventArgs.Empty);
         SelectDestination(_session.Destination);
         RestoreDestinationState(true);
     }

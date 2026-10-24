@@ -11,31 +11,37 @@ static void Equal(const RECT& actual, const RECT& expected)
 
 int main()
 {
-    // A physical client on a monitor left of and above the primary output keeps its
-    // negative origin. Its shell crop and application crop cover the identical pixels.
-    const auto bounds = ClientScreenBounds({-2300, -1100}, {0, 0, 1800, 1200});
-    Equal(bounds, {-2300, -1100, -500, 100});
+    const auto client = ClientScreenBounds({-2300, -1100}, {0, 0, 1800, 1200});
+    Equal(client, {-2300, -1100, -500, 100});
     RECT crop{}, destination{};
-    assert(ShellThumbnailBounds({-2560, -1440, 0, 0}, bounds, crop, destination));
-    Equal(crop, {260, 340, 2060, 1440});
-    Equal(destination, {0, 0, 1800, 1100});
-    assert(!ShellThumbnailBounds({0, 0, 3840, 2160}, bounds, crop, destination));
+    POINT offset{};
 
-    // A client spanning differently scaled outputs uses physical pixels throughout.
-    // Both shell surfaces meet at destination x=400 without rescaling either monitor.
-    const auto spanning = ClientScreenBounds({-400, 200}, {0, 0, 2400, 1500});
-    assert(ShellThumbnailBounds({-2560, 0, 0, 1440}, spanning, crop, destination));
-    Equal(crop, {2160, 200, 2560, 1440});
-    Equal(destination, {0, 0, 400, 1240});
-    assert(ShellThumbnailBounds({0, 0, 3840, 2160}, spanning, crop, destination));
-    Equal(crop, {0, 200, 2000, 1700});
-    Equal(destination, {400, 0, 2400, 1500});
+    // A desktop surface spanning a secondary output stays whole. DirectComposition
+    // positions it behind the client and clips it; DWM never receives a partial crop.
+    assert(WindowThumbnailBounds({-2560, -1440, 0, 0}, {2560, 1440}, client, crop, destination, offset));
+    Equal(crop, {0, 0, 2560, 1440});
+    Equal(destination, {0, 0, 2560, 1440});
+    assert(offset.x == -260 && offset.y == -340);
+    assert(!WindowThumbnailBounds({0, 0, 3840, 2160}, {3840, 2160}, client, crop, destination, offset));
 
-    // Moving to the other monitor changes only the screen crop, not its local size.
-    const auto moved = ClientScreenBounds({100, 300}, {0, 0, 1800, 1200});
-    assert(ShellThumbnailBounds({0, 0, 3840, 2160}, moved, crop, destination));
-    Equal(crop, {100, 300, 1900, 1500});
-    Equal(destination, {0, 0, 1800, 1200});
-    assert(!ShellThumbnailBounds({-2560, 0, 0, 1440}, moved, crop, destination));
+    // The redirection surface can have a different DPI from its desktop footprint.
+    // Capture its actual pixels, scale to the footprint, then position the retained visual.
+    assert(WindowThumbnailBounds({100, 200, 1600, 1100}, {1000, 600}, {0, 0, 2560, 1600},
+        crop, destination, offset));
+    Equal(crop, {0, 0, 1000, 600});
+    Equal(destination, {0, 0, 1500, 900});
+    assert(offset.x == 100 && offset.y == 200);
+
+    // Sliding the client changes only the visual offset, never the captured surface.
+    assert(WindowThumbnailBounds({0, 0, 2560, 1600}, {2560, 1600}, {0, -800, 2560, 800},
+        crop, destination, offset));
+    Equal(crop, {0, 0, 2560, 1600});
+    Equal(destination, {0, 0, 2560, 1600});
+    assert(offset.x == 0 && offset.y == 800);
+    assert(!WindowThumbnailBounds({0, 0, 2560, 1600}, {2560, 1600}, {0, -1600, 2560, 0},
+        crop, destination, offset));
+
+    assert(!WindowThumbnailBounds({0, 0, 100, 100}, {0, 0}, {0, 0, 100, 100},
+        crop, destination, offset));
     return 0;
 }

@@ -119,7 +119,7 @@ public partial class OverlayWindow
         }
 
         Width = bounds.Width / scaling;
-        Height = Math.Round(bounds.Height / scaling);
+        Height = bounds.Height / scaling;
         TrayScroller.MaxWidth = ComputeTrayMaxWidth(Width, _contentScale);
 
         var heightPx = (int)Math.Ceiling(Height * scaling);
@@ -180,6 +180,18 @@ public partial class OverlayWindow
     private void OnGlassBackdropChanged(object? sender, EventArgs e)
     {
         ApplyGlassTransparency();
+        if (_glassBackdrop?.IsActive == true)
+        {
+            Log.Info($"Quick access live backdrop active (blur {_blurRadius:0.##} px).");
+        }
+        else if (_glassBackdrop?.FailureReason is { } failure)
+        {
+            Log.Warn($"Quick access live backdrop unavailable: {failure}");
+        }
+        else if (IsVisible)
+        {
+            Log.Info($"Quick access waiting for transparency ({ActualTransparencyLevel}).");
+        }
     }
 
     private void ApplyGlassTransparency()

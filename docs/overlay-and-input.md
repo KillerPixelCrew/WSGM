@@ -56,6 +56,11 @@ remains. On 2026-09-24 the maintainer confirmed the integrated Overlay over Stea
 Claw, including bright/dark readability and no noticeable frame-time change. Battery-saver behavior
 and physical touch still need attended validation for issue #114.
 
+The backdrop retains individual DWM window surfaces in desktop stacking order and applies the blur
+on the display-owning adapter. It keeps full source dimensions and positions/clips those visuals
+through DirectComposition, including during the opening slide and at fractional desktop scaling.
+Initialization and failure state are recorded in `wsgm.log`.
+
 The fixed header carries the WSGM context, utility controls and status. Horizontal tabs select Quick
 access, Steam, Device, Tools or Power. Each destination has a persistent 240-DIP section rail beside
 a controls pane that fills the remaining width; both scroll independently. The workspace supports a

@@ -57,18 +57,26 @@ client area; it does not implement independent panel masks, rounded cutouts or l
   behind the Avalonia window. Avalonia retains its own HWND compositor target and renderer. The
   companion follows physical client bounds, visibility, minimization, foreground and stacking
   changes.
-- One D3D11/DirectComposition session combines shared application visuals with Progman/WorkerW shell
-  thumbnails below them and applies one Gaussian effect. Both sources use the host's physical client
-  rectangle and the same local coordinates. D3D11 uses the DXGI adapter whose attached output owns
-  the host monitor. Window events coalesce for 16 ms; desktop pixels themselves remain
-  compositor-driven. There is no refresh timer running while idle.
-- Shell identity/bounds and the sampled client rectangle are compared on refresh and thumbnails
-  rebuilt when they change. A monitor, adapter or output topology transition retires the old helper
-  and compositor resources together before creating the replacement at the new physical bounds.
-  During a client move/resize, the helper is repositioned and its new source is committed before it
-  becomes visible; unchanged refreshes never hide it or wait for a composition commit. All windows
-  of the consumer process are excluded to prevent recursive sampling, including its popup windows
-  and other library instances. Companion window events do not trigger other instances' refreshes.
+- One D3D11/DirectComposition session combines retained thumbnails of visible application and shell
+  windows behind the host in their desktop stacking order, then applies one Gaussian effect. DWM
+  supplies each window's full redirection surface and its actual source dimensions.
+  DirectComposition positions each visual in physical client coordinates and clips the group to the
+  host. Pixel changes keep the same visuals; moves change their offsets, and a resize replaces only
+  that window's thumbnail. Source replacements and membership/stacking changes update the visual
+  list in one compositor commit. Private thumbnail tokens never go through public thumbnail-update
+  APIs. The combined multi-window DWM sampler is not used.
+- D3D11 uses the DXGI adapter whose attached output owns the host monitor, including an Intel-driven
+  Optimus display. DWM supplies the individual window surfaces to that compositor. An off-screen
+  opening animation waits until it intersects a monitor before binding the renderer. Window events
+  coalesce for 16 ms; pixels remain compositor-driven, with no idle refresh timer. The Overlay keeps
+  fractional DIP sizes so a scaled display does not gain an extra physical row. A failed attachment
+  reports its reason in `wsgm.log`.
+- A monitor, adapter or output topology transition retires the old helper and compositor resources
+  together before creating the replacement at the new physical bounds. During a client move/resize,
+  the helper is repositioned and its new source is committed before it becomes visible; unchanged
+  refreshes never hide it or wait for a composition commit. All windows of the consumer process are
+  excluded to prevent recursive sampling, including its popup windows and other library instances.
+  Companion window events do not trigger other instances' refreshes.
 - The host temporarily receives `WS_EX_TOOLWINDOW` and loses `WS_EX_APPWINDOW`. Chromium's occlusion
   tracker otherwise stops Steam web content under a visually transparent covering window. Original
   values of those two bits are restored on detach, while other style bits are preserved. The host
@@ -79,7 +87,7 @@ client area; it does not implement independent panel masks, rounded cutouts or l
 
 ## Support and evidence
 
-This backend uses **undocumented Windows 11 DWM exports** 147, 163 and 164. Missing exports, native
+This backend uses **undocumented Windows 11 DWM exports** 147 and 162. Missing exports, native
 payload, unsupported platform or initialization/update failure leave an opaque fallback. A
 successful API call reports initialization, not a guarantee that a particular Windows/driver build
 renders it correctly. `IsActive` indicates an initialized session. Windows updates may require
@@ -134,7 +142,7 @@ Avalonia dispatcher with the session generation. A callback from a retired sessi
 replacement.
 
 [`Native/Backdrop.cpp`](Native/Backdrop.cpp) contains the session object, helper-window procedure,
-owner subclass, window-event hooks, desktop-thumbnail refresh, compositor construction and cleanup.
+owner subclass, window-event hooks, retained window thumbnails, compositor construction and cleanup.
 The creating thread owns every native session resource. `Native/build.ps1` locates the Windows C++
 toolchain and builds the native DLL; `Avalonia.LiveBackdrop.csproj` calls it before build and copies
 the payload and both license files transitively. Generated output lives in
@@ -147,8 +155,8 @@ retry and stale callbacks. These are managed lifecycle checks. Use the
 and follow the repository's manual-first test timing.
 
 [`NativeGeometryTests.cpp`](../../tests/Avalonia.LiveBackdrop.Tests/NativeGeometryTests.cpp) checks
-the native physical-pixel crop contract for negative origins, partial shell intersections, a client
-spanning outputs and movement between outputs. From an x64 Visual Studio developer prompt, compile
-with `cl /nologo /std:c++17 /EHsc /W4 /WX NativeGeometryTests.cpp /link user32.lib` in its
+the full-window thumbnail and physical placement contract for negative origins, mixed source DPI,
+partial overlap and an off-screen opening animation. From an x64 Visual Studio developer prompt,
+compile with `cl /nologo /std:c++17 /EHsc /W4 /WX NativeGeometryTests.cpp /link user32.lib` in its
 directory, then run the resulting executable after the manual test. These checks do not validate
 visible blur, Optimus presentation or actual DPI virtualization on a live window.

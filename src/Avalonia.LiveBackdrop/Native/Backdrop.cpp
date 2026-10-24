@@ -19,9 +19,8 @@
 #include "Geometry.h"
 
 using Microsoft::WRL::ComPtr;
-using CreateShared = HRESULT(WINAPI*)(HWND, void*, void**, HTHUMBNAIL*);
-using UpdateShared = HRESULT(WINAPI*)(HTHUMBNAIL, HWND*, DWORD, HWND*, DWORD, RECT*, SIZE*, DWORD);
 using CreateThumbnail = HRESULT(WINAPI*)(HWND, HWND, DWORD, DWM_THUMBNAIL_PROPERTIES*, void*, void**, HTHUMBNAIL*);
+using QueryThumbnailSize = HRESULT(WINAPI*)(HWND, BOOL, SIZE*);
 struct CompositionAttribute { int attribute; void* data; SIZE_T size; };
 using SetAttribute = BOOL(WINAPI*)(HWND, CompositionAttribute*);
 using FailureCallback = void(__cdecl*)(HRESULT);
@@ -50,14 +49,11 @@ public:
     ~PhysicalPixels() { SetThreadDpiAwarenessContext(previous); }
 };
 
-struct ShellWindow
+struct WindowVisual
 {
     HWND window;
-    RECT rect;
-    bool operator==(const ShellWindow& other) const
-    {
-        return window == other.window && EqualRect(&rect, &other.rect);
-    }
+    DWM_THUMBNAIL_PROPERTIES properties;
+    ComPtr<IDCompositionVisual2> visual;
 };
 
 class Session;
@@ -76,24 +72,22 @@ class Session
     float blurRadius{};
     HMONITOR monitor{};
     LUID adapterId{};
-    RECT monitorBounds{}, appliedBounds{}, shellSource{};
-    CreateShared createShared{};
-    UpdateShared updateShared{};
+    RECT monitorBounds{}, appliedBounds{};
     CreateThumbnail createThumbnail{};
+    QueryThumbnailSize queryThumbnailSize{};
     ComPtr<ID3D11Device> graphics;
     ComPtr<IDXGIFactory1> displayFactory;
     ComPtr<IDCompositionDesktopDevice> desktop;
     ComPtr<IDCompositionDevice3> effects;
     ComPtr<IDCompositionTarget> target;
-    ComPtr<IDCompositionVisual2> group, appVisual;
+    ComPtr<IDCompositionVisual2> group;
     ComPtr<IDCompositionGaussianBlurEffect> blur;
-    // Private shared-visual identifiers are borrowed update tokens. The visual owns the
-    // registration; they are not registrations acquired through DwmRegisterThumbnail.
-    HTHUMBNAIL thumbnail{};
-    std::vector<ComPtr<IDCompositionVisual2>> shellVisuals;
-    std::vector<ShellWindow> shellWindows;
+    // The visual owns its private thumbnail. Its token is not a public DwmRegisterThumbnail handle.
+    std::vector<WindowVisual> windowVisuals;
     std::vector<HWINEVENTHOOK> hooks;
     static constexpr LONG_PTR styleMask = WS_EX_TOOLWINDOW | WS_EX_APPWINDOW;
+    static constexpr DWORD thumbnailPropertiesFlags = DWM_TNP_VISIBLE | DWM_TNP_OPACITY | DWM_TNP_RECTDESTINATION
+        | DWM_TNP_RECTSOURCE | DWM_TNP_SOURCECLIENTAREAONLY;
 
     static LRESULT CALLBACK HelperProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
     {
@@ -187,49 +181,87 @@ class Session
         if (notify) notify(result);
     }
 
-    void ClearShell()
+    void ClearWindows()
     {
-        for (const auto& visual : shellVisuals) if (group) group->RemoveVisual(visual.Get());
-        shellVisuals.clear();
-        shellWindows.clear();
+        if (group) group->RemoveAllVisuals();
+        windowVisuals.clear();
     }
 
-    void SyncShell(const RECT& source)
+    void SyncWindows(const RECT& source)
     {
-        std::vector<ShellWindow> windows;
+        struct Scan
+        {
+            Session* session;
+            bool behindOwner{};
+            std::vector<HWND> windows;
+        } scan{this, false, {}};
         EnumWindows([](HWND window, LPARAM data) -> BOOL
         {
-            wchar_t name[64]{};
-            GetClassNameW(window, name, 64);
-            if (IsWindowVisible(window) && (wcscmp(name, L"Progman") == 0 || wcscmp(name, L"WorkerW") == 0))
+            auto& state = *reinterpret_cast<Scan*>(data);
+            if (window == state.session->owner)
             {
-                RECT rect{};
-                if (GetWindowRect(window, &rect))
-                    reinterpret_cast<std::vector<ShellWindow>*>(data)->push_back({window, rect});
+                state.behindOwner = true;
+                return TRUE;
             }
+            if (!state.behindOwner || !IsWindowVisible(window) || IsIconic(window)) return TRUE;
+            DWORD process{};
+            GetWindowThreadProcessId(window, &process);
+            if (process == GetCurrentProcessId()) return TRUE;
+            DWORD cloaked{};
+            if (SUCCEEDED(DwmGetWindowAttribute(window, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked) return TRUE;
+            state.windows.push_back(window);
             return TRUE;
-        }, reinterpret_cast<LPARAM>(&windows));
-        if (windows == shellWindows && EqualRect(&source, &shellSource)) return;
-        ClearShell();
-        shellVisuals.reserve(windows.size());
-        // EnumWindows is front-to-back; insert each shell beneath the preceding shell.
-        for (const auto& item : windows)
+        }, reinterpret_cast<LPARAM>(&scan));
+
+        std::vector<WindowVisual> next;
+        next.reserve(scan.windows.size());
+        for (const auto window : scan.windows)
         {
+            RECT rect{}, intersection{};
+            if (!GetWindowRect(window, &rect) || !IntersectRect(&intersection, &rect, &source)) continue;
+            SIZE thumbnailSize{};
+            const auto query = queryThumbnailSize(window, FALSE, &thumbnailSize);
+            if (!IsWindow(window) || !IsWindowVisible(window)) continue;
+            Check(query);
+            if (thumbnailSize.cx <= 0 || thumbnailSize.cy <= 0) continue;
             DWM_THUMBNAIL_PROPERTIES properties{};
-            if (!ShellThumbnailBounds(item.rect, source, properties.rcSource, properties.rcDestination)) continue;
-            properties.dwFlags = DWM_TNP_VISIBLE | DWM_TNP_OPACITY | DWM_TNP_RECTDESTINATION
-                | DWM_TNP_RECTSOURCE | DWM_TNP_SOURCECLIENTAREAONLY | 0x04000000;
+            POINT offset{};
+            if (!WindowThumbnailBounds(rect, thumbnailSize, source, properties.rcSource, properties.rcDestination, offset)) continue;
+            properties.dwFlags = thumbnailPropertiesFlags | 0x04000000;
             properties.fVisible = TRUE;
             properties.opacity = 255;
-            ComPtr<IDCompositionVisual2> visual;
-            HTHUMBNAIL handle{};
-            Check(createThumbnail(helper, item.window, 2, &properties, desktop.Get(),
-                reinterpret_cast<void**>(visual.GetAddressOf()), &handle));
-            shellVisuals.push_back(visual);
-            Check(group->AddVisual(visual.Get(), TRUE, nullptr));
+            const auto existing = std::find_if(windowVisuals.begin(), windowVisuals.end(),
+                [window](const WindowVisual& item) { return item.window == window; });
+            if (existing != windowVisuals.end()
+                && EqualRect(&properties.rcSource, &existing->properties.rcSource)
+                && EqualRect(&properties.rcDestination, &existing->properties.rcDestination))
+            {
+                next.push_back(*existing);
+            }
+            else
+            {
+                WindowVisual item{window, properties, {}};
+                HTHUMBNAIL token{};
+                const auto created = createThumbnail(helper, window, 2, &properties, desktop.Get(),
+                    reinterpret_cast<void**>(item.visual.GetAddressOf()), &token);
+                if (FAILED(created) && (!IsWindow(window) || !IsWindowVisible(window) || IsIconic(window))) continue;
+                Check(created);
+                next.push_back(std::move(item));
+            }
+            Check(next.back().visual->SetOffsetX(static_cast<float>(offset.x)));
+            Check(next.back().visual->SetOffsetY(static_cast<float>(offset.y)));
         }
-        shellWindows = std::move(windows);
-        shellSource = source;
+        const auto sameOrder = next.size() == windowVisuals.size()
+            && std::equal(next.begin(), next.end(), windowVisuals.begin(),
+                [](const WindowVisual& first, const WindowVisual& second)
+                { return first.window == second.window && first.visual.Get() == second.visual.Get(); });
+        if (!sameOrder)
+        {
+            Check(group->RemoveAllVisuals());
+            // EnumWindows is front-to-back. Each retained source is inserted below its predecessor.
+            for (const auto& item : next) Check(group->AddVisual(item.visual.Get(), TRUE, nullptr));
+        }
+        windowVisuals = std::move(next);
     }
 
     static ComPtr<IDXGIAdapter1> DisplayAdapter(HMONITOR display, ComPtr<IDXGIFactory1>& factory)
@@ -262,9 +294,8 @@ class Session
         pending = false;
         if (target) target->SetRoot(nullptr);
         if (desktop && SUCCEEDED(desktop->Commit())) desktop->WaitForCommitCompletion();
-        ClearShell();
-        thumbnail = nullptr;
-        blur.Reset(); appVisual.Reset(); group.Reset(); target.Reset();
+        ClearWindows();
+        blur.Reset(); group.Reset(); target.Reset();
         effects.Reset(); desktop.Reset(); graphics.Reset();
         displayFactory.Reset();
         if (helper) { DestroyWindow(helper); helper = nullptr; }
@@ -272,7 +303,6 @@ class Session
         adapterId = {};
         monitorBounds = {};
         appliedBounds = {};
-        shellSource = {};
     }
 
     void CreateComposition(const RECT& bounds, IDXGIAdapter1* adapter)
@@ -298,8 +328,6 @@ class Session
         Check(desktop.As(&effects));
         Check(desktop->CreateTargetForHwnd(helper, FALSE, &target));
         Check(effects->CreateVisual(&group));
-        Check(createShared(helper, desktop.Get(), reinterpret_cast<void**>(appVisual.GetAddressOf()), &thumbnail));
-        Check(group->AddVisual(appVisual.Get(), FALSE, nullptr));
         Check(effects->CreateGaussianBlurEffect(&blur));
         Check(blur->SetStandardDeviation(blurRadius));
         Check(blur->SetBorderMode(D2D1_BORDER_MODE_HARD));
@@ -327,8 +355,12 @@ class Session
         POINT origin{};
         Require(ClientToScreen(owner, &origin));
         const auto bounds = ClientScreenBounds(origin, client);
-        const auto display = MonitorFromRect(&bounds, MONITOR_DEFAULTTONEAREST);
-        Require(display != nullptr);
+        const auto display = MonitorFromRect(&bounds, MONITOR_DEFAULTTONULL);
+        if (!display)
+        {
+            if (helper) ShowWindow(helper, SW_HIDE);
+            return;
+        }
         const auto topologyChanged = !displayFactory || !displayFactory->IsCurrent();
         if (!helper || display != monitor || displayChanged || topologyChanged)
         {
@@ -373,22 +405,9 @@ class Session
         constexpr UINT unchanged = SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER;
         if ((flags & unchanged) != unchanged)
             Require(SetWindowPos(helper, owner, bounds.left, bounds.top, width, height, flags));
-        // Despite OUT annotations in the original example, ordinal 164 reads both pointers
-        // into its request. The rectangle is a screen-space crop; destination size controls
-        // scaling. A 1:1 client crop avoids combining unrelated monitor-sized surfaces.
-        RECT source = bounds;
-        SIZE size{width, height};
-        std::vector<HWND> excluded;
-        EnumWindows([](HWND window, LPARAM data) -> BOOL
-        {
-            DWORD process{};
-            GetWindowThreadProcessId(window, &process);
-            if (process == GetCurrentProcessId())
-                reinterpret_cast<std::vector<HWND>*>(data)->push_back(window);
-            return TRUE;
-        }, reinterpret_cast<LPARAM>(&excluded));
-        SyncShell(source);
-        Check(updateShared(thumbnail, nullptr, 0, excluded.data(), static_cast<DWORD>(excluded.size()), &source, &size, 1));
+        const D2D_RECT_F clip{0, 0, static_cast<float>(width), static_cast<float>(height)};
+        Check(group->SetClip(clip));
+        SyncWindows(bounds);
         Check(desktop->Commit());
         // HWND geometry and DirectComposition are separate queues. Only a real geometry
         // transition needs synchronization before exposing the replacement frame. Ordinary
@@ -432,10 +451,9 @@ public:
         comInitialized = true;
         dwm = LoadLibraryExW(L"dwmapi.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
         Require(dwm != nullptr);
-        createShared = reinterpret_cast<CreateShared>(GetProcAddress(dwm, MAKEINTRESOURCEA(163)));
-        updateShared = reinterpret_cast<UpdateShared>(GetProcAddress(dwm, MAKEINTRESOURCEA(164)));
         createThumbnail = reinterpret_cast<CreateThumbnail>(GetProcAddress(dwm, MAKEINTRESOURCEA(147)));
-        if (!createShared || !updateShared || !createThumbnail) throw E_NOTIMPL;
+        queryThumbnailSize = reinterpret_cast<QueryThumbnailSize>(GetProcAddress(dwm, MAKEINTRESOURCEA(162)));
+        if (!createThumbnail || !queryThumbnailSize) throw E_NOTIMPL;
         Require(GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
             reinterpret_cast<LPCWSTR>(HelperProc), &module));
         WNDCLASSW type{};
@@ -485,7 +503,12 @@ public:
         if (GetCurrentThreadId() != thread) return RPC_E_WRONG_THREAD;
         if (!std::isfinite(sigma) || sigma < 0 || sigma > 60) return E_INVALIDARG;
         if (failed) return E_FAIL;
-        auto result = blur ? blur->SetStandardDeviation(sigma) : E_UNEXPECTED;
+        if (!blur)
+        {
+            blurRadius = sigma;
+            return S_OK;
+        }
+        auto result = blur->SetStandardDeviation(sigma);
         if (SUCCEEDED(result)) result = desktop->Commit();
         if (SUCCEEDED(result)) blurRadius = sigma;
         if (FAILED(result)) Fail(result);
