@@ -244,8 +244,7 @@ public sealed partial class ShellSession
     /// <param name="steamInput">The process's Steam Input lease owner and, through it, its shim.</param>
     /// <param name="overlayTestOnly">Whether to omit normal shell startup for the manual overlay test.</param>
     /// <param name="serviceBoot">
-    ///     Whether the logon service launched this process over a
-    ///     live, still-initializing explorer (--boot) — enables the takeover flow.
+    ///     Whether the logon service requested takeover (--boot), subject to the current Desktop preference.
     /// </param>
     /// <param name="desktopResident">Whether to remain on Desktop even while its logon shell is still starting.</param>
     /// <param name="verboseLogging">Whether the command line forces verbose logging for this run.</param>
@@ -306,8 +305,12 @@ public sealed partial class ShellSession
         _libraryPolicy = new LibraryPolicy(_steamClient);
         _overlayTestOnly = overlayTestOnly;
         _serviceBoot = serviceBoot;
-        _desktopResident = desktopResident;
-        if (desktopResident)
+        // boot.json and its launch arguments are a projection from an earlier config read.
+        // The current Desktop preference must win even when that projection still says --boot.
+        _desktopResident = overlayTestOnly
+            ? desktopResident
+            : StartsOnDesktop(config.StartMode, desktopResident);
+        if (_desktopResident)
         {
             SetInGameMode(false);
         }
@@ -580,8 +583,8 @@ public sealed partial class ShellSession
         // BEFORE Winlogon has even started explorer (device-observed 2026-08-07:
         // gating this on a running Explorer made the takeover never run, leaving
         // explorer alive behind Big Picture next to our tray host). The takeover
-        // owns every explorer state: its readiness poll waits for explorer to
-        // appear AND finish logon prep, then shuts it down cleanly; if explorer
+        // owns every explorer state when current preferences still select Game: its readiness
+        // poll waits for explorer to appear AND finish logon prep, then shuts it down cleanly; if explorer
         // never shows within the 60 s cap it proceeds like a plain game-mode boot.
         if (_serviceBoot && !_desktopResident && !_desktopRecoveryPending)
         {
@@ -595,7 +598,7 @@ public sealed partial class ShellSession
             // the update restart (updates only run in desktop mode), or a manual start next to a
             // desktop. Resume in desktop mode — no splash, no startup apps, no game posture/scale
             // — with the overlay armed and Steam supplied; EnterGameMode brings the rest back.
-            Log.Info("Shell started with a live desktop — resuming in desktop mode (overlay armed).");
+            Log.Info("Shell starting in desktop mode (overlay armed); verifying Explorer before Steam.");
             _desktopTray?.SetDesktop(true);
             // No DesktopModeStarting fires for a session that never entered game
             // mode, so clear the flag here: the game-mode-only CEF injections must
@@ -610,11 +613,12 @@ public sealed partial class ShellSession
             // 2026-09-11). The policy decides what runs on the desktop; this only asks it.
             ApplyCardServices(false);
             RequestSteamUiTransportGateCheck();
-            // Desktop mode watches Steam like game mode does; only a transition or an explicit
-            // Close Steam pauses it. That is what lets the session keep the client running.
-            _monitor.Paused = false;
+            // A desktop-resident launch can arrive before Winlogon creates Explorer. Hold the
+            // same gate as ordinary mode switches until the desktop is verified, so a Game Mode
+            // request cannot race a late desktop Steam start.
+            _monitor.Paused = true;
+            _modes.BeginTransition();
             WatchStartupAppsAndConfig();
-            QueueDesktopActions(true);
             _bootWork = Task.Run(StartDesktopSteamAsync);
             return;
         }

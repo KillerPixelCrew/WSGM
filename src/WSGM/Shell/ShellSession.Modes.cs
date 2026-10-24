@@ -34,6 +34,15 @@ public sealed partial class ShellSession
     private bool _holdingEntrySplash;
     private bool _tookOverFromExplorer;
 
+    /// <summary>Resolves Desktop startup from current preferences and the explicit resident modifier.</summary>
+    /// <param name="startMode">The current configuration, which may be newer than the service's boot manifest.</param>
+    /// <param name="desktopResident">Whether the launcher explicitly requested Desktop residency.</param>
+    /// <returns>True when startup must preserve or recover Explorer instead of entering Game Mode.</returns>
+    internal static bool StartsOnDesktop(SessionStartMode startMode, bool desktopResident)
+    {
+        return desktopResident || startMode == SessionStartMode.Desktop;
+    }
+
     private async Task NotifyPluginModeAsync(PluginSessionMode mode)
     {
         try
@@ -102,15 +111,29 @@ public sealed partial class ShellSession
     }
 
     /// <summary>
-    ///     Supplies the windowed Steam client a desktop session is expected to have. Waits for
-    ///     the input desktop first, for the same reason the boot takeover does: a sign-in start can run
-    ///     while LogonUI still owns the screen, and Steam started then is audible behind it.
+    ///     Verifies or recovers Explorer before supplying windowed Steam. Owns the startup transition
+    ///     gate until both have settled, so a concurrent Game Mode request cannot leave mixed modes.
     /// </summary>
     private async Task StartDesktopSteamAsync()
     {
+        var desktopReady = false;
         try
         {
             await WaitForInputDesktopAsync(_shutdownCancellation.Token).ConfigureAwait(false);
+            // An input desktop is not proof that Winlogon's shell exists. Reuse the normal
+            // identity-checked restore, which adopts a live shell and recovers a missing one.
+            var desktop = await _desktopHost!.RestoreDesktopAsync(
+                    TimeSpan.FromSeconds(20), _shutdownCancellation.Token)
+                .ConfigureAwait(false);
+            desktopReady = desktop.Outcome is ExplorerDesktopOutcome.Normal or ExplorerDesktopOutcome.Degraded;
+            if (!desktopReady)
+            {
+                Log.Warn("Desktop startup could not verify Explorer; Steam startup remains paused.");
+                _modes!.ReportWarning(SessionModes.ExplorerDesktopPendingWarning);
+                return;
+            }
+
+            _shutdownCancellation.Token.ThrowIfCancellationRequested();
             // Before the start, so a Steam autostart that reappeared cannot win the race.
             SteamAutostartService.ReapplyAtStart(_store);
             _modes!.EnsureSteamDesktop();
@@ -120,7 +143,26 @@ public sealed partial class ShellSession
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            Log.Error("Desktop Steam start failed", ex);
+            Log.Error("Desktop session startup failed", ex);
+            if (!desktopReady)
+            {
+                _modes!.ReportWarning(SessionModes.ExplorerDesktopPendingWarning);
+            }
+        }
+        finally
+        {
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                _modes!.EndTransition();
+                if (!_shutdownRequested)
+                {
+                    _monitor!.Paused = !desktopReady;
+                    if (desktopReady)
+                    {
+                        QueueDesktopActions(true);
+                    }
+                }
+            });
         }
     }
 

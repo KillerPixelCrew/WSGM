@@ -24,7 +24,11 @@ and config watching. It starts the windowed Steam client itself after the input-
 Steam inherits WSGM's integrity rather than the user's own autostart; the takeover of Windows' own
 Steam startup entries that keeps it that way is in [setup](setup.md#the-steam-autostart-takeover).
 Explorer stays the shell: no takeover, replacement tray host, Game display posture, startup-app
-sequence or Big Picture request.
+sequence or Big Picture request. The current Desktop preference also wins over stale service launch
+arguments, including an older `--boot` projection. Desktop startup holds the session transition gate
+while the existing Explorer host verifies or recovers the desktop, then starts windowed Steam and
+admits Desktop startup actions. A failed shell restore leaves Steam monitoring paused and reports
+the recovery warning; it never falls through into Game Mode.
 
 Desktop Mode shows a WSGM notification icon with Open WSGM, Enter Game Mode, Settings and Exit WSGM.
 Primary activation opens the Overlay; Settings focuses its existing window. The icon is hidden in
@@ -137,9 +141,11 @@ the primary surface.
 
 ### The service fires before Winlogon starts Explorer
 
-Device-verified (2026-08-07). `--boot` therefore runs the takeover unconditionally, and the
-readiness poll is what waits for Explorer to appear. Gating the takeover on "is Explorer running" at
-start once left Explorer alive behind Big Picture, next to WSGM's tray host.
+Device-verified (2026-08-07). For a current Game startup preference, `--boot` therefore runs the
+takeover regardless of Explorer's initial presence, and the readiness poll waits for Explorer to
+appear. Gating that takeover on "is Explorer running" at start once left Explorer alive behind Big
+Picture, next to WSGM's tray host. A current Desktop preference instead takes the verified Desktop
+startup path even when a stale boot manifest supplied `--boot`.
 
 The takeover (`ShellSession.StartBootTakeover`) runs in this order:
 

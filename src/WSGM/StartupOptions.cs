@@ -6,8 +6,8 @@ namespace WSGM;
 
 /// <summary>Immutable mode selection and process-local modifiers; maintenance one-shots are handled by Program.</summary>
 /// <param name="Mode">The selected application lifetime.</param>
-/// <param name="ServiceBoot">Whether --boot requests the unconditional Game Mode boot takeover.</param>
-/// <param name="DesktopResident">Whether a non-boot shell starts without taking over Explorer.</param>
+/// <param name="ServiceBoot">Whether --boot requests the logon takeover when current preferences select Game Mode.</param>
+/// <param name="DesktopResident">Whether launch arguments require Desktop residency without taking over Explorer.</param>
 /// <param name="Activate">Whether a shell launch signals overlay activation, including an existing resident.</param>
 /// <param name="Verbose">Whether debug logging overrides the stored setting for this process.</param>
 internal sealed record StartupOptions(

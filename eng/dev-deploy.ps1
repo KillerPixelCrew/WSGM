@@ -372,7 +372,7 @@ if ($NoRestart) {
     return
 }
 
-Write-Host "== Starting WSGM $WsgmArguments, then Steam Big Picture ==" -ForegroundColor Cyan
+Write-Host "== Starting WSGM $WsgmArguments ==" -ForegroundColor Cyan
 Start-Process -FilePath (Join-Path $appDirectory 'WSGM.exe') -ArgumentList $WsgmArguments
 # Shell mode holds Local\WSGM.Shell once it is up. The elevated shell's mutex refuses this unelevated
 # script, and that refusal proves it exists as well as an open handle does.
@@ -393,6 +393,12 @@ if ($WsgmArguments -contains '--shell') {
         }
         Start-Sleep -Milliseconds 250
     }
+}
+if ($WsgmArguments -contains '--desktop-resident') {
+    # The resident owns Explorer readiness and the subsequent Desktop Steam start. Do not race it
+    # with a second launch that requests Big Picture while Desktop First is settling.
+    Write-Host 'Deployed. WSGM owns the Desktop startup and Steam launch.' -ForegroundColor Green
+    return
 }
 # Straight into Big Picture, the way WSGM cold-starts Steam itself (Steam.LaunchBigPicture). Starting
 # Steam on the desktop and switching afterwards meant the switch had to be timed against Steam's own
