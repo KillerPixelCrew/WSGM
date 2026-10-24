@@ -33,7 +33,7 @@ public sealed class BrowserView : OverlaySubView
     private readonly StackPanel _stack;
     private bool _entered;
     private bool _covered;
-    private string? _pendingPageText;
+    private BrowserPacket? _pendingPageText;
     private BrowserMemoryBehavior? _renderedPolicy;
 
     /// <summary>Builds only Avalonia chrome. No browser environment or helper starts here.</summary>
@@ -144,11 +144,13 @@ public sealed class BrowserView : OverlaySubView
         {
             _session.Changed -= Refresh;
             _session.ChromeFocusRequested -= FocusChrome;
+            _session.KeyboardRequested -= OpenPageKeyboard;
         }
 
         _session = session;
         _session.Changed += Refresh;
         _session.ChromeFocusRequested += FocusChrome;
+        _session.KeyboardRequested += OpenPageKeyboard;
         _viewport.Attach(session);
         Refresh();
     }
@@ -182,6 +184,7 @@ public sealed class BrowserView : OverlaySubView
         {
             _session.Changed -= Refresh;
             _session.ChromeFocusRequested -= FocusChrome;
+            _session.KeyboardRequested -= OpenPageKeyboard;
         }
 
         _viewport.Attach(null);
@@ -207,7 +210,7 @@ public sealed class BrowserView : OverlaySubView
         if (_entered && hasPage && !covered && _pendingPageText is { } text)
         {
             _pendingPageText = null;
-            _session?.InsertText(text);
+            _session?.InsertText(text.Text, text.Submit, text.Replace, text.NavigationId);
         }
     }
 
@@ -233,24 +236,53 @@ public sealed class BrowserView : OverlaySubView
 
     internal void PageKeyboard()
     {
+        if (_entered)
+        {
+            _session?.RequestKeyboard();
+        }
+    }
+
+    private void OpenPageKeyboard()
+    {
         if (!_entered || _session is null)
         {
             return;
         }
 
-        _session.ReturnToChrome();
-        if (TopLevel.GetTopLevel(this) is OverlayWindow window)
+        if (TopLevel.GetTopLevel(this) is OverlayWindow { HasActiveSurface: false } window)
         {
+            var field = _session.TextField;
+            _session.ReturnToChrome();
             var generation = NavigationGeneration;
-            window.RequestText("Type into the selected web field", "", 4096, text =>
+            var keyboard = new KeyboardPanel("Website text", field.Text, 4096,
+                sensitive: field.Sensitive, multiline: field.Multiline);
+            keyboard.Accepted += text =>
             {
                 if (_entered && generation == NavigationGeneration)
                 {
-                    _pendingPageText = text;
+                    _pendingPageText = new BrowserPacket
+                    {
+                        Text = text, Submit = !field.Multiline, Replace = field.Replace, NavigationId = field.NavigationId
+                    };
                 }
-            });
+            };
+            keyboard.AttachedToVisualTree += (_, _) => keyboard.SelectText(field.SelectionStart, field.SelectionEnd);
+            window.ShowKeyboardSurface(keyboard);
         }
     }
+
+    internal bool PageKey(string key)
+    {
+        if (!ViewportOwnsInput)
+        {
+            return false;
+        }
+
+        _session?.PageKey(key);
+        return true;
+    }
+
+    internal void PageText(string text) => _session?.InsertText(text);
 
     private void FitViewport(object? sender, EventArgs e)
     {

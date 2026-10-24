@@ -340,7 +340,8 @@ public partial class OverlayWindow
         var heading = new Grid
         {
             ColumnDefinitions = new ColumnDefinitions(kind == SurfaceKind.Power ? "44,*,44" : "*,Auto"),
-            Margin = new Thickness(0, 0, 0, 12)
+            Margin = new Thickness(0, 0, 0, 12),
+            IsVisible = kind != SurfaceKind.Keyboard
         };
         var headingText = new TextBlock
         {
@@ -370,9 +371,9 @@ public partial class OverlayWindow
         var container = new Border
         {
             Child = body,
-            Padding = new Thickness(20),
-            Margin = new Thickness(16, top, 16, 16),
-            CornerRadius = new CornerRadius(6),
+            Padding = kind == SurfaceKind.Keyboard ? default : new Thickness(20),
+            Margin = kind == SurfaceKind.Keyboard ? default : new Thickness(16, top, 16, 16),
+            CornerRadius = kind == SurfaceKind.Keyboard ? default : new CornerRadius(6),
             BorderThickness = new Thickness(1),
             HorizontalAlignment = picker ? HorizontalAlignment.Center :
                 kind == SurfaceKind.Keyboard ? HorizontalAlignment.Stretch :

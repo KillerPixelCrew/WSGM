@@ -15,7 +15,7 @@ using WSGM.Browser;
 namespace WSGM.BrowserHost;
 
 /// <summary>Unelevated, unprivileged WebView2 owner. The Form is embedded by the resident after verification.</summary>
-internal sealed class BrowserWindow : Form
+internal sealed partial class BrowserWindow : Form
 {
     private readonly string _pipeName;
     private readonly Process _parent;
@@ -197,6 +197,13 @@ internal sealed class BrowserWindow : Form
                 case "focus" when _visible:
                     _controller?.MoveFocus(CoreWebView2MoveFocusReason.Programmatic);
                     break;
+                case "keyboard" when _visible && _controller is { } inputController:
+                    if (!await InvokeTextInputAsync(inputController.CoreWebView2, "wsgmRequestTextInput()"))
+                    {
+                        Publish("Select a text field on the website first.");
+                    }
+
+                    break;
                 case "key" when _visible && _controller is { } keyController:
                     await SendPageKeyAsync(keyController.CoreWebView2, packet.Text).WaitAsync(TimeSpan.FromSeconds(2));
                     break;
@@ -204,8 +211,25 @@ internal sealed class BrowserWindow : Form
                     // CDP insertText affects only this WebView's current editable selection. No script or host
                     // object is injected; the page cannot use this one-way UI action to invoke the resident.
                     textController.MoveFocus(CoreWebView2MoveFocusReason.Programmatic);
+                    if (packet.NavigationId != 0 && packet.NavigationId != _navigationId
+                        || !await InvokeTextInputAsync(textController.CoreWebView2, "wsgmRestoreTextInput()"))
+                    {
+                        Publish("The selected web field changed. Select it again to enter text.");
+                        break;
+                    }
+
+                    if (packet.Replace)
+                    {
+                        await SendPageKeyAsync(textController.CoreWebView2, "SelectAll");
+                    }
+
                     await textController.CoreWebView2.CallDevToolsProtocolMethodAsync("Input.insertText",
                         JsonSerializer.Serialize(new { text = packet.Text })).WaitAsync(TimeSpan.FromSeconds(2));
+                    if (packet.Submit)
+                    {
+                        await SendPageKeyAsync(textController.CoreWebView2, "Enter").WaitAsync(TimeSpan.FromSeconds(2));
+                    }
+
                     break;
                 case "close":
                     Close();
@@ -263,6 +287,12 @@ internal sealed class BrowserWindow : Form
             "PageDown" => 34,
             "Tab" or "ShiftTab" => 9,
             "Enter" => 13,
+            "Backspace" => 8,
+            "Delete" => 46,
+            "Home" => 36,
+            "End" => 35,
+            "Space" => 32,
+            "SelectAll" => 65,
             _ => 0
         };
         if (code == 0)
@@ -270,12 +300,12 @@ internal sealed class BrowserWindow : Form
             return;
         }
 
-        var nativeKey = key == "ShiftTab" ? "Tab" : key;
-        var modifiers = key == "ShiftTab" ? 8 : 0;
+        var nativeKey = key == "ShiftTab" ? "Tab" : key == "SelectAll" ? "a" : key;
+        var modifiers = key == "ShiftTab" ? 8 : key == "SelectAll" ? 2 : 0;
         await web.CallDevToolsProtocolMethodAsync("Input.dispatchKeyEvent", JsonSerializer.Serialize(new
         {
-            type = "keyDown", key = nativeKey, code = nativeKey, windowsVirtualKeyCode = code,
-            modifiers, text = key == "Enter" ? "\r" : ""
+            type = "keyDown", key = nativeKey, code = key == "SelectAll" ? "KeyA" : nativeKey, windowsVirtualKeyCode = code,
+            modifiers, text = key == "Enter" ? "\r" : key == "Space" ? " " : ""
         }));
         await web.CallDevToolsProtocolMethodAsync("Input.dispatchKeyEvent", JsonSerializer.Serialize(new
         {
@@ -337,6 +367,7 @@ internal sealed class BrowserWindow : Form
         // All local file resources, including file: frames inside an otherwise allowed page, are refused.
         web.AddWebResourceRequestedFilter("file://*", CoreWebView2WebResourceContext.All);
         web.WebResourceRequested += OnLocalResource;
+        await InitializeTextInputAsync(web);
         web.Navigate(BrowserNavigation.Home);
         Publish("Ready. Enter an address or search.");
     }
@@ -599,6 +630,7 @@ internal sealed class BrowserWindow : Form
             try
             {
                 var web = controller.CoreWebView2;
+                DetachTextInputEvents();
                 web.Stop();
                 web.IsMuted = true;
                 web.NavigationStarting -= OnNavigationStarting;

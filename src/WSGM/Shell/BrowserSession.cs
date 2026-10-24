@@ -51,6 +51,7 @@ internal sealed class BrowserSession : IDisposable
 
     internal event Action? Changed;
     internal event Action? ChromeFocusRequested;
+    internal event Action? KeyboardRequested;
     internal BrowserLifecycle Lifecycle { get; private set; }
     internal string Address { get; private set; } = BrowserNavigation.Home;
     internal string Status { get; private set; } = "Enter an address or search for a guide.";
@@ -58,6 +59,7 @@ internal sealed class BrowserSession : IDisposable
     internal bool CanGoBack { get; private set; }
     internal bool CanGoForward { get; private set; }
     internal bool ViewportFocused { get; private set; }
+    internal BrowserPacket TextField { get; private set; } = new();
     internal BrowserOptions Options => _options.Normalize();
     internal BrowserGameContext? CurrentGame => _currentGame();
     internal int? HelperProcessId => _helper?.Id;
@@ -290,19 +292,32 @@ internal sealed class BrowserSession : IDisposable
         return true;
     }
 
-    internal void InsertText(string text)
+    internal void InsertText(string text, bool submit = false, bool replace = false, ulong navigationId = 0)
     {
         if (text.Length <= 4096)
         {
-            Send(new BrowserPacket { Kind = "text", Text = text });
+            Send(new BrowserPacket { Kind = "text", Text = text, Submit = submit, Replace = replace, NavigationId = navigationId });
         }
     }
 
     internal void PageKey(string key)
     {
-        if (_active && !_covered && _ready && key is "ArrowUp" or "ArrowDown" or "ArrowLeft" or "ArrowRight" or "Tab" or "ShiftTab" or "Enter" or "PageUp" or "PageDown")
+        if (_active && !_covered && _ready && key is "ArrowUp" or "ArrowDown" or "ArrowLeft" or "ArrowRight" or "Tab" or "ShiftTab" or "Enter" or "PageUp" or "PageDown" or "Backspace" or "Delete" or "Home" or "End" or "Space")
         {
             Send(new BrowserPacket { Kind = "key", Text = key });
+        }
+    }
+
+    internal void RequestKeyboard()
+    {
+        if (_active && !_covered && _ready && _viewport != 0)
+        {
+            Send(new BrowserPacket { Kind = "keyboard" });
+        }
+        else
+        {
+            Status = "Select a text field on the website first.";
+            Notify();
         }
     }
 
@@ -521,6 +536,13 @@ internal sealed class BrowserSession : IDisposable
                 break;
             case "blur":
                 ViewportFocused = false;
+                break;
+            case "field" when _active && !_covered:
+                TextField = packet;
+                break;
+            case "keyboard" when packet.Visible && _active && !_covered && _ready && _viewport != 0:
+                TextField = packet;
+                KeyboardRequested?.Invoke();
                 break;
             case "failed":
                 Fail("The browser process stopped. Reopen Browser to retry.");
@@ -745,5 +767,6 @@ internal sealed class BrowserSession : IDisposable
         Destroy();
         Changed = null;
         ChromeFocusRequested = null;
+        KeyboardRequested = null;
     }
 }

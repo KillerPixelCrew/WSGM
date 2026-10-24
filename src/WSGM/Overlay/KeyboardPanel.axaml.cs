@@ -1,4 +1,5 @@
 using System;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -30,14 +31,15 @@ public partial class KeyboardPanel : UserControl
     {
         InitializeComponent();
         PromptText.Text = prompt;
+        ToolTip.SetTip(PromptText, prompt);
+        AutomationProperties.SetName(Input, prompt);
         Input.Text = initial;
         Input.MaxLength = maxLength;
         if (multiline && !sensitive)
         {
             Input.AcceptsReturn = true;
             Input.TextWrapping = TextWrapping.Wrap;
-            Input.MinHeight = 96;
-            Input.MaxHeight = 176;
+            Input.MaxHeight = 88;
         }
 
         Input.TextChanged += (_, _) => TextChanged?.Invoke(Input.Text ?? "");
@@ -75,6 +77,15 @@ public partial class KeyboardPanel : UserControl
 
     /// <summary>Raised with the current text after every edit, before any accept or cancel.</summary>
     public event Action<string>? TextChanged;
+
+    /// <summary>Restores a field's selection after the keyboard has joined its window.</summary>
+    internal void SelectText(int start, int end)
+    {
+        var length = Input.Text?.Length ?? 0;
+        Input.CaretIndex = Math.Clamp(end, 0, length);
+        Input.SelectionStart = Math.Clamp(start, 0, length);
+        Input.SelectionEnd = Math.Clamp(end, 0, length);
+    }
 
 
     private void OnReveal(object? sender, RoutedEventArgs e)

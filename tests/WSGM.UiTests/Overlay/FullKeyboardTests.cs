@@ -15,6 +15,7 @@ public sealed class FullKeyboardTests
     [InlineData(1280, 720, 1.0)]
     [InlineData(3840, 2160, 2.0)]
     [InlineData(980, 720, 1.0)]
+    [InlineData(980, 640, 1.0)]
     public void EveryKeyboardPageFitsAtSupportedScales(int width, int height, double scale)
     {
         using UiFixture fixture = new();
@@ -24,11 +25,8 @@ public sealed class FullKeyboardTests
         Dispatcher.UIThread.RunJobs();
         var buttons = keyboard.GetVisualDescendants().OfType<Button>()
             .Where(button => button.Tag is Key && button.IsEffectivelyVisible).ToArray();
-        foreach (var key in Enumerable.Range(0, 12).Select(index => Key.F1 + index)
-                     .Concat([
-                         Key.LeftCtrl, Key.LeftAlt, Key.LeftShift, Key.LWin, Key.CapsLock,
-                         Key.Tab, Key.Home, Key.End, Key.Delete, Key.Back, Key.Left, Key.Right, Key.Up, Key.Down
-                     ]))
+        Assert.True(keyboard.Bounds.Height <= 240, "The touch keyboard should fit within 240 DIPs.");
+        foreach (var key in new[] { Key.Q, Key.A, Key.Z, Key.LeftCtrl, Key.LeftShift, Key.Back, Key.Enter, Key.Space })
         {
             var button = buttons.Single(button => button.IsEffectivelyVisible && Equals(button.Tag, key));
             Assert.True(button.IsEffectivelyVisible);
@@ -42,7 +40,17 @@ public sealed class FullKeyboardTests
             AssertFits(button);
         }
 
-        UiFixture.Click(window, buttons.Single(button => Equals(button.Tag, Key.None)));
+        Page(window, keyboard, "More");
+        foreach (var key in Enumerable.Range(0, 12).Select(index => Key.F1 + index)
+                     .Concat([Key.LeftAlt, Key.LWin, Key.CapsLock, Key.Tab, Key.Home, Key.End, Key.Delete, Key.Up, Key.Down,
+                         Key.Insert, Key.PrintScreen, Key.Scroll, Key.Pause]))
+        {
+            var button = keyboard.GetVisualDescendants().OfType<Button>()
+                .Single(button => button.IsEffectivelyVisible && Equals(button.Tag, key));
+            AssertFits(button);
+        }
+
+        Page(window, keyboard, "Num pad");
         foreach (var button in keyboard.GetVisualDescendants().OfType<Button>()
                      .Where(button => button.Tag is Key && button.IsEffectivelyVisible))
         {
@@ -51,7 +59,7 @@ public sealed class FullKeyboardTests
 
         foreach (var key in new[]
                  {
-                     Key.Insert, Key.PrintScreen, Key.Scroll, Key.Pause, Key.NumLock,
+                     Key.NumLock,
                      Key.NumPad0, Key.NumPad1, Key.NumPad2, Key.NumPad3, Key.NumPad4, Key.NumPad5,
                      Key.NumPad6, Key.NumPad7, Key.NumPad8, Key.NumPad9, Key.Add, Key.Subtract,
                      Key.Multiply, Key.Divide, Key.Decimal
@@ -85,7 +93,8 @@ public sealed class FullKeyboardTests
         window.ShowKeyboardSurface(keyboard);
         Dispatcher.UIThread.RunJobs();
         var input = UiFixture.Named<TextBox>(keyboard, "Input");
-        Click(Key.None);
+        Page(window, keyboard, "More");
+        Page(window, keyboard, "Num pad");
         Click(Key.NumPad1);
         Click(Key.NumPad2);
         Click(Key.NumPad3);
@@ -94,7 +103,7 @@ public sealed class FullKeyboardTests
         Click(Key.NumPad7);
         Click(Key.Decimal);
         Assert.Equal("23", input.Text);
-        Click(Key.None);
+        Page(window, keyboard, "ABC");
         Assert.True(keyboard.GetVisualDescendants().OfType<Button>()
             .Single(button => Equals(button.Tag, Key.Q)).IsEffectivelyVisible);
         return;
@@ -123,10 +132,13 @@ public sealed class FullKeyboardTests
         Assert.DoesNotContain("latched", KeyButton(Key.LeftCtrl).Classes);
         Click(Key.X);
         Assert.Equal("x", input.Text);
+        Page(window, keyboard, "More");
         Click(Key.CapsLock);
+        Page(window, keyboard, "ABC");
         Click(Key.Y);
         Click(Key.Z);
         Assert.Equal("xYZ", input.Text);
+        Page(window, keyboard, "More");
         Assert.Contains("latched", KeyButton(Key.CapsLock).Classes);
 
         return;
@@ -152,6 +164,7 @@ public sealed class FullKeyboardTests
         window.ShowKeyboardSurface(keyboard);
         Dispatcher.UIThread.RunJobs();
         var input = UiFixture.Named<TextBox>(keyboard, "Input");
+        Page(window, keyboard, "More");
         Click(Key.End);
         Click(Key.LeftShift);
         Click(Key.Left);
@@ -185,6 +198,7 @@ public sealed class FullKeyboardTests
         var input = UiFixture.Named<TextBox>(keyboard, "Input");
         var received = new List<(Key, KeyModifiers)>();
         input.KeyDown += (_, args) => received.Add((args.Key, args.KeyModifiers));
+        Page(window, keyboard, "More");
         Click(Key.LeftCtrl);
         Click(Key.LeftAlt);
         Click(Key.F5);
@@ -239,5 +253,11 @@ public sealed class FullKeyboardTests
             UiFixture.Click(window, keyboard.GetVisualDescendants().OfType<Button>()
                 .Single(button => button.IsEffectivelyVisible && Equals(button.Tag, key)));
         }
+    }
+
+    private static void Page(Window window, KeyboardPanel keyboard, string label)
+    {
+        UiFixture.Click(window, keyboard.GetVisualDescendants().OfType<Button>()
+            .Single(button => button.IsEffectivelyVisible && Equals(button.Content, label)));
     }
 }

@@ -139,6 +139,15 @@ public sealed class KeyboardEditingTests
         Collect();
         UiFixture.Click(window, KeyButton(keyboard, Key.LeftShift));
         Collect();
+        foreach (var page in new[] { "&123", "More" })
+        {
+            UiFixture.Click(window, keyboard.GetVisualDescendants().OfType<Button>()
+                .Single(button => button.IsEffectivelyVisible && Equals(button.Content, page)));
+            Collect();
+            UiFixture.Click(window, KeyButton(keyboard, Key.LeftShift));
+            Collect();
+        }
+
         Assert.All(Enumerable.Range(32, 95), value => Assert.Contains((char)value, characters));
         return;
 
@@ -157,7 +166,30 @@ public sealed class KeyboardEditingTests
 
     private static Button KeyButton(KeyboardPanel keyboard, Key key)
     {
-        return keyboard.GetVisualDescendants().OfType<Button>()
-            .Single(button => button.IsEffectivelyVisible && Equals(button.Tag, key));
+        var button = Find();
+        if (button is not null)
+        {
+            return button;
+        }
+
+        var window = Assert.IsType<OverlayWindow>(TopLevel.GetTopLevel(keyboard));
+        foreach (var page in new[] { "ABC", "&123", "More" })
+        {
+            var selector = keyboard.GetVisualDescendants().OfType<Button>()
+                .FirstOrDefault(candidate => candidate.IsEffectivelyVisible && Equals(candidate.Content, page));
+            if (selector is not null)
+            {
+                UiFixture.Click(window, selector);
+                if (Find() is { } found)
+                {
+                    return found;
+                }
+            }
+        }
+
+        throw new InvalidOperationException("No visible keyboard key " + key);
+
+        Button? Find() => keyboard.GetVisualDescendants().OfType<Button>()
+            .FirstOrDefault(candidate => candidate.IsEffectivelyVisible && Equals(candidate.Tag, key));
     }
 }

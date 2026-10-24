@@ -10,6 +10,18 @@ viewport hides behind keyboards, menus and other in-window surfaces, preserving 
 Suspension completion honors the current visibility, including when a page reopens while suspension
 is pending. Replacing the Overlay's native anchor does not change the selected page's lifetime.
 
+Tapping an editable website field opens WSGM's compact in-window keyboard in Desktop and Game Mode.
+Web fields suppress the Windows touch keyboard. The selected field, its text and selection stay
+attached to the edit while the native viewport is hidden. Passwords are masked; Enter submits a
+single-line field and inserts a new line in multiline fields. Done applies the edit to the original
+field. Keyboard input owned by the page cannot activate the last selected Overlay button.
+
+A private renderer world observes editable focus and touch. Its binding is unavailable to website
+scripts, and WebView2 web messaging and host objects remain disabled. Only a user-requested field's
+bounded text is copied into the editor; values are never logged. Reloading or removing the target
+field refuses a stale edit instead of sending text elsewhere. Fields longer than the keyboard's
+4,096-character edit limit retain insertion behavior rather than truncating existing content.
+
 Settings > Quick Access chooses **Keep alive** or **Unload**. Keep alive hides, mutes and blocks
 input to the page, and asks Chromium to suspend it. Suspension is best effort. Reopening keeps the
 same page. Unload releases the controller, environment and helper process; the next open starts a
@@ -41,7 +53,10 @@ separate native Steam entry and address editing. Installation and development de
 complete self-contained helper payload under `App/Browser`.
 
 `Browser/WSGM.BrowserProbe` is a local validation harness, excluded from the solution and installed
-payload. It is not a reporter requirement or an alternative runtime host.
+payload. Its optional `keyboard` argument checks trusted renderer touch, system-keyboard
+suppression, field types, text replacement and Enter against a local fixture in an offscreen owned
+window. Its debugging endpoint is enabled only in the probe's child environment. It is not a
+reporter requirement or an alternative runtime host.
 
 Build, isolated-renderer and headless layout evidence does not establish controller, elevated
 embedding or fullscreen-game acceptance. Those live checks remain tracked in issue #220.

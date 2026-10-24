@@ -8,7 +8,7 @@ using Avalonia.Layout;
 
 namespace WSGM.Controls;
 
-/// <summary>A full PC keyboard that edits a local text field without sending global input.</summary>
+/// <summary>A compact touch keyboard with symbols and PC keys on secondary layouts.</summary>
 public sealed class OnScreenKeyboard : Decorator
 {
     /// <summary>Defines the Avalonia property holding the text field the keys edit.</summary>
@@ -16,95 +16,113 @@ public sealed class OnScreenKeyboard : Decorator
         AvaloniaProperty.Register<OnScreenKeyboard, TextBox?>(nameof(Target));
 
     private readonly List<(Button Button, KeyFace Face)> _keys = [];
-    private readonly StackPanel _mainRows = new() { Spacing = 4 };
-    private readonly StackPanel _numberRows = new() { Spacing = 4, IsVisible = false };
+    private readonly StackPanel _mainRows = new() { Spacing = 1 };
+    private readonly StackPanel _numberRows = new() { Spacing = 1, IsVisible = false };
+    private readonly StackPanel _toolRows = new() { Spacing = 1, IsVisible = false };
+    private readonly StackPanel _padRows = new() { Spacing = 1, IsVisible = false };
     private bool _capsLock;
     private KeyModifiers _modifiers;
     private bool _numLock = true;
 
-    /// <summary>Creates persistent PC key rows with touch and controller focus targets.</summary>
+    /// <summary>Creates four tightly packed rows per layout, retaining touch and controller targets.</summary>
     public OnScreenKeyboard()
     {
-        var rows = _mainRows;
-        var functions = new List<KeyFace> { Command(Key.Escape, "Esc") };
-        for (var index = 0; index < 12; index++)
-        {
-            functions.Add(Command(Key.F1 + index, $"F{index + 1}", gapBefore: index % 4 == 0));
-        }
-
-        functions.AddRange([
-            Command(Key.Home, "Home", gapBefore: true), Command(Key.End, "End"),
-            Command(Key.PageUp, "PgUp"), Command(Key.PageDown, "PgDn")
-        ]);
-        AddRow(rows, functions);
-        AddRow(rows,
-        [
-            Character(Key.Oem3, "`", "~"), Character(Key.D1, "1", "!"), Character(Key.D2, "2", "@"),
-            Character(Key.D3, "3", "#"), Character(Key.D4, "4", "$"), Character(Key.D5, "5", "%"),
-            Character(Key.D6, "6", "^"), Character(Key.D7, "7", "&"), Character(Key.D8, "8", "*"),
-            Character(Key.D9, "9", "("), Character(Key.D0, "0", ")"), Character(Key.OemMinus, "-", "_"),
-            Character(Key.OemPlus, "=", "+"), Command(Key.Back, "Backspace", 2), Command(Key.Delete, "Del")
-        ]);
-        var top = new List<KeyFace> { Command(Key.Tab, "Tab", 1.5) };
+        var top = new List<KeyFace>();
         AddLetters(top, "qwertyuiop");
-        top.AddRange([
-            Character(Key.OemOpenBrackets, "[", "{"), Character(Key.OemCloseBrackets, "]", "}"),
-            Character(Key.OemPipe, "\\", "|", 1.5)
-        ]);
-        AddRow(rows, top);
-        var home = new List<KeyFace> { new(Key.CapsLock, "Caps Lock", "Caps Lock", 1.8) };
+        top.Add(Command(Key.Back, "⌫", 1.45));
+        AddRow(_mainRows, top);
+        var home = new List<KeyFace>();
         AddLetters(home, "asdfghjkl");
-        home.AddRange([
-            Character(Key.OemSemicolon, ";", ":"), Character(Key.OemQuotes, "'", "\""),
-            Command(Key.Enter, "Enter", 2.2)
-        ]);
-        AddRow(rows, home);
-        var lower = new List<KeyFace> { Modifier(Key.LeftShift, "Shift", KeyModifiers.Shift, 2.2) };
+        home.Add(Command(Key.Enter, "↵", 1.7));
+        AddRow(_mainRows, home);
+        var lower = new List<KeyFace> { Modifier(Key.LeftShift, "⇧", KeyModifiers.Shift, 1.5) };
         AddLetters(lower, "zxcvbnm");
         lower.AddRange([
             Character(Key.OemComma, ",", "<"), Character(Key.OemPeriod, ".", ">"),
-            Character(Key.OemQuestion, "/", "?"), Modifier(Key.RightShift, "Shift", KeyModifiers.Shift, 2.2),
-            Command(Key.Up, "↑")
+            Character(Key.OemQuestion, "?", "/")
         ]);
-        AddRow(rows, lower);
-        AddRow(rows,
-        [
-            Modifier(Key.LeftCtrl, "Ctrl", KeyModifiers.Control, 1.3),
-            Modifier(Key.LWin, "Win", KeyModifiers.Meta, 1.3),
-            Modifier(Key.LeftAlt, "Alt", KeyModifiers.Alt, 1.3),
-            Character(Key.Space, " ", " ", 5, "Space"),
-            Modifier(Key.RightAlt, "Alt", KeyModifiers.Alt, 1.3),
-            Modifier(Key.RightCtrl, "Ctrl", KeyModifiers.Control, 1.3),
-            Command(Key.Left, "←"), Command(Key.Down, "↓"), Command(Key.Right, "→"),
-            Command(Key.None, "Num pad", 1.8)
+        AddRow(_mainRows, lower);
+        AddRow(_mainRows, [
+            Command(Key.None, "&123", 1.5), Modifier(Key.LeftCtrl, "Ctrl", KeyModifiers.Control, 1),
+            Character(Key.Space, " ", " ", 5, "Space"), Command(Key.Left, "←"), Command(Key.Right, "→"),
+            Command(Key.None, "More", 1.5)
         ]);
         AddRow(_numberRows, [
-            Command(Key.Insert, "Insert"), Command(Key.PrintScreen, "Print Screen"),
-            Command(Key.Scroll, "Scroll Lock"), Command(Key.Pause, "Pause"), Command(Key.Apps, "Menu")
+            Character(Key.D1, "1", "!"), Character(Key.D2, "2", "@"), Character(Key.D3, "3", "#"),
+            Character(Key.D4, "4", "$"), Character(Key.D5, "5", "%"), Character(Key.D6, "6", "^"),
+            Character(Key.D7, "7", "&"), Character(Key.D8, "8", "*"), Character(Key.D9, "9", "("),
+            Character(Key.D0, "0", ")"), Command(Key.Back, "⌫", 1.45)
         ]);
         AddRow(_numberRows, [
+            Character(Key.D2, "@", "@"), Character(Key.D3, "#", "#"), Character(Key.D4, "$", "$"),
+            Character(Key.D5, "%", "%"), Character(Key.D7, "&", "&"), Character(Key.D8, "*", "*"),
+            Character(Key.D9, "(", "("), Character(Key.D0, ")", ")"), Character(Key.D1, "!", "!"),
+            Character(Key.OemQuestion, "?", "?"), Command(Key.Enter, "↵", 1.7)
+        ]);
+        AddRow(_numberRows, [
+            Modifier(Key.LeftShift, "⇧", KeyModifiers.Shift, 1.5),
+            Character(Key.OemPlus, "+", "="), Character(Key.OemMinus, "-", "_"),
+            Character(Key.OemQuestion, "/", "?"), Character(Key.OemSemicolon, ":", ";"),
+            Character(Key.OemQuotes, "\"", "'"), Character(Key.OemComma, ",", "<"),
+            Character(Key.OemPeriod, ".", ">"), Character(Key.Oem3, "`", "~")
+        ]);
+        AddRow(_numberRows, [
+            Command(Key.None, "ABC", 1.5), Modifier(Key.LeftCtrl, "Ctrl", KeyModifiers.Control, 1),
+            Character(Key.Space, " ", " ", 5, "Space"), Command(Key.Left, "←"), Command(Key.Right, "→"),
+            Command(Key.None, "More", 1.5)
+        ]);
+        var functions = new List<KeyFace> { Command(Key.Escape, "Esc") };
+        for (var index = 0; index < 12; index++)
+        {
+            functions.Add(Command(Key.F1 + index, $"F{index + 1}"));
+        }
+
+        AddRow(_toolRows, functions);
+        AddRow(_toolRows, [
+            Modifier(Key.LeftCtrl, "Ctrl", KeyModifiers.Control, 1),
+            Modifier(Key.LeftAlt, "Alt", KeyModifiers.Alt, 1), Modifier(Key.LWin, "Win", KeyModifiers.Meta, 1),
+            Command(Key.CapsLock, "Caps"), Command(Key.Tab, "Tab"), Command(Key.Home, "Home"),
+            Command(Key.End, "End"), Command(Key.PageUp, "PgUp"), Command(Key.PageDown, "PgDn"),
+            Command(Key.Insert, "Insert"), Command(Key.Delete, "Delete")
+        ]);
+        AddRow(_toolRows, [
+            Character(Key.OemOpenBrackets, "[", "{"), Character(Key.OemCloseBrackets, "]", "}"),
+            Character(Key.OemPipe, "\\", "|"), Character(Key.Oem3, "`", "~"),
+            Character(Key.OemSemicolon, ";", ":"), Character(Key.OemQuotes, "'", "\""),
+            Character(Key.OemMinus, "-", "_"), Character(Key.OemPlus, "=", "+"),
+            Command(Key.PrintScreen, "PrtSc"),
+            Command(Key.Scroll, "Scroll Lock"), Command(Key.Pause, "Pause"), Command(Key.Apps, "Menu"),
+            Command(Key.Back, "⌫")
+        ]);
+        AddRow(_toolRows, [
+            Command(Key.None, "ABC", 1.5), Command(Key.None, "Num pad", 1.5),
+            Modifier(Key.LeftShift, "⇧", KeyModifiers.Shift, 1), Character(Key.Space, " ", " ", 3, "Space"),
+            Command(Key.Left, "←"), Command(Key.Down, "↓"), Command(Key.Up, "↑"), Command(Key.Right, "→"),
+            Command(Key.Enter, "↵", 1.5)
+        ]);
+        AddRow(_padRows, [
             Command(Key.NumLock, "Num Lock"), Character(Key.Divide, "/", "/"),
-            Character(Key.Multiply, "*", "*"), Character(Key.Subtract, "-", "-")
+            Character(Key.Multiply, "*", "*"), Character(Key.Subtract, "-", "-"), Command(Key.None, "More")
         ]);
-        AddRow(_numberRows, [
+        AddRow(_padRows, [
             Character(Key.NumPad7, "7", "7"), Character(Key.NumPad8, "8", "8"),
             Character(Key.NumPad9, "9", "9"), Character(Key.Add, "+", "+")
         ]);
-        AddRow(_numberRows, [
+        AddRow(_padRows, [
             Character(Key.NumPad4, "4", "4"), Character(Key.NumPad5, "5", "5"),
             Character(Key.NumPad6, "6", "6"), Command(Key.Back, "Backspace")
         ]);
-        AddRow(_numberRows, [
+        AddRow(_padRows, [
             Character(Key.NumPad1, "1", "1"), Character(Key.NumPad2, "2", "2"),
-            Character(Key.NumPad3, "3", "3"), Command(Key.Enter, "Enter")
-        ]);
-        AddRow(_numberRows, [
-            Character(Key.NumPad0, "0", "0", 2), Character(Key.Decimal, ".", "."),
+            Character(Key.NumPad3, "3", "3"), Character(Key.NumPad0, "0", "0"),
+            Character(Key.Decimal, ".", "."), Command(Key.Enter, "↵"),
             Command(Key.None, "ABC")
         ]);
         var pages = new Grid();
         pages.Children.Add(_mainRows);
         pages.Children.Add(_numberRows);
+        pages.Children.Add(_toolRows);
+        pages.Children.Add(_padRows);
         Child = pages;
         UpdateKeys();
     }
@@ -124,7 +142,7 @@ public sealed class OnScreenKeyboard : Decorator
 
     private void AddRow(StackPanel rows, IReadOnlyList<KeyFace> faces)
     {
-        var row = new Grid { ColumnSpacing = 4 };
+        var row = new Grid { ColumnSpacing = 1 };
         foreach (var face in faces)
         {
             var button = new Button
@@ -133,17 +151,24 @@ public sealed class OnScreenKeyboard : Decorator
                 Tag = face.Key,
                 MinWidth = 44,
                 Height = 44,
-                Padding = new Thickness(3, 0),
-                Margin = face.GapBefore ? new Thickness(6, 0, 0, 0) : default,
+                Padding = default,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 HorizontalContentAlignment = HorizontalAlignment.Center,
                 VerticalContentAlignment = VerticalAlignment.Center,
-                CornerRadius = new CornerRadius(4),
+                CornerRadius = default,
                 BorderThickness = new Thickness(2),
                 FocusAdorner = null,
-                FontSize = 13
+                FontSize = face.Printable && face.Key != Key.Space
+                           || face.Key is Key.Back or Key.Enter or Key.LeftShift or Key.Left or Key.Right or Key.Up or Key.Down
+                    ? 20 : 14
             };
-            AutomationProperties.SetName(button, face.Label);
+            AutomationProperties.SetName(button, face.Key switch
+            {
+                Key.Back => "Backspace",
+                Key.Enter => "Enter",
+                Key.LeftShift or Key.RightShift => "Shift",
+                _ => face.Label
+            });
             button.Click += (_, _) => Press(face);
             Grid.SetColumn(button, row.Children.Count);
             row.ColumnDefinitions.Add(new ColumnDefinition(face.Units, GridUnitType.Star));
@@ -158,9 +183,17 @@ public sealed class OnScreenKeyboard : Decorator
     {
         if (face.Key == Key.None)
         {
-            _mainRows.IsVisible = !_mainRows.IsVisible;
-            _numberRows.IsVisible = !_mainRows.IsVisible;
-            _modifiers = KeyModifiers.None;
+            var selected = face.Label switch
+            {
+                "&123" => _numberRows,
+                "More" => _toolRows,
+                "Num pad" => _padRows,
+                _ => _mainRows
+            };
+            _mainRows.IsVisible = ReferenceEquals(selected, _mainRows);
+            _numberRows.IsVisible = ReferenceEquals(selected, _numberRows);
+            _toolRows.IsVisible = ReferenceEquals(selected, _toolRows);
+            _padRows.IsVisible = ReferenceEquals(selected, _padRows);
             UpdateKeys();
             foreach (var (button, key) in _keys)
             {
@@ -275,9 +308,9 @@ public sealed class OnScreenKeyboard : Decorator
         return new KeyFace(key, normal, shifted, units, true, LabelOverride: label);
     }
 
-    private static KeyFace Command(Key key, string label, double units = 1, bool gapBefore = false)
+    private static KeyFace Command(Key key, string label, double units = 1)
     {
-        return new KeyFace(key, label, label, units, GapBefore: gapBefore);
+        return new KeyFace(key, label, label, units);
     }
 
     private static KeyFace Modifier(Key key, string label, KeyModifiers modifier, double units)
@@ -293,6 +326,8 @@ public sealed class OnScreenKeyboard : Decorator
         _numLock = true;
         _mainRows.IsVisible = true;
         _numberRows.IsVisible = false;
+        _toolRows.IsVisible = false;
+        _padRows.IsVisible = false;
         UpdateKeys();
     }
 
@@ -306,7 +341,6 @@ public sealed class OnScreenKeyboard : Decorator
         double Units,
         bool Printable = false,
         KeyModifiers Modifier = KeyModifiers.None,
-        bool GapBefore = false,
         string? LabelOverride = null)
     {
         internal string Label => LabelOverride ?? Normal;

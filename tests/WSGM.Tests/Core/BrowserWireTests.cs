@@ -50,7 +50,11 @@ public sealed class BrowserWireTests
     [Fact]
     public async Task NavigationIdentityAndUnicodeSurviveTheBoundary()
     {
-        var packet = new BrowserPacket { Kind = "address", Text = "https://example.com/攻略", NavigationId = ulong.MaxValue };
+        var packet = new BrowserPacket
+        {
+            Kind = "address", Text = "https://example.com/攻略", NavigationId = ulong.MaxValue,
+            Sensitive = true, Multiline = true, Submit = true, Replace = true, SelectionStart = 1, SelectionEnd = 3
+        };
         using var stream = new MemoryStream();
         await BrowserWire.WriteAsync(stream, packet, CancellationToken.None);
         stream.Position = 0;

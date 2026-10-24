@@ -56,10 +56,14 @@ public sealed class BrowserLayoutTests
         DevicePageCaptureTests.Capture(window, Path.Combine(directory, "chrome.png"));
         UiFixture.Click(window, keyboard);
         Dispatcher.UIThread.RunJobs();
+        Assert.False(window.HasActiveSurface);
+        Assert.Contains("Select a text field", session.Status, StringComparison.Ordinal);
+        window.RequestText("Website text", "", 4096, _ => { });
+        Dispatcher.UIThread.RunJobs();
         Assert.True(window.HasActiveSurface);
         Assert.False(viewport.IsVisible);
         Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(),
-            text => text.IsEffectivelyVisible && text.Text == "Type into the selected web field");
+            text => text.IsEffectivelyVisible && text.Text == "Website text");
         DevicePageCaptureTests.Capture(window, Path.Combine(directory, "keyboard.png"));
         Assert.Null(session.HelperProcessId);
     }

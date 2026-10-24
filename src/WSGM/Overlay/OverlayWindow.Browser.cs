@@ -1,6 +1,8 @@
 using System;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
+using Avalonia.Interactivity;
 using WSGM.Input;
 using WSGM.Shell;
 
@@ -23,6 +25,8 @@ public partial class OverlayWindow
         RefreshWorkspace();
         PropertyChanged += OnBrowserWindowPropertyChanged;
         Closed += OnBrowserWindowClosed;
+        AddHandler(KeyDownEvent, OnBrowserKeyDown, RoutingStrategies.Tunnel);
+        AddHandler(TextInputEvent, OnBrowserTextInput, RoutingStrategies.Tunnel);
     }
 
     /// <summary>Called after shared route visibility changes. Never initializes a nonselected page.</summary>
@@ -48,6 +52,51 @@ public partial class OverlayWindow
 
     /// <summary>Browser native focus consumes one Back before the ordinary surface/rail close path.</summary>
     internal bool TryReturnBrowserToChrome() => _browserPage?.TryReturnToChrome() == true;
+
+    private void OnBrowserKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (HasActiveSurface || _browserPage?.ViewportOwnsInput != true)
+        {
+            return;
+        }
+
+        if (e.Key == Key.Space)
+        {
+            // TextInput supplies the character; do not also activate the last Avalonia button.
+            e.Handled = true;
+            return;
+        }
+
+        var key = e.Key switch
+        {
+            Key.Enter => "Enter",
+            Key.Tab => e.KeyModifiers.HasFlag(KeyModifiers.Shift) ? "ShiftTab" : "Tab",
+            Key.Up => "ArrowUp",
+            Key.Down => "ArrowDown",
+            Key.Left => "ArrowLeft",
+            Key.Right => "ArrowRight",
+            Key.PageUp => "PageUp",
+            Key.PageDown => "PageDown",
+            Key.Back => "Backspace",
+            Key.Delete => "Delete",
+            Key.Home => "Home",
+            Key.End => "End",
+            _ => null
+        };
+        if (key is not null && _browserPage.PageKey(key))
+        {
+            e.Handled = true;
+        }
+    }
+
+    private void OnBrowserTextInput(object? sender, TextInputEventArgs e)
+    {
+        if (!HasActiveSurface && _browserPage?.ViewportOwnsInput == true && !string.IsNullOrEmpty(e.Text))
+        {
+            _browserPage.PageText(e.Text);
+            e.Handled = true;
+        }
+    }
 
     /// <summary>Filters existing semantic UI presses, without another poller, input lease or mouse mapping.</summary>
     internal IUiButtonSource BrowserInput(IUiButtonSource source, Func<bool>? nintendoLayout)
@@ -93,6 +142,8 @@ public partial class OverlayWindow
         _browserPage = null;
         PropertyChanged -= OnBrowserWindowPropertyChanged;
         Closed -= OnBrowserWindowClosed;
+        RemoveHandler(KeyDownEvent, OnBrowserKeyDown);
+        RemoveHandler(TextInputEvent, OnBrowserTextInput);
     }
 
     private sealed class BrowserButtons : IUiButtonSource, IDisposable

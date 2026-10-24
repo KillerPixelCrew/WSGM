@@ -26,14 +26,15 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
-        if (args.Length != 2)
+        if (args.Length is < 2 or > 3)
         {
             return;
         }
 
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
-        using var window = new ProbeWindow(Path.GetFullPath(args[0]), Path.GetFullPath(args[1]));
+        using var window = new ProbeWindow(Path.GetFullPath(args[0]), Path.GetFullPath(args[1]),
+            keyboardOnly: args.Length == 3 && args[2] == "keyboard");
         Application.Run(window);
     }
 }
@@ -49,13 +50,19 @@ internal sealed partial class ProbeWindow : Form
     private readonly TcpListener _fixture = new(IPAddress.Loopback, 0);
     private readonly System.Windows.Forms.Timer _deadline = new() { Interval = 115000 };
 
-    internal ProbeWindow(string helperPath, string output)
+    internal ProbeWindow(string helperPath, string output, bool keyboardOnly = false)
     {
         _helperPath = helperPath;
         _output = output;
+        _keyboardOnly = keyboardOnly;
         Text = "WSGM Browser isolated acceptance spike";
         ClientSize = new Size(880, 520);
         StartPosition = FormStartPosition.CenterScreen;
+        if (keyboardOnly)
+        {
+            StartPosition = FormStartPosition.Manual;
+            Location = new Point(-32000, -32000);
+        }
         ShowInTaskbar = false;
         _deadline.Tick += (_, _) => Close();
         _deadline.Start();
@@ -104,6 +111,13 @@ internal sealed partial class ProbeWindow : Form
                     throw new InvalidOperationException(ready.Text);
                 }
                 _results.Add(new { phase = "first-open", controllerReadyMs = watch.Elapsed.TotalMilliseconds, status = ready.Text });
+                if (_keyboardOnly)
+                {
+                    await CheckKeyboardAsync(pipe, fixtureAddress, token);
+                    await SendAsync(pipe, new BrowserPacket { Kind = "close" }, token);
+                    await helper.WaitForExitAsync(token).WaitAsync(TimeSpan.FromSeconds(10), token);
+                    return;
+                }
                 var runtime = await ProcessesAsync(pipe, token);
                 await SampleAsync("first-open", runtime.Append(helper.Id).ToArray(), token);
 
@@ -262,6 +276,11 @@ internal sealed partial class ProbeWindow : Form
                     document.querySelector('#state').focus();
                     </script></body></html>
                     """;
+                if (_keyboardOnly)
+                {
+                    body = KeyboardFixture;
+                }
+
                 var bytes = Encoding.UTF8.GetBytes(body);
                 var header = "HTTP/1.1 200 OK\r\nContent-Type: " + (download ? "application/octet-stream" : "text/html; charset=utf-8")
                              + (download ? "\r\nContent-Disposition: attachment; filename=browser-probe.txt" : "")
@@ -297,7 +316,16 @@ internal sealed partial class ProbeWindow : Form
         {
             if (BrowserNative.IsMediumIntegrity(Environment.ProcessId))
             {
-                var direct = Process.Start(new ProcessStartInfo(_helperPath, arguments) { UseShellExecute = false, CreateNoWindow = true })!;
+                var start = new ProcessStartInfo(_helperPath, arguments) { UseShellExecute = false, CreateNoWindow = true };
+                if (_keyboardOnly)
+                {
+                    using var reservation = new TcpListener(IPAddress.Loopback, 0);
+                    reservation.Start();
+                    _keyboardDebugPort = ((IPEndPoint)reservation.LocalEndpoint).Port;
+                    start.Environment["WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"] = "--remote-debugging-port=" + _keyboardDebugPort;
+                }
+
+                var direct = Process.Start(start)!;
                 _ownedHelpers.Add(direct);
             }
             else

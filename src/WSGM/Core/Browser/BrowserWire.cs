@@ -7,8 +7,8 @@ using System.Threading.Tasks;
 
 namespace WSGM.Browser;
 
-// The only IPC contract. The helper cannot request host actions, access configuration,
-// read files, launch programs or obtain a Steam/plugin bridge. All text is untrusted data.
+// The only IPC contract. Browser state and user-requested field editing cross this boundary;
+// websites receive no pipe, configuration, file, launcher or Steam/plugin bridge. Text is untrusted.
 internal sealed record BrowserPacket
 {
     public string Kind { get; init; } = "";
@@ -19,6 +19,12 @@ internal sealed record BrowserPacket
     public bool Loading { get; init; }
     public bool CanGoBack { get; init; }
     public bool CanGoForward { get; init; }
+    public bool Sensitive { get; init; }
+    public bool Multiline { get; init; }
+    public bool Submit { get; init; }
+    public bool Replace { get; init; }
+    public int SelectionStart { get; init; }
+    public int SelectionEnd { get; init; }
     public double Zoom { get; init; } = 1;
     public ulong NavigationId { get; init; }
 }
