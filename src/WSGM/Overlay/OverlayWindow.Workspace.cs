@@ -199,6 +199,7 @@ public partial class OverlayWindow
         var label = new TextBlock
         {
             Text = entry.Title, FontSize = 15, TextTrimming = TextTrimming.CharacterEllipsis,
+            TextWrapping = TextWrapping.Wrap, MaxLines = 2,
             VerticalAlignment = VerticalAlignment.Center
         };
         Grid.SetColumn(label, 2);

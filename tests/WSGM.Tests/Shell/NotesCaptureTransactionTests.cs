@@ -103,6 +103,54 @@ public sealed class NotesCaptureTransactionTests
     }
 
     [Fact]
+    public async Task ADesktopCaptureNeedsNoRunningGameAndReturnsToTheSamePage()
+    {
+        var harness = new Harness { Alive = _ => throw new InvalidOperationException("A desktop has no game process.") };
+        var desktop = new NotesCaptureTarget(ProcessId: 0, Window: 0, SteamAppId: 0, Description: "desktop", Monitor: 99);
+        NotesCaptureTarget? captured = null;
+        var ports = harness.Ports with
+        {
+            Capture = (target, _) =>
+            {
+                captured = target;
+                Assert.False(harness.Countdown.Visible);
+                return Task.FromResult(harness.Frame);
+            }
+        };
+
+        var status = await harness.Transaction.RunAsync(NotesCaptureOrigin.Overlay, "page", 5, desktop, ports,
+            CancellationToken.None);
+
+        Assert.Same(desktop, captured);
+        Assert.Equal([5, 4, 3, 2, 1], harness.Countdown.Shown);
+        Assert.Equal([("page", 1920)], harness.Inserted);
+        Assert.Equal(["page"], harness.Surface.Reopened);
+        Assert.Equal(NotesCapturePhase.Idle, status.Phase);
+        Assert.False(status.OutcomeIsError);
+    }
+
+    [Fact]
+    public async Task CancellingADesktopCountdownCapturesNothing()
+    {
+        var harness = new Harness { Alive = _ => false };
+        var desktop = new NotesCaptureTarget(ProcessId: 0, Window: 0, SteamAppId: 0, Description: "desktop", Monitor: 99);
+        harness.OnTick = _ =>
+        {
+            Assert.True(harness.Transaction.Cancel("Screenshot cancelled."));
+            return Task.CompletedTask;
+        };
+
+        var status = await harness.Transaction.RunAsync(NotesCaptureOrigin.Overlay, "page", 5, desktop, harness.Ports,
+            CancellationToken.None);
+
+        Assert.Equal(0, harness.Captures);
+        Assert.Empty(harness.Inserted);
+        Assert.Empty(harness.Surface.Reopened);
+        Assert.Equal("Screenshot cancelled.", status.Outcome);
+        Assert.False(harness.Countdown.Visible);
+    }
+
+    [Fact]
     public async Task TheCountdownIsHeldBetweenFiveAndTenSeconds()
     {
         var harness = new Harness();

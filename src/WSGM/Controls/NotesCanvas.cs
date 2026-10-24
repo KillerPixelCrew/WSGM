@@ -462,7 +462,11 @@ public sealed class NotesCanvas : Control
     {
         base.OnPointerCaptureLost(e);
         // A capture taken away mid-stroke (the overlay closing, another surface) keeps nothing half-drawn.
-        CancelDrag();
+        // Normal release has already ended the drag; its ink still needs to reach the owner.
+        if (_drag != Drag.None)
+        {
+            CancelDrag();
+        }
     }
 
     /// <inheritdoc />

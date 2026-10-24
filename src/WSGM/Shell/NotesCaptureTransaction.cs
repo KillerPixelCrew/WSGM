@@ -39,12 +39,17 @@ internal enum NotesCapturePhase
     Restoring
 }
 
-/// <summary>The game a screenshot is of.</summary>
-/// <param name="ProcessId">The game process; only a window it owns is ever captured.</param>
+/// <summary>The application window or desktop display a screenshot is of.</summary>
+/// <param name="ProcessId">The application process, or zero for a desktop display.</param>
 /// <param name="Window">The game window seen when the screenshot was requested, or zero when unknown.</param>
 /// <param name="SteamAppId">The Steam app id whose overlay hosts Notes, or zero for WSGM's overlay.</param>
-/// <param name="Description">The game, for messages and the log.</param>
-internal sealed record NotesCaptureTarget(uint ProcessId, nint Window, uint SteamAppId, string Description);
+/// <param name="Description">The application or desktop, for messages and the log.</param>
+/// <param name="Monitor">The desktop display to capture, or zero for an application window.</param>
+internal sealed record NotesCaptureTarget(uint ProcessId, nint Window, uint SteamAppId, string Description, nint Monitor = 0)
+{
+    /// <summary>Whether the target is a desktop display rather than an application window.</summary>
+    internal bool IsDesktop => Monitor != 0;
+}
 
 /// <summary>The image a capture produced, or why there is none.</summary>
 /// <param name="Image">Encoded PNG or JPEG bytes, or null on failure.</param>
@@ -118,7 +123,7 @@ internal interface INotesCountdownDisplay
 /// <summary>The effects one screenshot transaction needs, injected so it can run without a live game.</summary>
 /// <param name="Surface">Returns to the game and reopens Notes, for the origin surface.</param>
 /// <param name="Countdown">The countdown display.</param>
-/// <param name="Capture">Captures the game's window; refuses anything not owned by the game.</param>
+/// <param name="Capture">Captures the selected application window or desktop display.</param>
 /// <param name="IsAlive">Whether the game process still runs.</param>
 /// <param name="Delay">Waits; replaced by tests.</param>
 internal sealed record NotesCapturePorts(
@@ -129,15 +134,14 @@ internal sealed record NotesCapturePorts(
     Func<TimeSpan, CancellationToken, Task>? Delay = null);
 
 /// <summary>
-///     Runs one Add Screenshot: hands the game back, counts down while the player prepares it, captures the
-///     game's own window, puts the image into the page and returns to that page.
+///     Runs one Add Screenshot: returns to the application or desktop, counts down, captures the selected
+///     window or display, puts the image into the page and returns to that page.
 /// </summary>
 /// <remarks>
 ///     <para>
 ///         The countdown is the feature, not a workaround: the player needs those seconds to unpause, open a
-///         map or move the camera. Nothing is captured through an open Notes surface, and nothing but a window
-///         the game process owns is ever captured, so a failure can never put a desktop or another
-///         application into the note.
+///         map or move the camera. Nothing is captured through an open Notes surface. An application capture
+///         never falls back to the desktop or another application; desktop capture targets its own display.
 ///     </para>
 ///     <para>
 ///         At most one transaction runs. The page itself is never held: it stays saved throughout, so a
@@ -302,20 +306,20 @@ internal sealed class NotesCaptureTransaction
         NotesCaptureTarget target, NotesCapturePorts ports, Func<TimeSpan, CancellationToken, Task> delay,
         CancellationToken token, Action<string> inserted)
     {
-        if (target.ProcessId == 0 || !ports.IsAlive(target.ProcessId))
+        if (!target.IsDesktop && (target.ProcessId == 0 || !ports.IsAlive(target.ProcessId)))
         {
             return "The game is no longer running.";
         }
 
         if (!await ports.Surface.ReturnToGameAsync(target, token).ConfigureAwait(false))
         {
-            return "WSGM could not return you to the game.";
+            return target.IsDesktop ? "WSGM could not return you to the desktop." : "WSGM could not return you to the game.";
         }
 
         for (var remaining = seconds; remaining > 0; remaining--)
         {
             token.ThrowIfCancellationRequested();
-            if (!ports.IsAlive(target.ProcessId))
+            if (!target.IsDesktop && !ports.IsAlive(target.ProcessId))
             {
                 return "The game closed before the screenshot.";
             }
@@ -328,9 +332,9 @@ internal sealed class NotesCaptureTransaction
         token.ThrowIfCancellationRequested();
         SetPhase(NotesCapturePhase.Capturing, 0);
         HideCountdown(ports);
-        // One frame for the countdown to leave the screen; a window capture excludes it anyway.
+        // Let the countdown leave the screen before capturing a desktop display.
         await delay(TimeSpan.FromMilliseconds(150), CancellationToken.None).ConfigureAwait(false);
-        if (!ports.IsAlive(target.ProcessId))
+        if (!target.IsDesktop && !ports.IsAlive(target.ProcessId))
         {
             return "The game closed before the screenshot.";
         }
@@ -338,7 +342,7 @@ internal sealed class NotesCaptureTransaction
         var frame = await ports.Capture(target, CancellationToken.None).ConfigureAwait(false);
         if (frame.Image is null)
         {
-            return frame.Error ?? "The game could not be captured.";
+            return frame.Error ?? (target.IsDesktop ? "The desktop could not be captured." : "The game could not be captured.");
         }
 
         var result = _insert(pageId, frame.Image, frame.Width, frame.Height);

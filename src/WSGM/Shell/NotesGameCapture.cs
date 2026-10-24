@@ -12,7 +12,7 @@ using WSGM.Interop;
 namespace WSGM.Shell;
 
 /// <summary>
-///     Captures the game's own window for a Notes screenshot through Windows Graphics Capture.
+///     Captures an application window or desktop display for Notes through Windows Graphics Capture.
 /// </summary>
 /// <remarks>
 ///     <para>
@@ -22,8 +22,8 @@ namespace WSGM.Shell;
 ///         the least invasive one left, and the only one that cannot include another window.
 ///     </para>
 ///     <para>
-///         Only the window in front is captured, and only when the game process owns it. Anything else fails
-///         with a reason, so the note never receives the desktop, WSGM's overlay or another application.
+///         Application captures require a foreground window owned by the selected process. A desktop capture
+///         explicitly targets the display the WSGM overlay was on, after the overlay and countdown close.
 ///         Steam's in-game overlay is drawn into the game's own frames, so a capture is refused while Steam
 ///         reports it open over the game. A frame that comes back black is exclusive fullscreen or protected
 ///         content and is reported as such rather than saved.
@@ -33,8 +33,8 @@ internal static class NotesGameCapture
 {
     private static readonly TimeSpan FrameTimeout = TimeSpan.FromSeconds(3);
 
-    /// <summary>Captures the game's foreground window as a JPEG.</summary>
-    /// <param name="target">The game.</param>
+    /// <summary>Captures the application's foreground window or the chosen desktop display as a JPEG.</summary>
+    /// <param name="target">The application or desktop display.</param>
     /// <param name="steamOverlayOpen">Reports whether Steam's overlay is open over a game process; null without Steam.</param>
     /// <param name="cancellationToken">Cancels waiting for the frame.</param>
     /// <returns>The image, or the reason there is none.</returns>
@@ -99,19 +99,19 @@ internal static class NotesGameCapture
     {
         var window = NativeMethods.GetForegroundWindow();
         NativeMethods.GetWindowThreadProcessId(window, out var owner);
-        if (window == 0 || owner != target.ProcessId)
+        if (!target.IsDesktop && (window == 0 || owner != target.ProcessId))
         {
             Log.Info($"Notes capture refused: foreground pid {owner} is not the game's {target.ProcessId}.");
             return NotesCaptureFrame.Failed(
                 $"{target.Description} was not in front when the countdown ended, so nothing was captured.");
         }
 
-        if (NativeMethods.IsIconic(window))
+        if (!target.IsDesktop && NativeMethods.IsIconic(window))
         {
             return NotesCaptureFrame.Failed($"{target.Description} was minimized when the countdown ended.");
         }
 
-        if (steamOverlayOpen is not null && await steamOverlayOpen(target.ProcessId, cancellationToken)
+        if (!target.IsDesktop && steamOverlayOpen is not null && await steamOverlayOpen(target.ProcessId, cancellationToken)
                 .ConfigureAwait(false))
         {
             return NotesCaptureFrame.Failed(
@@ -121,13 +121,13 @@ internal static class NotesGameCapture
         NotesCaptureInterop.EnsureMultithreadedApartment();
         if (!GraphicsCaptureSession.IsSupported())
         {
-            return NotesCaptureFrame.Failed("Windows cannot capture game windows on this PC.");
+            return NotesCaptureFrame.Failed("Windows cannot capture screenshots on this PC.");
         }
 
         try
         {
             using var device = NotesCaptureInterop.CreateDevice();
-            var item = NotesCaptureInterop.CreateItem(window);
+            var item = NotesCaptureInterop.CreateItem(target.IsDesktop ? target.Monitor : window, monitor: target.IsDesktop);
             using var pool = Direct3D11CaptureFramePool.CreateFreeThreaded(device,
                 DirectXPixelFormat.B8G8R8A8UIntNormalized, 1, item.Size);
             TaskCompletionSource<Direct3D11CaptureFrame> arrived = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -145,7 +145,7 @@ internal static class NotesGameCapture
             session.StartCapture();
             using var captured = await arrived.Task.WaitAsync(FrameTimeout, cancellationToken).ConfigureAwait(false);
             using var bitmap = await SoftwareBitmap.CreateCopyFromSurfaceAsync(captured.Surface, BitmapAlphaMode.Ignore);
-            if (IsBlank(bitmap))
+            if (!target.IsDesktop && IsBlank(bitmap))
             {
                 Log.Info("Notes capture: the frame was blank (exclusive fullscreen or protected content).");
                 return NotesCaptureFrame.Failed(
@@ -154,13 +154,15 @@ internal static class NotesGameCapture
             }
 
             var bytes = await EncodeAsync(bitmap).ConfigureAwait(false);
-            Log.Info($"Notes capture: {bitmap.PixelWidth}x{bitmap.PixelHeight} from pid {target.ProcessId}, "
+            Log.Info($"Notes capture: {bitmap.PixelWidth}x{bitmap.PixelHeight} from {target.Description} (pid {target.ProcessId}), "
                      + $"{bytes.Length} bytes, border hidden={borderless}.");
             return new NotesCaptureFrame(bytes, bitmap.PixelWidth, bitmap.PixelHeight, null);
         }
         catch (TimeoutException)
         {
-            return NotesCaptureFrame.Failed("The game did not draw a frame to capture.");
+            return NotesCaptureFrame.Failed(target.IsDesktop
+                ? "Windows did not provide a desktop frame to capture."
+                : "The game did not draw a frame to capture.");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -169,7 +171,9 @@ internal static class NotesGameCapture
         catch (Exception ex)
         {
             Log.Warn($"Notes capture failed: {ex.GetType().Name}: {ex.Message}");
-            return NotesCaptureFrame.Failed("The game window could not be captured.");
+            return NotesCaptureFrame.Failed(target.IsDesktop
+                ? "The desktop display could not be captured."
+                : "The game window could not be captured.");
         }
     }
 

@@ -947,15 +947,15 @@ public sealed class NotesView : ServiceSubView
 
         var seconds = service.CountdownSeconds;
         var body = NewStack("Add screenshot");
-        body.Children.Add(Caption("Notes closes and returns you to the game. Use the countdown to unpause, open the "
-                                  + "map or move the camera; the game's own window is captured when it ends and "
-                                  + "this page opens again with the screenshot added. Open the overlay during the "
-                                  + "countdown to cancel."));
+        body.Children.Add(Caption("Notes closes and returns you to the app or desktop. Use the countdown to prepare "
+                                  + "the picture. The app's window is captured, or this display when opened from the "
+                                  + "desktop, then this page opens again with the screenshot added. Open the overlay "
+                                  + "during the countdown to cancel."));
         body.Children.Add(ChoiceRow("Countdown",
             Enumerable.Range(NoteSettings.MinimumCountdown,
                 NoteSettings.MaximumCountdown - NoteSettings.MinimumCountdown + 1).Select(value => (value, $"{value} seconds"))
                 .ToArray(), seconds, value => service.SetCountdown(value)));
-        body.Children.Add(Tagged(PrimaryRow("Start countdown", "Returns to the game now", Icons.Play, () =>
+        body.Children.Add(Tagged(PrimaryRow("Start countdown", "Returns to the app or desktop now", Icons.Play, () =>
         {
             var result = StartCapture?.Invoke(page.Id, service.CountdownSeconds)
                          ?? new SteamUiCommandResult(false, "Screenshots are not available here.");

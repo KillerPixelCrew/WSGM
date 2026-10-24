@@ -7,8 +7,8 @@ using WinRT;
 namespace WSGM.Interop;
 
 /// <summary>
-///     The native half of the Notes game capture: a Direct3D device for Windows Graphics Capture, a capture item
-///     for one window, and Windows 11's borderless-capture switch. No product decisions live here.
+///     The native half of Notes capture: a Direct3D device for Windows Graphics Capture, a capture item for
+///     one window or monitor, and Windows 11's borderless-capture switch. No product decisions live here.
 /// </summary>
 internal static unsafe partial class NotesCaptureInterop
 {
@@ -56,11 +56,12 @@ internal static unsafe partial class NotesCaptureInterop
         }
     }
 
-    /// <summary>Creates a capture item for exactly one top-level window.</summary>
-    /// <param name="window">The window.</param>
-    /// <returns>The item; it captures that window's own content, never what covers it.</returns>
-    /// <exception cref="COMException">The window cannot be captured.</exception>
-    internal static GraphicsCaptureItem CreateItem(nint window)
+    /// <summary>Creates a capture item for one top-level window or desktop display.</summary>
+    /// <param name="handle">The window or monitor handle.</param>
+    /// <param name="monitor">Whether the handle identifies a monitor.</param>
+    /// <returns>The item for exactly that window or display.</returns>
+    /// <exception cref="COMException">The target cannot be captured.</exception>
+    internal static GraphicsCaptureItem CreateItem(nint handle, bool monitor = false)
     {
         nint name = 0, factory = 0, item = 0;
         try
@@ -69,10 +70,10 @@ internal static unsafe partial class NotesCaptureInterop
             Marshal.ThrowExceptionForHR(WindowsCreateString(className, (uint)className.Length, out name));
             Marshal.ThrowExceptionForHR(RoGetActivationFactory(name, in GraphicsCaptureItemInterop, out factory));
             var vtable = *(nint**)factory;
-            // IGraphicsCaptureItemInterop::CreateForWindow is the first method after IUnknown.
-            var create = (delegate* unmanaged[Stdcall]<nint, nint, Guid*, nint*, int>)vtable[3];
+            // IGraphicsCaptureItemInterop follows IUnknown with CreateForWindow, then CreateForMonitor.
+            var create = (delegate* unmanaged[Stdcall]<nint, nint, Guid*, nint*, int>)vtable[monitor ? 4 : 3];
             var iid = GraphicsCaptureItemId;
-            Marshal.ThrowExceptionForHR(create(factory, window, &iid, &item));
+            Marshal.ThrowExceptionForHR(create(factory, handle, &iid, &item));
             return GraphicsCaptureItem.FromAbi(item);
         }
         finally

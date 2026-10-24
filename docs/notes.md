@@ -18,6 +18,9 @@ Returning from these views keeps the canvas, drawing history and position. Steam
 belong to the open page, survive its secondary views and cancel on exit; different page instances do
 not share a mutable image cache.
 
+The Overlay uses a compact 240-DIP left sidebar throughout, leaving more space for pages and
+websites. Navigation and the selected section remain visible.
+
 Over a game, Quick Access is drawn in that game's Steam overlay window. The toolkit's
 `steamInteractionWindow` resolves the window an action came from, and `navigateSteamRoute` opens the
 page in that overlay window with its own `Navigate`, the way Steam opens its own pages over a game;
@@ -95,7 +98,8 @@ The page has three explicit modes:
 Strokes are captured at the digitizer's rate, including intermediate points, then simplified once
 when the contact lifts. The eraser removes whole strokes, so undo restores them whole and in their
 original drawing order. Pen pressure is stored when a pen reports it; finger and mouse strokes do
-not need it.
+not need it. Releasing a finished contact preserves its ink and eraser result for saving; losing
+capture during an unfinished contact cancels it.
 
 A controller reaches everything through rows below the page: each element can be selected, edited,
 nudged, resized, brought to front or deleted. Text is edited in a multiline editor with the
@@ -136,6 +140,11 @@ as pointer events on a given device is a live acceptance item.
 The countdown is part of the feature: the player leaves Notes to unpause, open a map or move the
 camera, and the game is captured when the countdown ends.
 
+The WSGM Overlay also takes screenshots from the desktop. When no application window was behind
+Notes, it captures the display the Overlay was on. The Overlay and countdown close before the
+capture, and the same page reopens with the image. This works without a running game; application
+captures still keep their original process and foreground checks.
+
 `Shell/NotesCaptureTransaction.cs` runs **Armed → Countdown → Capturing → Restoring → Idle**:
 
 1. The page and its exact location are already saved. The player chooses 5 to 10 seconds; the choice
@@ -146,7 +155,8 @@ camera, and the game is captured when the countdown ends.
    `SteamGameWindowActivation`).
 3. A small top-center, non-activating, click-through countdown shows the seconds over the game
    (`Overlay/NotesCountdownWindow.cs`). Over a confirmed exclusive-fullscreen game it is not shown.
-4. At expiry the game's foreground window is captured (`Shell/NotesGameCapture.cs`).
+4. At expiry the application's foreground window or the selected desktop display is captured
+   (`Shell/NotesGameCapture.cs`).
 5. The image is stored as an asset and inserted below the page's content, selected and ready for
    ink.
 6. The same Notes surface reopens on the same page: the Overlay's Notes section, or Steam's

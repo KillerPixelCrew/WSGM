@@ -18,6 +18,7 @@ public sealed class BrowserLayoutTests
     [InlineData(1280, 800)]
     [InlineData(1280, 720)]
     [InlineData(1024, 640)]
+    [InlineData(980, 640)]
     public void BrowserChromeAndKeyboardRemainReachable(int width, int height)
     {
         using var fixture = new UiFixture();
@@ -44,6 +45,7 @@ public sealed class BrowserLayoutTests
         var viewport = Assert.Single(page.GetVisualDescendants().OfType<BrowserViewport>());
         var viewportFrame = Assert.IsType<Grid>(viewport.GetVisualParent());
         var scroller = UiFixture.Named<ScrollViewer>(window, "ContentScroller");
+        Assert.True(scroller.Bounds.Width >= width * 0.7, "The browser should have at least 70% of the window width.");
         var origin = viewportFrame.TranslatePoint(default, scroller)!.Value;
         Assert.True(viewportFrame.Bounds.Height >= 240);
         Assert.InRange(origin.Y, 0, scroller.Viewport.Height - viewportFrame.Bounds.Height + 1);

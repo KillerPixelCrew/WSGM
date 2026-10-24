@@ -25,7 +25,8 @@ internal sealed class NotesCountdown : INotesCountdownDisplay
     /// <inheritdoc />
     public void Hide()
     {
-        Dispatcher.UIThread.Post(() => _window?.Hide());
+        // Display capture must not start while the countdown is still waiting to hide on the UI thread.
+        Dispatcher.UIThread.Invoke(() => _window?.Hide());
     }
 
     /// <summary>Closes the window at session end.</summary>

@@ -48,11 +48,19 @@ public sealed partial class OverlayController
 
     private SteamUiCommandResult StartNotesCapture(NotesService notes, string pageId, int seconds)
     {
-        // The window in front when the sheet opened: the game the player came from.
-        if (NotesGameCapture.DescribeTarget(_restoreFocusTo) is not { } target)
+        // Prefer the application the sheet opened over; on the desktop capture the sheet's display.
+        var target = NotesGameCapture.DescribeTarget(_restoreFocusTo);
+        if (target is null && _overlay is { } overlay
+                           && overlay.Screens.ScreenFromWindow(overlay)?.TryGetPlatformHandle()?.Handle is { } monitor
+                           && monitor != 0)
+        {
+            target = new NotesCaptureTarget(ProcessId: 0, Window: 0, SteamAppId: 0, Description: "desktop", Monitor: monitor);
+        }
+
+        if (target is null)
         {
             return new SteamUiCommandResult(false,
-                "No game window to capture. Open the overlay from the running game, then add the screenshot.");
+                "No window or desktop display is available to capture.");
         }
 
         return notes.StartCapture(NotesCaptureOrigin.Overlay, pageId, seconds, target);

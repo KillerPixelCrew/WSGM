@@ -57,10 +57,10 @@ Claw, including bright/dark readability and no noticeable frame-time change. Bat
 and physical touch still need attended validation for issue #114.
 
 The fixed header carries the WSGM context, utility controls and status. Horizontal tabs select Quick
-access, Steam, Device, Tools or Power. Each destination has a persistent one-third section rail
-beside a two-thirds controls pane; both scroll independently. The workspace supports a 980 × 640 DIP
-floor and a shared maximum width, and desktop scaling is capped to keep that minimum usable. Close,
-the header and the bottom app/tray rail stay outside the scrolling workspace.
+access, Steam, Device, Tools or Power. Each destination has a persistent 240-DIP section rail beside
+a controls pane that fills the remaining width; both scroll independently. The workspace supports a
+980 × 640 DIP floor and a shared maximum width, and desktop scaling is capped to keep that minimum
+usable. Close, the header and the bottom app/tray rail stay outside the scrolling workspace.
 
 Steam offers Library and Per-game launch fixes; Tools offers System, Performance, Storage, Display,
 Plugins, CSS Loader, Video Switcher, Sounds, Steam Artwork Changer, Library Importer, Keyboard and

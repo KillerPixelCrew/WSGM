@@ -153,7 +153,7 @@
           <c:TabStrip x:Name="Tabs" Classes="sheet" />
         </Border>
 
-        <Grid Grid.Row="2" ColumnDefinitions="*,2*" ColumnSpacing="{StaticResource DeckSectionGap}" Margin="{StaticResource DeckWorkspaceMargin}"
+        <Grid Grid.Row="2" ColumnDefinitions="240,*" ColumnSpacing="{StaticResource DeckSectionGap}" Margin="{StaticResource DeckWorkspaceMargin}"
               MaxWidth="{StaticResource DeckContentMaxWidth}" HorizontalAlignment="Stretch">
           <Border Background="{StaticResource DeckRailBrush}" CornerRadius="{StaticResource DeckGroupRadius}" Padding="{StaticResource DeckPanePadding}">
             <Grid RowDefinitions="Auto,*" RowSpacing="{StaticResource DeckSectionGap}">

@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
@@ -18,6 +19,115 @@ namespace WSGM.UiTests.Overlay;
 public sealed class NotesLayoutTests
 {
     [AvaloniaTheory]
+    [InlineData(NotesInkTool.Pen)]
+    [InlineData(NotesInkTool.Highlighter)]
+    public async Task TouchInkIsSavedWhenTheFingerLiftsAndCanBeUndone(NotesInkTool tool)
+    {
+        using var fixture = new UiFixture();
+        var (service, page) = SeededNotes(fixture);
+        service.OverlayLocation = new NotesOverlayLocation(NoteScope.Global, page.Id, "ink", 1, 0);
+        var window = OpenNotes(fixture, service, 980, 640);
+        var canvas = Assert.Single(window.GetVisualDescendants().OfType<NotesCanvas>());
+        canvas.InkTool = tool;
+        List<NoteStroke> completed = [];
+        canvas.StrokeCompleted += completed.Add;
+        var start = canvas.TranslatePoint(new Point(40, 40), window)!.Value;
+        var end = canvas.TranslatePoint(new Point(180, 100), window)!.Value;
+
+        using var touch = window.TouchBegin(start);
+        window.TouchMove(touch, end);
+        window.TouchEnd(touch, end);
+
+        var stroke = Assert.Single(completed);
+        Assert.True(stroke.Points.Count >= 4);
+        Assert.Equal(tool == NotesInkTool.Highlighter ? NoteStroke.HighlighterTool : NoteStroke.PenTool, stroke.Tool);
+        await AsyncConditions.WaitForAsync(() => canvas.Page?.Strokes.Count == page.Strokes.Count + 1);
+        var stored = new NoteStore(Path.Combine(fixture.Store.Context.Root, "notes")).Load();
+        Assert.Contains(stored.Pages.Single(saved => saved.Id == page.Id).Strokes, saved => saved.Id == stroke.Id);
+        DevicePageCaptureTests.Capture(window, Path.Combine(CaptureDirectory(980, 640), "touch-" + tool + ".png"));
+
+        UiFixture.Click(window, Tagged(window, "notes.undo"));
+        await AsyncConditions.WaitForAsync(() => canvas.Page?.Strokes.Count == page.Strokes.Count);
+        Assert.DoesNotContain(service.ReadPage(page.Id)!.Strokes, saved => saved.Id == stroke.Id);
+    }
+
+    [AvaloniaFact]
+    public async Task TouchEraserCommitsWhenTheFingerLiftsAndUndoRestoresTheStroke()
+    {
+        using var fixture = new UiFixture();
+        var (service, page) = SeededNotes(fixture);
+        service.OverlayLocation = new NotesOverlayLocation(NoteScope.Global, page.Id, "ink", 1, 0);
+        var window = OpenNotes(fixture, service, 980, 640);
+        var canvas = Assert.Single(window.GetVisualDescendants().OfType<NotesCanvas>());
+        canvas.InkTool = NotesInkTool.Eraser;
+        var scale = canvas.Bounds.Width / NotePage.PageWidth;
+        var point = canvas.TranslatePoint(new Point(40 * scale, 70 * scale), window)!.Value;
+        List<string> erased = [];
+        canvas.StrokesErased += ids => erased.AddRange(ids);
+
+        using var touch = window.TouchBegin(point);
+        window.TouchEnd(touch, point);
+
+        Assert.Contains(page.Strokes[1].Id, erased);
+        await AsyncConditions.WaitForAsync(() => canvas.Page?.Strokes.Count == page.Strokes.Count - 1);
+        UiFixture.Click(window, Tagged(window, "notes.undo"));
+        await AsyncConditions.WaitForAsync(() => canvas.Page?.Strokes.Count == page.Strokes.Count);
+        Assert.Equal(page.Strokes.Select(stroke => stroke.Id), service.ReadPage(page.Id)!.Strokes.Select(stroke => stroke.Id));
+    }
+
+    [AvaloniaFact]
+    public void CancellingATouchContactDoesNotSaveAnUnfinishedStroke()
+    {
+        using var fixture = new UiFixture();
+        var (service, page) = SeededNotes(fixture);
+        service.OverlayLocation = new NotesOverlayLocation(NoteScope.Global, page.Id, "ink", 1, 0);
+        var window = OpenNotes(fixture, service, 980, 640);
+        var canvas = Assert.Single(window.GetVisualDescendants().OfType<NotesCanvas>());
+        List<NoteStroke> completed = [];
+        canvas.StrokeCompleted += completed.Add;
+        var start = canvas.TranslatePoint(new Point(40, 40), window)!.Value;
+        var end = canvas.TranslatePoint(new Point(180, 100), window)!.Value;
+        var touch = window.TouchBegin(start);
+        window.TouchMove(touch, end);
+
+        touch.Dispose();
+
+        Assert.Empty(completed);
+        Assert.Equal(page.Strokes.Count, service.ReadPage(page.Id)!.Strokes.Count);
+    }
+
+    [AvaloniaTheory]
+    [InlineData(980, 640)]
+    [InlineData(1280, 800)]
+    public void ScreenshotFlowExplainsDesktopCaptureAndKeepsStartReachable(int width, int height)
+    {
+        using var fixture = new UiFixture();
+        var (service, page) = SeededNotes(fixture);
+        service.OverlayLocation = new NotesOverlayLocation(NoteScope.Global, page.Id, "navigate", 1, 0);
+        var window = OpenNotes(fixture, service, width, height);
+        var notes = UiFixture.Named<NotesView>(window, "NotesHost");
+        string? capturedPage = null;
+        notes.StartCapture = (id, _) =>
+        {
+            capturedPage = id;
+            return SteamUiToolkit.SteamUiCommandResult.Applied;
+        };
+        service.Publish();
+        Dispatcher.UIThread.RunJobs();
+
+        UiFixture.Click(window, Tagged(window, "notes.add.screenshot"));
+        Dispatcher.UIThread.RunJobs();
+
+        Assert.Contains(window.GetVisualDescendants().OfType<TextBlock>(),
+            text => text.IsEffectivelyVisible && text.Text?.Contains("desktop", StringComparison.Ordinal) == true);
+        var start = Tagged(window, "notes.capture.start");
+        Assert.True(start.IsEffectivelyVisible);
+        DevicePageCaptureTests.Capture(window, Path.Combine(CaptureDirectory(width, height), "screenshot.png"));
+        UiFixture.Click(window, start);
+        Assert.Equal(page.Id, capturedPage);
+    }
+
+    [AvaloniaTheory]
     [InlineData(1280, 800)]
     [InlineData(1024, 640)]
     [InlineData(980, 640)]
@@ -29,6 +139,8 @@ public sealed class NotesLayoutTests
         var window = OpenNotes(fixture, service, width, height);
         var canvas = Assert.Single(window.GetVisualDescendants().OfType<NotesCanvas>());
         Assert.Equal(page.Id, canvas.Page?.Id);
+        Assert.True(UiFixture.Named<ScrollViewer>(window, "ContentScroller").Bounds.Width >= width * 0.7,
+            "Notes should have at least 70% of the window width.");
         var asset = page.Elements.Single(element => element.Kind == NoteElement.ImageKind).Asset!;
         DrainUntilDecoded(canvas, asset);
         var directory = CaptureDirectory(width, height);
@@ -97,6 +209,10 @@ public sealed class NotesLayoutTests
         Assert.Empty(window.GetVisualDescendants().OfType<NotesCanvas>());
         Assert.Equal(3, window.GetVisualDescendants().OfType<StackPanel>().Count(panel => panel.Tag is string tag && tag.StartsWith("notes.card:", StringComparison.Ordinal)));
         DevicePageCaptureTests.Capture(window, Path.Combine(CaptureDirectory(width, height), "notebook.png"));
+        var notesWidth = UiFixture.Named<ScrollViewer>(window, "ContentScroller").Bounds.Width;
+        UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SystemTools));
+        Dispatcher.UIThread.RunJobs();
+        Assert.Equal(notesWidth, UiFixture.Named<ScrollViewer>(window, "ContentScroller").Bounds.Width);
     }
 
     [AvaloniaTheory]
