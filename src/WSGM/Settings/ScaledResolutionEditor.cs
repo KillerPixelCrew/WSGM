@@ -126,7 +126,9 @@ public sealed class ScaledResolutionEditor : ObservableObject
     /// <summary>Whether remembered additions are missing.</summary>
     public bool HasMissing => _state?.Missing.Count > 0;
     /// <summary>Whether this vendor stores adapter lists requiring restart.</summary>
-    public bool NeedsRestart => _state?.Catalog is { Supported: true, OutputSpecific: false };
+    public bool NeedsRestart => _state?.RequiresRestart == true;
+    /// <summary>Persistent activation warning for adapter-wide resolution edits.</summary>
+    public string ActivationNotice => _state?.ActivationNotice ?? "";
     /// <summary>Whether optional driver maintenance is available.</summary>
     public bool HasDriverOptions => HasMissing || NeedsRestart;
 
@@ -186,7 +188,7 @@ public sealed class ScaledResolutionEditor : ObservableObject
 
             Resolution = Resolutions.FirstOrDefault(mode => mode.Width == previous?.Width && mode.Height == previous?.Height)
                 ?? Resolutions.FirstOrDefault();
-            foreach (var name in new[] { nameof(AdapterText), nameof(CanEdit), nameof(CanAdd), nameof(CanAddSteps), nameof(CanRestore), nameof(HasMissing), nameof(NeedsRestart), nameof(HasDriverOptions) })
+            foreach (var name in new[] { nameof(AdapterText), nameof(CanEdit), nameof(CanAdd), nameof(CanAddSteps), nameof(CanRestore), nameof(HasMissing), nameof(NeedsRestart), nameof(ActivationNotice), nameof(HasDriverOptions) })
             {
                 Raise(name);
             }

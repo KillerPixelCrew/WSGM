@@ -2,7 +2,10 @@
 
 The [GPU-scaled source-resolution editor](scaled-resolutions.md) lives in Settings > Display and
 Steam Display Settings. Its vendor catalogs are separate from display layouts and the existing
-Overlay/Quick Access active-mode pickers.
+Overlay/Quick Access active-mode pickers. Those pickers validate driver modes at the current refresh
+rate. Their legacy-mode filter uses the pixel count of 800x600, so useful widescreen modes such as
+960x540 and portrait equivalents remain available. The active mode is retained even below that
+threshold.
 
 What WSGM does with the display and the power state of a handheld: Windows power schemes and
 processor policy, device power presets and their assignments, Game Mode display layouts and audio

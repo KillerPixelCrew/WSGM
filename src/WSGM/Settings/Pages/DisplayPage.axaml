@@ -194,12 +194,14 @@
             <TextBlock Text="Manage the GPU driver's resolution list for each display." Classes="caption" TextWrapping="Wrap" />
           </StackPanel>
           <StackPanel DataContext="{Binding ScaledResolutions}" x:DataType="s:ScaledResolutionEditor" Spacing="10">
-            <TextBlock Text="Changes are saved immediately. Your active resolution stays the same. The native resolution is protected." Classes="caption" TextWrapping="Wrap" />
+            <TextBlock Text="Your active resolution stays the same. The native resolution is protected." Classes="caption" TextWrapping="Wrap" />
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
               <ComboBox ItemsSource="{Binding Displays}" SelectedItem="{Binding Display}" HorizontalAlignment="Stretch" PlaceholderText="Choose a display" IsEnabled="{Binding !Busy}" />
               <Button Grid.Column="1" Content="Refresh" Command="{Binding RefreshCommand}" IsEnabled="{Binding !Busy}" />
             </Grid>
             <TextBlock Text="{Binding AdapterText}" Classes="caption" TextWrapping="Wrap" />
+            <TextBlock Text="{Binding ActivationNotice}" IsVisible="{Binding NeedsRestart}" FontWeight="SemiBold"
+                       Foreground="{DynamicResource HcWarningBrush}" TextWrapping="Wrap" />
             <StackPanel Spacing="8" IsEnabled="{Binding CanEdit}">
               <StackPanel Spacing="8" IsEnabled="{Binding !Busy}">
                 <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">

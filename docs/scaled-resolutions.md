@@ -10,7 +10,10 @@ makes sizes available; the existing Overlay and Steam Quick Access pickers selec
 once Windows exposes it.
 
 CEF uses Steam's native inline list-builder, with a width × height input and the list actions beside
-it. Settings uses the same list and operations, with its custom dimensions in one text field.
+it. Settings uses the same list and operations, with its custom dimensions in one text field. Both
+editors show a persistent **Restart required** notice for AMD and NVIDIA before editing. Their
+adapter-wide list changes require restarting Windows or explicitly restarting the graphics driver;
+saving a list does not make its modes immediately available to Windows.
 
 Before the first driver write, WSGM saves the original recognized source sizes in
 `ScaledResolutionBackups`. Restore original list brings those sizes back and removes later extras,

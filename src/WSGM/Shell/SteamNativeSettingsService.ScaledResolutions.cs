@@ -58,10 +58,16 @@ internal sealed partial class SteamNativeSettingsService
             });
         if (state.Catalog is { Supported: true } catalog)
         {
+            if (state.RequiresRestart)
+            {
+                rows.Add(new SteamSettingsRow("scaled.activation", SteamSettingsRowKind.Note, "Restart required",
+                    Text: state.ActivationNotice));
+            }
+
             var choices = state.Resolutions.Select(mode => new SteamSettingsChoice(
                 $"{mode.Width}x{mode.Height}", state.ResolutionLabel(mode))).ToArray();
             Add(new SteamSettingsRow("scaled.editor/target/" + targetKey, SteamSettingsRowKind.ResolutionList, "Resolutions",
-                "Changes are saved immediately. Your active resolution stays the same. The native resolution is protected.", Choices: choices,
+                "Your active resolution stays the same. The native resolution is protected.", Choices: choices,
                 ResolutionEditor: new SteamSettingsResolutionEditor(
                     state.Resolutions.Where(mode => mode != state.Native).Select(mode => $"{mode.Width}x{mode.Height}").ToArray(),
                     state.Native?.Width, state.Native?.Height, state.Original is not null)), async (value, token) =>

@@ -7,10 +7,10 @@ using WindowsDeviceControl;
 namespace WSGM.Core;
 
 /// <summary>
-///     Reads and transiently changes the primary display's mode.
+///     Reads and changes the primary display's mode.
 ///     This is the narrow primary-display path behind the overlay's and Steam QAM's resolution and refresh-rate
-///     pickers: one display, no persistence, no registry staging. Saved multi-display arrangements are
-///     a different problem with different rules and live in
+///     pickers: saved resolution choices and transient refresh-rate pairing on one display. Saved multi-display
+///     arrangements are a different problem with different rules and live in
 ///     <see cref="WindowsDeviceControl.DisplayLayouts" />.
 ///     The native mode calls go through <see cref="DisplayModes" />, which shares one gate with the
 ///     overlay's per-target mode changes, so the two paths can never interleave a read and a
@@ -18,11 +18,14 @@ namespace WSGM.Core;
 /// </summary>
 internal static class PrimaryDisplayModes
 {
-    /// <summary>Smallest resolution worth offering. Below this is legacy driver noise.</summary>
-    private const int MinimumUsableWidth = 800;
+    /// <summary>Minimum source-pixel count, independent of aspect ratio and rotation.</summary>
+    private const long MinimumUsablePixels = 800L * 600;
 
-    /// <summary>Smallest resolution height worth offering.</summary>
-    private const int MinimumUsableHeight = 600;
+    /// <summary>Retains useful widescreen and portrait modes while filtering legacy low-resolution modes.</summary>
+    internal static bool IsUsableResolution(int width, int height)
+    {
+        return width > 0 && height > 0 && (long)width * height >= MinimumUsablePixels;
+    }
 
     /// <summary>Reads the primary display's identity, resolution and colour depth as one operating point.</summary>
     /// <returns>The operating point, or null when the primary changed while it was read or cannot be read.</returns>
@@ -79,9 +82,9 @@ internal static class PrimaryDisplayModes
     ///         controls precisely so one change is one change.
     ///     </para>
     ///     <para>
-    ///         Anything below 800x600 is dropped. Drivers enumerate legacy modes no handheld panel should
-    ///         offer, and a resolution list whose first entry is 640x480 is a list the user has to scroll
-    ///         past rather than one they can use.
+    ///         Legacy modes below 800x600's pixel count are dropped. The threshold is an area, not a
+    ///         minimum height: 960x540 and rotated equivalents are useful handheld modes. The active mode
+    ///         remains visible even when it is below that threshold.
     ///     </para>
     /// </remarks>
     public static IReadOnlyList<DisplayResolution> EnumerateAcceptedResolutions()
@@ -93,10 +96,8 @@ internal static class PrimaryDisplayModes
                     "accepted resolutions",
                     static (mode, current) => mode.BitsPerPixel == current.BitsPerPixel
                                               && mode.RefreshHz == current.RefreshHz
-                                              && mode is
-                                              {
-                                                  Width: >= MinimumUsableWidth, Height: >= MinimumUsableHeight
-                                              },
+                                              && (IsUsableResolution(mode.Width, mode.Height)
+                                                  || mode.Width == current.Width && mode.Height == current.Height),
                     static (mode, current) => new CandidateMode(mode.Width, mode.Height, current.RefreshHz),
                     static mode => $"{mode.Width}x{mode.Height}")
                 .Select(mode => new DisplayResolution(mode.Width, mode.Height))
@@ -149,6 +150,11 @@ internal static class PrimaryDisplayModes
         }
 
         HashSet<CandidateMode> enumerated = [];
+        if (keep(current, current))
+        {
+            enumerated.Add(candidate(current, current));
+        }
+
         foreach (var mode in DisplayModes.EnumeratePrimaryModes())
         {
             if (keep(mode, current))

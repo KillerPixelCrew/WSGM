@@ -34,6 +34,16 @@ public sealed class ScaledResolutionEditorTests
         Assert.True(editor.CanAdd);
         editor.Size = "";
         Assert.Equal(!intel, editor.NeedsRestart);
+        if (intel)
+        {
+            Assert.Empty(editor.ActivationNotice);
+        }
+        else
+        {
+            Assert.Contains("Restart Windows", editor.ActivationNotice);
+            Assert.True(Assert.Single(window.GetVisualDescendants().OfType<TextBlock>(),
+                block => block.Text == editor.ActivationNotice).IsEffectivelyVisible);
+        }
         Assert.True(window.GetVisualDescendants().OfType<Button>()
             .Single(button => button.Content as string == "Edit").IsEffectivelyEnabled);
         editor.Resolution = editor.Resolutions.First();
