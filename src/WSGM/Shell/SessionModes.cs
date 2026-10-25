@@ -600,7 +600,8 @@ public sealed class SessionModes
             return;
         }
 
-        if (hooks.IsGameMode())
+        var wasInGameMode = hooks.IsGameMode();
+        if (wasInGameMode && !ExplorerControl.IsDesktopShellRunning())
         {
             StartOrFocusSteam();
             return;
@@ -627,6 +628,22 @@ public sealed class SessionModes
             var entered = false;
             try
             {
+                if (wasInGameMode)
+                {
+                    Log.Warn("Explorer returned while Game Mode was active; restoring Desktop state before re-entering Game Mode.");
+                    if (!await hooks.Entry.ReturnToDesktopAsync(null, true).ConfigureAwait(false))
+                    {
+                        return;
+                    }
+
+                    cancellation.Token.ThrowIfCancellationRequested();
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        _desktopReturnComplete = false;
+                        _monitor?.Paused = true;
+                    });
+                }
+
                 var result = await new GameModeEntryTransaction(hooks.Entry, launch)
                     .RunAsync(cancellation.Token).ConfigureAwait(false);
                 entered = result.Outcome == GameModeEntryOutcome.Entered;

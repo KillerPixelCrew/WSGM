@@ -235,16 +235,21 @@ seconds, WSGM terminates that exact held process with Task Manager's End Process
 than its restart status, `0`. A failed message dispatch goes directly to termination. Separate File
 Explorer folder processes are not swept.
 
-Success still requires 1.5 seconds of stable shell absence before WSGM creates its own tray host. If
-Winlogon starts a replacement shell, the same graceful-then-forced sequence applies to that new
-owner within the transition's deadline. Every forced or abnormal exit reserves eight seconds to
-observe its possible replacement. A retired process that no longer owns any shell surface does not
-block entry. The forced-exit status does not bypass that wait. The terminated process must also
-finish exiting before takeover can complete. On desktop return, that captured retired owner is
-terminated and awaited before launching Explorer, so it cannot retain the shell singleton and strand
-the replacement without a desktop. If Windows ultimately denies termination or the deadline expires,
-the shared desktop-return sequence restores the layout, shell and captured integrations and reports
-the actual failure.
+Success requires the captured shell process to finish and 1.5 seconds of stable shell absence before
+WSGM creates its own tray host. Disappearing taskbar and desktop windows alone are insufficient: a
+lingering original owner receives the same three-second grace before enforced exit. If Winlogon
+starts a replacement shell, the same sequence applies to that new owner within the transition's
+deadline. Every forced or abnormal exit reserves eight seconds from observed process exit to watch
+for its possible replacement. The forced-exit status does not bypass that wait. On desktop return,
+any captured retired owner is terminated and awaited before launching Explorer, so it cannot retain
+the shell singleton and strand the replacement without a desktop. If Windows ultimately denies
+termination or the deadline expires, the shared desktop-return sequence restores the layout, shell
+and captured integrations and reports the actual failure.
+
+Enter Game Mode compares the session's mode with the live Explorer shell. If Explorer has returned
+while the session still owns Game Mode resources, the request first completes the shared desktop
+return, then performs a fresh entry. It does not reduce that request to focusing Steam. Recovery
+failures use the existing Overlay warning path and keep the desktop available.
 
 Folder windows have run in their own explorer.exe since Windows 10 1903, so a process count never
 answers "is the desktop up". Every mode decision (tray host, overlay swipes and scale, the mode

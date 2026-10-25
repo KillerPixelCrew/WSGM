@@ -461,12 +461,12 @@ public sealed class ExplorerShellPolicyTests
     [InlineData(false, true, 1499, 0)]
     // Gone and exited: complete.
     [InlineData(false, true, 1500, 1)]
-    // Retired windows, extension dialogs and file transfers are independent of the absent shell.
+    // Disappearing shell windows do not establish that their original process finished.
     [InlineData(false, false, 1499, 0)]
-    [InlineData(false, false, 1500, 1)]
-    [InlineData(false, false, 3000, 1)]
-    [InlineData(false, false, 10000, 1)]
-    public void LingeringExplorerWindowsDoNotBlockAnAbsentDesktop(bool present, bool exited, int absentMs, int expected)
+    [InlineData(false, false, 1500, 0)]
+    [InlineData(false, false, 3000, 0)]
+    [InlineData(false, false, 10000, 0)]
+    public void ShellExitRequiresBothProcessExitAndStableDesktopAbsence(bool present, bool exited, int absentMs, int expected)
     {
         Assert.Equal((ExplorerExitAction)expected,
             ExplorerExitPolicy.Decide(present, exited, TimeSpan.FromMilliseconds(absentMs)));
@@ -487,7 +487,8 @@ public sealed class ExplorerShellPolicyTests
     [InlineData(true, false, 2999, false)]
     [InlineData(true, false, 3000, true)]
     [InlineData(true, true, 3000, false)]
-    [InlineData(false, false, 3000, false)]
+    [InlineData(false, false, 2999, false)]
+    [InlineData(false, false, 3000, true)]
     public void RequestedShellExitForcesTheCapturedOwnerAfterItsGrace(
         bool surfaces, bool exited, int requestedMs, bool force)
     {
@@ -495,6 +496,24 @@ public sealed class ExplorerShellPolicyTests
             requestedFor: TimeSpan.FromMilliseconds(requestedMs));
 
         Assert.Equal(force, action is ExplorerExitAction.ForceStop);
+    }
+
+    [Fact]
+    public void AHiddenButLivingShellIsFinishedBeforeGameModeCommits()
+    {
+        var absent = TimeSpan.FromMilliseconds(2000);
+
+        Assert.Equal(ExplorerExitAction.Wait,
+            ExplorerExitPolicy.Decide(false, false, absent, requestedFor: TimeSpan.FromMilliseconds(2500)));
+        Assert.Equal(ExplorerExitAction.ForceStop,
+            ExplorerExitPolicy.Decide(false, false, absent, requestedFor: TimeSpan.FromSeconds(3)));
+        Assert.Equal(ExplorerExitAction.Wait,
+            ExplorerExitPolicy.Decide(false, false, absent, requestedFor: TimeSpan.FromSeconds(3), forcedExit: true));
+        Assert.Equal(ExplorerExitAction.Wait,
+            ExplorerExitPolicy.Decide(false, true, absent, uncleanExit: true, forcedExit: true));
+        Assert.Equal(ExplorerExitAction.Complete,
+            ExplorerExitPolicy.Decide(false, true, ExplorerExitPolicy.RespawnGrace,
+                uncleanExit: true, forcedExit: true));
     }
 
     [Theory]

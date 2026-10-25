@@ -833,29 +833,27 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
 
                 absentSince = surfaces ? null : absentSince ?? DateTime.UtcNow;
                 var absent = absentSince is { } since ? DateTime.UtcNow - since : TimeSpan.Zero;
-                if (original.HasExited && !exitSeen)
+                var originalExited = original.HasExited;
+                if (originalExited && !exitSeen)
                 {
                     exitSeen = true;
                     uncleanExit = ExitedUncleanly(original, owner);
+                    if (uncleanExit || forced)
+                    {
+                        // Winlogon's replacement follows process exit, which may be later than
+                        // the old shell windows disappearing. Observe the full grace from here.
+                        absentSince = surfaces ? null : DateTime.UtcNow;
+                        absent = TimeSpan.Zero;
+                    }
                 }
 
-                var action = ExplorerExitPolicy.Decide(surfaces, original.HasExited, absent,
+                var action = ExplorerExitPolicy.Decide(surfaces, originalExited, absent,
                     uncleanExit, requested.Elapsed, forcedExit: forced);
                 // ReSharper disable once SwitchStatementHandlesSomeKnownEnumValuesWithDefault
                 switch (action)
                 {
                     case ExplorerExitAction.Complete:
-                        if (original.HasExited)
-                        {
-                            Log.Info("Explorer desktop exited and remained absent.");
-                        }
-                        else
-                        {
-                            Log.Warn($"Explorer desktop exited; retired pid {owner} still owns no shell and is "
-                                     + "left to finish on its own.");
-                            RememberRetired(original);
-                        }
-
+                        Log.Info("Explorer desktop exited and remained absent.");
                         return true;
                     case ExplorerExitAction.Wait:
                         break;

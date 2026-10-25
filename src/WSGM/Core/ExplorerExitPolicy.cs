@@ -8,7 +8,7 @@ internal enum ExplorerExitAction
     /// <summary>Continue observing ownership and absence without dispatching another request.</summary>
     Wait,
 
-    /// <summary>The shell has remained absent long enough to proceed, even if a retired process lingers.</summary>
+    /// <summary>The captured shell process has exited and its desktop has remained absent long enough.</summary>
     Complete,
 
     /// <summary>The requested transition authorizes terminating the captured shell after its grace.</summary>
@@ -19,7 +19,7 @@ internal enum ExplorerExitAction
 /// <remarks>
 ///     A replacement from Winlogon is handled by the same exit sequence before takeover.
 ///     Request orderly shell exit, enforce it after the grace, and observe bounded absence;
-///     a lingering process without shell surfaces may remain alive beside Game Mode.
+///     the captured shell process must finish before Game Mode can take ownership.
 /// </remarks>
 internal static class ExplorerExitPolicy
 {
@@ -59,22 +59,17 @@ internal static class ExplorerExitPolicy
         TimeSpan requestedFor = default,
         bool forcedExit = false)
     {
-        if (shellSurfacePresent && !originalExited && requestedFor >= GracefulExit)
+        if (!originalExited && !forcedExit && requestedFor >= GracefulExit)
         {
             return ExplorerExitAction.ForceStop;
         }
 
-        if (shellSurfacePresent || absentFor < StableAbsence)
+        if (!originalExited || shellSurfacePresent || absentFor < StableAbsence)
         {
             return ExplorerExitAction.Wait;
         }
 
-        if (forcedExit && !originalExited)
-        {
-            return ExplorerExitAction.Wait;
-        }
-
-        return originalExited && (uncleanExit || forcedExit) && absentFor < RespawnGrace
+        return (uncleanExit || forcedExit) && absentFor < RespawnGrace
             ? ExplorerExitAction.Wait
             : ExplorerExitAction.Complete;
     }
