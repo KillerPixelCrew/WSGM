@@ -1,0 +1,60 @@
+name: Device Test Report
+description: Share a hardware test, including what works and what needs fixing.
+title: "[Device test] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Successful tests and issue reports are both welcome. Tell me what you tried on your device,
+        what worked, and what needs fixing. A report does not have to cover every feature.
+  - type: input
+    id: device
+    attributes:
+      label: Device and exact model
+      placeholder: MSI Claw 8 AI+ A2VM
+    validations:
+      required: true
+  - type: input
+    id: wsgm-version
+    attributes:
+      label: WSGM version
+      description: Shown in WSGM Settings or the installer filename.
+    validations:
+      required: true
+  - type: input
+    id: windows-version
+    attributes:
+      label: Windows version
+      description: Run winver to find your Windows version.
+    validations:
+      required: true
+  - type: textarea
+    id: results
+    attributes:
+      label: What did you test, and how did it go?
+      description: Include what worked as well as anything that failed. Leave untested features out.
+      placeholder: |
+        Controller and rear buttons:
+        Gyro and haptics:
+        TDP, AutoTDP, and power profiles:
+        Display, frame limit, and RTSS OSD:
+        GPU controls, RGB, and fans:
+        Per-game profiles and mode switching:
+    validations:
+      required: true
+  - type: textarea
+    id: issues
+    attributes:
+      label: Issues and steps to reproduce
+      description: If something failed, describe what happened and how to reproduce it.
+    validations:
+      required: false
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs, screenshots, and setup details
+      description: |
+        For failures, attach wsgm.log from WSGM Settings > System > Open log location.
+        Screenshots and relevant BIOS, firmware, driver, or companion software details also help.
+    validations:
+      required: false
