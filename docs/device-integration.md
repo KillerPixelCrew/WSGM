@@ -127,3 +127,9 @@ device plugin. Source coverage is distinct from physical validation on each mode
 definitions and fixtures. Device Lab is an attended evidence/contribution tool, not a production
 driver or a device-package generator. Independent integrations such as IR use the
 [common plugin host](plugin-system.md), which refuses the retired `wsgm.device` category.
+
+Atlas 8 power range and load findings are recorded in the LibHandheld
+[power-limit investigation](../external/libhandheld/src/LibHandheld/Families/Acer/POWER_LIMIT_TESTS.md).
+The supported runtime keeps firmware-advertised 10..40 W sustained and up to 65 W boost, in 1 W
+steps, with boost at least sustained. Wider stored values are experimental; the OCCT observation
+above 45 W does not establish their enforcement or a sustained maximum.
