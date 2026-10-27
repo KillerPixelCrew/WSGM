@@ -206,6 +206,10 @@ single open-handle decode API shared by every call site.
 
 ## Complete Device-page captures
 
+Atlas startup reads the active stock profile's PL1/PL2 values from the EC. The saved Manual pair is
+retained separately for later custom edits. Stock startup does not show unknown TDP merely because
+Manual is inactive; unavailable getters still leave writes usable.
+
 Every device's Power detail page has one outer Power expander containing Windows energy plans,
 AC/battery preset assignments, manual power controls and firmware power controls. Subheadings retain
 their existing Quick Access pin actions without introducing separate power expanders. Pinned
