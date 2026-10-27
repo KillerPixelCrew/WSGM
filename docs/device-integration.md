@@ -133,3 +133,9 @@ Atlas 8 power range and load findings are recorded in the LibHandheld
 The supported runtime keeps firmware-advertised 10..40 W sustained and up to 65 W boost, in 1 W
 steps, with boost at least sustained. Wider stored values are experimental; the OCCT observation
 above 45 W does not establish their enforcement or a sustained maximum.
+
+Atlas 8
+[motion and controller-mode evidence](../external/libhandheld/src/LibHandheld/Families/Acer/MOTION_TESTS.md)
+confirms Windows gyro delivery at 100 Hz during movement. DInput removes XInput and exposes 125 Hz
+gamepad reports, but the tested motion fields remain fixed; firmware tilt-to-stick mapping does not
+establish a raw controller gyro. The runtime continues using the Windows source.
