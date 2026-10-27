@@ -108,6 +108,18 @@ moment the pad reappeared until it was taken again.
 
 ## Glyphs, diagnostics and contributions
 
+The Atlas hide set includes the physical XInput nodes and four measured auxiliary HID leaves:
+`MI_01/COL01` and `MI_02/COL03`, `COL04`, `COL05`. Steam's SDL otherwise lists those auxiliary
+interfaces as four additional Xbox pads. The paths are resolved on the selected controller's
+physical port; the keyboard, mouse and separate lighting collection are excluded. WSGM remains
+allowlisted, and its ordinary HidHide ownership ledger restores these entries on release/uninstall.
+An isolated inventory using Steam's SDL3.dll dropped from five pads to the single virtual Steam Deck
+after this correction. The live Steam Controller page confirmed the same result.
+
+Selecting an Atlas firmware mode now also publishes the selected profile's EC limit values.
+Previously a stock-mode command cleared sustained/boost readouts indefinitely. A missing profile
+getter still permits the mode command; it leaves the numeric observation unknown.
+
 The Acer Predator Atlas 8 PA08-I51 uses LibHandheld's EC power profiles, WMI fan and battery
 controls, Windows motion and controller RAM lighting. The same descriptors supply Overlay and Steam
 controls for performance mode, manual power, both fans, charge protection and lighting. Controller
@@ -115,9 +127,9 @@ acquisition selects the native rear-button reporting mode and restores the origi
 users do not need to configure rear assignments in Predator Sense first. Fan originals without
 readable behavior return to firmware Auto with unverified restoration. Lighting changes retain the
 other profile fields and never write ROM. Shared ring color and eight measured segment colors use
-the same backend; the unassigned ninth wire slot is retained. The optional KX processor helper can
-be blocked by Windows security without disabling the native EC path. Exact on-device results and
-remaining acceptance are in the
+the same backend; the unassigned ninth wire slot is retained. Optional Intel voltage settings use
+the signed PawnIO IntelMSR module; Atlas does not require the blocked KX helper. Exact on-device
+results and remaining acceptance are in the
 [Acer provenance](../external/libhandheld/src/LibHandheld/Families/Acer/PROVENANCE.md).
 
 113 exact definitions select authored artwork through 107 glyph profiles. WSGM imports those

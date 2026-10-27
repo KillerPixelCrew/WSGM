@@ -402,6 +402,12 @@ if ($WsgmArguments -contains '--desktop-resident') {
     Write-Host 'Deployed. WSGM owns the Desktop startup and Steam launch.' -ForegroundColor Green
     return
 }
+if ($WsgmArguments -contains '--shell') {
+    # The shell mutex precedes asynchronous device admission. Its launch sequence starts Steam
+    # after controller ownership and HidHide, so launching it here races physical-pad cloaking.
+    Write-Host 'Deployed. WSGM owns Game Mode startup and Steam launch.' -ForegroundColor Green
+    return
+}
 # Straight into Big Picture, the way WSGM cold-starts Steam itself (Steam.LaunchBigPicture). Starting
 # Steam on the desktop and switching afterwards meant the switch had to be timed against Steam's own
 # startup, and landing it early is what left the new build's first probes running against a
