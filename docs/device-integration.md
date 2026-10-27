@@ -95,7 +95,7 @@ moment the pad reappeared until it was taken again.
 
 ## Glyphs, diagnostics and contributions
 
-112 exact definitions select authored artwork through 106 glyph profiles. WSGM imports those
+113 exact definitions select authored artwork through 107 glyph profiles. WSGM imports those
 outlines and supplies the corresponding Overlay and Steam presentation. Family notices ship with the
 application and setup.
 

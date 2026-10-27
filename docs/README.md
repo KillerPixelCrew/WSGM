@@ -33,7 +33,7 @@ product policy around those APIs; each library describes its own mechanics, outc
 
 WSGM directly links [LibHandheld](../external/libhandheld/README.md) and
 [LibGPUDriverInteract](../external/libgpu-driver-interact/README.md). LibHandheld provides native
-integration for 112 exact device definitions and 106 glyph profiles. LibGPUDriverInteract owns
+integration for 113 exact device definitions and 107 glyph profiles. LibGPUDriverInteract owns
 Intel, AMD and NVIDIA driver mechanics. WSGM retains application policy and both UI surfaces.
 
 ## Implementation skills

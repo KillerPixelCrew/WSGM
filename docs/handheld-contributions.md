@@ -6,8 +6,8 @@ or device-package installation step.
 
 ## Existing implementations
 
-The library contains 112 exact definitions across the supported handheld families, with device
-artwork supplied by 106 glyph profiles. Detection, model facts, protocols and native services live
+The library contains 113 exact definitions across the supported handheld families, with device
+artwork supplied by 107 glyph profiles. Detection, model facts, protocols and native services live
 under the library's `Families` and internal implementation areas. Consult each family's current
 source, provenance and dated observations before treating a behavior as hardware-tested.
 

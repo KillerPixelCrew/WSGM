@@ -22,9 +22,15 @@ plugins retain their own owners.
 
 ## Detection and construction
 
-`HandheldDevice.Definitions` contains 112 exact definitions. `Detect(identity)` returns one matching
+`HandheldDevice.Definitions` contains 113 exact definitions. `Detect(identity)` returns one matching
 definition or null. Identity matching does not acquire hardware. Unknown machines remain passive;
 WSGM does not select a generic CPU/vendor fallback or rank installed packages.
+
+Acer Predator Atlas 8 PA08-I51 initially supplies physical XInput/rumble and raw Task, Predator, M1
+and M2 input. It requires the exact Acer system and PTL board identity and remains hardware
+unverified. Its
+[family provenance](../external/libhandheld/src/LibHandheld/Families/Acer/PROVENANCE.md) records the
+published captures and the controls still awaiting implementation and hardware evidence.
 
 `HandheldDevice.Create` constructs native services using the selected definition, the captured
 identity and the caller's state directory. Native access is acquired during start. Missing drivers,
@@ -96,7 +102,7 @@ before physical ownership ends. [Overlay and input](overlay-and-input.md) and
 
 ## Glyphs and UI
 
-The exact definitions select authored device artwork through 106 glyph profiles. LibHandheld owns
+The exact definitions select authored device artwork through 107 glyph profiles. LibHandheld owns
 device facts and packaged outlines; WSGM validates/imports them and adapts them for Avalonia and
 Steam. Family attribution ships with setup. A glyph failure does not create a replacement hardware
 provider or change control ownership.

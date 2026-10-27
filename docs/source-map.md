@@ -103,7 +103,7 @@ The `external/libgpu-driver-interact` submodule contains the production driver b
 tests. WSGM references that library directly; its library-owned contracts have no WSGM SDK
 dependency. Standalone builds use the library's own WindowsDeviceControl submodule, while this
 checkout reuses the sibling `external/windows-device-control` project. `external/libhandheld`
-contains the direct typed device API, 112 exact definitions, native helpers, glyphs and regression
+contains the direct typed device API, 113 exact definitions, native helpers, glyphs and regression
 sources. Its independent contracts have no WSGM SDK dependency. Application integration is described
 in [device integration](device-integration.md).
 

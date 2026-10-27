@@ -172,7 +172,7 @@ The same wrapper de-elevates titles that refuse to run elevated, and it can do b
 ## Devices and plugins
 
 **Built-in handheld integration.** LibHandheld detects one exact model and owns its native controls,
-physical input, motion and haptics. Its 112 definitions select device artwork through 106 glyph
+physical input, motion and haptics. Its 113 definitions select device artwork through 107 glyph
 profiles. WSGM owns profiles, AutoTDP, virtual controllers and OEM actions. New hardware support is
 a [LibHandheld contribution](docs/handheld-contributions.md), not a device plugin.
 
