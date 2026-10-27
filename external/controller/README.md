@@ -23,8 +23,8 @@ input, the Steam Input lease and the rest of Device Integration keep working.
 
 Decided 2026-08-29. VIIPER creates virtual USB devices in userspace over USBIP, and it wins on both
 halves of the gate. WSGM builds it from the `KillerPixelCrew/VIIPER` fork, whose `wsgm` branch
-carries the downstream changes on top of `Alia5/VIIPER` `main`;
-`viiper.md` has the pin, the commit list and the rebase procedure.
+carries the downstream changes on top of `Alia5/VIIPER` `main`; `viiper.md` has the pin, the commit
+list and the rebase procedure.
 
 **Nothing is missing.** Its `device/steamdeck` carries the whole Neptune frame natively, including
 all four rear controls and capacitive stick touch. Three independent implementations agree on the
@@ -43,11 +43,11 @@ because INV-020 forbids the runtime from installing a driver whatever its proven
 When WSGM switched, HIDMaestro 1.7.0's profile named only two of the four rear controls and its
 managed state had no capacitive stick-touch fields. HIDMaestro v1.12.0 (2026-10-14) closed that gap:
 `steam-deck-composite` now maps all four rear controls and stick touch to the bits above (issue
-#224). Since v1.10.0 that persona rides the same signed usbip-win2 driver as VIIPER, so the locally signed UMDF
-package no longer applies to it. WSGM stays on VIIPER because the fork carries Deck fixes HIDMaestro
-lacks (trigger Full Pull, a fixed report grid with averaged gyro, decoded haptics) and because the
-SDK installs usbip-win2 itself on first create, which INV-020 forbids at runtime. Git history has the
-full comparison.
+#224). Since v1.10.0 that persona rides the same signed usbip-win2 driver as VIIPER, so the locally
+signed UMDF package no longer applies to it. WSGM stays on VIIPER because the fork carries Deck
+fixes HIDMaestro lacks (trigger Full Pull, a fixed report grid with averaged gyro, decoded haptics)
+and because the SDK installs usbip-win2 itself on first create, which INV-020 forbids at runtime.
+Git history has the full comparison.
 
 ### The one real cost, and where it comes from
 
@@ -59,10 +59,10 @@ Measured 2026-08-29 on the reference Claw (Core Ultra 7 258V, 8 cores). An attac
 Steam Deck, sampled over interleaved 20 second runs of the same probe against two builds of the
 library, three rounds each, alternating, so drift and thermal state hit both:
 
-| Build | Of one core | Of the machine |
-| --- | --- | --- |
-| Both WSGM patches | 7.06 / 6.13 / 6.51%, mean **6.6%** | **0.82%** |
-| Without PR #2 (placeholder endpoints) | 8.90 / 6.92 / 9.15%, mean **8.3%** | 1.04% |
+| Build                                 | Of one core                        | Of the machine |
+| ------------------------------------- | ---------------------------------- | -------------- |
+| Both WSGM patches                     | 7.06 / 6.13 / 6.51%, mean **6.6%** | **0.82%**      |
+| Without PR #2 (placeholder endpoints) | 8.90 / 6.92 / 9.15%, mean **8.3%** | 1.04%          |
 
 Two things come out of that, and the second is the one that matters.
 
@@ -90,11 +90,11 @@ replayed, so the endpoint completes on every poll forever. Only the Xbox family 
 `NaksWhenIdle`, and the Steam Deck does not, so all three of its streaming endpoints complete
 continuously:
 
-| Interface | `bInterval` | Carries |
-| --- | --- | --- |
-| Controller (EP 3) | 6 | the real 64-byte Neptune frame |
-| Keyboard (EP 1) | 10 | nothing, descriptor placeholder |
-| Mouse (EP 2) | 10 | nothing, descriptor placeholder |
+| Interface         | `bInterval` | Carries                         |
+| ----------------- | ----------- | ------------------------------- |
+| Controller (EP 3) | 6           | the real 64-byte Neptune frame  |
+| Keyboard (EP 1)   | 10          | nothing, descriptor placeholder |
+| Mouse (EP 2)      | 10          | nothing, descriptor placeholder |
 
 Two of the three carried no data at all and still completed roughly 200 transfers per second between
 them. That is the first cut, and it is what merged PR #2 removes.
@@ -103,17 +103,18 @@ Whether the controller endpoint itself should NAK when idle is a separate questi
 evidence rather than a switch flip. A real Deck appears to stream continuously, its `packetNum`
 rolls constantly, and HIDMaestro's own profile sets `alwaysArmed` with a 4 ms idle frame interval
 for the same reason, so declaring `NaksWhenIdle` for the Deck would deviate from the hardware Steam
-thinks it is talking to. VIIPER already allows forcing it per run (`VIIPER_NAK_IDLE`, `IdleMode`), so
-the experiment is cheap, but it has to be measured with Steam actually claiming the device rather
+thinks it is talking to. VIIPER already allows forcing it per run (`VIIPER_NAK_IDLE`, `IdleMode`),
+so the experiment is cheap, but it has to be measured with Steam actually claiming the device rather
 than assumed.
 
 ### What is on the branch
 
-`viiper.md` is the record of what WSGM carries on top of the pinned revision, and it must
-stay the only one. In short: the C library WSGM binds (add without attach, port plug-out on remove,
-fast input paths, drained feedback callbacks), the server's idle and pacing work, the usbip-win2
-attach layouts, and the Steam Deck device with the credible identity that makes Steam send rumble. `eng\build-viiper.ps1
--Validate` builds the `external\viiper` submodule and runs the Deck device tests before every release build.
+`viiper.md` is the record of what WSGM carries on top of the pinned revision, and it must stay the
+only one. In short: the C library WSGM binds (add without attach, port plug-out on remove, fast
+input paths, drained feedback callbacks), the server's idle and pacing work, the usbip-win2 attach
+layouts, and the Steam Deck device with the credible identity that makes Steam send rumble.
+`eng\build-viiper.ps1 -Validate` builds the `external\viiper` submodule and runs the Deck device
+tests before every release build.
 
 ## Pinned primary sources
 
@@ -127,8 +128,8 @@ let a departing callback clear the thread marker while its successor ran, so the
 controller restart after an attach blocked past 300 seconds and Windows wrote a live dump. Since
 installing the driver restarts USB hubs, the upgrade wedged on the reference Claw. 0.9.8.1 carries
 that fix as "Fresh Work Item per Attach Attempt Phase" and keeps the #180 one.
-[#181](https://github.com/vadimgrn/usbip-win2/issues/181), a USB-audio pin-close race, is still open,
-but no device WSGM emulates has an audio interface. 0.9.8.0 added a WSK event receive mode for
+[#181](https://github.com/vadimgrn/usbip-win2/issues/181), a USB-audio pin-close race, is still
+open, but no device WSGM emulates has an audio interface. 0.9.8.0 added a WSK event receive mode for
 small, frequent reports, which VIIPER requests on attach; VIIPER still negotiates the older attach
 layouts for machines that have not upgraded. Checked on 2026-09-27: the asset's SHA-256 matches the
 locked digest, and its EV signature matches the locked thumbprint, which is unchanged since 0.9.7.7.
@@ -165,8 +166,17 @@ alone and never downgrades a newer one, confirms afterwards that `usbip2_ude` is
 rather than trusting an exit code, treats every failure as non-fatal, and writes a status file under
 `%ProgramData%\WSGM` that setup reads instead of the exit code. Replacing the driver needs a boot
 with nothing attached to it, so only setup's `/finishdrivers` run installs; see
-[docs/device-integration.md](../../docs/device-integration.md). `eng/assert-controller-pin.ps1` keeps
-the identity that script carries in step with the lock file.
+[docs/device-integration.md](../../docs/device-integration.md). `eng/assert-controller-pin.ps1`
+keeps the identity that script carries in step with the lock file.
+
+HidHide 1.5.230 uses an Advanced Installer bootstrapper, with `/exenoui /qn /norestart` from the
+[reviewed WinGet manifest](https://github.com/microsoft/winget-pkgs/blob/master/manifests/n/Nefarius/HidHide/1.5.230/Nefarius.HidHide.installer.yaml).
+Its switches live beside its digest in the controller lock and are read by setup, independently of
+USB/IP's Inno Setup arguments. Exit 0 and 3010 both record WSGM's HidHide ownership; 3010 also sets
+setup's restart-required state. Other exits leave installation unowned and report failure without
+retrying the command. The 2026-10-27 Atlas installation caught the old Inno arguments being rejected
+with exit -536870911; the focused setup regression covers the actual pin, invocation and saved
+outcome.
 
 The USB hub restart is why this may never move into the running shell: installing the driver
 re-enumerates every USB 3.0 hub, which on a handheld drops the built-in controller, the touch
@@ -194,8 +204,8 @@ DirectInput pad it had just switched the device into, controller acquisition fai
 the pad visible again immediately. The in-process runtime needs only WSGM's executable identity.
 
 The pad itself was never the problem, and this is worth writing down so nobody re-diagnoses it: in
-DirectInput mode it enumerates as `1902/0001:0005 in64 out32`, it streams while idle at roughly
-125 Hz, and its first report arrives about a millisecond after opening. Measured with the exact
+DirectInput mode it enumerates as `1902/0001:0005 in64 out32`, it streams while idle at roughly 125
+Hz, and its first report arrives about a millisecond after opening. Measured with the exact
 `GENERIC_READ | GENERIC_WRITE` overlapped open the plugin uses.
 
 Both fixes have landed. `HidHideOwnedDeltaManager.EnsureReadableAsync` allowlists WSGM's own image

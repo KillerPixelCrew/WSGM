@@ -1171,15 +1171,7 @@ internal sealed class SetupEngine : IDisposable
                 return false;
             }
 
-            var code = _runtime.Run(installer, "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCANCEL /SP-");
-            if (code == 0)
-            {
-                Components = Components with { HidHide = true };
-                Components.Write(ComponentsFile);
-            }
-
-            return Fail(step, code == 0,
-                $"HidHide setup exited with code {code}. Steam may show duplicate controllers until it is installed.");
+            return RunVerifiedHidHideInstaller(step, installer, component);
         }
         finally
         {
@@ -1192,6 +1184,23 @@ internal sealed class SetupEngine : IDisposable
                 SetupLog.Warn($"HidHide: the installer folder could not be removed: {ex.Message}");
             }
         }
+    }
+
+    /// <summary>Runs the hash/signature-verified HidHide bootstrapper with its pinned vendor switches.</summary>
+    /// <remarks>The caller retains the verified file handle. A 3010 success owns the installation and requests a restart.</remarks>
+    internal bool RunVerifiedHidHideInstaller(SetupStep step, string installer, JsonElement component)
+    {
+        var arguments = string.Join(" ", component.GetProperty("silentArguments").EnumerateArray()
+            .Select(argument => argument.GetString()));
+        var code = _runtime.Run(installer, arguments);
+        if (code is 0 or 3010)
+        {
+            Components = Components with { HidHide = true };
+            Components.Write(ComponentsFile);
+            RestartRequired |= code == 3010;
+        }
+        return Fail(step, code is 0 or 3010,
+            $"HidHide setup exited with code {code}. Steam may show duplicate controllers until it is installed.");
     }
 
     private static JsonDocument ControllerPin(string id)
