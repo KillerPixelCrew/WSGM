@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Win32;
 
 namespace WSGM.Core;
@@ -20,7 +21,17 @@ public sealed record OtherManager(
     string Label,
     IReadOnlyList<string> Processes,
     IReadOnlyList<string> Services,
-    IReadOnlyList<string> Tasks);
+    IReadOnlyList<string> Tasks)
+{
+    /// <summary>Exact MSIX package families whose activation Full mode blocks.</summary>
+    public IReadOnlyList<string> PackageFamilies { get; init; } = [];
+
+    /// <summary>One dedicated keyboard hardware identity; the physical machine must also match.</summary>
+    public string? DedicatedKeyboardDeviceId { get; init; }
+
+    /// <summary>Exact LibHandheld definition required before this manager's targets are considered.</summary>
+    public string? DeviceDefinitionId { get; init; }
+}
 
 /// <summary>A manager found on this machine and what of it would start.</summary>
 /// <param name="Manager">Which manager.</param>
@@ -34,7 +45,10 @@ public sealed record DetectedManager(
     IReadOnlyList<string> Running)
 {
     /// <summary>Whether anything of it would start or runs now.</summary>
-    public bool Active => Services.Count > 0 || Tasks.Count > 0 || Running.Count > 0;
+    public bool Active => Services.Count > 0 || Tasks.Count > 0 || Running.Count > 0 || Targets.Count > 0;
+
+    /// <summary>Package activation and dedicated device changes, including their previous states.</summary>
+    public IReadOnlyList<OtherManagerRecord> Targets { get; init; } = [];
 
     /// <summary>Whether every one of its tasks has a sign-in trigger.</summary>
     public bool StartsAtSignIn { get; init; }
@@ -61,11 +75,16 @@ public sealed record DetectedManager(
             parts.Add("running now");
         }
 
+        if (Targets.Count > 0)
+        {
+            parts.Add($"{Targets.Count} package or keyboard settings");
+        }
+
         return parts.Count == 0 ? Manager.Label : $"{Manager.Label}: {string.Join(", ", parts)}";
     }
 }
 
-/// <summary>One service or task WSGM turned off, and how to put it back.</summary>
+/// <summary>One manager startup, package activation or dedicated keyboard setting and how to put it back.</summary>
 /// <remarks>
 ///     An install-lifecycle recovery snapshot like <see cref="SteamAutostartRecord" />: recorded before the
 ///     change, read by the uninstaller to undo exactly what WSGM changed, and removed once restored.
@@ -75,13 +94,13 @@ public sealed class OtherManagerRecord
     /// <summary>The manager it belongs to.</summary>
     public string ManagerId { get; set; } = "";
 
-    /// <summary><c>service</c> or <c>task</c>.</summary>
+    /// <summary><c>service</c>, <c>task</c>, <c>package</c> or <c>device</c>.</summary>
     public string Kind { get; set; } = "";
 
     /// <summary>Service name or task path.</summary>
     public string Name { get; set; } = "";
 
-    /// <summary>A service's start type before WSGM changed it (2 automatic, 3 manual).</summary>
+    /// <summary>Service start type, or a package's prior disabled bit (0 enabled, 1 disabled).</summary>
     public int PreviousStart { get; set; }
 
     /// <summary>Whether a service started delayed before WSGM changed it.</summary>
@@ -145,8 +164,9 @@ public sealed class ServiceSystem : IServiceSystem
     /// <inheritdoc />
     public bool Stop(string service)
     {
-        return ConsoleTool.RunAsync(ConsoleTool.System32("sc.exe"), $"stop \"{service}\"")
-            .GetAwaiter().GetResult().Outcome == ConsoleToolRunOutcome.Succeeded;
+        var result = ConsoleTool.RunAsync(ConsoleTool.System32("sc.exe"), $"stop \"{service}\"")
+            .GetAwaiter().GetResult();
+        return result.Outcome == ConsoleToolRunOutcome.Succeeded || result.ExitCode == 1062;
     }
 
     /// <inheritdoc />
@@ -164,7 +184,11 @@ public sealed class ServiceSystem : IServiceSystem
 public sealed record OtherManagersResult(
     IReadOnlyList<string> Disabled,
     IReadOnlyList<string> Failed,
-    IReadOnlyList<string> StillRunning);
+    IReadOnlyList<string> StillRunning)
+{
+    /// <summary>Windows requires a restart to finish a device change or close a blocked packaged helper.</summary>
+    public bool RestartRequired { get; init; }
+}
 
 /// <summary>
 ///     Finds Handheld Companion and the handheld makers' own apps, and turns off how they start, so WSGM's
@@ -196,17 +220,34 @@ public static class OtherManagers
             ["ArmouryCrateSEService", "AsusAppService", "ArmouryCrateControlInterface"], []),
         new("legion-space", "Legion Space", ["LegionGoQuickSettings", "LegionSpace", "LSDaemon"], ["DAService"], []),
         new("zotac-launcher", "Zotac Gaming Zone", ["ZotacHandheldQuickSetting"],
-            ["ZotacHandheldDatabaseService", "ZotacHandheldService"], [])
+            ["ZotacHandheldDatabaseService", "ZotacHandheldService"], []),
+        new("acer-predator-handheld", "Predator Sense for Handheld",
+            ["Handheld.Desktop", "Handheld.Widget"],
+            ["AASHHSvc", "AcerCCAgentSvis", "AcerDeviceEnablingServiceV2", "AcerHandheld.Service",
+                "AcerLightingServiceHH", "AcerORDService", "AcerServiceSvc", "AFZsvc", "ALSSvc", "UEIPSvc"],
+            ["PredatorHandheldLauncher", "UEIPInvitation", "UbtFrameworkService"])
+        {
+            PackageFamilies = ["ULICTekInc.PredatorSenseforHandHeld_nt9dgb7efx6bt",
+                "ULICTekInc.PredatorSenseforHandHeldWidget_nt9dgb7efx6bt"],
+            DedicatedKeyboardDeviceId = @"HID\VID_0502&PID_F901&MI_02&COL01",
+            DeviceDefinitionId = "acer-predator-atlas-8-pa08-i51"
+        }
     ];
 
     /// <summary>Finds the known managers that would start or run on this machine.</summary>
     /// <param name="autostart">The startup surfaces; the live ones by default.</param>
     /// <param name="services">The services; the live ones by default.</param>
     /// <param name="running">Running process names; the live list by default.</param>
+    /// <param name="targets">Package/device backend; live only when the other detection backends are live.</param>
     /// <returns>The active managers, in catalog order.</returns>
     public static IReadOnlyList<DetectedManager> Detect(IAutostartSystem? autostart = null,
-        IServiceSystem? services = null, IReadOnlyCollection<string>? running = null)
+        IServiceSystem? services = null, IReadOnlyCollection<string>? running = null,
+        IOtherManagerTargets? targets = null)
     {
+        if (autostart is null && services is null && running is null)
+        {
+            targets ??= new OtherManagerWindowsTargets();
+        }
         autostart ??= new AutostartSystem();
         services ??= new ServiceSystem();
         running ??= RunningProcessNames();
@@ -224,6 +265,10 @@ public static class OtherManagers
         List<DetectedManager> found = [];
         foreach (var manager in Known)
         {
+            if (manager.DeviceDefinitionId is { } definition && targets?.MatchesDevice(definition) != true)
+            {
+                continue;
+            }
             List<string> activeServices =
                 [.. manager.Services.Where(service => services.ReadStart(service, out _) is not (null or 4))];
             // A catalog task counts only when it exists: IsTaskEnabled reads a missing task as enabled.
@@ -247,7 +292,8 @@ public static class OtherManagers
             DetectedManager detected = new(manager, activeServices, [.. tasks.Order(StringComparer.OrdinalIgnoreCase)],
                 [.. manager.Processes.Where(process => running.Contains(process, StringComparer.OrdinalIgnoreCase))])
             {
-                StartsAtSignIn = tasks.Count > 0 && tasks.All(logonTasks.ContainsKey)
+                StartsAtSignIn = tasks.Count > 0 && tasks.All(logonTasks.ContainsKey),
+                Targets = targets?.Detect(manager) ?? []
             };
             if (detected.Active)
             {
@@ -268,22 +314,32 @@ public static class OtherManagers
     /// <param name="services">The services; the live ones by default.</param>
     /// <param name="closeWindows">Asks the named processes to close and returns those still running.</param>
     /// <param name="cancellationToken">Refuses further items once shutdown begins.</param>
+    /// <param name="targets">Package/device backend; live by default.</param>
     /// <returns>What changed.</returns>
     public static OtherManagersResult Disable(IReadOnlyList<DetectedManager> detected,
         Action<OtherManagerRecord> record,
         IAutostartSystem? autostart = null, IServiceSystem? services = null,
         Func<IReadOnlyList<string>, IReadOnlyList<string>>? closeWindows = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, IOtherManagerTargets? targets = null)
     {
         ArgumentNullException.ThrowIfNull(detected);
         ArgumentNullException.ThrowIfNull(record);
         autostart ??= new AutostartSystem();
         services ??= new ServiceSystem();
         closeWindows ??= CloseWindows;
+        targets ??= new OtherManagerWindowsTargets();
         List<string> disabled = [];
         List<string> failed = [];
+        var serviceRestartRequired = false;
         foreach (var manager in detected)
         {
+            foreach (var target in manager.Targets)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                record(target);
+                (targets.Disable(target) ? disabled : failed).Add($"{manager.Manager.Label} {target.Kind} {target.Name}");
+            }
+
             foreach (var task in manager.Tasks)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -308,7 +364,7 @@ public static class OtherManagers
                 if (services.SetStart(service, 4, false))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    services.Stop(service);
+                    serviceRestartRequired |= !services.Stop(service);
                     disabled.Add($"{manager.Manager.Label} service {service}");
                 }
                 else
@@ -322,7 +378,12 @@ public static class OtherManagers
         var stillRunning = closeWindows([.. detected.SelectMany(manager => manager.Running)]);
         Log.Info($"Other managers: turned off {disabled.Count}, failed {failed.Count}, still running "
                  + $"[{string.Join(", ", stillRunning)}].");
-        return new OtherManagersResult(disabled, failed, stillRunning);
+        return new OtherManagersResult(disabled, failed, stillRunning)
+        {
+            RestartRequired = serviceRestartRequired || targets.RestartRequired || stillRunning.Count > 0
+                && detected.Any(manager => manager.Manager.PackageFamilies.Count > 0
+                    && manager.Running.Any(name => stillRunning.Contains(name, StringComparer.OrdinalIgnoreCase)))
+        };
     }
 
     /// <summary>
@@ -363,7 +424,7 @@ public static class OtherManagers
 
         // One prompt for everything. The elevated instance detects and decides for itself; no name
         // from this side reaches its command line.
-        SelfElevation.RunElevatedAction(DisableArgument, "Other managers takeover");
+        var elevatedExit = SelfElevation.RunElevatedActionExitCode(DisableArgument, "Other managers takeover");
         var remaining = Detect();
         List<string> disabled = [];
         List<string> failed = [];
@@ -381,15 +442,24 @@ public static class OtherManagers
                 (left?.Services.Contains(service, StringComparer.OrdinalIgnoreCase) == true ? failed : disabled)
                     .Add($"{manager.Manager.Label} service {service}");
             }
+
+            foreach (var target in manager.Targets)
+            {
+                (left?.Targets.Any(item => Key(item) == Key(target)) == true && elevatedExit != 3010 ? failed : disabled)
+                    .Add($"{manager.Manager.Label} {target.Kind} {target.Name}");
+            }
         }
 
-        return new OtherManagersResult(disabled, failed, [.. remaining.SelectMany(manager => manager.Running)]);
+        return new OtherManagersResult(disabled, failed, [.. remaining.SelectMany(manager => manager.Running)])
+        {
+            RestartRequired = elevatedExit == 3010
+        };
     }
 
     /// <summary>
     ///     Re-checks at a shell start once the takeover has been accepted, so a manager that came back is
-    ///     turned off again: Handheld Companion's uninstaller re-enables the maker's services, and a driver
-    ///     update can re-register them. Never prompts; an unelevated WSGM only logs what it found.
+    ///     turned off again: Handheld Companion's uninstaller re-enables the maker's services, and an OEM
+    ///     update can re-register packages. Never prompts; an unelevated WSGM only logs what it found.
     /// </summary>
     /// <param name="store">Strict persistence used to read accepted takeover and record pre-change state.</param>
     /// <param name="cancellationToken">Stops further takeover items; cancellation is absorbed during startup.</param>
@@ -435,12 +505,33 @@ public static class OtherManagers
         try
         {
             var detected = Detect();
-            return detected.Count == 0 || Disable(detected, entry => Record(store, entry)).Failed.Count == 0 ? 0 : 1;
+            var result = Disable(detected, entry => Record(store, entry));
+            return result.Failed.Count > 0 ? 1 : result.RestartRequired ? 3010 : 0;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             Log.Error("Other managers takeover failed", ex);
             return 1;
+        }
+    }
+
+    /// <summary>Reconciles accepted takeover at startup and every five minutes until the session stops.</summary>
+    /// <param name="store">The session's strict configuration and recovery store.</param>
+    /// <param name="cancellationToken">The owning session shutdown token.</param>
+    /// <returns>Completion after cancellation; each reconciliation failure is logged without retrying its writes.</returns>
+    public static async Task MaintainAsync(ConfigStore store, CancellationToken cancellationToken)
+    {
+        try
+        {
+            ReapplyAtStart(store, cancellationToken);
+            using var timer = new PeriodicTimer(TimeSpan.FromMinutes(5));
+            while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+            {
+                ReapplyAtStart(store, cancellationToken);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
         }
     }
 
@@ -463,6 +554,7 @@ public static class OtherManagers
             .Order(StringComparer.OrdinalIgnoreCase).ToArray();
         var services = records.Count(entry => entry.Kind == ServiceKind);
         var tasks = records.Count(entry => entry.Kind == TaskKind);
+        var targets = records.Count(entry => entry.Kind is "package" or "device");
         List<string> parts = [];
         if (services > 0)
         {
@@ -472,6 +564,11 @@ public static class OtherManagers
         if (tasks > 0)
         {
             parts.Add(tasks == 1 ? "1 scheduled task" : $"{tasks} scheduled tasks");
+        }
+
+        if (targets > 0)
+        {
+            parts.Add($"{targets} package or keyboard settings");
         }
 
         var who = labels.Length == 1 ? labels[0] : string.Join(", ", labels[..^1]) + " and " + labels[^1];
@@ -532,11 +629,13 @@ public static class OtherManagers
     /// <param name="records">Saved pre-change states to attempt once.</param>
     /// <param name="autostart">Task backend used to restore enabled state.</param>
     /// <param name="services">Service backend used to restore start type and best-effort automatic start.</param>
+    /// <param name="targets">Package/device backend; live by default.</param>
     /// <returns>Records whose setting was restored or whose original target no longer exists; backend exceptions propagate.</returns>
     internal static IReadOnlyList<OtherManagerRecord> Restore(IReadOnlyList<OtherManagerRecord> records,
-        IAutostartSystem autostart, IServiceSystem services)
+        IAutostartSystem autostart, IServiceSystem services, IOtherManagerTargets? targets = null)
     {
         List<OtherManagerRecord> restored = [];
+        targets ??= new OtherManagerWindowsTargets();
         foreach (var entry in records)
         {
             var ok = entry.Kind switch
@@ -547,6 +646,7 @@ public static class OtherManagers
                 // A service the maker's uninstaller removed meanwhile has nothing left to restore.
                 ServiceKind when services.ReadStart(entry.Name, out _) is null => true,
                 ServiceKind => RestoreService(services, entry),
+                "package" or "device" => targets.Restore(entry),
                 _ => true
             };
             if (ok)

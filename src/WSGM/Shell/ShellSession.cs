@@ -570,9 +570,10 @@ public sealed partial class ShellSession
         // Once the user let Full mode turn the other handheld managers off, keep them off: Handheld
         // Companion's uninstaller re-enables the maker's services, and the Armoury Crate helper then
         // answers the Armoury Crate button with an install dialog. Off the boot path: it reads the task
-        // scheduler and waits for windows to close.
+        // scheduler and waits for windows to close. The same owned task rechecks every five minutes
+        // so replacement Acer packages do not regain activation while the session is running.
         var managerStartupCancellation = _shutdownCancellation.Token;
-        _managerStartup = Task.Run(() => OtherManagers.ReapplyAtStart(_store, managerStartupCancellation));
+        _managerStartup = Task.Run(() => OtherManagers.MaintainAsync(_store, managerStartupCancellation));
         Log.Observe(_managerStartup, "Other-manager startup reconciliation", true);
         if (UpdateFailure.Read() is { } updateFailure)
         {

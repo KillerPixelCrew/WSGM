@@ -49,8 +49,10 @@ the plugin and Minimal without it, until the user picks a level or changes a swi
   never a termination; setup never
   terminates Steam or a wrapper, and refuses replacement while either still owns a live game tree.
   Force stops are limited to WSGM's own images in setup's session.
-- Turning off other handheld managers (Full mode) changes only their start types and tasks, records
-  each change before making it, and never ends a process or uninstalls anything. Uninstall restores
+- Turning off other handheld managers (Full mode) changes their start types, tasks and known package
+  activation flags. On the exact Atlas definition it also disables only the attributed controller
+  keyboard leaf. Record each change before making it, propagate restart-required status, and never
+  end a process or uninstall anything. Uninstall restores
   exactly what was recorded. Only the user's choice applies it; a quiet fresh install never does.
 - Steam Input shim cleanup must ask the runtime ownership logic to reconcile it. Never delete or
   replace a Steam DLL merely because its filename matches.

@@ -106,10 +106,16 @@ public static class SelfElevation
     /// <remarks>Blocks the caller. On timeout the child is left running; do not infer that its mutation did not happen.</remarks>
     public static bool RunElevatedAction(string argument, string description, int timeoutMs = 60_000)
     {
+        return RunElevatedActionExitCode(argument, description, timeoutMs) == 0;
+    }
+
+    /// <summary>Runs the same elevated action while retaining a restart-required exit status.</summary>
+    internal static int? RunElevatedActionExitCode(string argument, string description, int timeoutMs = 60_000)
+    {
         var exe = Environment.ProcessPath;
         if (exe is null)
         {
-            return false;
+            return null;
         }
 
         try
@@ -122,22 +128,22 @@ public static class SelfElevation
             using var p = Process.Start(psi);
             if (p is null)
             {
-                return false;
+                return null;
             }
 
             if (p.WaitForExit(timeoutMs))
             {
-                return p.ExitCode == 0;
+                return p.ExitCode;
             }
 
             // ExitCode would throw on a still-running process.
             Log.Warn($"{description}: elevated instance still running after {timeoutMs / 1000} s — result unknown.");
-            return false;
+            return null;
         }
         catch (Exception ex)
         {
             Log.Warn($"{description} not applied: {ex.Message}");
-            return false;
+            return null;
         }
     }
 

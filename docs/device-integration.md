@@ -11,7 +11,12 @@ records each physical source and report, the automatic rear-mode switch, and the
 of the USB OEM keyboard from I2C volume input. It also lists the exact services, tasks and package
 identities disabled on the maintainer's machine, activation-block checks, recovery and the opt-in
 local maintenance guard in `eng/atlas-oem-disabled-state.ps1`. Service shutdown alone does not block
-the Game Bar widget. This local administration policy is not yet a WSGM Settings/runtime feature.
+the Game Bar widget. WSGM's Full-mode manager takeover now covers the recorded services/tasks, the
+exact Predator Sense package families and only the attributed controller keyboard leaf. Takeover
+records original states before writing, rechecks at startup and every five minutes while accepted,
+and restores WSGM-owned changes on uninstall. Setup and Settings report when Windows must restart.
+The earlier local guard is separate from these install-lifecycle records; existing disabled settings
+are preserved as user-owned state.
 
 ## Configuration and availability
 

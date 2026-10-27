@@ -501,6 +501,7 @@ public static class Program
         // Without answers, the recovery one-shot can still complete. With answers, the profile step
         // must report failure when no configuration could be loaded.
         AppConfig? config = null;
+        var managerRestartRequired = false;
         // The existing file distinguishes a first install from a repair or upgrade; only the first
         // configuration may seed controller management from the installation choice.
         var freshInstall = !File.Exists(Store.ConfigPath);
@@ -524,7 +525,7 @@ public static class Program
                 config = Store.Update(fresh =>
                 {
                     steamTakeover = answers.SteamAutostartTakeover && !fresh.SteamAutostartTakeoverAccepted;
-                    managersTakeover = answers.OtherManagersTakeover && !fresh.OtherManagersTakeoverAccepted;
+                    managersTakeover = answers.OtherManagersTakeover;
                     answers.ApplyTo(fresh, freshInstall);
 
                     return true;
@@ -546,6 +547,12 @@ public static class Program
                     // and --uninstall-restore puts it back.
                     var result = OtherManagers.Disable(OtherManagers.Detect(),
                         entry => OtherManagers.Record(Store, entry));
+                    managerRestartRequired = result.RestartRequired;
+                    if (result.Failed.Count > 0)
+                    {
+                        Log.Warn("Setup: other manager takeover failed: " + string.Join(", ", result.Failed));
+                        return 1;
+                    }
                     if (result.Failed.Count > 0 || result.StillRunning.Count > 0)
                     {
                         Log.Warn($"Setup: other managers: failed [{string.Join(", ", result.Failed)}], still "
@@ -574,7 +581,7 @@ public static class Program
         }
 
         ShellRegistration.ApplyGamingHomeGuard(Store, config);
-        return BootManifestWriter.WriteCurrent(Store.Read(), Store.Context) ? 0 : 1;
+        return !BootManifestWriter.WriteCurrent(Store.Read(), Store.Context) ? 1 : managerRestartRequired ? 3010 : 0;
     }
 
     /// <summary>Disarms the sign-in start after a crash loop and hands the session back to Explorer.</summary>

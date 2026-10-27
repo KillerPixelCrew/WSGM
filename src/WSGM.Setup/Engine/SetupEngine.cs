@@ -990,7 +990,13 @@ internal sealed class SetupEngine : IDisposable
         try
         {
             File.WriteAllText(file, answers.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
-            return Fail(step, _runtime.Run(AppExe, $"--setup --answers=\"{file}\"") == 0,
+            var result = _runtime.Run(AppExe, $"--setup --answers=\"{file}\"");
+            if (result == 3010)
+            {
+                RestartRequired = true;
+                step.Note = "Restart Windows to finish turning off the other handheld manager's shortcuts and helpers.";
+            }
+            return Fail(step, result is 0 or 3010,
                 "WSGM could not apply your choices; see wsgm.log.");
         }
         finally

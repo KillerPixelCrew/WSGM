@@ -241,7 +241,8 @@ public sealed partial class SettingsViewModel
 
             var result = await Task.Run(() => _services.ApplyOtherManagers(detected));
             OtherManagersStatusText = result.Failed.Count == 0
-                ? $"Turned off {result.Disabled.Count} service(s) and task(s)."
+                ? $"Turned off {result.Disabled.Count} manager startup or device setting(s)."
+                  + (result.RestartRequired ? " Restart Windows to finish applying these changes." : "")
                   + (result.StillRunning.Count == 0
                       ? ""
                       : $" Still running until you close them or sign out: {string.Join(", ", result.StillRunning)}.")
@@ -260,7 +261,7 @@ public sealed partial class SettingsViewModel
     {
         if (!config.OtherManagersTakeoverAccepted)
         {
-            return "Handheld Companion or the maker's own app (Armoury Crate, MSI Center M, Legion Space) may still "
+            return "Handheld Companion or the maker's own app (Predator Sense, Armoury Crate, MSI Center M, Legion Space) may still "
                    + "run beside WSGM and answer the device's buttons. Check and take over.";
         }
 

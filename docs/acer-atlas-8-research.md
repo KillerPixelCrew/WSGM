@@ -1,20 +1,40 @@
 # Acer Predator Atlas 8 handoff
 
-Research updated on 2026-10-27 using the supplied driver packages and Predator Sense 1.0.1563.0. All
-investigation was offline. No vendor program was executed, device opened, service
-installed/connected, hardware command sent or deployment run.
+Updated on 2026-10-27 using the supplied driver packages, Predator Sense 1.0.1563.0 and the
+maintainer's attended tests on PA08-I51 / PTL F900_PTG, BIOS V1.03. The initial decompilation was
+offline; the subsequent hardware measurements and their limits are recorded in the linked family
+evidence.
 
 ## Delivered implementation
 
-LibHandheld commit `c83b75e`, integrated by WSGM `99961e53`, adds exact Acer `Predator PA08-I51` /
-PTL `F900_PTG` detection, standard `0502:F901` XInput controller/rumble, raw Guide/QAM/M1/M2 input,
-stock glyphs, lifecycle release handling and hardware-free fixtures. HardwareVerified remains false.
-Power, fan, charging, RGB and motion controls have not been implemented for this model.
+LibHandheld supplies exact detection, the `0502:F901` XInput controller, native Guide/QAM/M1/M2
+input, glyphs, volatile rear-button mode ownership, EC power profiles, both WMI fans, charging
+protection, eight measured RGB segments and Windows gyro/accelerometer delivery. Both motion axes
+use the attended `(X, Z, -Y)` mapping. The attended XInput rumble calibration is a 2% event floor
+and 5 ms minimum pulse. Firmware-advertised power bounds remain 10..40 W sustained and up to 65 W
+boost in 1 W steps. The ordinary shared Overlay and Steam descriptor/control paths consume these
+capabilities.
 
-Release library and test-assembly compilation passed with zero warnings/errors. Thirty glyph assets
-and their references were checked; packaging scripts parsed; changed Markdown/JSON was formatted.
-Tests were not executed under the manual-first policy. Hardware, visible UI and installation remain
-unverified. The local build log and artifact identity are retained in the research directory below.
+WSGM's existing Full-mode manager takeover now includes the measured Acer services/tasks, the two
+exact Predator Sense package families, and only the dedicated controller keyboard leaf. It records
+original states before changes, restores its changes on uninstall, propagates restart-required
+status and rechecks accepted takeover at session start and every five minutes. No shared keyboard
+driver or composite USB parent is disabled. Package processes are asked to close; a still-running
+blocked helper requires a restart rather than termination. Re-running setup with takeover accepted
+reconciles it again. Minimal mode leaves this policy unaccepted.
+
+The local maintenance task used during bring-up is independent of WSGM's install recovery records.
+Pre-existing disabled state belongs to that earlier policy and is not adopted as a WSGM-owned
+change. Retire the local guard after the Full installation has been accepted, retaining its original
+snapshots for deliberate recovery.
+
+The 37 Acer tests passed after the rumble calibration. Subsequent host integration requires the
+installation/manual acceptance pass before additional automated tests, according to the root policy.
+The new read-only PnP lookup observed one matching keyboard leaf at problem code 22.
+HardwareVerified remains false: full pad travel/View/Menu, held-input disconnect, actual OS
+sleep/wake, precise motion scale, the screen-down accelerometer magnitude asymmetry and visible
+WSGM/Steam behavior remain separate acceptance. Setup artifacts are built by `build.ps1`; producing
+them does not prove installation.
 
 ## Recorded findings
 
