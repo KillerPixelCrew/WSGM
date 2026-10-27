@@ -108,14 +108,15 @@ moment the pad reappeared until it was taken again.
 
 ## Glyphs, diagnostics and contributions
 
-The Atlas kernel hide set is restricted to the actual gamepad/XInput nodes. A trial hiding
-`MI_01/COL01` and `MI_02/COL03`, `COL04`, `COL05` removed four phantom Xbox identities from Steam
-but broke keyboard input, requiring HidHide removal to recover. That approach was withdrawn. Do not
-hide auxiliary keyboard, consumer or vendor collections. Controller ownership now selects the native
-F90A DInput mode, reads its actual gamepad collection, and drives the verified report05 rumble
-output. The original mode is journaled and restored. Only gamepad/XInput nodes enter HidHide;
-Steam-specific filtering is not used. Physical DInput button mapping and firmware-keyboard hold
-behavior still require attended acceptance.
+The failed F901 auxiliary hide set was withdrawn after a keyboard regression. Controller ownership
+now selects native F90A DInput mode, reads its gamepad collection and drives the verified report05
+rumble output. The original mode is journaled and restored. Alongside gamepad/XInput nodes, the
+separately tested F90A companions `MI_00/COL02` (FFF0:0040 command) and `MI_01/COL03` (000C:0001
+consumer) are selected by exact report shape and physical-port correlation. The maintainer confirmed
+working keyboard input and one Steam Deck controller in Steam with this DInput-specific set.
+Keyboard `MI_01/COL01` and mouse `MI_01/COL02` stay excluded. Steam-specific filtering is not used.
+Physical DInput button mapping and firmware-keyboard hold behavior still require attended
+acceptance.
 
 Selecting an Atlas firmware mode now also publishes the selected profile's EC limit values.
 Previously a stock-mode command cleared sustained/boost readouts indefinitely. A missing profile

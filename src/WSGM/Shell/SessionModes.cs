@@ -1284,7 +1284,14 @@ public sealed class SessionModes
 
             if (result.Outcome is ExplorerDesktopOutcome.Degraded)
             {
-                warnings.Add("Desktop shell: restored but unverified (" + result.Detail + ").");
+                if (host.MatchesCapturedDesktopQuality(result))
+                {
+                    Log.Info("Desktop shell restored with the captured job-bound characteristics; diagnostic quality remains Degraded.");
+                }
+                else
+                {
+                    warnings.Add("Desktop shell: restored but unverified (" + result.Detail + ").");
+                }
             }
 
             await Dispatcher.UIThread.InvokeAsync(hooks.DesktopReady);

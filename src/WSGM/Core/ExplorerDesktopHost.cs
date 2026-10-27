@@ -1,6 +1,7 @@
 using System;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Interop;
@@ -35,6 +36,8 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
     private int _desktopAppsSuspended;
     private int _disposeState;
     private Process? _retired;
+    private bool _sourceWasJobBound;
+    private uint _sourceDesktopPid;
 
     /// <summary>Creates a desktop-host owner for the current interactive session.</summary>
     /// <param name="context">Interactive user-data context used for desktop integration and scheduler recovery.</param>
@@ -46,6 +49,24 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
     }
 
     private static string ExplorerPath => ExplorerControl.ExplorerPath;
+
+    /// <summary>Whether a responsive restored shell has the same known job-bound quality captured before exit.</summary>
+    /// <remarks>Does not promote degraded diagnostics to Normal. Unknown job state, scheduler fallback,
+    /// unresponsive shells and unrelated existing owners remain warnings.</remarks>
+    internal bool MatchesCapturedDesktopQuality(ExplorerDesktopResult result)
+    {
+        if (!_sourceWasJobBound || result.Outcome != ExplorerDesktopOutcome.Degraded
+                               || result.Detail != "degraded-stable"
+                               || (result.Route != ExplorerDesktopRoute.ShellAnchor
+                                   && (result.Route != ExplorerDesktopRoute.ExistingShell
+                                       || result.ProcessId != _sourceDesktopPid)))
+        {
+            return false;
+        }
+        var current = ObserveCurrentDesktop(_sessionId);
+        return current.Process.ProcessId == result.ProcessId
+               && current.Acceptance.Rejection == ExplorerShellRejection.JobBound;
+    }
 
     /// <summary>Closes operation admission, retires the owned anchor, and releases captured process handles.</summary>
     /// <returns>A task completing after the serialized teardown; repeated calls return without awaiting the first.</returns>
@@ -123,6 +144,9 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
             var detail = $"current-shell-{shell.Acceptance.Rejection}";
             return await PrepareSchedulerRecoveryAsync(detail).ConfigureAwait(false);
         }
+
+        _sourceWasJobBound = shell.Acceptance.Rejection == ExplorerShellRejection.JobBound;
+        _sourceDesktopPid = shell.Process.ProcessId;
 
         if (!NativeShellProcess.TryOpenLaunchParent(
                 shell.Process.ProcessId,
@@ -389,7 +413,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
                     using var owner = TryGetExitOwner(current.Process.ProcessId);
                     if (owner is not null)
                     {
-                        ForceStopExplorer(owner);
+                        RequestOrderlyExplorerExit(owner);
                         await owner.WaitForExitAsync(cancellationToken).WaitAsync(Remaining(deadline), cancellationToken)
                             .ConfigureAwait(false);
                     }
@@ -399,7 +423,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
                     using var created = TryGetExitOwner(result.CreatedProcessId);
                     if (created is not null)
                     {
-                        ForceStopExplorer(created);
+                        RequestOrderlyExplorerExit(created);
                     }
                 }
 
@@ -810,7 +834,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
             var forced = false;
             if (!NativeMethods.PostMessageW(taskbar, ExitExplorerMessage, 0, 0))
             {
-                ForceStopExplorer(original);
+                RequestOrderlyExplorerExit(original);
                 forced = true;
             }
 
@@ -861,7 +885,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
                         if (!forced)
                         {
                             cancellationToken.ThrowIfCancellationRequested();
-                            ForceStopExplorer(original);
+                            RequestOrderlyExplorerExit(original);
                             forced = true;
                         }
 
@@ -883,7 +907,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
         return false;
     }
 
-    private void ForceStopExplorer(Process process)
+    private void RequestOrderlyExplorerExit(Process process)
     {
         // Retain the exact handle before identity inspection; never sweep Explorer folder processes.
         _ = process.Handle;
@@ -899,8 +923,19 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
             throw new InvalidOperationException("The blocking Explorer owner could not be identified.");
         }
 
-        Log.Warn($"Enforcing the requested shell transition: terminating Explorer pid {process.Id}.");
-        NativeShellProcess.Terminate(process, ExplorerExitPolicy.ForcedExitCode);
+        var taskbar = NativeMethods.FindWindowW("Shell_TrayWnd", null);
+        if (taskbar != 0 && IsWindowOwnedByProcess(taskbar, checked((uint)process.Id)))
+        {
+            Log.Warn($"Repeating orderly Explorer exit request for pid {process.Id}; forced termination is disabled.");
+            if (!NativeMethods.PostMessageW(taskbar, ExitExplorerMessage, 0, 0))
+            {
+                Log.Warn($"Explorer exit request failed for pid {process.Id} (Win32 {Marshal.GetLastWin32Error()}).");
+            }
+        }
+        else
+        {
+            Log.Warn($"Explorer pid {process.Id} has no owned taskbar for an orderly exit; waiting within the existing deadline.");
+        }
     }
 
     private async Task ReleaseRetiredOwnerAsync(DateTimeOffset deadline, CancellationToken cancellationToken)
@@ -915,7 +950,7 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
             Log.Info($"Finishing retired Explorer pid {retired.Id} before the requested desktop restart.");
-            ForceStopExplorer(retired);
+            RequestOrderlyExplorerExit(retired);
             var remaining = Remaining(deadline);
             if (remaining <= TimeSpan.Zero)
             {

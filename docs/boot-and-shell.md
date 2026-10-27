@@ -227,24 +227,18 @@ suspended. An uncertain launch is not dispatched again, and Windows sign-out or 
 restart them. Ownership lives in memory for the resident session; the independent shell-anchor and
 watchdog crash recovery restores Explorer only.
 
-### Explorer exit is graceful first, then enforced
+### Explorer exit stays orderly
 
 `ExplorerDesktopHost.ExitExplorerAndWaitAsync` posts `0x5B4` (`WM_USER+436`, the Ctrl+Shift-taskbar
-"Exit Explorer" command) to Explorer's verified taskbar owner. If it ignores the request for three
-seconds, WSGM terminates that exact held process with Task Manager's End Process status, `1`, rather
-than its restart status, `0`. A failed message dispatch goes directly to termination. Separate File
-Explorer folder processes are not swept.
+"Exit Explorer" command) to the verified taskbar owner. A later escalation repeats the orderly
+request within the existing deadline; WSGM never forcibly terminates Explorer. Separate folder
+processes are not swept.
 
-Success requires the captured shell process to finish and 1.5 seconds of stable shell absence before
-WSGM creates its own tray host. Disappearing taskbar and desktop windows alone are insufficient: a
-lingering original owner receives the same three-second grace before enforced exit. If Winlogon
-starts a replacement shell, the same sequence applies to that new owner within the transition's
-deadline. Every forced or abnormal exit reserves eight seconds from observed process exit to watch
-for its possible replacement. The forced-exit status does not bypass that wait. On desktop return,
-any captured retired owner is terminated and awaited before launching Explorer, so it cannot retain
-the shell singleton and strand the replacement without a desktop. If Windows ultimately denies
-termination or the deadline expires, the shared desktop-return sequence restores the layout, shell
-and captured integrations and reports the actual failure.
+Success requires the captured process to finish and 1.5 seconds of stable shell absence before WSGM
+creates its tray host. If Winlogon starts a replacement, the same bounded observation applies to
+that owner. An abnormal external exit retains the replacement grace. Retired owners are asked to
+exit and awaited before a replacement is launched. A deadline or dispatch failure returns through
+the shared desktop recovery sequence and reports the failure instead of killing the shell.
 
 Enter Game Mode compares the session's mode with the live Explorer shell. If Explorer has returned
 while the session still owns Game Mode resources, the request first completes the shared desktop
@@ -308,12 +302,15 @@ It must also be jobless unless the Explorer it replaces was job-bound: some OEM 
 Xbox Ally X's, start Explorer in a job at logon, and the anchor created from it lands in a job too
 (2026-09-25 tester log, every boot). Such an anchor is no worse than the desktop the user already
 had, so takeover proceeds, the anchor is logged as degraded, and the restored Explorer is reported
-as a degraded desktop. An unusable anchor is retired and desktop return uses the scheduled-task
-route.
+as a degraded desktop. If a responsive restored shell matches this captured job-bound baseline, the
+transition completes without an unverified-shell alert; diagnostics retain Degraded. Unknown job
+membership and scheduler fallback still warn. An unusable anchor is retired and desktop return uses
+the scheduled-task route.
 
 Desktop return reserves five seconds for its first Explorer restore attempt. If the shell or launch
-is still stuck, it terminates the identified current-session Explorer owner, retires the failed
-anchor, and launches again through scheduled recovery within the original overall deadline.
+is still stuck, it requests orderly exit from the identified current-session owner and awaits it,
+then retires the failed anchor, and launches again through scheduled recovery within the original
+overall deadline.
 
 ### Shutdown keeps the anchor alive until the desktop is verified
 
