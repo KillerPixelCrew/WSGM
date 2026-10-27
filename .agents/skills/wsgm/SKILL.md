@@ -121,8 +121,9 @@ interface appear complete.
 ## Preserve recovery and live-session boundaries
 
 Keep restore-shell usable before configuration, logging, Avalonia and GPU startup. Explorer is the
-registered shell and is asked to exit orderly; never terminate it. Preserve the current recovery
-records, shutdown reason and ownership of other applications' state.
+registered shell and is asked to exit orderly first; only the exact held owner that ignores the
+request is terminated, as docs/boot-and-shell.md describes. Preserve the current recovery records,
+shutdown reason and ownership of other applications' state.
 
 Before any attended CEF debugging connection or live tool call, confirm from the current run's Steam
 logs that Steam and Big Picture have fully started. A reachable endpoint, visible window or old log
