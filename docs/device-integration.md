@@ -108,13 +108,11 @@ moment the pad reappeared until it was taken again.
 
 ## Glyphs, diagnostics and contributions
 
-The Atlas hide set includes the physical XInput nodes and four measured auxiliary HID leaves:
-`MI_01/COL01` and `MI_02/COL03`, `COL04`, `COL05`. Steam's SDL otherwise lists those auxiliary
-interfaces as four additional Xbox pads. The paths are resolved on the selected controller's
-physical port; the keyboard, mouse and separate lighting collection are excluded. WSGM remains
-allowlisted, and its ordinary HidHide ownership ledger restores these entries on release/uninstall.
-An isolated inventory using Steam's SDL3.dll dropped from five pads to the single virtual Steam Deck
-after this correction. The live Steam Controller page confirmed the same result.
+The Atlas kernel hide set is restricted to the actual gamepad/XInput nodes. A trial hiding
+`MI_01/COL01` and `MI_02/COL03`, `COL04`, `COL05` removed four phantom Xbox identities from Steam
+but broke keyboard input, requiring HidHide removal to recover. That approach was withdrawn. Do not
+hide auxiliary keyboard, consumer or vendor collections. A device/controller-layer solution for the
+phantom identities remains under investigation; Steam-specific modifications are excluded.
 
 Selecting an Atlas firmware mode now also publishes the selected profile's EC limit values.
 Previously a stock-mode command cleared sustained/boost readouts indefinitely. A missing profile

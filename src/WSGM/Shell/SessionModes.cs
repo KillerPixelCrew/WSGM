@@ -257,6 +257,7 @@ public sealed class SessionModes
             return;
         }
 
+        Log.Warn("Session transition warning: " + warning);
         SteamStartFailed?.Invoke(warning);
     }
 
@@ -533,6 +534,8 @@ public sealed class SessionModes
             hooks.SteamUiBigPictureRequestSettled();
         }
 
+        Log.Info($"Desktop return completed: restored={restored}, warnings={warnings.Count}, "
+                 + $"complete={_desktopReturnComplete}.");
         return restored;
     }
 
