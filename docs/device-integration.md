@@ -109,9 +109,11 @@ controls for performance mode, manual power, both fans, charge protection and li
 acquisition selects the native rear-button reporting mode and restores the original mode on release;
 users do not need to configure rear assignments in Predator Sense first. Fan originals without
 readable behavior return to firmware Auto with unverified restoration. Lighting changes retain the
-other profile fields and never write ROM. The optional KX processor helper can be blocked by Windows
-security without disabling the native EC path. Exact on-device results and remaining acceptance are
-in the [Acer provenance](../external/libhandheld/src/LibHandheld/Families/Acer/PROVENANCE.md).
+other profile fields and never write ROM. Shared ring color and eight measured segment colors use
+the same backend; the unassigned ninth wire slot is retained. The optional KX processor helper can
+be blocked by Windows security without disabling the native EC path. Exact on-device results and
+remaining acceptance are in the
+[Acer provenance](../external/libhandheld/src/LibHandheld/Families/Acer/PROVENANCE.md).
 
 113 exact definitions select authored artwork through 107 glyph profiles. WSGM imports those
 outlines and supplies the corresponding Overlay and Steam presentation. Family notices ship with the
