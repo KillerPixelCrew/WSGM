@@ -5,6 +5,14 @@ library owns detection, native protocols, physical input, motion, haptics and ha
 WSGM owns profiles, AutoTDP, HidHide, virtual controllers, OEM actions and both UI surfaces. The
 current mechanism is in [built-in handheld runtime](device-runtime.md).
 
+The Atlas
+[OEM input and software control reference](../external/libhandheld/src/LibHandheld/Families/Acer/OEM_INPUT_AND_DISABLE.md)
+records each physical source and report, the automatic rear-mode switch, and the tested separation
+of the USB OEM keyboard from I2C volume input. It also lists the exact services, tasks and package
+identities disabled on the maintainer's machine, activation-block checks, recovery and the opt-in
+local maintenance guard in `eng/atlas-oem-disabled-state.ps1`. Service shutdown alone does not block
+the Game Bar widget. This local administration policy is not yet a WSGM Settings/runtime feature.
+
 ## Configuration and availability
 
 Device Integration is an application switch. Off means no native device lifecycle, controller
