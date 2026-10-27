@@ -1,7 +1,8 @@
 # Acer Predator Atlas 8 handoff
 
-Stopped at the maintainer's request on 2026-10-27. All investigation was offline. No vendor program
-was executed, device opened, service installed/connected, hardware command sent or deployment run.
+Research updated on 2026-10-27 using the supplied driver packages and Predator Sense 1.0.1563.0. All
+investigation was offline. No vendor program was executed, device opened, service
+installed/connected, hardware command sent or deployment run.
 
 ## Delivered implementation
 
@@ -21,7 +22,7 @@ unverified. The local build log and artifact identity are retained in the resear
   InputPlumber evidence and exact input acceptance limits.
 - [Power/fan protocol](../external/libhandheld/src/LibHandheld/Families/Acer/POWER_FAN_PROTOCOL.md)
   consolidates separate EC HID power and WMI fan transports, commands, field offsets,
-  acknowledgements, mode/limit values, getter decoding and recovery constraints.
+  acknowledgements, mode/limit values, getter decoding, fan discovery and recovery constraints.
 - [Predator Sense findings](../external/libhandheld/src/LibHandheld/Families/Acer/research/predator-sense-findings.md)
   preserve binary identities, controller/motion/RGB/calibration commands, lighting and
   native-service leads.
@@ -29,7 +30,14 @@ unverified. The local build log and artifact identity are retained in the resear
   preserve desktop enums, watt units, validation, service messages and fan controls.
 - [Native agent and fan getters](../external/libhandheld/src/LibHandheld/Families/Acer/research/power-fan-agent-native.md)
   preserve exact function addresses, WMI bit packing, result handling, registry observations and
-  unresolved fan-count discovery. Its final follow-up sections refine earlier bounded-pass unknowns.
+  completed fan-count/EC-health traces. The follow-up corrects the earlier global-mode inference:
+  without its registry cache, the OEM getter reconstructs Custom/Auto, not Max.
+- [Controller profile and motion findings](../external/libhandheld/src/LibHandheld/Families/Acer/research/controller-profile-findings.md)
+  record persistent firmware gyro mapping versus raw upload, actual RAM-profile command `0x21`,
+  volatile RGB previews, calibration lifecycle and the OEM queue's uncorrelated acknowledgements.
+- [Supplied driver packages](../external/libhandheld/src/LibHandheld/Families/Acer/research/driver-package-findings.md)
+  record exact archive hashes and INF matches for Acer's base/enabling services, the Acer-specific
+  Intel sensor-hub firmware extension, Intel HID events and platform telemetry/provisioning.
 
 ## Local evidence and tools
 
@@ -53,17 +61,30 @@ registration was changed. The research MCP session was closed and its helper exi
 only its own `rea-jobs/stop` marker and use new request filenames, since completed results are
 retained. Do not infer a live Ghidra session from those saved results.
 
+The follow-up used the connected REA MCP 6.8.0 with Ghidra 12.1.4 and managed PE/CLI/CIL inspection,
+plus ILSpy 11 for readable managed reconstruction. The supplied ZIP SHA-256 is
+`7bd158621b6e0135a046ecddb3df9e8b6fca0cc13b331046a4fa565a09784263`; both native service binaries and
+AcerGamePad.Core.dll match the earlier research exactly. Ignored
+`artifacts/acer-atlas8-rea-20261027/` retains the new archive graph, managed records, native
+Evidence bundles/snapshots, driver inventories and detailed findings. The native sessions were
+closed. Committed reports contain protocol facts and provenance, not vendor binaries or decompiled
+source.
+
 ## Next work
 
-Finish fan-count discovery (INI/configuration versus WMI), mixed-fan mode handling and restoration
-sequencing. Preserve exact per-fan behavior/speed, the full manual power profile and original active
-mode. Avoid the vendor's unsafe continuation after failed prerequisite steps, mutex-timeout behavior
-and uncertain-write retries. Device limits must come from source-grounded capability responses;
+Confirm the unit's live fan topology and capability replies, then finish mixed-fan recovery and
+restoration sequencing. Static fan discovery is decoded: INI overrides take precedence; otherwise EC
+health capabilities, with a legacy WMI fallback, supply the topology mask. Preserve raw per-fan
+behavior/speed and known/unknown state, the full manual power profile and original active mode.
+Avoid the vendor's unsafe continuation after failed prerequisite steps, mutex-timeout behavior and
+uncorrelated ACK/retry policy. Device limits must come from source-grounded capability responses;
 desktop fallback watts are not measured hardware limits.
 
-Motion still needs physical scale, axes, timing and bias evidence. RGB/controller profile commands
-include persistent writes and must not be used as discovery probes. No broad VID/PID family matching
-or firmware mode switch should be added to input acquisition.
+Motion still needs physical scale, axes, timing, bias and upload-state ownership evidence. Desktop
+gyro mapping persists profiles, whereas raw upload is separate. RGB has a volatile RAM-preview path,
+with ROM persistence as a separate operation; neither belongs in automatic discovery. The Intel
+sensor-hub extension is another discovery lead, not proof that it owns the controller gyro. No broad
+VID/PID family matching or firmware mode switch should be added to input acquisition.
 
 When work resumes, follow the existing device SDK/Lab ownership and manual-first policy. Attended
 hardware work and deployment need the maintainer's direction. Confirm exact identity/firmware,
