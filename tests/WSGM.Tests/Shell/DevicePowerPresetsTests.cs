@@ -16,6 +16,34 @@ public sealed class DevicePowerPresetsTests
         DevicePowerMode.BestPerformance);
 
     [Fact]
+    public async Task FirmwareManagedPresetPreservesStockLimitsAndMatchesUnknownWattage()
+    {
+        Rig rig = new();
+        rig.AddScenarios();
+        var stock = new DevicePowerPreset("stock", "Stock", 0, 0, DevicePowerMode.Balanced)
+        {
+            FirmwareManaged = true, ScenarioOnAc = "sport", ScenarioOnDc = "comfort"
+        };
+        rig.Views[0] = rig.Views[0] with
+        {
+            Descriptor = rig.Views[0].Descriptor with { PowerPresets = [stock] },
+            Projection = rig.Views[0].Projection with
+            {
+                State = rig.Views[0].Projection.State with { ObservedValue = null }
+            }
+        };
+        var service = rig.Create();
+
+        Assert.True((await service.ApplyAsync("stock", CancellationToken.None)).Succeeded);
+        Assert.Equal("ScenarioMode", Assert.Single(rig.Calls).Id);
+        Assert.Equal("sport", rig.LastScenario);
+        Assert.Equal(1, rig.Api.Writes);
+        var state = await service.ReadAsync();
+        Assert.Equal("stock", state.Current);
+        Assert.DoesNotContain("0/0", state.Status);
+    }
+
+    [Fact]
     public async Task IndependentFastTargetIsAppliedAndMatchedByBothSurfaces()
     {
         Rig rig = new();

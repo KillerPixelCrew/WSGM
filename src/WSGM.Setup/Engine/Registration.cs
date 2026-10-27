@@ -340,4 +340,5 @@ internal sealed record UsbipOutcome(string Outcome, bool RebootRequired, string 
 /// <summary>Source-generated JSON metadata for setup's own files.</summary>
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, WriteIndented = true)]
 [JsonSerializable(typeof(InstalledComponents))]
+[JsonSerializable(typeof(DriverCompatibilityRecovery))]
 internal sealed partial class SetupJsonContext : JsonSerializerContext;

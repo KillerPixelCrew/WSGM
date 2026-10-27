@@ -154,7 +154,7 @@ internal sealed class DevicePowerPresets(
 
                 // Firmware scenario selection can change the pair, so order using its new readback.
                 // Raise PL2 before PL1 when necessary; lower PL1 before lowering PL2.
-                (DeviceCapabilityView View, int Watts)[] writes =
+                (DeviceCapabilityView View, int Watts)[] writes = preset.FirmwareManaged ? [] :
                     preset.SustainedWatts > (slow!.Projection.State.ObservedValue?.IntegerValue ?? preset.SlowWatts)
                         ? [(slow, preset.SlowWatts), (sustained!, preset.SustainedWatts)]
                         : [(sustained!, preset.SustainedWatts), (slow, preset.SlowWatts)];
@@ -175,7 +175,7 @@ internal sealed class DevicePowerPresets(
                     }
                 }
 
-                if (FastView(views) is { } fast)
+                if (!preset.FirmwareManaged && FastView(views) is { } fast)
                 {
                     CheckCurrent();
                     mutationStarted = true;
@@ -268,10 +268,10 @@ internal sealed class DevicePowerPresets(
         }
 
         var match = presets.FirstOrDefault(preset =>
-            preset.SustainedWatts == sustained!.Projection.State.ObservedValue?.IntegerValue
+            (preset.FirmwareManaged || preset.SustainedWatts == sustained!.Projection.State.ObservedValue?.IntegerValue
             && preset.SlowWatts == slow!.Projection.State.ObservedValue?.IntegerValue
             && (FastView(views) is not { } fast
-                || (preset.FastWatts ?? preset.SlowWatts) == fast.Projection.State.ObservedValue?.IntegerValue)
+                || (preset.FastWatts ?? preset.SlowWatts) == fast.Projection.State.ObservedValue?.IntegerValue))
             && WindowsPowerModes.Id(preset.WindowsMode) == mode
             && (preset.ScenarioOnAc is null || ScenarioView(views)?.Projection.State.ObservedValue?.ChoiceValue
                 == (onAc == true ? preset.ScenarioOnAc : preset.ScenarioOnDc)));
@@ -301,6 +301,7 @@ internal sealed class DevicePowerPresets(
 
         return new DevicePowerPresetState(presets, presets.Length > 0, match?.Id ?? "custom", status.Length > 0 ? status
             : match is null ? "Custom: current power limits, firmware scenario or Windows mode do not match a preset."
+            : match.FirmwareManaged ? $"{match.Name} · {WindowsPowerModes.Label(match.WindowsMode)}"
             : $"{match.SustainedWatts}/{match.SlowWatts}"
               + (FastView(views) is null ? string.Empty : $"/{match.FastWatts ?? match.SlowWatts}")
               + $" W · {WindowsPowerModes.Label(match.WindowsMode)}", values);

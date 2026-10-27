@@ -53,6 +53,7 @@ internal sealed class SetupViewModel : Observable
     private IReadOnlyList<CommonOption>? _newGraphics;
     private Page _page;
     private ProfilePage? _profile;
+    private DriverCompatibilityPage? _compatibility;
     private int _step;
     private UninstallPage? _uninstall;
 
@@ -205,11 +206,11 @@ internal sealed class SetupViewModel : Observable
         _flow.Clear();
         _flow.AddRange(kind switch
         {
-            "update" => ["update", "profile", "customize", "progress", "summary"],
-            "maintain-repair" => ["profile", "customize", "progress", "summary"],
+            "update" => ["update", "profile", "customize", "compatibility", "progress", "summary"],
+            "maintain-repair" => ["profile", "customize", "compatibility", "progress", "summary"],
             _ =>
             [
-                engine.Legacy is null ? "welcome" : "legacy", "hardware", "profile", "customize", "drivers", "progress",
+                engine.Legacy is null ? "welcome" : "legacy", "hardware", "profile", "customize", "compatibility", "drivers", "progress",
                 "summary"
             ]
         });
@@ -266,6 +267,9 @@ internal sealed class SetupViewModel : Observable
             case "customize":
                 Page = new CustomizePage(_profile!);
                 break;
+            case "compatibility":
+                _ = ShowCompatibilityAsync();
+                break;
             case "drivers":
                 Page = new DriversPage();
                 break;
@@ -292,6 +296,7 @@ internal sealed class SetupViewModel : Observable
                 "hardware" => "Hardware",
                 "profile" => "Profile",
                 "customize" => "Customize",
+                "compatibility" => "Compatibility",
                 "drivers" => "Drivers",
                 "progress" => _flow.Contains("uninstall") ? "Remove" : "Install",
                 "finishdrivers" => "Driver",
@@ -327,6 +332,27 @@ internal sealed class SetupViewModel : Observable
             SetupLog.Error("Preparing the answers failed", ex);
             Page = new MessagePage("Profile", "Setup could not prepare WSGM", ex.Message);
         }
+    }
+
+    private async Task ShowCompatibilityAsync()
+    {
+        if (_compatibility is not null)
+        {
+            Page = _compatibility;
+            return;
+        }
+        Page = new MessagePage("Compatibility", "Reading Windows protection settings…", "", "");
+        try
+        {
+            var state = await Task.Run(_engine!.DriverCompatibility.Read);
+            _compatibility = new DriverCompatibilityPage(state);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            SetupLog.Warn("Reading driver protection settings failed: " + ex.Message);
+            _compatibility = new DriverCompatibilityPage(null, "Windows protection settings could not be read: " + ex.Message);
+        }
+        Page = _compatibility;
     }
 
     private HardwarePage BuildHardwarePage()
@@ -387,7 +413,8 @@ internal sealed class SetupViewModel : Observable
             // Update and repair keep what is installed and add the graphics plugins checked on the
             // update page, or every new one for a repair, which has no page for them.
             return engine.KeptChoices(answers,
-                NewGraphics().Where(option => option.Checked).Select(option => option.Plugin.Id));
+                NewGraphics().Where(option => option.Checked).Select(option => option.Plugin.Id))
+                with { Compatibility = _compatibility?.Choices ?? new DriverCompatibilityChoices() };
         }
 
         var device = _hardware.Chosen?.Offer.Definition.Id;
@@ -396,7 +423,7 @@ internal sealed class SetupViewModel : Observable
         [
             .. _hardware.Graphics.Concat(_hardware.Commons).Where(option => option.Checked)
                 .Select(option => option.Plugin.Id)
-        ], answers);
+        ], answers) { Compatibility = _compatibility?.Choices ?? new DriverCompatibilityChoices() };
     }
 
     private bool NeedsDrivers()

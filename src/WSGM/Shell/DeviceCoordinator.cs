@@ -540,6 +540,13 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
             // An applied assignment pauses AutoTDP without saving its wattage as the user's limit.
             AutoTdp.NoteManualChange(watts);
         }
+        else if (value.Kind == CapabilityValueKind.Choice && result.Outcome.IsApplied()
+                 && FindDescriptor(id, null)?.Role == CapabilityRole.ScenarioMode)
+        {
+            // Stock firmware scenarios have no declared wattage. Pause without inventing one;
+            // otherwise AutoTDP's next write would immediately put the device back into Manual.
+            AutoTdp.NoteManualChange(null);
+        }
 
         return result;
     }

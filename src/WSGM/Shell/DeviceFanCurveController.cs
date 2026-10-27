@@ -19,6 +19,7 @@ internal readonly record struct DeviceFanCurveWriteResult(bool Applied, string? 
 /// <summary>The session-owned software fan policy; hardware access remains with the coordinator.</summary>
 internal sealed class DeviceFanCurveController : IAsyncDisposable
 {
+    internal static readonly TimeSpan MaximumTemperatureAge = TimeSpan.FromSeconds(3);
     private readonly Action<string?> _availabilityChanged;
     private readonly SemaphoreSlim _lifecycle = new(1, 1);
     private readonly TimeSpan _maximumTemperatureAge;
@@ -51,7 +52,7 @@ internal sealed class DeviceFanCurveController : IAsyncDisposable
         _releaseAutomatic = releaseAutomatic;
         _now = now ?? (() => DateTimeOffset.UtcNow);
         _waitTick = waitTick;
-        _maximumTemperatureAge = maximumTemperatureAge ?? TimeSpan.FromSeconds(3);
+        _maximumTemperatureAge = maximumTemperatureAge ?? MaximumTemperatureAge;
         if (_maximumTemperatureAge <= TimeSpan.Zero)
         {
             throw new ArgumentOutOfRangeException(nameof(maximumTemperatureAge));

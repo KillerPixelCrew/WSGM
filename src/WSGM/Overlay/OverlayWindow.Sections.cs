@@ -14,6 +14,9 @@ namespace WSGM.Overlay;
 
 public partial class OverlayWindow
 {
+    private Panel? _deviceCapabilityParent;
+    private int _deviceCapabilityIndex;
+    private bool _unifiedPowerDetails;
     // Several steps of one render or pin lookup read the same device snapshot; its pin sections are
     // derived once per snapshot instance rather than once per step.
     private (DeviceOverlaySnapshot Snapshot, DevicePinSection[] Sections)? _pinSections;
@@ -59,7 +62,9 @@ public partial class OverlayWindow
     {
         return new Border
         {
-            Child = FoldSection(content), Tag = content.Tag,
+            Child = _unifiedPowerDetails && content.Tag is string key
+                    && !key.StartsWith(PinTagPrefix, StringComparison.Ordinal)
+                ? content : FoldSection(content), Tag = content.Tag,
             VerticalAlignment = VerticalAlignment.Top
         };
     }
@@ -98,18 +103,16 @@ public partial class OverlayWindow
     private void FoldStaticSections()
     {
         Fold(PerformanceSection);
-        Fold(DevicePowerPresetContainer);
-        Fold(ManualTdpHost);
+        if (_deviceCapabilityParent is null)
+        {
+            _deviceCapabilityParent = (Panel)DeviceCapabilityList.Parent!;
+            _deviceCapabilityIndex = _deviceCapabilityParent.Children.IndexOf(DeviceCapabilityList);
+            var powerBody = DevicePowerControlsCard.Child!;
+            DevicePowerControlsCard.Child = null;
+            DevicePowerControlsCard.Child = CreateFold("section.device.unified-power", "Power", powerBody);
+        }
         PanelSystemDisplay.Tag = "section.display";
         Fold(PanelSystemDisplay);
-        if (DevicePowerSchemeHeading.Children.FirstOrDefault() is SectionPinHeader power)
-        {
-            DevicePowerSchemeHeading.Children.Remove(power);
-            DeviceWindowsPower.Children.Remove(DevicePowerSchemeHeading);
-            DeviceWindowsPower.Children.Insert(0, power);
-            DeviceWindowsPower.Tag = power.SectionId;
-            Fold(DeviceWindowsPower);
-        }
 
         return;
 
@@ -133,6 +136,24 @@ public partial class OverlayWindow
             }
 
             panel.Children.Add(FoldSection(body));
+        }
+    }
+
+    private void PlaceUnifiedPowerControls(DeviceOverlaySnapshot snapshot)
+    {
+        _unifiedPowerDetails = _navigation.Page == OverlayPage.DevicePowerAndThermals
+            || _navigation.Page == OverlayPage.DevicePluginSection
+            && DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, _navigation.SectionId ?? string.Empty)
+            == DeviceOverlaySection.PowerAndThermals;
+        if (_unifiedPowerDetails && !ReferenceEquals(DeviceCapabilityList.Parent, UnifiedDevicePowerBody))
+        {
+            ((Panel)DeviceCapabilityList.Parent!).Children.Remove(DeviceCapabilityList);
+            UnifiedDevicePowerBody.Children.Add(DeviceCapabilityList);
+        }
+        else if (!_unifiedPowerDetails && ReferenceEquals(DeviceCapabilityList.Parent, UnifiedDevicePowerBody))
+        {
+            UnifiedDevicePowerBody.Children.Remove(DeviceCapabilityList);
+            _deviceCapabilityParent!.Children.Insert(_deviceCapabilityIndex, DeviceCapabilityList);
         }
     }
 

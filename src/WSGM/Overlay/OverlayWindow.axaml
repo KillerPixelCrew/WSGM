@@ -403,7 +403,7 @@
               </Border>
               <StackPanel x:Name="DevicePowerOverview" Spacing="12" IsVisible="False">
                 <Border x:Name="DevicePowerControlsCard" VerticalAlignment="Top">
-                  <StackPanel Spacing="12">
+                  <StackPanel x:Name="UnifiedDevicePowerBody" Spacing="12">
                     <Border Classes="device-group" IsVisible="{Binding #DeviceWindowsPower.IsVisible}">
                       <StackPanel x:Name="DeviceWindowsPower" Spacing="8">
                         <StackPanel x:Name="DevicePowerSchemeHeading" />

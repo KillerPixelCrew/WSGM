@@ -206,6 +206,18 @@ single open-handle decode API shared by every call site.
 
 ## Complete Device-page captures
 
+Every device's Power detail page has one outer Power expander containing Windows energy plans,
+AC/battery preset assignments, manual power controls and firmware power controls. Subheadings retain
+their existing Quick Access pin actions without introducing separate power expanders. Pinned
+sections keep their independent folds. The shared view also covers integration disabled and devices
+without firmware power controls; Windows plans remain independently available.
+
+Atlas assignments offer Quiet, Balanced, Turbo, Full Power and Custom through the shared Overlay and
+Steam backend. Stock choices select the complete firmware scenario and Windows power mode without
+overwriting firmware wattages. Full Power selects Manual at the firmware-advertised PL1/PL2 maxima,
+currently 40/65 W, and Windows Best performance. Custom uses the manual controls. Selecting a
+firmware scenario pauses AutoTDP so its next write cannot overwrite that selection.
+
 The Device Overview shows Power and Performance beside the persistent section rail. Available
 sections and Quick Access pin choices keep stable identities. Windows energy plans are visible
 directly, including with integration disabled. Power holds the assignments and device-specific

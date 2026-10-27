@@ -18,6 +18,7 @@
     <PackageReference Include="Avalonia.Headless.XUnit" Version="12.1.4"/>
     <PackageReference Include="Avalonia.Skia" Version="12.1.4"/>
     <ProjectReference Include="../../src/WSGM/WSGM.csproj"/>
+    <ProjectReference Include="../../src/WSGM.Setup/WSGM.Setup.csproj"/>
     <Compile Include="../Shared/AsyncConditions.cs" Link="Shared/AsyncConditions.cs"/>
     <Compile Include="../Shared/FakeButtonSource.cs" Link="Shared/FakeButtonSource.cs"/>
     <Compile Include="../Shared/FakeHybridCoreApi.cs" Link="Shared/FakeHybridCoreApi.cs"/>

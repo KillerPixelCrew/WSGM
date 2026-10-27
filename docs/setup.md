@@ -1,5 +1,28 @@
 # Install, update and uninstall
 
+## Optional driver compatibility
+
+Interactive install, update and repair offer Driver compatibility after customization. Its four
+independent choices start off: scoped Defender exclusions, disabling Memory Integrity (HVCI),
+disabling the vulnerable-driver blocklist, and disabling system Control Flow Guard. Full, Minimal
+and quiet installation do not opt in. The page reports configured overrides, respects firmware locks
+and explains reduced protection and restart requirements. Other exploit mitigations and certificate
+checks remain. A revoked certificate is not fixed by these options.
+
+Defender exclusions cover the exact WSGM installation folder, `App/WSGM.exe` and
+`App/Resources/Intel/KX/KX.exe`. Setup adds entries individually before extracting the deferred KX
+helper; it preserves existing exclusions and does not disable Defender.
+`%ProgramData%/WSGM/driver-protection-recovery.json` records originals before writes and exclusions
+added by WSGM. Fatal rollback undoes this run's changes. Uninstall restores owned overrides still
+set by WSGM, removes only owned exclusions, and retains failed recovery work.
+
+These choices follow the corresponding
+[Handheld Companion installer controls](https://github.com/Valkirie/HandheldCompanion/blob/main/HandheldCompanion.iss).
+CFG restoration uses the documented
+[Set-ProcessMitigation](https://learn.microsoft.com/en-us/powershell/module/processmitigations/set-processmitigation)
+removal command. Atlas optional voltage settings use signed PawnIO IntelMSR instead of KX; its EC
+power, fans and lighting use native HID protocols.
+
 What `WSGM.Setup.exe` does to a machine: where the product lives, what a fresh install chooses and
 asks, the order an install and an update run in, the daily update check, the uninstaller, and the
 two takeovers setup performs on the user's behalf. The sign-in start, the Explorer takeover and the

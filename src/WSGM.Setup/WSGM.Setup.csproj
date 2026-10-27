@@ -31,7 +31,9 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\WSGM.Install\WSGM.Install.csproj"/>
+    <ProjectReference Include="..\..\external\windows-device-control\src\WindowsDeviceControl\WindowsDeviceControl.csproj"/>
     <InternalsVisibleTo Include="WSGM.Tests"/>
+    <InternalsVisibleTo Include="WSGM.UiTests"/>
   </ItemGroup>
   <ItemGroup>
     <!-- WSGM's own colour tokens and text styles, linked rather than copied. -->

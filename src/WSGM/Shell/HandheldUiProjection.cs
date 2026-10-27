@@ -84,7 +84,10 @@ internal static class HandheldUiProjection
             CurveInputs = value.CurveInputs,
             PowerPresets = value.PowerPresets.Select(preset => new DevicePowerPreset(preset.Id, preset.Name,
                     preset.SustainedWatts, preset.SlowWatts, (DevicePowerMode)preset.WindowsMode)
-                { FastWatts = preset.FastWatts, ScenarioOnAc = preset.ScenarioOnAc, ScenarioOnDc = preset.ScenarioOnDc })
+                {
+                    FastWatts = preset.FastWatts, ScenarioOnAc = preset.ScenarioOnAc,
+                    ScenarioOnDc = preset.ScenarioOnDc, FirmwareManaged = preset.FirmwareManaged
+                })
                 .ToArray(),
             MaximumLength = value.MaximumLength, AvailableOnAc = value.AvailableOnAc,
             AvailableOnDc = value.AvailableOnDc,

@@ -253,6 +253,29 @@
       </StackPanel>
     </DataTemplate>
 
+    <DataTemplate DataType="ui:DriverCompatibilityPage">
+      <StackPanel Spacing="12">
+        <TextBlock Classes="muted" Text="Changes apply to this PC and are restored on uninstall. They are not enabled by Full mode." />
+        <TextBlock Classes="muted" Text="{Binding ReadError}" IsVisible="{Binding HasReadError}" />
+        <Border Classes="card" Padding="0">
+          <ItemsControl ItemsSource="{Binding Options}">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="ui:FeatureOption">
+                <Grid Classes="feature" ColumnDefinitions="*,Auto" ColumnSpacing="16" IsEnabled="{Binding Enabled}">
+                  <StackPanel Spacing="4" VerticalAlignment="Center">
+                    <TextBlock Classes="row-title" Text="{Binding Label}" TextWrapping="Wrap" />
+                    <TextBlock Classes="muted" Text="{Binding Description}" TextWrapping="Wrap" />
+                  </StackPanel>
+                  <ToggleSwitch Grid.Column="1" IsChecked="{Binding On}" OnContent="" OffContent=""
+                                AutomationProperties.Name="{Binding Label}" VerticalAlignment="Center" MinWidth="0" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </Border>
+      </StackPanel>
+    </DataTemplate>
+
     <DataTemplate DataType="ui:CustomizePage">
       <StackPanel Spacing="14">
         <ItemsControl ItemsSource="{Binding Profile.Groups}">

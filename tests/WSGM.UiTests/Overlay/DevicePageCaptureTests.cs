@@ -24,6 +24,7 @@ public sealed class DevicePageCaptureTests
     [AvaloniaTheory]
     [InlineData("Device", 1280, 800)]
     [InlineData("Power", 1280, 720)]
+    [InlineData("Power", 980, 640)]
     [InlineData("Power", 3840, 2160)]
     [InlineData("Power", 1280, 800)]
     [InlineData("Power", 1920, 1200)]
@@ -107,6 +108,7 @@ public sealed class DevicePageCaptureTests
                 window.SetPins([.. pins]);
             };
             UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin.power"));
+            UiFixture.OpenSections(window);
             foreach (var id in new[]
                      {
                          "section.device.plugin.power.category.control", "section.device.plugin.power.category.charging"
@@ -150,14 +152,16 @@ public sealed class DevicePageCaptureTests
             var cards = window.GetVisualDescendants().OfType<CollapsibleSection>()
                 .Where(section => section.IsEffectivelyVisible).ToArray();
             Assert.NotEmpty(cards);
-            var detail = UiFixture.Named<Control>(window, "DeviceCapabilityList");
+            var detail = UiFixture.Named<Control>(window, "DevicePowerOverview");
             Assert.All(cards, card => Assert.InRange(card.Bounds.Width, 240, detail.Bounds.Width));
+            Assert.Single(cards, card => Equals(card.Heading.Tag, "section.device.unified-power.expand"));
+            Assert.DoesNotContain(cards, card => Equals(card.Heading.Tag, "section.system.power-profile.expand"));
             foreach (var header in cards.SelectMany(card => card.GetVisualDescendants()
                          .OfType<SectionPinHeader>()))
             {
                 var fold = header.GetVisualAncestors().OfType<CollapsibleSection>().FirstOrDefault();
                 var pin = Assert.Single(header.Children.OfType<Button>());
-                if (fold is not null)
+                if (fold is not null && !header.Children.OfType<TextBlock>().Any(text => text.IsVisible))
                 {
                     var title = fold.GetVisualDescendants().OfType<TextBlock>()
                         .First(text => text.FontSize == 18);

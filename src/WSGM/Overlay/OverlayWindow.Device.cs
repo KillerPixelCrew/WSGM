@@ -276,6 +276,7 @@ public partial class OverlayWindow
         }
 
         var snapshot = DeviceSnapshotOrOff();
+        PlaceUnifiedPowerControls(snapshot);
         var performance = _performanceSource?.Snapshot();
         RefreshNavigationHints();
         RefreshDeviceSectionRail(snapshot, performance);
@@ -290,7 +291,7 @@ public partial class OverlayWindow
                                                snapshot.Visible && DevicePowerPresetHost.IsVisible;
         ManualTdpHost.IsVisible = snapshot.Visible &&
                                   ManualTdpHost.Children.OfType<ManualTdpModeView>().Any(view => view.IsVisible);
-        var powerControlsVisible = powerPage && (DeviceWindowsPower.IsVisible
+        var powerControlsVisible = powerPage && (_unifiedPowerDetails || DeviceWindowsPower.IsVisible
                                                  || DevicePowerPresetContainer.IsVisible || ManualTdpHost.IsVisible);
         if (this.FindControl<Border>("DevicePowerControlsCard") is { } powerControls)
         {

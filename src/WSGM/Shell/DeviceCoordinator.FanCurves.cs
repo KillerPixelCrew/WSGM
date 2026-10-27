@@ -51,11 +51,10 @@ internal sealed partial class DeviceCoordinator
         _fanCurves = new DeviceFanCurveController(
             _ =>
             {
-                var sample = metrics();
-                var temperature = sample.CpuTemperatureC is { } cpu && sample.GpuTemperatureC is { } gpu
-                    ? Math.Max(cpu, gpu)
-                    : sample.CpuTemperatureC ?? sample.GpuTemperatureC;
-                return new DeviceFanCurveTemperature(temperature, sample.CapturedAt);
+                // The handheld's own EC temperature is available outside games and independently
+                // of RTSS. Preserve each source's sampling time instead of refreshing a cached value.
+                var native = Capabilities.TryGetView(new DeviceCapabilityKey("telemetry.temperature", null));
+                return SelectFanTemperature(native?.Projection.State, metrics(), DateTimeOffset.UtcNow);
             },
             async (instance, duty, token) =>
             {
@@ -131,6 +130,33 @@ internal sealed partial class DeviceCoordinator
                     "A firmware automatic restore is unavailable; the fan uses its declared maximum duty.",
                     LogLevel.Warn);
             });
+    }
+
+    internal static DeviceFanCurveTemperature SelectFanTemperature(CapabilityState? native,
+        RtssOsdMetrics metrics, DateTimeOffset now)
+    {
+        var selected = new DeviceFanCurveTemperature(null, DateTimeOffset.MinValue);
+        void Consider(double? value, DateTimeOffset sampledAt)
+        {
+            var age = now - sampledAt;
+            if (value is not { } celsius || !double.IsFinite(celsius) || celsius is < 0 or > 150
+                || age < TimeSpan.Zero || age > DeviceFanCurveController.MaximumTemperatureAge)
+            {
+                return;
+            }
+            if (selected.Celsius is null || celsius > selected.Celsius)
+            {
+                selected = new DeviceFanCurveTemperature(celsius, sampledAt);
+            }
+        }
+        if (native is { Available: true, Quality: HardwareStateQuality.Observed or HardwareStateQuality.Verified,
+                ObservedAt: { } at })
+        {
+            Consider(native.ObservedValue?.IntegerValue, at);
+        }
+        Consider(metrics.CpuTemperatureC, metrics.CapturedAt);
+        Consider(metrics.GpuTemperatureC, metrics.CapturedAt);
+        return selected;
     }
 
     private Task ConfigureFanCurveAsync(IReadOnlyList<CurvePoint>? curve, bool explicitSelection)

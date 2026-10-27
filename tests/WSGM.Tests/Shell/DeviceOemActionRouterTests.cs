@@ -15,6 +15,31 @@ namespace WSGM.Tests.Shell;
 public sealed class DeviceOemActionRouterTests
 {
     [Theory]
+    [InlineData("guide", false)]
+    [InlineData("qam", true)]
+    public async Task ActualAtlasControlSetAdmitsFrontSteamActionsDuringWrapperLeases(string id, bool quickAccess)
+    {
+        var shortcuts = new List<bool>();
+        using var router = new DeviceOemActionRouter();
+        router.OnControls(LibHandheld.Families.Acer.AcerButtonSource.Controls);
+        router.ConfigureActions(Actions(_ => Task.FromResult(true)) with
+        {
+            WrapperInputLeaseActive = () => true,
+            SendSteamShortcutAsync = (quick, _) =>
+            {
+                shortcuts.Add(quick);
+                return Task.FromResult(true);
+            }
+        });
+        router.UpdateConfiguration([], controllerManagementEnabled: true, ManagedControllerTarget.SteamDeckComposite);
+
+        router.OnEvent(Event(OemControlEdge.Pressed, "atlas-front", id));
+        await router.Completion;
+
+        Assert.Equal([quickAccess], shortcuts);
+    }
+
+    [Theory]
     [InlineData("rc73ya")]
     [InlineData("rc73xa")]
     public async Task NativeXboxAllyCompanionMetadataOpensTheOverlay(string modelId)

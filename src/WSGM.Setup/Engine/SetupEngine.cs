@@ -88,7 +88,10 @@ internal sealed class SetupStep(string label, string doneLabel, bool fatal, Func
 internal sealed record InstallChoices(
     string? HandheldDefinitionId,
     IReadOnlyList<string> CommonPluginIds,
-    JsonObject Answers);
+    JsonObject Answers)
+{
+    internal DriverCompatibilityChoices Compatibility { get; init; } = new();
+}
 
 /// <summary>What the user chose for uninstall.</summary>
 /// <param name="KeepData">Whether per-user data should remain; unresolved recovery data is retained regardless.</param>
@@ -143,6 +146,7 @@ internal sealed class SetupEngine : IDisposable
         _root = Path.GetFullPath(root);
         _machineData = Path.GetFullPath(machineData);
         _userData = Path.GetFullPath(userData);
+        DriverCompatibility = new DriverCompatibility(Path.Combine(_machineData, "driver-protection-recovery.json"));
     }
 
     private string App => Path.Combine(_root, "App");
@@ -156,6 +160,8 @@ internal sealed class SetupEngine : IDisposable
     private string InstalledBundle => Path.Combine(_machineData, "bundle.json");
     private string ComponentsFile => Path.Combine(_machineData, "components.json");
     private string PendingPluginRemovals => Path.Combine(_machineData, "plugin-removals.json");
+
+    internal DriverCompatibility DriverCompatibility { get; }
 
     /// <summary>Owned payload, or null for a build containing no installation files.</summary>
     public SetupPayload? Payload { get; }
@@ -322,7 +328,10 @@ internal sealed class SetupEngine : IDisposable
             Directory.Delete(AppStaging, true);
         }
 
-        payload.Extract("App", AppStaging);
+        // Exporting profile choices does not execute hardware helpers. Defer the unsigned legacy
+        // KX payload until the user can choose scoped Defender exclusions and starts installation.
+        payload.Extract("App", AppStaging, relative =>
+            !relative.Replace('\\', '/').StartsWith("Resources/Intel/KX/", StringComparison.OrdinalIgnoreCase));
         var file = Path.Combine(Path.GetTempPath(), $"wsgm-answers-{Guid.NewGuid():N}.json");
         try
         {
@@ -423,6 +432,14 @@ internal sealed class SetupEngine : IDisposable
 
         steps.Add(new SetupStep("Closing WSGM and Steam", "WSGM and Steam closed", true,
             step => StopRuntime(step, false)));
+        if (choices.Compatibility.DefenderExclusions)
+        {
+            steps.Add(new SetupStep("Adding WSGM Defender exclusions", "WSGM Defender exclusions added", false, _ =>
+            {
+                DriverCompatibility.AddDefenderExclusions(_root);
+                return true;
+            }));
+        }
         steps.Add(new SetupStep("Copying WSGM", $"WSGM {Display(ThisVersion)} installed", true,
             step => InstallApplication(step, controller)));
         steps.Add(new SetupStep("Keeping this setup for repair and uninstall", "Setup stored for repair", true,
@@ -437,6 +454,18 @@ internal sealed class SetupEngine : IDisposable
         steps.Add(new SetupStep("Applying your profile", "Profile applied", true,
             step => ApplyAnswers(step, choices.Answers)));
         steps.Add(RegisterServiceStep("Registering the sign-in service", "Sign-in service registered", false));
+        if (choices.Compatibility.DisableMemoryIntegrity)
+        {
+            steps.Add(ProtectionStep("Memory Integrity", DriverCompatibility.DisableMemoryIntegrity));
+        }
+        if (choices.Compatibility.DisableDriverBlocklist)
+        {
+            steps.Add(ProtectionStep("Vulnerable-driver blocklist", DriverCompatibility.DisableDriverBlocklist));
+        }
+        if (choices.Compatibility.DisableControlFlowGuard)
+        {
+            steps.Add(ProtectionStep("System Control Flow Guard", DriverCompatibility.DisableControlFlowGuard));
+        }
         if (controller)
         {
             steps.Add(UsbipStep(false));
@@ -510,6 +539,24 @@ internal sealed class SetupEngine : IDisposable
         return steps;
     }
 
+    private SetupStep ProtectionStep(string name, Func<bool> change)
+    {
+        return new SetupStep("Changing " + name, name + " compatibility setting applied", false, step =>
+        {
+            if (change())
+            {
+                RestartRequired = true;
+                step.Note = "Restart Windows to apply this protection change. The original is retained for uninstall.";
+            }
+            else
+            {
+                step.DoneLabel = name + " already off";
+                step.State = StepState.Skipped;
+            }
+            return true;
+        });
+    }
+
     /// <summary>The steps of an uninstall.</summary>
     /// <param name="choices">Which user data and optional components to retain or remove.</param>
     /// <returns>Ordered deferred steps; creating the plan does not execute them.</returns>
@@ -540,6 +587,9 @@ internal sealed class SetupEngine : IDisposable
             });
         }
 
+        steps.Add(new SetupStep("Restoring Windows protections and exclusions", "Windows protections and exclusions restored", false,
+            step => Fail(step, DriverCompatibility.Restore(),
+                "Some protection settings could not be restored. The recovery record was retained.")));
         if (choices.RemoveHidHide && Components.HidHide)
         {
             steps.Add(new SetupStep("Removing HidHide", "HidHide removed", false,
@@ -836,6 +886,11 @@ internal sealed class SetupEngine : IDisposable
         if (!Directory.Exists(AppStaging))
         {
             payload.Extract("App", AppStaging);
+        }
+        else
+        {
+            payload.Extract("App", AppStaging, relative =>
+                relative.Replace('\\', '/').StartsWith("Resources/Intel/KX/", StringComparison.OrdinalIgnoreCase));
         }
 
         if (controller)
@@ -1432,6 +1487,10 @@ internal sealed class SetupEngine : IDisposable
     /// <summary>Puts the previous application back and restarts what was running, as Inno's rollback did.</summary>
     private void RollBack()
     {
+        if (!DriverCompatibility.RollbackChangesThisRun())
+        {
+            RollbackIncomplete = true;
+        }
         try
         {
             if (_shutdownApplied && !_runtime.StopService())

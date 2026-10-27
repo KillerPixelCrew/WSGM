@@ -38,13 +38,15 @@ $retiredPackageIds = @([regex]::Matches((Get-Content -LiteralPath (Join-Path $PS
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# The shell may only run on the reference Claw, and the desktop-resident deploy only on the
+# The shell may run on the reference Claw or the maintainer's exact Atlas, and desktop-resident only on the
 # maintainer's desktop. This script restarts Steam and the live shell, so on any other machine it
 # would be a takeover nobody offered. The board product is the same one-command identity check the
 # root AGENTS.md mandates before any hardware work.
 $board = (Get-CimInstance -ClassName Win32_BaseBoard).Product
-$expectedBoard, $machine = if ($Desktop) { @('MS-7E16', 'EQS_RTX'), 'desktop' } else { @('MS-1T52'), 'reference Claw' }
-if (-not ($expectedBoard | Where-Object { $board -like "*($_)" -or $board -eq $_ })) {
+$expectedBoard, $machine = if ($Desktop) { @('MS-7E16', 'EQS_RTX'), 'desktop' } else { @('MS-1T52'), 'reference Claw or Atlas' }
+$system = Get-CimInstance -ClassName Win32_ComputerSystem
+$atlas = -not $Desktop -and $system.Manufacturer -eq 'Acer' -and $system.Model -eq 'Predator PA08-I51' -and $board -eq 'F900_PTG'
+if (-not $atlas -and -not ($expectedBoard | Where-Object { $board -like "*($_)" -or $board -eq $_ })) {
     throw "dev-deploy refused: this machine reports board '$board', not the $machine ($expectedBoard)."
 }
 if ($Desktop) {

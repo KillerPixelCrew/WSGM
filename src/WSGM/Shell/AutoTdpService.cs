@@ -500,13 +500,13 @@ internal sealed class AutoTdpService : IAsyncDisposable
     }
 
     /// <summary>Suspends control because the power limit was set by hand.</summary>
-    /// <param name="watts">The limit that was just set.</param>
+    /// <param name="watts">The applied limit, or null for a firmware-managed scenario.</param>
     /// <remarks>
     ///     Called by whoever writes the power capability from a user action. Control does not resume by
     ///     itself — only switching AutoTDP off and on does: the user has overridden the controller, and
     ///     quietly taking the limit back would make the manual control look broken.
     /// </remarks>
-    internal void NoteManualChange(int watts)
+    internal void NoteManualChange(int? watts)
     {
         CancellationTokenSource previousWrites;
         var row = _trace?.Begin(AutoTdpTraceEvent.ManualPause);
@@ -523,12 +523,19 @@ internal sealed class AutoTdpService : IAsyncDisposable
                 row.Controller = _controller.Snapshot();
                 row.ApplicationId = _running?.ApplicationId;
                 row.RunningGeneration = _running?.Generation;
-                row.Detail = $"Manual power change to {watts} W.";
+                row.Detail = watts is null ? "Firmware power profile selected." : $"Manual power change to {watts} W.";
             }
 
             previousWrites = _applicationWrites;
             _applicationWrites = new CancellationTokenSource();
-            if (_restoreTo is not null)
+            if (watts is null)
+            {
+                // A firmware scenario now owns power. Disabling AutoTDP must not restore its old
+                // numeric baseline over that newly selected scenario.
+                _restoreTo = null;
+                _restorePair = null;
+            }
+            if (watts is not null && _restoreTo is not null)
             {
                 _restoreTo = watts;
                 if (FindPowerCapability() is { } primary)
