@@ -21,7 +21,8 @@ namespace WSGM.UiTests.Visual;
 public static class PreviewExports
 {
     /// <summary>Renders destinations and transient surfaces for visual inspection at an explicit viewport.</summary>
-    public static void Export(string directory, int width, int height, double scale = 1)
+    public static void Export(string directory, int width, int height, double scale = 1,
+        string? publicationPath = null, string deviceName = "MSI Claw 8 AI+")
     {
         Directory.CreateDirectory(directory);
         foreach (var page in new[]
@@ -32,6 +33,11 @@ public static class PreviewExports
                      "device-controller", "device-info", "device-gpu", "power-menu", "keyboard"
                  })
         {
+            if (publicationPath is not null && !page.StartsWith("device", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
             using var device = new FakeDevice();
             using var host = new SimulatedDeviceOverlaySource();
             using var graphics = FixtureGraphicsSource.Load();
@@ -41,7 +47,7 @@ public static class PreviewExports
             performance.RefreshAsync().GetAwaiter().GetResult();
             using var fixture = new UiFixture();
             var publication = JsonSerializer.Deserialize<Publication>(File.ReadAllText(
-                Path.Combine(AppContext.BaseDirectory, "Fixtures", "claw-ui-publication.json")))!;
+                publicationPath ?? Path.Combine(AppContext.BaseDirectory, "Fixtures", "claw-ui-publication.json")))!;
             var sections = DeviceSectionLayout.IncludePredefined(publication.Descriptors.Sections);
             var ids = sections.Select(section => section.SectionId).ToHashSet();
             var capabilities = publication.Descriptors.Descriptors.Select(descriptor =>
@@ -53,7 +59,7 @@ public static class PreviewExports
             device.SampleSource = host;
             device.State = host.Snapshot() with
             {
-                Status = "MSI Claw 8 AI+", Detail = "Device integration active",
+                Status = deviceName, Detail = "Device integration active",
                 Capabilities =
                 [
                     .. capabilities.Select(view => DeviceOverlayBridge.ToOverlayCapability(view, ids)),
@@ -94,11 +100,20 @@ public static class PreviewExports
             {
                 var rail = UiFixture.Named<StackPanel>(window, "SectionRail");
                 var button = rail.Children.OfType<Button>().FirstOrDefault(item =>
-                                 item.Tag is string key && key.Contains(section, StringComparison.OrdinalIgnoreCase))
-                             ?? throw new InvalidOperationException($"No {page} section. Available: "
-                                                                    + string.Join(", ",
-                                                                        rail.Children.OfType<Button>()
-                                                                            .Select(button => button.Tag)));
+                    item.Tag is string key && key.Contains(section, StringComparison.OrdinalIgnoreCase));
+                if (button is null && publicationPath is not null)
+                {
+                    window.Close();
+                    performance.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                    continue;
+                }
+
+                if (button is null)
+                {
+                    throw new InvalidOperationException($"No {page} section. Available: "
+                                                        + string.Join(", ", rail.Children.OfType<Button>()
+                                                            .Select(button => button.Tag)));
+                }
                 button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             }
 
@@ -140,10 +155,40 @@ public static class PreviewExports
                                      ?? throw new InvalidOperationException("No expanded frame was available.");
                 expanded.Save(Path.Combine(directory, $"{page}-expanded-{width}x{height}-{scale:0.##}.png"),
                     new PngBitmapEncoderOptions());
+                if (publicationPath is not null)
+                {
+                    for (var index = 0; index < folds.Length; index++)
+                    {
+                        foreach (var fold in folds)
+                        {
+                            fold.IsExpanded = false;
+                        }
+
+                        var selected = folds[index];
+                        selected.IsExpanded = true;
+                        Dispatcher.UIThread.RunJobs();
+                        var scroll = selected.GetVisualAncestors().OfType<ScrollViewer>().FirstOrDefault();
+                        if (scroll?.Content is Avalonia.Visual content && selected.TranslatePoint(default, content) is { } point)
+                        {
+                            scroll.Offset = new Vector(x: 0, point.Y);
+                        }
+
+                        Dispatcher.UIThread.RunJobs();
+                        using var group = window.CaptureRenderedFrame()
+                                          ?? throw new InvalidOperationException("No rendered group was available.");
+                        group.Save(Path.Combine(directory, $"{page}-group-{index}-{width}x{height}-{scale:0.##}.png"),
+                            new PngBitmapEncoderOptions());
+                    }
+                }
             }
 
             window.Close();
             performance.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
+
+        if (publicationPath is not null)
+        {
+            return;
         }
 
         PreviewAudioPanel.Export(directory);

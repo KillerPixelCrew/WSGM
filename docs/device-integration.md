@@ -95,6 +95,15 @@ moment the pad reappeared until it was taken again.
 
 ## Glyphs, diagnostics and contributions
 
+The Acer Predator Atlas 8 PA08-I51 uses LibHandheld's EC power profiles, WMI fan and battery
+controls, Windows motion and controller RAM lighting. The same descriptors supply Overlay and Steam
+controls for performance mode, manual power, both fans, charge protection and lighting. Fan
+originals without readable behavior return to firmware Auto with unverified restoration. Lighting
+changes retain the other profile fields and never write ROM. The optional KX processor helper can be
+blocked by Windows security without disabling the native EC path. Exact on-device results and
+remaining acceptance are in the
+[Acer provenance](../external/libhandheld/src/LibHandheld/Families/Acer/PROVENANCE.md).
+
 113 exact definitions select authored artwork through 107 glyph profiles. WSGM imports those
 outlines and supplies the corresponding Overlay and Steam presentation. Family notices ship with the
 application and setup.

@@ -16,6 +16,16 @@ include the main destinations, complete device controls, the power menu and the 
 Rendering does not execute the test suite or update visual baselines. Native transparency, touch
 promotion, controller capture and hardware behavior still need attended testing.
 
+For another device, append a host-projected publication JSON path and its display name after the
+scale argument. This exports only available Device pages, including individual expanded groups:
+
+```powershell
+dotnet run --project tools/OverlayPreview -c Release -p:SkipNativeArtifacts=true -- artifacts/atlas-preview 980 640 1 artifacts/acer-ui-publication.json "Acer Predator Atlas 8"
+```
+
+The publication is an offline fixture. Rendering it does not acquire its original hardware or
+establish live Steam acceptance.
+
 ## How it works
 
 [`Program.cs`](Program.cs) parses the output path, width, height and scale with invariant culture,
