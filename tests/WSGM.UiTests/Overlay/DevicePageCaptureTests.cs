@@ -182,8 +182,9 @@ public sealed class DevicePageCaptureTests
                 .OfType<Border>().First(border => border.Classes.Contains("device-group"));
             var assignmentsGroup = UiFixture.Named<StackPanel>(window, "DevicePowerPresetContainer")
                 .GetVisualAncestors().OfType<Border>().First(border => border.Classes.Contains("device-group"));
-            Assert.True(assignmentsGroup.TranslatePoint(default, window)!.Value.Y
-                - planGroup.TranslatePoint(new Point(0, planGroup.Bounds.Height), window)!.Value.Y >= 12,
+            // AC and battery assignments lead; the Windows plan follows after a visible gap.
+            Assert.True(planGroup.TranslatePoint(default, window)!.Value.Y
+                - assignmentsGroup.TranslatePoint(new Point(0, assignmentsGroup.Bounds.Height), window)!.Value.Y >= 12,
                 "Separate power sections need a visible gap.");
         }
 

@@ -404,15 +404,17 @@
               <StackPanel x:Name="DevicePowerOverview" Spacing="12" IsVisible="False">
                 <Border x:Name="DevicePowerControlsCard" VerticalAlignment="Top">
                   <StackPanel x:Name="UnifiedDevicePowerBody" Spacing="12">
+                    <!-- AC and battery assignments lead, as in Steam's Quick Access; the Windows
+                         profile follows them. -->
+                    <Border Classes="device-group" IsVisible="{Binding #DevicePowerPresetContainer.IsVisible}">
+                      <StackPanel x:Name="DevicePowerPresetContainer" IsVisible="False">
+                        <ov:DevicePowerPresetView x:Name="DevicePowerPresetHost" IsVisible="False" />
+                      </StackPanel>
+                    </Border>
                     <Border Classes="device-group" IsVisible="{Binding #DeviceWindowsPower.IsVisible}">
                       <StackPanel x:Name="DeviceWindowsPower" Spacing="8">
                         <StackPanel x:Name="DevicePowerSchemeHeading" />
                         <ov:PowerSchemeView x:Name="DevicePowerSchemeHost" />
-                      </StackPanel>
-                    </Border>
-                    <Border Classes="device-group" IsVisible="{Binding #DevicePowerPresetContainer.IsVisible}">
-                      <StackPanel x:Name="DevicePowerPresetContainer" IsVisible="False">
-                        <ov:DevicePowerPresetView x:Name="DevicePowerPresetHost" IsVisible="False" />
                       </StackPanel>
                     </Border>
                     <Border Classes="device-group" IsVisible="{Binding #ManualTdpHost.IsVisible}">

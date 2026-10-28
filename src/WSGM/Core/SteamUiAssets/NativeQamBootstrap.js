@@ -14514,16 +14514,10 @@
     // 18px is the size Valve's own header rule gives a section icon, against a 16px header. The glyph
     // is named by the host; a name the kit does not draw leaves the heading without one.
     const sectionIcon = (controlRuntime, name) => controlRuntime.icon(name, 18);
-    // What a folded section's heading reports: the summaries of its rows, in the row table's order,
-    // then those a row leaves under a kind of the section's own, which is how the device rows report
-    // their charging and lighting sections.
+    // What a folded section's heading reports: the summary each of its kinds leaves, in the order the
+    // section names them, which also covers the device rows' charging and lighting sections.
     const sectionSummary = (section) =>
-      [
-        ...new Set([
-          ...controlRows.map((row) => row[0]).filter((kind) => section.kinds.includes(kind)),
-          ...section.kinds,
-        ]),
-      ]
+      [...new Set(section.kinds)]
         .map((kind) => summaries[kind])
         .filter(Boolean)
         .join(" · ");
@@ -14605,13 +14599,14 @@
           ? layout.performanceEnd
           : layout.quickSettingsEnd
         : [];
-      // A section draws the rows of its kinds in the row table's order. One with none of them is left
-      // out, and a kind no section names is not drawn while a layout is published.
+      // A section draws its rows in the order it names their kinds; rows sharing a kind keep the row
+      // table's order. One with none of them is left out, and a kind no section names is not drawn
+      // while a layout is published.
       const sections = (list) =>
         list.flatMap((section) => {
-          const own = rows
-            .filter(([kind]) => section.kinds.includes(kind))
-            .map(([, element]) => element);
+          const own = [...new Set(section.kinds)].flatMap((kind) =>
+            rows.filter(([rowKind]) => rowKind === kind).map(([, element]) => element),
+          );
           return own.length
             ? [
                 hostSection(
@@ -14796,7 +14791,8 @@
         ? withIcon(controlRuntime, valveOverlayLevel, controlRuntime.icon("layers"))
         : null;
       // Registration, component and placement share one table. The host's layout decides the
-      // sections; this table determines the order of controls within each section.
+      // sections and the order of their kinds; this table orders rows that share a kind and draws
+      // a tab that has no layout.
       controlRows = [
         ["valveProfileHeader", "steam-ui-valve-profile-header", valveProfileHeaderControl, "perf"],
         ["valveProfileHeader", "steam-ui-valve-profile-toggle", valveProfileToggleControl, "perf"],
