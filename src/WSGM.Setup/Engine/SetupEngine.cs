@@ -698,10 +698,10 @@ internal sealed class SetupEngine : IDisposable
         return true;
     }
 
-    /// <summary>Restarts Windows now, for the boot the driver update needs.</summary>
+    /// <summary>Restarts Windows now: the driver update's boot, or a restart the user accepts to finish setup.</summary>
     public static void RestartWindows()
     {
-        SetupLog.Info("Restarting Windows to install the USB/IP driver with nothing attached to it.");
+        SetupLog.Info("Restarting Windows to finish setup.");
         WindowsSetup.Run(WindowsSetup.SystemTool("shutdown.exe"), "/r /t 0");
     }
 

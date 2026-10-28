@@ -345,6 +345,10 @@ status file reports failure and conservatively sets that requirement. An applica
 with an up-to-date controller driver does not acquire a restart requirement merely for updating
 WSGM.
 
+An interactive install, repair or uninstall that needs a restart (a driver, PawnIO, a protection
+change, the OEM keyboard) ends on a summary whose primary action is **Restart now**; the secondary
+action finishes without restarting, and for an install it starts WSGM first.
+
 ## Media preview runtime
 
 The setup carries the x64 WebView2 Evergreen standalone runtime in `MediaRuntime`, acquired at build

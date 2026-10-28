@@ -449,7 +449,8 @@ internal sealed class SummaryPage(
     string problem,
     string primary,
     string back,
-    bool startWsgm = false) : Page
+    bool startWsgm = false,
+    bool offerRestart = false) : Page
 {
     public override string Eyebrow { get; } = eyebrow;
     public override string Title { get; } = title;
@@ -460,6 +461,9 @@ internal sealed class SummaryPage(
     public override string Primary { get; } = primary;
     public override string Back { get; } = back;
     public override CloseBehaviour OnClose => CloseBehaviour.Close;
+
+    /// <summary>Whether the primary action restarts Windows; the secondary one then finishes without it.</summary>
+    internal bool OffersRestart { get; } = offerRestart;
 
     internal void Complete(Action start, Action close)
     {

@@ -509,12 +509,15 @@ internal sealed class SetupViewModel : Observable
             var filesFailed = failed.Any(row => row.Step.Label == "Deleting program files");
             Page = new SummaryPage(failed.Length > 0 ? "Uninstall finished with a problem" : "Done",
                 filesFailed ? "Some WSGM program files remain" : "WSGM is uninstalled",
-                _uninstall!.KeepData
+                (_uninstall!.KeepData
                     ? "Your settings and data are still there if you install WSGM again."
                     : dataFailed
                         ? "Some settings and data could not be deleted. See the details below."
-                        : "Your settings and data were deleted.",
-                rows, string.Join("\n", failed.Select(row => $"{row.Step.Label}: {row.Note}")), "Close", "");
+                        : "Your settings and data were deleted.")
+                + (engine.RestartRequired ? " Restart Windows to finish." : ""),
+                rows, string.Join("\n", failed.Select(row => $"{row.Step.Label}: {row.Note}")),
+                engine.RestartRequired ? "Restart now" : "Close", engine.RestartRequired ? "Restart later" : "",
+                offerRestart: engine.RestartRequired);
             return;
         }
 
@@ -559,11 +562,11 @@ internal sealed class SetupViewModel : Observable
         var title = FinishingDrivers ? "The controller driver is installed"
             : _flow.Contains("update") ? $"WSGM {SetupEngine.Display(engine.ThisVersion)} is installed"
             : "WSGM is ready";
-        var lead = engine.RestartRequired
-            ? "Restart Windows to turn on the virtual controller. Everything else works now."
-            : "";
+        // A needed restart is the primary action; WSGM can still start first and wait for a later one.
+        var restart = engine.RestartRequired;
+        var lead = restart ? "Restart Windows to finish. Everything else already works." : "";
         Page = new SummaryPage(problem.Length > 0 ? "Done, with a problem" : "Done", title, lead, rows, problem,
-            engine.RestartRequired ? "Start WSGM, restart later" : "Start WSGM", "", true);
+            restart ? "Restart now" : "Start WSGM", restart ? "Start WSGM, restart later" : "", true, restart);
     }
 
     // A page hides an action with an empty label; the hidden action then does nothing from any input.
@@ -584,6 +587,10 @@ internal sealed class SetupViewModel : Observable
                 CloseRequested?.Invoke();
                 return;
             case MessagePage:
+                CloseRequested?.Invoke();
+                return;
+            case SummaryPage { OffersRestart: true }:
+                SetupEngine.RestartWindows();
                 CloseRequested?.Invoke();
                 return;
             case SummaryPage summary:
@@ -611,6 +618,10 @@ internal sealed class SetupViewModel : Observable
         {
             case ConfirmClosePage:
                 CloseRequested?.Invoke();
+                return;
+            case SummaryPage summary:
+                // Only a restart offer has a secondary action: finish without restarting.
+                summary.Complete(() => _engine?.StartWsgm(), () => CloseRequested?.Invoke());
                 return;
             case UninstallPage { Confirming: true } page:
                 page.Confirming = false;
