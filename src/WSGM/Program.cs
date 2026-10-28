@@ -125,17 +125,18 @@ public static class Program
         // hid with HidHide again, before HidHide may be removed and before user data may be deleted,
         // then puts back every machine-level setting WSGM changed (display scaling, UAC,
         // lock-on-wake). Exit code 3 tells setup the HidHide cleanup could not be verified; the
-        // ownership ledger is then kept for another attempt. Setup reads every non-zero code that way,
-        // so a settings step that could not finish is only logged.
+        // ownership ledger is then kept for another attempt. 3010 is a verified cleanup whose restored
+        // OEM keyboard returns only after a restart. Setup reads every other non-zero code as
+        // unverified, so a settings step that could not finish is only logged.
         if (flags.Contains("--uninstall-restore"))
         {
             var hidHide = await RestoreHidHideForUninstallAsync().ConfigureAwait(false);
-            if (!Installer.RestoreMachineSettings(Store))
+            if (!Installer.RestoreMachineSettings(Store, out var restartRequired))
             {
                 Log.Warn("Uninstall restore: some machine settings were not restored; see the lines above.");
             }
 
-            return hidHide ? 0 : UninstallHidHideUnverifiedExitCode;
+            return !hidHide ? UninstallHidHideUnverifiedExitCode : restartRequired ? 3010 : 0;
         }
 
         if (StartupOptions.ArgumentValue(args, "--export-setup-answers=") is { } exportPath)
@@ -546,10 +547,11 @@ public static class Program
                     var result = OtherManagers.Disable(OtherManagers.Detect(),
                         entry => OtherManagers.Record(Store, entry));
                     managerRestartRequired = result.RestartRequired;
+                    // A manager that refuses one change must not roll back the install, and the takeover
+                    // runs again on every update and repair. The recheck and Settings retry it.
                     if (result.Failed.Count > 0)
                     {
-                        Log.Warn("Setup: other manager takeover failed: " + string.Join(", ", result.Failed));
-                        return 1;
+                        Log.Warn("Setup: other manager takeover incomplete: " + string.Join(", ", result.Failed));
                     }
                     if (result.StillRunning.Count > 0)
                     {

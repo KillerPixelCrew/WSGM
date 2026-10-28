@@ -3008,8 +3008,22 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
         CapabilityValue? value,
         CapabilityCommandResult result)
     {
-        if (value?.IntegerValue is not { } watts
-            || !result.Outcome.IsApplied())
+        if (!result.Outcome.IsApplied())
+        {
+            return;
+        }
+
+        if (value?.Kind == CapabilityValueKind.Choice
+            && FindDescriptor(capabilityId, instanceId)?.Role == CapabilityRole.ScenarioMode)
+        {
+            // AutoTDP's next limit write would leave the chosen firmware profile again (the Atlas
+            // selects Manual for any PL1 write), so a hand-picked profile pauses it like a slider move.
+            Log.Info($"AutoTDP paused: the {value.ChoiceValue} performance profile was chosen by hand.");
+            AutoTdp.NoteManualChange(null);
+            return;
+        }
+
+        if (value?.IntegerValue is not { } watts)
         {
             return;
         }

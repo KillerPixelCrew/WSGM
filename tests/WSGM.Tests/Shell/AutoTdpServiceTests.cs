@@ -442,6 +442,25 @@ public sealed class AutoTdpServiceTests
     }
 
     [Fact]
+    public async Task AChosenFirmwareProfilePausesControlAndIsNotOverwrittenByTheRestore()
+    {
+        Harness harness = new();
+        harness.Service.Apply(true);
+        harness.Frametimes.Live = [Rendering(22.0)];
+        for (var tick = 0; tick < AutoTdpController.SustainedMisses; tick++)
+        {
+            await harness.Service.TickAsync(CancellationToken.None);
+        }
+
+        var writes = harness.Writes.Count;
+        harness.Service.NoteManualChange(null);
+        harness.Service.Apply(false);
+        await harness.Service.DisposeAsync();
+
+        Assert.Equal(writes, harness.Writes.Count);
+    }
+
+    [Fact]
     public async Task TurningTheServiceOffRestoresTheLimitWithoutDisposal()
     {
         Harness harness = new();

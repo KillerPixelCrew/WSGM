@@ -49,24 +49,6 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
 
     private static string ExplorerPath => ExplorerControl.ExplorerPath;
 
-    /// <summary>Whether a responsive restored shell has the same known job-bound quality captured before exit.</summary>
-    /// <remarks>Does not promote degraded diagnostics to Normal. Unknown job state, scheduler fallback,
-    /// unresponsive shells and unrelated existing owners remain warnings.</remarks>
-    internal bool MatchesCapturedDesktopQuality(ExplorerDesktopResult result)
-    {
-        if (!_sourceWasJobBound || result.Outcome != ExplorerDesktopOutcome.Degraded
-                               || result.Detail != "degraded-stable"
-                               || (result.Route != ExplorerDesktopRoute.ShellAnchor
-                                   && (result.Route != ExplorerDesktopRoute.ExistingShell
-                                       || result.ProcessId != _sourceDesktopPid)))
-        {
-            return false;
-        }
-        var current = ObserveCurrentDesktop(_sessionId);
-        return current.Process.ProcessId == result.ProcessId
-               && current.Acceptance.Rejection == ExplorerShellRejection.JobBound;
-    }
-
     /// <summary>Closes operation admission, retires the owned anchor, and releases captured process handles.</summary>
     /// <returns>A task completing after the serialized teardown; repeated calls return without awaiting the first.</returns>
     /// <remarks>This does not restore Explorer. The session must complete desktop recovery before disposing this owner.</remarks>
@@ -136,6 +118,9 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
 
         // Capturing a launch parent needs the real shell owner and its token, not a fast UI
         // response. Display changes and desktop hooks can briefly occupy Explorer's UI thread.
+        // Each exit captures afresh; a scheduler fallback below must not compare against an older capture.
+        _sourceWasJobBound = false;
+        _sourceDesktopPid = 0;
         var shell = ObserveCurrentDesktop(_sessionId, false);
         LogObservation("Explorer capture", shell);
         if (!CanCaptureShell(shell))
@@ -690,7 +675,17 @@ internal sealed class ExplorerDesktopHost : IAsyncDisposable
                         outcome is ExplorerDesktopOutcome.Normal ? "normal-stable" : "degraded-stable",
                         launchDispatched,
                         last.HasShellSurface,
-                        elapsed.Elapsed);
+                        elapsed.Elapsed)
+                    {
+                        // Unknown job state, scheduler recovery, unresponsive shells and unrelated
+                        // existing owners stay warnings.
+                        MatchesCapturedQuality = outcome is ExplorerDesktopOutcome.Degraded
+                                                 && _sourceWasJobBound
+                                                 && last.Acceptance.Rejection == ExplorerShellRejection.JobBound
+                                                 && (route == ExplorerDesktopRoute.ShellAnchor
+                                                     || (route == ExplorerDesktopRoute.ExistingShell
+                                                         && last.Process.ProcessId == _sourceDesktopPid))
+                    };
                 }
             }
             else
@@ -1162,6 +1157,12 @@ internal readonly record struct ExplorerDesktopResult
 
     /// <summary>Gets whether any shell surface was observed.</summary>
     internal bool ShellSurfacePresent { get; }
+
+    /// <summary>
+    ///     Gets whether a Degraded shell has the same known job-bound quality as the one captured before
+    ///     exit, observed in the same stable window. It does not promote the outcome to Normal.
+    /// </summary>
+    internal bool MatchesCapturedQuality { get; init; }
 
     /// <summary>Gets the elapsed restoration time.</summary>
     internal TimeSpan Elapsed { get; }

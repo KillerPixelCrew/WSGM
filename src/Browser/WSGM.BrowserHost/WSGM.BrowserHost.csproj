@@ -12,9 +12,9 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="../../WSGM/Core/Browser/BrowserWire.cs" Link="BrowserWire.cs" />
-    <Compile Include="../../WSGM/Core/Browser/BrowserNavigation.cs" Link="BrowserNavigation.cs" />
-    <Compile Include="../../WSGM/Interop/BrowserNative.cs" Link="BrowserNative.cs" />
+    <Compile Include="../../Shared/Browser/BrowserWire.cs" Link="BrowserWire.cs" />
+    <Compile Include="../../Shared/Browser/BrowserNavigation.cs" Link="BrowserNavigation.cs" />
+    <Compile Include="../../Shared/Interop/BrowserNative.cs" Link="BrowserNative.cs" />
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4258.31" GeneratePathProperty="true" ExcludeAssets="compile;build;buildTransitive" />
     <Reference Include="Microsoft.Web.WebView2.Core">
       <HintPath>$(PkgMicrosoft_Web_WebView2)/lib_manual/netcoreapp3.0/Microsoft.Web.WebView2.Core.dll</HintPath>

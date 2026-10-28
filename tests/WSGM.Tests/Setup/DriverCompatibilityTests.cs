@@ -77,7 +77,7 @@ public sealed class DriverCompatibilityTests : IDisposable
         internal readonly List<string> Paths = [];
         internal readonly List<string> Processes = [];
         internal bool FailBlocklist;
-        public WindowsProtectionState Read() => State;
+        public WindowsProtectionState Read(bool controlFlowGuard) => controlFlowGuard ? State : State with { ControlFlowGuard = null };
         public void SetMemoryIntegrity(bool? value) => State = State with { MemoryIntegrity = value };
         public void SetDriverBlocklist(bool? value)
         {

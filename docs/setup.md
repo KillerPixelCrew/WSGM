@@ -149,13 +149,15 @@ are recorded before changes; uninstall restores them without clearing unrelated 
 flags. The package families include their publisher identity and allow replacement versions. Package
 helpers are asked to close normally; setup reports a restart when a blocked helper remains or PnP
 requires one. Unplugged-but-registered nodes retain their recovery ownership. Already-disabled user
-settings are preserved. Repair/setup reconciles an accepted takeover again.
+settings are preserved. Repair/setup reconciles an accepted takeover again. A change Windows refuses
+is logged and left to the re-check; it never fails or rolls back the install.
 
 Once accepted, the takeover is kept, not applied once. Handheld Companion's uninstaller re-enables
 the maker's services it had turned off, and on an Ally the Armoury Crate helper then answers the
 Armoury Crate button with a dialog asking to install Armoury Crate SE. Every shell start therefore
 detects again on a worker and turns off what came back. The session-owned worker repeats the check
-every five minutes and is cancelled/joined during shutdown. That re-check never prompts, so an
+every five minutes and is cancelled/joined during shutdown. Only the shell-start check asks running
+manager windows to close; a later re-check never closes an app the user opened. No re-check prompts, so an
 unelevated WSGM only logs what it found. Settings > System shows what was recorded and offers "Take
 over again", which detects on a worker and applies from the Settings process when it is elevated, or
 through the `--disable-other-managers` one-shot with one prompt otherwise. Pressed before the

@@ -1,14 +1,10 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.IO;
 using System.Linq;
 using System.Threading;
-using Windows.ApplicationModel;
 using Windows.Management.Deployment;
 using WindowsDeviceControl;
 using LibHandheld;
-using WSGM.Interop;
 using DeploymentPackageStatus = Windows.Management.Deployment.PackageStatus;
 
 namespace WSGM.Core;
@@ -58,18 +54,17 @@ internal sealed class OtherManagerWindowsTargets : IOtherManagerTargets
     public IReadOnlyList<OtherManagerRecord> Detect(OtherManager manager)
     {
         List<OtherManagerRecord> found = [];
-        foreach (var (family, executable) in manager.PackageFamilies)
+        // A disabled package's helper that still runs is the manager's running process: the shell-start
+        // check asks it to close and setup reports the restart, so the package itself needs no change.
+        foreach (var family in manager.PackageFamilies)
         {
-            foreach (var package in new PackageManager().FindPackagesForUser(string.Empty, family))
+            foreach (var package in new PackageManager().FindPackagesForUser(string.Empty, family)
+                         .Where(package => !package.Status.Disabled))
             {
-                if (!package.Status.Disabled || PackageIsRunning(package, executable))
+                found.Add(new OtherManagerRecord
                 {
-                    found.Add(new OtherManagerRecord
-                    {
-                        ManagerId = manager.Id, Kind = OtherManagers.PackageKind, Name = package.Id.FullName,
-                        PreviousStart = package.Status.Disabled ? 1 : 0
-                    });
-                }
+                    ManagerId = manager.Id, Kind = OtherManagers.PackageKind, Name = package.Id.FullName
+                });
             }
         }
         if (manager.DedicatedKeyboardDeviceId is { } deviceId)
@@ -102,7 +97,9 @@ internal sealed class OtherManagerWindowsTargets : IOtherManagerTargets
             {
                 return false;
             }
-            if (manager.DeviceDefinitionId is { } definition && !MatchesDevice(definition))
+            // The record proves WSGM made the change, so restoring it never depends on identifying the
+            // machine again; a failed read or a BIOS update must not strand a disabled package or keyboard.
+            if (!restore && manager.DeviceDefinitionId is { } definition && !MatchesDevice(definition))
             {
                 return false;
             }
@@ -114,7 +111,7 @@ internal sealed class OtherManagerWindowsTargets : IOtherManagerTargets
                 {
                     return restore;
                 }
-                if (!manager.PackageFamilies.ContainsKey(package.Id.FamilyName))
+                if (!manager.PackageFamilies.Contains(package.Id.FamilyName, StringComparer.Ordinal))
                 {
                     return false;
                 }
@@ -162,22 +159,5 @@ internal sealed class OtherManagerWindowsTargets : IOtherManagerTargets
     {
         return instanceId.StartsWith(deviceId + "\\", StringComparison.OrdinalIgnoreCase)
                && !instanceId.Contains('"');
-    }
-
-    private static bool PackageIsRunning(Package package, string executable)
-    {
-        var expected = Path.Combine(package.InstalledLocation.Path, executable);
-        foreach (var process in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(executable)))
-        {
-            using (process)
-            {
-                if (string.Equals(NativeShellProcess.TryGetImagePath((uint)process.Id), expected,
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    return true;
-                }
-            }
-        }
-        return false;
     }
 }

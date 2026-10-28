@@ -12,7 +12,7 @@
     <ApplicationManifest>../WSGM.BrowserHost/app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="../../WSGM/Core/Browser/BrowserWire.cs" Link="BrowserWire.cs" />
-    <Compile Include="../../WSGM/Interop/BrowserNative.cs" Link="BrowserNative.cs" />
+    <Compile Include="../../Shared/Browser/BrowserWire.cs" Link="BrowserWire.cs" />
+    <Compile Include="../../Shared/Interop/BrowserNative.cs" Link="BrowserNative.cs" />
   </ItemGroup>
 </Project>

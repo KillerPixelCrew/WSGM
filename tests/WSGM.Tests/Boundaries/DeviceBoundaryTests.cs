@@ -38,8 +38,8 @@ public sealed class DeviceBoundaryTests
         var packages = library.Descendants("PackageReference")
             .ToDictionary(package => (string)package.Attribute("Include")!,
                 package => (string)package.Attribute("Version")!);
-        Assert.Equal("10.0.12", packages["System.Management"]);
-        Assert.Equal("10.0.3", packages["System.IO.Ports"]);
+        Assert.Equal("10.0.13", packages["System.Management"]);
+        Assert.Equal("10.0.13", packages["System.IO.Ports"]);
         Assert.Equal(2, packages.Count);
     }
 
@@ -61,10 +61,12 @@ public sealed class DeviceBoundaryTests
                 ? null
                 : name switch
                 {
-                    // Reusable libraries and the small executables stand alone: the launchers and the
-                    // logon service must not pull in WSGM, Avalonia or any other first-party assembly.
+                    // Reusable libraries and the small executables stand alone: the launchers, the logon
+                    // service and the helper hosts must not pull in WSGM, Avalonia or any other first-party
+                    // assembly.
                     "WindowsDeviceControl" or "SteamUiToolkit" or "LibHandheld" or "WSGM.Launch"
-                        or "WSGM.LogonService" or "WSGM.PackagedLaunch" => [],
+                        or "WSGM.LogonService" or "WSGM.PackagedLaunch" or "WSGM.BrowserHost"
+                        or "WSGM.ScreensaverHost" => [],
                     "WSGM.Plugin.Sdk" => [toolkit],
                     "LibGPUDriverInteract" =>
                     [
@@ -76,6 +78,9 @@ public sealed class DeviceBoundaryTests
                     [
                         "src/Avalonia.LiveBackdrop/Avalonia.LiveBackdrop.csproj",
                         "src/WSGM.Install/WSGM.Install.csproj",
+                        // Build order only (ReferenceOutputAssembly=false): the helper hosts ship beside WSGM.
+                        "src/Browser/WSGM.BrowserHost/WSGM.BrowserHost.csproj",
+                        "src/Screensaver/WSGM.ScreensaverHost/WSGM.ScreensaverHost.csproj",
                         pluginSdk,
                         handheldLibrary,
                         toolkit,

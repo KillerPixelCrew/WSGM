@@ -1378,8 +1378,9 @@ internal sealed class SetupEngine : IDisposable
         }
 
         var code = _runtime.Run(app, "--uninstall-restore");
-        if (code == 0)
+        if (code is 0 or 3010)
         {
+            RestartRequired |= code == 3010;
             _controllerRestored = true;
             StillHiddenDevices = [];
             return true;

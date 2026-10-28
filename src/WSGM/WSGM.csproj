@@ -177,6 +177,9 @@
   <ItemGroup>
     <Compile Include="..\Shared\Boot\AtomicFile.cs" Link="Shared\AtomicFile.cs"/>
     <Compile Include="..\Shared\Boot\BootManifest.cs" Link="Shared\BootManifest.cs"/>
+    <Compile Include="..\Shared\Browser\BrowserNavigation.cs" Link="Shared\BrowserNavigation.cs"/>
+    <Compile Include="..\Shared\Browser\BrowserWire.cs" Link="Shared\BrowserWire.cs"/>
+    <Compile Include="..\Shared\Interop\BrowserNative.cs" Link="Shared\BrowserNative.cs"/>
     <Compile Include="..\Shared\Interop\HidHideControl.cs" Link="Shared\HidHideControl.cs"/>
     <Compile Include="..\Shared\Interop\Kernel32.cs" Link="Shared\Kernel32.cs"/>
     <Compile Include="..\Shared\Interop\NativeHidHide.cs" Link="Shared\NativeHidHide.cs"/>
@@ -195,6 +198,8 @@
     <Compile Include="..\Shared\Process\SteamProcessControl.cs" Link="Shared\SteamProcessControl.cs"/>
     <Compile Include="..\Shared\Process\Win32Common.cs" Link="Shared\Win32Common.cs"/>
     <Compile Include="..\Shared\Process\WrapperInputLeaseMarker.cs" Link="Shared\WrapperInputLeaseMarker.cs"/>
+    <Compile Include="..\Shared\Screensavers\ScreensaverConfig.cs" Link="Shared\ScreensaverConfig.cs"/>
+    <Compile Include="..\Shared\Screensavers\ScreensaverContent.cs" Link="Shared\ScreensaverContent.cs"/>
     <Compile Include="..\Shared\Process\WindowsCommandLine.cs" Link="Shared\WindowsCommandLine.cs"/>
     <Compile Include="..\Shared\Process\LaunchArguments.cs" Link="Shared\LaunchArguments.cs"/>
   </ItemGroup>

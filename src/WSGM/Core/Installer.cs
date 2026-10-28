@@ -38,10 +38,12 @@ public static class Installer
     ///     so one failure cannot stop the rest.
     /// </summary>
     /// <param name="store">Strict persistence holding the original policy and autostart recovery snapshots.</param>
+    /// <param name="restartRequired">Whether a restored device only returns after a Windows restart.</param>
     /// <returns>Whether all reported restore steps succeeded; pending scaling entries can remain for disconnected displays.</returns>
-    public static bool RestoreMachineSettings(ConfigStore store)
+    public static bool RestoreMachineSettings(ConfigStore store, out bool restartRequired)
     {
         var complete = true;
+        restartRequired = false;
         // One read for every snapshot below. Without it nothing can be put back safely; the Steam autostart and
         // other-manager restores read their own records and still run.
         var read = store.Read();
@@ -94,7 +96,9 @@ public static class Installer
         }
 
         // Handheld Companion and the maker's apps start again the way they did before setup's Full mode.
-        complete &= OtherManagers.RestoreAll(store) == 0;
+        var managers = OtherManagers.RestoreAll(store);
+        complete &= managers is 0 or 3010;
+        restartRequired = managers == 3010;
 
         if (config is null)
         {

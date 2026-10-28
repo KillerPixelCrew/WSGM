@@ -252,6 +252,7 @@ public sealed class SetupShutdownContractTests
             "Restoring the shell registration",
             "Showing your controller to games again and restoring Windows settings",
             "Removing the USB/IP driver",
+            "Restoring Windows protections and exclusions",
             "Removing HidHide",
             "Deleting program files",
             "Deleting settings and data"

@@ -23,11 +23,8 @@ public sealed record OtherManager(
     IReadOnlyList<string> Services,
     IReadOnlyList<string> Tasks)
 {
-    /// <summary>
-    ///     Exact MSIX package families whose activation Full mode blocks, each with the package-relative
-    ///     executable that keeps a disabled package running until it exits.
-    /// </summary>
-    public IReadOnlyDictionary<string, string> PackageFamilies { get; init; } = new Dictionary<string, string>();
+    /// <summary>Exact MSIX package families whose activation Full mode blocks.</summary>
+    public IReadOnlyList<string> PackageFamilies { get; init; } = [];
 
     /// <summary>One dedicated keyboard hardware identity; the physical machine must also match.</summary>
     public string? DedicatedKeyboardDeviceId { get; init; }
@@ -232,11 +229,8 @@ public static class OtherManagers
                 "AcerLightingServiceHH", "AcerORDService", "AcerServiceSvc", "AFZsvc", "ALSSvc", "UEIPSvc"],
             ["PredatorHandheldLauncher", "UEIPInvitation", "UbtFrameworkService"])
         {
-            PackageFamilies = new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["ULICTekInc.PredatorSenseforHandHeld_nt9dgb7efx6bt"] = @"Handheld.Desktop\Handheld.Desktop.exe",
-                ["ULICTekInc.PredatorSenseforHandHeldWidget_nt9dgb7efx6bt"] = "Handheld.Widget.exe"
-            },
+            PackageFamilies = ["ULICTekInc.PredatorSenseforHandHeld_nt9dgb7efx6bt",
+                "ULICTekInc.PredatorSenseforHandHeldWidget_nt9dgb7efx6bt"],
             DedicatedKeyboardDeviceId = @"HID\VID_0502&PID_F901&MI_02&COL01",
             DeviceDefinitionId = "acer-predator-atlas-8-pa08-i51"
         }
@@ -273,7 +267,7 @@ public static class OtherManagers
         List<DetectedManager> found = [];
         foreach (var manager in Known)
         {
-            if (manager.DeviceDefinitionId is { } definition && targets?.MatchesDevice(definition) != true)
+            if (manager.DeviceDefinitionId is { } definition && !MatchesDevice(targets, definition))
             {
                 continue;
             }
@@ -301,7 +295,7 @@ public static class OtherManagers
                 [.. manager.Processes.Where(process => running.Contains(process, StringComparer.OrdinalIgnoreCase))])
             {
                 StartsAtSignIn = tasks.Count > 0 && tasks.All(logonTasks.ContainsKey),
-                Targets = targets?.Detect(manager) ?? []
+                Targets = DetectTargets(targets, manager)
             };
             if (detected.Active)
             {
@@ -310,6 +304,33 @@ public static class OtherManagers
         }
 
         return found;
+    }
+
+    // A failing package or device backend costs only its own targets, never the whole detection.
+    private static bool MatchesDevice(IOtherManagerTargets? targets, string definition)
+    {
+        try
+        {
+            return targets?.MatchesDevice(definition) == true;
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Warn("Other managers: the handheld could not be identified: " + ex.Message);
+            return false;
+        }
+    }
+
+    private static IReadOnlyList<OtherManagerRecord> DetectTargets(IOtherManagerTargets? targets, OtherManager manager)
+    {
+        try
+        {
+            return targets?.Detect(manager) ?? [];
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            Log.Warn($"Other managers: {manager.Label} packages or devices could not be read: {ex.Message}");
+            return [];
+        }
     }
 
     /// <summary>
@@ -470,8 +491,13 @@ public static class OtherManagers
     ///     update can re-register packages. Never prompts; an unelevated WSGM only logs what it found.
     /// </summary>
     /// <param name="store">Strict persistence used to read accepted takeover and record pre-change state.</param>
+    /// <param name="closeRunning">
+    ///     Whether running manager windows are asked to close. Only the shell start does; a later re-check
+    ///     must not close an app the user opened on purpose.
+    /// </param>
     /// <param name="cancellationToken">Stops further takeover items; cancellation is absorbed during startup.</param>
-    public static void ReapplyAtStart(ConfigStore store, CancellationToken cancellationToken = default)
+    public static void ReapplyAtStart(ConfigStore store, bool closeRunning = true,
+        CancellationToken cancellationToken = default)
     {
         try
         {
@@ -482,6 +508,11 @@ public static class OtherManagers
             }
 
             var detected = Detect();
+            if (!closeRunning)
+            {
+                detected = [.. detected.Select(manager => manager with { Running = [] }).Where(manager => manager.Active)];
+            }
+
             if (detected.Count == 0)
             {
                 return;
@@ -531,11 +562,11 @@ public static class OtherManagers
     {
         try
         {
-            ReapplyAtStart(store, cancellationToken);
+            ReapplyAtStart(store, cancellationToken: cancellationToken);
             using var timer = new PeriodicTimer(TimeSpan.FromMinutes(5));
             while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
             {
-                ReapplyAtStart(store, cancellationToken);
+                ReapplyAtStart(store, closeRunning: false, cancellationToken);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -587,7 +618,7 @@ public static class OtherManagers
     ///     Puts back what WSGM turned off: services get their start type again (and an automatic one is
     ///     started), tasks are enabled. A restored record is removed, so running this twice is safe.
     /// </summary>
-    /// <returns>Zero when every record was restored.</returns>
+    /// <returns>Zero when every record was restored, 3010 when a restored device needs a restart, otherwise 1.</returns>
     /// <param name="store">Persistence holding takeover records; only restored records are removed.</param>
     public static int RestoreAll(ConfigStore store)
     {
@@ -599,7 +630,8 @@ public static class OtherManagers
                 return 0;
             }
 
-            var restored = Restore(records, new AutostartSystem(), new ServiceSystem());
+            var targets = new OtherManagerWindowsTargets();
+            var restored = Restore(records, new AutostartSystem(), new ServiceSystem(), targets);
             HashSet<string> done = [.. restored.Select(Key)];
             store.Update(config =>
             {
@@ -607,7 +639,7 @@ public static class OtherManagers
                     [.. config.OtherManagersDisabled.Where(entry => !done.Contains(Key(entry)))];
                 return true;
             });
-            return restored.Count == records.Count ? 0 : 1;
+            return restored.Count != records.Count ? 1 : targets.RestartRequired ? 3010 : 0;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

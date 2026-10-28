@@ -1284,7 +1284,7 @@ public sealed class SessionModes
 
             if (result.Outcome is ExplorerDesktopOutcome.Degraded)
             {
-                if (host.MatchesCapturedDesktopQuality(result))
+                if (result.MatchesCapturedQuality)
                 {
                     Log.Info("Desktop shell restored with the captured job-bound characteristics; diagnostic quality remains Degraded.");
                 }

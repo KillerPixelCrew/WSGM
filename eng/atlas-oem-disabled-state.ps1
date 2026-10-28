@@ -5,6 +5,9 @@ $services = @('AASHHSvc','AcerCCAgentSvis','AcerDeviceEnablingServiceV2','AcerHa
 $tasks = @('PredatorHandheldLauncher','UEIPInvitation','UbtFrameworkService')
 $packages = @('ULICTekInc.PredatorSenseforHandHeld','ULICTekInc.PredatorSenseforHandHeldWidget')
 $changes = @()
+# The health record lives with the installed task, never beside the tracked copy in the repository.
+$record = Join-Path $env:ProgramData 'WSGM\AtlasOemControl\last-check.json'
+New-Item -ItemType Directory -Force -Path (Split-Path -Parent $record) | Out-Null
 try {
     $system = Get-CimInstance Win32_ComputerSystem
     $board = Get-CimInstance Win32_BaseBoard
@@ -46,9 +49,9 @@ try {
         }
     }
     [pscustomobject]@{ CheckedAt=[DateTimeOffset]::UtcNow; Healthy=$true; Changes=$changes } |
-        ConvertTo-Json | Set-Content -LiteralPath (Join-Path $PSScriptRoot 'last-check.json')
+        ConvertTo-Json | Set-Content -LiteralPath $record
 } catch {
     [pscustomobject]@{ CheckedAt=[DateTimeOffset]::UtcNow; Healthy=$false; Changes=$changes; Error=$_.Exception.Message } |
-        ConvertTo-Json | Set-Content -LiteralPath (Join-Path $PSScriptRoot 'last-check.json')
+        ConvertTo-Json | Set-Content -LiteralPath $record
     exit 1
 }

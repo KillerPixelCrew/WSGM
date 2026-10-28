@@ -17,7 +17,7 @@ internal sealed class DriverCompatibilityPage : Page
                 "Saves a System Restore point before setup changes anything, so this PC can be returned to its current state. Skipped when System Restore is off.",
                 true, null) { IsNew = true },
             new FeatureOption("defender", "Add WSGM Defender exclusions",
-                "Excludes the installed WSGM folder and its hardware-helper processes from Microsoft Defender scanning. Existing exclusions stay in place.",
+                "Excludes the installed WSGM folder and the WSGM process from Microsoft Defender scanning. Existing exclusions stay in place.",
                 false, null) { IsNew = true },
             new FeatureOption("memory", "Disable Memory Integrity",
                 $"Current override: {Value(state?.MemoryIntegrity)}. Allows drivers blocked by HVCI; a restart is required."
@@ -27,8 +27,8 @@ internal sealed class DriverCompatibilityPage : Page
                 $"Current override: {Value(state?.VulnerableDriverBlocklist)}. Allows drivers on Windows' vulnerable-driver blocklist; a restart is required. Certificate checks still apply.",
                 false, null) { IsNew = true, Enabled = state is not null },
             new FeatureOption("cfg", "Disable system Control Flow Guard",
-                $"Current override: {state?.ControlFlowGuard.ToString() ?? "Unavailable"}. Changes CFG for the whole system, leaving other exploit protections unchanged. Restart after installation.",
-                false, null) { IsNew = true, Enabled = state is not null }
+                $"Current override: {state?.ControlFlowGuard?.ToString() ?? "Unavailable"}. Changes CFG for the whole system, leaving other exploit protections unchanged. Restart after installation.",
+                false, null) { IsNew = true, Enabled = state?.ControlFlowGuard is not null }
         ];
     }
 

@@ -39,7 +39,7 @@ internal sealed class DriverCompatibilityRecovery
 /// <summary>Closed Windows operations; tests supply a backend without changing machine security.</summary>
 internal interface IDriverCompatibilitySystem
 {
-    WindowsProtectionState Read();
+    WindowsProtectionState Read(bool controlFlowGuard);
     void SetMemoryIntegrity(bool? value);
     void SetDriverBlocklist(bool? value);
     void SetControlFlowGuard(ControlFlowGuardSetting value);
@@ -56,12 +56,12 @@ internal sealed class DriverCompatibility(string recoveryPath, IDriverCompatibil
     private readonly IDriverCompatibilitySystem _system = system ?? new WindowsSystem();
     private readonly List<Action> _undo = [];
 
-    internal WindowsProtectionState Read() => _system.Read();
+    internal WindowsProtectionState Read() => _system.Read(controlFlowGuard: true);
 
     /// <summary>Records the original before dispatch. Unknown/failed writes retain recovery ownership.</summary>
     internal bool DisableMemoryIntegrity()
     {
-        var current = _system.Read();
+        var current = _system.Read(controlFlowGuard: false);
         if (current.MemoryIntegrity == false)
         {
             return false;
@@ -80,7 +80,7 @@ internal sealed class DriverCompatibility(string recoveryPath, IDriverCompatibil
         }
         _undo.Add(() =>
         {
-            if (_system.Read().MemoryIntegrity == false)
+            if (_system.Read(controlFlowGuard: false).MemoryIntegrity == false)
             {
                 _system.SetMemoryIntegrity(current.MemoryIntegrity);
             }
@@ -97,7 +97,7 @@ internal sealed class DriverCompatibility(string recoveryPath, IDriverCompatibil
 
     internal bool DisableDriverBlocklist()
     {
-        var current = _system.Read();
+        var current = _system.Read(controlFlowGuard: false);
         if (current.VulnerableDriverBlocklist == false)
         {
             return false;
@@ -112,7 +112,7 @@ internal sealed class DriverCompatibility(string recoveryPath, IDriverCompatibil
         }
         _undo.Add(() =>
         {
-            if (_system.Read().VulnerableDriverBlocklist == false)
+            if (_system.Read(controlFlowGuard: false).VulnerableDriverBlocklist == false)
             {
                 _system.SetDriverBlocklist(current.VulnerableDriverBlocklist);
             }
@@ -129,8 +129,8 @@ internal sealed class DriverCompatibility(string recoveryPath, IDriverCompatibil
 
     internal bool DisableControlFlowGuard()
     {
-        var current = _system.Read();
-        if (current.ControlFlowGuard == ControlFlowGuardSetting.Disabled)
+        var current = ControlFlowGuard();
+        if (current == ControlFlowGuardSetting.Disabled)
         {
             return false;
         }
@@ -138,15 +138,15 @@ internal sealed class DriverCompatibility(string recoveryPath, IDriverCompatibil
         var wasOwned = record.OwnsControlFlowGuard;
         if (!record.OwnsControlFlowGuard)
         {
-            record.OriginalControlFlowGuard = current.ControlFlowGuard;
+            record.OriginalControlFlowGuard = current;
             record.OwnsControlFlowGuard = true;
             Save(record);
         }
         _undo.Add(() =>
         {
-            if (_system.Read().ControlFlowGuard == ControlFlowGuardSetting.Disabled)
+            if (ControlFlowGuard() == ControlFlowGuardSetting.Disabled)
             {
-                _system.SetControlFlowGuard(current.ControlFlowGuard);
+                _system.SetControlFlowGuard(current);
             }
             if (!wasOwned)
             {
@@ -157,6 +157,13 @@ internal sealed class DriverCompatibility(string recoveryPath, IDriverCompatibil
         });
         _system.SetControlFlowGuard(ControlFlowGuardSetting.Disabled);
         return true;
+    }
+
+    // An unknown CFG state changes nothing and keeps any recovery ownership for a later attempt.
+    private ControlFlowGuardSetting ControlFlowGuard()
+    {
+        return _system.Read(controlFlowGuard: true).ControlFlowGuard
+               ?? throw new IOException("Windows could not report the system Control Flow Guard setting.");
     }
 
     internal void AddDefenderExclusions(string installationRoot)
@@ -242,7 +249,7 @@ internal sealed class DriverCompatibility(string recoveryPath, IDriverCompatibil
                 {
                     return;
                 }
-                if (_system.Read().MemoryIntegrity == false)
+                if (_system.Read(controlFlowGuard: false).MemoryIntegrity == false)
                 {
                     _system.SetMemoryIntegrity(record.OriginalMemoryIntegrity);
                 }
@@ -254,7 +261,7 @@ internal sealed class DriverCompatibility(string recoveryPath, IDriverCompatibil
                 {
                     return;
                 }
-                if (_system.Read().VulnerableDriverBlocklist == false)
+                if (_system.Read(controlFlowGuard: false).VulnerableDriverBlocklist == false)
                 {
                     _system.SetDriverBlocklist(record.OriginalDriverBlocklist);
                 }
@@ -266,7 +273,7 @@ internal sealed class DriverCompatibility(string recoveryPath, IDriverCompatibil
                 {
                     return;
                 }
-                if (_system.Read().ControlFlowGuard == ControlFlowGuardSetting.Disabled)
+                if (ControlFlowGuard() == ControlFlowGuardSetting.Disabled)
                 {
                     _system.SetControlFlowGuard(record.OriginalControlFlowGuard);
                 }
@@ -338,7 +345,7 @@ internal sealed class DriverCompatibility(string recoveryPath, IDriverCompatibil
 
     private sealed class WindowsSystem : IDriverCompatibilitySystem
     {
-        public WindowsProtectionState Read() => WindowsProtectionSettings.Read();
+        public WindowsProtectionState Read(bool controlFlowGuard) => WindowsProtectionSettings.Read(controlFlowGuard);
         public void SetMemoryIntegrity(bool? value) => WindowsProtectionSettings.SetMemoryIntegrity(value);
         public void SetDriverBlocklist(bool? value) => WindowsProtectionSettings.SetVulnerableDriverBlocklist(value);
         public void SetControlFlowGuard(ControlFlowGuardSetting value) => WindowsProtectionSettings.SetControlFlowGuard(value);
