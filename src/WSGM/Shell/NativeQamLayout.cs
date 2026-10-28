@@ -17,11 +17,14 @@ internal static class NativeQamLayout
     /// <summary>The layout WSGM publishes.</summary>
     internal static SteamQuickAccessLayout Layout { get; } = new(
         [
-            new SteamQuickAccessSection("Profile scope", "Profile scope", "profile", false, ["valveProfileHeader"]),
+            // The performance overlay sits unfolded right under the per-game profile toggle, where it
+            // is reached without opening a section.
+            new SteamQuickAccessSection("Profile scope", "Profile scope", "profile", false,
+                ["valveProfileHeader", "valveOverlayLevel"]),
             new SteamQuickAccessSection("Power profiles", "Power profiles", "sliders", true,
                 ["powerPreset", "powerProfile", "hybridCores", "cpuBoost"]),
             new SteamQuickAccessSection("Display and frame rate", "Display and frame rate", "timer", true,
-                ["valveOverlayLevel", "frameLimit", "vrr"]),
+                ["frameLimit", "vrr"]),
             new SteamQuickAccessSection("Power limits", "Power limits", "gauge", true, ["powerLimit", "autoTdp"]),
             new SteamQuickAccessSection("Controller", "Controller", "controller", true, ["controllerTarget"])
         ],
