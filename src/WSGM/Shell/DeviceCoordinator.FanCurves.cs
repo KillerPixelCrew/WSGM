@@ -159,15 +159,53 @@ internal sealed partial class DeviceCoordinator
         return selected;
     }
 
-    private Task ConfigureFanCurveAsync(IReadOnlyList<CurvePoint>? curve, bool explicitSelection)
+    /// <summary>Runs the software curve on exactly the fans whose chosen mode is Software.</summary>
+    /// <param name="curve">The saved curve; the Default preset is used while none is saved.</param>
+    /// <param name="explicitSelection">Whether the user chose this now, which clears a failed-write latch.</param>
+    /// <param name="change">A fan mode being chosen now, before its desired value is recorded.</param>
+    /// <param name="stopAll">Hands every fan back regardless of mode, for a refused or firmware-owned curve.</param>
+    private Task ConfigureFanCurveAsync(IReadOnlyList<CurvePoint>? curve, bool explicitSelection,
+        (string Instance, bool Software)? change = null, bool stopAll = false)
     {
-        var fans = Capabilities.Snapshot().Where(view => view.Descriptor is
+        var views = Capabilities.Snapshot();
+        var fans = views.Where(view => view.Descriptor is
                 { Role: Device.Sdk.Capabilities.CapabilityRole.FanDuty, SupportsWrite: true })
             .Select(view => new DeviceFanCurveFan(view.Descriptor.InstanceId ?? string.Empty,
-                view.Descriptor.Minimum ?? 0, view.Descriptor.Maximum ?? 100)).ToArray();
-        return _fanCurves.ConfigureAsync(curve, fans,
+                view.Descriptor.Minimum ?? 0, view.Descriptor.Maximum ?? 100))
+            .Where(fan => !stopAll && InSoftwareMode(views, fan.InstanceId, change)).ToArray();
+        var effective = curve is { Count: > 0 } ? curve : DefaultSoftwareCurve;
+        _client?.SetSoftwareFans([.. fans.Select(fan => fan.InstanceId)], fans.Length > 0 ? effective : curve ?? []);
+        return _fanCurves.ConfigureAsync(fans.Length > 0 ? effective : null, fans,
             IntegrationEnabled && State is DeviceCycleState.Active or DeviceCycleState.Degraded, explicitSelection);
     }
+
+    private static bool InSoftwareMode(IReadOnlyList<DeviceCapabilityView> views, string instance,
+        (string Instance, bool Software)? change)
+    {
+        if (change is { } chosen && chosen.Instance == instance)
+        {
+            return chosen.Software;
+        }
+
+        var modes = views.Where(view => view.Descriptor.Role == Device.Sdk.Capabilities.CapabilityRole.FanMode)
+            .ToArray();
+        var mode = modes.FirstOrDefault(view => (view.Descriptor.InstanceId ?? string.Empty) == instance)
+                   ?? modes.FirstOrDefault(view => view.Descriptor.InstanceId is null);
+        return mode?.Projection.DesiredValue?.ChoiceValue == FanControlModes.Software;
+    }
+
+    private IReadOnlyList<CurvePoint>? SavedSoftwareCurve()
+    {
+        return Capabilities.TryGetView(new DeviceCapabilityKey(CapabilityIds.FanCurve, null))?.Projection
+            .DesiredValue?.CurveValue;
+    }
+
+    // The editor's Default preset on the software curve's inputs, until the user saves a curve.
+    private static readonly CurvePoint[] DefaultSoftwareCurve =
+    [
+        .. Enumerable.Range(0, 11).Select(index =>
+            new CurvePoint(index * 10, FanCurvePresets.DutyAt(FanCurvePreset.Default, index * 10)))
+    ];
 
     private Task ConfigureChargeLimitAsync(int? percent, bool explicitSelection)
     {
@@ -246,7 +284,7 @@ internal sealed partial class DeviceCoordinator
         if (DeviceProfileValidation.Validate(profile, descriptor, out var reason) != DeviceProfileRejection.None)
         {
             Log.Warn($"Fan profile '{profile.ProfileId}' refused: {reason}.");
-            await ConfigureFanCurveAsync(null, false).ConfigureAwait(false);
+            await ConfigureFanCurveAsync(null, false, stopAll: true).ConfigureAwait(false);
             return;
         }
 

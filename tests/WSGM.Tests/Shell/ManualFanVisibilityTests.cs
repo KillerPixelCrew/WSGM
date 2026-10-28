@@ -38,15 +38,55 @@ public sealed class ManualFanVisibilityTests
         Persistence = CapabilityPersistence.DevicePersistent
     };
 
+    private static readonly CapabilityDescriptor SoftwareCurve = new()
+    {
+        CapabilityId = "fan.curve",
+        Role = CapabilityRole.FanCurve,
+        ValueKind = CapabilityValueKind.Curve,
+        Display = new CapabilityDisplay { Key = DisplayKey.Custom, CustomLabel = "Software fan curve" },
+        SupportsRead = true,
+        SupportsWrite = true,
+        Persistence = CapabilityPersistence.Volatile
+    };
+
     [Theory]
     [InlineData("automatic", false)]
+    [InlineData("software", false)]
     [InlineData("custom", true)]
     public void ShowsManualSpeedOnlyInManualMode(string mode, bool shown)
     {
-        var views = ManualFanVisibility.Filter([ModeView(mode), CapabilityBuilders.View(Duty, null, null)]);
+        var views = ManualFanVisibility.Filter([SoftwareModeView(mode), CapabilityBuilders.View(Duty, null, null)]);
 
         Assert.Equal(shown, views.Any(view => view.Descriptor.Role == CapabilityRole.FanDuty));
         Assert.Contains(views, view => view.Descriptor.Role == CapabilityRole.FanMode);
+    }
+
+    [Theory]
+    [InlineData("automatic", false)]
+    [InlineData("custom", false)]
+    [InlineData("software", true)]
+    public void ShowsTheSoftwareCurveOnlyWhileAFanUsesIt(string mode, bool shown)
+    {
+        IReadOnlyList<DeviceCapabilityView> all =
+            [SoftwareModeView(mode), CapabilityBuilders.View(SoftwareCurve, null, null)];
+        var views = ManualFanVisibility.Filter(all);
+
+        Assert.Equal(shown, views.Any(view => view.Descriptor.Role == CapabilityRole.FanCurve));
+        Assert.Equal(!shown, ManualFanVisibility.Hides(all, all[1]));
+    }
+
+    [Fact]
+    public void SoftwareChoiceJoinsTheNamedFirmwareAndManualModes()
+    {
+        var mode = FanControlModes.WithSoftwareChoice(Mode with
+        {
+            Choices = [.. Mode.Choices, new CapabilityChoice("full-speed", new CapabilityDisplay { Key = DisplayKey.FanMode })]
+        });
+
+        Assert.Equal(["automatic", "custom", "full-speed", "software"], mode.Choices.Select(choice => choice.Value));
+        Assert.Equal("Firmware", mode.Choices[0].Display.CustomLabel);
+        Assert.Equal("Manual", mode.Choices[1].Display.CustomLabel);
+        Assert.Equal("Software", mode.Choices[3].Display.CustomLabel);
     }
 
     [Fact]
@@ -69,6 +109,12 @@ public sealed class ManualFanVisibilityTests
 
         Assert.Equal("fan1", Assert.Single(views, view => view.Descriptor.Role == CapabilityRole.FanDuty)
             .Descriptor.InstanceId);
+    }
+
+    private static DeviceCapabilityView SoftwareModeView(string choice)
+    {
+        return CapabilityBuilders.View(FanControlModes.WithSoftwareChoice(Mode),
+            new CapabilityValue { Kind = CapabilityValueKind.Choice, ChoiceValue = choice }, null);
     }
 
     private static DeviceCapabilityView ModeView(string? choice)

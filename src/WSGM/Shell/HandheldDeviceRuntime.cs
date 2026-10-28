@@ -28,6 +28,8 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
     private int? _softwareChargeLimit;
     private bool _softwareChargeSuspended;
     private IReadOnlyList<CurvePoint> _softwareFanCurve = [];
+    // Fan instances the software curve drives; replaced whole, read by the observer callbacks.
+    private volatile string[] _softwareFans = [];
     private string? _softwareFanReason;
     private volatile DeviceCycleState _state = DeviceCycleState.Disabled;
     private long _stateSequence;
@@ -117,7 +119,9 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
                                         Key = DisplayKey.Custom, CustomLabel = "Firmware fan curve"
                                     }
                                 }
-                                : item),
+                                : item.Role == CapabilityRole.FanMode && item.SupportsWrite
+                                    ? FanControlModes.WithSoftwareChoice(item)
+                                    : item),
                         new CapabilityDescriptor
                         {
                             CapabilityId = CapabilityIds.FanCurve, Role = CapabilityRole.FanCurve,
@@ -179,6 +183,20 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
                     && item.Descriptor.CapabilityId == state.CapabilityId))
             {
                 projectedState = projectedState with { InstanceId = "firmware" };
+            }
+
+            // The curve's duty writes leave the firmware in custom mode; the user chose Software.
+            if (_hasSoftwareFanCurve && state.InstanceId is { } fan && _softwareFans.Contains(fan)
+                && Device.Controls.Controls.Any(item => item.Role == P.CapabilityRole.FanMode
+                                                        && item.Descriptor.CapabilityId == state.CapabilityId))
+            {
+                projectedState = projectedState with
+                {
+                    ObservedValue = new CapabilityValue
+                    {
+                        Kind = CapabilityValueKind.Choice, ChoiceValue = FanControlModes.Software
+                    }
+                };
             }
 
             if (!_hasSoftwareFanCurve || state.CapabilityId != CapabilityIds.FanCurve
@@ -355,6 +373,17 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
             await ApplySoftwareFanCurveAsync!(curve.CurveValue, token).ConfigureAwait(false);
             _softwareFanCurve = curve.CurveValue.ToArray();
             PublishSoftwareFanCurve();
+            return new CapabilityCommandResult
+            {
+                CommandId = command.CommandId, Outcome = CommandOutcome.Applied, CompletedAt = DateTimeOffset.UtcNow
+            };
+        }
+
+        // Software is WSGM's own mode: the coordinator starts the curve, and nothing reaches the firmware.
+        if (_hasSoftwareFanCurve && command.RequestedValue?.ChoiceValue == FanControlModes.Software
+                                 && Device.Controls.Controls.Any(item => item.Role == P.CapabilityRole.FanMode
+                                     && item.Descriptor.CapabilityId == command.CapabilityId))
+        {
             return new CapabilityCommandResult
             {
                 CommandId = command.CommandId, Outcome = CommandOutcome.Applied, CompletedAt = DateTimeOffset.UtcNow
@@ -637,6 +666,28 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
     {
         _softwareFanReason = reason;
         PublishSoftwareFanCurve();
+    }
+
+    /// <summary>Records which fans the software curve drives and the curve it runs, then republishes both.</summary>
+    /// <param name="fans">Fan instances in the Software mode.</param>
+    /// <param name="curve">The curve in effect, shown in the editor.</param>
+    internal void SetSoftwareFans(IReadOnlyCollection<string> fans, IReadOnlyList<CurvePoint> curve)
+    {
+        if (!_hasSoftwareFanCurve)
+        {
+            return;
+        }
+
+        _softwareFans = [.. fans];
+        _softwareFanCurve = curve;
+        PublishSoftwareFanCurve();
+        foreach (var control in Device.Controls.Controls.Where(item => item.Role == P.CapabilityRole.FanMode))
+        {
+            if (control.State is { } state)
+            {
+                _ = ((P.IHandheldObserver)this).StateChangedAsync(state, CancellationToken.None);
+            }
+        }
     }
 
     private void PublishSoftwareFanCurve()

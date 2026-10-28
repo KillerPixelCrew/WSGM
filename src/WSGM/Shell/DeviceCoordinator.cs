@@ -2919,10 +2919,18 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
                     _client.ReportSoftwareChargeSuspended();
                 }
 
-                if (manualDescriptor.Role is CapabilityRole.FanDuty or CapabilityRole.FanMode
-                    || (manualDescriptor.Role == CapabilityRole.FanCurve && instanceId is not null))
+                if (manualDescriptor.Role is CapabilityRole.FanDuty or CapabilityRole.FanMode)
                 {
-                    await ConfigureFanCurveAsync(null, explicitSelection: true).ConfigureAwait(false);
+                    // The chosen mode decides who drives this fan: Software starts the curve on it, and
+                    // anything else, a manual duty included, hands it back before the write.
+                    await ConfigureFanCurveAsync(SavedSoftwareCurve(), explicitSelection: true,
+                        (instanceId ?? string.Empty,
+                            manualDescriptor.Role == CapabilityRole.FanMode
+                            && value?.ChoiceValue == FanControlModes.Software)).ConfigureAwait(false);
+                }
+                else if (manualDescriptor.Role == CapabilityRole.FanCurve && instanceId is not null)
+                {
+                    await ConfigureFanCurveAsync(null, explicitSelection: true, stopAll: true).ConfigureAwait(false);
                 }
             }
 
@@ -3192,6 +3200,9 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
                     Priority = ReconciliationPriority,
                     Include = view => !OwnsLightingProfile(view)
                                       && (!lightingOnly || DeviceLightingRestore.IsLighting(view.Descriptor.Role))
+                                      && !(view.Descriptor.Role is CapabilityRole.FanDuty or CapabilityRole.FanTargetRpm
+                                               or CapabilityRole.FanCurve
+                                           && ManualFanVisibility.Hides(Capabilities.Snapshot(), view))
                                       && !(view.Descriptor.Role is CapabilityRole.PowerSlowLimit
                                                or CapabilityRole.PowerFastLimit or CapabilityRole.PowerPeakLimit
                                            && (ManualTdpUnified || PowerAssignments.HasCurrentAssignment)),

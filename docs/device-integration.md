@@ -50,6 +50,14 @@ stays visible as "Unknown".
 assignments use the coordinator's serialized power lane. Native firmware controls and WSGM's
 software fan/charge controllers have explicit ownership, so they do not fight each other.
 
+Each fan's mode says who drives it: Firmware (the firmware's own automatic mode), Software (WSGM's
+fan curve) or Manual (the duty slider); other firmware modes such as full speed stay beside them.
+Software is a WSGM choice that never reaches the firmware. The curve runs only on fans set to
+Software, starting from the Default preset until a curve is saved, and those fans read Software even
+though the firmware reports custom while the curve writes duty. The duty slider appears only in
+Manual and the curve editor only while a fan uses Software, on the Overlay and in Steam alike. A
+restore never replays a saved duty or curve for a fan in another mode.
+
 ## Controllers and OEM buttons
 
 LibHandheld produces canonical physical input. ControllerManager owns HidHide, VIIPER targets,
