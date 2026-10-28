@@ -15,6 +15,10 @@ internal sealed record DriverCompatibilityChoices
     public bool DisableDriverBlocklist { get; init; }
     public bool DisableControlFlowGuard { get; init; }
     public bool DefenderExclusions { get; init; }
+
+    /// <summary>Whether to create a System Restore point before setup changes anything.</summary>
+    /// <remarks>The interactive page offers it switched on, as HC's installer does; quiet runs skip it.</remarks>
+    public bool CreateRestorePoint { get; init; }
 }
 
 internal sealed class DriverCompatibilityRecovery

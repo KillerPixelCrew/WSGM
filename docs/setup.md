@@ -2,12 +2,16 @@
 
 ## Optional driver compatibility
 
-Interactive install, update and repair offer Driver compatibility after customization. Its four
-independent choices start off: scoped Defender exclusions, disabling Memory Integrity (HVCI),
-disabling the vulnerable-driver blocklist, and disabling system Control Flow Guard. Full, Minimal
-and quiet installation do not opt in. The page reports configured overrides, respects firmware locks
-and explains reduced protection and restart requirements. Other exploit mitigations and certificate
-checks remain. A revoked certificate is not fixed by these options.
+Interactive install, update and repair offer Driver compatibility after customization. It leads with
+"Create a Windows restore point", switched on as in HC's installer: the first step of the run calls
+`SRSetRestorePointW` through WindowsDeviceControl before setup removes, stops or changes anything. A
+turned-off System Restore or a refused request skips the step with a note and never stops setup;
+quiet installation creates no point. Its four protection choices start off: scoped Defender
+exclusions, disabling Memory Integrity (HVCI), disabling the vulnerable-driver blocklist, and
+disabling system Control Flow Guard. Full, Minimal and quiet installation do not opt in. The page
+reports configured overrides, respects firmware locks and explains reduced protection and restart
+requirements. Other exploit mitigations and certificate checks remain. A revoked certificate is not
+fixed by these options.
 
 Defender exclusions cover the exact WSGM installation folder and `App/WSGM.exe`. Setup adds entries
 individually; it preserves existing exclusions and does not disable Defender.

@@ -13,6 +13,9 @@ internal sealed class DriverCompatibilityPage : Page
         ReadError = error ?? string.Empty;
         Options =
         [
+            new FeatureOption("restore", "Create a Windows restore point",
+                "Saves a System Restore point before setup changes anything, so this PC can be returned to its current state. Skipped when System Restore is off.",
+                true, null) { IsNew = true },
             new FeatureOption("defender", "Add WSGM Defender exclusions",
                 "Excludes the installed WSGM folder and its hardware-helper processes from Microsoft Defender scanning. Existing exclusions stay in place.",
                 false, null) { IsNew = true },
@@ -31,15 +34,17 @@ internal sealed class DriverCompatibilityPage : Page
 
     public override string Eyebrow => "Optional Windows settings";
     public override string Title => "Driver compatibility";
-    public override string Lead => "These choices reduce Windows protection. Leave them off unless you want the change. "
-                                   + "Only selected settings change when installation starts; WSGM restores its changes on uninstall.";
+    public override string Lead => "A restore point is created first unless you switch it off. The other choices reduce Windows "
+                                   + "protection; leave them off unless you want the change. Only selected settings change when "
+                                   + "installation starts; WSGM restores its changes on uninstall.";
     public IReadOnlyList<FeatureOption> Options { get; }
     public string ReadError { get; }
     public bool HasReadError => ReadError.Length > 0;
 
     public DriverCompatibilityChoices Choices => new()
     {
-        DefenderExclusions = Selected("defender"), DisableMemoryIntegrity = Selected("memory"),
+        CreateRestorePoint = Selected("restore"), DefenderExclusions = Selected("defender"),
+        DisableMemoryIntegrity = Selected("memory"),
         DisableDriverBlocklist = Selected("blocklist"), DisableControlFlowGuard = Selected("cfg")
     };
 

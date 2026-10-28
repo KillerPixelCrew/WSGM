@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
 using LibHandheld.Contracts;
+using WindowsDeviceControl;
 using WSGM.Install;
 using WSGM.Security;
 using WSGM.Shared;
@@ -162,6 +163,9 @@ internal sealed class SetupEngine : IDisposable
     private string PendingPluginRemovals => Path.Combine(_machineData, "plugin-removals.json");
 
     internal DriverCompatibility DriverCompatibility { get; }
+
+    /// <summary>Creates a restore point with a description; tests replace it so no real point is made.</summary>
+    internal Func<string, SystemRestorePointOutcome> RestorePoints { get; set; } = SystemRestorePoints.Create;
 
     /// <summary>Owned payload, or null for a build containing no installation files.</summary>
     public SetupPayload? Payload { get; }
@@ -421,6 +425,13 @@ internal sealed class SetupEngine : IDisposable
         var payload = Payload ?? throw new InvalidOperationException("This setup carries no payload.");
         var controller = RequiredComponents(choices).Contains(SetupComponent.ControllerStack);
         List<SetupStep> steps = [];
+        if (choices.Compatibility.CreateRestorePoint)
+        {
+            // First, so the point captures this PC before setup removes, stops or changes anything. It
+            // is a convenience: a refused or disabled System Restore never stops the installation.
+            steps.Add(new SetupStep("Creating a Windows restore point", "Windows restore point created", false,
+                step => CreateRestorePoint(step)));
+        }
         if (Legacy is { } legacy)
         {
             steps.Add(new SetupStep("Removing WSGM " + legacy.Version, "WSGM " + legacy.Version + " removed", true,
@@ -534,6 +545,27 @@ internal sealed class SetupEngine : IDisposable
 
         steps.Add(new SetupStep("Adding Start menu entries", "Start menu entries added", false, _ => Register()));
         return steps;
+    }
+
+    private bool CreateRestorePoint(SetupStep step)
+    {
+        var outcome = RestorePoints($"WSGM {Display(ThisVersion)} installation");
+        SetupLog.Info($"Restore point: {outcome.Result}, status {outcome.Error}.");
+        switch (outcome.Result)
+        {
+            case SystemRestorePointResult.Created:
+                return true;
+            case SystemRestorePointResult.Disabled:
+                step.DoneLabel = "Restore point skipped";
+                step.Note = "System Restore is turned off on this PC.";
+                step.State = StepState.Skipped;
+                return true;
+            default:
+                step.DoneLabel = "Restore point not created";
+                step.Note = $"Windows refused the restore point (error {outcome.Error}). Installation continues.";
+                step.State = StepState.Skipped;
+                return true;
+        }
     }
 
     private SetupStep ProtectionStep(string name, Func<bool> change)

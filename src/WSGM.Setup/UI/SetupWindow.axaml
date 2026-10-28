@@ -255,7 +255,7 @@
 
     <DataTemplate DataType="ui:DriverCompatibilityPage">
       <StackPanel Spacing="12">
-        <TextBlock Classes="muted" Text="Changes apply to this PC and are restored on uninstall. They are not enabled by Full mode." />
+        <TextBlock Classes="muted" Text="Protection changes apply to this PC and are restored on uninstall. Full mode does not enable them." />
         <TextBlock Classes="muted" Text="{Binding ReadError}" IsVisible="{Binding HasReadError}" />
         <Border Classes="card" Padding="0">
           <ItemsControl ItemsSource="{Binding Options}">
