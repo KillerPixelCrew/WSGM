@@ -22,6 +22,6 @@ internal static class Program
 
         PreviewExports.Export(output, width, height, scale,
             publicationPath: args.Length > 4 ? Path.GetFullPath(args[4]) : null,
-            deviceName: args.Length > 5 ? args[5] : "MSI Claw 8 AI+");
+            deviceName: args.Length > 5 ? args[5] : null);
     }
 }
