@@ -136,8 +136,12 @@ internal sealed class OtherManagerWindowsTargets : IOtherManagerTargets
             {
                 return restore;
             }
-            var operation = restore ? "/enable-device" : "/disable-device /force";
-            var result = ConsoleTool.RunAsync(ConsoleTool.System32("pnputil.exe"), $"{operation} \"{target.Name}\"")
+            // pnputil takes the instance ID directly after the command; /force placed before it made
+            // every disable exit 1, so the takeover kept finding the keyboard leaf enabled.
+            var arguments = restore
+                ? $"/enable-device \"{target.Name}\""
+                : $"/disable-device \"{target.Name}\" /force";
+            var result = ConsoleTool.RunAsync(ConsoleTool.System32("pnputil.exe"), arguments)
                 .GetAwaiter().GetResult();
             RestartRequired |= result.ExitCode == 3010;
             if (result.ExitCode == 3010)
