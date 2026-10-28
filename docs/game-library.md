@@ -521,6 +521,11 @@ artwork and a location/reason badge while Library Badges is enabled. Reinsertion
 restart. The toolkit publishes explicit shortcut availability without changing Valve's global
 installed store or intercepting `RunGame`.
 
+The proposed [removable-content implementation plan](plans/removable-shortcut-availability.md)
+extends this with a card manifest and device index. It distinguishes disconnected storage from
+confirmed deleted files, with automatic cleanup for the latter. This is planned behavior, not the
+current implementation described above.
+
 ROM artwork queries Screenscraper with system and ROM identity; PC sources prefer SteamGridDB. Empty
 matches, provider failures and a paused provider can fall back to another provider. A pause is shown
 when no provider answers. Provider caches retain results; the importer keeps candidate choices in
