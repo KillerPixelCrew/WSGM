@@ -587,6 +587,26 @@ public partial class BootSplashWindow : Window
         UpdateAbsolutePositions();
     }
 
+    /// <summary>
+    ///     Puts the cover back above every other topmost window and asks for the foreground.
+    /// </summary>
+    /// <remarks>
+    ///     Explorer's taskbar is topmost too, and a topmost window created later lands above an
+    ///     earlier one, so a taskbar that appears after the cover would show through it. Foreground can
+    ///     be refused while another process holds it; the z-order change does not need it.
+    /// </remarks>
+    internal void ReassertCover()
+    {
+        if (TryGetPlatformHandle()?.Handle is not { } hwnd || hwnd == 0)
+        {
+            return;
+        }
+
+        NativeMethods.SetWindowPos(hwnd, NativeMethods.HwndTopmost, 0, 0, 0, 0,
+            NativeMethods.SwpNoMove | NativeMethods.SwpNoSize | NativeMethods.SwpShowWindow);
+        NativeMethods.SetForegroundWindow(hwnd);
+    }
+
     private void OnScreensChanged(object? sender, EventArgs e)
     {
         CoverPrimaryScreen();

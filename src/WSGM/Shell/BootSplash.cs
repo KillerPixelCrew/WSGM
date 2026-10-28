@@ -121,6 +121,15 @@ public sealed class BootSplash
         Log.Info("Boot splash shown.");
     }
 
+    /// <summary>Puts a covering splash back above Explorer's taskbar and into the foreground; UI thread.</summary>
+    public void ReassertCover()
+    {
+        if (_covering && !_dismissing)
+        {
+            _window?.ReassertCover();
+        }
+    }
+
     private void OnPollTick(object? sender, EventArgs e)
     {
         if (_dismissing)

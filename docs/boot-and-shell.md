@@ -149,8 +149,12 @@ startup path even when a stale boot manifest supplied `--boot`.
 
 The takeover (`ShellSession.StartBootTakeover`) runs in this order:
 
-1. Show the splash, so it covers the booting desktop. It re-covers itself on display change, because
-   posture is applied later.
+1. Show the splash, so it covers the booting desktop. Session start shows it right after the pending
+   desktop-recovery check, before plugins, device integration and the overlay are built, so
+   Explorer's desktop does not appear first. It re-covers itself on display change, because posture
+   is applied later, and is put back above every topmost window and into the foreground on each
+   readiness poll while Explorer's shell or taskbar exists, since a taskbar created after it would
+   otherwise show through.
 2. Wait for the input desktop. `Core\InputDesktop` polls `OpenInputDesktop` for `winsta0\Default`:
    `WTS_SESSION_LOGON` fires while LogonUI still owns the screen, and `WTS_SESSION_DESKTOP_READY` is
    never delivered on the Claw. Without this wait Steam audio leaks behind the Welcome screen.

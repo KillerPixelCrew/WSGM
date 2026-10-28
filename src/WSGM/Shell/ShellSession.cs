@@ -370,6 +370,13 @@ public sealed partial class ShellSession
                 }
 
                 _shutdownCancellation.Token.ThrowIfCancellationRequested();
+                // A sign-in takeover covers the booting desktop now, while everything below is built on
+                // workers; waiting for the takeover itself let Explorer's desktop and taskbar show first.
+                if (_serviceBoot && !_desktopResident && !_desktopRecoveryPending)
+                {
+                    await Dispatcher.UIThread.InvokeAsync(ShowBootSplashIfEnabled);
+                }
+
                 // Package files the Plugins page removed while they were loaded go now, once, before the
                 // common plugins or the device integration open any package, whatever the integration
                 // switch says.

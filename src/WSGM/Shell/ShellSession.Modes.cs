@@ -85,19 +85,14 @@ public sealed partial class ShellSession
     /// </summary>
     private void ShowBootSplashIfEnabled()
     {
-        if (!_config.BootSplashEnabled)
+        if (!_config.BootSplashEnabled || _splash is not null)
         {
             return;
         }
 
+        // A Switch to desktop press before the takeover begins cancels it as soon as it starts.
+        _bootTakeover ??= new BootTakeoverCancellation();
         _splash = new BootSplash(_config, SwitchToDesktopFromSplash);
-        _overlay!.OverlayShown += () =>
-        {
-            if (!_holdingEntrySplash)
-            {
-                _splash?.Dismiss("quick access opened");
-            }
-        };
         _splash.Show();
     }
 
@@ -245,13 +240,23 @@ public sealed partial class ShellSession
     {
         Log.Info("Boot cover: waiting for explorer logon prep.");
         _tookOverFromExplorer = true;
-        var takeover = new BootTakeoverCancellation();
-        _bootTakeover = takeover;
-
+        // Session start normally showed the splash already, so it covered the booting desktop
+        // while plugins, device integration and the overlay were still being built.
         ShowBootSplashIfEnabled();
+        var takeover = _bootTakeover ??= new BootTakeoverCancellation();
         if (_splash is null)
         {
             Log.Info("Boot splash disabled — takeover runs uncovered.");
+        }
+        else
+        {
+            _overlay!.OverlayShown += () =>
+            {
+                if (!_holdingEntrySplash)
+                {
+                    _splash?.Dismiss("quick access opened");
+                }
+            };
         }
 
         WatchStartupAppsAndConfig();
@@ -386,6 +391,13 @@ public sealed partial class ShellSession
             if (taskbar && taskbarSeenMs < 0)
             {
                 taskbarSeenMs = watch.ElapsedMilliseconds;
+            }
+
+            // Explorer's topmost taskbar and its logon windows appear after the cover and land above
+            // it; put the cover back on top on every poll until Explorer is asked to leave.
+            if (shellWindow || taskbar)
+            {
+                Dispatcher.UIThread.Post(() => _splash?.ReassertCover());
             }
 
             // The invariant-7 acceleration exists solely so an OPAQUE cover never
