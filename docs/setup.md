@@ -9,9 +9,8 @@ and quiet installation do not opt in. The page reports configured overrides, res
 and explains reduced protection and restart requirements. Other exploit mitigations and certificate
 checks remain. A revoked certificate is not fixed by these options.
 
-Defender exclusions cover the exact WSGM installation folder, `App/WSGM.exe` and
-`App/Resources/Intel/KX/KX.exe`. Setup adds entries individually before extracting the deferred KX
-helper; it preserves existing exclusions and does not disable Defender.
+Defender exclusions cover the exact WSGM installation folder and `App/WSGM.exe`. Setup adds entries
+individually; it preserves existing exclusions and does not disable Defender.
 `%ProgramData%/WSGM/driver-protection-recovery.json` records originals before writes and exclusions
 added by WSGM. Fatal rollback undoes this run's changes. Uninstall restores owned overrides still
 set by WSGM, removes only owned exclusions, and retains failed recovery work.
@@ -20,8 +19,10 @@ These choices follow the corresponding
 [Handheld Companion installer controls](https://github.com/Valkirie/HandheldCompanion/blob/main/HandheldCompanion.iss).
 CFG restoration uses the documented
 [Set-ProcessMitigation](https://learn.microsoft.com/en-us/powershell/module/processmitigations/set-processmitigation)
-removal command. Atlas optional voltage settings use signed PawnIO IntelMSR instead of KX; its EC
-power, fans and lighting use native HID protocols.
+removal command. Intel processor settings and generic Intel package power limits use the signed
+PawnIO IntelMSR module. Power limits are written to MSR 0x610 only; the MCHBAR mirror is not written
+and Intel GPU clock control is not offered. Atlas EC power, fans and lighting use native HID
+protocols.
 
 What `WSGM.Setup.exe` does to a machine: where the product lives, what a fresh install chooses and
 asks, the order an install and an update run in, the daily update check, the uninstaller, and the
@@ -53,11 +54,10 @@ the user can decline. Physical-controller models require VIIPER, USB/IP and HidH
 tablet definitions acquire no virtual controller. Signed PawnIO access is installed for the models
 that require it; Steam Deck's InpOut driver is installed only by its explicit setup step. An
 optional driver failure is reported and the rest of setup continues. Setup records the drivers it
-installed and offers only those for removal at uninstall. Runtime never installs either driver.
-Pinned KX and InpOut helpers, signed modules and notices ship with App. No match leaves integration
-off. The native library ships with `App`, so there is no device archive selection or installation.
-Bundled common plugins are offered as checkboxes. Updates and repairs preserve the saved integration
-intent.
+installed and offers only those for removal at uninstall. Runtime never installs either driver. The
+pinned InpOut helper, signed modules and notices ship with App. No match leaves integration off. The
+native library ships with `App`, so there is no device archive selection or installation. Bundled
+common plugins are offered as checkboxes. Updates and repairs preserve the saved integration intent.
 
 Intel, AMD and NVIDIA driver support ships in `App` through the directly referenced
 `LibGPUDriverInteract` library. It works independently of handheld integration and needs no GPU
@@ -205,9 +205,8 @@ install and upgrade take two setup runs and a restart; the mechanism and the evi
    in the session after enforced termination. An OS termination failure is reported with the setup
    log. Independent launch wrappers remain blockers until their games exit; Steam's process trees
    are included in its full termination.
-8. Reserve `Global\WSGM.DeviceOwner`, so no WSGM or Device Lab runs plugin code during the change.
-   Setup waits up to 30 s for a process that just exited, or the old uninstaller's temporary copy,
-   to let go of it.
+8. Reserve `Global\WSGM.DeviceOwner`, so no WSGM runs plugin code during the change. Setup waits up
+   to 30 s for a process that just exited, or the old uninstaller's temporary copy, to let go of it.
 9. Extract the new application to `App.staging`, move `App` to `App.previous` and the new one into
    place, copy the setup and its packages to `Setup`, and replace the installed plugins with the
    chosen ones.

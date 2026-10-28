@@ -2,7 +2,7 @@
 
 namespace WSGM.Shared;
 
-/// <summary>Cross-version kernel object names and one-shot exit codes shared by WSGM, setup and Device Lab.</summary>
+/// <summary>Cross-version kernel object names and one-shot exit codes shared by WSGM and setup.</summary>
 internal static class SessionProtocolNames
 {
     /// <summary>

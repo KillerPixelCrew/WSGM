@@ -165,14 +165,8 @@ internal sealed class DriverCompatibility(string recoveryPath, IDriverCompatibil
         var current = _system.ReadExclusions();
         var record = Load();
         Add(root, current.Paths, record.AddedPaths, _system.AddPath, process: false);
-        foreach (var path in new[]
-                 {
-                     Path.Combine(root, "App", "WSGM.exe"),
-                     Path.Combine(root, "App", "Resources", "Intel", "KX", "KX.exe")
-                 })
-        {
-            Add(path, current.Processes, record.AddedProcesses, _system.AddProcess, process: true);
-        }
+        Add(Path.Combine(root, "App", "WSGM.exe"), current.Processes, record.AddedProcesses, _system.AddProcess,
+            process: true);
         return;
 
         void Add(string path, IReadOnlyList<string> existing, List<string> owned, Action<string> write, bool process)

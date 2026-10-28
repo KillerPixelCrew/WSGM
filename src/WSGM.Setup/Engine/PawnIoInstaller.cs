@@ -4,7 +4,7 @@ using WSGM.Security;
 
 namespace WSGM.Setup.Engine;
 
-/// <summary>Setup's optional PawnIO component, backed by the same signed installer as Device Lab.</summary>
+/// <summary>Setup's optional PawnIO component, backed by the pinned, signed installer.</summary>
 internal static class PawnIoInstaller
 {
     private static readonly PawnIoInstallation Installation = new(typeof(PawnIoInstaller).Assembly,

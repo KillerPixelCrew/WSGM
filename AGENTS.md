@@ -34,8 +34,7 @@ The validation budget below overrides older gate recipes in skills and documenta
 - LibHandheld owns exact detection, protocols and physical input; LibGPUDriverInteract owns GPU
   drivers; WindowsDeviceControl owns Windows primitives; SteamUiToolkit owns Steam UI mechanics.
   These and other pinned/vendored dependencies live in `external/`. Keep WSGM adapters/policy in WSGM.
-- Device Lab collects evidence and scaffolds LibHandheld contributions. Its read-only
-  LibreHardwareMonitor telemetry is separate from runtime handheld control.
+- Hardware evidence is attended and recorded in the family PROVENANCE beside its LibHandheld code.
 - Search `_ref` with `rg --hidden --no-ignore`; it is evidence, not build input. Its decompiled HC
   1.3.1.6 is newer than public source. HC is primary for Windows and ROG Ally, buttons included;
   HHD cross-checks gaps. Dated hardware notes are historical evidence, never fresh passes.
@@ -123,7 +122,7 @@ The validation budget below overrides older gate recipes in skills and documenta
 
 - Opening Settings and --overlay-test are safe. Early restore-shell must work without config,
   logging, Avalonia or GPU initialization. Shell/boot changes, plugin/service installation,
-  Device Lab actions and deployment require the maintainer's direction; authorization persists.
+  attended hardware probes and deployment require the maintainer's direction; authorization persists.
 - Before a live CEF connection, confirm from this run's Steam logs that Steam and Big Picture fully
   started. Endpoint reachability/a visible window is insufficient. Follow the Steam debugging skill;
   an incomplete preflight authorizes neither connecting nor force-closing Steam.

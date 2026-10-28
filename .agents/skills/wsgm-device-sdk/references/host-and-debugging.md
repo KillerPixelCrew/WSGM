@@ -21,5 +21,5 @@ write is uncertain and is never automatically retried. Readback does not gate su
 Glyph loading failure drops glyphs and records the failure; it does not tear down a sound cycle.
 
 For diagnosis, begin with current `wsgm.log`, the matching family source and provenance, and current
-Device Lab evidence. Remote testers are ordinary users: do not ask them to run probes. Hardware or
+attended evidence. Remote testers are ordinary users: do not ask them to run probes. Hardware or
 attended CEF actions require the maintainer's explicit scope and their respective preflight.

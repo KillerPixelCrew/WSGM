@@ -24,7 +24,7 @@
     "minimumInstalledVersion": "2.0.0",
     "notes": [
       "The upstream release asset is byte-identical to the copy Handheld Companion 1.3.1.6 bundles.",
-      "The installer states it may be redistributed unmodified. It refuses to install over an existing copy, so an older version is uninstalled first, and only with the tester's consent.",
+      "The installer states it may be redistributed unmodified. It refuses to install over an existing copy, so an older version is uninstalled first, and only with the user's consent.",
       "-unrestricted disables PawnIO's module signature check and is never passed."
     ]
   },
@@ -40,8 +40,8 @@
       "memberSha256": "301D9CA397108E09F31BFBD5AC4C9BB4F352A5DE68532C32DB3BA7DDCDE93450",
       "notes": [
         "Byte-identical to the RyzenSMU.bin Handheld Companion 1.3.1.6 embeds (HandheldCompanion.Resources.PawnIO.RyzenSMU.bin).",
-        "PawnIO verifies the module signature when it loads it; Device Lab also checks this digest first.",
-        "LibreHardwareMonitorLib 0.9.6 embeds an older RyzenSMU.bin (SHA-256 0CF0FE12...D8AA) without the SMU command function; Device Lab uses that copy only through LHM's own read calls."
+        "PawnIO verifies the module signature when it loads it; acquisition also checks this digest.",
+        "LibreHardwareMonitorLib 0.9.6 embeds an older RyzenSMU.bin (SHA-256 0CF0FE12...D8AA) without the SMU command function."
       ]
     },
     {

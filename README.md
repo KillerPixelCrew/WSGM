@@ -319,7 +319,7 @@ produces `publish\WSGM-Setup-<version>.exe`.
 ## Credits
 
 [Brochacho](https://github.com/BrochachoTheBro) is WSGM's main tester and donated the ROG Xbox Ally
-X that the Device Lab runs on. Every release is tried on that machine before it ships.
+X used for development. Every release is tried on that machine before it ships.
 
 The library features are Windows reimplementations of approaches from Decky Loader plugins on
 SteamOS: [TabMaster](https://github.com/Tormak9970/TabMaster) for filter tabs and tab-strip control,
@@ -349,8 +349,8 @@ License for more details.
 
 The common Plugin SDK remains MIT-licensed for independent extensions. Native handheld and GPU
 libraries keep their own licenses and notices. The separate Device SDK and first-party device/GPU
-plugin projects are retired. Device Lab compiles WSGM's interop sources and is GPL-3.0-or-later like
-WSGM. See [handheld contributions](docs/handheld-contributions.md) for the current workflow.
+plugin projects are retired. See [handheld contributions](docs/handheld-contributions.md) for the
+current workflow.
 
 Bundled third-party components keep their own licenses; their notices ship beside the executable and
 with the installer.

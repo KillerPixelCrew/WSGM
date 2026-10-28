@@ -18,7 +18,7 @@ public sealed class DriverCompatibilityTests : IDisposable
         Assert.True(service.DisableDriverBlocklist());
         Assert.True(service.DisableControlFlowGuard());
         service.AddDefenderExclusions(root);
-        Assert.Equal(2, system.Processes.Count);
+        Assert.Equal(Path.Combine(root, "App", "WSGM.exe"), Assert.Single(system.Processes));
 
         Assert.True(service.Restore());
         Assert.Null(system.State.MemoryIntegrity);

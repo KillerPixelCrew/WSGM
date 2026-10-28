@@ -21,7 +21,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-if ($Category -eq 'wsgm.device') { throw 'Use Device Lab scaffold for the Device specialization.' }
+if ($Category -eq 'wsgm.device') { throw 'Handhelds are built-in LibHandheld definitions, not plugins.' }
 $gpu = $Category -eq 'wsgm.gpu'
 if ($gpu -and [string]::IsNullOrWhiteSpace($PciVendorId)) { throw 'A graphics plugin needs -PciVendorId, for example 8086.' }
 if (-not $gpu -and -not [string]::IsNullOrWhiteSpace($PciVendorId)) { throw '-PciVendorId applies only to -Category wsgm.gpu.' }

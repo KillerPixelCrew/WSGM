@@ -3,8 +3,7 @@
 WSGM.Plugin.Sdk is the common-plugin SDK. Hardware detection, device lifecycle, controller and
 motion production, OEM input, haptics and firmware protocols belong to LibHandheld. The SDK contains
 no `IDevicePlugin`, device host adapter, recovery journal, motion/filter service, keyboard hook or
-device settings-manifest pipeline. Device Lab uses public LibHandheld contracts and owns its lab HID
-helpers.
+device settings-manifest pipeline.
 
 The retained `Shared` source has concrete consumers:
 

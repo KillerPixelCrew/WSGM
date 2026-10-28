@@ -25,9 +25,9 @@ source, provenance and dated observations before treating a behavior as hardware
    WSGM. Build/deploy through the established application path for attended checks.
 6. Commit and push the library before recording its gitlink in WSGM.
 
-[Device Lab](../src/WSGM.DeviceLab) collects attended evidence and produces library contribution
-source and fixtures. It does not create a device plugin. Remote testers diagnose through ordinary
-WSGM logs; they are not required to run developer probes.
+Attended hardware evidence is recorded in the family `PROVENANCE.md` with the source and fixtures it
+supports. Remote testers diagnose through ordinary WSGM logs; they are not required to run developer
+probes.
 
 ## Compatibility and lifetime
 

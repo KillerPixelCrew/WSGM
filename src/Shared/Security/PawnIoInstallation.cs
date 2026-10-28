@@ -15,7 +15,7 @@ namespace WSGM.Security;
 /// <summary>The result of one optional driver operation. An uncertain operation is never retried.</summary>
 internal sealed record DriverInstallResult(bool Succeeded, bool Installed, bool RestartRequired, string? Error = null);
 
-/// <summary>The shared pinned, signed PawnIO installation mechanism used by setup and Device Lab.</summary>
+/// <summary>The shared pinned, signed PawnIO installation mechanism used by setup.</summary>
 internal sealed class PawnIoInstallation(Assembly assembly, string pinResource, string installerResource)
 {
     private readonly JsonDocument _pin = ReadPin(assembly, pinResource);

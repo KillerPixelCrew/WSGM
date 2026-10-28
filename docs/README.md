@@ -42,9 +42,8 @@ The delivered [WSGM skill](../.agents/skills/wsgm/SKILL.md) is the entry point f
 placement, reuse, maintainability and frontend parity. It routes work to
 [Core](../.agents/skills/wsgm-core/SKILL.md),
 [Steam CEF implementation](../.agents/skills/wsgm-steam-cef-toolkit/SKILL.md),
-[Steam CEF debugging](../.agents/skills/wsgm-steam-cef-debugging/SKILL.md),
-[Handheld library](../.agents/skills/wsgm-device-sdk/SKILL.md) and
-[Device Lab](../.agents/skills/wsgm-device-lab/SKILL.md). The Steam guide includes the
+[Steam CEF debugging](../.agents/skills/wsgm-steam-cef-debugging/SKILL.md), and
+[Handheld library](../.agents/skills/wsgm-device-sdk/SKILL.md). The Steam guide includes the
 [reusable-elements catalog](../.agents/skills/wsgm-steam-cef-toolkit/references/reusable-elements.md)
 and
 [styling/overlay parity guide](../.agents/skills/wsgm-steam-cef-toolkit/references/ui-and-overlay-parity.md).

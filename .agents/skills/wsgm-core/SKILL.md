@@ -4,8 +4,8 @@ description:
   Implement, review, or diagnose cross-cutting WSGM application work in Program, Core, Shell,
   Settings, Overlay, Input, or Interop, including process modes, configuration, recovery, session
   ownership, UI-thread state, manager lifetimes, and shutdown. Use for device-independent WSGM work
-  or changes spanning application layers; use the specialized Steam CEF, Device SDK, or Device Lab
-  skills for those domains.
+  or changes spanning application layers; use the specialized Steam CEF or Device SDK skills for
+  those domains.
 ---
 
 # WSGM Core
@@ -32,8 +32,8 @@ this skill for the application state, ownership and lifetime work after that rou
    implementation and delivery.
 
 The user's task controls scope. Inspection or diagnosis does not authorize shell/boot mode, package
-maintenance, Device Lab hardware work, live Steam mutation, SD-card formatting, installation, or a
-release build.
+maintenance, hardware writes, live Steam mutation, SD-card formatting, installation, or a release
+build.
 
 ## Route policy and mechanism correctly
 
@@ -49,12 +49,12 @@ release build.
 - `Input` owns canonical input and virtual-target encoding/routing. `Interop` owns native ABI calls.
 - `Controls` and `Themes` own presentation primitives; `App.axaml.cs` only composes application/UI
   lifetime.
-- SDK, Device Lab, and device-package behavior belongs in its own src project, with changes
-  delivered together in WSGM. Reusable Steam, Windows-device-control, and Steam Input behavior
-  belongs in the corresponding submodule.
+- SDK and device-package behavior belongs in its own src project, with changes delivered together in
+  WSGM. Reusable Steam, Windows-device-control, and Steam Input behavior belongs in the
+  corresponding submodule.
 
 For Steam CEF work use `wsgm-steam-cef-toolkit` or `wsgm-steam-cef-debugging`. For the semantic
-device contract/host use `wsgm-device-sdk`; for hardware discovery use `wsgm-device-lab`.
+device contract, host and hardware evidence use `wsgm-device-sdk`.
 
 Before any live CEF tool connection, inspect Steam's file logs and establish that Steam and Big
 Picture have fully started. A listening port, process, window or target list is insufficient. Early

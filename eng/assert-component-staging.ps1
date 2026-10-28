@@ -230,8 +230,7 @@ foreach ($packageFile in $packageFiles) {
         if ($relative -match '(?i)(?:^|/)(?:captures?|raw[-_]?evidence|fixtures?|recipes?)(?:/|$)') {
             throw "Plugin package contains a source-capture or evidence directory: $relative"
         }
-        if ($file.Name -in @("WSGM.exe", "WSGM.Launch.exe", "WSGM.LogonService.exe",
-            "wsgm-device.exe")) {
+        if ($file.Name -in @("WSGM.exe", "WSGM.Launch.exe", "WSGM.LogonService.exe")) {
             throw "Plugin package contains an unrelated WSGM executable: $relative"
         }
         Assert-NoLeaks $file "Plugin package"

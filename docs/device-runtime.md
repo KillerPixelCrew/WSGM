@@ -15,10 +15,10 @@ Independent extensions use the [common plugin host](plugin-system.md).
 | `ControllerManager`      | HidHide, VIIPER targets, forwarding, UI capture and controller handoff                                       |
 | `DeviceOemActionRouter`  | Configured OEM actions and default Steam/Quick Access behavior                                               |
 
-The machine-wide `Global\WSGM.DeviceOwner` marker prevents another WSGM session, setup or attended
-Device Lab run from starting a competing production hardware cycle. Device Integration off starts
-none of these device services or AutoTDP; Windows controls, RTSS, built-in graphics and common
-plugins retain their own owners.
+The machine-wide `Global\WSGM.DeviceOwner` marker prevents another WSGM session or setup from
+starting a competing production hardware cycle. Device Integration off starts none of these device
+services or AutoTDP; Windows controls, RTSS, built-in graphics and common plugins retain their own
+owners.
 
 ## Detection and construction
 

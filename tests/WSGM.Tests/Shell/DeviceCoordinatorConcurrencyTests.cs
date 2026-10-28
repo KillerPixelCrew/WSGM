@@ -134,7 +134,7 @@ public sealed class DeviceCoordinatorConcurrencyTests
     [Fact]
     public void OwnerReservation_IsExclusiveWhileHeldAndReacquirableAfterRelease()
     {
-        // WSGM and Device Lab each hold this exact reservation while plugin code may touch the
+        // WSGM and setup each hold this exact reservation while plugin code may touch the
         // hardware, so exclusivity while held and reacquirability after release are the
         // load-bearing marker semantics.
         var name = $@"Local\WSGM.Tests.DeviceOwner.Exclusive.{Guid.NewGuid():N}";

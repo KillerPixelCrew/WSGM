@@ -328,10 +328,7 @@ internal sealed class SetupEngine : IDisposable
             Directory.Delete(AppStaging, true);
         }
 
-        // Exporting profile choices does not execute hardware helpers. Defer the unsigned legacy
-        // KX payload until the user can choose scoped Defender exclusions and starts installation.
-        payload.Extract("App", AppStaging, relative =>
-            !relative.Replace('\\', '/').StartsWith("Resources/Intel/KX/", StringComparison.OrdinalIgnoreCase));
+        payload.Extract("App", AppStaging);
         var file = Path.Combine(Path.GetTempPath(), $"wsgm-answers-{Guid.NewGuid():N}.json");
         try
         {
@@ -806,7 +803,7 @@ internal sealed class SetupEngine : IDisposable
         _owner = _runtime.ReserveDeviceOwner(TimeSpan.FromSeconds(30));
         if (_owner is null)
         {
-            step.Note = "A WSGM or Device Lab hardware owner is still active. Close it and run setup again.";
+            step.Note = "A WSGM hardware owner is still active. Close it and run setup again.";
             return false;
         }
 
@@ -886,11 +883,6 @@ internal sealed class SetupEngine : IDisposable
         if (!Directory.Exists(AppStaging))
         {
             payload.Extract("App", AppStaging);
-        }
-        else
-        {
-            payload.Extract("App", AppStaging, relative =>
-                relative.Replace('\\', '/').StartsWith("Resources/Intel/KX/", StringComparison.OrdinalIgnoreCase));
         }
 
         if (controller)

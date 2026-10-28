@@ -8,7 +8,7 @@ codes, and safe to rerun.
 
 - eng/verify.ps1 is the canonical gate. Preserve its checks for optional Prettier formatting, Steam
   asset drift and ownership claims, AGENTS/CLAUDE link integrity, tracked PowerShell syntax,
-  live-data path exclusions, version-copy agreement, controller, PawnIO and KX pins, Steam Input
+  live-data path exclusions, version-copy agreement, controller and PawnIO pins, Steam Input
   validation, restore, warning-clean Release builds, all solution tests, main-test coverage, and the
   compile of every tracked `tools/*.csproj`, which stay out of the solution.
 - Analyzer rules kept for a whole scope are severity-scoped in .editorconfig, with the reason on
@@ -44,25 +44,19 @@ codes, and safe to rerun.
   output directory it owns. Temporary work goes in a fresh GUID-named directory under
   `[IO.Path]::GetTempPath()`, removed in `finally` with no marker or path check. A packaged file is
   written by moving the finished file into place: `pack-device.ps1` replaces only the same-named
-  archive, and `package-plugin.ps1` refuses an existing one. `publish-device-lab.ps1` is the only
-  script that clears a directory, through `Reset-OwnedOutput` in `build-common.ps1`, which refuses
-  anything not strictly below `publish\` or `artifacts\`. Add no markers, ownership files or backup
-  and restore steps.
-- `publish-device-lab.ps1` and `build-bundle.ps1` publish Device Lab through
-  `device-lab-publish.ps1`, which copies the exact restored runtime notices and the licence. The
-  unsafe package id and version refusal lives in `pack-device.ps1` only; staging keeps its built-in
-  identity, entry assembly, glyph and extracted-tree checks.
+  archive, and `package-plugin.ps1` refuses an existing one. Only `build.ps1` clears a directory,
+  its own `publish\` tree. Add no markers, ownership files or backup and restore steps.
+- The unsafe package id and version refusal lives in `pack-device.ps1` only; staging keeps its
+  built-in identity, entry assembly, glyph and extracted-tree checks.
 - `build-bundle.ps1` is the only producer of `Packages\*.wsgmpkg` and `bundle.json`. It reads
   `plugins/curated`, packs first-party plugins from this checkout and community plugins from their
   pinned commit against a local SDK feed. It records a community build failure as outdated instead
   of failing. Run its community step only where no secret is available.
 - Both packers stamp `wsgmVersion` from `src/WSGM/WSGM.csproj` and strip the assemblies WSGM
   supplies itself (`Remove-HostProvidedFiles`); never ship a package without either step.
-- `device-lab-publish.ps1` runs `acquire-pawnio.ps1` first, which downloads the installer pinned in
+- `build.ps1` runs `acquire-pawnio.ps1`, which downloads the installer pinned in
   `external/pawnio/pawnio.lock.json` into `artifacts/pawnio` and refuses a wrong digest or signer.
-  Device Lab embeds it when present. Offline, the installer tree only warns and that build reports
-  PawnIO as unavailable; `publish-device-lab.ps1 -Portable`, the one-file tester build, fails instead.
-  `assert-pawnio-pin.ps1` (run by eng/verify.ps1) checks the lock's shape and, when present, the
+  Setup embeds it when present. `assert-pawnio-pin.ps1` (run by eng/verify.ps1) checks the lock's shape and, when present, the
   acquired file; it never downloads.
 - Staging must validate package identity, version, architecture, and required files before copying
   anything into the installer tree.

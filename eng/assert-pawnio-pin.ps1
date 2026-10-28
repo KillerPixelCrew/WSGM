@@ -3,11 +3,10 @@
     Fails when the PawnIO pin is malformed or an acquired installer disagrees with it.
 
 .DESCRIPTION
-    Device Lab installs PawnIO on a tester's machine from the installer pinned in
-    external/pawnio/pawnio.lock.json, and the running tool checks the extracted file against the same
-    lock. This check keeps that pin reviewable: an exact release URL on the upstream repository, a
-    full SHA-256, a full signer thumbprint, silent arguments that never include -unrestricted, and the
-    lock actually embedded by the Device Lab project. When eng/acquire-pawnio.ps1 has already fetched
+    Setup installs PawnIO from the installer pinned in external/pawnio/pawnio.lock.json and checks the
+    embedded file against the same lock. This check keeps that pin reviewable: an exact release URL on
+    the upstream repository, a full SHA-256, a full signer thumbprint, silent arguments that never
+    include -unrestricted, and the lock actually embedded by the setup project. When eng/acquire-pawnio.ps1 has already fetched
     the installer, its digest and signer are checked too; the check never downloads anything.
 #>
 [CmdletBinding()]
@@ -18,7 +17,7 @@ param(
 
     [Parameter()]
     [ValidateNotNullOrEmpty()]
-    [string]$ProjectPath = (Join-Path $PSScriptRoot '..\src\WSGM.DeviceLab\WSGM.DeviceLab.csproj'),
+    [string]$ProjectPath = (Join-Path $PSScriptRoot '..\src\WSGM.Setup\WSGM.Setup.csproj'),
 
     [Parameter()]
     [ValidateNotNullOrEmpty()]
@@ -49,7 +48,7 @@ if (-not [Version]::TryParse([string]$pin.minimumInstalledVersion, [ref]$null)) 
 
 $project = Get-Content -LiteralPath $ProjectPath -Raw
 if ($project -notmatch [regex]::Escape('external\pawnio\pawnio.lock.json')) {
-    $problems.Add('the Device Lab project does not embed external\pawnio\pawnio.lock.json')
+    $problems.Add('the setup project does not embed external\pawnio\pawnio.lock.json')
 }
 
 foreach ($module in @($lock.modules)) {
@@ -62,20 +61,6 @@ foreach ($module in @($lock.modules)) {
         (Get-FileHash -LiteralPath $acquired -Algorithm SHA256).Hash -ne $module.memberSha256) {
         $problems.Add("acquired $($module.member) does not match its pin")
     }
-}
-
-# KX.exe has no download and no signature: it is committed and pinned by digest alone.
-$kxLockPath = Join-Path $PSScriptRoot '..\external\kx\kx.lock.json'
-$kx = (Get-Content -LiteralPath $kxLockPath -Raw | ConvertFrom-Json).component
-$kxPath = Join-Path (Split-Path -Parent $kxLockPath) $kx.file
-if (-not (Test-Path -LiteralPath $kxPath -PathType Leaf)) {
-    $problems.Add("external\kx\$($kx.file) is missing")
-}
-elseif ((Get-FileHash -LiteralPath $kxPath -Algorithm SHA256).Hash -ne $kx.sha256) {
-    $problems.Add("external\kx\$($kx.file) does not match kx.lock.json")
-}
-if ($project -notmatch [regex]::Escape('external\kx\KX.exe')) {
-    $problems.Add('the Device Lab project does not embed external\kx\KX.exe')
 }
 
 $installer = Join-Path $ArtifactDirectory $pin.asset

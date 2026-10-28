@@ -31,7 +31,7 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 
 # Scanned: anything that may run on a developer's machine outside the shipped application: tests,
-# developer tools, Device Lab, and the device and plugin projects, as the synopsis promises.
+# developer tools, and the device and plugin projects, as the synopsis promises.
 # Deliberately excluded: the shipped WSGM processes, which own the real directory; eng\, whose
 # attended deployment scripts target the live install on purpose; and external\, which holds
 # vendored upstream source and submodules that enforce this in their own repositories.
@@ -39,7 +39,6 @@ $root = Split-Path -Parent $PSScriptRoot
 $scanned = @(
     "tests"
     "tools"
-    "src\WSGM.DeviceLab"
 ) + @(
     Get-ChildItem -LiteralPath (Join-Path $root "src") -Directory |
         Where-Object { $_.Name -like "WSGM.Device.*" -or $_.Name -like "WSGM.Plugin.*" } |

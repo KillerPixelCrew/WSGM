@@ -6,7 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
 
-namespace WSGM.DeviceLab.Application;
+namespace WSGM.Interop;
 
 /// <summary>Windows job which kills every disposable worker descendant when supervision ends.</summary>
 internal sealed partial class WorkerJobObject : IDisposable

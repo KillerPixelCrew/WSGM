@@ -44,7 +44,6 @@ The executable boundaries have different jobs:
 | `WSGM`                | Resident Game/Desktop Mode, Settings, overlay and feature policy                              | Configuration, session-owned services and explicit maintenance modes                  |
 | `WSGM.Launch`         | Start an ordinary game with optional de-elevation and a Steam Input lease                     | Parsed wrapper arguments and the lifetime of the launched game                        |
 | `WSGM.PackagedLaunch` | Activate or follow an imported game and maintain its selected input/overlay route             | Validated packaged/follow command, runtime classification and game process lifetime   |
-| `WSGM.DeviceLab`      | Attended hardware evidence and LibHandheld contributions                                      | Native contracts and exported evidence; it is not a resident WSGM service             |
 
 The reusable libraries are project references at pinned submodule commits. SteamUiToolkit owns CDP,
 Steam module discovery, the bridge and reversible Steam patches. WindowsDeviceControl owns Windows

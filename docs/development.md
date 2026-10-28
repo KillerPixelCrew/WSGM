@@ -25,7 +25,6 @@ in [boot and shell](boot-and-shell.md), installation in [setup](setup.md), ordin
 | [`LibHandheld`](../external/libhandheld)                                | Native model families, shared Windows transports, semantic controls, input and recovery; independent of WSGM SDKs | [Library API](../external/libhandheld/API.md)                                                     |
 | [`LibGPUDriverInteract`](../external/libgpu-driver-interact)            | Direct Intel, AMD and NVIDIA driver backends, native profiles, supported controls and caller-owned restoration    | [Library API](../external/libgpu-driver-interact/API.md)                                          |
 | [`WSGM.Plugin.Ir`](../src/WSGM.Plugin.Ir)                               | IR session-action plugin and its firmware/protocol                                                                | [IR README](../src/WSGM.Plugin.Ir/README.md)                                                      |
-| [`WSGM.DeviceLab`](../src/WSGM.DeviceLab)                               | Package validation, authoring support and attended hardware diagnostics                                           | [Device Lab README](../src/WSGM.DeviceLab/README.md)                                              |
 | [`Avalonia.LiveBackdrop`](../src/Avalonia.LiveBackdrop)                 | Reusable live-backdrop rendering implementation                                                                   | [LiveBackdrop README](../src/Avalonia.LiveBackdrop/README.md)                                     |
 | [`external/steam-ui-toolkit`](../external/steam-ui-toolkit)             | Reusable CEF/CDP transport, Steam UI ownership and generated browser-side foundation                              | [Toolkit README](../external/steam-ui-toolkit/README.md), [WSGM integration](steam-cef-system.md) |
 | [`external/windows-device-control`](../external/windows-device-control) | Reusable Windows audio, radio, display, device and power mechanisms                                               | [Library README](../external/windows-device-control/README.md)                                    |
@@ -155,7 +154,7 @@ the relevant Go tests. The bridge's `-Validate` checks required exports. A VIIPE
 its own validation: the main verification gate does not build or validate that library.
 
 Opening Settings and `--overlay-test` are the allowed UI inspection modes. Shell/boot takeover,
-service install, plugin install/removal, Device Lab hardware actions and
+service install, plugin install/removal, attended hardware probes and
 [`eng/dev-deploy.ps1`](../eng/dev-deploy.ps1) alter the live machine and require explicit direction.
 The `tools/WsgmLibTest` scripts connect to live Steam and are attended tools, not compilation
 checks. Before connecting any live CEF tool, inspect Steam's file logs and confirm that Steam and
@@ -194,24 +193,21 @@ directory outside the root `publish` tree, which this script clears. The release
 community plugins in a separate job without secrets, then passes its bundle into the final build.
 [`plugins/curated`](../plugins/curated) is the source of package origin and pinned community
 commits; [`eng/build-bundle.ps1`](../eng/build-bundle.ps1) is the producer of `.wsgmpkg` files and
-the bundle manifest. It restores only Device Lab and the selected package projects, so the community
-job needs no access to the private GPU library or the application graph. An optional local bundle
-build is:
+the bundle manifest. It restores only the selected package projects, so the community job needs no
+access to the private GPU library or the application graph. An optional local bundle build is:
 
 ```powershell
-.\eng\build-bundle.ps1 -OutputRoot artifacts/local-bundle -SkipCommunity -SkipTools
+.\eng\build-bundle.ps1 -OutputRoot artifacts/local-bundle -SkipCommunity
 ```
 
-`-SkipTools` omits Device Lab from the output; it still builds Device Lab temporarily to validate
-common packages. `-SkipCommunity` omits community source builds. Package assembly and inspection do
-not activate hardware. Community builds execute third-party MSBuild code and belong in an
-environment without secrets, as required by the engineering guide.
+`-SkipCommunity` omits community source builds. Package assembly and inspection do not activate
+hardware. Community builds execute third-party MSBuild code and belong in an environment without
+secrets, as required by the engineering guide.
 
 Controller and WebView2 payloads are acquired and checked at build time against their lock files,
-including digest/signature requirements. PawnIO acquisition belongs to Device Lab publishing; a
-portable tester build requires its bundled installer, while the ordinary installer-tree path can
-warn and report it unavailable offline. RTSS is different: setup downloads its pinned build only
-when the selected answers enable RTSS and no installation is registered.
+including digest/signature requirements. `build.ps1` acquires the pinned PawnIO installer, which
+setup embeds. RTSS is different: setup downloads its pinned build only when the selected answers
+enable RTSS and no installation is registered.
 
 `src/WSGM/WSGM.csproj` supplies the release `Version`; setup reads it. The shared
 [`eng/wsgm-revision.targets`](../eng/wsgm-revision.targets) stamps the application's/setup's fourth
@@ -255,8 +251,6 @@ Tool projects intentionally stay outside the solution. Their own guides explain 
 - [`tools/PerfLab`](../tools/PerfLab/README.md): performance capture support; retained evidence is
   in [`docs/perf`](perf/README.md).
 - [`tools/LiveBackdropSample`](../tools/LiveBackdropSample/README.md): standalone backdrop sample.
-- [`tools/HcDeviceExtract`](../tools/HcDeviceExtract): reference-data extraction used by
-  `eng/extract-hc-devices.ps1`.
 
 The `examples/SteamCefPlugin` example belongs to the plugin authoring workflow. `_ref` contains
 local reference material and `_plan` contains working decisions/history; neither defines build

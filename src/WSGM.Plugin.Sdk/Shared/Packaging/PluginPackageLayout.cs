@@ -9,7 +9,7 @@ namespace WSGM.Device.Sdk.Packaging;
 
 /// <summary>
 ///     The archive rules every <c>.wsgmpkg</c> follows. WSGM applies them when it opens a package, and
-///     Device Lab and the packers apply the same ones, so a package that builds cleanly also opens.
+///     the packers apply the same ones, so a package that builds cleanly also opens.
 /// </summary>
 /// <remarks>
 ///     WSGM loads a package from memory and never unpacks it to disk. The two byte bounds refuse an

@@ -374,14 +374,21 @@ writes are never retried automatically. Crash recovery handles unfinished sessio
 records are evidence, not runtime drivers. Production support comes from a native LibHandheld
 contribution. AllyXLab was retired on 2026-09-25, once the wizard covered it.
 
+**Device Lab and KX are removed (2026-10-28).** Device Lab, its tests, publishing scripts and skill
+were deleted from the repository. Hardware evidence is gathered in attended sessions and recorded in
+the family `PROVENANCE.md` beside the LibHandheld code it supports. Handheld Companion's KX helper
+and its blocked HwRwDrv driver were removed too: Intel package power limits and OC-mailbox settings
+use the signed PawnIO IntelMSR module. Only MSR 0x610 carries power limits, so the MCHBAR mirror is
+left as the firmware set it, and Intel GPU clock control is no longer offered.
+
 **Handheld Companion is the Ally plugin's primary reference, buttons included (2026-09-25).** The
 ROG Ally plugin was first built with HHD as the authority for buttons, because HC's button handling
 had been reported buggy. WSGM runs on Windows, and HC 1.3.1.6 is the reference that ships and is
 used on these devices under Windows, so its event semantics now lead: 0x93 is a separate Library
 control and 0xA7/0xA8 are M2 press and release. HHD stays the cross-check and the source for what HC
 does not do. HC's controller tables are sent as HC sends them, even where they differ from HHD's: an
-Xbox Ally X refused the HHD-layout set. A Device Lab observation beats both. The per-fact record is
-`external/libhandheld/src/LibHandheld/Families/RogAlly/PROVENANCE.md`.
+Xbox Ally X refused the HHD-layout set. An attended hardware observation beats both. The per-fact
+record is `external/libhandheld/src/LibHandheld/Families/RogAlly/PROVENANCE.md`.
 
 **WSGM owns HidHide's cloak (2026-09-28).** WSGM used to treat the cloak switch as a prerequisite it
 only read, and Handheld Companion's uninstaller turns it off. Anyone who removed HC would then run

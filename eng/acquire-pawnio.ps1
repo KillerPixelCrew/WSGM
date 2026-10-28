@@ -6,8 +6,7 @@
     Reads external/pawnio/pawnio.lock.json, downloads the installer when it is missing, and fails
     when its SHA-256 or Authenticode signer differs from the pin. Each pinned module is extracted from
     its release archive after the archive digest is checked, and the module digest is checked too.
-    Files that already match are left alone, so the script is safe to run before every Device Lab
-    publish.
+    Files that already match are left alone, so the script is safe to run before every build.
 #>
 [CmdletBinding()]
 param(

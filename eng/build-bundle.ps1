@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Builds every bundled plugin package, the bundle manifest and Device Lab from this checkout.
+    Builds every bundled plugin package and the bundle manifest from this checkout.
 
 .DESCRIPTION
     Setup carries every accepted common plugin and installs the selected packages, so a release
@@ -18,8 +18,8 @@
     Run the community step only in a job that holds no secrets: it builds and therefore executes
     third-party MSBuild code.
 
-    Output under -OutputRoot: Packages\<id>-<version>.wsgmpkg, bundle.json, and Tools\DeviceLab
-    unless -SkipTools. Nothing touches hardware.
+    Output under -OutputRoot: Packages\<id>-<version>.wsgmpkg and bundle.json. Nothing touches
+    hardware.
 #>
 [CmdletBinding()]
 param(
@@ -34,8 +34,6 @@ param(
 
     [switch]$SkipCommunity,
 
-    [switch]$SkipTools,
-
     # Builds only these plugin ids, for a development deploy.
     [string[]]$Only = @()
 )
@@ -43,7 +41,6 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
-. (Join-Path $PSScriptRoot "device-lab-publish.ps1")
 . (Join-Path $PSScriptRoot "plugin-package-common.ps1")
 $outputFull = if ([IO.Path]::IsPathRooted($OutputRoot)) {
     [IO.Path]::GetFullPath($OutputRoot)
@@ -141,24 +138,8 @@ function Get-OutdatedLog([string]$Message) {
 }
 
 try {
-    # Publish optional tooling and each selected package through their own project graphs.
-    # Never restore WSGM.slnx here: the community job has no access to private application libraries.
-    if (-not $SkipTools) {
-        $deviceLabDestination = Join-Path $temporaryRoot "Tools\DeviceLab"
-        Publish-DeviceLab -Root $root -Destination $deviceLabDestination -Configuration $Configuration `
-            -RuntimeIdentifier $RuntimeIdentifier -NoRestore:$NoRestore
-        foreach ($requiredToolFile in @(
-            (Join-Path $deviceLabDestination "wsgm-device.exe"),
-            (Join-Path $deviceLabDestination "THIRD_PARTY_NOTICES.md"),
-            (Join-Path $deviceLabDestination "DotNetRuntime-LICENSE.txt"),
-            (Join-Path $deviceLabDestination "DotNetRuntime-THIRD-PARTY-NOTICES.txt")
-        )) {
-            if (-not (Test-Path -LiteralPath $requiredToolFile -PathType Leaf)) {
-                throw "Device Lab publish is missing required content: $requiredToolFile"
-            }
-        }
-    }
-
+    # Publish each selected package through its own project graph. Never restore WSGM.slnx here:
+    # the community job has no access to private application libraries.
     $packed = Join-Path $temporaryRoot "Packed"
     $packages = Join-Path $temporaryRoot "Packages"
     New-Item -ItemType Directory -Path $packed, $packages | Out-Null
@@ -261,9 +242,6 @@ try {
     [IO.File]::WriteAllText((Join-Path $temporaryRoot "bundle.json"), $bundleJson + "`n", [Text.UTF8Encoding]::new($false))
 
     $components = @("Packages", "bundle.json")
-    if (-not $SkipTools) {
-        $components += "Tools"
-    }
     New-Item -ItemType Directory -Path $outputFull -Force | Out-Null
     foreach ($component in $components) {
         $destination = Join-Path $outputFull $component

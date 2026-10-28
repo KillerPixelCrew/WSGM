@@ -1,4 +1,4 @@
-// Shared between WSGM and Device Lab (linked as a source file): the one open-read-write sequence on
+// Linked into WSGM as a source file: the one open-read-write sequence on
 // HidHide's control device. It depends only on WSGM.Interop and logs nothing.
 
 using System.Collections.Generic;

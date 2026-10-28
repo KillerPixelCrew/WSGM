@@ -1,5 +1,5 @@
-// Shared between WSGM and Device Lab (linked as a source file): HidHide's control device, declared
-// once. It depends only on Kernel32 and logs nothing, so either project can compile it.
+// Linked into WSGM as a source file: HidHide's control device, declared
+// once. It depends only on Kernel32 and logs nothing.
 
 using System;
 using System.Collections.Generic;

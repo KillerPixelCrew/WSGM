@@ -99,7 +99,6 @@ parity review.
 | -------------------------------------------------------- | --------------------------------------------------------------------------- |
 | Semantic device-plugin contract                          | `external/libhandheld/src/LibHandheld/Contracts`                            |
 | Common plugin contract, instances and extension surfaces | `src/WSGM.Plugin.Sdk`                                                       |
-| Hardware authoring/evidence tool                         | `src/WSGM.DeviceLab`                                                        |
 | Handheld Companion scaffold (unfinished)                 | `src/WSGM.Device.HandheldCompanion`                                         |
 | MSI Claw device behavior                                 | `external/libhandheld/src/LibHandheld/Families/MsiClaw`                     |
 | ROG Ally device behavior and recorded evidence status    | `external/libhandheld/src/LibHandheld/Families/RogAlly`                     |
@@ -134,7 +133,7 @@ Start at `docs/README.md`; then use:
 | SD cards                                                  | `sd-cards.md`                                                             | `wsgm-core`; live formatting remains explicitly attended  |
 | Steam CEF/QAM patches                                     | `steam-cef-system.md`, `steam-cef.md`, toolkit reference                  | Steam CEF skills                                          |
 | device host and SDK contract                              | `device-integration.md`, `device-plugin-system.md`, SDK reference         | `wsgm-device-sdk`                                         |
-| new hardware discovery                                    | Device Lab README, device plan/provenance                                 | `wsgm-device-lab`                                         |
+| new hardware discovery                                    | family PROVENANCE and attended evidence                                   | `wsgm-device-sdk`                                         |
 
 `_plan/implementation-todo.md` is the progress tracker. Requirements and dated findings are not a
 second progress counter. Reconfirm drift-prone hardware/Steam facts before changing behavior.

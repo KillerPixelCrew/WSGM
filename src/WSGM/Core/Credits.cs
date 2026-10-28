@@ -34,7 +34,7 @@ public static class Credits
     /// <summary>The people WSGM thanks, in the order they are shown.</summary>
     public static IReadOnlyList<Credit> People { get; } =
     [
-        new("Brochacho", "Main tester of every release, and donor of the ROG Xbox Ally X in the Device Lab.",
+        new("Brochacho", "Main tester of every release, and donor of the ROG Xbox Ally X used for development.",
             "https://github.com/BrochachoTheBro")
     ];
 

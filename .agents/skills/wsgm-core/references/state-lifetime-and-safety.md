@@ -181,7 +181,6 @@ The following require explicit maintainer direction and a recovery path even whe
   maintenance modes;
 - UAC/lock changes and Steam Input shim maintenance;
 - `eng/dev-deploy.ps1` and release/install scripts;
-- Device Lab capture/read probes/hardware actions;
 - live Steam helpers under `tools/WsgmLibTest`;
 - real SD-card format/eject, radio, display, controller, sensor, fan, power, lighting, or firmware
   checks.

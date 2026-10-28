@@ -453,8 +453,8 @@ internal static class WindowsSetup
     }
 
     /// <summary>
-    ///     Elects setup as the machine's hardware owner. WSGM and Device Lab hold the same unowned marker
-    ///     while plugin code may run; "already exists" means one of them still does. A process that just
+    ///     Elects setup as the machine's hardware owner. WSGM holds the same unowned marker
+    ///     while plugin code may run; "already exists" means it still does. A process that just
     ///     exited can hold it a moment longer, and the old Inno uninstaller hands off to a temporary copy that
     ///     releases it only as it finishes, so setup waits for the release instead of refusing at once.
     /// </summary>

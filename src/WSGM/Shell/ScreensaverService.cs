@@ -10,7 +10,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
 using WSGM.Core;
-using WSGM.DeviceLab.Application;
 using WSGM.Interop;
 
 namespace WSGM.Shell;

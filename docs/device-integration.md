@@ -130,8 +130,7 @@ users do not need to configure rear assignments in Predator Sense first. Fan ori
 readable behavior return to firmware Auto with unverified restoration. Lighting changes retain the
 other profile fields and never write ROM. Shared ring color and eight measured segment colors use
 the same backend; the unassigned ninth wire slot is retained. Optional Intel voltage settings use
-the signed PawnIO IntelMSR module; Atlas does not require the blocked KX helper. Exact on-device
-results and remaining acceptance are in the
+the signed PawnIO IntelMSR module. Exact on-device results and remaining acceptance are in the
 [Acer provenance](../external/libhandheld/src/LibHandheld/Families/Acer/PROVENANCE.md).
 
 113 exact definitions select authored artwork through 107 glyph profiles. WSGM imports those
@@ -143,9 +142,9 @@ outcomes. Historical log labels containing `package` refer to a native family, n
 device plugin. Source coverage is distinct from physical validation on each model.
 
 [Handheld contributions](handheld-contributions.md) describes implementing protocols, exact
-definitions and fixtures. Device Lab is an attended evidence/contribution tool, not a production
-driver or a device-package generator. Independent integrations such as IR use the
-[common plugin host](plugin-system.md), which refuses the retired `wsgm.device` category.
+definitions and fixtures. Attended hardware evidence is recorded in the family provenance.
+Independent integrations such as IR use the [common plugin host](plugin-system.md), which refuses
+the retired `wsgm.device` category.
 
 Atlas 8 power range and load findings are recorded in the LibHandheld
 [power-limit investigation](../external/libhandheld/src/LibHandheld/Families/Acer/POWER_LIMIT_TESTS.md).

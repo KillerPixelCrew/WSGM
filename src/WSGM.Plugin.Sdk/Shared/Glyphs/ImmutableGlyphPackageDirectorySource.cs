@@ -10,7 +10,7 @@ namespace WSGM.Device.Sdk.Glyphs;
 /// <remarks>
 ///     Reads deny write and delete sharing and re-check every existing path component after the file
 ///     handle is open. This is still a data reader only; package selection and trust remain with the
-///     runtime or Device Lab caller.
+///     runtime caller.
 /// </remarks>
 public sealed class ImmutableGlyphPackageDirectorySource : IGlyphPackageSource
 {

@@ -142,7 +142,6 @@ if ([string]::IsNullOrWhiteSpace($BundleFrom)) {
         -OutputRoot "$root\publish" `
         -Configuration Release `
         -RuntimeIdentifier win-x64 `
-        -SkipTools `
         -NoRestore
 }
 else {

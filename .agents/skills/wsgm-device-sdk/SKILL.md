@@ -2,7 +2,7 @@
 name: wsgm-device-sdk
 description:
   Implement, review or diagnose built-in LibHandheld contracts, family protocols and WSGM handheld
-  host integration. Use Device Lab for hardware discovery and evidence.
+  host integration, including attended hardware evidence recorded in family provenance.
 ---
 
 # WSGM handheld integration

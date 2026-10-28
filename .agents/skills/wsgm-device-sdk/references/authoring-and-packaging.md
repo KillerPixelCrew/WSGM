@@ -2,8 +2,8 @@
 
 New handhelds are source contributions to `external/libhandheld`, with one exact model row and the
 smallest source-grounded transport. There is no device-plugin manifest, package loader, packing CLI
-or separate SDK project. Device Lab `scaffold` emits identity, decoder research, observed fixtures
-and provenance; it does not generate an installable DLL.
+or separate SDK project. A contribution carries exact identity, decoder research, observed fixtures
+and provenance.
 
 Read the current library public API and nearest family guidance. HC 1.3.1.6 under
 `_ref/HandheldCompanion` is the primary Windows reference; HHD is the cross-check for uncovered
@@ -23,5 +23,6 @@ disable PawnIO signature verification.
 Cover exact detection, protocol bytes, pre-dispatch cancellation, partial writes, lifecycle cleanup,
 held input release and firmware-bound recovery with hardware-free fixtures. Tests follow the parent
 manual-first policy. Builds and fixtures do not prove controller re-enumeration, fan, motion,
-lighting, rumble or power behaviour. An attended Device Lab report and provenance update establish
-that evidence. Release, deploy and live hardware actions need the maintainer's requested scope.
+lighting, rumble or power behaviour. Attended observations recorded in the family PROVENANCE
+establish that evidence. Release, deploy and live hardware actions need the maintainer's requested
+scope.

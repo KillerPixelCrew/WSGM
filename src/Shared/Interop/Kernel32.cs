@@ -1,4 +1,4 @@
-// Shared between WSGM, WSGM.DeviceLab and WSGM.PackagedLaunch (linked as a source file). Declarations only.
+// Shared between WSGM and WSGM.PackagedLaunch (linked as a source file). Declarations only.
 
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;

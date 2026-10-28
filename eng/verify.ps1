@@ -109,7 +109,7 @@ try {
     # a setup that installs a version nobody reviewed.
     & "$PSScriptRoot\assert-controller-pin.ps1"
 
-    # Device Lab installs PawnIO on testers' machines from this pin; keep it exact and reviewable.
+    # Setup installs PawnIO from this pin; keep it exact and reviewable.
     & "$PSScriptRoot\assert-pawnio-pin.ps1"
 
     # The vendored Rust library is validated and built before the .NET build,

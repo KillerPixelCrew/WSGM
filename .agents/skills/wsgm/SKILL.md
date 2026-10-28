@@ -3,8 +3,8 @@ name: wsgm
 description:
   Plan, implement, review or document work anywhere in WSGM. Start here for project architecture,
   source ownership, reusable building blocks, UI parity, maintenance rules and routing to the Core,
-  Steam CEF, handheld integration or Device Lab skill. Use before deciding where a feature belongs
-  or adding a new service, control, project or abstraction.
+  Steam CEF or handheld integration skill. Use before deciding where a feature belongs or adding a
+  new service, control, project or abstraction.
 ---
 
 # WSGM
@@ -36,7 +36,7 @@ the overlay and Steam Big Picture. The maintainer's instructions take precedence
 | Add or change a Steam page, QAM row, native setting, patch, bridge contract or frontend | Reusable mechanics in `external/steam-ui-toolkit`; WSGM policy/adapters in `Shell/`, WSGM-only feature logic/frontend fragments in `Core/`   | [Steam CEF toolkit](../wsgm-steam-cef-toolkit/SKILL.md)                                                                                                                    |
 | Diagnose a Steam frontend or attachment failure                                         | Start with logs and the failed lifecycle boundary; use current-run Steam startup evidence before any live debugger tool                      | [Steam CEF debugging](../wsgm-steam-cef-debugging/SKILL.md)                                                                                                                |
 | Device lifecycle, capabilities, controller reports or package authoring                 | LibHandheld public contracts and family protocols; `Shell/Device*` host policy                                                               | [Device SDK](../wsgm-device-sdk/SKILL.md)                                                                                                                                  |
-| Unknown hardware, OEM protocols, controller/motion/haptics evidence                     | `WSGM.DeviceLab`; its knowledge and reports are evidence, not runtime hardware drivers                                                       | [Device Lab](../wsgm-device-lab/SKILL.md)                                                                                                                                  |
+| Unknown hardware, OEM protocols, controller/motion/haptics evidence                     | Attended observations recorded in the family `PROVENANCE.md` beside its LibHandheld code; evidence, not a runtime driver                     | [Device SDK](../wsgm-device-sdk/SKILL.md)                                                                                                                                  |
 | Common plugin, session action or GPU driver feature                                     | `WSGM.Plugin.Sdk`, `Shell/CommonPlugin*`, `Shell/GpuCoordinator` and `WSGM.Plugin.*`; independent of the selected handheld lifetime          | [Plugin system](../../../docs/plugin-system.md), [Plugin SDK reference](../../../src/WSGM.Plugin.Sdk/docs/reference.md), and Core/Device SDK as appropriate                |
 | Reusable Windows audio, radios, brightness, display or power primitive                  | `external/windows-device-control`; the caller owns UI, user policy and persistent recovery                                                   | [Windows library](../../../external/windows-device-control/docs/README.md)                                                                                                 |
 | Installation, sign-in service or game wrappers                                          | `WSGM.Setup`, `WSGM.Install`, `WSGM.LogonService`, `WSGM.Launch`, `WSGM.PackagedLaunch`; preserve their distinct token and process lifetimes | [Development](../../../docs/development.md), [setup](../../../docs/setup.md), [boot](../../../docs/boot-and-shell.md), [launcher](../../../docs/packaged-game-launcher.md) |
@@ -133,7 +133,7 @@ Steam. Read the [debugging preflight](../wsgm-steam-cef-debugging/SKILL.md). The
 runtime's window-based gate is documented separately and does not satisfy this attended-debugging
 requirement.
 
-Live shell/boot changes, installation, plugin maintenance, Device Lab writes, Steam mutation and
+Live shell/boot changes, installation, plugin maintenance, hardware writes, Steam mutation and
 release builds require the task's explicit scope. Documentation or inspection alone does not grant
 those operations.
 

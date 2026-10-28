@@ -268,7 +268,6 @@ internal sealed class HandheldDeviceRuntime : IAsyncDisposable, ICapabilityPubli
         var directory = Path.Combine(Path.GetFullPath(stateRoot), definition.FamilyId);
         var device = HandheldDevice.Create(definition, identity, directory, Trace, new P.HandheldResources
         {
-            IntelKxPath = Path.Combine(AppContext.BaseDirectory, "Resources", "Intel", "KX", "KX.exe"),
             InpOutPath = Path.Combine(AppContext.BaseDirectory, "Resources", "InpOut", "inpoutx64.dll")
         });
         Log.Info($"Handheld selected: model={definition.Id}, family={definition.FamilyId}, source={SourceVersion}, "

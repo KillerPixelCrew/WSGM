@@ -14,7 +14,6 @@ public sealed class DeviceBoundaryTests
         Assert.Contains("LibGPUDriverInteract", references);
         Assert.Contains("WSGM.Plugin.Sdk", references);
         Assert.DoesNotContain(references, reference => reference.StartsWith("WSGM.Device.", StringComparison.Ordinal));
-        Assert.DoesNotContain("WSGM.DeviceLab", references);
     }
 
     [Fact]
@@ -22,7 +21,7 @@ public sealed class DeviceBoundaryTests
     {
         var projects = SolutionProjects().ToArray();
 
-        Assert.Contains("src/WSGM.DeviceLab/WSGM.DeviceLab.csproj", projects);
+        Assert.DoesNotContain(projects, project => project.Contains("DeviceLab", StringComparison.Ordinal));
         Assert.Contains("external/libhandheld/src/LibHandheld/LibHandheld.csproj", projects);
         Assert.Equal("src/WSGM.Plugin.Sdk/WSGM.Plugin.Sdk.csproj",
             Assert.Single(projects, path => Path.GetFileName(path) == "WSGM.Plugin.Sdk.csproj"));
@@ -72,7 +71,6 @@ public sealed class DeviceBoundaryTests
                         deviceControl,
                         "external/libgpu-driver-interact/external/windows-device-control/src/WindowsDeviceControl/WindowsDeviceControl.csproj"
                     ],
-                    "WSGM.DeviceLab" => [handheldLibrary],
                     "WSGM.Install" => [pluginSdk, handheldLibrary],
                     "WSGM" =>
                     [
@@ -113,14 +111,8 @@ public sealed class DeviceBoundaryTests
     }
 
     [Fact]
-    public void DeviceLabUsesTheProductLicenseWhileTheSdkContractsStayMit()
+    public void SdkContractsStayMit()
     {
-        var lab = RepositoryFiles.LoadProject("src/WSGM.DeviceLab/WSGM.DeviceLab.csproj");
-        Assert.Equal("GPL-3.0-or-later", Assert.Single(lab.Descendants("PackageLicenseExpression")).Value);
-        var license = Assert.Single(lab.Descendants("EmbeddedResource"), resource =>
-            (string?)resource.Attribute("LogicalName") == "WSGM.DeviceLab.Help.LICENSE");
-        Assert.Equal("LICENSE", Assert.Single(Resolved("src/WSGM.DeviceLab/WSGM.DeviceLab.csproj", [license])));
-
         var sdk = RepositoryFiles.LoadProject("src/WSGM.Plugin.Sdk/WSGM.Plugin.Sdk.csproj");
         Assert.Equal("MIT", Assert.Single(sdk.Descendants("PackageLicenseExpression")).Value);
         Assert.Equal("0.4.0", Assert.Single(sdk.Descendants("Version")).Value);

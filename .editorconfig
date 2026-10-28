@@ -22,12 +22,6 @@ dotnet_diagnostic.IDE0005.severity = warning
 # formatter disagrees on a few constructs and must not fail the build over them.
 dotnet_diagnostic.IDE0055.severity = none
 
-# Rider groups Windows.* with System.* while Roslyn otherwise sorts Microsoft.* before Windows.*.
-# Use alphabetical imports in files that need both namespaces so both cleanup engines agree.
-[src/WSGM.DeviceLab/Capture/Live/{LabMotionRecorder,LabRumbleRoutes}.cs]
-dotnet_sort_system_directives_first = false
-resharper_csharp_sort_usings_with_system_first = false
-
 [*.{axaml,xml,csproj,props,slnx}]
 indent_size = 2
 
@@ -60,22 +54,11 @@ resharper_conditional_access_qualifier_is_non_nullable_according_to_api_contract
 resharper_unused_parameter_local_highlighting = none
 resharper_unused_member_local_highlighting = none
 
-# Capture, inventory, probe and fixture models are the JSON file schema (DeviceLabJsonContext) and the CLI/GUI reflection output.
-[src/WSGM.DeviceLab/**.cs]
-resharper_unused_auto_property_accessor_global_highlighting = none
-resharper_unused_member_global_highlighting = none
-resharper_not_accessed_positional_property_global_highlighting = none
-resharper_unused_method_return_value_global_highlighting = none
-
 # Normalize repairs explicit JSON nulls over the initializers; the guards are its purpose (ConfigurationTests pins it).
 [src/WSGM/Core/ConfigStore.cs]
 resharper_null_coalescing_condition_is_always_not_null_according_to_api_contract_highlighting = none
 resharper_condition_is_always_true_or_false_according_to_nullable_api_contract_highlighting = none
 resharper_conditional_access_qualifier_is_non_nullable_according_to_api_contract_highlighting = none
-
-# Token-replacement templates that ScaffoldFromCaptureWorkflow fills in; they are not source.
-[src/WSGM.DeviceLab/Templates/**]
-resharper_reassigned_to_plain_text_highlighting = none
 
 # Closures run inside awaited work before the using scope ends, callbacks assert their arguments, xUnit 2 has no test token, shared fakes are linked into several projects, and binary literals stay readable.
 [tests/**.cs]
@@ -102,10 +85,6 @@ resharper_unused_member_global_highlighting = none
 resharper_unused_member_global_highlighting = none
 resharper_member_can_be_private_global_highlighting = none
 resharper_unused_method_return_value_global_highlighting = none
-
-# HID caps and SetupDi detail layouts use runtime marshalling for their inline native arrays.
-[src/WSGM.DeviceLab/Windows/HidDevices*.cs]
-dotnet_diagnostic.SYSLIB1054.severity = none
 
 
 # Collection expressions for HashSet and Dictionary with a comparer need C# 15 `with(...)`; the SDK
