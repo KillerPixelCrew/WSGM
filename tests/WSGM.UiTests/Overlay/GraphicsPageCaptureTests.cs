@@ -153,14 +153,13 @@ public sealed class GraphicsPageCaptureTests
             : UiFixture.Named<StackPanel>(window, "GraphicsCapabilityList"), graphics);
         Assert.Equal(width, window.ClientSize.Width);
         Assert.Equal(height, window.ClientSize.Height);
-        Rect? rasterNoiseRegion = null;
-        if (page != "pinned")
-        {
-            var overviewIcon = UiFixture.Rail(window, "device.overview").GetVisualDescendants()
-                .OfType<Path>().Single();
-            rasterNoiseRegion = new Rect(overviewIcon.TranslatePoint(default, window)!.Value,
-                overviewIcon.Bounds.Size);
-        }
+        // Thin icon strokes antialias a level or two apart between runs: the device overview icon on the
+        // device pages, and the Steam tab icon on the pinned page.
+        var noisyIcon = (page == "pinned" ? UiFixture.Tab(window, 1) : UiFixture.Rail(window, "device.overview"))
+            .GetVisualDescendants().OfType<Path>().First();
+        // The stroke reaches just past the geometry bounds.
+        Rect? rasterNoiseRegion = new Rect(noisyIcon.TranslatePoint(default, window)!.Value, noisyIcon.Bounds.Size)
+            .Inflate(2);
 
         VisualBaseline.Verify(window, name, rasterNoiseRegion);
         if (page != "pinned")

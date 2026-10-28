@@ -257,9 +257,10 @@ public sealed class SteamDeckNeptuneReportTests
             }
         });
 
+        // 32768 counts per 2000 deg/s: 1, 2 and 3 deg/s round to 16, 33 and 49.
         Assert.Equal(16, BitConverter.ToInt16(frame, 30));
-        Assert.Equal(32, BitConverter.ToInt16(frame, 32));
-        Assert.Equal(48, BitConverter.ToInt16(frame, 34));
+        Assert.Equal(33, BitConverter.ToInt16(frame, 32));
+        Assert.Equal(49, BitConverter.ToInt16(frame, 34));
         Assert.Equal(4096, BitConverter.ToInt16(frame, 24));
         Assert.Equal(12288, BitConverter.ToInt16(frame, 26));
         Assert.Equal(-8192, BitConverter.ToInt16(frame, 28));

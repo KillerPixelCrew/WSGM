@@ -5,6 +5,7 @@ using System.Threading;
 using Windows.Management.Deployment;
 using WindowsDeviceControl;
 using LibHandheld;
+using WSGM.Shared;
 using DeploymentPackageStatus = Windows.Management.Deployment.PackageStatus;
 
 namespace WSGM.Core;
@@ -141,12 +142,12 @@ internal sealed class OtherManagerWindowsTargets : IOtherManagerTargets
                 : $"/disable-device \"{target.Name}\" /force";
             var result = ConsoleTool.RunAsync(ConsoleTool.System32("pnputil.exe"), arguments)
                 .GetAwaiter().GetResult();
-            if (result.ExitCode == 3010)
+            if (result.ExitCode == SessionProtocolNames.RestartRequired)
             {
                 RestartRequired = true;
                 Log.Warn("Other managers: dedicated controller keyboard change requires a Windows restart.");
             }
-            return result.ExitCode is 0 or 3010;
+            return result.ExitCode is 0 or SessionProtocolNames.RestartRequired;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

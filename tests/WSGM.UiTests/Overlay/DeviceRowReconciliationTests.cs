@@ -361,11 +361,11 @@ public sealed class DeviceRowReconciliationTests
         UiFixture.OpenSections(window);
         var detail = UiFixture.Named<StackPanel>(window, "DeviceCapabilityList");
         var group = Assert.IsType<Border>(Assert.Single(detail.Children));
-        var fold = Assert.IsType<CollapsibleSection>(group.Child);
-        Assert.True(fold.IsExpanded);
+        // Power groups sit unfolded inside the page's single Power section.
+        Assert.IsNotType<CollapsibleSection>(group.Child);
         Assert.True(detail.Bounds.Width > 0);
         Assert.Equal(detail.Bounds.Width, group.Bounds.Width, 3);
-        Assert.Single(fold.GetVisualDescendants().OfType<Slider>());
+        Assert.Single(group.GetVisualDescendants().OfType<Slider>());
         window.Close();
     }
 

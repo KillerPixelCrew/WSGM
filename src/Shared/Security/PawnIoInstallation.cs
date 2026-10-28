@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32;
+using WSGM.Shared;
 
 namespace WSGM.Security;
 
@@ -146,8 +147,8 @@ internal sealed class PawnIoInstallation(Assembly assembly, string pinResource, 
                 "PawnIO installation is still running; no second installer was started."), false);
         }
 
-        var success = process.ExitCode is 0 or 3010;
-        return (new DriverInstallResult(success, success, process.ExitCode == 3010,
+        var success = process.ExitCode is 0 or SessionProtocolNames.RestartRequired;
+        return (new DriverInstallResult(success, success, process.ExitCode == SessionProtocolNames.RestartRequired,
             success ? null : $"PawnIO installer exited with code {process.ExitCode}."), true);
     }
 

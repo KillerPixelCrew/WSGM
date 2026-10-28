@@ -110,14 +110,16 @@ public sealed class EmulatorPortableTests
         var originalConfig = File.ReadAllBytes(config);
         var installed = Installation(temporary.Root, id, "replacement");
         var program = Path.GetDirectoryName(installed.ExecutablePath)!;
-        var marker = Write(program, "portable.txt", "original portable binding");
+        // ARMSX2 reads portable.txt as its data path and accepts only adjacent data.
+        var binding = id == "armsx2" ? "." : "original portable binding";
+        var marker = Write(program, "portable.txt", binding);
         var originalProgram = Directory.EnumerateFileSystemEntries(program).Order().ToArray();
         var failure = Assert.Throws<InvalidDataException>(() => EmulatorPortableSetup.Prepare(installed,
             installed.DataPath, previous, CancellationToken.None, true));
         Assert.Contains(source, failure.Message);
         Assert.Equal(originalConfig, File.ReadAllBytes(config));
         Assert.Equal("original user data", File.ReadAllText(Path.Combine(previous.DataPath, "untouched.bin")));
-        Assert.Equal("original portable binding", File.ReadAllText(marker));
+        Assert.Equal(binding, File.ReadAllText(marker));
         Assert.Equal(originalProgram, Directory.EnumerateFileSystemEntries(program).Order().ToArray());
         Assert.False(Directory.Exists(installed.DataPath));
         Assert.False(Directory.Exists(Path.GetDirectoryName(source)));

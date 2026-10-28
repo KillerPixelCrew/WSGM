@@ -7,6 +7,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Interop;
+using WSGM.Shared;
 
 namespace WSGM.Core;
 
@@ -157,13 +158,13 @@ public sealed partial class EmulatorManager
                     }
 
                     setupRunning = false;
-                    if (setup.ExitCode is not (0 or 3010))
+                    if (setup.ExitCode is not (0 or SessionProtocolNames.RestartRequired))
                     {
                         throw new InvalidOperationException(label + " setup exited with code " + setup.ExitCode +
                             ". Check the Microsoft setup result before trying again.");
                     }
 
-                    return setup.ExitCode == 3010;
+                    return setup.ExitCode == SessionProtocolNames.RestartRequired;
                 }
             }
             finally

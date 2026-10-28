@@ -123,8 +123,8 @@ public sealed class SteamUiSessionHostTests : IDisposable
         await WaitForAsync(() => transport.BridgeConfiguration is not null);
 
         Assert.Contains(
-            "\"steam-ui.device-controls\":[\"setChargeLimit\","
-            + "\"setLightingBrightness\",\"setLightingColor\",\"setControl\"]",
+            "\"steam-ui.device-controls\":[\"setControl\",\"setChargeLimit\","
+            + "\"setLightingBrightness\",\"setLightingColor\"]",
             transport.BridgeConfiguration,
             StringComparison.Ordinal);
     }

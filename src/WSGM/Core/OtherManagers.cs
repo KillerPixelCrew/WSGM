@@ -7,6 +7,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32;
+using WSGM.Shared;
 
 namespace WSGM.Core;
 
@@ -474,14 +475,14 @@ public static class OtherManagers
 
             foreach (var target in manager.Targets)
             {
-                (left?.Targets.Any(item => Key(item) == Key(target)) == true && elevatedExit != 3010 ? failed : disabled)
+                (left?.Targets.Any(item => Key(item) == Key(target)) == true && elevatedExit != SessionProtocolNames.RestartRequired ? failed : disabled)
                     .Add($"{manager.Manager.Label} {target.Kind} {target.Name}");
             }
         }
 
         return new OtherManagersResult(disabled, failed, [.. remaining.SelectMany(manager => manager.Running)])
         {
-            RestartRequired = elevatedExit == 3010
+            RestartRequired = elevatedExit == SessionProtocolNames.RestartRequired
         };
     }
 
@@ -545,7 +546,7 @@ public static class OtherManagers
         {
             var detected = Detect();
             var result = Disable(detected, entry => Record(store, entry));
-            return result.Failed.Count > 0 ? 1 : result.RestartRequired ? 3010 : 0;
+            return result.Failed.Count > 0 ? 1 : result.RestartRequired ? SessionProtocolNames.RestartRequired : 0;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
@@ -639,7 +640,7 @@ public static class OtherManagers
                     [.. config.OtherManagersDisabled.Where(entry => !done.Contains(Key(entry)))];
                 return true;
             });
-            return restored.Count != records.Count ? 1 : targets.RestartRequired ? 3010 : 0;
+            return restored.Count != records.Count ? 1 : targets.RestartRequired ? SessionProtocolNames.RestartRequired : 0;
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

@@ -157,12 +157,12 @@ the maker's services it had turned off, and on an Ally the Armoury Crate helper 
 Armoury Crate button with a dialog asking to install Armoury Crate SE. Every shell start therefore
 detects again on a worker and turns off what came back. The session-owned worker repeats the check
 every five minutes and is cancelled/joined during shutdown. Only the shell-start check asks running
-manager windows to close; a later re-check never closes an app the user opened. No re-check prompts, so an
-unelevated WSGM only logs what it found. Settings > System shows what was recorded and offers "Take
-over again", which detects on a worker and applies from the Settings process when it is elevated, or
-through the `--disable-other-managers` one-shot with one prompt otherwise. Pressed before the
-takeover was accepted, it names what it found and asks to save first, and a save with the takeover
-accepted applies it again, like the Steam autostart takeover.
+manager windows to close; a later re-check never closes an app the user opened. No re-check prompts,
+so an unelevated WSGM only logs what it found. Settings > System shows what was recorded and offers
+"Take over again", which detects on a worker and applies from the Settings process when it is
+elevated, or through the `--disable-other-managers` one-shot with one prompt otherwise. Pressed
+before the takeover was accepted, it names what it found and asks to save first, and a save with the
+takeover accepted applies it again, like the Steam autostart takeover.
 
 ## Native handheld support without the controller prerequisites
 

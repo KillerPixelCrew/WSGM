@@ -1070,12 +1070,12 @@ internal sealed class SetupEngine : IDisposable
         {
             File.WriteAllText(file, answers.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
             var result = _runtime.Run(AppExe, $"--setup --answers=\"{file}\"");
-            if (result == 3010)
+            if (result == SessionProtocolNames.RestartRequired)
             {
                 RestartRequired = true;
                 step.Note = "Restart Windows to finish turning off the other handheld manager's shortcuts and helpers.";
             }
-            return Fail(step, result is 0 or 3010,
+            return Fail(step, result is 0 or SessionProtocolNames.RestartRequired,
                 "WSGM could not apply your choices; see wsgm.log.");
         }
         finally
@@ -1272,13 +1272,13 @@ internal sealed class SetupEngine : IDisposable
         var arguments = string.Join(" ", component.GetProperty("silentArguments").EnumerateArray()
             .Select(argument => argument.GetString()));
         var code = _runtime.Run(installer, arguments);
-        if (code is 0 or 3010)
+        if (code is 0 or SessionProtocolNames.RestartRequired)
         {
             Components = Components with { HidHide = true };
             Components.Write(ComponentsFile);
-            RestartRequired |= code == 3010;
+            RestartRequired |= code == SessionProtocolNames.RestartRequired;
         }
-        return Fail(step, code is 0 or 3010,
+        return Fail(step, code is 0 or SessionProtocolNames.RestartRequired,
             $"HidHide setup exited with code {code}. Steam may show duplicate controllers until it is installed.");
     }
 
@@ -1378,9 +1378,9 @@ internal sealed class SetupEngine : IDisposable
         }
 
         var code = _runtime.Run(app, "--uninstall-restore");
-        if (code is 0 or 3010)
+        if (code is 0 or SessionProtocolNames.RestartRequired)
         {
-            RestartRequired |= code == 3010;
+            RestartRequired |= code == SessionProtocolNames.RestartRequired;
             _controllerRestored = true;
             StillHiddenDevices = [];
             return true;

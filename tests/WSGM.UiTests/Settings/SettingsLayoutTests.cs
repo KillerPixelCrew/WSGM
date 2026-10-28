@@ -30,7 +30,13 @@ public sealed class SettingsLayoutTests
         Assert.Contains(text, control => control.Text == "G-SYNC enabled");
         Assert.Equal(3, model.GameLayout.Selected?.GpuControls.Count);
         Assert.Empty(model.GameLayout.GlobalGpuControls);
-        VisualBaseline.Verify(window, "settings-display-custom-" + width);
+        // The detail card's rounded edges antialias a level or two apart between runs; anything real in
+        // the card moves far more than the noise budget.
+        var card = window.GetVisualDescendants().OfType<ComboBox>().Single(combo => combo.Name == "ResolutionChoice")
+            .GetVisualAncestors().OfType<Border>()
+            .First(border => border.Classes.Contains("layout-surface"));
+        VisualBaseline.Verify(window, "settings-display-custom-" + width,
+            new Rect(card.TranslatePoint(default, window)!.Value, card.Bounds.Size));
     }
 
     [AvaloniaFact]

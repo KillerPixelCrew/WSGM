@@ -283,6 +283,7 @@ public sealed class OverlayInteractionTests
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         UiFixture.Click(window, UiFixture.Named<StackPanel>(window, "SectionRail").Children.OfType<Button>()
             .Single(button => AutomationProperties.GetName(button) == "Power"));
+        UiFixture.OpenSections(window);
         var dropdowns = window.GetVisualDescendants().OfType<ComboBox>().ToArray();
         Assert.DoesNotContain(dropdowns, control => Equals(control.Tag, "device.power-preset.choice"));
         var battery = dropdowns.Single(control => Equals(control.Tag, "device.power-assignment.battery"));
@@ -630,6 +631,7 @@ public sealed class OverlayInteractionTests
         window.AttachPowerSchemes(selection);
         UiFixture.Click(window, UiFixture.Tab(window, 2));
         Dispatcher.UIThread.RunJobs();
+        UiFixture.OpenSections(window);
         var combo = window.GetVisualDescendants().OfType<ComboBox>()
             .Single(control => Equals(control.Tag, "system.power-profile.choice"));
         combo.Focus();

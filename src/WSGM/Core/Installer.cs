@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using WSGM.Shared;
 
 namespace WSGM.Core;
 
@@ -97,8 +98,8 @@ public static class Installer
 
         // Handheld Companion and the maker's apps start again the way they did before setup's Full mode.
         var managers = OtherManagers.RestoreAll(store);
-        complete &= managers is 0 or 3010;
-        restartRequired = managers == 3010;
+        complete &= managers is 0 or SessionProtocolNames.RestartRequired;
+        restartRequired = managers == SessionProtocolNames.RestartRequired;
 
         if (config is null)
         {

@@ -70,6 +70,12 @@ public sealed class NotesLayoutTests
 
         Assert.Contains(page.Strokes[1].Id, erased);
         await AsyncConditions.WaitForAsync(() => canvas.Page?.Strokes.Count == page.Strokes.Count - 1);
+        // The saved erase rebuilds the toolbar; settle it before taking the undo button to click.
+        await AsyncConditions.WaitForAsync(() =>
+        {
+            Dispatcher.UIThread.RunJobs();
+            return Tagged(window, "notes.undo").IsEffectivelyEnabled;
+        });
         UiFixture.Click(window, Tagged(window, "notes.undo"));
         await AsyncConditions.WaitForAsync(() => canvas.Page?.Strokes.Count == page.Strokes.Count);
         Assert.Equal(page.Strokes.Select(stroke => stroke.Id), service.ReadPage(page.Id)!.Strokes.Select(stroke => stroke.Id));

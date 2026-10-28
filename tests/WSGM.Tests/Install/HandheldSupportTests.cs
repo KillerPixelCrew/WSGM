@@ -17,7 +17,8 @@ public sealed class HandheldSupportTests
 
         Assert.NotNull(offers.Handheld);
         Assert.Equal(family, offers.Handheld.Definition.FamilyId);
-        Assert.Equal([SetupComponent.ControllerStack], offers.Handheld.Components);
+        // Processor settings use the signed PawnIO RyzenSMU or IntelMSR module on every exact model.
+        Assert.Equal([SetupComponent.ControllerStack, SetupComponent.PawnIo], offers.Handheld.Components);
     }
 
     [Theory]

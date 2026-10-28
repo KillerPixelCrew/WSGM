@@ -21,10 +21,20 @@ namespace WSGM.UiTests.Visual;
 public static class PreviewExports
 {
     /// <summary>Renders destinations and transient surfaces for visual inspection at an explicit viewport.</summary>
+    /// <param name="directory">The output folder.</param>
+    /// <param name="width">The viewport width in DIPs.</param>
+    /// <param name="height">The viewport height in DIPs.</param>
+    /// <param name="scale">The render scale.</param>
+    /// <param name="publicationPath">
+    ///     Another device's publication. It exports only the device pages, skips sections that device lacks
+    ///     and adds one capture per expanded group.
+    /// </param>
+    /// <param name="deviceName">The device name shown, the Claw fixture's by default.</param>
     public static void Export(string directory, int width, int height, double scale = 1,
-        string? publicationPath = null, string deviceName = "MSI Claw 8 AI+")
+        string? publicationPath = null, string? deviceName = null)
     {
         Directory.CreateDirectory(directory);
+        var devicePagesOnly = publicationPath is not null;
         foreach (var page in new[]
                  {
                      "quick-access", "steam", "steam-launch", "tools",
@@ -33,7 +43,7 @@ public static class PreviewExports
                      "device-controller", "device-info", "device-gpu", "power-menu", "keyboard"
                  })
         {
-            if (publicationPath is not null && !page.StartsWith("device", StringComparison.Ordinal))
+            if (devicePagesOnly && !page.StartsWith("device", StringComparison.Ordinal))
             {
                 continue;
             }
@@ -59,7 +69,7 @@ public static class PreviewExports
             device.SampleSource = host;
             device.State = host.Snapshot() with
             {
-                Status = deviceName, Detail = "Device integration active",
+                Status = deviceName ?? "MSI Claw 8 AI+", Detail = "Device integration active",
                 Capabilities =
                 [
                     .. capabilities.Select(view => DeviceOverlayBridge.ToOverlayCapability(view, ids)),
@@ -101,15 +111,15 @@ public static class PreviewExports
                 var rail = UiFixture.Named<StackPanel>(window, "SectionRail");
                 var button = rail.Children.OfType<Button>().FirstOrDefault(item =>
                     item.Tag is string key && key.Contains(section, StringComparison.OrdinalIgnoreCase));
-                if (button is null && publicationPath is not null)
-                {
-                    window.Close();
-                    performance.DisposeAsync().AsTask().GetAwaiter().GetResult();
-                    continue;
-                }
-
                 if (button is null)
                 {
+                    if (devicePagesOnly)
+                    {
+                        window.Close();
+                        performance.DisposeAsync().AsTask().GetAwaiter().GetResult();
+                        continue;
+                    }
+
                     throw new InvalidOperationException($"No {page} section. Available: "
                                                         + string.Join(", ", rail.Children.OfType<Button>()
                                                             .Select(button => button.Tag)));
@@ -155,7 +165,7 @@ public static class PreviewExports
                                      ?? throw new InvalidOperationException("No expanded frame was available.");
                 expanded.Save(Path.Combine(directory, $"{page}-expanded-{width}x{height}-{scale:0.##}.png"),
                     new PngBitmapEncoderOptions());
-                if (publicationPath is not null)
+                if (devicePagesOnly)
                 {
                     for (var index = 0; index < folds.Length; index++)
                     {
@@ -186,7 +196,7 @@ public static class PreviewExports
             performance.DisposeAsync().AsTask().GetAwaiter().GetResult();
         }
 
-        if (publicationPath is not null)
+        if (devicePagesOnly)
         {
             return;
         }

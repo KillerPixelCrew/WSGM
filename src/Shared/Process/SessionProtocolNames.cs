@@ -11,6 +11,12 @@ internal static class SessionProtocolNames
     /// </summary>
     internal const int SteamStartupMovieStillSetAside = 2;
 
+    /// <summary>
+    ///     ERROR_SUCCESS_REBOOT_REQUIRED: the operation succeeded and Windows must restart to finish it.
+    ///     Installers, pnputil and WSGM's own one-shots report it the same way.
+    /// </summary>
+    internal const int RestartRequired = 3010;
+
     internal const string ExitForUpdate = @"Local\WSGM.ExitForUpdate";
     internal const string ExitForUninstall = @"Local\WSGM.ExitForUninstall";
     internal const string ShellMutex = @"Local\WSGM.Shell";
