@@ -157,6 +157,9 @@
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.13"/>
     <PackageReference Include="SharpCompress" Version="0.50.7"/>
     <PackageReference Include="System.IO.Hashing" Version="10.0.13"/>
+    <!-- OSD and fan-curve CPU/GPU sensors. A prerelease on purpose: 0.9.6 has no Panther Lake, and
+         RTSS's bundled provider (0.9.5) still reads through the blocked WinRing0 driver. -->
+    <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.7-pre773"/>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4258.31" GeneratePathProperty="true" ExcludeAssets="compile;build;buildTransitive"/>
     <Reference Include="Microsoft.Web.WebView2.Core">
       <HintPath>$(PkgMicrosoft_Web_WebView2)\lib_manual\netcoreapp3.0\Microsoft.Web.WebView2.Core.dll</HintPath>

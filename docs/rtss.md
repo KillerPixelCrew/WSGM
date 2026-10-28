@@ -225,21 +225,23 @@ the pool, with a bounded cleanup retry if another writer is busy. An RTSS restar
 reopening the mapping and re-claiming on the next tick.
 
 Level 1 reads no sensors: RTSS supplies its FPS tags. Richer levels publish their layout and FPS
-before optional telemetry collection, so a cold sensor provider cannot delay the first OSD text. An
-unavailable RTSS location does not consume the provider-start cooldown. Clearing a previously
-published OSD retries a refused write before parking the renderer. Disabling performance integration
-clears WSGM's slot and retains its saved preference; it does not disable other RTSS feeders.
+before optional telemetry collection, so a cold sensor library cannot delay the first OSD text.
+Clearing a previously published OSD retries a refused write before parking the renderer. Disabling
+performance integration clears WSGM's slot and retains its saved preference; it does not disable
+other RTSS feeders.
 
 Content templates (`RtssOsdContent`) are HC's `Overlay/Strategy` structures; `<FR>`/`<FT>` are
-RTSS's own framerate tags. Sensor values come from RTSS's own LibreHardwareMonitor provider,
-`LHMDataProvider.exe`, which publishes the sensor tree as XML in the `LHMDPSharedMemory` mapping
-under the `Global\Access_LHMDPSharedMemory` mutex. `RtssLhmSensors` selects values with HC's
-sensor-name rules (`CPU Total`, `CPU Package` power/temperature, `D3D 3D`, `GPU Power`,
-dedicated-beats-shared GPU memory). WSGM starts the provider with `-i` when the mapping is absent;
-it deduplicates itself and is the process the Overlay Editor spawns. Samples are cached at HC's
-one-second cadence; kernel counters fill what the provider does not publish, and the battery stays
-kernel-fed because the provider ships with its battery section disabled. An entry whose metric has
-no source does not render.
+RTSS's own framerate tags. CPU and GPU sensor values come from `LhmSensorHost`, an in-process
+LibreHardwareMonitor (`LibreHardwareMonitorLib` 0.9.7-pre773, MPL-2.0) that opens only its CPU and
+GPU groups and reads MSRs through PawnIO. RTSS's bundled `LHMDataProvider.exe` is no longer used: it
+ships LibreHardwareMonitor 0.9.5, which reads through the blocked WinRing0 driver and does not know
+Panther Lake, so on the Atlas it published loads only. The prerelease is pinned because 0.9.6 also
+lacks Panther Lake. The library opens once in the background on the first sample.
+`RtssLhmSensors.Selection` picks values with HC's sensor-name rules (`CPU Total`, `CPU Package`
+power/temperature, `D3D 3D`, `GPU Power`, `GPU Core` temperature, dedicated-beats-shared GPU memory
+in bytes). Samples are cached at HC's one-second cadence; kernel counters supply system memory, the
+battery and CPU load until the library is open. An entry whose metric has no source does not render:
+LibreHardwareMonitor has no Intel integrated-GPU temperature, so the Atlas shows none.
 
 The slot is OSD data, not a window: it is visible only inside a rendering process RTSS has hooked
 and whose RTSS profile permits OSD (HandheldCompanion creates its OSD only from RTSS's `Hooked`

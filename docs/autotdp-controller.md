@@ -337,8 +337,7 @@ today.
   controller was given and a replay reproduces a timing decision.
 - Sensors are read once, before the decision, and the same sample goes on the trace row. The source
   is the one the OSD renderer already owns, reached through `IRtssAdapter.SampleSensors`, so there
-  is a single mapping handle, a single cached read per second, and a single attempt to start RTSS's
-  sensor provider. AutoTDP requires RTSS regardless, so starting the provider is in scope.
+  is a single in-process LibreHardwareMonitor instance and a single cached read per second.
 - Every tick reaches the controller once control has started, including ticks with no renderer at
   all. A quarantine has to outlive the telemetry that triggered it.
 - The context key carries the deadline as well as the application.

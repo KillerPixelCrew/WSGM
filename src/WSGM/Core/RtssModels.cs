@@ -125,12 +125,12 @@ internal interface IRtssAdapter : IAsyncDisposable
     /// <param name="status">Current sustained limit and AutoTDP activity.</param>
     void ApplyOsdPowerStatus(RtssOsdPowerStatus status);
 
-    /// <summary>Reads what RTSS's sensor provider currently publishes.</summary>
-    /// <returns>The latest sample, or an empty one when nothing is published.</returns>
+    /// <summary>Reads the session's current sensor sample.</summary>
+    /// <returns>The latest sample, or an empty one when no sensor is available.</returns>
     /// <remarks>
     ///     One source for the whole session. The OSD draws from it and AutoTDP classifies stalls with
-    ///     it, and sharing keeps that to a single mapping handle, a single cached read per second, and
-    ///     a single attempt to start the provider.
+    ///     it, and sharing keeps that to a single LibreHardwareMonitor instance and a single cached
+    ///     read per second.
     /// </remarks>
     RtssOsdMetrics SampleSensors();
 

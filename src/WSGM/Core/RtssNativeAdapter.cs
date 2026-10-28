@@ -30,9 +30,7 @@ internal sealed class RtssNativeAdapter : IRtssAdapter
     internal RtssNativeAdapter(RtssDiscovery? discovery = null)
     {
         _discovery = discovery ?? new RtssDiscovery();
-        // The renderer's sensor source starts RTSS's LHM provider on demand, which needs the
-        // installation directory the last probe verified.
-        _osd = new RtssOsdRenderer(() => _lastProbe?.ExecutablePath);
+        _osd = new RtssOsdRenderer();
         _osd.Start();
     }
 

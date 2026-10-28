@@ -166,7 +166,7 @@ $appFiles = @(
     "LibHandheld-Transports-NOTICES.md", "LibHandheld-Transports-MPL-2.0.txt", "LibHandheld-Transports-LGPL-2.1.txt",
     "LoadingIndicators.Avalonia-UNLICENSE.txt", "Avalonia.Labs-MIT.txt",
     "Avalonia.LiveBackdrop.ThirdParty.txt", "WebView2-LICENSE.txt", "WebView2-NOTICE.txt",
-    "Microsoft.Data.Sqlite-MIT.txt", "SQLitePCLRaw-Apache-2.0.txt",
+    "Microsoft.Data.Sqlite-MIT.txt", "SQLitePCLRaw-Apache-2.0.txt", "LibreHardwareMonitor-MPL-2.0.txt",
     "DotNetRuntime-LICENSE.txt", "DotNetRuntime-THIRD-PARTY-NOTICES.txt"
 )
 $appFiles += $handheldFamilyFiles

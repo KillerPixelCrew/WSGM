@@ -55,6 +55,8 @@ foreach ($screensaverFile in @("WSGM.ScreensaverHost.exe", "WSGM.ScreensaverHost
 Require-File "App\WebView2-LICENSE.txt"
 Require-File "App\Microsoft.Data.Sqlite-MIT.txt"
 Require-File "App\SQLitePCLRaw-Apache-2.0.txt"
+Require-File "App\LibreHardwareMonitorLib.dll"
+Require-File "App\LibreHardwareMonitor-MPL-2.0.txt"
 Require-File "App\DotNetRuntime-LICENSE.txt"
 Require-File "App\DotNetRuntime-THIRD-PARTY-NOTICES.txt"
 foreach ($family in @("Ayaneo", "Generic", "Gpd", "LegionGo", "MsiClaw", "OneXPlayer", "RogAlly", "SteamDeck", "Zotac")) {

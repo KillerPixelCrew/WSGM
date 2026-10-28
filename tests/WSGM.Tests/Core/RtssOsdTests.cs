@@ -1,4 +1,5 @@
 using System.Text;
+using LibreHardwareMonitor.Hardware;
 using WSGM.Core;
 using WSGM.Shell;
 
@@ -167,39 +168,27 @@ public sealed class RtssOsdContentTests
 
 public sealed class RtssLhmSensorsTests
 {
-    // The provider's real shape from the Claw: a fragment stream of <hardware> elements,
-    // culture-formatted decimal commas, GPU memory in megabytes.
-    private const string ClawSample = """
-                                      <hardware>
-                                      <id>/motherboard</id><name>MSI MS-1T52</name><type>Motherboard</type>
-                                      </hardware>
-                                      <hardware>
-                                      <id>/intelcpu/0</id><name>Intel Core Ultra 7 258V</name><type>Cpu</type>
-                                      <sensor><id>/intelcpu/0/load/0</id><name>CPU Total</name><type>Load</type><value>17,4</value></sensor>
-                                      <sensor><id>/intelcpu/0/load/2</id><name>CPU Core #1</name><type>Load</type><value>37,5</value></sensor>
-                                      <sensor><id>/intelcpu/0/temperature/10</id><name>CPU Package</name><type>Temperature</type><value>58,0</value></sensor>
-                                      <sensor><id>/intelcpu/0/power/0</id><name>CPU Package</name><type>Power</type><value>12,6</value></sensor>
-                                      <sensor><id>/intelcpu/0/power/4</id><name>CPU Platform</name><type>Power</type><value>19,6</value></sensor>
-                                      </hardware>
-                                      <hardware>
-                                      <id>/ram</id><name>Generic Memory</name><type>Memory</type>
-                                      <sensor><id>/ram/data/0</id><name>Memory Used</name><type>Data</type><value>10,2</value></sensor>
-                                      <sensor><id>/ram/data/1</id><name>Memory Available</name><type>Data</type><value>21,3</value></sensor>
-                                      </hardware>
-                                      <hardware>
-                                      <id>/gpu-intel-integrated/x</id><name>Intel(R) Arc(TM) 140V GPU</name><type>GpuIntel</type>
-                                      <sensor><id>/gpu-intel-integrated/x/power/0</id><name>GPU Power</name><type>Power</type><value>0,3</value></sensor>
-                                      <sensor><id>/gpu-intel-integrated/x/load/0</id><name>D3D 3D</name><type>Load</type><value>8,3</value></sensor>
-                                      <sensor><id>/gpu-intel-integrated/x/load/13</id><name>D3D Video Decode</name><type>Load</type><value>99,0</value></sensor>
-                                      <sensor><id>/gpu-intel-integrated/x/smalldata/0</id><name>D3D Shared Memory Used</name><type>SmallData</type><value>1264,8</value></sensor>
-                                      <sensor><id>/gpu-intel-integrated/x/smalldata/2</id><name>D3D Shared Memory Total</name><type>SmallData</type><value>18409,7</value></sensor>
-                                      </hardware>
-                                      """;
+    private const double Mib = 1024.0 * 1024;
 
     [Fact]
     public void SelectsHandheldCompanionsSensors()
     {
-        var metrics = RtssLhmSensors.Parse(ClawSample);
+        // LibreHardwareMonitor 0.9.7's names on the Atlas (Panther Lake, Arc B370), plus the Claw's
+        // D3D memory sensors.
+        RtssLhmSensors.Selection selection = new();
+        selection.Add(HardwareType.Cpu, SensorType.Load, "CPU Total", 17.4);
+        selection.Add(HardwareType.Cpu, SensorType.Load, "CPU Core #1", 37.5);
+        selection.Add(HardwareType.Cpu, SensorType.Temperature, "Core Max", 61);
+        selection.Add(HardwareType.Cpu, SensorType.Temperature, "CPU Package", 58);
+        selection.Add(HardwareType.Cpu, SensorType.Power, "CPU Package", 12.6);
+        selection.Add(HardwareType.Cpu, SensorType.Power, "CPU Platform", 19.6);
+        selection.Add(HardwareType.GpuIntel, SensorType.Power, "GPU Power", 0.3);
+        selection.Add(HardwareType.GpuIntel, SensorType.Load, "D3D 3D", 8.3);
+        selection.Add(HardwareType.GpuIntel, SensorType.Load, "D3D Video Decode", 99);
+        selection.Add(HardwareType.GpuIntel, SensorType.Data, "D3D Shared Memory Used", 1264.8 * Mib);
+        selection.Add(HardwareType.GpuIntel, SensorType.Data, "D3D Shared Memory Total", 18409.7 * Mib);
+
+        var metrics = selection.Build();
 
         Assert.Equal(17.4, metrics.CpuLoadPercent!.Value, 3);
         Assert.Equal(12.6, metrics.CpuPowerWatts!.Value, 3);
@@ -209,39 +198,35 @@ public sealed class RtssLhmSensorsTests
         Assert.Null(metrics.GpuTemperatureC);
         Assert.Equal(1264.8 / 1024.0, metrics.GpuMemoryUsedGb!.Value, 3);
         Assert.Equal(18409.7 / 1024.0, metrics.GpuMemoryTotalGb!.Value, 3);
-        Assert.Equal(10.2, metrics.MemoryUsedGb!.Value, 3);
-        Assert.Equal(31.5, metrics.MemoryTotalGb!.Value, 3);
-        // Battery is kernel-fed; the provider ships with its battery section disabled.
+        // System memory and battery are kernel-fed.
+        Assert.Null(metrics.MemoryUsedGb);
         Assert.Null(metrics.BatteryPercent);
     }
 
     [Fact]
     public void PrefersDedicatedGpuMemoryOverShared()
     {
-        const string sample = """
-                              <hardware>
-                              <id>/gpu/0</id><name>GPU</name><type>GpuAmd</type>
-                              <sensor><id>/g/1</id><name>D3D Shared Memory Used</name><type>SmallData</type><value>2048</value></sensor>
-                              <sensor><id>/g/2</id><name>GPU Memory Used</name><type>SmallData</type><value>1024</value></sensor>
-                              <sensor><id>/g/3</id><name>GPU Memory Total</name><type>SmallData</type><value>4096</value></sensor>
-                              </hardware>
-                              """;
+        RtssLhmSensors.Selection selection = new();
+        selection.Add(HardwareType.GpuAmd, SensorType.Data, "D3D Shared Memory Used", 2048 * Mib);
+        selection.Add(HardwareType.GpuAmd, SensorType.Data, "GPU Memory Used", 1024 * Mib);
+        selection.Add(HardwareType.GpuAmd, SensorType.Data, "GPU Memory Total", 4096 * Mib);
 
-        var metrics = RtssLhmSensors.Parse(sample);
+        var metrics = selection.Build();
 
         Assert.Equal(1.0, metrics.GpuMemoryUsedGb!.Value, 3);
         Assert.Equal(4.0, metrics.GpuMemoryTotalGb!.Value, 3);
     }
 
     [Fact]
-    public void ATornSnapshotYieldsNothing()
+    public void IgnoresSensorsOutsideCpuAndGpu()
     {
-        var metrics = RtssLhmSensors.Parse("<hardware><sensor><name>CPU T");
+        RtssLhmSensors.Selection selection = new();
+        selection.Add(HardwareType.Motherboard, SensorType.Temperature, "CPU Package", 90);
+        selection.Add(HardwareType.Memory, SensorType.Power, "GPU Power", 5);
 
-        Assert.Equal(RtssOsdMetrics.Empty, metrics);
+        Assert.Equal(RtssOsdMetrics.Empty, selection.Build());
     }
 }
-
 public sealed class RtssOsdCustomTests
 {
     private static readonly RtssOsdMetrics Metrics = RtssOsdMetrics.Empty with

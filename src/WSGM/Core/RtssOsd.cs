@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.IO.MemoryMappedFiles;
@@ -9,7 +8,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Xml;
+using LibreHardwareMonitor.Hardware;
 using Windows.Devices.Power;
 using WindowsDeviceControl;
 using WSGM.Interop;
@@ -581,304 +580,193 @@ internal sealed record RtssOsdCustomSettings(
     }
 }
 
-/// <summary>Reads the sensor XML RTSS's own LibreHardwareMonitor provider publishes.</summary>
+/// <summary>Hosts LibreHardwareMonitor in process for the CPU and GPU sensors the OSD shows.</summary>
 /// <remarks>
-///     <c>LHMDataProvider.exe</c> is the GUI-less LibreHardwareMonitor the Overlay Editor ships; it
-///     exports the whole sensor tree as XML into the <c>LHMDPSharedMemory</c> mapping under the
-///     <c>Global\Access_LHMDPSharedMemory</c> mutex (live-verified on the Claw, 2026-09-01). Reading
-///     it gives WSGM the same values the user's overlay layouts see, with no sensor stack of its own.
-///     The provider self-deduplicates, so asking it to start when the mapping is absent is safe.
+///     RTSS's bundled provider ships LibreHardwareMonitor 0.9.5, which reads MSRs through the blocked
+///     WinRing0 driver and does not know Panther Lake: on the Atlas it exported loads only. The pinned
+///     build reads through PawnIO and recognizes current Intel and AMD parts. Only the CPU and GPU
+///     groups are opened; motherboard Super I/O and EC probing stay off so no handheld EC is touched.
+///     Opening enumerates hardware for a while, so it runs once in the background and the OSD shows
+///     kernel-fed values until it completes. A failed open is logged once and not retried.
 /// </remarks>
-internal sealed class LhmSensorReader : IDisposable
+internal sealed class LhmSensorHost : IDisposable
 {
-    private const string MapName = "LHMDPSharedMemory";
-
-    private const string MutexName = "Global\\Access_LHMDPSharedMemory";
-
+    private readonly Lock _gate = new();
+    private Computer? _computer;
     private bool _disposed;
-    private Mutex? _gate;
-
-    /// <summary>
-    ///     Whether opening the provider's mutex already failed for this mapping. The provider builds
-    ///     that ship without the mutex make every read throw and swallow a
-    ///     <see cref="WaitHandleCannotBeOpenedException" />, once a second for the whole session, so
-    ///     the open is attempted once per mapping and again only after the mapping is reopened.
-    /// </summary>
-    private bool _gateUnavailable;
-
-    private MemoryMappedFile? _map;
-    private MemoryMappedViewAccessor? _view;
+    private Task? _opening;
 
     /// <inheritdoc />
     public void Dispose()
     {
-        _disposed = true;
-        Close();
+        Computer? computer;
+        lock (_gate)
+        {
+            _disposed = true;
+            computer = _computer;
+            _computer = null;
+        }
+
+        computer?.Close();
     }
 
-    /// <summary>Reads the current sensor XML, or null while the provider is not publishing.</summary>
-    /// <returns>The XML fragment stream (multiple root elements), or null.</returns>
-    internal unsafe string? TryReadXml()
+    /// <summary>Updates the CPU and GPU hardware and selects the OSD's values.</summary>
+    /// <returns>The selected sensors, or null while the library is still opening or unavailable.</returns>
+    /// <remarks>Called under the metrics source's lock, at most once per second.</remarks>
+    internal RtssOsdMetrics? TrySample()
     {
-        if (_disposed || !TryOpen())
+        Computer? computer;
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return null;
+            }
+
+            _opening ??= Task.Run(Open);
+            computer = _computer;
+        }
+
+        if (computer is null)
         {
             return null;
         }
 
+        RtssLhmSensors.Selection selection = new();
         try
         {
-            var held = false;
-            try
+            foreach (var hardware in computer.Hardware)
             {
-                try
+                hardware.Update();
+                foreach (var sensor in hardware.Sensors)
                 {
-                    if (!_gateUnavailable)
+                    if (sensor.Value is { } value)
                     {
-                        _gate ??= Mutex.OpenExisting(MutexName);
-                        held = _gate.WaitOne(TimeSpan.FromMilliseconds(200));
+                        selection.Add(hardware.HardwareType, sensor.SensorType, sensor.Name, value);
                     }
-                }
-                catch (Exception ex) when (ex is WaitHandleCannotBeOpenedException
-                                               or UnauthorizedAccessException or AbandonedMutexException)
-                {
-                    // No lock is still a readable snapshot: the provider replaces the buffer
-                    // in one write and the XML parse rejects a torn one harmlessly.
-                    held = ex is AbandonedMutexException;
-                    if (ex is not AbandonedMutexException)
-                    {
-                        _gateUnavailable = true;
-                        Log.Change("rtss-lhm-mutex", $"LHM sensor mutex unavailable: {ex.GetType().Name}.");
-                    }
-                }
-
-                var size = checked((int)_view!.Capacity);
-                byte* pointer = null;
-                var pointerAcquired = false;
-                try
-                {
-                    _view.SafeMemoryMappedViewHandle.AcquirePointer(ref pointer);
-                    pointerAcquired = true;
-                    pointer += _view.PointerOffset;
-                    var length = new ReadOnlySpan<byte>(pointer, size).IndexOf((byte)0);
-                    return length <= 0 ? null : Encoding.UTF8.GetString(pointer, length);
-                }
-                finally
-                {
-                    if (pointerAcquired)
-                    {
-                        _view.SafeMemoryMappedViewHandle.ReleasePointer();
-                    }
-                }
-            }
-            finally
-            {
-                if (held)
-                {
-                    _gate?.ReleaseMutex();
                 }
             }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
-                                       or ArgumentException or ObjectDisposedException)
+        catch (Exception ex)
         {
-            Log.Warn($"LHM sensor read failed; reopening next sample: {ex.Message}");
-            Close();
+            // One failed update leaves this sample kernel-fed; the next second tries again.
+            Log.Change("lhm-update", $"LibreHardwareMonitor update failed: {ex.GetType().Name}: {ex.Message}");
             return null;
         }
+
+        Log.Change("lhm-update", "LibreHardwareMonitor sensors updating.");
+        return selection.Build();
     }
 
-    private bool TryOpen()
+    private void Open()
     {
-        if (_view is not null)
-        {
-            return true;
-        }
-
+        Computer computer = new() { IsCpuEnabled = true, IsGpuEnabled = true };
         try
         {
-            _map = MemoryMappedFile.OpenExisting(MapName, MemoryMappedFileRights.Read);
-            _view = _map.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
-            Log.Change("rtss-lhm-map", "LHM sensor shared memory open.");
-            return true;
+            computer.Open();
         }
-        catch (Exception ex) when (ex is FileNotFoundException or UnauthorizedAccessException
-                                       or IOException)
+        catch (Exception ex)
         {
-            Log.Change(
-                "rtss-lhm-map",
-                $"LHM sensor shared memory unavailable: {ex.GetType().Name}.");
-            Close();
-            return false;
+            Log.Warn($"LibreHardwareMonitor sensors unavailable: {ex.Message}");
+            return;
         }
-    }
 
-    private void Close()
-    {
-        _view?.Dispose();
-        _view = null;
-        _map?.Dispose();
-        _map = null;
-        _gate?.Dispose();
-        _gate = null;
-        _gateUnavailable = false;
+        lock (_gate)
+        {
+            if (!_disposed)
+            {
+                _computer = computer;
+                Log.Info("LibreHardwareMonitor sensors open: "
+                         + string.Join(", ", computer.Hardware.Select(item => $"{item.HardwareType} {item.Name}")));
+                return;
+            }
+        }
+
+        computer.Close();
     }
 }
 
 /// <summary>
-///     Selects the OSD's values out of the provider's sensor XML — HandheldCompanion's
-///     sensor-name rules (<c>LibreHardwarePlatform</c>) ported onto the exported tree.
+///     Selects the OSD's values from LibreHardwareMonitor sensors with HandheldCompanion's
+///     sensor-name rules (<c>LibreHardwarePlatform</c>).
 /// </summary>
 internal static class RtssLhmSensors
 {
-    /// <summary>
-    ///     Parses the provider XML into the metrics it can supply. Fields with no matching
-    ///     sensor stay null; a torn or foreign buffer yields <see cref="RtssOsdMetrics.Empty" />.
-    /// </summary>
-    /// <param name="xml">The exported sensor XML (a fragment stream, one element per hardware).</param>
-    /// <returns>The partial metrics.</returns>
-    internal static RtssOsdMetrics Parse(string xml)
+    /// <summary>Collects one update's sensors; fields with no matching sensor stay null.</summary>
+    internal sealed class Selection
     {
-        ArgumentNullException.ThrowIfNull(xml);
-        double? cpuLoad = null, cpuPower = null, cpuTemp = null;
-        double? gpuLoad = null, gpuPower = null, gpuTemp = null;
-        int gpuMemoryUsedRank = int.MaxValue, gpuMemoryTotalRank = int.MaxValue;
-        double? gpuMemoryUsedMb = null, gpuMemoryTotalMb = null;
-        double? memoryUsedGb = null, memoryAvailableGb = null;
-        try
+        private const double Gib = 1024.0 * 1024 * 1024;
+
+        private double? _cpuLoad, _cpuPower, _cpuTemp;
+        private double? _gpuLoad, _gpuPower, _gpuTemp;
+        private double? _gpuMemoryUsedBytes, _gpuMemoryTotalBytes;
+        private int _gpuMemoryUsedRank = int.MaxValue, _gpuMemoryTotalRank = int.MaxValue;
+
+        /// <summary>Considers one sensor reading.</summary>
+        /// <param name="hardware">The hardware group the sensor belongs to.</param>
+        /// <param name="type">The sensor's kind.</param>
+        /// <param name="name">The sensor's LibreHardwareMonitor name.</param>
+        /// <param name="value">The current reading.</param>
+        internal void Add(HardwareType hardware, SensorType type, string name, double value)
         {
-            using var reader = XmlReader.Create(
-                new StringReader(xml),
-                new XmlReaderSettings
-                {
-                    ConformanceLevel = ConformanceLevel.Fragment
-                });
-            var hardwareType = string.Empty;
-            var element = string.Empty;
-            string sensorName = string.Empty, sensorType = string.Empty, sensorValue = string.Empty;
-            var inSensor = false;
-            while (reader.Read())
+            if (hardware is HardwareType.Cpu)
             {
-                // ReSharper disable once SwitchStatementMissingSomeEnumCasesNoDefault
-                switch (reader.NodeType)
+                // HC: total load, package power, package temperature.
+                switch (type)
                 {
-                    case XmlNodeType.Element:
-                    {
-                        element = reader.Name;
-                        if (element != "sensor")
-                        {
-                            break;
-                        }
-
-                        inSensor = true;
-                        sensorName = sensorType = sensorValue = string.Empty;
+                    case SensorType.Load when name == "CPU Total":
+                        _cpuLoad = value;
                         break;
-                    }
-                    case XmlNodeType.Text:
-                    {
-                        switch (inSensor)
-                        {
-                            case false when element == "type":
-                                hardwareType = reader.Value;
-                                break;
-                            case true:
-                                switch (element)
-                                {
-                                    case "name": sensorName = reader.Value; break;
-                                    case "type": sensorType = reader.Value; break;
-                                    case "value": sensorValue = reader.Value; break;
-                                }
-
-                                break;
-                        }
-
+                    case SensorType.Power when name is "CPU Package" or "Package":
+                        _cpuPower = value;
                         break;
-                    }
-                    case XmlNodeType.EndElement when reader.Name == "sensor":
+                    case SensorType.Temperature when name is "CPU Package" or "Core (Tctl/Tdie)":
+                        _cpuTemp = value;
+                        break;
+                }
+            }
+            else if (hardware is HardwareType.GpuIntel or HardwareType.GpuAmd or HardwareType.GpuNvidia)
+            {
+                switch (type)
+                {
+                    case SensorType.Load when name == "D3D 3D" || (name == "GPU Core" && _gpuLoad is null):
+                        _gpuLoad = name == "D3D 3D" ? value : _gpuLoad ?? value;
+                        break;
+                    case SensorType.Power when _gpuPower is null
+                                               && name is "GPU Power" or "GPU Package" or "GPU Core" or "GPU SoC":
+                        _gpuPower = value;
+                        break;
+                    case SensorType.Temperature when name == "GPU Core":
+                        _gpuTemp = value;
+                        break;
+                    case SensorType.Data:
                     {
-                        inSensor = false;
-                        if (!TryParseValue(sensorValue, out var value))
+                        // HC's preference order: dedicated GPU memory beats D3D dedicated beats
+                        // D3D shared; this library version reports bytes.
+                        var usedRank = name switch
                         {
-                            continue;
+                            "GPU Memory Used" => 0,
+                            "D3D Dedicated Memory Used" => 1,
+                            "D3D Shared Memory Used" => 2,
+                            _ => -1
+                        };
+                        if (usedRank >= 0 && usedRank < _gpuMemoryUsedRank)
+                        {
+                            _gpuMemoryUsedRank = usedRank;
+                            _gpuMemoryUsedBytes = value;
                         }
 
-                        if (hardwareType.StartsWith("Cpu", StringComparison.Ordinal))
+                        var totalRank = name switch
                         {
-                            // HC: total load, package power, package temperature.
-                            switch (sensorType)
-                            {
-                                case "Load" when sensorName == "CPU Total":
-                                    cpuLoad = value;
-                                    break;
-                                case "Power" when sensorName is "CPU Package" or "Package":
-                                    cpuPower = value;
-                                    break;
-                                case "Temperature" when sensorName is "CPU Package" or "Core (Tctl/Tdie)":
-                                    cpuTemp = value;
-                                    break;
-                            }
-                        }
-                        else if (hardwareType.StartsWith("Gpu", StringComparison.Ordinal))
+                            "GPU Memory Total" => 0,
+                            "D3D Dedicated Memory Total" => 1,
+                            "D3D Shared Memory Total" => 2,
+                            _ => -1
+                        };
+                        if (totalRank >= 0 && totalRank < _gpuMemoryTotalRank)
                         {
-                            switch (sensorType)
-                            {
-                                case "Load"
-                                    when sensorName == "D3D 3D" || (sensorName == "GPU Core" && gpuLoad is null):
-                                    gpuLoad = sensorName == "D3D 3D" ? value : gpuLoad ?? value;
-                                    break;
-                                case "Power" when gpuPower is null
-                                                  && sensorName is "GPU Power" or "GPU Package" or "GPU Core"
-                                                      or "GPU SoC":
-                                    gpuPower = value;
-                                    break;
-                                case "Temperature" when sensorName == "GPU Core":
-                                    gpuTemp = value;
-                                    break;
-                                case "Data" or "SmallData":
-                                {
-                                    // HC's preference order: dedicated GPU memory beats D3D dedicated
-                                    // beats D3D shared; the exporter reports megabytes.
-                                    var usedRank = sensorName switch
-                                    {
-                                        "GPU Memory Used" => 0,
-                                        "D3D Dedicated Memory Used" => 1,
-                                        "D3D Shared Memory Used" => 2,
-                                        _ => -1
-                                    };
-                                    if (usedRank >= 0 && usedRank < gpuMemoryUsedRank)
-                                    {
-                                        gpuMemoryUsedRank = usedRank;
-                                        gpuMemoryUsedMb = value;
-                                    }
-
-                                    var totalRank = sensorName switch
-                                    {
-                                        "GPU Memory Total" => 0,
-                                        "D3D Dedicated Memory Total" => 1,
-                                        "D3D Shared Memory Total" => 2,
-                                        _ => -1
-                                    };
-                                    if (totalRank < 0 || totalRank >= gpuMemoryTotalRank)
-                                    {
-                                        break;
-                                    }
-
-                                    gpuMemoryTotalRank = totalRank;
-                                    gpuMemoryTotalMb = value;
-                                    break;
-                                }
-                            }
-                        }
-                        else if (hardwareType == "Memory")
-                        {
-                            switch (sensorType)
-                            {
-                                case "Data" when sensorName == "Memory Used":
-                                    memoryUsedGb = value;
-                                    break;
-                                case "Data" when sensorName == "Memory Available":
-                                    memoryAvailableGb = value;
-                                    break;
-                            }
+                            _gpuMemoryTotalRank = totalRank;
+                            _gpuMemoryTotalBytes = value;
                         }
 
                         break;
@@ -886,51 +774,37 @@ internal static class RtssLhmSensors
                 }
             }
         }
-        catch (XmlException)
+
+        /// <summary>Returns the selected values; system memory and battery stay kernel-fed.</summary>
+        /// <returns>The partial metrics.</returns>
+        internal RtssOsdMetrics Build()
         {
-            // A torn snapshot read without the mutex; the next sample gets a whole one.
-            return RtssOsdMetrics.Empty;
+            return RtssOsdMetrics.Empty with
+            {
+                CpuLoadPercent = _cpuLoad,
+                CpuPowerWatts = _cpuPower,
+                CpuTemperatureC = _cpuTemp,
+                GpuLoadPercent = _gpuLoad,
+                GpuPowerWatts = _gpuPower,
+                GpuTemperatureC = _gpuTemp,
+                GpuMemoryUsedGb = _gpuMemoryUsedBytes / Gib,
+                GpuMemoryTotalGb = _gpuMemoryTotalBytes / Gib
+            };
         }
-
-        return RtssOsdMetrics.Empty with
-        {
-            CpuLoadPercent = cpuLoad,
-            CpuPowerWatts = cpuPower,
-            CpuTemperatureC = cpuTemp,
-            GpuLoadPercent = gpuLoad,
-            GpuPowerWatts = gpuPower,
-            GpuTemperatureC = gpuTemp,
-            GpuMemoryUsedGb = gpuMemoryUsedMb / 1024.0,
-            GpuMemoryTotalGb = gpuMemoryTotalMb / 1024.0,
-            MemoryUsedGb = memoryUsedGb,
-            MemoryTotalGb = memoryUsedGb + memoryAvailableGb
-        };
-    }
-
-    private static bool TryParseValue(string text, out double value)
-    {
-        // The exporter formats with the provider machine's culture: "37,5" on this device.
-        return double.TryParse(
-            text.Replace(',', '.'),
-            NumberStyles.Float,
-            CultureInfo.InvariantCulture,
-            out value);
     }
 }
 
 /// <summary>
-///     Sources the OSD metrics: RTSS's LibreHardwareMonitor provider first, with the kernel
-///     counters (CPU times, memory status, power status) filling anything the provider does not
-///     publish. Samples are cached for one second — HandheldCompanion's sensor cadence — so the OSD's
-///     100 ms redraw does not turn scheduler noise into a flickering number.
+///     Sources the OSD metrics: the in-process LibreHardwareMonitor host first, with the kernel
+///     counters (CPU times, memory status, power status) filling anything it does not supply.
+///     Samples are cached for one second — HandheldCompanion's sensor cadence — so the OSD's 100 ms
+///     redraw does not turn scheduler noise into a flickering number.
 /// </summary>
 internal sealed class RtssOsdMetricsSource : IDisposable
 {
     private static readonly TimeSpan SampleLifetime = TimeSpan.FromSeconds(1);
-    private static readonly TimeSpan ProviderStartCooldown = TimeSpan.FromSeconds(30);
 
-    private readonly LhmSensorReader _lhm = new();
-    private readonly Func<string?>? _rtssExecutablePath;
+    private readonly LhmSensorHost _lhm = new();
     private readonly Lock _sampleLock = new();
     private double? _batteryWatts;
 
@@ -944,17 +818,6 @@ internal sealed class RtssOsdMetricsSource : IDisposable
     private bool _hasCpuSample;
     private long _lastBusyBase;
     private long _lastIdle;
-    private long _providerAttemptTicks = -(long)ProviderStartCooldown.TotalMilliseconds;
-
-    /// <summary>Creates a metrics source.</summary>
-    /// <param name="rtssExecutablePath">
-    ///     Locates RTSS so its sensor provider can be started. Null only reads what a running provider
-    ///     publishes, for a diagnostic reader that must not start processes of its own.
-    /// </param>
-    internal RtssOsdMetricsSource(Func<string?>? rtssExecutablePath = null)
-    {
-        _rtssExecutablePath = rtssExecutablePath;
-    }
 
     /// <inheritdoc />
     public void Dispose()
@@ -987,28 +850,14 @@ internal sealed class RtssOsdMetricsSource : IDisposable
         }
 
         _cachedAtTicks = now;
-        var xml = _lhm.TryReadXml();
-        var metrics = xml is null ? RtssOsdMetrics.Empty : RtssLhmSensors.Parse(xml);
-        if (xml is null && _rtssExecutablePath is not null)
-        {
-            TryStartProvider(now);
-        }
-
-        metrics = metrics with { CpuLoadPercent = metrics.CpuLoadPercent ?? SampleCpu() };
-        if (metrics.MemoryUsedGb is null || metrics.MemoryTotalGb is null)
-        {
-            var (usedGb, totalGb) = SampleMemory();
-            metrics = metrics with
-            {
-                MemoryUsedGb = metrics.MemoryUsedGb ?? usedGb,
-                MemoryTotalGb = metrics.MemoryTotalGb ?? totalGb
-            };
-        }
-
-        // The provider ships with its battery section disabled, so the battery stays kernel-fed.
+        var metrics = _lhm.TrySample() ?? RtssOsdMetrics.Empty;
+        var (usedGb, totalGb) = SampleMemory();
         var (percent, minutes, onAc) = SampleBattery();
         _cached = metrics with
         {
+            CpuLoadPercent = metrics.CpuLoadPercent ?? SampleCpu(),
+            MemoryUsedGb = usedGb,
+            MemoryTotalGb = totalGb,
             CapturedAt = DateTimeOffset.UtcNow,
             BatteryPercent = percent,
             BatteryWatts = percent is null ? null : SampleBatteryWatts(now),
@@ -1016,52 +865,6 @@ internal sealed class RtssOsdMetricsSource : IDisposable
             OnAcPower = onAc
         };
         return _cached;
-    }
-
-    /// <summary>
-    ///     Starts RTSS's LHM provider when its mapping is absent. It deduplicates itself,
-    ///     and the Overlay Editor starts the same process the same way.
-    /// </summary>
-    /// <param name="nowTicks">Current tick count, for the retry cooldown.</param>
-    private void TryStartProvider(long nowTicks)
-    {
-        if (nowTicks - _providerAttemptTicks < ProviderStartCooldown.TotalMilliseconds)
-        {
-            return;
-        }
-
-        var executable = _rtssExecutablePath?.Invoke();
-        var directory = executable is null ? null : Path.GetDirectoryName(executable);
-        if (directory is null)
-        {
-            Log.Change("rtss-lhm-provider", "LHM sensor provider not started: RTSS location unknown.");
-            return;
-        }
-
-        var provider = Path.Combine(
-            directory, "Plugins", "Client", "LHMDataProvider", "LHMDataProvider.exe");
-        if (!File.Exists(provider))
-        {
-            Log.Change("rtss-lhm-provider", "LHM sensor provider not installed beside RTSS.");
-            return;
-        }
-
-        try
-        {
-            _providerAttemptTicks = nowTicks;
-            using var started = Process.Start(
-                new ProcessStartInfo(provider, "-i")
-                {
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    WorkingDirectory = Path.GetDirectoryName(provider)!
-                });
-            Log.Change("rtss-lhm-provider", "LHM sensor provider start requested.");
-        }
-        catch (Exception ex)
-        {
-            Log.Change("rtss-lhm-provider", $"LHM sensor provider start failed: {ex.Message}");
-        }
     }
 
     private double? SampleCpu()
@@ -1494,13 +1297,11 @@ internal sealed class RtssOsdRenderer : IAsyncDisposable
     private volatile RtssOsdPowerStatus _powerStatus = RtssOsdPowerStatus.Empty;
 
     /// <summary>Creates an OSD renderer with its own sensor source and mapping writer.</summary>
-    /// <param name="rtssExecutablePath">Supplies the last verified RTSS executable for optional sensor-provider startup.</param>
     /// <param name="write">Optional isolated OSD sink; null uses the owned shared-memory writer.</param>
     /// <param name="sample">Optional isolated telemetry source; null uses the owned sensor source.</param>
-    internal RtssOsdRenderer(Func<string?>? rtssExecutablePath = null,
-        Func<string, bool>? write = null, Func<RtssOsdMetrics>? sample = null)
+    internal RtssOsdRenderer(Func<string, bool>? write = null, Func<RtssOsdMetrics>? sample = null)
     {
-        _metrics = new RtssOsdMetricsSource(rtssExecutablePath);
+        _metrics = new RtssOsdMetricsSource();
         _write = write ?? _writer.TryUpdate;
         _sample = sample ?? _metrics.Sample;
     }
