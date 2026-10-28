@@ -78,8 +78,11 @@ internal sealed class OtherManagerWindowsTargets : IOtherManagerTargets
         }
         if (manager.DedicatedKeyboardDeviceId is { } deviceId)
         {
+            // An in-use leaf stays active until restart after an accepted disable; treating it as back
+            // would resend the disable on every five-minute re-check.
             foreach (var node in DeviceNodes.Enumerate(KeyboardClass)
-                         .Where(node => HasDeviceId(node.InstanceId, deviceId) && node.ProblemCode != 22))
+                         .Where(node => HasDeviceId(node.InstanceId, deviceId) && node.ProblemCode != 22
+                                        && !DeviceNodes.IsRestartPending(node.InstanceId)))
             {
                 found.Add(new OtherManagerRecord { ManagerId = manager.Id, Kind = "device", Name = node.InstanceId });
             }
