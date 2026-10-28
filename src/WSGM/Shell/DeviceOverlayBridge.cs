@@ -80,7 +80,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         HashSet<string> declaredSectionIds = new(
             DeviceSectionLayout.IncludePredefined(declaredSections).Select(section => section.SectionId),
             StringComparer.Ordinal);
-        var deviceViews = _coordinator.Capabilities.Snapshot();
+        var deviceViews = ManualFanVisibility.Filter(_coordinator.Capabilities.Snapshot());
         var capabilities = deviceViews
             .Select(view => ToOverlayCapability(view, declaredSectionIds, _coordinator.Profiles.Current.Layers))
             .ToList();
