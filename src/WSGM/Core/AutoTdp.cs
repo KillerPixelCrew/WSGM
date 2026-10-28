@@ -430,20 +430,17 @@ internal sealed class AutoTdpController
     }
 
     /// <summary>Suspends automatic control because the limit was changed by hand.</summary>
-    /// <param name="watts">The applied limit, or null when a firmware scenario owns its limits.</param>
+    /// <param name="watts">The limit the user or a profile just set.</param>
     /// <remarks>
     ///     The pause lasts until AutoTDP is switched off and on again. A user who moved the slider is
     ///     telling the controller its answer was wrong, and silently taking the limit back a few seconds
     ///     later is the single most confusing thing this feature could do.
     /// </remarks>
-    internal void PauseForManualChange(int? watts)
+    internal void PauseForManualChange(int watts)
     {
         IsPaused = true;
-        if (watts is { } known)
-        {
-            Watts = known;
-            LastGood = known;
-        }
+        Watts = watts;
+        LastGood = watts;
         ResetEvidence();
         ResetBackoff();
         Phase = AutoTdpPhase.Tracking;

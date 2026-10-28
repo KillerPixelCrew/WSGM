@@ -114,7 +114,7 @@ if (-not (Test-Path "$appPublish\LibHandheld.dll")) { throw "Handheld library wa
 
 # Family glyph licences and source provenance remain readable outside the embedded library.
 $handheldFamilyFiles = @()
-foreach ($family in @("Acer", "Ayaneo", "Generic", "Gpd", "LegionGo", "MsiClaw", "OneXPlayer", "RogAlly", "SteamDeck", "Zotac")) {
+foreach ($family in (Get-ChildItem -LiteralPath "$root\external\libhandheld\src\LibHandheld\Families" -Directory).Name) {
     $familySource = "$root\external\libhandheld\src\LibHandheld\Families\$family"
     foreach ($notice in @("THIRD_PARTY_NOTICES.md", "PROVENANCE.md", "LICENSE")) {
         $source = "$familySource\$notice"

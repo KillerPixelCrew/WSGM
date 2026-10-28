@@ -296,6 +296,12 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
     /// </remarks>
     internal DeviceCapabilityRouter Capabilities { get; }
 
+    /// <summary>The capability snapshot every user surface presents; see <see cref="ManualFanVisibility" />.</summary>
+    internal IReadOnlyList<DeviceCapabilityView> PresentedCapabilities()
+    {
+        return ManualFanVisibility.Filter(Capabilities.Snapshot());
+    }
+
     /// <summary>One-shot preset owner shared by device surfaces and the serialized power lane.</summary>
     internal DevicePowerPresets PowerPresets { get; }
 
@@ -539,13 +545,6 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
         {
             // An applied assignment pauses AutoTDP without saving its wattage as the user's limit.
             AutoTdp.NoteManualChange(watts);
-        }
-        else if (value.Kind == CapabilityValueKind.Choice && result.Outcome.IsApplied()
-                 && FindDescriptor(id, null)?.Role == CapabilityRole.ScenarioMode)
-        {
-            // Stock firmware scenarios have no declared wattage. Pause without inventing one;
-            // otherwise AutoTDP's next write would immediately put the device back into Manual.
-            AutoTdp.NoteManualChange(null);
         }
 
         return result;

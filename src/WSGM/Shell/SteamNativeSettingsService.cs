@@ -517,7 +517,7 @@ internal sealed partial class SteamNativeSettingsService(
 
         var declarations = DeviceOverlayBridge.ProjectSections(coordinator.Capabilities.Sections);
         HashSet<string> declared = new(declarations.Select(section => section.SectionId), StringComparer.Ordinal);
-        var capabilities = coordinator.Capabilities.Snapshot()
+        var capabilities = coordinator.PresentedCapabilities()
             .Select(view => DeviceOverlayBridge.ToOverlayCapability(view, declared, profile.Layers))
             .Where(capability => capability.Role is not CapabilityRole.PowerSustainedLimit
                 and not CapabilityRole.PowerSlowLimit and not CapabilityRole.VariableRefreshRate)

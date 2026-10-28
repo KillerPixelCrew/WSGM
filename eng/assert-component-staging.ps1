@@ -59,7 +59,7 @@ Require-File "App\LibreHardwareMonitorLib.dll"
 Require-File "App\LibreHardwareMonitor-MPL-2.0.txt"
 Require-File "App\DotNetRuntime-LICENSE.txt"
 Require-File "App\DotNetRuntime-THIRD-PARTY-NOTICES.txt"
-foreach ($family in @("Ayaneo", "Generic", "Gpd", "LegionGo", "MsiClaw", "OneXPlayer", "RogAlly", "SteamDeck", "Zotac")) {
+foreach ($family in (Get-ChildItem -LiteralPath "$root\external\libhandheld\src\LibHandheld\Families" -Directory).Name) {
     Require-File "App\LibHandheld-$family-THIRD_PARTY_NOTICES.md"
 }
 Require-File "Controller\libviiper.dll"

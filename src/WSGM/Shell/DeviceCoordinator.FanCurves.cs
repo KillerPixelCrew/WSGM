@@ -53,7 +53,7 @@ internal sealed partial class DeviceCoordinator
             {
                 // The handheld's own EC temperature is available outside games and independently
                 // of RTSS. Preserve each source's sampling time instead of refreshing a cached value.
-                var native = Capabilities.TryGetView(new DeviceCapabilityKey("telemetry.temperature", null));
+                var native = Capabilities.TryGetView(new DeviceCapabilityKey(CapabilityIds.Temperature, null));
                 return SelectFanTemperature(native?.Projection.State, metrics(), DateTimeOffset.UtcNow);
             },
             async (instance, duty, token) =>

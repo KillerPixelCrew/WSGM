@@ -166,7 +166,7 @@ public sealed class RtssOsdContentTests
     }
 }
 
-public sealed class RtssLhmSensorsTests
+public sealed class LhmSensorSelectionTests
 {
     private const double Mib = 1024.0 * 1024;
 
@@ -175,7 +175,7 @@ public sealed class RtssLhmSensorsTests
     {
         // LibreHardwareMonitor 0.9.7's names on the Atlas (Panther Lake, Arc B370), plus the Claw's
         // D3D memory sensors.
-        RtssLhmSensors.Selection selection = new();
+        LhmSensorSelection selection = new();
         selection.Add(HardwareType.Cpu, SensorType.Load, "CPU Total", 17.4);
         selection.Add(HardwareType.Cpu, SensorType.Load, "CPU Core #1", 37.5);
         selection.Add(HardwareType.Cpu, SensorType.Temperature, "Core Max", 61);
@@ -206,7 +206,7 @@ public sealed class RtssLhmSensorsTests
     [Fact]
     public void PrefersDedicatedGpuMemoryOverShared()
     {
-        RtssLhmSensors.Selection selection = new();
+        LhmSensorSelection selection = new();
         selection.Add(HardwareType.GpuAmd, SensorType.Data, "D3D Shared Memory Used", 2048 * Mib);
         selection.Add(HardwareType.GpuAmd, SensorType.Data, "GPU Memory Used", 1024 * Mib);
         selection.Add(HardwareType.GpuAmd, SensorType.Data, "GPU Memory Total", 4096 * Mib);
@@ -220,7 +220,7 @@ public sealed class RtssLhmSensorsTests
     [Fact]
     public void IgnoresSensorsOutsideCpuAndGpu()
     {
-        RtssLhmSensors.Selection selection = new();
+        LhmSensorSelection selection = new();
         selection.Add(HardwareType.Motherboard, SensorType.Temperature, "CPU Package", 90);
         selection.Add(HardwareType.Memory, SensorType.Power, "GPU Power", 5);
 

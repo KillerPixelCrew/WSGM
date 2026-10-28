@@ -8,7 +8,7 @@ namespace WSGM.Shell;
 /// <remarks>
 ///     Families publish the manual mode as the <c>custom</c> fan-mode choice and keep reporting the
 ///     measured duty through the speed control, so outside that mode the slider only mirrors what the
-///     firmware does and suggests it can be set. The Overlay and Steam Quick Access share this rule. The
+///     firmware does and suggests it can be set. The Overlay and both Steam surfaces share this rule. The
 ///     mode shown is the desired value when one exists, so choosing Manual reveals the slider at once.
 ///     A fan whose mode is unknown, or whose family has no <c>custom</c> choice, keeps its controls.
 /// </remarks>

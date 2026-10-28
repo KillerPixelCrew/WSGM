@@ -237,7 +237,7 @@ GPU groups and reads MSRs through PawnIO. RTSS's bundled `LHMDataProvider.exe` i
 ships LibreHardwareMonitor 0.9.5, which reads through the blocked WinRing0 driver and does not know
 Panther Lake, so on the Atlas it published loads only. The prerelease is pinned because 0.9.6 also
 lacks Panther Lake. The library opens once in the background on the first sample.
-`RtssLhmSensors.Selection` picks values with HC's sensor-name rules (`CPU Total`, `CPU Package`
+`LhmSensorSelection` picks values with HC's sensor-name rules (`CPU Total`, `CPU Package`
 power/temperature, `D3D 3D`, `GPU Power`, `GPU Core` temperature, dedicated-beats-shared GPU memory
 in bytes). Samples are cached at HC's one-second cadence; kernel counters supply system memory, the
 battery and CPU load until the library is open. An entry whose metric has no source does not render:

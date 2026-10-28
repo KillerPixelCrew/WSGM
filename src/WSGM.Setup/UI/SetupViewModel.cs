@@ -408,13 +408,14 @@ internal sealed class SetupViewModel : Observable
         var engine = _engine!;
         var answers = (JsonObject)_answers!.DeepClone();
         _profile?.WriteTo(answers);
+        var compatibility = _compatibility?.Choices ?? new DriverCompatibilityChoices();
         if (_hardware is null)
         {
             // Update and repair keep what is installed and add the graphics plugins checked on the
             // update page, or every new one for a repair, which has no page for them.
             return engine.KeptChoices(answers,
                 NewGraphics().Where(option => option.Checked).Select(option => option.Plugin.Id))
-                with { Compatibility = _compatibility?.Choices ?? new DriverCompatibilityChoices() };
+                with { Compatibility = compatibility };
         }
 
         var device = _hardware.Chosen?.Offer.Definition.Id;
@@ -423,7 +424,7 @@ internal sealed class SetupViewModel : Observable
         [
             .. _hardware.Graphics.Concat(_hardware.Commons).Where(option => option.Checked)
                 .Select(option => option.Plugin.Id)
-        ], answers) { Compatibility = _compatibility?.Choices ?? new DriverCompatibilityChoices() };
+        ], answers) { Compatibility = compatibility };
     }
 
     private bool NeedsDrivers()

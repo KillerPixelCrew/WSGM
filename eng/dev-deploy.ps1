@@ -109,7 +109,7 @@ if (-not $SkipBuild) {
 $newExe = Join-Path $appPublish 'WSGM.exe'
 # Keep family licences and glyph notices readable in the established development install too.
 $handheldFamilyFiles = @()
-foreach ($family in 'Acer', 'Ayaneo', 'Generic', 'Gpd', 'LegionGo', 'MsiClaw', 'OneXPlayer', 'RogAlly', 'SteamDeck', 'Zotac') {
+foreach ($family in (Get-ChildItem -LiteralPath (Join-Path $root 'external\libhandheld\src\LibHandheld\Families') -Directory).Name) {
     $familySource = Join-Path $root "external\libhandheld\src\LibHandheld\Families\$family"
     foreach ($notice in 'THIRD_PARTY_NOTICES.md', 'PROVENANCE.md', 'LICENSE') {
         $source = Join-Path $familySource $notice

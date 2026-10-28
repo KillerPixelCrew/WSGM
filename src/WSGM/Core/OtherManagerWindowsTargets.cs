@@ -3,10 +3,12 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using Windows.ApplicationModel;
 using Windows.Management.Deployment;
 using WindowsDeviceControl;
 using LibHandheld;
+using WSGM.Interop;
 using DeploymentPackageStatus = Windows.Management.Deployment.PackageStatus;
 
 namespace WSGM.Core;
@@ -42,35 +44,29 @@ public interface IOtherManagerTargets
 internal sealed class OtherManagerWindowsTargets : IOtherManagerTargets
 {
     private static readonly Guid KeyboardClass = new("4d36e96b-e325-11ce-bfc1-08002be10318");
-    private string? _definition;
-    private bool _identityRead;
+    // The machine cannot change while WSGM runs; a failed read is retried on the next use.
+    private static readonly Lazy<string?> Definition = new(() => HandheldDevice.Detect(HandheldDevice.ReadIdentity())?.Id,
+        LazyThreadSafetyMode.PublicationOnly);
 
     public bool RestartRequired { get; private set; }
 
     public bool MatchesDevice(string definitionId)
     {
-        if (!_identityRead)
-        {
-            _definition = HandheldDevice.Detect(HandheldDevice.ReadIdentity())?.Id;
-            _identityRead = true;
-        }
-        return _definition == definitionId;
+        return Definition.Value == definitionId;
     }
 
     public IReadOnlyList<OtherManagerRecord> Detect(OtherManager manager)
     {
         List<OtherManagerRecord> found = [];
-        if (manager.PackageFamilies.Count > 0)
+        foreach (var (family, executable) in manager.PackageFamilies)
         {
-            PackageManager packages = new();
-            foreach (var package in packages.FindPackagesForUser(string.Empty)
-                         .Where(package => manager.PackageFamilies.Contains(package.Id.FamilyName, StringComparer.Ordinal)))
+            foreach (var package in new PackageManager().FindPackagesForUser(string.Empty, family))
             {
-                if (!package.Status.Disabled || PackageIsRunning(package))
+                if (!package.Status.Disabled || PackageIsRunning(package, executable))
                 {
                     found.Add(new OtherManagerRecord
                     {
-                        ManagerId = manager.Id, Kind = "package", Name = package.Id.FullName,
+                        ManagerId = manager.Id, Kind = OtherManagers.PackageKind, Name = package.Id.FullName,
                         PreviousStart = package.Status.Disabled ? 1 : 0
                     });
                 }
@@ -84,7 +80,10 @@ internal sealed class OtherManagerWindowsTargets : IOtherManagerTargets
                          .Where(node => HasDeviceId(node.InstanceId, deviceId) && node.ProblemCode != 22
                                         && !DeviceNodes.IsRestartPending(node.InstanceId)))
             {
-                found.Add(new OtherManagerRecord { ManagerId = manager.Id, Kind = "device", Name = node.InstanceId });
+                found.Add(new OtherManagerRecord
+                {
+                    ManagerId = manager.Id, Kind = OtherManagers.DeviceKind, Name = node.InstanceId
+                });
             }
         }
         return found;
@@ -107,16 +106,15 @@ internal sealed class OtherManagerWindowsTargets : IOtherManagerTargets
             {
                 return false;
             }
-            if (target.Kind == "package")
+            if (target.Kind == OtherManagers.PackageKind)
             {
                 PackageManager packages = new();
-                var package = packages.FindPackagesForUser(string.Empty)
-                    .SingleOrDefault(item => item.Id.FullName == target.Name);
+                var package = packages.FindPackageForUser(string.Empty, target.Name);
                 if (package is null)
                 {
                     return restore;
                 }
-                if (!manager.PackageFamilies.Contains(package.Id.FamilyName, StringComparer.Ordinal))
+                if (!manager.PackageFamilies.ContainsKey(package.Id.FamilyName))
                 {
                     return false;
                 }
@@ -130,7 +128,7 @@ internal sealed class OtherManagerWindowsTargets : IOtherManagerTargets
                 }
                 return true;
             }
-            if (target.Kind != "device" || manager.DedicatedKeyboardDeviceId is not { } deviceId
+            if (target.Kind != OtherManagers.DeviceKind || manager.DedicatedKeyboardDeviceId is not { } deviceId
                 || !HasDeviceId(target.Name, deviceId))
             {
                 return false;
@@ -146,9 +144,9 @@ internal sealed class OtherManagerWindowsTargets : IOtherManagerTargets
                 : $"/disable-device \"{target.Name}\" /force";
             var result = ConsoleTool.RunAsync(ConsoleTool.System32("pnputil.exe"), arguments)
                 .GetAwaiter().GetResult();
-            RestartRequired |= result.ExitCode == 3010;
             if (result.ExitCode == 3010)
             {
+                RestartRequired = true;
                 Log.Warn("Other managers: dedicated controller keyboard change requires a Windows restart.");
             }
             return result.ExitCode is 0 or 3010;
@@ -166,33 +164,17 @@ internal sealed class OtherManagerWindowsTargets : IOtherManagerTargets
                && !instanceId.Contains('"');
     }
 
-    private static bool PackageIsRunning(Package package)
+    private static bool PackageIsRunning(Package package, string executable)
     {
-        var executable = package.Id.Name switch
-        {
-            "ULICTekInc.PredatorSenseforHandHeld" => Path.Combine("Handheld.Desktop", "Handheld.Desktop.exe"),
-            "ULICTekInc.PredatorSenseforHandHeldWidget" => "Handheld.Widget.exe",
-            _ => null
-        };
-        if (executable is null)
-        {
-            return false;
-        }
         var expected = Path.Combine(package.InstalledLocation.Path, executable);
         foreach (var process in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(executable)))
         {
             using (process)
             {
-                try
+                if (string.Equals(NativeShellProcess.TryGetImagePath((uint)process.Id), expected,
+                        StringComparison.OrdinalIgnoreCase))
                 {
-                    if (string.Equals(process.MainModule?.FileName, expected, StringComparison.OrdinalIgnoreCase))
-                    {
-                        return true;
-                    }
-                }
-                catch (InvalidOperationException)
-                {
-                    // Exited while detecting it.
+                    return true;
                 }
             }
         }

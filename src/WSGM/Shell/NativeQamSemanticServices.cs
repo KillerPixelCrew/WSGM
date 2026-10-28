@@ -850,7 +850,7 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : ISteamDe
     {
         get
         {
-            var views = ManualFanVisibility.Filter(_coordinator?.Capabilities.Snapshot() ?? []);
+            var views = _coordinator?.PresentedCapabilities() ?? [];
             lock (_controlGate)
             {
                 var activeProfile = _coordinator?.Profiles.Current.Active;

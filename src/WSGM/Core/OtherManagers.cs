@@ -23,8 +23,11 @@ public sealed record OtherManager(
     IReadOnlyList<string> Services,
     IReadOnlyList<string> Tasks)
 {
-    /// <summary>Exact MSIX package families whose activation Full mode blocks.</summary>
-    public IReadOnlyList<string> PackageFamilies { get; init; } = [];
+    /// <summary>
+    ///     Exact MSIX package families whose activation Full mode blocks, each with the package-relative
+    ///     executable that keeps a disabled package running until it exits.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> PackageFamilies { get; init; } = new Dictionary<string, string>();
 
     /// <summary>One dedicated keyboard hardware identity; the physical machine must also match.</summary>
     public string? DedicatedKeyboardDeviceId { get; init; }
@@ -204,6 +207,8 @@ public static class OtherManagers
 
     private const string ServiceKind = "service";
     private const string TaskKind = "task";
+    internal const string PackageKind = "package";
+    internal const string DeviceKind = "device";
 
     /// <summary>The managers WSGM knows, from Handheld Companion's own OEM lists plus Handheld Companion itself.</summary>
     public static IReadOnlyList<OtherManager> Known { get; } =
@@ -227,8 +232,11 @@ public static class OtherManagers
                 "AcerLightingServiceHH", "AcerORDService", "AcerServiceSvc", "AFZsvc", "ALSSvc", "UEIPSvc"],
             ["PredatorHandheldLauncher", "UEIPInvitation", "UbtFrameworkService"])
         {
-            PackageFamilies = ["ULICTekInc.PredatorSenseforHandHeld_nt9dgb7efx6bt",
-                "ULICTekInc.PredatorSenseforHandHeldWidget_nt9dgb7efx6bt"],
+            PackageFamilies = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["ULICTekInc.PredatorSenseforHandHeld_nt9dgb7efx6bt"] = @"Handheld.Desktop\Handheld.Desktop.exe",
+                ["ULICTekInc.PredatorSenseforHandHeldWidget_nt9dgb7efx6bt"] = "Handheld.Widget.exe"
+            },
             DedicatedKeyboardDeviceId = @"HID\VID_0502&PID_F901&MI_02&COL01",
             DeviceDefinitionId = "acer-predator-atlas-8-pa08-i51"
         }
@@ -554,7 +562,7 @@ public static class OtherManagers
             .Order(StringComparer.OrdinalIgnoreCase).ToArray();
         var services = records.Count(entry => entry.Kind == ServiceKind);
         var tasks = records.Count(entry => entry.Kind == TaskKind);
-        var targets = records.Count(entry => entry.Kind is "package" or "device");
+        var targets = records.Count(entry => entry.Kind is PackageKind or DeviceKind);
         List<string> parts = [];
         if (services > 0)
         {
@@ -646,7 +654,7 @@ public static class OtherManagers
                 // A service the maker's uninstaller removed meanwhile has nothing left to restore.
                 ServiceKind when services.ReadStart(entry.Name, out _) is null => true,
                 ServiceKind => RestoreService(services, entry),
-                "package" or "device" => targets.Restore(entry),
+                PackageKind or DeviceKind => targets.Restore(entry),
                 _ => true
             };
             if (ok)

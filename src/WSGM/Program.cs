@@ -521,11 +521,9 @@ public static class Program
             {
                 var answers = SetupAnswers.Parse(File.ReadAllBytes(answersPath));
                 var steamTakeover = false;
-                var managersTakeover = false;
                 config = Store.Update(fresh =>
                 {
                     steamTakeover = answers.SteamAutostartTakeover && !fresh.SteamAutostartTakeoverAccepted;
-                    managersTakeover = answers.OtherManagersTakeover;
                     answers.ApplyTo(fresh, freshInstall);
 
                     return true;
@@ -541,7 +539,7 @@ public static class Program
                              + $"pending {result.Pending.Count}, needing elevation {result.NeedsElevation.Count}.");
                 }
 
-                if (managersTakeover)
+                if (answers.OtherManagersTakeover)
                 {
                     // Chosen in setup (Full mode, or Customize). Each change is recorded before it is made,
                     // and --uninstall-restore puts it back.
@@ -553,10 +551,9 @@ public static class Program
                         Log.Warn("Setup: other manager takeover failed: " + string.Join(", ", result.Failed));
                         return 1;
                     }
-                    if (result.Failed.Count > 0 || result.StillRunning.Count > 0)
+                    if (result.StillRunning.Count > 0)
                     {
-                        Log.Warn($"Setup: other managers: failed [{string.Join(", ", result.Failed)}], still "
-                                 + $"running [{string.Join(", ", result.StillRunning)}].");
+                        Log.Warn("Setup: other managers still running: " + string.Join(", ", result.StillRunning));
                     }
                 }
             }
