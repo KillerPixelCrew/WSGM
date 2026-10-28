@@ -13563,6 +13563,8 @@
               {
                 key,
                 title: page.title,
+                // The page's own glyph heads its group, as a layout section's does.
+                icon: page.glyph ? renderSteamGlyph(react, page.glyph) : undefined,
                 collapsed: isFolded(folds, key),
                 onToggle: () => setFolded(key, !isFolded(folds, key)),
               },
