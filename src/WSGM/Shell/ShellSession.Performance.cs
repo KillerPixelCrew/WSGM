@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WSGM.Core;
+using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Shell;
 
@@ -183,7 +184,8 @@ public sealed partial class ShellSession
         }
 
         // Raw observed and desired watts: a device that has neither shows no figure, never the ceiling.
-        var tdp = PowerLimitProjection.Project(views ?? coordinator.Capabilities.Snapshot());
+        views ??= coordinator.Capabilities.Snapshot();
+        var tdp = PowerLimitProjection.Project(views);
         var autoTdp = _autoTdp?.Status;
         var enabled = _autoTdp?.Enabled ?? false;
         var running = enabled && autoTdp?.State is AutoTdpState.Controlling;
@@ -198,7 +200,16 @@ public sealed partial class ShellSession
             enabled,
             running,
             running ? autoTdp?.Watts : null,
-            running ? AutoTdpActivity(enabled, autoTdp) : string.Empty));
+            running ? AutoTdpActivity(enabled, autoTdp) : string.Empty,
+            BoostWatts(views, CapabilityRole.PowerSlowLimit),
+            BoostWatts(views, CapabilityRole.PowerFastLimit)));
+    }
+
+    /// <summary>A boost limit's raw watts, or null when the device does not publish that limit.</summary>
+    private static int? BoostWatts(IReadOnlyList<DeviceCapabilityView> views, CapabilityRole role)
+    {
+        var limit = PowerLimitProjection.Project(views, role);
+        return limit.Available ? limit.ObservedWatts ?? limit.DesiredWatts : null;
     }
 
     internal static string AutoTdpActivity(bool enabled, AutoTdpStatus? status)

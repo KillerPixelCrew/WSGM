@@ -68,6 +68,16 @@ public sealed class RtssOsdContentTests
     }
 
     [Fact]
+    public void Tdp_ShowsPublishedBoostLimitsAfterSustained()
+    {
+        var power = new RtssOsdPowerStatus(25, false, false, null, string.Empty, SlowWatts: 37);
+
+        var text = RtssOsdContent.Build(2, FullMetrics, power);
+
+        Assert.Contains("<C0>25/37<S1>W", text);
+    }
+
+    [Fact]
     public void AutoTdpIndicator_IsHiddenWhileAutoTdpIsOff()
     {
         var power = new RtssOsdPowerStatus(18, false, false, null, string.Empty);

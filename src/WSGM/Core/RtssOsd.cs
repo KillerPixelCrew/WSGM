@@ -493,12 +493,16 @@ internal sealed record RtssOsdMetrics(
 /// <param name="AutoTdpRunning">Whether AutoTDP is actively controlling the limit.</param>
 /// <param name="AutoTdpWatts">The limit AutoTDP currently holds or is moving toward.</param>
 /// <param name="AutoTdpActivity">Short, display-ready text describing what AutoTDP is doing.</param>
+/// <param name="SlowWatts">The slow boost limit (Intel PL2), only when the device publishes one.</param>
+/// <param name="FastWatts">The fast boost limit, only when the device publishes one.</param>
 internal sealed record RtssOsdPowerStatus(
     int? TdpWatts,
     bool AutoTdpEnabled,
     bool AutoTdpRunning,
     int? AutoTdpWatts,
-    string AutoTdpActivity)
+    string AutoTdpActivity,
+    int? SlowWatts = null,
+    int? FastWatts = null)
 {
     /// <summary>No known limit and no active AutoTDP state.</summary>
     internal static readonly RtssOsdPowerStatus Empty = new(null, false, false, null, string.Empty);
@@ -1275,7 +1279,20 @@ internal static class RtssOsdContent
     private static string? TdpEntry(RtssOsdPowerStatus status, bool indent)
     {
         List<string> elements = [];
-        AddIfNotNull(elements, status.TdpWatts, "W");
+        if (status.TdpWatts is { } sustained)
+        {
+            // Sustained, then whichever boost limits the device publishes: 25/37W on PL1/PL2 hardware.
+            var value = Format(sustained, "W");
+            if (status.SlowWatts is { } slow)
+            {
+                value += "/" + Format(slow, "W");
+            }
+            if (status.FastWatts is { } fast)
+            {
+                value += "/" + Format(fast, "W");
+            }
+            elements.Add(Element(value, "W"));
+        }
         return Entry("TDP", TdpColor, indent, elements);
     }
 
