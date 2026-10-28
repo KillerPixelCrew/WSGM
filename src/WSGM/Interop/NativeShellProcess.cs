@@ -434,6 +434,40 @@ internal static partial class NativeShellProcess
         return Win32Common.WaitForSingleObject(processHandle, 0) == WaitObject0;
     }
 
+    /// <summary>Queries whether a session is definitely locked, for example by a prestarted sign-in.</summary>
+    /// <param name="sessionId">Nonnegative terminal-services session identity.</param>
+    /// <returns>
+    ///     True only when WTSSessionInfoEx reports WTS_SESSIONSTATE_LOCK. Unlocked, unknown and failed
+    ///     queries return false, so a broken query never holds a caller forever.
+    /// </returns>
+    /// <remarks>
+    ///     WTSINFOEXW is a DWORD level followed by a union aligned to 8 bytes; level 1 places SessionId,
+    ///     SessionState and SessionFlags at offsets 8, 12 and 16. The flags are reversed only on
+    ///     Windows 7 and Server 2008 R2, which WSGM does not support.
+    /// </remarks>
+    internal static bool IsSessionLocked(int sessionId)
+    {
+        if (!Win32Common.WTSQuerySessionInformationW(
+                0,
+                checked((uint)sessionId),
+                25, // WTSSessionInfoEx
+                out var buffer,
+                out var bytes))
+        {
+            return false;
+        }
+
+        try
+        {
+            return bytes >= 20 && Marshal.ReadInt32(buffer) == 1
+                               && Marshal.ReadInt32(buffer, 16) == 0; // WTS_SESSIONSTATE_LOCK
+        }
+        finally
+        {
+            Win32Common.WTSFreeMemory(buffer);
+        }
+    }
+
     /// <summary>
     ///     Queries whether a terminal-services session is currently active. Recovery callers
     ///     use this after owner loss so logoff never causes a replacement desktop to be launched.

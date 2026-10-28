@@ -158,6 +158,10 @@ The takeover (`ShellSession.StartBootTakeover`) runs in this order:
 2. Wait for the input desktop. `Core\InputDesktop` polls `OpenInputDesktop` for `winsta0\Default`:
    `WTS_SESSION_LOGON` fires while LogonUI still owns the screen, and `WTS_SESSION_DESKTOP_READY` is
    never delivered on the Claw. Without this wait Steam audio leaks behind the Welcome screen.
+   Windows 11 can also sign the user in ahead of time after a restart and show the lock screen,
+   which runs on `winsta0\Default` too (device-observed on the Atlas, 2026-10-28: Big Picture
+   started behind it). The wait therefore also holds while `WTSSessionInfoEx` reports the session
+   locked, with no deadline; the 60 s cap applies only to the desktop check after the unlock.
 3. Wait for Explorer readiness: `GetShellWindow()` plus Explorer's `Shell_TrayWnd`, then an
    `ExplorerLogonSettleMs` settle (default 5000 ms), 60 s hard cap. A Big Picture window appearing
    under the opaque cover ends the wait immediately (see "Big Picture suspends rendering while

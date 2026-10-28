@@ -171,9 +171,34 @@ public sealed partial class ShellSession
     private static async Task WaitForInputDesktopAsync(CancellationToken cancellationToken)
     {
         var watch = Stopwatch.StartNew();
-        while (!InputDesktop.IsDefaultInputDesktop())
+        int session;
+        using (var self = Process.GetCurrentProcess())
         {
-            if (watch.Elapsed >= InputDesktopWait)
+            session = self.SessionId;
+        }
+
+        var lockReported = false;
+        while (true)
+        {
+            // Windows 11 can sign the user in ahead of time after a restart and show the lock screen,
+            // which runs on winsta0\Default too. Nothing starts until the user has actually unlocked:
+            // that wait has no deadline, since the session may stay locked for as long as they like.
+            if (NativeShellProcess.IsSessionLocked(session))
+            {
+                if (!lockReported)
+                {
+                    lockReported = true;
+                    Log.Info("Session is locked after a prestarted sign-in; waiting for the user to unlock it.");
+                }
+
+                // The desktop's own deadline counts from the unlock.
+                watch.Restart();
+            }
+            else if (InputDesktop.IsDefaultInputDesktop())
+            {
+                break;
+            }
+            else if (watch.Elapsed >= InputDesktopWait)
             {
                 Log.Warn("Input desktop never became winsta0\\Default within "
                          + $"{InputDesktopWait.TotalSeconds:0} s; proceeding anyway.");
