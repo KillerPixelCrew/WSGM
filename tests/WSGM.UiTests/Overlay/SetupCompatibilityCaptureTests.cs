@@ -31,8 +31,11 @@ public sealed class SetupCompatibilityCaptureTests
         });
         window.Show();
         Dispatcher.UIThread.RunJobs();
-        Assert.Equal(4, window.GetVisualDescendants().OfType<ToggleSwitch>().Count());
-        Assert.All(page.Options, option => Assert.False(option.On));
+        Assert.Equal(5, window.GetVisualDescendants().OfType<ToggleSwitch>().Count());
+        // The restore point leads, switched on and usable even when protections cannot be read;
+        // every protection change starts off.
+        Assert.True(page.Options[0] is { Key: "restore", On: true, Enabled: true });
+        Assert.All(page.Options.Skip(1), option => Assert.False(option.On));
         var directory = Path.Combine(RepositoryFiles.Root, "TestResults", "ui", $"setup-compatibility-{width}");
         Directory.CreateDirectory(directory);
         DevicePageCaptureTests.Capture(window, Path.Combine(directory, "viewport.png"));
