@@ -41,8 +41,7 @@ internal sealed class NotesCountdown : INotesCountdownDisplay
 }
 
 /// <summary>
-///     The Add Screenshot countdown over the game: a small top-center, non-activating, click-through window,
-///     like the volume indicator.
+///     The Add Screenshot countdown over the game: a small top-center, non-activating, click-through window.
 /// </summary>
 /// <remarks>
 ///     It never takes focus or input from the game, and Windows Graphics Capture records only the game's own
@@ -99,7 +98,7 @@ internal sealed class NotesCountdownWindow : Window
     /// <param name="game">The game.</param>
     internal void Show(int remaining, string game)
     {
-        if (!IsVisible && !_suppressed && !VolumeOsdVisibility.CanShow())
+        if (!IsVisible && !_suppressed && !OverlayPopupVisibility.CanShow())
         {
             // Checked once per countdown; Hide clears it for the next one.
             _suppressed = true;

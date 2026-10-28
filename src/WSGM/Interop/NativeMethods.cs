@@ -77,7 +77,7 @@ internal static partial class NativeMethods
     internal const int WsExNoActivate = 0x08000000;
     internal const int WsExTransparent = 0x00000020;
 
-    // ---- Notification suitability (volume OSD) ----
+    // ---- Notification suitability (overlay popups) ----
     internal const int QunsNotPresent = 1;
     internal const int QunsRunningD3dFullScreen = 3;
 

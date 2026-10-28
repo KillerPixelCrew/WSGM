@@ -104,8 +104,7 @@ public sealed partial class ShellSession
     private CommonPluginManager? _commonPlugins;
 
     // Replaced wholesale on every reload (see Reload) so this stays the same
-    // instance the overlay, SessionModes and DisplayScale's saved-scale snapshot
-    // live on — the volume OSD's UI-scale callback reads it long after boot.
+    // instance the overlay, SessionModes and DisplayScale's saved-scale snapshot live on.
     private AppConfig _config;
     private ManagedShortcutMonitor? _contentAvailability;
     private ControllerManager? _controllerStatusSource;
@@ -534,10 +533,7 @@ public sealed partial class ShellSession
         }
 
         var downloadActive = _keepAwake?.DownloadActive ?? false;
-        TryStart("volume buttons", () => _volumeButtons = new VolumeButtonService(
-            messageWindow,
-            () => DisplayScale.GetUiScalePercent(_config) / 100.0,
-            _audio!));
+        TryStart("volume buttons", () => _volumeButtons = new VolumeButtonService(messageWindow, _audio!));
         // Reads the flag on every look rather than capturing it, so a runtime config reload takes
         // effect without the guard being rebuilt; _config is replaced wholesale on reload.
         TryStart("modern standby guard", () =>

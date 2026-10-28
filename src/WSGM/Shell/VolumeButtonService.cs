@@ -16,7 +16,6 @@ namespace WSGM.Shell;
 internal sealed class VolumeButtonService : IDisposable
 {
     private readonly AudioManager _audio;
-    private readonly VolumeIndicator _indicator;
     private readonly MessageWindow _window;
     private Task _commands = Task.CompletedTask;
     private bool _disposed;
@@ -25,15 +24,13 @@ internal sealed class VolumeButtonService : IDisposable
 
     /// <summary>Creates the game-mode volume handler on the Avalonia UI thread.</summary>
     /// <param name="window">The process message-only window carrying the shell hook.</param>
-    /// <param name="uiScale">The current UI scale for the OSD.</param>
     /// <param name="audio">
     ///     The session's audio state owner, told about every volume
-    ///     this service writes so the taskbar slider does not lag the OSD by a poll.
+    ///     this service writes so the taskbar slider does not lag the button by a poll.
     /// </param>
-    internal VolumeButtonService(MessageWindow window, Func<double> uiScale, AudioManager audio)
+    internal VolumeButtonService(MessageWindow window, AudioManager audio)
     {
         _window = window;
-        _indicator = new VolumeIndicator(uiScale);
         _audio = audio;
         _window.ShellHookReceived += OnShellHook;
     }
@@ -49,7 +46,6 @@ internal sealed class VolumeButtonService : IDisposable
         _disposed = true;
         Interlocked.Increment(ref _generation);
         _window.ShellHookReceived -= OnShellHook;
-        _indicator.Dispose();
         if (_gameModeActive)
         {
             _window.DeregisterShellHook();
@@ -58,7 +54,7 @@ internal sealed class VolumeButtonService : IDisposable
 
     /// <summary>Enables or disables WSGM's replacement-shell volume handling.</summary>
     /// <param name="active">
-    ///     True requests shell-hook ownership; false relinquishes it and hides the OSD. Invoke on the UI
+    ///     True requests shell-hook ownership; false relinquishes it. Invoke on the UI
     ///     thread; disposed or unchanged state is ignored.
     /// </param>
     internal void SetGameModeActive(bool active)
@@ -86,7 +82,6 @@ internal sealed class VolumeButtonService : IDisposable
             return;
         }
 
-        _indicator.Hide();
         _window.DeregisterShellHook();
         Log.Info("Game-mode volume buttons disabled; Explorer owns volume commands.");
     }
@@ -124,10 +119,9 @@ internal sealed class VolumeButtonService : IDisposable
             {
                 Log.Info($"Volume button {command} applied to the default audio endpoint " +
                          $"({percentage}%, muted={muted != 0}).");
-                // The write already happened above; hand the landed state to the
-                // audio owner so the taskbar slider matches the OSD immediately.
+                // The write already happened above; hand the landed state to the audio owner so the
+                // taskbar slider matches at once. Steam's own volume display shows the change.
                 VolumeFeedback.Play();
-                var show = VolumeOsdVisibility.CanShow();
                 Dispatcher.UIThread.Post(() =>
                 {
                     if (_disposed || generation != Volatile.Read(ref _generation))
@@ -136,14 +130,6 @@ internal sealed class VolumeButtonService : IDisposable
                     }
 
                     _audio.NoteExternalVolume(percentage, muted != 0);
-                    if (show)
-                    {
-                        _indicator.Show(percentage, muted != 0);
-                    }
-                    else
-                    {
-                        _indicator.Hide();
-                    }
                 });
             }
             else

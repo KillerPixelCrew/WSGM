@@ -266,8 +266,8 @@ public sealed partial class ShellSession
     /// <param name="config">The new configuration, which becomes the session's live instance.</param>
     private void ApplyReloadedConfig(AppConfig config)
     {
-        // One instance for every reader: the volume OSD's UI-scale callback and DisplayScale's
-        // saved-scale snapshot must not drift onto different AppConfig objects.
+        // One instance for every reader: the overlay, SessionModes and DisplayScale's saved-scale
+        // snapshot must not drift onto different AppConfig objects.
         var steamInputManagementWas = _config.SteamInputManagementEnabled;
         _config = config;
         TryApply("log verbosity", () =>
