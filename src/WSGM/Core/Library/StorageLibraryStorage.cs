@@ -144,7 +144,7 @@ public static class StorageLibraryStorage
             }
             catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
             {
-                ConfirmReadableAncestor(library.VolumeId, ManifestPath);
+                RequireMissingManifest(library.VolumeId);
             }
             byte[]? Snapshot()
             {
@@ -154,7 +154,7 @@ public static class StorageLibraryStorage
                 }
                 catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
                 {
-                    ConfirmReadableAncestor(library.VolumeId, ManifestPath);
+                    RequireMissingManifest(library.VolumeId);
                     return null;
                 }
             }
@@ -219,7 +219,6 @@ public static class StorageLibraryStorage
 
     private static void AssertGeneration(string volumeId, string libraryId, long? revision)
     {
-        ManagedContentStorage.ConfirmReadableVolume(new ManagedContentPath { VolumeId = volumeId });
         if (revision.HasValue)
         {
             if (Read(volumeId, libraryId).Revision != revision.Value)
@@ -229,67 +228,39 @@ public static class StorageLibraryStorage
             return;
         }
 
-        try
-        {
-            ManagedContentStorage.RejectLibraryReparsePoints(volumeId, ManifestPath);
-            throw new InvalidDataException("A library manifest already exists. Review it before applying.");
-        }
-        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
-        {
-            ManagedContentStorage.ConfirmReadableVolume(new ManagedContentPath { VolumeId = volumeId });
-        }
+        RequireMissingManifest(volumeId);
     }
 
-    /// <summary>Queries one contained path, including moved/deleted roots, without treating unreadable media as deleted content.</summary>
-    public static StorageLibraryPathCheck InspectPath(string volumeId, string relativePath, bool directory = false)
+    /// <summary>Requires a confirmed absence of the manifest on readable storage before creating one.</summary>
+    private static void RequireMissingManifest(string volumeId)
     {
-        var path = "";
-        try
+        switch (InspectPath(volumeId, ManifestPath))
         {
-            path = ManagedContentStorage.ResolveLibraryPath(volumeId, relativePath);
-            ManagedContentStorage.ConfirmReadableVolume(new ManagedContentPath { VolumeId = volumeId });
-            try
-            {
-                ManagedContentStorage.RejectLibraryReparsePoints(volumeId, relativePath);
-                var attributes = File.GetAttributes(path);
-                return new StorageLibraryPathCheck(((attributes & FileAttributes.Directory) != 0) == directory
-                    ? StorageLibraryPathState.Present : StorageLibraryPathState.Missing, path, "");
-            }
-            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
-            {
-                ConfirmReadableAncestor(volumeId, relativePath);
-                return new StorageLibraryPathCheck(StorageLibraryPathState.Missing, path,
-                    "The required content is missing from this storage.");
-            }
-        }
-        catch (DirectoryNotFoundException ex)
-        {
-            return new StorageLibraryPathCheck(StorageLibraryPathState.StorageUnavailable, path, ex.Message);
-        }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or ArgumentException)
-        {
-            return new StorageLibraryPathCheck(StorageLibraryPathState.Unreadable, path, ex.Message);
-        }
-    }
-
-    private static void ConfirmReadableAncestor(string volumeId, string relativePath)
-    {
-        var parent = Path.GetDirectoryName(relativePath) ?? "";
-        while (true)
-        {
-            try
-            {
-                ManagedContentStorage.RejectLibraryReparsePoints(volumeId, parent);
-                using var entries = Directory.EnumerateFileSystemEntries(
-                    ManagedContentStorage.ResolveLibraryPath(volumeId, parent)).GetEnumerator();
-                _ = entries.MoveNext();
-                ManagedContentStorage.ConfirmReadableVolume(new ManagedContentPath { VolumeId = volumeId });
+            case ContentPathState.Missing:
                 return;
-            }
-            catch (Exception ex) when (parent.Length > 0 && (ex is FileNotFoundException or DirectoryNotFoundException))
+            case ContentPathState.Present:
+                throw new InvalidDataException("A library manifest already exists. Review it before applying.");
+            default:
+                throw new IOException("The storage could not be read. Reconnect it and try again.");
+        }
+    }
+
+    /// <summary>Queries one contained path through the shared probe, rejecting reparse points on the card.</summary>
+    /// <returns>Missing only below a readable ancestor on this volume; access failures stay Unreadable.</returns>
+    public static ContentPathState InspectPath(string volumeId, string relativePath, bool directory = false,
+        ManagedContentCheckContext? context = null)
+    {
+        try
+        {
+            return ManagedContentStorage.Probe(new ManagedContentPath
             {
-                parent = Path.GetDirectoryName(parent) ?? "";
-            }
+                VolumeId = volumeId, RelativePath = relativePath, Directory = directory,
+                AbsolutePath = ManagedContentStorage.ResolveLibraryPath(volumeId, relativePath)
+            }, context, rejectReparsePoints: true);
+        }
+        catch (InvalidDataException)
+        {
+            return ContentPathState.Unreadable;
         }
     }
 
@@ -309,6 +280,22 @@ public static class StorageLibraryStorage
             1 => matches[0],
             _ => throw new InvalidDataException("Several library entries match this launch recipe. Review the conflict.")
         };
+    }
+
+    /// <summary>Whether two card entries are the same in every field a manifest stores.</summary>
+    /// <remarks>Value equality for publication decisions: an unchanged entry is never rewritten.</remarks>
+    public static bool SameEntry(StorageLibraryContent left, StorageLibraryContent right)
+    {
+        static bool SamePath(StorageLibraryPath? a, StorageLibraryPath? b) => a is null || b is null
+            ? a is null && b is null
+            : a.Directory == b.Directory && string.Equals(a.RelativePath, b.RelativePath, StringComparison.Ordinal);
+        return left.Id == right.Id && left.Name == right.Name && left.SourceKind == right.SourceKind
+               && left.SourceName == right.SourceName && left.SystemId == right.SystemId
+               && SamePath(left.BackingPath, right.BackingPath) && SamePath(left.SourceRoot, right.SourceRoot)
+               && left.RequiredPaths.Count == right.RequiredPaths.Count
+               && left.RequiredPaths.Zip(right.RequiredPaths).All(pair => SamePath(pair.First, pair.Second))
+               && SamePath(left.Program, right.Program) && SamePath(left.WorkingDirectory, right.WorkingDirectory)
+               && left.RawArguments == right.RawArguments && left.RequiresLocalRecipe == right.RequiresLocalRecipe;
     }
 
     private static bool SameRecipe(StorageLibraryContent left, StorageLibraryContent right)
@@ -430,9 +417,10 @@ public static class StorageLibraryStorage
         };
     }
 
-    /// <summary>Materializes review metadata using authoritative manifest IDs; acceptance is explicitly supplied by the host.</summary>
+    /// <summary>Materializes review metadata using authoritative manifest IDs.</summary>
+    /// <remarks>The record launches only once the device's binding for this library names the same volume.</remarks>
     public static ManagedContentRecord ToManaged(StorageLibraryContent entry, StorageLibraryRecord library,
-        string sourceId, bool bindingAccepted = false, ManagedContentRecord? localRecipe = null)
+        string sourceId, ManagedContentRecord? localRecipe = null)
     {
         ManagedContentPath Bind(StorageLibraryPath path) => new()
         {
@@ -448,8 +436,6 @@ public static class StorageLibraryStorage
         }
         content.Id = entry.Id;
         content.LibraryId = library.Id;
-        content.LibraryBindingAccepted = bindingAccepted;
-        content.InventoryRemoved = false;
         content.SourceId = sourceId;
         content.SourceKey = entry.Id;
         content.Name = entry.Name;
@@ -459,7 +445,6 @@ public static class StorageLibraryStorage
         content.BackingPath = Bind(entry.BackingPath);
         content.SourceRoot = entry.SourceRoot is { } root ? Bind(root) : new ManagedContentPath { Directory = true };
         content.RequiredPaths = entry.RequiredPaths.Select(Bind).ToList();
-        content.LaunchKind = ManagedLaunchKind.Direct;
         if (entry.SourceKind == LibrarySourceKind.Rom)
         {
             if (localRecipe is null || EmulatorStorage.NormalizeSystemId(localRecipe.SystemId)
@@ -477,10 +462,6 @@ public static class StorageLibraryStorage
             content.WorkingDirectory = Bind(entry.WorkingDirectory!);
             content.RawArguments = entry.RawArguments;
             content.Arguments = [];
-        }
-        else if (localRecipe is null)
-        {
-            content.LibraryBindingAccepted = false;
         }
         return content;
     }

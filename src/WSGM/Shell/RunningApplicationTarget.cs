@@ -687,24 +687,6 @@ internal sealed class RunningApplicationMonitor : IRunningApplicationTargetSourc
         return _observers.Acquire();
     }
 
-    /// <summary>Reads Steam's running set for cleanup without depending on a foreground projection or UI lease.</summary>
-    internal async Task<bool?> IsSteamAppRunningAsync(uint appId, CancellationToken cancellationToken)
-    {
-        if (!_steamEnabled || Volatile.Read(ref _disposed) != 0)
-        {
-            return null;
-        }
-
-        var observation = await _probe.ObserveAsync(cancellationToken).ConfigureAwait(false);
-        if (!_steamEnabled || Volatile.Read(ref _disposed) != 0 || !observation.Reachable
-            || observation.Diagnostic is not null)
-        {
-            return null;
-        }
-
-        return observation.AppIds.Contains(appId);
-    }
-
     /// <summary>Starts the loop once; foreground liveness continues without Steam while an observation lease is held.</summary>
     /// <exception cref="ObjectDisposedException">The monitor has been disposed.</exception>
     internal void Start()

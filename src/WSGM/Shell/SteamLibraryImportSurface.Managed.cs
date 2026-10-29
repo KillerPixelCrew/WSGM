@@ -39,11 +39,11 @@ internal static partial class SteamLibraryImportSurface
             SteamUiModuleBuilder.Command<SourceRequest>(PatchId, "setCleanup", TryReadSource,
                 (value, token) => backend.SetCleanupAsync(value.Id, value.Enabled, token),
                 "The removal choice is invalid."),
-            SteamUiModuleBuilder.Command<string>(PatchId, "recheckAvailability", TryReadRecheck,
-                backend.RecheckAvailabilityAsync, "The content id is invalid."),
-            SteamUiModuleBuilder.Command<StorageActionRequest>(PatchId, "stageStorageAction", TryReadStorageAction,
-                (value, token) => backend.StageStorageActionAsync(value.Id, value.Action, token),
-                "The library action is invalid.")
+            SteamUiModuleBuilder.Command(PatchId, "recheckAvailability", backend.RecheckAvailabilityAsync),
+            SteamUiModuleBuilder.Command<string>(PatchId, "repairLibrary", TryReadId,
+                backend.RepairLibraryAsync, "The library id is invalid."),
+            SteamUiModuleBuilder.Command<string>(PatchId, "useLibrary", TryReadId,
+                backend.UseLibraryAsync, "The library id is invalid.")
         ];
     }
 
@@ -90,27 +90,6 @@ internal static partial class SteamLibraryImportSurface
         {
             return false;
         }
-    }
-
-    private static bool TryReadRecheck(JsonElement payload, out string id)
-    {
-        id = "";
-        return SteamUiPayload.HasExactly(payload, 1) && SteamUiPayload.TryReadString(payload, "id", out id);
-    }
-
-    private static bool TryReadStorageAction(JsonElement payload, out StorageActionRequest value)
-    {
-        value = default;
-        if (!SteamUiPayload.HasExactly(payload, 2)
-            || !SteamUiPayload.TryReadNonBlankString(payload, "id", out var id)
-            || !SteamUiPayload.TryReadString(payload, "action", out var action)
-            || action is not ("" or "repair" or "acceptBinding"))
-        {
-            return false;
-        }
-
-        value = new StorageActionRequest(id, action);
-        return true;
     }
 
     private static bool TryReadTitle(JsonElement payload, out TitleRequest value)
@@ -170,8 +149,6 @@ internal static partial class SteamLibraryImportSurface
     }
 
     private readonly record struct TitleRequest(string Id, string Name);
-
-    private readonly record struct StorageActionRequest(string Id, string Action);
 
     private readonly record struct ArgumentRequest(string Id, IReadOnlyList<string> Arguments);
 

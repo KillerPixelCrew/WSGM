@@ -286,6 +286,14 @@ public static class CommandShortcut
                && string.Equals(shortcut.LaunchOptions.Trim(), launchOptions.Trim(), StringComparison.Ordinal);
     }
 
+    /// <summary>Removes the surrounding whitespace and quotes Steam may store around a Target or Start In.</summary>
+    /// <param name="value">The stored value.</param>
+    /// <returns>The bare path, or the value unchanged apart from trimming when it was not quoted.</returns>
+    public static string Unquote(string value)
+    {
+        return value.Trim().Trim('"').Trim();
+    }
+
     /// <summary>Whether two Target values name the same program, ignoring the quoting.</summary>
     /// <param name="left">One Target.</param>
     /// <param name="right">The other.</param>

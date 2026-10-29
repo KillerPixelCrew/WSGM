@@ -513,98 +513,142 @@ supervises direct children while preserving Steam's environment and lifetime. Ex
 launcher-follow routes retain their own mechanisms. Explicit title edits rename existing Steam
 shortcuts in place through Steam's write API; automatic source-name changes preserve Steam edits.
 
-Volume changes, resume, explicit checks and changed emulator installations trigger stored-content
-rechecks. The monitor follows the existing removable-drive inventory's mount/readiness changes as
-well as native volume notifications, so a software unmount is noticed without scanning every game on
-each inventory tick. It coalesces arrival notifications, observes a newly mounted volume again after
-settling, and runs a five-minute recovery check for missed events and manual file edits. It checks
-known content rather than repeatedly discovering entire ROM trees. Shutdown closes admission to late
-observations. Reinsertion needs no Steam restart.
+### Shortcut availability
 
-### Portable library inventory and confirmed deletion
+One session-owned tracker reports whether every non-Steam shortcut in Steam's list can start: WSGM's
+imports of every kind, emulator-interface shortcuts, and shortcuts the user added in Steam. Who made
+a shortcut is only a field; the same pass checks all of them, and none is ever changed or removed
+because of what the pass finds.
 
-Participating non-system removable and hot-pluggable volumes carry `.wsgm/library.json`. Its library
-UUID, stable title IDs and relative paths travel with the games. The device's versioned
-`library-import.json` caches known libraries and title metadata for disconnected cards, and owns
-local Steam-account shortcut mappings and per-title choices. The card's own Steam library marker
-supplies its name when present, otherwise the volume label does. WSGM does not edit Steam's ACF
-files to represent non-Steam content.
+What a shortcut needs comes from the shortcut itself. A Target of
+`WSGM.PackagedLaunch.exe --managed <id>` names a content record: its backing file and companions are
+checked through the volume GUID they were imported from, wherever that volume is mounted, then the
+program and working folder, or the emulator, core and BIOS the launch helper would resolve. A follow
+route's `--dir` install folder, and the absolute Target and Start In of any other shortcut, are
+literal paths. Packaged titles, `steam://` and protocol links, network paths and relative Targets
+have nothing local to check and are not tracked. Arguments are never parsed for paths.
 
-Both ledgers are compared with actual files. A disconnected card keeps its titles visible as
-unavailable, with the expected location and a recheck action. On the correct readable card, a
-confirmed missing backing file or required disc track removes the title from the card inventory and
-queues removal of WSGM's local Steam shortcut. A renamed/deleted ROM root counts as moved content:
-its old entries are removed and the user can import the new location through Library Manager. There
-is no locate or relink workflow. Access failures, unsupported manifests and missing host emulators,
-BIOS or working directories do not establish deleted content.
+Each tracked shortcut is in exactly one of three states:
 
-Cleanup checks the active Steam account and exact recorded command before mutation. Other accounts'
-receipts remain until that account can settle them. A command-edited shortcut stays untouched and
-WSGM releases only its local mapping. Running or uncertain-running titles defer cleanup; an
-uncertain native removal is observed again rather than blindly retried. Neither pruning nor shortcut
-cleanup deletes game files, saves or user-owned profiles. Inventory changes are persisted in batches
-per reconciliation, rather than rewriting the complete index for each missing ROM.
+- **Available**: every required file is present.
+- **Unavailable · library missing**: the card or disk holding the files cannot be used. It is out, a
+  different card is in its drive, it cannot be read, two connected cards claim one library, or its
+  card library has not been accepted on this device.
+- **Unavailable · files missing**: the storage is present and readable, but a required file or
+  folder, or an emulator, core or BIOS the title needs, is missing.
+
+The detail says what to do: which card to insert, or which file is missing. A shortcut that has not
+been checked yet is not published, so neither surface shows an "unknown" state.
+
+Triggers only mark a pass as pending: a change in the shared drive inventory (every local volume,
+after its settle delay), resume, Steam UI readiness, applied changes and shortcut writes, changed
+emulator installations, Recheck on either surface or on a Steam details page, and a five-minute
+recovery timer. One worker then reads Steam's shortcut list, the import ledger and the volume
+inventory once, reads each connected card's manifest once and probes each distinct path once through
+the shared `ManagedContentStorage.Probe`, which the launch helper also uses. A pass that changes
+nothing writes and publishes nothing; a changed pass publishes one list to Steam's library
+projection and both Storage pages, and logs one summary line. A scan asks for a pass and waits for
+it, so it plans against the cards that are in the drives now. Presence is never stored:
+`library-import.json` no longer carries availability, and an older file that still does loads
+normally.
+
+### A drive letter never identifies a library
+
+Handheld SD readers give every card the same letter, and Steam swaps cards at one registered path by
+the card's own `contentid`. So a card is identified by its own identity, read through its volume
+GUID path when it is observed: the UUID in WSGM's `.wsgm\library.json`, else the content id in
+Steam's `libraryfolder.vdf` marker on the card. It is named by that marker's label, else its volume
+label. A fixed disk is named by its volume label, else its drive. Managed records follow their
+volume GUID to whatever letter it has now.
+
+A literal path such as `D:\Games\Foo.exe` only means whatever is in D: right now. When a shortcut's
+file is found, the device ledger records, for that shortcut and Steam account, which card held it:
+the volume GUID, the card's identity and its name. A later find of the same path on another card
+moves the binding there. Then:
+
+| What is in that drive now         | Bound before                     | Never bound                              |
+| --------------------------------- | -------------------------------- | ---------------------------------------- |
+| The file is there                 | Available; rebinds to this card  | Available; binds                         |
+| The bound card, without the file  | Files missing                    | n/a                                      |
+| Another card, or nothing          | Library missing: "Insert <card>" | Library missing                          |
+| A removable card without the file | n/a                              | Library missing: "Not on the card in D:" |
+| A fixed disk without the file     | n/a                              | Files missing                            |
+| Storage that cannot be read       | Library missing                  | Library missing                          |
+
+When the bound card is mounted at another letter, the detail says so, because the shortcut still
+starts from the letter Steam stores.
+
+### Card libraries
+
+Participating removable volumes carry `.wsgm/library.json`: a library UUID, stable title ids and
+relative paths that travel with the games. The device's `library-import.json` keeps, like Steam's
+`libraryfolders.vdf` beside each card's own manifest, which volume it launches each library from,
+the titles it knows while a card is out, and its local Steam-account shortcut mappings and choices.
+A library is accepted on this device exactly while its binding names the volume its titles were
+imported through. Another computer's card, or the same card on a new volume, is listed with **Use
+this card**; until the user chooses it, the launch helper refuses its titles and the tracker reports
+them as library missing. A card whose game list is missing or damaged is listed with **Repair
+library**, which rebuilds the list from the titles this device knows; launching waits for it. Both
+are immediate commands on both surfaces, like Recheck, and a card is re-read through its volume
+right before either acts. A newer card schema is never repaired by an older reader. Unknown card
+inventory is offered for import through the scan, never executed on insertion.
+
+The tracker writes to a card only to add an entry for WSGM's own managed content whose files are
+present on it. Titles imported before card libraries existed are moved onto their card once, when it
+is connected: a card without a list gets one holding them, a list this device already uses gains
+them, and any other card's list is left for the user to review. Only the managed route stores
+content.
+
+### Reporting, never removing
+
+Missing storage or files never remove a card entry, a cached title or a Steam shortcut. A scan keeps
+an unlisted title whose storage is missing (Skip, storage disconnected) and offers any other
+unlisted title as an ordinary unticked removal, worded "Game files missing" when the tracker found
+its files gone. When the user applies a removal of a WSGM title that has a card entry, the entry
+also leaves the card's list if the accepted card is connected and no other account still uses the
+title; otherwise the card keeps it. Removal never deletes game files, saves or user-owned profiles.
 
 Folder imports follow Windows `.lnk` targets and adopt their arguments and Start in directory,
 defaulting an empty Start in to the executable's directory. A shortcuts folder on C: can therefore
-represent PC games on several cards: each game follows its target volume. Deleting the source
-shortcut alone does not delete an imported title whose executable remains. Executable and working
+represent PC games on several cards: each game follows its target volume. Executable and working
 directory bindings survive a drive-letter change; arbitrary absolute paths inside arguments remain
 as authored. Leading/trailing argument whitespace is trimmed, with quoting and internal spacing
 preserved.
 
-Both surfaces expose Storage libraries with readable status, Recheck, and staged Repair library or
-Use this card actions committed through the existing Apply flow. A card on a new local volume
-binding must be reviewed before it replaces the accepted binding. Unknown card inventory is offered
-for import, never executed on insertion. Lost/corrupt known inventory can be explicitly rebuilt from
-cached records; future schema versions cannot be repaired by an older reader. New imports require a
-writable manifest. Fixed-only, protocol-link, emulator-interface and launcher-native imports retain
-their existing separate lifecycle.
+### Launcher games on removable storage
 
-### Launcher games and your own Steam shortcuts on storage
+A launcher title (Epic, GOG, Ubisoft and the others) whose install folder is on removable storage is
+imported the way Steam ROM Manager imports it: its own executable becomes the managed route,
+replacing the plain direct route, joins the card's list and follows its volume across drive letters.
+An earlier direct shortcut is offered as an update to that route. Every other route, such as through
+the launcher, keeps no content record; its follow `--dir` is checked as a literal path, and the
+follow launcher refuses a missing install folder with Retry before starting the launcher. A launcher
+stops listing a title whose folder is unreachable, so a scan keeps such a title while its storage is
+missing rather than offering its removal.
 
-A launcher title (Epic, GOG, Ubisoft and the others) whose install folder is on a participating
-volume is imported the way Steam ROM Manager imports it: its own executable becomes the managed
-route, replacing the plain direct route. That record joins the card inventory as a directly started
-executable, launches through the content check, follows its volume across drive letters and is
-pruned like a folder import when its executable is confirmed missing. An earlier direct shortcut is
-offered as an update to that route. Choosing the route through the launcher instead keeps a
-launcher-native record: it gets availability, the card's name as its location, and a refusal when
-the card comes back under another drive letter, because the launcher keeps the old absolute path.
-Its deletion stays the launcher's to report. A launcher stops listing a title whose folder is
-unreachable, so a scan keeps such a title as disconnected rather than offering its removal. The
-follow launcher refuses a missing install folder with Retry before starting the launcher.
+### Steam's projection
 
-Shortcuts the user added in Steam are observed too, never changed. When a shortcut's Target or Start
-In names a drive that is not connected, or a participating volume where that file or folder is
-missing, Steam shows it unavailable, and both Storage libraries pages list it with a recheck.
-Arguments are not parsed for paths, there is no launch guard because Steam starts the program
-itself, and nothing is removed. Startup, volume changes, the five-minute recovery check and Recheck
-all storage refresh them.
+The toolkit owns a reversible shortcut availability projection: grey artwork, unavailable details, a
+disabled native Play action, a separate Recheck action and installed-only filtering. Available
+titles return to installed views; unavailable ones remain in general views and collections. It stays
+enabled under the Steam integration master even when decorative library badges are off. No native
+persistent shortcut-uninstalled toggle has been verified; the code neither changes Valve's global
+install store nor wraps all `RunGame` calls. The launch helper independently checks the accepted
+binding and required files, and refuses unavailable content with its logical location.
 
-The toolkit owns a reversible managed-shortcut availability projection: grey artwork, unavailable
-details, a disabled native Play action, a separate Recheck action and installed-only filtering.
-Available managed titles return to installed views; disconnected titles remain in general views and
-collections. This remains enabled under the Steam integration master even when decorative library
-badges are off. No native persistent shortcut-uninstalled toggle has been verified; the code neither
-changes Valve's global install store nor wraps all `RunGame` calls. The launch helper independently
-checks the host-accepted local binding and required files, and refuses unavailable content with its
-logical location.
-
-Deleting a shortcut in Steam preserves its title and portable inventory. A complete read of the
+Deleting a shortcut in Steam preserves its title and card inventory. A complete read of the
 confirmed Steam account marks that account's receipt `RemovedFromSteam`; it does not erase unknown
 receipts or other accounts' mappings. The importer offers an unticked Add choice, excluded from bulk
 selection. Emulator shortcut sync also preserves manual deletion; explicitly enabling its shortcut
-in Emulator Manager can request recreation. Startup, scans and storage reconciliation cannot grant
-that request automatically.
+in Emulator Manager can request recreation. Startup, scans and availability passes cannot grant that
+request automatically.
 
-The schema-v2 migration keeps one immutable v1 index backup and preserves existing managed IDs and
-Steam shortcuts. A legacy card is initialized only on its expected readable volume. Already-missing
-legacy content is intentionally pruned on its first successful reconciliation. Unresolved legacy
-account receipts remain non-destructive until matched to the active account.
+The schema-v2 index migration keeps one immutable v1 backup and preserves existing managed IDs and
+Steam shortcuts. Unresolved legacy account receipts remain non-destructive until matched to the
+active account. Records an earlier build kept for a launcher's own route are dropped when the index
+is read, because only the managed route carries content now.
 
-The [implementation plan](plans/removable-shortcut-availability.md),
-[orchestration split](plans/removable-shortcut-orchestration.md) and
+The [implementation plan](plans/removable-shortcut-availability.md) and
 [validation record](../reports/issue-200-delivery.md) distinguish implemented source from live
 Steam, input, media-swap and launch acceptance.
 

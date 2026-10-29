@@ -15,11 +15,11 @@ is also a Quick Access Extensions tool in Steam, the same manager over the same
 Library Tab Manager"); every card remembers the capacity and free space of its last mount.
 
 Non-Steam ROMs and portable PC games use the Game Library's
-[portable inventory](game-library.md#portable-library-inventory-and-confirmed-deletion), separate
-from Steam's native library registration. The card stores its managed title inventory and the device
-remembers disconnected titles and local Steam mappings. Card removal retains unavailable shortcuts;
-confirmed deleted content on the correct readable card is pruned automatically. Neither this
-reconciliation nor Repair library formats media or deletes game files.
+[card libraries](game-library.md#card-libraries), separate from Steam's native library registration.
+The card stores its managed title inventory and the device remembers disconnected titles and local
+Steam mappings. The [shortcut availability](game-library.md#shortcut-availability) tracker reports
+missing cards and files and never removes anything. Neither it nor Repair library formats media or
+deletes game files.
 
 ## A card is named by its own marker, never by Steam's config label
 

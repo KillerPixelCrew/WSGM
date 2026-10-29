@@ -32,7 +32,7 @@ public sealed class ManagedContentStorageTests
         var result = ManagedContentStorage.Check(content, store);
 
         Assert.False(result.Available);
-        Assert.Equal(ManagedContentAvailability.ContentMissing, result.Availability);
+        Assert.Equal(ContentAvailability.FileMissing, result.Availability);
         Assert.Contains("Test library", result.Detail);
         Assert.Null(result.Launch);
     }
@@ -84,5 +84,78 @@ public sealed class ManagedContentStorageTests
             result.Launch.Arguments);
         Assert.Empty(content.EmulatorInstallationId);
         Assert.Empty(content.CoreId);
+    }
+
+    [Theory]
+    [InlineData(ContentPathState.Present, ContentAvailability.Available)]
+    [InlineData(ContentPathState.Missing, ContentAvailability.FileMissing)]
+    [InlineData(ContentPathState.VolumeAbsent, ContentAvailability.LibraryMissing)]
+    [InlineData(ContentPathState.Unreadable, ContentAvailability.LibraryMissing)]
+    public void EveryPathObservationMapsToOneOfTheThreePublishedStates(ContentPathState state,
+        ContentAvailability expected)
+    {
+        Assert.Equal(expected, ManagedContentStorage.Classify(state));
+    }
+
+    [Fact]
+    public void ALiteralPathIsPresentOrMissingBelowAReadableFolder()
+    {
+        using TemporaryDirectory temporary = new();
+        var file = temporary.GetPath("game.exe");
+        File.WriteAllText(file, "fixture");
+
+        Assert.Equal(ContentPathState.Present,
+            ManagedContentStorage.Probe(new ManagedContentPath { AbsolutePath = file }));
+        Assert.Equal(ContentPathState.Present,
+            ManagedContentStorage.Probe(new ManagedContentPath { AbsolutePath = temporary.Root, Directory = true }));
+        Assert.Equal(ContentPathState.Missing,
+            ManagedContentStorage.Probe(new ManagedContentPath { AbsolutePath = file, Directory = true }));
+        Assert.Equal(ContentPathState.Missing,
+            ManagedContentStorage.Probe(new ManagedContentPath { AbsolutePath = temporary.GetPath("gone.exe") }));
+        Assert.Equal(ContentPathState.Missing, ManagedContentStorage.Probe(new ManagedContentPath
+        {
+            AbsolutePath = Path.Combine(temporary.Root, "moved", "deeper", "game.exe")
+        }));
+    }
+
+    [Fact]
+    public void ALiteralPathOnADriveWithNothingMountedIsVolumeAbsent()
+    {
+        var letter = Enumerable.Range('D', 23).Select(value => (char)value)
+            .First(candidate => !Directory.Exists(candidate + @":"));
+
+        Assert.Equal(ContentPathState.VolumeAbsent,
+            ManagedContentStorage.Probe(new ManagedContentPath { AbsolutePath = letter + @":\Games\game.exe" }));
+    }
+
+    [Fact]
+    public void AVolumeBoundPathIsQueriedThroughItsVolumeAndAnUnmountedVolumeIsAbsent()
+    {
+        using TemporaryDirectory temporary = new();
+        var file = temporary.GetPath("game.rom");
+        File.WriteAllText(file, "fixture");
+        var bound = ManagedContentStorage.CapturePath(file);
+        Assert.NotEmpty(bound.VolumeId);
+
+        Assert.Equal(ContentPathState.Present, ManagedContentStorage.Probe(bound));
+        File.Delete(file);
+        Assert.Equal(ContentPathState.Missing, ManagedContentStorage.Probe(bound));
+        Assert.Equal(ContentPathState.VolumeAbsent, ManagedContentStorage.Probe(new ManagedContentPath
+        {
+            AbsolutePath = file, VolumeId = @"\\?\Volume{00000000-0000-4000-8000-000000000001}\",
+            RelativePath = bound.RelativePath
+        }));
+    }
+
+    [Fact]
+    public void ARecordsPathSetSkipsTheUnsetProgramOfARom()
+    {
+        ManagedContentRecord rom = new()
+        {
+            BackingPath = new ManagedContentPath { AbsolutePath = @"E:\Roms\game.cue" },
+            RequiredPaths = [new ManagedContentPath { AbsolutePath = @"E:\Roms\game.bin" }]
+        };
+
+        Assert.Equal([@"E:\Roms\game.cue", @"E:\Roms\game.bin"], rom.Paths().Select(path => path.AbsolutePath));
     }
 }

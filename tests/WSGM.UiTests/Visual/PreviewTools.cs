@@ -34,8 +34,9 @@ public static class PreviewTools
     /// <summary>Storage cases render only when a filter names them, so ordinary exports are unchanged.</summary>
     private static readonly string[] StorageScenarios =
     [
-        "importer-storage-home", "importer-storage-list", "importer-storage-detail", "importer-storage-empty",
-        "importer-storage-error", "importer-entry-removed", "importer-entry-loading", "importer-storage-shortcuts"
+        "importer-storage-home", "importer-storage-list", "importer-storage-lower", "importer-storage-entry",
+        "importer-storage-empty", "importer-storage-checking", "importer-storage-error", "importer-entry-removed",
+        "importer-entry-loading"
     ];
 
     internal static OverlayWindow Create(UiFixture fixture, int width = 1280, int height = 800,
@@ -164,24 +165,25 @@ public static class PreviewTools
 
             if (library is not null)
             {
-                if (scenario == "importer-storage-shortcuts")
+                if (scenario == "importer-storage-empty")
                 {
-                    // Only the user's own Steam shortcuts are on storage: the level still opens and lists them.
+                    library.State = library.State with { StorageLibraries = [], Shortcuts = [] };
+                    library.Publish();
+                    Dispatcher.UIThread.RunJobs();
+                }
+
+                if (scenario == "importer-storage-checking")
+                {
+                    library.State = library.State with { StorageChecked = false, Shortcuts = [] };
+                    library.Publish();
+                    Dispatcher.UIThread.RunJobs();
+                }
+
+                if (scenario == "importer-storage-error")
+                {
                     library.State = library.State with
                     {
-                        StorageLibraries = [],
-                        SteamShortcuts =
-                        [
-                            new WSGM.Shell.GameLibraryShortcut(AppId: 1, "Celeste", "Travel SSD", Available: true,
-                                Detail: ""),
-                            new WSGM.Shell.GameLibraryShortcut(AppId: 2, "Hollow Knight", "E:", Available: false,
-                                "Connect the storage for drive E: and choose Recheck."),
-                            new WSGM.Shell.GameLibraryShortcut(AppId: 3,
-                                "A shortcut with an extremely long name that the user typed into Steam themselves",
-                                "Extremely long removable storage library name (Example 1 TB card)", Available: false,
-                                @"G:\Games\Very Long Folder Name\Another Level\Game.exe is missing from Extremely long "
-                                + "removable storage library name (Example 1 TB card). Edit the shortcut in Steam if the game moved.")
-                        ]
+                        Error = "Shortcut availability is pending: Steam's account could not be confirmed."
                     };
                     library.Publish();
                     Dispatcher.UIThread.RunJobs();
@@ -189,48 +191,36 @@ public static class PreviewTools
 
                 if (scenario != "importer-storage-home")
                 {
-                    Click($"Storage libraries ({library.State.StorageLibraries!.Count})");
+                    Click("Storage");
                 }
 
-                if (scenario == "importer-storage-detail")
+                if (scenario == "importer-storage-lower")
                 {
-                    Click("Handheld microSD");
-                    Click("Repair library");
-                    var apply = FocusSearch.First<ActionButton>(window,
-                                    button => button.Title == "Apply 1" && button.IsEffectivelyVisible)
-                                ?? throw new InvalidOperationException("The staged repair has no Apply action.");
-                    apply.BringIntoView();
-                    apply.Focus(NavigationMethod.Directional);
+                    // The bottom of the list: a fixed disk's group with a long name and path.
+                    var last = FocusSearch.First<ActionButton>(window,
+                                   button => button.Title?.StartsWith("Chronicle", StringComparison.Ordinal) == true
+                                             && button.IsEffectivelyVisible)
+                               ?? throw new InvalidOperationException("The last shortcut is not listed.");
+                    last.BringIntoView();
+                    last.Focus(NavigationMethod.Directional);
                     keepFocus = true;
                 }
 
-                if (scenario == "importer-storage-empty")
+                if (scenario == "importer-storage-entry")
                 {
-                    library.State = library.State with { StorageLibraries = [] };
-                    library.Publish();
-                }
-
-                if (scenario == "importer-storage-error")
-                {
-                    library.State = library.State with
-                    {
-                        Error = "Steam's account could not be confirmed. Recheck before importing."
-                    };
-                    library.Publish();
+                    Click("Lantern Saga");
                 }
 
                 if (scenario is "importer-entry-removed" or "importer-entry-loading")
                 {
-                    // Cleanup finished while the title was open: the host publishes a state without it, and
-                    // the production view returns to the library with the neighbouring title focused.
-                    Click("Retro card");
+                    // An applied removal finished while the title was open: the host publishes a state without
+                    // it, and the production view leaves the title's level.
                     Click("Deleted Platformer");
                     library.State = library.State with
                     {
                         Loading = scenario == "importer-entry-loading",
                         Entries = library.State.Entries.Where(entry => entry.Id != "retro-deleted").ToArray(),
-                        StorageLibraries = library.State.StorageLibraries!.Select(storage =>
-                            storage.Id == "lib-retro" ? storage with { TitleCount = 2 } : storage).ToArray()
+                        Shortcuts = library.State.Shortcuts!.Where(shortcut => shortcut.AppId != 102).ToArray()
                     };
                     library.Publish();
                     keepFocus = true;

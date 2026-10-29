@@ -201,21 +201,13 @@ public sealed class ShortcutFolderSource : ILibrarySource
                 content.WorkingDirectory = ManagedContentStorage.BindPath(binding, route.StartDirectory, true);
                 content.RawArguments = route.LaunchOptions;
             }
-            else
-            {
-                content = ManagedContentStorage.CreateRecord(Id, key, Path.GetFileNameWithoutExtension(file),
-                    LibrarySourceKind.Folder, DisplayName, file,
-                    binding: ManagedContentStorage.BindPath(binding, file));
-                content.SourceRoot = binding.Copy();
-                content.LaunchKind = ManagedLaunchKind.Native;
-            }
 
+            // Any other route is checked from its shortcut's own Target, like a shortcut the user made.
             found.Add(DiscoveredGame.Command(this,
                 key,
                 Path.GetFileNameWithoutExtension(file),
                 route.Id == "direct" ? route.StartDirectory : file,
-                [route], content, content?.LaunchKind == ManagedLaunchKind.Direct,
-                retainContent: true));
+                [route], content, content is not null));
         }
 
         return found;

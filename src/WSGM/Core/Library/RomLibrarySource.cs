@@ -661,7 +661,7 @@ public sealed class ManualLibrarySource(
             ShortcutRoute route = new("direct", "Direct", source.Target, source.WorkingDirectory, source.Arguments,
                 "Runs the command you defined.");
             games.Add(DiscoveredGame.Command(Id, source.Id, source.Name, source.ContentPath,
-                [route], content, source.LibraryBacked, retainContent: source.LibraryBacked));
+                [route], content, source.LibraryBacked));
         }
 
         return Task.FromResult<IReadOnlyList<DiscoveredGame>>(games);

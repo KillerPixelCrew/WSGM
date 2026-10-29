@@ -136,7 +136,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     ///     a token. An emptied collection is deleted.
     /// </param>
     /// <param name="emulators">The session-owned emulator manager, or null in an isolated importer.</param>
-    /// <param name="isShortcutRunning">Whether one shortcut is running, or null when its state is unknown.</param>
+    /// <param name="availability">The session's shortcut availability tracker, or null in an isolated importer.</param>
     /// <param name="readCollections">Reads collections while verifying the captured Steam account.</param>
     internal GameLibraryService(
         IReadOnlyList<ILibrarySource> sources,
@@ -159,7 +159,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         Func<string?, string, IReadOnlyCollection<uint>, IReadOnlyCollection<uint>, CancellationToken,
             Task<SteamCollectionSyncResult>>? syncCollection = null,
         EmulatorService? emulators = null,
-        Func<uint, CancellationToken, Task<bool?>>? isShortcutRunning = null,
+        ShortcutAvailabilityTracker? availability = null,
         Func<uint, CancellationToken, Task<IReadOnlyList<ImportedCollection>>>? readCollections = null)
     {
         _launchers = sources;
@@ -180,7 +180,12 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         _artwork = artwork;
         _syncCollection = syncCollection;
         _emulators = emulators;
-        _isShortcutRunning = isShortcutRunning ?? ((_, _) => Task.FromResult<bool?>(null));
+        _tracker = availability;
+        if (_tracker is not null)
+        {
+            _tracker.Changed += OnAvailabilityChanged;
+        }
+
         if (_emulators is not null)
         {
             _emulators.ChoicesChanged += OnEmulatorsChanged;
@@ -357,7 +362,6 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
 
                 var index = routes.ToList().FindIndex(route => route.Id == entry.Route);
                 entry.Route = routes[(index + 1) % routes.Count].Id;
-                entry.Game = entry.Game.ForRoute(entry.Route);
                 return null;
             }
 
@@ -391,7 +395,6 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             }
 
             entry.Route = route;
-            entry.Game = entry.Game.ForRoute(route);
             return null;
         });
     }
@@ -511,7 +514,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 .Where(entry => entry is { Selected: true, Selectable: true })
                 .OrderBy(entry => entry.Plan.Name, StringComparer.CurrentCulture)
                 .ToList();
-            if (selected.Count == 0 && _storageActions.Count == 0)
+            if (selected.Count == 0)
             {
                 return Refuse("Nothing is selected.");
             }
@@ -525,7 +528,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             }
 
             var (generation, token) = Begin(Phase.Applying);
-            _progressTotal = selected.Count + _storageActions.Count;
+            _progressTotal = selected.Count;
             Run(async work =>
             {
                 try
@@ -1153,14 +1156,6 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         }
     }
 
-    internal event Action? ManagedEntriesChanged;
-
-    internal IReadOnlyList<ManagedContentEntry> ReadManagedEntries()
-    {
-        return _store.Entries().Where(entry => entry.Content is not null && !entry.RemovedFromSteam)
-            .Select(entry => new ManagedContentEntry(entry.AppId, entry.Content!)).ToArray();
-    }
-
     /// <summary>Refuses new commands and cancels pending work without blocking the caller.</summary>
     internal void CloseAdmission()
     {
@@ -1183,6 +1178,11 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         {
             _emulators.ChoicesChanged -= OnEmulatorsChanged;
             _emulators.ShortcutsChanged -= NotifyManagedEntriesChanged;
+        }
+
+        if (_tracker is not null)
+        {
+            _tracker.Changed -= OnAvailabilityChanged;
         }
 
         _shutdown.Cancel();
@@ -1625,7 +1625,21 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
 
     private async Task ScanCoreAsync(long generation, CancellationToken cancellationToken)
     {
-        RefreshStorage(cancellationToken);
+        if (_tracker is not null)
+        {
+            // One fresh pass gives the scan the cards in the drives now and each shortcut's state.
+            var checkedStorage = await _tracker.RecheckAsync(cancellationToken).ConfigureAwait(false);
+            if (!checkedStorage.Succeeded && checkedStorage.Error is { } pending)
+            {
+                Note(generation, "Storage could not be checked, so titles on missing storage may be offered for removal. " + pending);
+            }
+
+            lock (_gate)
+            {
+                _sourceCache = null;
+            }
+        }
+
         var launcher = _resolveLauncher();
         var settings = ReadSettings();
         var sources = Sources();
@@ -1681,12 +1695,13 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         var recordedSources = recorded.Select(record => record.Source).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var emulatorSnapshot = ReadEmulatorStore();
         var contentChecks = new ManagedContentCheckContext();
+        var knownContent = _store.InventoryEntries().Where(entry => entry.Content is not null)
+            .GroupBy(entry => entry.Content!.Id, StringComparer.Ordinal)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.Ordinal);
         List<string> notes = [];
         Dictionary<string, int> counts = new(StringComparer.OrdinalIgnoreCase);
         List<DiscoveredGame> discovered = [];
         HashSet<(string Source, string Key)> discoveredIdentities = new(ImportPlan.Identity);
-        Dictionary<string, ManagedContentCheck> scanObservations = [];
-        Dictionary<string, ManagedContentRecord> checkedRecords = [];
         foreach (var (source, found, failure) in answers)
         {
             if (failure is not null)
@@ -1697,20 +1712,16 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
 
             foreach (var foundGame in found)
             {
-                var bound = BindDiscoveredContent(foundGame);
+                var bound = BindDiscoveredContent(foundGame, source.Kind == LibrarySourceKind.Launcher, knownContent);
                 var game = ApplyContentChoice(bound, scanChoices.GetValueOrDefault((bound.SourceId, bound.Key)));
                 if (!discoveredIdentities.Add((game.SourceId, game.Key)))
                 {
                     continue;
                 }
-                if (game.Content is { } observed)
+                if (game.Content is { SourceKind: LibrarySourceKind.Rom } observed)
                 {
-                    var check = CheckStorageContent(observed, emulatorSnapshot, contentChecks);
-                    scanObservations[observed.Id] = check;
-                    checkedRecords[observed.Id] = observed;
-                    observed.Availability = check.Availability;
-                    observed.AvailabilityDetail = check.Detail;
-                    if (check.Launch is { } launch)
+                    // Only the resolved emulator command is shown; availability belongs to the tracker.
+                    if (ManagedContentStorage.Check(observed, emulatorSnapshot, contentChecks).Launch is { } launch)
                     {
                         game = game with
                         {
@@ -1738,20 +1749,6 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             }
         }
 
-        // A launcher stops listing a title whose storage is gone. Observe it now, so the plan can tell
-        // a disconnected card from an uninstall instead of trusting an older observation.
-        foreach (var record in recorded.Where(record => record.Content is
-                     { SourceKind: LibrarySourceKind.Launcher, InventoryRemoved: false }
-                     && !discoveredIdentities.Contains((record.Source, record.Key))))
-        {
-            var content = record.Content!;
-            var check = CheckStorageContent(content, emulatorSnapshot, contentChecks);
-            scanObservations[content.Id] = check;
-            checkedRecords[content.Id] = content.Copy();
-            content.Availability = check.Availability;
-            content.AvailabilityDetail = check.Detail;
-        }
-
         var known = sources.Select(source => source.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         ImportSourceState StateOf(string sourceId)
@@ -1768,19 +1765,10 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 : ImportSourceState.Unread;
         }
 
+        var tracked = Tracked;
         var plan = ImportPlan.Build(
             discovered, recorded, existing, launcher ?? string.Empty, settings.DefaultMode, settings.ImportUnroutable,
-            StateOf).ToList();
-        foreach (var pending in recorded.Where(record => record.Content?.InventoryRemoved == true && record.HasSteamMapping))
-        {
-            if (plan.Any(entry => entry.Source == pending.Source && entry.Key == pending.Key))
-            {
-                continue;
-            }
-            plan.Add(new ImportPlanEntry(pending.Source, pending.Key, pending.Name, ImportAction.Skip,
-                "Game files were removed. Steam cleanup is pending.", settings.DefaultMode,
-                false, false, pending.AppId, false, Route: pending.Route));
-        }
+            StateOf, appId => tracked.Find(appId)?.State).ToList();
 
         Dictionary<(string Source, string Key), DiscoveredGame> games = new(ImportPlan.Identity);
         foreach (var game in discovered)
@@ -1844,7 +1832,6 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 chosen[(choice.Source, choice.Key)] = choice;
             }
 
-            _store.UpdateAvailability(scanObservations, checkedRecords);
             var previous = new Dictionary<string, Entry>(_entries, StringComparer.Ordinal);
             _entries.Clear();
             foreach (var planned in plan)
@@ -1914,15 +1901,6 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     private static Entry Create(
         ImportPlanEntry planned, DiscoveredGame? game, ImportedEntry? record, ImportChoice? choice)
     {
-        if (choice is { Route.Length: > 0 } && game?.CommandRoutes.Any(route => route.Id == choice.Route) == true)
-        {
-            game = game.ForRoute(choice.Route);
-        }
-        else
-        {
-            game = game?.ForRoute(planned.Route);
-        }
-
         var created = new Entry(EntryId(planned.Source, planned.Key), planned, game ?? Placeholder(planned, record))
         {
             RecordedTitleName = record?.Content?.Name ?? record?.Name ?? game?.Name ?? planned.Name,
@@ -2041,30 +2019,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     private async Task ApplyCoreAsync(
         long generation, IReadOnlyList<Entry> selected, string launcher, CancellationToken cancellationToken)
     {
-        int storageActionCount;
-        lock (_gate)
-        {
-            storageActionCount = _storageActions.Count;
-        }
-        RefreshStorage(cancellationToken);
-        var (storageApplied, problems) = await ApplyStorageActionsAsync(cancellationToken).ConfigureAwait(false);
-        if (selected.Count == 0)
-        {
-            lock (_gate)
-            {
-                if (_disposed || generation != _generation)
-                {
-                    return;
-                }
-                _phase = Phase.Done;
-                _progress = storageApplied;
-                _error = problems.Count == 0 ? null : string.Join(" ", problems);
-                _notes.Add($"Applied {_progress} storage change(s).");
-                Publish();
-            }
-            Notify();
-            return;
-        }
+        List<string> problems = [];
         var writer = _writer();
         if (writer is null)
         {
@@ -2083,7 +2038,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             records[(record.Source, record.Key)] = record;
         }
 
-        var applied = storageApplied;
+        var applied = 0;
         foreach (var entry in selected)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -2103,11 +2058,6 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 // A new account receipt may be created, but the unknown receipt remains canonical and untouched.
                 record = null;
             }
-            if (record?.Content?.InventoryRemoved == true || entry.Game.Content?.InventoryRemoved == true)
-            {
-                continue;
-            }
-
             // Re-read immediately before the write: the user may have changed the shortcut in Steam
             // since the scan, and acting on stale state is how the wrong entry is changed.
             ExistingShortcut? live = null;
@@ -2149,6 +2099,12 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                     .ConfigureAwait(false);
                 RequireAccount(accountId);
                 _store.Forget(entry.Plan.Source, entry.Plan.Key, accountId);
+                if (record?.Content is { } removedContent
+                    && await RemoveFromCardAsync(removedContent, CancellationToken.None).ConfigureAwait(false) is { } cardProblem)
+                {
+                    problems.Add(cardProblem);
+                }
+
                 records.Remove(identity);
                 existing.RemoveAll(shortcut => shortcut.AppId == current.AppId);
                 lock (_gate)
@@ -2162,11 +2118,11 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             }
 
             var artworkOnly = entry.ArtworkOnly;
-            if (!artworkOnly && entry.Game.Content is not null)
+            if (!artworkOnly && entry.Managed)
             {
                 try
                 {
-                    PublishImportedContent(entry, cancellationToken);
+                    await PublishImportedContentAsync(entry, cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception ex) when (StorageFailure(ex) && ex is not ImportStateException)
                 {
@@ -2236,7 +2192,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                     Target = fields.Target,
                     LaunchOptions = fields.LaunchOptions,
                     StartDirectory = fields.StartDirectory,
-                    Content = entry.Game.Content?.Copy(),
+                    Content = entry.Managed ? entry.Game.Content?.Copy() : null,
                     Mode = entry.Mode.ToString(),
                     Route = entry.Packaged ? string.Empty : entry.Route,
                     Acknowledged = entry.Acknowledged,
@@ -2359,7 +2315,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             }
 
             _phase = Phase.Done;
-            _notes.Add($"Applied {applied} of {selected.Count + storageActionCount} selected changes.");
+            _notes.Add($"Applied {applied} of {selected.Count} selected changes.");
 
             // A problem is an error the user sees, not a note the completion message replaces: a
             // controller-only title with no override has no working controller route, and nothing on a
@@ -2984,9 +2940,6 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
 
     private (long Generation, CancellationToken Token) Begin(Phase phase)
     {
-        _storageObservation.Cancel();
-        _storageObservation.Dispose();
-        _storageObservation = new CancellationTokenSource();
         _work?.Cancel();
         _work?.Dispose();
         _work = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
@@ -3109,7 +3062,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 _ => GameLibraryPhases.Idle
             },
             entries,
-            entries.Count(entry => entry.Selected) + _storageActions.Count,
+            entries.Count(entry => entry.Selected),
             _progress,
             _progressTotal,
             _launcher is not null,
@@ -3118,14 +3071,15 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 : null,
             Busy,
             _notes.Count == 0 ? null : string.Join(" ", _notes),
-            _error is null ? _storageError : _storageError is null ? _error : _error + " " + _storageError,
+            _error,
             settings.ArtworkPreference.ToString(),
             settings.CreateCollections,
             _revision,
             [.. settings.RomSources.Select(source => source.Copy())],
             [.. settings.ManualSources.Select(source => source.Copy())],
-            StorageLibraries: [.. _storagePublished.Values.OrderBy(library => library.Name, StringComparer.CurrentCulture)],
-            SteamShortcuts: _steamShortcuts);
+            StorageLibraries: Tracked.Libraries,
+            Shortcuts: Tracked.Shortcuts,
+            StorageChecked: Tracked.Checked);
     }
 
     private static DiscoveredGame Placeholder(ImportPlanEntry entry, ImportedEntry? record)
@@ -3151,6 +3105,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     {
         var progress = Progress(entry);
         var route = entry.Game.CommandRoutes.FirstOrDefault(candidate => candidate.Id == entry.Route);
+        var status = StatusOf(entry);
         return new GameLibraryEntry(
             entry.Id,
             entry.Plan.Name,
@@ -3186,13 +3141,14 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             entry.Match?.Name ?? progress.MatchName,
             entry.Match is not null,
             entry.Game.Content?.SystemId ?? "", entry.Game.Content?.EmulatorInstallationId ?? "",
-            entry.Game.Content?.CoreId ?? "", entry.Game.Content?.Id ?? "", entry.Game.Content?.Location ?? "",
-            entry.Game.Content?.Availability.ToString() ?? "", entry.Game.Content?.BackingPath.AbsolutePath ?? "",
+            entry.Game.Content?.CoreId ?? "", entry.Game.Content?.Id ?? "",
+            status?.Location ?? entry.Game.Content?.Location ?? "",
+            status?.State.ToString() ?? "", entry.Game.Content?.BackingPath.AbsolutePath ?? "",
             entry.Game.Content?.Arguments,
-            entry.Game.Content is { } content && ManagedAvailabilityPresentation.Unavailable(content.Availability),
-            ManagedAvailabilityPresentation.Label(
-                entry.Game.Content?.Availability ?? ManagedContentAvailability.Unknown),
-            entry.Game.Content?.LibraryId ?? "", entry.Game.Content?.InventoryRemoved == true);
+            status is { Available: false },
+            status?.Label ?? "",
+            entry.Game.Content?.LibraryId ?? status?.LibraryId ?? "",
+            status?.Detail ?? "");
     }
 
     private enum Phase
@@ -3284,12 +3240,16 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                                                                           candidate.Id == Route) is { Follows: true } or
                                                                       { IsManaged: true });
 
+        /// <summary>Whether it launches through the managed route, the only route that stores a content record.</summary>
+        internal bool Managed => Game.Content is not null
+                                 && Game.CommandRoutes.FirstOrDefault(candidate => candidate.Id == Route) is
+                                     { IsManaged: true };
+
         /// <summary>The entry's Steam app id, once it has one.</summary>
         internal uint AppId => Plan.AppId;
 
         /// <summary>Whether its launch and artwork can be changed here.</summary>
-        internal bool Editable => Game.Content?.InventoryRemoved != true
-                                  && Action is not (ImportAction.Remove or ImportAction.Conflict) && !Excluded;
+        internal bool Editable => Action is not (ImportAction.Remove or ImportAction.Conflict) && !Excluded;
 
         /// <summary>Whether the user has moved this entry off the mode or route Steam's entry launches with.</summary>
         private bool Rerouted => (Mode != Plan.Mode || Route != Plan.Route) && Plan.AppId > 0;
@@ -3325,7 +3285,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         internal string ActionName => ArtworkOnly ? "Artwork" : Action.ToString();
 
         /// <summary>Whether the user may tick this entry.</summary>
-        internal bool Selectable => !Excluded && Game.Content?.InventoryRemoved != true && (Plan.Selectable || PendingChange);
+        internal bool Selectable => !Excluded && (Plan.Selectable || PendingChange);
 
         /// <summary>Whether "select all" may tick it: never a removal, an unconfirmed add, or a title the user deleted.</summary>
         internal bool BulkSelectable =>

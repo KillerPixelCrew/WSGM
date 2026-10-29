@@ -98,7 +98,7 @@ public sealed partial class EmulatorManager : IDisposable
         var checks = new ManagedContentCheckContext();
         foreach (var entry in _importState.Entries())
         {
-            if (entry.Content is not { SourceKind: LibrarySourceKind.Rom, InventoryRemoved: false } content ||
+            if (entry.Content is not { SourceKind: LibrarySourceKind.Rom } content ||
                 ManagedContentStorage.ResolveEmulatorPreference(store, content).EmulatorInstallationId != previous.Id)
             {
                 continue;

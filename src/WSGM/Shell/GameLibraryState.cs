@@ -96,14 +96,16 @@ public sealed record GameLibrarySource(
 /// <param name="EmulatorInstallationId">The selected installation, or empty when following the system preference.</param>
 /// <param name="CoreId">The selected RetroArch core.</param>
 /// <param name="ManagedId">The durable pre-Steam content identity.</param>
-/// <param name="Location">The friendly expected library or storage label.</param>
-/// <param name="Availability">The current managed availability observation.</param>
+/// <param name="Location">The card, disk or library holding its files, by name.</param>
+/// <param name="Availability">
+///     The tracker's state for its shortcut: Available, LibraryMissing or FileMissing; empty while unchecked.
+/// </param>
 /// <param name="ContentPath">The original backing path, retained for review.</param>
 /// <param name="Arguments">The effective typed ROM argument override, or null for other sources.</param>
-/// <param name="Unavailable">Whether the host currently considers its managed content unavailable.</param>
-/// <param name="AvailabilityLabel">The host's user-facing description of the current availability.</param>
-/// <param name="LibraryId">The backing library identity, or empty for device-only content.</param>
-/// <param name="CleanupPending">Whether confirmed missing content awaits local shortcut cleanup.</param>
+/// <param name="Unavailable">Whether its shortcut cannot start right now.</param>
+/// <param name="AvailabilityLabel">The host's label for that state, or empty while unchecked.</param>
+/// <param name="LibraryId">The backing card library identity, or empty for device-only content.</param>
+/// <param name="AvailabilityDetail">What to do when it is unavailable.</param>
 public sealed record GameLibraryEntry(
     string Id,
     string Name,
@@ -144,17 +146,16 @@ public sealed record GameLibraryEntry(
     bool Unavailable = false,
     string AvailabilityLabel = "",
     string LibraryId = "",
-    bool CleanupPending = false);
+    string AvailabilityDetail = "");
 
-/// <summary>One known content library, including disconnected storage and staged recovery.</summary>
-/// <param name="Id">The opaque stable library identity.</param>
-/// <param name="Name">The logical storage name retained while disconnected.</param>
-/// <param name="Status">The host's readable availability or recovery label.</param>
+/// <summary>One card library this device knows or sees, with what can be done about it now.</summary>
+/// <param name="Id">The library's own UUID, as its card carries it.</param>
+/// <param name="Name">The card's name, kept while it is out.</param>
+/// <param name="Status">The host's short status, such as Connected, Disconnected or Needs repair.</param>
 /// <param name="Detail">The current explanation, or empty.</param>
-/// <param name="TitleCount">The number of managed titles remembered for this library.</param>
-/// <param name="CanRepair">Whether review/apply can restore its missing or damaged inventory.</param>
-/// <param name="CanAcceptBinding">Whether review/apply can accept a newly observed volume binding.</param>
-/// <param name="StagedAction">The pending repair or binding intent, or empty.</param>
+/// <param name="TitleCount">How many titles the card lists, or this device remembers while it is out.</param>
+/// <param name="CanRepair">Whether Repair library can rebuild its missing or damaged game list now.</param>
+/// <param name="CanAcceptBinding">Whether Use this card can make this device launch its titles from where it is now.</param>
 public sealed record GameLibraryStorage(
     string Id,
     string Name,
@@ -162,31 +163,7 @@ public sealed record GameLibraryStorage(
     string Detail,
     int TitleCount,
     bool CanRepair,
-    bool CanAcceptBinding,
-    string StagedAction = "");
-
-/// <summary>The host's wording and presentation policy for managed availability.</summary>
-internal static class ManagedAvailabilityPresentation
-{
-    internal static bool Unavailable(ManagedContentAvailability value)
-    {
-        return value is ManagedContentAvailability.StorageUnavailable or ManagedContentAvailability.ContentMissing
-            or ManagedContentAvailability.EmulatorUnavailable or ManagedContentAvailability.Unreadable;
-    }
-
-    internal static string Label(ManagedContentAvailability value)
-    {
-        return value switch
-        {
-            ManagedContentAvailability.Available => "Available",
-            ManagedContentAvailability.StorageUnavailable => "Storage disconnected",
-            ManagedContentAvailability.ContentMissing => "Game files missing",
-            ManagedContentAvailability.EmulatorUnavailable => "Emulator or required files unavailable",
-            ManagedContentAvailability.Unreadable => "Cannot read game files",
-            _ => "Not checked yet"
-        };
-    }
-}
+    bool CanAcceptBinding);
 
 /// <summary>The <see cref="GameLibraryState.Phase" /> values, shared by the service and the overlay.</summary>
 public static class GameLibraryPhases
@@ -225,8 +202,9 @@ public static class GameLibraryPhases
 /// <param name="Revision">Monotonic publication revision.</param>
 /// <param name="RomSources">The configured sources shown by both editors.</param>
 /// <param name="ManualSources">The editable user-authored command sources.</param>
-/// <param name="StorageLibraries">Known backing libraries and their staged recovery actions.</param>
-/// <param name="SteamShortcuts">Shortcuts the user made in Steam whose program or folder is on storage.</param>
+/// <param name="StorageLibraries">Every card library known or connected, with its immediate actions.</param>
+/// <param name="Shortcuts">Every tracked non-Steam shortcut, WSGM's and the user's, by location and name.</param>
+/// <param name="StorageChecked">Whether the tracker has checked Steam's shortcuts at least once.</param>
 public sealed record GameLibraryState(
     IReadOnlyList<GameLibrarySource> Sources,
     IReadOnlyList<string> Reading,
@@ -246,15 +224,8 @@ public sealed record GameLibraryState(
     IReadOnlyList<RomSourceConfig>? RomSources = null,
     IReadOnlyList<ManualShortcutConfig>? ManualSources = null,
     IReadOnlyList<GameLibraryStorage>? StorageLibraries = null,
-    IReadOnlyList<GameLibraryShortcut>? SteamShortcuts = null);
-
-/// <summary>A shortcut the user made in Steam, observed against the storage its program needs.</summary>
-/// <param name="AppId">Steam's shortcut id.</param>
-/// <param name="Name">The name Steam shows.</param>
-/// <param name="Location">The storage's name, or the drive letter of storage that is not connected.</param>
-/// <param name="Available">Whether its program and working folder are present.</param>
-/// <param name="Detail">What to do when they are not.</param>
-public sealed record GameLibraryShortcut(uint AppId, string Name, string Location, bool Available, string Detail);
+    IReadOnlyList<ShortcutStatus>? Shortcuts = null,
+    bool StorageChecked = false);
 
 /// <summary>The installed choices needed by ROM editors, without downloader progress or release offers.</summary>
 /// <param name="Choices">Compatible installations and cores per system.</param>
@@ -317,14 +288,21 @@ public interface IGameLibraryBackend
     /// <summary>Explicitly selects or cancels removal of an unchanged managed shortcut.</summary>
     Task<SteamUiCommandResult> SetCleanupAsync(string id, bool cleanup, CancellationToken cancellationToken);
 
-    /// <summary>Checks one title, or all titles for an empty identity, without a full source scan.</summary>
-    Task<SteamUiCommandResult> RecheckAvailabilityAsync(string id, CancellationToken cancellationToken);
+    /// <summary>Checks every shortcut and card again now, answering when that pass has finished.</summary>
+    Task<SteamUiCommandResult> RecheckAvailabilityAsync(CancellationToken cancellationToken);
 
-    /// <summary>Stages repair, acceptance of a new volume binding, or cancellation for the next Apply.</summary>
-    /// <param name="id">The known library identity.</param>
-    /// <param name="action">repair, acceptBinding, or empty to cancel the staged action.</param>
+    /// <summary>Rebuilds a connected card's missing or damaged game list from the titles WSGM knows, immediately.</summary>
+    /// <param name="id">The card library's UUID.</param>
     /// <param name="cancellationToken">Cancels request admission.</param>
-    Task<SteamUiCommandResult> StageStorageActionAsync(string id, string action, CancellationToken cancellationToken)
+    Task<SteamUiCommandResult> RepairLibraryAsync(string id, CancellationToken cancellationToken)
+    {
+        return Task.FromResult(SteamUiCommandResult.Refused);
+    }
+
+    /// <summary>Makes this device launch a connected card's titles from the volume it is on now, immediately.</summary>
+    /// <param name="id">The card library's UUID.</param>
+    /// <param name="cancellationToken">Cancels request admission.</param>
+    Task<SteamUiCommandResult> UseLibraryAsync(string id, CancellationToken cancellationToken)
     {
         return Task.FromResult(SteamUiCommandResult.Refused);
     }

@@ -197,10 +197,14 @@ public sealed partial class GameLibraryView
             return;
         }
 
-        body.Children.Add(Caption("Location: " + (entry.Location.Length > 0 ? entry.Location : entry.ContentPath)));
-        body.Children.Add(Caption("Availability: " + entry.AvailabilityLabel));
+        // A tracked shortcut's location and state are on its Storage row; an untracked one names its content here.
+        if (entry.AvailabilityLabel.Length == 0)
+        {
+            body.Children.Add(Caption("Location: " + (entry.Location.Length > 0 ? entry.Location : entry.ContentPath)));
+        }
+
         body.Children.Add(Tagged(Row("Recheck availability", "Check the storage, content and emulator again",
-            Icons.Restart, () => Run(token => _service!.RecheckAvailabilityAsync(entry.Id, token))), "rom.recheck"));
+            Icons.Restart, () => Run(token => _service!.RecheckAvailabilityAsync(token))), "rom.recheck"));
         if (entry.AppId > 0 && entry.Action != nameof(ImportAction.Conflict))
         {
             body.Children.Add(Tagged(entry.Action == nameof(ImportAction.Remove)

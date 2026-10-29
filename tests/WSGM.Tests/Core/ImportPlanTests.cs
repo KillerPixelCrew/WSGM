@@ -432,26 +432,34 @@ public sealed class ImportPlanTests
     }
 
     [Fact]
-    public void NativeLauncherAvailabilityMetadataKeepsItsRouteAndUninstallCleanup()
+    public void ALauncherTitleCarriesNoContentRecordOffItsManagedRoute()
     {
-        ManagedContentRecord content = new()
-        {
-            Id = "0123456789abcdef0123456789abcdef", SourceId = "epic", SourceKey = "Hades",
-            Name = "Hades", SourceKind = LibrarySourceKind.Launcher, LaunchKind = ManagedLaunchKind.Native,
-            BackingPath = new ManagedContentPath { AbsolutePath = @"D:\Games\Hades", Directory = true }
-        };
-        var game = DiscoveredGame.Command("epic", "Hades", "Hades", @"D:\Games\Hades", [ThroughLauncher, Direct],
-            content);
-        var record = CommandRecord(Direct);
-        record.Content = content;
+        var game = DiscoveredGame.Command("epic", "Hades", "Hades", @"D:\Games\Hades", [ThroughLauncher, Direct]);
 
+        Assert.Null(game.Content);
         Assert.Equal([ThroughLauncher, Direct], game.CommandRoutes);
         Assert.DoesNotContain(game.CommandRoutes, route => route.IsManaged);
-        Assert.Equal(ImportAction.Skip, Single([game], [record], [Live(Direct)]).Action);
-        var removal = Single([], [record], [Live(Direct)]);
-        Assert.Equal(ImportAction.Remove, removal.Action);
-        Assert.True(removal.Selectable);
-        Assert.False(removal.Preselect);
+    }
+
+    [Theory]
+    [InlineData(null, ImportAction.Remove)]
+    [InlineData(ContentAvailability.Available, ImportAction.Remove)]
+    [InlineData(ContentAvailability.FileMissing, ImportAction.Remove)]
+    [InlineData(ContentAvailability.LibraryMissing, ImportAction.Skip)]
+    public void AnUnlistedTitleIsKeptOnlyWhileItsStorageIsMissing(ContentAvailability? state, ImportAction expected)
+    {
+        var record = CommandRecord(Direct);
+
+        var entry = Assert.Single(ImportPlan.Build([], [record], [Live(Direct)], Launcher,
+            ImportMode.SteamIntegration, false, null, appId => appId == record.AppId ? state : null));
+
+        Assert.Equal(expected, entry.Action);
+        Assert.False(entry.Preselect);
+        Assert.Equal(expected == ImportAction.Remove, entry.Selectable);
+        if (state == ContentAvailability.FileMissing)
+        {
+            Assert.StartsWith("Game files missing", entry.Reason);
+        }
     }
 
     [Fact]

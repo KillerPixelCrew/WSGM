@@ -106,7 +106,7 @@ public sealed partial class ShellSession
     // Replaced wholesale on every reload (see Reload) so this stays the same
     // instance the overlay, SessionModes and DisplayScale's saved-scale snapshot live on.
     private AppConfig _config;
-    private ManagedShortcutMonitor? _contentAvailability;
+    private ShortcutAvailabilityTracker? _contentAvailability;
     private ControllerManager? _controllerStatusSource;
     private ControllerDisplayWake? _controllerWake;
 
@@ -986,6 +986,9 @@ public sealed partial class ShellSession
         {
             StoreCatalogClient catalog = new();
             GameLibraryArtwork libraryArtwork = new(new ArtworkSearchProviders(() => _config.Artwork));
+            // One tracker reports every non-Steam shortcut's availability; the importer reads its results.
+            _contentAvailability = new ShortcutAvailabilityTracker(_libraryImportState, ReadShortcutsAsync,
+                () => _emulatorTool?.ReadStore() ?? new EmulatorStore(), _drives, _messageWindow, _emulators);
             _libraryImport = new GameLibraryService(
                 [
                     new XboxLibrarySource(
@@ -1021,14 +1024,11 @@ public sealed partial class ShellSession
                 syncCollection: (id, name, add, remove, token) =>
                     steam.Collections.SyncAsync(id, name, add, remove, true, token),
                 emulators: _emulatorTool,
-                isShortcutRunning: IsManagedShortcutRunning,
+                availability: _contentAvailability,
                 readCollections: ReadLibraryCollectionsAsync);
             _libraryArtwork = libraryArtwork;
             _libraryImport.Start();
-            if (_messageWindow is { } contentWindow)
-            {
-                _contentAvailability = new ManagedShortcutMonitor(contentWindow, _libraryImport, _emulators, _drives);
-            }
+            _contentAvailability.Start();
         });
 
         _launchActions ??= new LaunchActionService(_store, () => _steamClient,

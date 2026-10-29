@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Avalonia.Controls;
+using Avalonia.Media;
 using WSGM.Controls;
 using WSGM.Shell;
 
@@ -11,20 +12,23 @@ public sealed partial class GameLibraryView
 {
     private string _openEntryName = "";
     private IReadOnlyList<string> _reviewOrder = [];
+    private Func<string, string>? _reviewTag;
     private int _storageShown = 48;
 
     /// <summary>Opens one title from a list, remembering the list so a removal can land on a neighbour.</summary>
     /// <param name="id">The title.</param>
     /// <param name="order">The titles the list showed, in its order.</param>
-    private void OpenEntry(string id, IReadOnlyList<string> order)
+    /// <param name="tagOf">The focus tag that list gives a title, or null for the review's own cards and rows.</param>
+    private void OpenEntry(string id, IReadOnlyList<string> order, Func<string, string>? tagOf = null)
     {
         _reviewOrder = order;
+        _reviewTag = tagOf;
         Navigate(() => RenderEntry(id));
     }
 
     /// <summary>
-    ///     Leaves a title's level once the title is no longer listed, such as after its files were deleted
-    ///     and its shortcut removed, and focuses the nearest title the list still has.
+    ///     Leaves a title's level once the title is no longer listed, such as after its shortcut was removed,
+    ///     and focuses the nearest title the list still has.
     /// </summary>
     /// <param name="id">The title that went away.</param>
     /// <param name="state">The current state.</param>
@@ -41,9 +45,7 @@ public sealed partial class GameLibraryView
         Toast(name.Length > 0 ? $"{name} is no longer listed." : "That title is no longer listed.");
         if (neighbour is not null)
         {
-            // Cards and rows carry the tags the review and storage levels give them.
-            PagedRows.FocusAdded(this, (_grid ? "item:" : "entry:") + neighbour);
-            PagedRows.FocusAdded(this, "storage.entry:" + neighbour);
+            PagedRows.FocusAdded(this, _reviewTag?.Invoke(neighbour) ?? (_grid ? "item:" : "entry:") + neighbour);
         }
     }
 
@@ -59,9 +61,13 @@ public sealed partial class GameLibraryView
         SetContent(stack);
     }
 
-    private void RenderStorageLibraries()
+    /// <summary>
+    ///     Every non-Steam shortcut, grouped by the card, disk or drive its files are on, with each card library's
+    ///     immediate Repair or Use this card action and one Recheck.
+    /// </summary>
+    private void RenderStorage()
     {
-        var stack = NewStack("Storage libraries");
+        var stack = NewStack("Storage");
         if (_service?.ReadState() is not { } state)
         {
             SetContent(stack);
@@ -69,174 +75,130 @@ public sealed partial class GameLibraryView
         }
 
         AddStatus(stack, state);
-        stack.Children.Add(Caption("Games on removable storage stay listed while it is disconnected and "
-                                   + "return when it is inserted again. A title whose files were deleted is "
-                                   + "removed from Steam automatically."));
+        stack.Children.Add(Caption("Every non-Steam shortcut in Steam, grouped by where its files are. WSGM shows "
+                                   + "when a card is out or files are missing, and never removes a shortcut itself."));
+        var shortcuts = state.Shortcuts ?? [];
         var storages = state.StorageLibraries ?? [];
-        var shortcuts = state.SteamShortcuts ?? [];
-        stack.Children.Add(Tagged(Row("Recheck all storage", "Check every connected library's files again",
-            Icons.Restart, state.Loading || storages.Count == 0 && shortcuts.Count == 0
-                ? null
-                : () => Run(token => _service.RecheckAvailabilityAsync("", token))), "storage.recheck-all"));
-        foreach (var storage in storages)
-        {
-            var id = storage.Id;
-            stack.Children.Add(Tagged(Row(storage.Name, GameLibraryRows.StorageLine(storage, state.Entries),
-                GameLibraryRows.StorageNeedsAttention(storage) ? Icons.Info : Icons.SdCard,
-                () =>
-                {
-                    _storageShown = 48;
-                    Navigate(() => RenderStorageLibrary(id));
-                }), "storage:" + id));
-        }
-
-        if (storages.Count == 0)
-        {
-            stack.Children.Add(Caption("No storage libraries yet. Import games from removable storage to "
-                                       + "keep track of them here."));
-        }
-
-        AddSteamShortcuts(stack, shortcuts, state.Loading);
-        AddApplyRow(stack, state);
-        SetContent(stack);
-    }
-
-    /// <summary>Lists shortcuts the user made in Steam whose program is on storage, each rechecked in place.</summary>
-    private void AddSteamShortcuts(StackPanel stack, IReadOnlyList<GameLibraryShortcut> shortcuts, bool busy)
-    {
-        if (shortcuts.Count == 0)
-        {
-            return;
-        }
-
-        var unavailable = shortcuts.Count(shortcut => !shortcut.Available);
-        stack.Children.Add(SectionLabel(unavailable > 0
-            ? $"YOUR STEAM SHORTCUTS ({shortcuts.Count}, {unavailable} UNAVAILABLE)"
-            : $"YOUR STEAM SHORTCUTS ({shortcuts.Count})"));
-        stack.Children.Add(Caption("Shortcuts you added in Steam yourself. WSGM checks their storage and never "
-                                   + "changes or removes them."));
-        foreach (var shortcut in shortcuts)
-        {
-            var appId = shortcut.AppId;
-            stack.Children.Add(Tagged(Row(shortcut.Name,
-                shortcut.Available ? shortcut.Location + " · Available" : shortcut.Detail,
-                shortcut.Available ? Icons.SdCard : Icons.BlockedCircle,
-                busy ? null : () => Run(token => _service!.RecheckAvailabilityAsync(
-                    GameLibraryService.ShortcutCheckId(appId), token))), "storage.shortcut:" + appId));
-        }
-    }
-
-    private void RenderStorageLibrary(string id)
-    {
-        if (_service?.ReadState() is not { } state
-            || state.StorageLibraries?.FirstOrDefault(storage => storage.Id == id) is not { } storage)
-        {
-            Back();
-            Toast("That storage library is no longer listed.");
-            return;
-        }
-
-        var stack = NewStack(storage.Name);
-        AddStatus(stack, state);
-        stack.Children.Add(Caption(GameLibraryRows.StorageLine(storage, state.Entries)));
-        if (storage.Detail.Length > 0)
-        {
-            stack.Children.Add(Caption(storage.Detail));
-        }
-
-        var busy = state.Loading;
-        if (storage.StagedAction.Length > 0)
-        {
-            stack.Children.Add(Tagged(Row(storage.StagedAction == "repair" ? "Don't repair" : "Don't use this card",
-                GameLibraryRows.StagedStorageAction(storage.StagedAction) + ". Leave it out of the next apply",
-                Icons.Close,
-                busy ? null : () => Run(token => _service.StageStorageActionAsync(id, "", token))), "storage.action"));
-        }
-        else if (storage.CanRepair)
-        {
-            stack.Children.Add(Tagged(Row("Repair library",
-                "Rebuild this storage's game list from the titles WSGM already knows. Done when you apply",
-                Icons.Wrench,
-                busy ? null : () => Run(token => _service.StageStorageActionAsync(id, "repair", token))),
-                "storage.action"));
-        }
-        else if (storage.CanAcceptBinding)
-        {
-            stack.Children.Add(Tagged(Row("Use this card",
-                "Launch this library's titles from the storage now connected. Done when you apply",
-                Icons.SdCard,
-                busy ? null : () => Run(token => _service.StageStorageActionAsync(id, "acceptBinding", token))),
-                "storage.action"));
-        }
-
-        AddApplyRow(stack, state);
-        stack.Children.Add(Tagged(Row("Recheck", "Check this library's files again", Icons.Restart,
-            busy ? null : () => Run(token => _service.RecheckAvailabilityAsync("library:" + id, token))),
+        stack.Children.Add(Tagged(Row("Recheck", state.StorageChecked
+                ? "Check every shortcut and card again"
+                : "Checking shortcuts for the first time",
+            Icons.Restart, state.Loading ? null : () => Run(token => _service.RecheckAvailabilityAsync(token))),
             "storage.recheck"));
 
-        var titles = state.Entries.Where(entry => entry.LibraryId == id).ToArray();
-        stack.Children.Add(SectionLabel($"TITLES ({titles.Length})"));
-        var order = titles.Select(entry => entry.Id).ToArray();
-        foreach (var entry in titles.Take(_storageShown))
+        var groups = GameLibraryRows.StorageGroups(shortcuts, storages);
+        if (groups.Count == 0)
         {
-            var entryId = entry.Id;
-            stack.Children.Add(Tagged(Row(entry.Name, GameLibraryRows.Describe(entry),
-                GameLibraryRows.IsUnavailable(entry) || entry.CleanupPending ? Icons.BlockedCircle : null,
-                () => OpenEntry(entryId, order)), "storage.entry:" + entryId));
+            stack.Children.Add(Caption(state.StorageChecked
+                ? "No shortcut in Steam has its files on this device's storage, and no game library card is known."
+                : "Shortcuts are listed here once Steam has been checked."));
+            SetContent(stack);
+            return;
         }
 
-        if (titles.Length > _storageShown)
+        var entries = state.Entries.Where(entry => entry.AppId > 0).GroupBy(entry => entry.AppId)
+            .ToDictionary(group => group.Key, group => group.First().Id);
+        var tags = entries.ToDictionary(pair => pair.Value, pair => "storage.shortcut:" + pair.Key, StringComparer.Ordinal);
+        var order = groups.SelectMany(group => group.Shortcuts).Select(shortcut => entries.GetValueOrDefault(shortcut.AppId))
+            .OfType<string>().ToArray();
+        var shown = 0;
+        string? more = null;
+        foreach (var group in groups)
         {
-            var added = "storage.entry:" + titles[_storageShown].Id;
-            stack.Children.Add(Tagged(Row("Load more", $"{_storageShown} of {titles.Length}", Icons.ArrowDown, () =>
+            var unavailable = group.Shortcuts.Count(shortcut => !shortcut.Available);
+            var heading = SectionLabel(group.Shortcuts.Count == 0 ? group.Name.ToUpperInvariant()
+                : unavailable > 0
+                    ? $"{group.Name.ToUpperInvariant()} ({group.Shortcuts.Count}, {unavailable} UNAVAILABLE)"
+                    : $"{group.Name.ToUpperInvariant()} ({group.Shortcuts.Count})");
+            // A card's own name can be long; it wraps rather than clipping at the pane's edge.
+            heading.TextWrapping = TextWrapping.Wrap;
+            stack.Children.Add(heading);
+            if (group.Library is { } library)
+            {
+                AddLibraryRows(stack, library, group.Shortcuts.Count > 0, state.Loading);
+            }
+
+            foreach (var shortcut in group.Shortcuts)
+            {
+                if (shown == _storageShown)
+                {
+                    more ??= "storage.shortcut:" + shortcut.AppId;
+                    break;
+                }
+
+                shown++;
+                var appId = shortcut.AppId;
+                Action open = entries.TryGetValue(appId, out var entryId)
+                    ? () => OpenEntry(entryId, order, id => tags.GetValueOrDefault(id, "storage.recheck"))
+                    : () => Toast(shortcut.Available
+                        ? $"{shortcut.Name} is available on {shortcut.Location}."
+                        : $"{shortcut.Name}: {shortcut.Detail}");
+                stack.Children.Add(Tagged(Row(shortcut.Name, GameLibraryRows.ShortcutLine(shortcut),
+                    shortcut.Available ? null : Icons.BlockedCircle, open), "storage.shortcut:" + appId));
+            }
+
+            if (more is not null)
+            {
+                break;
+            }
+        }
+
+        if (more is { } next)
+        {
+            var total = shortcuts.Count;
+            stack.Children.Add(Tagged(Row("Load more", $"{shown} of {total}", Icons.ArrowDown, () =>
             {
                 _storageShown += 48;
-                RenderStorageLibrary(id);
-                PagedRows.FocusAdded(this, added);
+                RenderStorage();
+                PagedRows.FocusAdded(this, next);
             }), "storage.more"));
         }
 
-        if (titles.Length == 0)
-        {
-            stack.Children.Add(Caption(storage.TitleCount > 0
-                ? "Scan to list this library's titles."
-                : "No titles from this library are listed."));
-        }
-
         SetContent(stack);
     }
 
-    /// <summary>A title's storage: why it is being removed, and the way to its library.</summary>
-    private void AddStorageEntryControls(StackPanel body, GameLibraryState state, GameLibraryEntry entry)
+    /// <summary>A card library's status and, when it has one, its immediate action.</summary>
+    private void AddLibraryRows(StackPanel stack, GameLibraryStorage library, bool listed, bool busy)
     {
-        if (entry.CleanupPending)
+        var id = library.Id;
+        stack.Children.Add(Tagged(Row(GameLibraryRows.StorageLine(library),
+            library.Detail.Length > 0 ? library.Detail
+            : listed ? "Its shortcuts in Steam are listed below."
+            : "No shortcut in Steam uses this card. Scan to import its games.",
+            GameLibraryRows.StorageNeedsAttention(library) ? Icons.Info : Icons.SdCard,
+            () => Toast(library.Name + ": " + GameLibraryRows.StorageLine(library))), "storage.library:" + id));
+        if (library.CanRepair)
         {
-            body.Children.Add(Caption("Its game files were deleted. WSGM removes its Steam shortcut as soon as "
-                                      + "Steam allows; your other files and saves stay."));
+            stack.Children.Add(Tagged(Row("Repair library",
+                "Rebuild this card's game list from the titles WSGM knows. Your game files stay as they are",
+                Icons.Wrench, busy ? null : () => Run(token => _service!.RepairLibraryAsync(id, token))),
+                "storage.repair:" + id));
         }
 
-        if (entry.LibraryId.Length == 0
-            || state.StorageLibraries?.FirstOrDefault(storage => storage.Id == entry.LibraryId) is not { } storage)
+        if (library.CanAcceptBinding)
+        {
+            stack.Children.Add(Tagged(Row("Use this card",
+                "Launch this card's games on this device from where it is connected now",
+                Icons.SdCard, busy ? null : () => Run(token => _service!.UseLibraryAsync(id, token))),
+                "storage.use:" + id));
+        }
+    }
+
+    /// <summary>A title's availability: what to do when it cannot start, and the way to the Storage page.</summary>
+    private void AddStorageEntryControls(StackPanel body, GameLibraryState state, GameLibraryEntry entry)
+    {
+        if (entry.AppId == 0 || (state.Shortcuts ?? []).All(shortcut => shortcut.AppId != entry.AppId))
         {
             return;
         }
 
-        var id = storage.Id;
-        body.Children.Add(Tagged(Row("Storage: " + storage.Name, storage.Status, Icons.SdCard, () =>
-        {
-            _storageShown = 48;
-            Navigate(() => RenderStorageLibrary(id));
-        }), "entry.storage"));
-    }
-
-    /// <summary>Adds the shared Apply row when the review has staged work, including staged storage actions.</summary>
-    private void AddApplyRow(StackPanel stack, GameLibraryState state)
-    {
-        if (state.SelectedCount > 0)
-        {
-            stack.Children.Add(Tagged(PrimaryRow($"Apply {state.SelectedCount}",
-                state.LauncherAvailable ? "Save the selected changes" : state.LauncherDetail ?? string.Empty,
-                Icons.Play, state.Loading ? null : () => Run(_service!.ApplyAsync)), "apply"));
-        }
+        body.Children.Add(Tagged(Row("Storage: " + entry.Location,
+            entry.Unavailable && entry.AvailabilityDetail.Length > 0
+                ? entry.AvailabilityLabel + " · " + entry.AvailabilityDetail
+                : entry.AvailabilityLabel,
+            entry.Unavailable ? Icons.BlockedCircle : Icons.SdCard, () =>
+            {
+                _storageShown = 48;
+                Navigate(RenderStorage);
+            }), "entry.storage"));
     }
 }

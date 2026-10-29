@@ -39,7 +39,7 @@ internal static class ManagedContentLaunch
                     var content = ManagedContentStorage.Read(userRoot, id);
                     check = ManagedContentStorage.Check(content,
                         EmulatorStorage.ReadStore(userRoot));
-                    if (check.Available && check.Content!.LaunchKind == ManagedLaunchKind.Direct)
+                    if (check.Available)
                     {
                         var start = StartInfo(check);
                         ContainedProcessStart.UseCallerIntegrity(start);
@@ -50,10 +50,7 @@ internal static class ManagedContentLaunch
                 if (child is null)
                 {
                     var record = check.Content!;
-                    var detail = check.Available
-                        ? "This title uses a native launcher route. Rescan its source in Game Library."
-                        : check.Detail;
-                    if (Refuse($"{record.Name}\n\n{detail}\n\nExpected location: {record.Location}", true) == 1)
+                    if (Refuse($"{record.Name}\n\n{check.Detail}\n\nExpected location: {record.Location}", true) == 1)
                     {
                         continue;
                     }
@@ -94,10 +91,20 @@ internal static class ManagedContentLaunch
     /// </remarks>
     internal static bool FollowedFolderPresent(string directory)
     {
-        while (!Directory.Exists(directory))
+        // The launcher recorded a literal path, so only whatever is at that drive now can satisfy it.
+        var folder = new ManagedContentPath { AbsolutePath = directory, Directory = true };
+        while (ManagedContentStorage.Probe(folder) is var state and not ContentPathState.Present)
         {
-            if (Refuse($"The game folder {directory} is not available.\n\nConnect the storage that holds it.",
-                    true) != 1)
+            var drive = Path.GetPathRoot(directory);
+            var reason = state switch
+            {
+                ContentPathState.Missing => $"The game folder {directory} is not on the storage in {drive}.\n\n"
+                                            + "Insert the card or connect the drive that holds it.",
+                ContentPathState.VolumeAbsent => $"The game folder {directory} is not available.\n\n"
+                                                 + $"Connect the storage for drive {drive}.",
+                _ => $"The game folder {directory} could not be read.\n\nCheck the storage that holds it."
+            };
+            if (Refuse(reason, true) != 1)
             {
                 return false;
             }

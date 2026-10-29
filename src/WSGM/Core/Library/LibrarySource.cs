@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -74,10 +73,6 @@ public sealed record GameLaunch(string Label, bool Validated, string Evidence);
 /// </param>
 /// <param name="Content">Authoritative backing content and stable managed-launch identity, when tracked.</param>
 /// <param name="ArtworkQuery">Source-owned artwork lookup metadata, without later UI-thread file checks.</param>
-/// <param name="NativeContent">
-///     The launcher-native record a launcher title keeps when it starts through any route other than
-///     its managed executable, or null when the title has one content form.
-/// </param>
 public sealed record DiscoveredGame(
     string SourceId,
     string Key,
@@ -91,41 +86,10 @@ public sealed record DiscoveredGame(
     IReadOnlyList<DiscoveredArtwork> Artwork,
     IReadOnlyList<ShortcutRoute>? Routes = null,
     ManagedContentRecord? Content = null,
-    LibraryArtworkQuery? ArtworkQuery = null,
-    ManagedContentRecord? NativeContent = null)
+    LibraryArtworkQuery? ArtworkQuery = null)
 {
     /// <summary>The command routes, empty for a packaged title.</summary>
     public IReadOnlyList<ShortcutRoute> CommandRoutes => Routes ?? [];
-
-    /// <summary>The managed portable record, retained while the native form is active.</summary>
-    private ManagedContentRecord? ManagedContent { get; init; }
-
-    /// <summary>Selects the content record that matches the chosen route.</summary>
-    /// <param name="routeId">The chosen route's id.</param>
-    /// <returns>
-    ///     This game with its managed record for the managed route and its launcher-native record for
-    ///     every other route. The latest availability observation carries over to the selected form.
-    /// </returns>
-    public DiscoveredGame ForRoute(string routeId)
-    {
-        if (NativeContent is null || Content is null)
-        {
-            return this;
-        }
-
-        // The active form may have been replaced by an accepted stored copy, so it stays authoritative.
-        var native = Content.LaunchKind == ManagedLaunchKind.Native ? Content : NativeContent;
-        var managed = Content.LaunchKind == ManagedLaunchKind.Direct ? Content : ManagedContent;
-        var selected = routeId == "managed" ? managed : native;
-        if (selected is null || ReferenceEquals(selected, Content))
-        {
-            return this;
-        }
-
-        selected.Availability = Content.Availability;
-        selected.AvailabilityDetail = Content.AvailabilityDetail;
-        return this with { Content = selected, NativeContent = native, ManagedContent = managed };
-    }
 
     /// <summary>Whether the title launches through the packaged launcher rather than a command.</summary>
     public bool Packaged => CommandRoutes.Count == 0;
@@ -136,11 +100,9 @@ public sealed record DiscoveredGame(
     /// <param name="name">What to call it in the library.</param>
     /// <param name="installPath">Where it is installed.</param>
     /// <param name="routes">Its routes, default first; at least one.</param>
-    /// <param name="content">Explicit authoritative managed content, or null to derive command-source metadata.</param>
+    /// <param name="content">Authoritative managed content for the managed route, or null for a title without one.</param>
     /// <param name="wrapManagedLaunch">Whether this one explicit route uses managed launch indirection.</param>
     /// <param name="artworkQuery">Source-owned provider and content identification.</param>
-    /// <param name="retainContent">Whether this source participates in backing-content availability.</param>
-    /// <param name="location">The adapter-defined friendly library label.</param>
     /// <returns>
     ///     The game, launched as its first route says. Launchers do not say whether a game has
     ///     multiplayer or offer artwork, so neither is claimed.
@@ -149,19 +111,12 @@ public sealed record DiscoveredGame(
     public static DiscoveredGame Command(
         string sourceId, string key, string name, string installPath, IReadOnlyList<ShortcutRoute> routes,
         ManagedContentRecord? content = null, bool wrapManagedLaunch = false,
-        LibraryArtworkQuery? artworkQuery = null, bool retainContent = true, string location = "")
+        LibraryArtworkQuery? artworkQuery = null)
     {
         ArgumentNullException.ThrowIfNull(routes);
         if (routes.Count == 0)
         {
             throw new ArgumentException("A command-launched game has at least one route.", nameof(routes));
-        }
-
-        if (retainContent && content is null && installPath.Length > 0 && Path.IsPathFullyQualified(installPath))
-        {
-            content = ManagedContentStorage.CreateRecord(sourceId, key, name, LibrarySourceKind.Launcher,
-                location.Length > 0 ? location : sourceId, installPath, true);
-            content.LaunchKind = ManagedLaunchKind.Native;
         }
 
         if (wrapManagedLaunch && content is not null)
@@ -193,10 +148,9 @@ public sealed record DiscoveredGame(
     /// <summary>Builds complete source metadata with the adapter's own friendly library label.</summary>
     public static DiscoveredGame Command(ILibrarySource source, string key, string name, string installPath,
         IReadOnlyList<ShortcutRoute> routes, ManagedContentRecord? content = null, bool wrapManagedLaunch = false,
-        LibraryArtworkQuery? artworkQuery = null, bool retainContent = true)
+        LibraryArtworkQuery? artworkQuery = null)
     {
-        return Command(source.Id, key, name, installPath, routes, content, wrapManagedLaunch, artworkQuery,
-            retainContent, source.DisplayName);
+        return Command(source.Id, key, name, installPath, routes, content, wrapManagedLaunch, artworkQuery);
     }
 }
 

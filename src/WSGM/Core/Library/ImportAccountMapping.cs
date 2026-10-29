@@ -32,12 +32,6 @@ public sealed class ImportAccountMapping
     /// <summary>A command update that must be settled before another write.</summary>
     public ShortcutFields? PendingLaunch { get; set; }
 
-    /// <summary>Whether owned-shortcut cleanup remains to be settled in this account.</summary>
-    public bool PendingDeletion { get; set; }
-
-    /// <summary>A native removal was admitted and must be observed before any further mutation.</summary>
-    public bool DeletionDispatched { get; set; }
-
     /// <summary>The selected input mode.</summary>
     public string Mode { get; set; } = "";
 
@@ -74,8 +68,7 @@ public sealed class ImportAccountMapping
         return AccountId == other.AccountId && AppId == other.AppId && RemovedFromSteam == other.RemovedFromSteam
                && Target == other.Target
                && LaunchOptions == other.LaunchOptions && StartDirectory == other.StartDirectory
-               && PendingLaunch == other.PendingLaunch && PendingDeletion == other.PendingDeletion
-               && DeletionDispatched == other.DeletionDispatched
+               && PendingLaunch == other.PendingLaunch
                && Mode == other.Mode && Route == other.Route && Acknowledged == other.Acknowledged
                && ImportedUtc == other.ImportedUtc && ConfirmedUtc == other.ConfirmedUtc
                && ArtworkApplied == other.ArtworkApplied && OwnsProfile == other.OwnsProfile
@@ -89,8 +82,7 @@ public sealed class ImportAccountMapping
         {
             AccountId = accountId, AppId = entry.AppId, RemovedFromSteam = entry.RemovedFromSteam, Target = entry.Target,
             LaunchOptions = entry.LaunchOptions, StartDirectory = entry.StartDirectory,
-            PendingLaunch = entry.PendingLaunch, PendingDeletion = entry.PendingDeletion,
-            DeletionDispatched = entry.DeletionDispatched,
+            PendingLaunch = entry.PendingLaunch,
             Mode = entry.Mode, Route = entry.Route, Acknowledged = entry.Acknowledged,
             ImportedUtc = entry.ImportedUtc, ConfirmedUtc = entry.ConfirmedUtc,
             ArtworkApplied = entry.ArtworkApplied, OwnsProfile = entry.OwnsProfile,
@@ -107,8 +99,6 @@ public sealed class ImportAccountMapping
         entry.LaunchOptions = LaunchOptions;
         entry.StartDirectory = StartDirectory;
         entry.PendingLaunch = PendingLaunch;
-        entry.PendingDeletion = PendingDeletion;
-        entry.DeletionDispatched = DeletionDispatched;
         entry.Mode = Mode;
         entry.Route = Route;
         entry.Acknowledged = Acknowledged;

@@ -1,27 +1,25 @@
-using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
 namespace WSGM.Core;
 
-/// <summary>The device-owned acceptance and validation checkpoint for one portable library.</summary>
+/// <summary>The device's binding of one portable library to the local volume it accepted.</summary>
+/// <remarks>
+///     Like Steam's libraryfolders.vdf entry beside a card's own marker: the card's <c>.wsgm\library.json</c>
+///     carries the titles, and this record says which volume this device launches them from. A record's titles
+///     are accepted exactly while their volume equals <see cref="VolumeId" />.
+/// </remarks>
 public sealed class StorageLibraryRecord
 {
     /// <summary>The durable portable UUID.</summary>
     public string Id { get; set; } = "";
-    /// <summary>The last accepted friendly storage label.</summary>
+    /// <summary>The last known friendly card name, shown while it is disconnected.</summary>
     public string Name { get; set; } = "";
     /// <summary>The explicitly accepted local Windows volume GUID path.</summary>
     public string VolumeId { get; set; } = "";
-    /// <summary>The last observed mount, for display only.</summary>
-    public string LastMountPath { get; set; } = "";
-    /// <summary>The last accepted manifest generation.</summary>
+    /// <summary>The manifest generation last written or read here, for optimistic concurrency only.</summary>
     public long ManifestRevision { get; set; }
-    /// <summary>The last successful complete content check.</summary>
-    public DateTimeOffset? LastValidatedUtc { get; set; }
-    /// <summary>Whether legacy inventory still needs its initial safe publication.</summary>
-    public bool MigrationPending { get; set; }
-    /// <summary>Whether a missing or damaged manifest requires explicit review/Apply.</summary>
+    /// <summary>Whether a missing or damaged manifest blocks launch until the user repairs it.</summary>
     public bool RepairRequired { get; set; }
 
     /// <summary>Returns a detached checkpoint.</summary>
@@ -91,22 +89,6 @@ public sealed class StorageLibraryContent
     /// <summary>Whether another device must supply its own external command recipe.</summary>
     public bool RequiresLocalRecipe { get; set; }
 }
-
-/// <summary>A file query that never conflates access failures with absence.</summary>
-public enum StorageLibraryPathState
-{
-    /// <summary>The required file/directory is present.</summary>
-    Present,
-    /// <summary>The required path is absent on confirmed readable expected storage.</summary>
-    Missing,
-    /// <summary>The expected volume is not mounted or ready.</summary>
-    StorageUnavailable,
-    /// <summary>The query failed or encountered an unsafe path.</summary>
-    Unreadable
-}
-
-/// <summary>A detached path observation, with an actionable failure explanation.</summary>
-public sealed record StorageLibraryPathCheck(StorageLibraryPathState State, string Path, string Detail);
 
 /// <summary>Host-only card serialization; never source-link this parser into the launch helper.</summary>
 [JsonSourceGenerationOptions(UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow)]

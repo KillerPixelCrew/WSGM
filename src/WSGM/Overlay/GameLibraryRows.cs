@@ -20,7 +20,7 @@ internal static class GameLibraryRows
     internal static string Describe(GameLibraryEntry entry)
     {
         List<string> parts = [entry.ActionLabel, entry.LaunchLabel];
-        if (IsUnavailable(entry) || entry.CleanupPending)
+        if (IsUnavailable(entry))
         {
             parts.Add(entry.AvailabilityLabel);
         }
@@ -143,64 +143,96 @@ internal static class GameLibraryRows
                 : "Press to switch to the Steam overlay.";
     }
 
-    /// <summary>Whether a storage library has something for the user to look at.</summary>
+    /// <summary>Whether a card library has something for the user to look at or do.</summary>
     /// <param name="storage">The library.</param>
-    /// <returns>True unless it is available with nothing to repair, accept or apply.</returns>
+    /// <returns>True unless it is connected with nothing to repair or accept.</returns>
     internal static bool StorageNeedsAttention(GameLibraryStorage storage)
     {
-        return storage.CanRepair || storage.CanAcceptBinding || storage.StagedAction.Length > 0
-               || !string.Equals(storage.Status, "Available", StringComparison.OrdinalIgnoreCase);
+        return storage.CanRepair || storage.CanAcceptBinding
+               || !string.Equals(storage.Status, "Connected", StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>The home level's line for the storage libraries row.</summary>
-    /// <param name="storages">The known storage libraries.</param>
-    /// <returns>How many need attention, or that they are all available.</returns>
-    internal static string StorageSummary(IReadOnlyList<GameLibraryStorage> storages)
+    /// <summary>The home level's line for the Storage row.</summary>
+    /// <param name="shortcuts">Every tracked shortcut.</param>
+    /// <param name="storages">Every card library.</param>
+    /// <param name="checkedOnce">Whether the shortcuts have been checked yet.</param>
+    /// <returns>How many shortcuts are tracked and how many cannot start, or that the check is running.</returns>
+    internal static string StorageSummary(IReadOnlyList<ShortcutStatus> shortcuts,
+        IReadOnlyList<GameLibraryStorage> storages, bool checkedOnce)
     {
-        var attention = storages.Count(StorageNeedsAttention);
-        return attention == 0
-            ? "All available"
-            : $"{attention} need{(attention == 1 ? "s" : "")} attention";
-    }
-
-    /// <summary>The storage row's summary when only the user's own Steam shortcuts are on storage.</summary>
-    internal static string ShortcutSummary(IReadOnlyList<GameLibraryShortcut> shortcuts)
-    {
-        var unavailable = shortcuts.Count(shortcut => !shortcut.Available);
-        var count = shortcuts.Count == 1 ? "1 Steam shortcut" : $"{shortcuts.Count} Steam shortcuts";
-        return unavailable == 0 ? count + " · All available" : $"{count} · {unavailable} unavailable";
-    }
-
-    /// <summary>One storage library's line: its status, titles and what is waiting for it.</summary>
-    /// <param name="storage">The library.</param>
-    /// <param name="entries">The listed titles, for the counts of unavailable and departing ones.</param>
-    /// <returns>The host's status followed by concise counts.</returns>
-    internal static string StorageLine(GameLibraryStorage storage, IReadOnlyList<GameLibraryEntry> entries)
-    {
-        List<string> parts = [storage.Status, storage.TitleCount == 1 ? "1 title" : $"{storage.TitleCount} titles"];
-        var titles = entries.Where(entry => entry.LibraryId == storage.Id
-                                            && (entry.AppId > 0 || entry.CleanupPending)).ToArray();
-        AddWhenAny(parts, titles.Count(entry => entry.Unavailable && !entry.CleanupPending), "unavailable");
-        AddWhenAny(parts, titles.Count(entry => entry.CleanupPending), "being removed");
-        if (storage.StagedAction.Length > 0)
+        List<string> parts = [];
+        if (!checkedOnce)
         {
-            parts.Add(StagedStorageAction(storage.StagedAction));
+            parts.Add("Checking shortcuts");
+        }
+        else
+        {
+            parts.Add(shortcuts.Count == 1 ? "1 shortcut" : $"{shortcuts.Count} shortcuts");
+            AddWhenAny(parts, shortcuts.Count(shortcut => !shortcut.Available), "unavailable");
+        }
+
+        var attention = storages.Count(StorageNeedsAttention);
+        if (attention > 0)
+        {
+            parts.Add(attention == 1 ? "1 card needs attention" : $"{attention} cards need attention");
         }
 
         return string.Join(" · ", parts);
     }
 
-    /// <summary>What a staged storage action is called.</summary>
-    /// <param name="action"><c>repair</c> or <c>acceptBinding</c>.</param>
-    /// <returns>Its label, saying that Apply performs it.</returns>
-    internal static string StagedStorageAction(string action)
+    /// <summary>One shortcut's line in its location group: its state, whose it is, and what to do.</summary>
+    /// <param name="shortcut">The tracked shortcut.</param>
+    /// <returns>The host's label, then the detail when it cannot start.</returns>
+    internal static string ShortcutLine(ShortcutStatus shortcut)
     {
-        return action switch
+        List<string> parts = [shortcut.Label];
+        if (!shortcut.Owned)
         {
-            "repair" => "Repair library on apply",
-            "acceptBinding" => "Use this card on apply",
-            _ => "Change waiting for apply"
-        };
+            parts.Add("Your shortcut");
+        }
+
+        if (!shortcut.Available && shortcut.Detail.Length > 0)
+        {
+            parts.Add(shortcut.Detail);
+        }
+
+        return string.Join(" · ", parts);
+    }
+
+    /// <summary>A card library's line: its status and how many titles it lists.</summary>
+    /// <param name="storage">The library.</param>
+    /// <returns>The host's status followed by the title count.</returns>
+    internal static string StorageLine(GameLibraryStorage storage)
+    {
+        return storage.Status + " · " + (storage.TitleCount == 1 ? "1 title" : $"{storage.TitleCount} titles");
+    }
+
+    /// <summary>Groups the tracked shortcuts by where their files live, with each card library as its own group.</summary>
+    /// <param name="shortcuts">Every tracked shortcut, already ordered by location and name.</param>
+    /// <param name="storages">Every card library, including disconnected ones with no shortcut in Steam.</param>
+    /// <returns>One group per card library first, then one per other location, each by name.</returns>
+    internal static IReadOnlyList<StorageGroup> StorageGroups(IReadOnlyList<ShortcutStatus> shortcuts,
+        IReadOnlyList<GameLibraryStorage> storages)
+    {
+        List<StorageGroup> groups = [];
+        HashSet<ShortcutStatus> placed = [];
+        foreach (var storage in storages)
+        {
+            var members = shortcuts.Where(shortcut => string.Equals(shortcut.LibraryId, storage.Id,
+                    StringComparison.OrdinalIgnoreCase)
+                || shortcut.LibraryId.Length == 0 && shortcut.Location == storage.Name).ToArray();
+            placed.UnionWith(members);
+            groups.Add(new StorageGroup(storage.Name, storage, members));
+        }
+
+        foreach (var location in shortcuts.Where(shortcut => !placed.Contains(shortcut))
+                     .GroupBy(shortcut => shortcut.Location, StringComparer.CurrentCultureIgnoreCase))
+        {
+            groups.Add(new StorageGroup(location.Key.Length > 0 ? location.Key : "Unknown location", null,
+                [.. location]));
+        }
+
+        return [.. groups.OrderBy(group => group.Name, StringComparer.CurrentCulture)];
     }
 
     private static void AddWhenAny(List<string> parts, int count, string label)
@@ -211,3 +243,9 @@ internal static class GameLibraryRows
         }
     }
 }
+
+/// <summary>One location on the Storage page: a card library, a disk or a drive, and its shortcuts.</summary>
+/// <param name="Name">The location's name.</param>
+/// <param name="Library">The card library this group is, or null for a disk or drive.</param>
+/// <param name="Shortcuts">Its shortcuts, by name.</param>
+internal sealed record StorageGroup(string Name, GameLibraryStorage? Library, IReadOnlyList<ShortcutStatus> Shortcuts);

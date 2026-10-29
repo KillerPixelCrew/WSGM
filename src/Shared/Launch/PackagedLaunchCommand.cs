@@ -197,6 +197,52 @@ internal static class PackagedLaunchCommand
         return target;
     }
 
+    /// <summary>Reads back a Target that <see cref="ComposeManagedTarget" /> wrote.</summary>
+    /// <param name="target">A shortcut's Target, exactly as Steam stores it.</param>
+    /// <param name="launcher">The program it starts, unquoted.</param>
+    /// <param name="id">The managed content identity it names.</param>
+    /// <returns>Whether the Target is one program followed by exactly <c>--managed</c> and a valid id.</returns>
+    internal static bool TryParseManagedTarget(string target, out string launcher, out string id)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        launcher = string.Empty;
+        id = string.Empty;
+        var trimmed = target.Trim();
+        string rest;
+        if (trimmed.StartsWith('"'))
+        {
+            var close = trimmed.IndexOf('"', 1);
+            if (close < 0)
+            {
+                return false;
+            }
+
+            launcher = trimmed[1..close];
+            rest = trimmed[(close + 1)..];
+        }
+        else
+        {
+            var space = trimmed.IndexOf(' ');
+            if (space < 0)
+            {
+                return false;
+            }
+
+            launcher = trimmed[..space];
+            rest = trimmed[space..];
+        }
+
+        var tokens = Tokenize(rest);
+        if (tokens.Count != 2 || tokens[0] != ManagedFlag || !ValidManagedId(tokens[1]))
+        {
+            launcher = string.Empty;
+            return false;
+        }
+
+        id = tokens[1];
+        return true;
+    }
+
     /// <summary>Builds the Launch Arguments for a generated non-Steam shortcut.</summary>
     /// <param name="request">The request to encode.</param>
     /// <returns>The argument string, quoted where a value needs it.</returns>

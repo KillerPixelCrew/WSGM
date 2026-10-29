@@ -260,10 +260,4 @@ public sealed partial class ShellSession
     {
         return _steamClient ?? throw new InvalidOperationException("Steam is not available in this mode.");
     }
-
-    private Task<bool?> IsManagedShortcutRunning(uint appId, CancellationToken cancellationToken)
-    {
-        return _runningApplications?.IsSteamAppRunningAsync(appId, cancellationToken)
-               ?? Task.FromResult<bool?>(null);
-    }
 }

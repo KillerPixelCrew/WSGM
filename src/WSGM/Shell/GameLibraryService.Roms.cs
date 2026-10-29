@@ -172,10 +172,6 @@ internal sealed partial class GameLibraryService
                     _ = EmulatorStorage.ValidateSelection(receipt, content.SystemId, coreId);
                 }
 
-                var check = ManagedContentStorage.Check(selected, store);
-                content.Availability = check.Availability;
-                content.AvailabilityDetail = check.Detail;
-
                 content.EmulatorInstallationId = selected.EmulatorInstallationId;
                 content.CoreId = selected.CoreId;
                 content.FollowSystemPreference = selected.FollowSystemPreference;
@@ -289,40 +285,6 @@ internal sealed partial class GameLibraryService
         }, true);
     }
 
-    public async Task<SteamUiCommandResult> RecheckAvailabilityAsync(string id, CancellationToken cancellationToken)
-    {
-        using var linked = LinkStorageObservation(cancellationToken);
-        try
-        {
-            await _storageLane.WaitAsync(linked.Token).ConfigureAwait(false);
-            try
-            {
-                if (id.StartsWith("shortcut:", StringComparison.Ordinal))
-                {
-                    await Task.Run(() => ObserveSteamShortcutsAsync(null, linked.Token), linked.Token)
-                        .ConfigureAwait(false);
-                    return SteamUiCommandResult.Applied;
-                }
-
-                return await Task.Run(() => ReconcileStorageAsync(id, linked.Token), linked.Token)
-                    .ConfigureAwait(false);
-            }
-            finally
-            {
-                _storageLane.Release();
-            }
-        }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or JsonException
-                                   or ImportStateException or UnauthorizedAccessException or InvalidOperationException)
-        {
-            return new SteamUiCommandResult(false, ex.Message);
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && !_shutdown.IsCancellationRequested)
-        {
-            return new SteamUiCommandResult(false, "The library changed during its check. It will be checked again.");
-        }
-    }
-
     public IReadOnlyList<RomSystemProfile> ReadRomSystems()
     {
         _ = ReadRomState();
@@ -362,7 +324,6 @@ internal sealed partial class GameLibraryService
 
         yield return "Location: " + content.Location;
         yield return "Content: " + content.BackingPath.AbsolutePath;
-        yield return content.AvailabilityDetail;
         foreach (var companion in content.RequiredPaths)
         {
             yield return "Required companion: " + companion.AbsolutePath;
@@ -408,50 +369,6 @@ internal sealed partial class GameLibraryService
             : null;
     }
 
-    private void ApplyAvailability(IReadOnlyDictionary<string, ManagedContentCheck> checks,
-        IReadOnlyDictionary<string, ManagedContentRecord> expected, CancellationToken cancellationToken)
-    {
-        var changed = false;
-        lock (_gate)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (_disposed)
-            {
-                return;
-            }
-
-            _store.UpdateAvailability(checks, expected);
-
-            foreach (var entry in _entries.Values)
-            {
-                if (entry.Game.Content is not { } content || !checks.TryGetValue(content.Id, out var check)
-                                                          || !expected.TryGetValue(content.Id, out var checkedContent)
-                                                          || !ManagedContentStorage.SameLaunch(content, checkedContent)
-                                                          || (content.Availability == check.Availability &&
-                                                              content.AvailabilityDetail == check.Detail))
-                {
-                    continue;
-                }
-
-                content.Availability = check.Availability;
-                content.AvailabilityDetail = check.Detail;
-                changed = true;
-            }
-
-            if (changed)
-            {
-                Publish();
-            }
-        }
-
-        if (changed)
-        {
-            Notify();
-        }
-
-        PublishShortcutAvailability();
-    }
-
     private EmulatorStore ReadEmulatorStore()
     {
         return _emulators?.ReadStore() ?? new EmulatorStore();
@@ -476,29 +393,11 @@ internal sealed partial class GameLibraryService
         Notify();
     }
 
-    internal Task<SteamUiCommandResult> RecheckShortcutAsync(uint appId, CancellationToken cancellationToken)
-    {
-        var content = ReadManagedEntries().FirstOrDefault(entry => entry.AppId == appId)?.Content;
-        if (content is not null)
-        {
-            return RecheckAvailabilityAsync(content.Id, cancellationToken);
-        }
-
-        lock (_gate)
-        {
-            if (_steamShortcuts.All(shortcut => shortcut.AppId != appId))
-            {
-                return Refuse("This shortcut has no tracked content.");
-            }
-        }
-
-        return RecheckAvailabilityAsync(ShortcutCheckId(appId), cancellationToken);
-    }
-
+    /// <summary>Counts emulator dependencies again and asks the tracker to check the shortcuts.</summary>
     internal void NotifyManagedEntriesChanged()
     {
         UpdateEmulatorDependencies();
-        ManagedEntriesChanged?.Invoke();
+        _tracker?.Request();
     }
 
     private void UpdateEmulatorDependencies()

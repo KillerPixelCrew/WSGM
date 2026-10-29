@@ -236,61 +236,78 @@ internal static class OverlayToolFixtures
         ], 1, 0, 3, true, ArtworkPreference: "Catalog", CreateCollections: true, Revision: 1);
 
     /// <summary>
-    ///     Removable libraries in every published condition, with the host's own status wording. Every path is
-    ///     fictional and nothing reads a volume.
+    ///     Every tracked shortcut and card library in each published condition: WSGM's and the user's own shortcuts,
+    ///     a connected card, a card that is out, a card needing repair, a card not in use here, missing files and a
+    ///     long name. Every path is fictional and nothing reads a volume.
     /// </summary>
     internal static GameLibraryState Storage => Library with
     {
         Entries =
         [
-            StorageEntry("retro-quest", "Pixel Quest", "lib-retro", @"F:\Roms\snes\Pixel Quest.sfc"),
-            StorageEntry("retro-deleted", "Deleted Platformer", "lib-retro", @"F:\Roms\snes\Deleted Platformer.sfc")
-                with
-                {
-                    Unavailable = true, AvailabilityLabel = "Game files missing", Availability = "ContentMissing",
-                    CleanupPending = true
-                },
-            StorageEntry("retro-racer", "Kart Rally", "lib-retro", @"F:\Roms\n64\Kart Rally.z64"),
-            StorageEntry("travel-rpg", "Lantern Saga", "lib-travel", @"G:\Games\Lantern Saga\Lantern.exe")
-                with
-                {
-                    Unavailable = true, AvailabilityLabel = "Storage disconnected", Availability = "StorageUnavailable"
-                },
-            StorageEntry("travel-puzzle", "Tile Garden", "lib-travel", @"G:\Games\Tile Garden\TileGarden.exe")
-                with
-                {
-                    Unavailable = true, AvailabilityLabel = "Storage disconnected", Availability = "StorageUnavailable"
-                },
-            StorageEntry("handheld-shooter", "Star Courier", "lib-handheld", @"H:\Roms\gba\Star Courier.gba"),
-            StorageEntry("long-one", "Chronicle of the Endless Northern Lighthouse Keeper: Definitive Edition",
-                "lib-long", @"J:\Portable Games\Chronicle of the Endless Northern Lighthouse Keeper\Keeper.exe")
+            StorageEntry("retro-quest", "Pixel Quest", 101, "lib-retro", "Retro card", ContentAvailability.Available, ""),
+            StorageEntry("retro-deleted", "Deleted Platformer", 102, "lib-retro", "Retro card",
+                ContentAvailability.FileMissing,
+                "The game files are missing from Retro card. Rescan its source, or remove the title in Game Library."),
+            StorageEntry("travel-rpg", "Lantern Saga", 103, "lib-travel", "Travel SSD", ContentAvailability.LibraryMissing,
+                "Insert Travel SSD.")
         ],
         SelectedCount = 0,
+        StorageChecked = true,
+        Shortcuts =
+        [
+            Shortcut(101, "Pixel Quest", true, "lib-retro", "Retro card", ContentAvailability.Available, ""),
+            Shortcut(102, "Deleted Platformer", true, "lib-retro", "Retro card", ContentAvailability.FileMissing,
+                "The game files are missing from Retro card. Rescan its source, or remove the title in Game Library."),
+            Shortcut(104, "Kart Rally", true, "lib-retro", "Retro card", ContentAvailability.Available, ""),
+            Shortcut(103, "Lantern Saga", true, "lib-travel", "Travel SSD", ContentAvailability.LibraryMissing,
+                "Insert Travel SSD."),
+            Shortcut(105, "Tile Garden", false, "", "SDCard4", ContentAvailability.LibraryMissing,
+                "Insert SDCard4."),
+            Shortcut(106, "Celeste", false, "", "SDCard4", ContentAvailability.LibraryMissing, "Insert SDCard4."),
+            Shortcut(107, "Hollow Knight", false, "", "Windows", ContentAvailability.Available, ""),
+            Shortcut(108, "Chronicle of the Endless Northern Lighthouse Keeper: Definitive Edition", false, "",
+                "Windows", ContentAvailability.FileMissing,
+                @"C:\Games\Chronicle of the Endless Northern Lighthouse Keeper\Definitive Edition\Keeper.exe is missing. "
+                + "Edit the shortcut in Steam if the game moved."),
+            Shortcut(109, "Star Courier", true, "lib-handheld", "Handheld microSD", ContentAvailability.LibraryMissing,
+                "Handheld microSD's game list needs repair. Choose Repair library under Storage in Game Library."),
+            Shortcut(110, "Moon Garden", false, "", "D:", ContentAvailability.LibraryMissing,
+                "Not on the card in D:. Insert the card that holds it.")
+        ],
         StorageLibraries =
         [
             new GameLibraryStorage("lib-long",
                 "Extremely long removable storage library name for checking wrapping (Example 1 TB card)",
-                "Available", "", 1, CanRepair: false, CanAcceptBinding: false),
-            new GameLibraryStorage("lib-handheld", "Handheld microSD", "Check failed",
-                "The library manifest is missing from this storage.", 1, CanRepair: true, CanAcceptBinding: false),
-            new GameLibraryStorage("lib-new", "New card", "Review storage",
-                "Review this library and Apply to accept its storage on this device.", 4, CanRepair: false,
-                CanAcceptBinding: true),
-            new GameLibraryStorage("lib-retro", "Retro card", "Available", "", 3, CanRepair: false,
+                "Connected", "", 1, CanRepair: false, CanAcceptBinding: false),
+            new GameLibraryStorage("lib-handheld", "Handheld microSD", "Needs repair",
+                "This card's game list is missing or damaged, so its games cannot start. Repair library rebuilds it "
+                + "from the titles WSGM knows.", 1, CanRepair: true, CanAcceptBinding: false),
+            new GameLibraryStorage("lib-new", "New card", "Not in use here",
+                "Choose Use this card to launch this card's games on this device, then scan to import them.", 4,
+                CanRepair: false, CanAcceptBinding: true),
+            new GameLibraryStorage("lib-retro", "Retro card", "Connected", "", 3, CanRepair: false,
                 CanAcceptBinding: false),
-            new GameLibraryStorage("lib-travel", "Travel SSD", "Disconnected",
-                "Connect the expected storage to check its games.", 2, CanRepair: false, CanAcceptBinding: false)
+            new GameLibraryStorage("lib-travel", "Travel SSD", "Disconnected", "Insert Travel SSD to check its games.", 2,
+                CanRepair: false, CanAcceptBinding: false)
         ]
     };
 
-    private static GameLibraryEntry StorageEntry(string id, string name, string libraryId, string path)
+    private static GameLibraryEntry StorageEntry(string id, string name, uint appId, string libraryId, string location,
+        ContentAvailability state, string detail)
     {
-        return Entry(id, name, "imported", "Update", false, 0) with
+        return Entry(id, name, "imported", "Update", false, appId) with
         {
             Source = "Removable games", SourceId = "storage", ManagedId = id, LibraryId = libraryId,
-            Location = path[..2], ContentPath = path, Availability = "Available", AvailabilityLabel = "Available",
-            Reason = "Imported from removable storage"
+            Location = location, ContentPath = @"F:\Roms\" + name + ".sfc", Availability = state.ToString(),
+            AvailabilityLabel = ShortcutStatusPresentation.Label(state), Unavailable = state != ContentAvailability.Available,
+            AvailabilityDetail = detail, Reason = "Imported from removable storage"
         };
+    }
+
+    private static ShortcutStatus Shortcut(uint appId, string name, bool owned, string libraryId, string location,
+        ContentAvailability state, string detail)
+    {
+        return new ShortcutStatus(appId, name, owned, owned ? "content-" + appId : "", libraryId, state, location, detail);
     }
 
     private static string MakeImage()
@@ -770,31 +787,19 @@ internal sealed class FakeLibrarySource : IGameLibraryOverlaySource
         return Command("SetCleanupAsync");
     }
 
-    public Task<SteamUiCommandResult> RecheckAvailabilityAsync(string id, CancellationToken cancellationToken)
+    public Task<SteamUiCommandResult> RecheckAvailabilityAsync(CancellationToken cancellationToken)
     {
         return Command("RecheckAvailabilityAsync");
     }
 
-    public Task<SteamUiCommandResult> StageStorageActionAsync(string id, string action,
-        CancellationToken cancellationToken)
+    public Task<SteamUiCommandResult> RepairLibraryAsync(string id, CancellationToken cancellationToken)
     {
-        // Mirrors the host's publication: a staged action counts toward Apply. Nothing is written.
-        var delta = 0;
-        State = State with
-        {
-            StorageLibraries = State.StorageLibraries?.Select(storage =>
-            {
-                if (storage.Id != id)
-                {
-                    return storage;
-                }
+        return Command("RepairLibraryAsync");
+    }
 
-                delta = (action.Length > 0 ? 1 : 0) - (storage.StagedAction.Length > 0 ? 1 : 0);
-                return storage with { StagedAction = action };
-            }).ToArray()
-        };
-        State = State with { SelectedCount = State.SelectedCount + delta };
-        return Command("StageStorageActionAsync");
+    public Task<SteamUiCommandResult> UseLibraryAsync(string id, CancellationToken cancellationToken)
+    {
+        return Command("UseLibraryAsync");
     }
 
     public GameLibraryState ReadState()

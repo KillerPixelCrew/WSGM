@@ -133,14 +133,6 @@ public sealed class ImportedEntry
     [JsonIgnore]
     public Dictionary<ArtworkAsset, AppliedArtworkChoice> SettledArtwork { get; set; } = [];
 
-    /// <summary>Whether shortcut cleanup is queued for this account.</summary>
-    [JsonIgnore]
-    public bool PendingDeletion { get; set; }
-
-    /// <summary>Whether an admitted native removal still requires an independent observation.</summary>
-    [JsonIgnore]
-    public bool DeletionDispatched { get; set; }
-
     /// <summary>Copies this import record for a detached caller projection.</summary>
     /// <returns>A new record object carrying the same scalar and string values.</returns>
     internal ImportedEntry Copy()
@@ -380,8 +372,11 @@ public static class ImportPlan
         + "so Steam shows it unavailable while the storage is disconnected.";
 
     private const string StorageDisconnected =
-        "Its storage is disconnected, so its launcher cannot list it. The shortcut and artwork stay; connect "
+        "Its storage is disconnected, so its source cannot list it. The shortcut and artwork stay; connect "
         + "the storage and scan again.";
+
+    private const string FilesMissing =
+        "Game files missing. Apply removes its Steam shortcut; WSGM never removes it on its own.";
 
     /// <summary>Compares titles by both halves of their identity, the way the plan does.</summary>
     public static IEqualityComparer<(string Source, string Key)> Identity => IdentityComparer.Instance;
@@ -397,6 +392,10 @@ public static class ImportPlan
     ///     What this scan knows about a record's source (<see cref="ImportSourceState" />). Null means
     ///     every source was read.
     /// </param>
+    /// <param name="shortcutState">
+    ///     The availability tracker's latest state for a shortcut by app id, or null when it has none. A title
+    ///     no source listed is kept while its storage is missing and offered for removal otherwise.
+    /// </param>
     /// <returns>One entry per title, in discovery order, then removals.</returns>
     public static IReadOnlyList<ImportPlanEntry> Build(
         IReadOnlyList<DiscoveredGame> discovered,
@@ -405,7 +404,8 @@ public static class ImportPlan
         string launcherTarget,
         ImportMode defaultMode,
         bool includeUnroutable,
-        Func<string, ImportSourceState>? sources = null)
+        Func<string, ImportSourceState>? sources = null,
+        Func<uint, ContentAvailability?>? shortcutState = null)
     {
         ArgumentNullException.ThrowIfNull(discovered);
         ArgumentNullException.ThrowIfNull(recorded);
@@ -458,14 +458,12 @@ public static class ImportPlan
             var unresolvedHere = record is { HasUnresolvedLegacyMapping: true }
                 && record.SteamMappings.Any(mapping => mapping.AccountId is null
                     && mapping.AppId > 0 && byId.ContainsKey(mapping.AppId));
-            if (record is { AccountUnknown: true } || unresolvedHere
-                || record is { Content.InventoryRemoved: true })
+            if (record is { AccountUnknown: true } || unresolvedHere)
             {
                 plan.Add(new ImportPlanEntry(game.SourceId, game.Key, game.Name,
                     unresolvedHere ? ImportAction.Conflict : ImportAction.Skip,
-                    record?.Content?.InventoryRemoved == true
-                        ? "This title has been removed from its library; shortcut cleanup is pending."
-                        : unresolvedHere ? "This legacy shortcut was edited in Steam. Restore its recorded command and scan again before changing it."
+                    unresolvedHere
+                        ? "This legacy shortcut was edited in Steam. Restore its recorded command and scan again before changing it."
                         : "Waiting for an exact Steam account observation before changing this title.",
                     defaultMode, false, false, 0, false));
                 continue;
@@ -546,7 +544,7 @@ public static class ImportPlan
         foreach (var record in records.Values)
         {
             if (seen.Contains((record.Source, record.Key)) || record.AppId == 0
-                || record.AccountUnknown || record.HasUnresolvedLegacyMapping || record.Content?.InventoryRemoved == true)
+                || record.AccountUnknown || record.HasUnresolvedLegacyMapping)
             {
                 continue;
             }
@@ -559,18 +557,11 @@ public static class ImportPlan
                     false) with { AppId = 0 });
                 continue;
             }
-            if (record.Content is
-                { SourceKind: LibrarySourceKind.Rom or LibrarySourceKind.Folder or LibrarySourceKind.Manual })
+
+            // A source cannot list a title whose storage is gone; that is not an uninstall.
+            var tracked = shortcutState?.Invoke(record.AppId);
+            if (tracked == ContentAvailability.LibraryMissing)
             {
-                plan.Add(Removal(record, ImportAction.Skip,
-                    "This source did not report the title. Storage reconciliation will check its content; the scan leaves its shortcut and artwork unchanged.",
-                    false));
-                continue;
-            }
-            if (record.Content is
-                { SourceKind: LibrarySourceKind.Launcher, Availability: ManagedContentAvailability.StorageUnavailable })
-            {
-                // A launcher drops a title whose folder is unreachable; that is not an uninstall.
                 plan.Add(Removal(record, ImportAction.Skip, StorageDisconnected, false));
                 continue;
             }
@@ -602,7 +593,8 @@ public static class ImportPlan
             // Selectable, but never ticked for the user: deleting somebody's shortcut is a thing they
             // ask for, and an entry they cannot tick is one they can never ask for.
             plan.Add(Removal(record, ImportAction.Remove,
-                state is ImportSourceState.Gone
+                tracked == ContentAvailability.FileMissing ? FilesMissing
+                : state is ImportSourceState.Gone
                     ? "The launcher or folder this title came from is no longer on this machine."
                     : "This title is no longer installed.",
                 true));

@@ -12,25 +12,40 @@ using WSGM.Interop;
 
 namespace WSGM.Core;
 
-/// <summary>The observed state of a managed title's actual content.</summary>
-public enum ManagedContentAvailability
+/// <summary>Whether a shortcut can start, as both surfaces and Steam show it.</summary>
+/// <remarks>
+///     Exactly three states. <see cref="ManagedContentStorage.Classify" /> is the one place a path observation
+///     becomes one of them; a title that has not been checked yet is simply not published.
+/// </remarks>
+[JsonConverter(typeof(JsonStringEnumConverter<ContentAvailability>))]
+public enum ContentAvailability
 {
-    /// <summary>Not validated in this session.</summary>
-    Unknown,
-
-    /// <summary>All required content is present.</summary>
+    /// <summary>Every required file is present.</summary>
     Available,
 
-    /// <summary>The expected backing volume is not mounted.</summary>
-    StorageUnavailable,
+    /// <summary>
+    ///     The storage or library that holds the files is not usable: absent, a different card at its drive,
+    ///     unreadable, or a card this device has not accepted.
+    /// </summary>
+    LibraryMissing,
 
-    /// <summary>The volume is present but required content is missing.</summary>
-    ContentMissing,
+    /// <summary>The storage is present and readable, but a required file, folder or dependency is missing.</summary>
+    FileMissing
+}
 
-    /// <summary>The selected emulator, core or its prerequisites are unavailable.</summary>
-    EmulatorUnavailable,
+/// <summary>One path query's result. Access failures are never conflated with absence.</summary>
+public enum ContentPathState
+{
+    /// <summary>The path exists with the expected file or directory kind.</summary>
+    Present,
 
-    /// <summary>Content could not be inspected.</summary>
+    /// <summary>Not found on the expected, readable volume beneath a readable ancestor.</summary>
+    Missing,
+
+    /// <summary>The expected volume, or the drive a literal path names, is not mounted.</summary>
+    VolumeAbsent,
+
+    /// <summary>The query failed, met an unsafe path, or found no readable ancestor.</summary>
     Unreadable
 }
 
@@ -43,29 +58,18 @@ public enum LibrarySourceKind
 
     /// <summary>
     ///     A directly started executable: from a configured shortcut folder, or a launcher title's own
-    ///     executable on participating storage.
+    ///     executable on removable storage.
     /// </summary>
     Folder,
 
     /// <summary>An explicitly authored command.</summary>
     Manual,
 
-    /// <summary>A third-party launcher's install folder, for a title that starts through that launcher.</summary>
+    /// <summary>A third-party launcher source. Its titles keep content records only on the managed route.</summary>
     Launcher,
 
     /// <summary>The selected emulator's own interface, resolved from its active installation.</summary>
     Emulator
-}
-
-/// <summary>The launch strategy is independent of retained availability metadata.</summary>
-[JsonConverter(typeof(JsonStringEnumConverter<ManagedLaunchKind>))]
-public enum ManagedLaunchKind
-{
-    /// <summary>A contained direct child.</summary>
-    Direct,
-
-    /// <summary>The shortcut retains its original native launch route.</summary>
-    Native
 }
 
 /// <summary>A path bound to a volume rather than its current drive letter.</summary>
@@ -91,6 +95,10 @@ public sealed class ManagedContentPath
 }
 
 /// <summary>The launch and storage identity retained independently of Steam's command.</summary>
+/// <remarks>
+///     Durable intent only. Whether the content is present right now is observed by the availability tracker
+///     on every pass and never stored here.
+/// </remarks>
 public sealed class ManagedContentRecord
 {
     /// <summary>The stable identity allocated before Steam shortcut creation.</summary>
@@ -98,12 +106,6 @@ public sealed class ManagedContentRecord
 
     /// <summary>The portable library UUID, empty for legacy and fixed-only records.</summary>
     public string LibraryId { get; set; } = "";
-
-    /// <summary>Whether review/Apply accepted this library on the backing path's local volume.</summary>
-    public bool LibraryBindingAccepted { get; set; }
-
-    /// <summary>Whether only cleanup receipts remain and this record must no longer launch.</summary>
-    public bool InventoryRemoved { get; set; }
 
     /// <summary>The configured source identity.</summary>
     public string SourceId { get; set; } = "";
@@ -117,7 +119,7 @@ public sealed class ManagedContentRecord
     /// <summary>The authoritative source kind, such as rom, folder or manual.</summary>
     public LibrarySourceKind SourceKind { get; set; }
 
-    /// <summary>The friendly expected library or storage name.</summary>
+    /// <summary>The friendly expected library or storage name, used when nothing better is connected.</summary>
     public string Location { get; set; } = "";
 
     /// <summary>The emulated system, independent of emulator choice.</summary>
@@ -153,15 +155,6 @@ public sealed class ManagedContentRecord
     /// <summary>The verbatim authored command arguments, with optional explicit content token.</summary>
     public string RawArguments { get; set; } = "";
 
-    /// <summary>The latest persisted availability observation.</summary>
-    public ManagedContentAvailability Availability { get; set; }
-
-    /// <summary>The actionable reason attached to that observation.</summary>
-    public string AvailabilityDetail { get; set; } = "";
-
-    /// <summary>Whether a launcher handoff uses the existing followed-game strategy.</summary>
-    public ManagedLaunchKind LaunchKind { get; set; } = ManagedLaunchKind.Direct;
-
     /// <summary>Copies the record and its mutable path and argument collections.</summary>
     public ManagedContentRecord Copy()
     {
@@ -174,14 +167,17 @@ public sealed class ManagedContentRecord
         copy.Arguments = [.. Arguments];
         return copy;
     }
+
+    /// <summary>The record's path set: backing content, companions, then the program and working directory.</summary>
+    /// <returns>Every reference that names a path, in that order; the unset program fields of a ROM are skipped.</returns>
+    public IEnumerable<ManagedContentPath> Paths()
+    {
+        return new[] { BackingPath }.Concat(RequiredPaths).Concat([Program, WorkingDirectory])
+            .Where(path => path.AbsolutePath.Length > 0 || path.VolumeId.Length > 0);
+    }
 }
 
-/// <summary>A managed record's confirmed Steam identity and detached metadata.</summary>
-/// <param name="AppId">The shortcut identity, or zero while creation is unconfirmed.</param>
-/// <param name="Content">The authoritative launch and content record.</param>
-public sealed record ManagedContentEntry(uint AppId, ManagedContentRecord Content);
-
-/// <summary>The result shared by the launch guard and runtime availability monitor.</summary>
+/// <summary>The result shared by the launch guard and the shortcut availability tracker.</summary>
 /// <param name="Availability">The observed state.</param>
 /// <param name="Detail">The actionable explanation.</param>
 /// <param name="Path">The validated current backing path, when available.</param>
@@ -190,7 +186,7 @@ public sealed record ManagedContentEntry(uint AppId, ManagedContentRecord Conten
 /// <param name="ProgramPath">The current program path for a direct non-emulator command.</param>
 /// <param name="WorkingDirectoryPath">The current working directory for that command.</param>
 public sealed record ManagedContentCheck(
-    ManagedContentAvailability Availability,
+    ContentAvailability Availability,
     string Detail,
     string Path = "",
     ManagedContentRecord? Content = null,
@@ -199,16 +195,29 @@ public sealed record ManagedContentCheck(
     string WorkingDirectoryPath = "")
 {
     /// <summary>Whether all declared content paths were present.</summary>
-    public bool Available => Availability == ManagedContentAvailability.Available;
+    public bool Available => Availability == ContentAvailability.Available;
 }
 
-/// <summary>One reconciliation operation's mount and emulator-validation observations.</summary>
+/// <summary>One check pass's mount, readability and emulator observations, so each fact is queried once.</summary>
+/// <remarks>A pass creates a fresh context; nothing here outlives it, because any of it goes stale on the next mount.</remarks>
 public sealed class ManagedContentCheckContext
 {
     internal Dictionary<string, string?> Mounts { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+    internal HashSet<string> ReadableDirectories { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    internal HashSet<string> SafeDirectories { get; } = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>The per-installation prerequisite observations reused within this operation.</summary>
     public EmulatorResolveContext Emulators { get; } = new();
+
+    /// <summary>Supplies a volume's current mount from the owner's own snapshot, or null when it is absent.</summary>
+    /// <param name="volumeId">The volume GUID path.</param>
+    /// <param name="mount">Its mount path, such as <c>D:\</c>, or null.</param>
+    public void UseMount(string volumeId, string? mount)
+    {
+        Mounts[volumeId] = mount;
+    }
 }
 
 /// <summary>Reads authoritative importer metadata and resolves current mounts without Steam or WSGM UI.</summary>
@@ -287,6 +296,11 @@ public static class ManagedContentStorage
     }
 
     /// <summary>Reads only the requested launch record from one importer-state snapshot.</summary>
+    /// <remarks>
+    ///     A record in a card library launches only while this device's library binding names the same volume
+    ///     as the record and needs no repair. A card on a volume the device has not accepted is refused until
+    ///     the user chooses Use this card.
+    /// </remarks>
     public static ManagedContentRecord Read(string userRoot, string id)
     {
         using var stream = new FileStream(StorePath(userRoot), FileMode.Open, FileAccess.Read,
@@ -322,34 +336,29 @@ public static class ManagedContentStorage
                 throw new InvalidDataException(defect);
             }
 
-            if (record.InventoryRemoved)
-            {
-                throw new InvalidDataException("This title was removed from its library. Import it again in Game Library.");
-            }
-
             if (record.LibraryId.Length > 0)
             {
-                if (!record.LibraryBindingAccepted
-                    || !document.RootElement.TryGetProperty("Libraries", out var libraries)
-                    || libraries.ValueKind != JsonValueKind.Array)
-                {
-                    throw new InvalidDataException("Review and apply this library in Game Library before launching it.");
-                }
-
-                var matches = libraries.EnumerateArray().Where(library =>
-                    library.TryGetProperty("Id", out var libraryId)
-                    && libraryId.ValueKind == JsonValueKind.String
-                    && string.Equals(libraryId.GetString(), record.LibraryId, StringComparison.OrdinalIgnoreCase))
-                    .ToArray();
+                var matches = document.RootElement.TryGetProperty("Libraries", out var libraries)
+                              && libraries.ValueKind == JsonValueKind.Array
+                    ? libraries.EnumerateArray().Where(library =>
+                        library.TryGetProperty("Id", out var libraryId)
+                        && libraryId.ValueKind == JsonValueKind.String
+                        && string.Equals(libraryId.GetString(), record.LibraryId, StringComparison.OrdinalIgnoreCase))
+                        .ToArray()
+                    : [];
                 if (matches.Length != 1
                     || !matches[0].TryGetProperty("VolumeId", out var volumeId)
                     || volumeId.ValueKind != JsonValueKind.String
                     || !string.Equals(volumeId.GetString(), record.BackingPath.VolumeId,
-                        StringComparison.OrdinalIgnoreCase)
-                    || matches[0].TryGetProperty("RepairRequired", out var repair) && repair.ValueKind != JsonValueKind.False
-                    || matches[0].TryGetProperty("MigrationPending", out var pending) && pending.ValueKind != JsonValueKind.False)
+                        StringComparison.OrdinalIgnoreCase))
                 {
-                    throw new InvalidDataException("This library's storage binding needs review or repair in Game Library.");
+                    throw new InvalidDataException(
+                        "This card is not in use on this device. Choose Use this card under Storage in Game Library.");
+                }
+
+                if (matches[0].TryGetProperty("RepairRequired", out var repair) && repair.ValueKind != JsonValueKind.False)
+                {
+                    throw new InvalidDataException("This card's game list needs repair. Choose Repair library under Storage in Game Library.");
                 }
 
                 if (matches[0].TryGetProperty("Name", out var name) && name.ValueKind == JsonValueKind.String)
@@ -414,23 +423,29 @@ public static class ManagedContentStorage
         return captured;
     }
 
-    /// <summary>Resolves the expected volume to a current usable mount and rejects root escapes.</summary>
-    public static unsafe string ResolvePath(ManagedContentPath path, ManagedContentCheckContext? context = null)
+    /// <summary>Reads the volume GUID path that a drive root, such as <c>D:\</c>, currently names.</summary>
+    /// <param name="root">A mount point with its trailing separator.</param>
+    /// <returns>The volume GUID path, or null when nothing is mounted there.</returns>
+    public static unsafe string? VolumeAt(string root)
     {
-        if (path.VolumeId.Length == 0)
+        var volume = stackalloc char[64];
+        fixed (char* mount = root)
         {
-            return Path.GetFullPath(path.AbsolutePath);
+            return Kernel32.GetVolumeNameForVolumeMountPointW(mount, volume, 64) ? new string(volume) : null;
         }
+    }
 
-        if (context?.Mounts.TryGetValue(path.VolumeId, out var observed) == true)
+    /// <summary>Finds the volume's current mount, which may be any letter or folder; null when it is not mounted.</summary>
+    /// <remarks>The first, shortest mount wins. A drive letter only addresses the volume, it never identifies it.</remarks>
+    public static unsafe string? MountOf(string volumeId, ManagedContentCheckContext? context = null)
+    {
+        if (context?.Mounts.TryGetValue(volumeId, out var observed) == true)
         {
-            return ResolveWithin(
-                observed ?? throw new DirectoryNotFoundException("The required storage is not mounted."),
-                path.RelativePath);
+            return observed;
         }
 
         char[] mounts;
-        fixed (char* volume = path.VolumeId)
+        fixed (char* volume = volumeId)
         {
             _ = Kernel32.GetVolumePathNamesForVolumeNameW(volume, null, 0, out var required);
             mounts = new char[required];
@@ -441,46 +456,36 @@ public static class ManagedContentStorage
         }
 
         string? mount = null;
-        var actual = stackalloc char[64];
         foreach (var candidate in new string(mounts).Split('\0', StringSplitOptions.RemoveEmptyEntries)
                      .OrderBy(value => value.Length).ThenBy(value => value, StringComparer.OrdinalIgnoreCase))
         {
-            fixed (char* mountPath = candidate)
+            if (string.Equals(VolumeAt(candidate), volumeId, StringComparison.OrdinalIgnoreCase)
+                && Directory.Exists(candidate))
             {
-                if (Kernel32.GetVolumeNameForVolumeMountPointW(mountPath, actual, 64)
-                    && string.Equals(new string(actual), path.VolumeId, StringComparison.OrdinalIgnoreCase)
-                    && Directory.Exists(candidate))
-                {
-                    mount = candidate;
-                    break;
-                }
+                mount = candidate;
+                break;
             }
-        }
-
-        if (mount is null)
-        {
-            if (context is not null)
-            {
-                context.Mounts[path.VolumeId] = null;
-            }
-
-            throw new DirectoryNotFoundException("The required storage is not mounted.");
         }
 
         if (context is not null)
         {
-            context.Mounts[path.VolumeId] = mount;
+            context.Mounts[volumeId] = mount;
         }
 
-        return ResolveWithin(mount, path.RelativePath);
+        return mount;
     }
 
-    /// <summary>Resolves file evidence and launch paths through a volume GUID after confirming its current mount.</summary>
-    public static string ResolveBoundPath(ManagedContentPath path, ManagedContentCheckContext? context = null)
+    /// <summary>Resolves the expected volume to a current usable mount and rejects root escapes.</summary>
+    public static string ResolvePath(ManagedContentPath path, ManagedContentCheckContext? context = null)
     {
-        var mounted = ResolvePath(path, context);
-        return path.VolumeId.Length == 0 ? mounted
-            : ResolveLibraryPath(path.VolumeId, NormalizeLocalRelativePath(path.RelativePath));
+        if (path.VolumeId.Length == 0)
+        {
+            return Path.GetFullPath(path.AbsolutePath);
+        }
+
+        return ResolveWithin(
+            MountOf(path.VolumeId, context) ?? throw new DirectoryNotFoundException("The required storage is not mounted."),
+            path.RelativePath);
     }
 
     /// <summary>Removes dot segments generated by local discovery, retaining strict rejection of rooted or escaping paths.</summary>
@@ -517,7 +522,9 @@ public static class ManagedContentStorage
     }
 
     /// <summary>Rejects reparse points in every existing volume-relative path segment.</summary>
-    public static void RejectLibraryReparsePoints(string volumeId, string relativePath)
+    /// <exception cref="FileNotFoundException">A segment does not exist; the segments before it were safe.</exception>
+    public static void RejectLibraryReparsePoints(string volumeId, string relativePath,
+        ManagedContentCheckContext? context = null)
     {
         _ = ResolveLibraryPath(volumeId, relativePath);
         var current = volumeId;
@@ -525,10 +532,20 @@ public static class ManagedContentStorage
         foreach (var segment in segments)
         {
             current = segment.Length == 0 ? current : Path.Combine(current, segment);
+            if (context?.SafeDirectories.Contains(current) == true)
+            {
+                continue;
+            }
+
             var attributes = File.GetAttributes(current);
             if ((attributes & FileAttributes.ReparsePoint) != 0)
             {
                 throw new InvalidDataException("A library path contains a reparse point. Use a path on this storage.");
+            }
+
+            if ((attributes & FileAttributes.Directory) != 0)
+            {
+                context?.SafeDirectories.Add(current);
             }
         }
     }
@@ -545,99 +562,105 @@ public static class ManagedContentStorage
         return resolved;
     }
 
-    /// <summary>Checks actual backing content and companion files, preserving missing-storage and unreadable distinctions.</summary>
-    private static ManagedContentCheck Validate(ManagedContentRecord record, ManagedContentCheckContext? context)
+    /// <summary>Queries one path the way every availability decision does.</summary>
+    /// <param name="path">
+    ///     A volume-bound reference, queried through its volume GUID while that volume is mounted anywhere, or a
+    ///     literal absolute path when <see cref="ManagedContentPath.VolumeId" /> is empty.
+    /// </param>
+    /// <param name="context">The pass's shared observations, or null for a one-off query.</param>
+    /// <param name="rejectReparsePoints">Whether every existing segment must be a plain file or folder.</param>
+    /// <returns>
+    ///     Present; Missing only below a readable ancestor on the expected storage; VolumeAbsent when that storage is
+    ///     not mounted; otherwise Unreadable. A literal path's drive says nothing about which card is in it.
+    /// </returns>
+    public static ContentPathState Probe(ManagedContentPath path, ManagedContentCheckContext? context = null,
+        bool rejectReparsePoints = false)
     {
+        ArgumentNullException.ThrowIfNull(path);
+        context ??= new ManagedContentCheckContext();
+        var target = "";
         try
         {
-            var primary = record.LibraryId.Length > 0
-                ? ResolveBoundPath(record.BackingPath, context) : ResolvePath(record.BackingPath, context);
-            foreach (var path in new[] { record.BackingPath }.Concat(record.RequiredPaths))
+            if (path.VolumeId.Length > 0)
             {
-                var resolved = ReferenceEquals(path, record.BackingPath) ? primary
-                    : record.LibraryId.Length > 0 ? ResolveBoundPath(path, context) : ResolvePath(path, context);
-                try
+                if (MountOf(path.VolumeId, context) is null)
                 {
-                    if (record.LibraryId.Length > 0 && path.VolumeId.Length > 0)
-                    {
-                        RejectLibraryReparsePoints(path.VolumeId, NormalizeLocalRelativePath(path.RelativePath));
-                    }
-                    var attributes = File.GetAttributes(resolved);
-                    if (path.Directory != attributes.HasFlag(FileAttributes.Directory))
-                    {
-                        return Missing(record);
-                    }
+                    return ContentPathState.VolumeAbsent;
                 }
-                catch (FileNotFoundException)
+
+                var relative = NormalizeLocalRelativePath(path.RelativePath);
+                target = ResolveLibraryPath(path.VolumeId, relative);
+                if (rejectReparsePoints)
                 {
-                    ConfirmReadableContentParent(path, record.LibraryId.Length > 0);
-                    return Missing(record);
+                    RejectLibraryReparsePoints(path.VolumeId, relative, context);
                 }
-                catch (DirectoryNotFoundException)
+            }
+            else
+            {
+                target = Path.GetFullPath(path.AbsolutePath);
+                if (Path.GetPathRoot(target) is not { Length: > 0 } root || !Directory.Exists(root))
                 {
-                    ConfirmReadableContentParent(path, record.LibraryId.Length > 0);
-                    return Missing(record);
+                    return ContentPathState.VolumeAbsent;
                 }
             }
 
-            // GUID paths authorize checks; conventional mount paths preserve emulator and game compatibility.
-            return new ManagedContentCheck(ManagedContentAvailability.Available, "Available",
-                ResolvePath(record.BackingPath, context));
+            var attributes = File.GetAttributes(target);
+            return ((attributes & FileAttributes.Directory) != 0) == path.Directory
+                ? ContentPathState.Present
+                : ContentPathState.Missing;
         }
-        catch (DirectoryNotFoundException)
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
         {
-            return new ManagedContentCheck(ManagedContentAvailability.StorageUnavailable,
-                $"Connect {record.Location} and choose Recheck.");
+            return target.Length > 0 && ReadableAncestor(target, context)
+                ? ContentPathState.Missing
+                : ContentPathState.Unreadable;
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException
-                                       or ArgumentException)
+                                       or ArgumentException or NotSupportedException)
         {
-            return new ManagedContentCheck(ManagedContentAvailability.Unreadable,
-                $"The content on {record.Location} could not be checked. Recheck it in Game Library.");
+            return ContentPathState.Unreadable;
         }
     }
 
-    /// <summary>Establishes that a not-found observation still belongs to readable expected storage.</summary>
-    public static void ConfirmReadableVolume(ManagedContentPath path)
+    /// <summary>Establishes that a not-found answer came from storage that can actually be listed.</summary>
+    private static bool ReadableAncestor(string target, ManagedContentCheckContext context)
     {
-        if (path.VolumeId.Length == 0)
+        for (var parent = Path.GetDirectoryName(target); parent is not null; parent = Path.GetDirectoryName(parent))
         {
-            return;
-        }
+            if (context.ReadableDirectories.Contains(parent))
+            {
+                return true;
+            }
 
-        RejectLibraryReparsePoints(path.VolumeId, "");
-        using var entries = Directory.EnumerateFileSystemEntries(path.VolumeId).GetEnumerator();
-        _ = entries.MoveNext();
-    }
-
-    private static void ConfirmReadableContentParent(ManagedContentPath path, bool portable)
-    {
-        if (path.VolumeId.Length == 0)
-        {
-            return;
-        }
-        if (!portable)
-        {
-            ConfirmReadableVolume(path);
-            return;
-        }
-        var parent = Path.GetDirectoryName(NormalizeLocalRelativePath(path.RelativePath)) ?? "";
-        while (true)
-        {
             try
             {
-                RejectLibraryReparsePoints(path.VolumeId, parent);
-                using var entries = Directory.EnumerateFileSystemEntries(
-                    ResolveLibraryPath(path.VolumeId, parent)).GetEnumerator();
+                using var entries = Directory.EnumerateFileSystemEntries(parent).GetEnumerator();
                 _ = entries.MoveNext();
-                ConfirmReadableVolume(path);
-                return;
+                context.ReadableDirectories.Add(parent);
+                return true;
             }
-            catch (Exception ex) when (parent.Length > 0 && (ex is FileNotFoundException or DirectoryNotFoundException))
+            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
             {
-                parent = Path.GetDirectoryName(parent) ?? "";
+                // A deleted root or folder: its own parent decides.
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+            {
+                return false;
             }
         }
+
+        return false;
+    }
+
+    /// <summary>The one mapping from a path observation to the three published states.</summary>
+    public static ContentAvailability Classify(ContentPathState state)
+    {
+        return state switch
+        {
+            ContentPathState.Present => ContentAvailability.Available,
+            ContentPathState.Missing => ContentAvailability.FileMissing,
+            _ => ContentAvailability.LibraryMissing
+        };
     }
 
     /// <summary>Checks the backing content, preference and emulator dependencies with one consistent policy.</summary>
@@ -645,6 +668,10 @@ public static class ManagedContentStorage
     /// <param name="store">A fresh emulator snapshot acquired by the owner.</param>
     /// <param name="context">An optional operation-local mount and prerequisite cache.</param>
     /// <returns>The availability and resolved launch, or one actionable refusal.</returns>
+    /// <remarks>
+    ///     Library acceptance is not decided here: the launch helper's <see cref="Read" /> and the host's
+    ///     tracker each know the device's library bindings and refuse an unaccepted card before checking files.
+    /// </remarks>
     public static ManagedContentCheck Check(ManagedContentRecord record, EmulatorStore store,
         ManagedContentCheckContext? context = null)
     {
@@ -652,119 +679,97 @@ public static class ManagedContentStorage
         ArgumentNullException.ThrowIfNull(store);
         if (RecordDefect(record) is { } defect)
         {
-            return new ManagedContentCheck(ManagedContentAvailability.Unreadable, defect, Content: record);
+            return new ManagedContentCheck(ContentAvailability.FileMissing, defect, Content: record);
         }
 
-        if (record.InventoryRemoved || record.LibraryId.Length > 0 && !record.LibraryBindingAccepted)
-        {
-            return new ManagedContentCheck(ManagedContentAvailability.Unreadable,
-                "Review this library in Game Library before launching it.", Content: record);
-        }
-
+        context ??= new ManagedContentCheckContext();
         var content = ResolveEmulatorPreference(store, record);
         if (content.SourceKind == LibrarySourceKind.Emulator)
         {
             try
             {
                 var launch = EmulatorStorage.ResolveInterface(store, content.EmulatorInstallationId);
-                return new ManagedContentCheck(ManagedContentAvailability.Available, "", Content: content, Launch: launch);
+                return new ManagedContentCheck(ContentAvailability.Available, "", Content: content, Launch: launch);
             }
             catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException
                                            or ArgumentException or JsonException)
             {
-                return new ManagedContentCheck(ManagedContentAvailability.EmulatorUnavailable, ex.Message,
-                    Content: content);
+                return new ManagedContentCheck(ContentAvailability.FileMissing, ex.Message, Content: content);
             }
         }
 
-        var checkedContent = Validate(content, context) with { Content = content };
-        if (!checkedContent.Available)
+        var portable = content.LibraryId.Length > 0;
+        foreach (var path in new[] { content.BackingPath }.Concat(content.RequiredPaths))
         {
-            return checkedContent;
+            var state = Probe(path, context, portable);
+            if (state != ContentPathState.Present)
+            {
+                return Unavailable(state, content, "The game files are");
+            }
         }
 
+        string backing;
+        try
+        {
+            // GUID paths authorize checks; conventional mount paths preserve emulator and game compatibility.
+            backing = ResolvePath(content.BackingPath, context);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException)
+        {
+            return Unavailable(ContentPathState.VolumeAbsent, content, "The game files are");
+        }
+
+        var available = new ManagedContentCheck(ContentAvailability.Available, "", backing, content);
         if (content.SourceKind == LibrarySourceKind.Rom)
         {
             try
             {
                 var launch = EmulatorStorage.Resolve(store, content.EmulatorInstallationId, content.SystemId,
-                    content.CoreId, checkedContent.Path, content.Arguments.Length == 0 ? null : content.Arguments,
-                    context?.Emulators);
-                return checkedContent with { Launch = launch };
+                    content.CoreId, backing, content.Arguments.Length == 0 ? null : content.Arguments,
+                    context.Emulators);
+                return available with { Launch = launch };
             }
             catch (Exception ex) when (ex is IOException or InvalidDataException or InvalidOperationException
                                            or UnauthorizedAccessException or ArgumentException or JsonException)
             {
-                return checkedContent with
-                {
-                    Availability = ManagedContentAvailability.EmulatorUnavailable,
-                    Detail = ex.Message
-                };
+                return available with { Availability = ContentAvailability.FileMissing, Detail = ex.Message };
             }
         }
 
-        // Native launcher routes may retain storage metadata without an indirection or a program recipe.
-        if (content.LaunchKind == ManagedLaunchKind.Native)
+        foreach (var dependency in new[] { content.Program, content.WorkingDirectory })
         {
-            return MountedWhereLauncherExpects(content, checkedContent);
+            var state = Probe(dependency, context, portable && dependency.VolumeId.Equals(content.BackingPath.VolumeId,
+                StringComparison.OrdinalIgnoreCase));
+            if (state != ContentPathState.Present)
+            {
+                return Unavailable(state, content, "The program or its working directory is");
+            }
         }
 
         try
         {
-            var program = ResolvePath(content.Program, context);
-            var directory = ResolvePath(content.WorkingDirectory, context);
-            if (content.LibraryId.Length > 0)
-            {
-                foreach (var dependency in new[] { content.Program, content.WorkingDirectory })
-                {
-                    if (dependency.VolumeId.Length > 0
-                        && dependency.VolumeId.Equals(content.BackingPath.VolumeId, StringComparison.OrdinalIgnoreCase))
-                    {
-                        try
-                        {
-                            RejectLibraryReparsePoints(dependency.VolumeId,
-                                NormalizeLocalRelativePath(dependency.RelativePath));
-                        }
-                        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
-                        {
-                            ConfirmReadableVolume(dependency);
-                            return checkedContent with
-                            {
-                                Availability = ManagedContentAvailability.EmulatorUnavailable,
-                                Detail = "The program or its working directory is missing. Repair it or edit this shortcut."
-                            };
-                        }
-                    }
-                }
-            }
-            if (!File.Exists(program) || !Directory.Exists(directory))
-            {
-                return checkedContent with
-                {
-                    Availability = ManagedContentAvailability.EmulatorUnavailable,
-                    Detail = "The program or its working directory is missing. Repair it or edit this shortcut."
-                };
-            }
-
-            return checkedContent with
+            return available with
             {
                 ProgramPath = ResolvePath(content.Program, context),
                 WorkingDirectoryPath = ResolvePath(content.WorkingDirectory, context)
             };
         }
-        catch (DirectoryNotFoundException)
+        catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException)
         {
-            return checkedContent with
-            {
-                Availability = ManagedContentAvailability.StorageUnavailable,
-                Detail = $"Connect {content.Location} and choose Recheck."
-            };
+            return Unavailable(ContentPathState.VolumeAbsent, content, "The program or its working directory is");
         }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException
-                                       or ArgumentException)
+    }
+
+    /// <summary>Words one failed probe for a refusal, naming what to connect or what is missing.</summary>
+    private static ManagedContentCheck Unavailable(ContentPathState state, ManagedContentRecord content, string what)
+    {
+        var detail = state switch
         {
-            return checkedContent with { Availability = ManagedContentAvailability.Unreadable, Detail = ex.Message };
-        }
+            ContentPathState.Missing => $"{what} missing from {content.Location}. Rescan its source, or remove the title in Game Library.",
+            ContentPathState.VolumeAbsent => $"Connect {content.Location} and choose Recheck.",
+            _ => $"{content.Location} could not be read. Check the storage, then choose Recheck."
+        };
+        return new ManagedContentCheck(Classify(state), detail, Content: content);
     }
 
     /// <summary>Compares durable launch and content intent, excluding observations and preview diagnostics.</summary>
@@ -795,45 +800,13 @@ public static class ManagedContentStorage
                && EmulatorStorage.NormalizeSystemId(before.SystemId) ==
                EmulatorStorage.NormalizeSystemId(after.SystemId)
                && before.EmulatorInstallationId == after.EmulatorInstallationId && before.CoreId == after.CoreId
-               && before.FollowSystemPreference == after.FollowSystemPreference && before.LaunchKind == after.LaunchKind
+               && before.FollowSystemPreference == after.FollowSystemPreference
                && before.RawArguments == after.RawArguments
                && before.Arguments.SequenceEqual(after.Arguments) && SamePath(before.BackingPath, after.BackingPath)
                && SamePath(before.Program, after.Program) && SamePath(before.WorkingDirectory, after.WorkingDirectory)
                && SamePath(before.SourceRoot, after.SourceRoot) &&
                before.RequiredPaths.Count == after.RequiredPaths.Count
                && before.RequiredPaths.Zip(after.RequiredPaths).All(pair => SamePath(pair.First, pair.Second));
-    }
-
-    /// <summary>Refuses a launcher title whose storage came back under another drive letter.</summary>
-    /// <remarks>
-    ///     A launcher records the absolute install path and does not follow the volume, so the game is
-    ///     only startable where the launcher expects it, however present its files are.
-    /// </remarks>
-    private static ManagedContentCheck MountedWhereLauncherExpects(ManagedContentRecord content,
-        ManagedContentCheck check)
-    {
-        if (content.SourceKind != LibrarySourceKind.Launcher || content.BackingPath.VolumeId.Length == 0
-                                                             || check.Path.Length == 0)
-        {
-            return check;
-        }
-
-        var expected = Path.TrimEndingDirectorySeparator(content.BackingPath.AbsolutePath);
-        var current = Path.TrimEndingDirectorySeparator(check.Path);
-        return string.Equals(expected, current, StringComparison.OrdinalIgnoreCase)
-            ? check
-            : check with
-            {
-                Availability = ManagedContentAvailability.StorageUnavailable,
-                Detail = $"{content.Location} is now at {Path.GetPathRoot(current)}, but its launcher expects "
-                         + $"{Path.GetPathRoot(expected)}. Give it that drive letter again, then choose Recheck."
-            };
-    }
-
-    private static ManagedContentCheck Missing(ManagedContentRecord record)
-    {
-        return new ManagedContentCheck(ManagedContentAvailability.ContentMissing,
-            $"The content is missing from {record.Location}. Rescan this title's source in Game Library.");
     }
 
     /// <summary>Checks the record's required shape before copying or resolving authored fields.</summary>
@@ -852,8 +825,7 @@ public static class ManagedContentStorage
                    Id.Length: > 0, SourceId: not null, SourceKey: not null, Name: not null,
                    LibraryId: not null,
                    Location: not null, SystemId: not null, EmulatorInstallationId: not null, CoreId: not null,
-                   RawArguments: not null, Arguments: not null, RequiredPaths: not null,
-                   AvailabilityDetail: not null
+                   RawArguments: not null, Arguments: not null, RequiredPaths: not null
                }
                && (record.LibraryId.Length == 0 || Guid.TryParseExact(record.LibraryId, "D", out var libraryId)
                    && libraryId != Guid.Empty && record.BackingPath is { VolumeId.Length: > 0 })

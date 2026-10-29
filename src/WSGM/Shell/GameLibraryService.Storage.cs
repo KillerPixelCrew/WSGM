@@ -7,35 +7,17 @@ using System.Threading;
 using System.Threading.Tasks;
 using SteamUiToolkit;
 using WSGM.Core;
-using WSGM.Interop;
 
 namespace WSGM.Shell;
 
 internal sealed partial class GameLibraryService
 {
-    // Scan metadata, manifest publication, imports and automatic cleanup share this lane.
+    // Scan, apply and the immediate storage commands share this lane; card writes also take the tracker's gate.
     private readonly SemaphoreSlim _storageLane = new(1, 1);
-    private readonly Func<uint, CancellationToken, Task<bool?>> _isShortcutRunning;
-    private readonly Dictionary<string, string> _storageActions = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, StorageLibraryRecord> _stagedStorage = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, GameLibraryStorage> _storagePublished = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, StorageLibraryRecord> _storageCandidates = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, StorageLibraryManifest> _storageManifests = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, string> _eligibleVolumes = new(StringComparer.OrdinalIgnoreCase);
-    private readonly HashSet<string> _ambiguousLibraries = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, string> _storageMounts = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, ImportedEntry> _knownContent = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, StorageLibraryManifest> _manifestPaths = new(StringComparer.OrdinalIgnoreCase);
-    private CancellationTokenSource _storageObservation = new();
-    private string? _storageError;
+    private readonly ShortcutAvailabilityTracker? _tracker;
 
-    private CancellationTokenSource LinkStorageObservation(CancellationToken token)
-    {
-        lock (_gate)
-        {
-            return CancellationTokenSource.CreateLinkedTokenSource(token, _shutdown.Token, _storageObservation.Token);
-        }
-    }
+    /// <summary>The tracker's latest result, or an empty one in an isolated importer.</summary>
+    private ShortcutAvailabilitySnapshot Tracked => _tracker?.Current ?? ShortcutAvailabilitySnapshot.Empty;
 
     private uint CaptureAccount(IReadOnlyList<ExistingShortcut> shortcuts)
     {
@@ -55,363 +37,97 @@ internal sealed partial class GameLibraryService
         }
     }
 
+    /// <summary>Whether a record's content can travel on its card: a directly launched recipe bound to a volume.</summary>
     private static bool PortableContent(ManagedContentRecord content)
     {
-        return content.LaunchKind == ManagedLaunchKind.Direct
-               && content.SourceKind is LibrarySourceKind.Rom or LibrarySourceKind.Folder or LibrarySourceKind.Manual
+        return content.SourceKind is LibrarySourceKind.Rom or LibrarySourceKind.Folder or LibrarySourceKind.Manual
                && content.BackingPath.VolumeId.Length > 0;
     }
 
     private static bool StorageFailure(Exception exception) => exception is IOException or InvalidDataException
         or UnauthorizedAccessException or JsonException or ArgumentException or ImportStateException;
 
-    private static bool SameVolume(string first, string second) =>
-        string.Equals(first.TrimEnd('\\'), second.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
-
-    private static bool SameLibrary(string first, string second) =>
+    private static bool SameId(string first, string second) =>
         string.Equals(first, second, StringComparison.OrdinalIgnoreCase);
 
-    private void RefreshStorage(CancellationToken token)
+    private void OnAvailabilityChanged()
     {
-        token.ThrowIfCancellationRequested();
-        var inventory = StorageInventory.Read();
-        Dictionary<string, string> volumes = new(StringComparer.OrdinalIgnoreCase);
-        Dictionary<string, string> mounts = new(StringComparer.OrdinalIgnoreCase);
-        foreach (var volume in inventory.ReadyExternalVolumes())
-        {
-            token.ThrowIfCancellationRequested();
-            if (!NativeStorage.TryGetVolumeGuidPath(volume.Letter, out var guid) || guid is null)
-            {
-                continue;
-            }
-            using var handle = NativeStorage.OpenVolumeForQueryPath(guid.TrimEnd('\\'));
-            if (handle.IsInvalid || !NativeStorage.TryGetDeviceNumber(handle, out var type, out var disk)
-                || type != NativeStorage.FileDeviceDisk || inventory.FindDisk(disk) is null)
-            {
-                continue;
-            }
-            var label = NativeStorage.TryGetVolumeInformation(guid, out var currentLabel, out _)
-                ? currentLabel : volume.Label;
-            volumes[guid] = StorageName(guid, label);
-            mounts[guid] = volume.MountPath;
-        }
-        MigrateStorage(volumes, mounts, token);
-        var known = _store.Libraries();
-        var records = _store.InventoryEntries();
-        Dictionary<string, StorageLibraryRecord> candidates = new(StringComparer.OrdinalIgnoreCase);
-        Dictionary<string, StorageLibraryManifest> manifests = new(StringComparer.OrdinalIgnoreCase);
-        HashSet<string> ambiguous = new(StringComparer.OrdinalIgnoreCase);
-        Dictionary<string, GameLibraryStorage> published = new(StringComparer.OrdinalIgnoreCase);
-        foreach (var library in known)
-        {
-            published[library.Id] = new GameLibraryStorage(library.Id, library.Name, "Disconnected",
-                "Connect the expected storage to check its games.",
-                records.Count(record => record.Content?.LibraryId == library.Id && !record.Content.InventoryRemoved),
-                false, false);
-        }
-        foreach (var (volumeId, name) in volumes)
-        {
-            token.ThrowIfCancellationRequested();
-            var expected = known.FirstOrDefault(library => SameVolume(library.VolumeId, volumeId));
-            try
-            {
-                var manifest = StorageLibraryStorage.Read(volumeId);
-                if (candidates.ContainsKey(manifest.Id))
-                {
-                    ambiguous.Add(manifest.Id);
-                    published[manifest.Id] = new GameLibraryStorage(manifest.Id, name, "Ambiguous storage",
-                        "Two connected volumes claim this library. Disconnect the duplicate before checking.",
-                        manifest.Entries.Count, false, false);
-                    continue;
-                }
-                var accepted = known.FirstOrDefault(library => SameLibrary(library.Id, manifest.Id));
-                var candidate = new StorageLibraryRecord
-                {
-                    Id = manifest.Id, Name = name, VolumeId = volumeId, LastMountPath = mounts[volumeId],
-                    ManifestRevision = manifest.Revision
-                };
-                candidates[manifest.Id] = candidate;
-                manifests[manifest.Id] = manifest;
-                var binding = accepted is not null && SameVolume(accepted.VolumeId, volumeId);
-                published[manifest.Id] = new GameLibraryStorage(manifest.Id, name,
-                    binding ? "Available" : "Review storage",
-                    binding ? "" : "Review this library and Apply to accept its storage on this device.",
-                    manifest.Entries.Count, false, !binding);
-            }
-            catch (StorageLibraryUnsupportedVersionException ex)
-            {
-                if (expected is { RepairRequired: false })
-                {
-                    expected.RepairRequired = true;
-                    token.ThrowIfCancellationRequested();
-                    _store.SaveLibrary(expected);
-                }
-                var libraryId = expected?.Id ?? "volume:" + volumeId;
-                published[libraryId] = new GameLibraryStorage(libraryId, expected?.Name ?? name,
-                    "Update WSGM", ex.Message,
-                    expected is null ? 0 : records.Count(record => record.Content?.LibraryId == expected.Id), false, false);
-            }
-            catch (Exception ex) when (StorageFailure(ex) && ex is not ImportStateException)
-            {
-                if (expected is null)
-                {
-                    continue;
-                }
-                var repair = ex is FileNotFoundException or DirectoryNotFoundException or JsonException
-                    or InvalidDataException;
-                // A failed read cannot make cached recipes trustworthy. Only a successful
-                // reconciliation clears this launch guard; repair remains an explicit action.
-                if (!expected.RepairRequired)
-                {
-                    expected.RepairRequired = true;
-                    token.ThrowIfCancellationRequested();
-                    _store.SaveLibrary(expected);
-                }
-                published[expected.Id] = new GameLibraryStorage(expected.Id, expected.Name, "Check failed",
-                    ex.Message, records.Count(record => record.Content?.LibraryId == expected.Id
-                                                       && !record.Content.InventoryRemoved), repair, false);
-            }
-        }
         lock (_gate)
         {
-            token.ThrowIfCancellationRequested();
             if (_disposed)
             {
                 return;
             }
-            _eligibleVolumes.Clear();
-            foreach (var pair in volumes)
-            {
-                _eligibleVolumes.Add(pair.Key, pair.Value);
-            }
-            _storageCandidates.Clear();
-            _storageManifests.Clear();
-            _manifestPaths.Clear();
-            _knownContent.Clear();
-            foreach (var record in records.Where(record => record.Content is not null))
-            {
-                _knownContent.TryAdd(record.Content!.Id, record);
-            }
-            _ambiguousLibraries.Clear();
-            foreach (var libraryId in ambiguous)
-            {
-                _ambiguousLibraries.Add(libraryId);
-            }
-            foreach (var pair in candidates.Where(pair => !ambiguous.Contains(pair.Key)))
-            {
-                _storageCandidates.Add(pair.Key, pair.Value);
-                _storageManifests.Add(pair.Key, manifests[pair.Key]);
-                foreach (var group in manifests[pair.Key].Entries.GroupBy(entry => entry.BackingPath.RelativePath,
-                             StringComparer.OrdinalIgnoreCase))
-                {
-                    _manifestPaths[pair.Key + ":" + group.Key.Replace('/', '\\')] = new StorageLibraryManifest
-                    {
-                        Id = manifests[pair.Key].Id, Name = manifests[pair.Key].Name,
-                        Revision = manifests[pair.Key].Revision, Entries = group.ToList()
-                    };
-                }
-            }
-            var previous = _storagePublished.Values.OrderBy(library => library.Id, StringComparer.Ordinal).ToArray();
-            _storageMounts.Clear();
-            foreach (var pair in mounts)
-            {
-                _storageMounts.Add(pair.Key, pair.Value);
-            }
-            foreach (var (id, action) in _storageActions.ToArray())
-            {
-                if (!published.TryGetValue(id, out var row) || ambiguous.Contains(id)
-                    || action == "repair" && !row.CanRepair
-                    || action == "acceptBinding" && (!row.CanAcceptBinding || !candidates.ContainsKey(id)))
-                {
-                    _storageActions.Remove(id);
-                    _stagedStorage.Remove(id);
-                    _notes.Add("A staged storage action was cleared because its storage or preconditions changed. Recheck and review it again.");
-                }
-            }
-            _storagePublished.Clear();
-            foreach (var pair in published)
-            {
-                _storagePublished[pair.Key] = pair.Value with
-                {
-                    StagedAction = _storageActions.GetValueOrDefault(pair.Key, "")
-                };
-            }
+
+            // The connected cards are sources too; the next read lists the ones in the drives now.
             _sourceCache = null;
-            if (!previous.SequenceEqual(_storagePublished.Values.OrderBy(library => library.Id, StringComparer.Ordinal)))
-            {
-                Publish();
-            }
+            Publish();
         }
+
+        Notify();
     }
 
-    private static string StorageName(string volumeId, string fallback)
+    /// <summary>The tracker's status for an entry's shortcut, by app id, else by its managed content id.</summary>
+    private ShortcutStatus? StatusOf(Entry entry)
     {
-        foreach (var relative in new[] { SteamLibraryVdf.CardFolderName, "" })
-        {
-            try
-            {
-                var marker = Path.Combine(relative, "libraryfolder.vdf");
-                if (StorageLibraryStorage.InspectPath(volumeId, marker).State == StorageLibraryPathState.Present
-                    && SteamLibraryMarker.TryRead(ManagedContentStorage.ResolveLibraryPath(volumeId, relative),
-                        out _, out var label) && !string.IsNullOrWhiteSpace(label))
-                {
-                    return label;
-                }
-            }
-            catch (Exception ex) when (StorageFailure(ex))
-            {
-                Log.Change("library.storage.label", "The storage label could not be read: " + ex.Message);
-            }
-        }
-        return string.IsNullOrWhiteSpace(fallback) ? "Game library" : fallback;
+        var tracked = Tracked;
+        return tracked.Find(entry.AppId)
+               ?? (entry.Game.Content is { } content
+                   ? tracked.Shortcuts.FirstOrDefault(status => status.ContentId == content.Id)
+                   : null);
     }
 
-    private void MigrateStorage(IReadOnlyDictionary<string, string> volumes,
-        IReadOnlyDictionary<string, string> mounts, CancellationToken token)
-    {
-        var libraries = _store.Libraries();
-        var legacy = _store.InventoryEntries().Where(entry => entry.Content is { LibraryId.Length: 0 } content
-            && PortableContent(content) && !content.InventoryRemoved)
-            .GroupBy(entry => entry.Content!.BackingPath.VolumeId, StringComparer.OrdinalIgnoreCase);
-        foreach (var group in legacy)
-        {
-            if (!volumes.TryGetValue(group.Key, out var name))
-            {
-                continue;
-            }
-            token.ThrowIfCancellationRequested();
-            var existing = libraries.FirstOrDefault(library => SameVolume(library.VolumeId, group.Key));
-            if (existing is { MigrationPending: false })
-            {
-                continue;
-            }
-            try
-            {
-                StorageLibraryManifest manifest;
-                var found = StorageLibraryStorage.InspectPath(group.Key, @".wsgm\library.json");
-                if (found.State == StorageLibraryPathState.Missing && existing is null)
-                {
-                    manifest = new StorageLibraryManifest
-                    {
-                        Id = Guid.NewGuid().ToString("D"), Name = name,
-                        Entries = group.Select(entry => StorageLibraryStorage.FromManaged(entry.Content!, group.Key,
-                            entry.Content!.Location)).ToList()
-                    };
-                    token.ThrowIfCancellationRequested();
-                    StorageLibraryStorage.Publish(group.Key, manifest, expectedRevision: null);
-                }
-                else if (found.State == StorageLibraryPathState.Present && existing is not null)
-                {
-                    manifest = StorageLibraryStorage.Read(group.Key, existing?.Id);
-                }
-                else if (found.State == StorageLibraryPathState.Present)
-                {
-                    manifest = StorageLibraryStorage.Read(group.Key);
-                    var expectedRecipes = group.Select(entry => StorageLibraryStorage.FromManaged(entry.Content!, group.Key,
-                            entry.Content!.Location)).OrderBy(entry => entry.Id, StringComparer.Ordinal)
-                        .Select(entry => JsonSerializer.Serialize(entry, StorageLibraryJsonContext.Default.StorageLibraryContent));
-                    var observedRecipes = manifest.Entries.OrderBy(entry => entry.Id, StringComparer.Ordinal)
-                        .Select(entry => JsonSerializer.Serialize(entry, StorageLibraryJsonContext.Default.StorageLibraryContent));
-                    if (manifest.Revision != 1 || !observedRecipes.SequenceEqual(expectedRecipes))
-                    {
-                        continue;
-                    }
-                    // Recover only our exact interrupted initial publication; foreign inventories still need review.
-                }
-                else
-                {
-                    continue;
-                }
-                var library = existing ?? new StorageLibraryRecord
-                {
-                    Id = manifest.Id, Name = name, VolumeId = group.Key, LastMountPath = mounts[group.Key]
-                };
-                var manifestIds = manifest.Entries.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
-                if (existing is null && !group.All(entry => manifestIds.Contains(entry.Content!.Id)))
-                {
-                    continue;
-                }
-                List<ImportedEntry> migrated = [];
-                foreach (var entry in group)
-                {
-                    var content = entry.Content!;
-                    if (!manifestIds.Contains(content.Id))
-                    {
-                        continue;
-                    }
-                    content.LibraryId = library.Id;
-                    content.LibraryBindingAccepted = true;
-                    content.Location = name;
-                    token.ThrowIfCancellationRequested();
-                    migrated.Add(entry);
-                }
-                if (migrated.Count == 0)
-                {
-                    continue;
-                }
-                library.ManifestRevision = manifest.Revision;
-                library.MigrationPending = true;
-                _store.SaveLibrary(library);
-                _store.SaveInventories(migrated);
-                library.MigrationPending = false;
-                _store.SaveLibrary(library);
-            }
-            catch (Exception ex) when (StorageFailure(ex) && ex is not ImportStateException)
-            {
-                Log.Change("library.migration." + group.Key, "Library migration is pending: " + ex.Message);
-                lock (_gate)
-                {
-                    _notes.Add("Library migration is pending: " + ex.Message);
-                }
-            }
-        }
-    }
-
+    /// <summary>Offers each connected card's titles for import, on this device or another.</summary>
     private IEnumerable<ILibrarySource> ManifestSources()
     {
-        var local = _store.InventoryEntries().Where(entry => entry.Content is { InventoryRemoved: false })
-            .GroupBy(entry => entry.Content!.Id, StringComparer.Ordinal)
-            .ToDictionary(group => group.Key, group => group.First().Content!, StringComparer.Ordinal);
-        return _storageCandidates.Values.Select(library => (ILibrarySource)new ManifestLibrarySource(library, local))
-            .ToArray();
+        var cards = Tracked.Cards;
+        if (cards.Count == 0)
+        {
+            return [];
+        }
+
+        var local = _store.InventoryEntries().Select(entry => entry.Content).OfType<ManagedContentRecord>()
+            .DistinctBy(content => content.Id).ToDictionary(content => content.Id, StringComparer.Ordinal);
+        return cards.Select(pair => (ILibrarySource)new ManifestLibrarySource(new StorageLibraryRecord
+        {
+            Id = pair.Key, Name = pair.Value.Volume.Name, VolumeId = pair.Value.Volume.VolumeId,
+            ManifestRevision = pair.Value.Manifest.Revision
+        }, local)).ToArray();
     }
 
-    /// <summary>Gives a launcher title on participating storage the portable executable lifecycle.</summary>
+    /// <summary>Gives a launcher title on removable storage its own executable as the managed route.</summary>
     /// <remarks>
-    ///     Like Steam ROM Manager, the game's own executable is the portable recipe: it enters the card
-    ///     inventory, launches through the managed content check and follows its volume across drive
-    ///     letters. Starting through the launcher keeps the launcher's own native lifecycle, so the
-    ///     launcher-native record stays beside it for that route.
+    ///     Like Steam ROM Manager: the game's executable becomes a portable recipe that enters the card's list,
+    ///     launches through the content check and follows its volume across drive letters. Every other route keeps
+    ///     no content record; its shortcut's own folder decides its availability.
     /// </remarks>
     private DiscoveredGame TrackLauncherStorage(DiscoveredGame game)
     {
-        if (game.Content is not { SourceKind: LibrarySourceKind.Launcher, LaunchKind: ManagedLaunchKind.Native } native
-            || native.BackingPath.VolumeId.Length == 0
-            || !_eligibleVolumes.TryGetValue(native.BackingPath.VolumeId, out var storage))
+        if (game.Content is not null || game.InstallPath.Length == 0 || !Path.IsPathFullyQualified(game.InstallPath)
+            || game.CommandRoutes.FirstOrDefault(route => route is { Id: "direct", Follows: false }) is not { } direct
+            || !StoragePaths.IsUnder(game.InstallPath, direct.Target))
         {
             return game;
         }
 
-        native = native.Copy();
-        native.Location = storage;
-        var direct = game.CommandRoutes.FirstOrDefault(route => route is { Id: "direct", Follows: false });
-        if (direct is null || !StoragePaths.IsUnder(native.BackingPath.AbsolutePath, direct.Target))
+        var root = ManagedContentStorage.CapturePath(game.InstallPath, true);
+        if (Tracked.Volumes.FirstOrDefault(volume => volume.Removable && SameId(volume.VolumeId, root.VolumeId))
+            is not { } storage)
         {
-            return game with { Content = native };
+            return game;
         }
 
         var directory = direct.StartDirectory.Length > 0
             ? direct.StartDirectory : Path.GetDirectoryName(direct.Target) ?? "";
         var managed = ManagedContentStorage.CreateRecord(game.SourceId, game.Key, game.Name,
-            LibrarySourceKind.Folder, storage, direct.Target,
-            binding: ManagedContentStorage.BindPath(native.BackingPath, direct.Target));
-        managed.SourceRoot = native.BackingPath.Copy();
+            LibrarySourceKind.Folder, storage.Name, direct.Target, binding: ManagedContentStorage.BindPath(root, direct.Target));
+        managed.SourceRoot = root;
         managed.Program = managed.BackingPath.Copy();
-        managed.WorkingDirectory = ManagedContentStorage.BindPath(native.BackingPath, directory, true);
+        managed.WorkingDirectory = ManagedContentStorage.BindPath(root, directory, true);
         managed.RawArguments = direct.LaunchOptions;
         return game with
         {
-            Content = managed, NativeContent = native,
+            Content = managed,
             Routes = game.CommandRoutes.Select(route => ReferenceEquals(route, direct)
                 ? route with
                 {
@@ -422,422 +138,349 @@ internal sealed partial class GameLibraryService
         };
     }
 
-    private DiscoveredGame BindDiscoveredContent(DiscoveredGame game)
+    /// <summary>Binds discovered portable content to the card it is on, adopting the card's own title id.</summary>
+    /// <param name="game">The title as its source found it.</param>
+    /// <param name="launcher">Whether its source is a third-party launcher, whose titles may gain the managed route.</param>
+    /// <param name="known">The device's records by content id, so a known title keeps its identity.</param>
+    private DiscoveredGame BindDiscoveredContent(DiscoveredGame game, bool launcher,
+        IReadOnlyDictionary<string, ImportedEntry> known)
     {
-        game = TrackLauncherStorage(game);
+        if (launcher)
+        {
+            game = TrackLauncherStorage(game);
+        }
+
         if (game.Content is not { } content || !PortableContent(content))
         {
             return game;
         }
-        var copy = content.Copy();
-        var library = _storageCandidates.Values.FirstOrDefault(item => SameVolume(item.VolumeId, copy.BackingPath.VolumeId));
-        if (library is null)
+
+        var card = Tracked.Cards.Values.FirstOrDefault(item => SameId(item.Volume.VolumeId, content.BackingPath.VolumeId));
+        if (card is null)
         {
             return game;
         }
-        var pathKey = library.Id + ":" + copy.BackingPath.RelativePath.Replace('/', '\\');
-        var match = _manifestPaths.TryGetValue(pathKey, out var matching)
-            ? StorageLibraryStorage.Match(matching, copy) : null;
+
+        var copy = content.Copy();
+        StorageLibraryContent? match;
+        try
+        {
+            match = StorageLibraryStorage.Match(card.Manifest, copy);
+        }
+        catch (InvalidDataException)
+        {
+            match = null;
+        }
+
         if (match is not null)
         {
             copy.Id = match.Id;
         }
-        copy.LibraryId = library.Id;
-        copy.Location = library.Name;
-        copy.LibraryBindingAccepted = _store.Libraries().Any(item => SameLibrary(item.Id, library.Id)
-            && SameVolume(item.VolumeId, library.VolumeId));
-        var known = _knownContent.GetValueOrDefault(copy.Id);
-        var source = known?.Source ?? (match is null ? game.SourceId : "manifest:" + library.Id.ToLowerInvariant());
-        var key = known?.Key ?? (match is null ? game.Key : copy.Id);
+
+        copy.LibraryId = card.Manifest.Id;
+        copy.Location = card.Volume.Name;
+        var record = known.GetValueOrDefault(copy.Id);
+        var source = record?.Source ?? (match is null ? game.SourceId : "manifest:" + card.Manifest.Id.ToLowerInvariant());
+        var key = record?.Key ?? (match is null ? game.Key : copy.Id);
         copy.SourceId = source;
         copy.SourceKey = key;
-        var native = game.NativeContent?.Copy();
-        if (native is not null)
-        {
-            // Both forms are one title: a route change must never change its identity.
-            native.Id = copy.Id;
-            native.SourceId = source;
-            native.SourceKey = key;
-        }
         return game with
         {
-            SourceId = source, Key = key, Content = copy, NativeContent = native,
+            SourceId = source, Key = key, Content = copy,
             Routes = game.CommandRoutes.Select(route => route.IsManaged ? route with { ManagedId = copy.Id } : route).ToArray()
         };
     }
 
-    internal async Task<SteamUiCommandResult> RecheckStorageChangesAsync(CancellationToken token)
-    {
-        using var linked = LinkStorageObservation(token);
-        var admitted = false;
-        try
-        {
-            await _storageLane.WaitAsync(linked.Token).ConfigureAwait(false);
-            admitted = true;
-            return await Task.Run(async () =>
-            {
-                var before = new Dictionary<string, string>(_storageMounts, StringComparer.OrdinalIgnoreCase);
-                Dictionary<string, GameLibraryStorage> previousLibraries;
-                lock (_gate)
-                {
-                    previousLibraries = new Dictionary<string, GameLibraryStorage>(_storagePublished,
-                        StringComparer.OrdinalIgnoreCase);
-                }
-                RefreshStorage(linked.Token);
-                var changed = before.Keys.Union(_storageMounts.Keys, StringComparer.OrdinalIgnoreCase)
-                    .Where(volume => !before.TryGetValue(volume, out var oldMount)
-                        || !_storageMounts.TryGetValue(volume, out var newMount) || oldMount != newMount)
-                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
-                var dependencies = _store.InventoryEntries().Where(entry => entry.Content is { } content
-                    && new[] { content.BackingPath, content.Program, content.WorkingDirectory }
-                        .Concat(content.RequiredPaths).Any(path => changed.Contains(path.VolumeId)))
-                    .Select(entry => entry.Content!.LibraryId).ToHashSet(StringComparer.OrdinalIgnoreCase);
-                var requested = _store.Libraries().Where(library => changed.Contains(library.VolumeId)
-                    || dependencies.Contains(library.Id)
-                    || previousLibraries.GetValueOrDefault(library.Id)?.Status == "Check failed"
-                    || previousLibraries.GetValueOrDefault(library.Id)?.Status
-                    != _storagePublished.GetValueOrDefault(library.Id)?.Status)
-                    .Select(library => library.Id).ToArray();
-                List<string> problems = [];
-                foreach (var libraryId in requested)
-                {
-                    var result = await ReconcileStorageAsync("library:" + libraryId, linked.Token, refresh: false)
-                        .ConfigureAwait(false);
-                    if (!result.Succeeded && result.Error is { } error)
-                    {
-                        problems.Add(error);
-                    }
-                }
-                foreach (var entry in _store.InventoryEntries().Where(entry => entry.Content is { LibraryId.Length: 0 } content
-                             && new[] { content.BackingPath, content.Program, content.WorkingDirectory }
-                                 .Concat(content.RequiredPaths).Any(path => changed.Contains(path.VolumeId))))
-                {
-                    var result = await ReconcileStorageAsync(EntryId(entry.Source, entry.Key), linked.Token, refresh: false)
-                        .ConfigureAwait(false);
-                    if (!result.Succeeded && result.Error is { } error)
-                    {
-                        problems.Add(error);
-                    }
-                }
-                if (changed.Count > 0)
-                {
-                    await ObserveSteamShortcutsAsync(null, linked.Token).ConfigureAwait(false);
-                }
-                Notify();
-                return problems.Count == 0 ? SteamUiCommandResult.Applied
-                    : new SteamUiCommandResult(false, string.Join(" ", problems));
-            }, linked.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (!token.IsCancellationRequested && !_shutdown.IsCancellationRequested)
-        {
-            return new SteamUiCommandResult(false, "The library changed during its check. It will be checked again.");
-        }
-        finally
-        {
-            if (admitted)
-            {
-                _storageLane.Release();
-            }
-        }
-    }
-
-    private ManagedContentCheck CheckStorageContent(ManagedContentRecord content, EmulatorStore emulators,
-        ManagedContentCheckContext context)
-    {
-        if (content.InventoryRemoved)
-        {
-            return new ManagedContentCheck(ManagedContentAvailability.ContentMissing,
-                "Game files were removed. Steam cleanup is pending.", Content: content);
-        }
-        if (content.LibraryId.Length > 0)
-        {
-            if (_ambiguousLibraries.Contains(content.LibraryId))
-            {
-                return new ManagedContentCheck(ManagedContentAvailability.Unreadable,
-                    "Two connected volumes claim this library. Disconnect the duplicate and recheck.", Content: content);
-            }
-            if (!_storageCandidates.TryGetValue(content.LibraryId, out var candidate))
-            {
-                var row = _storagePublished.GetValueOrDefault(content.LibraryId);
-                return new ManagedContentCheck(row?.Status is "Check failed" or "Update WSGM"
-                        ? ManagedContentAvailability.Unreadable : ManagedContentAvailability.StorageUnavailable,
-                    row?.Detail ?? "Connect the expected library storage.", Content: content);
-            }
-            if (!SameVolume(candidate.VolumeId, content.BackingPath.VolumeId))
-            {
-                return new ManagedContentCheck(ManagedContentAvailability.StorageUnavailable,
-                    "Review and Apply this library's new storage binding before launching it.", Content: content);
-            }
-        }
-        return ManagedContentStorage.Check(content, emulators, context);
-    }
-
-    private void PublishImportedContent(Entry entry, CancellationToken token)
+    /// <summary>Adds an imported title to its card's list before its shortcut is written.</summary>
+    /// <remarks>
+    ///     A card without a list gets one. A card whose list this device does not use yet refuses until the user
+    ///     chooses Use this card. Only the managed route stores content.
+    /// </remarks>
+    private async Task PublishImportedContentAsync(Entry entry, CancellationToken token)
     {
         var content = entry.Game.Content!;
-        if (!PortableContent(content) || !_eligibleVolumes.TryGetValue(content.BackingPath.VolumeId, out var name))
+        var volume = Tracked.Volumes.FirstOrDefault(item => item.Removable
+                                                            && SameId(item.VolumeId, content.BackingPath.VolumeId));
+        if (_tracker is null || !PortableContent(content) || volume is null)
         {
             return;
         }
-        if (_ambiguousLibraries.Contains(content.LibraryId))
-        {
-            throw new InvalidDataException("Duplicate storage identity. Disconnect the duplicate before importing.");
-        }
-        var volumeId = content.BackingPath.VolumeId;
-        var known = _store.Libraries().FirstOrDefault(item => SameVolume(item.VolumeId, volumeId));
-        StorageLibraryManifest manifest;
-        long? revision;
-        var state = StorageLibraryStorage.InspectPath(volumeId, @".wsgm\library.json");
-        if (state.State == StorageLibraryPathState.Missing && known is null)
-        {
-            manifest = new StorageLibraryManifest { Id = Guid.NewGuid().ToString("D"), Name = name };
-            revision = null;
-        }
-        else
-        {
-            manifest = StorageLibraryStorage.Read(volumeId, known?.Id);
-            if (known is null)
-            {
-                throw new InvalidDataException("Review and Apply this library's storage binding before importing.");
-            }
-            revision = manifest.Revision;
-        }
-        var match = StorageLibraryStorage.Match(manifest, content);
-        if (match is not null && match.Id != content.Id)
-        {
-            throw new InvalidDataException("The library identity changed. Scan again before importing.");
-        }
-        var library = known ?? new StorageLibraryRecord { Id = manifest.Id, VolumeId = volumeId, Name = name };
-        var acceptedElsewhere = _store.Libraries().FirstOrDefault(item => SameLibrary(item.Id, manifest.Id));
-        if (acceptedElsewhere is not null && !SameVolume(acceptedElsewhere.VolumeId, volumeId))
-        {
-            throw new InvalidDataException("Review and Apply this library's new storage binding first.");
-        }
-        var backing = InspectContent(StorageLibraryStorage.FromManaged(content, volumeId), volumeId);
-        if (backing.State != StorageLibraryPathState.Present)
-        {
-            throw new IOException(backing.Detail.Length > 0 ? backing.Detail : "The backing files could not be confirmed.");
-        }
-        var portable = StorageLibraryStorage.FromManaged(content, volumeId, content.Location);
-        var existingRecipe = manifest.Entries.FirstOrDefault(item => item.Id == content.Id);
-        var unchanged = existingRecipe is not null
-            && JsonSerializer.Serialize(existingRecipe, StorageLibraryJsonContext.Default.StorageLibraryContent)
-            == JsonSerializer.Serialize(portable, StorageLibraryJsonContext.Default.StorageLibraryContent);
-        if (!unchanged)
-        {
-            manifest.Entries.RemoveAll(item => item.Id == content.Id);
-            manifest.Entries.Add(portable);
-            manifest.Name = name;
-            manifest.Revision = revision.HasValue ? checked(revision.Value + 1) : 1;
-            token.ThrowIfCancellationRequested();
-            StorageLibraryStorage.Publish(volumeId, manifest, revision);
-        }
-        if (!unchanged || known is null)
-        {
-            library.ManifestRevision = manifest.Revision;
-        }
-        library.Name = name;
-        if (known is null)
-        {
-            library.LastValidatedUtc = DateTimeOffset.UtcNow;
-        }
-        token.ThrowIfCancellationRequested();
-        _store.SaveLibrary(library);
-        content.LibraryId = library.Id;
-        content.LibraryBindingAccepted = true;
-        content.Location = name;
-        _store.SaveInventory(new ImportedEntry
-        {
-            Source = entry.Plan.Source, Key = entry.Plan.Key, Name = content.Name, Content = content.Copy()
-        });
-    }
 
-    public Task<SteamUiCommandResult> StageStorageActionAsync(string id, string action, CancellationToken token)
-    {
-        token.ThrowIfCancellationRequested();
-        lock (_gate)
+        if (Tracked.Ambiguous.Contains(content.LibraryId))
         {
-            if (Guard() is { } refusal)
+            throw new InvalidDataException("Two connected cards carry this library. Remove one before importing.");
+        }
+
+        await _tracker.StorageGate.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            var volumeId = volume.VolumeId;
+            var libraries = _store.Libraries();
+            var known = libraries.FirstOrDefault(item => SameId(item.VolumeId, volumeId));
+            StorageLibraryManifest manifest;
+            long? revision;
+            var state = StorageLibraryStorage.InspectPath(volumeId, @".wsgm\library.json");
+            if (state == ContentPathState.Missing && known is null)
             {
-                return Task.FromResult(refusal);
-            }
-            if (!_storagePublished.TryGetValue(id, out var library))
-            {
-                if (action.Length == 0)
-                {
-                    _storageActions.Remove(id);
-                    _stagedStorage.Remove(id);
-                    return Task.FromResult(SteamUiCommandResult.Applied);
-                }
-                return Refuse("That storage is no longer listed.");
-            }
-            if (action is not ("" or "repair" or "acceptBinding"))
-            {
-                return Refuse("That storage action is not supported.");
-            }
-            if (action == "repair" && !library.CanRepair || action == "acceptBinding" && !library.CanAcceptBinding)
-            {
-                return Refuse("Recheck this storage before choosing that action.");
-            }
-            if (action.Length == 0)
-            {
-                _storageActions.Remove(id);
-                _stagedStorage.Remove(id);
+                manifest = new StorageLibraryManifest { Id = Guid.NewGuid().ToString("D"), Name = volume.Name };
+                revision = null;
             }
             else
             {
-                _storageActions[id] = action;
-                var checkpoint = action == "acceptBinding" ? _storageCandidates.GetValueOrDefault(id)
-                    : _store.Libraries().FirstOrDefault(item => SameLibrary(item.Id, id));
-                if (checkpoint is null)
+                // Re-read the card right before writing: whatever is in the drive now must be the accepted card.
+                manifest = StorageLibraryStorage.Read(volumeId, known?.Id);
+                if (known is null)
                 {
-                    _storageActions.Remove(id);
-                    return Refuse("Recheck this storage before choosing that action.");
+                    throw new InvalidDataException("Choose Use this card under Storage before importing to it.");
                 }
-                _stagedStorage[id] = checkpoint.Copy();
+
+                revision = manifest.Revision;
             }
-            _storagePublished[id] = library with { StagedAction = action };
-            Publish();
+
+            var match = StorageLibraryStorage.Match(manifest, content);
+            if (match is not null && match.Id != content.Id)
+            {
+                throw new InvalidDataException("The library identity changed. Scan again before importing.");
+            }
+
+            var portable = StorageLibraryStorage.FromManaged(content, volumeId, content.Location);
+            foreach (var path in new[] { portable.BackingPath }.Concat(portable.RequiredPaths))
+            {
+                if (StorageLibraryStorage.InspectPath(volumeId, path.RelativePath, path.Directory)
+                    != ContentPathState.Present)
+                {
+                    throw new IOException("The game files could not be found on the card.");
+                }
+            }
+
+            var library = known ?? new StorageLibraryRecord { Id = manifest.Id, VolumeId = volumeId };
+            var existing = manifest.Entries.FirstOrDefault(item => item.Id == content.Id);
+            if (existing is null || !StorageLibraryStorage.SameEntry(existing, portable))
+            {
+                manifest.Entries.RemoveAll(item => item.Id == content.Id);
+                manifest.Entries.Add(portable);
+                manifest.Name = volume.Name;
+                manifest.Revision = revision.HasValue ? checked(revision.Value + 1) : 1;
+                token.ThrowIfCancellationRequested();
+                StorageLibraryStorage.Publish(volumeId, manifest, revision);
+            }
+
+            library.ManifestRevision = manifest.Revision;
+            library.Name = volume.Name;
+            _store.SaveLibrary(library);
+            content.LibraryId = library.Id;
+            content.Location = volume.Name;
+            _store.SaveInventory(new ImportedEntry
+            {
+                Source = entry.Plan.Source, Key = entry.Plan.Key, Name = content.Name, Content = content.Copy()
+            });
         }
-        Notify();
-        return Task.FromResult(SteamUiCommandResult.Applied);
+        finally
+        {
+            _tracker.StorageGate.Release();
+        }
     }
 
-    private async Task<(int Applied, List<string> Problems)> ApplyStorageActionsAsync(CancellationToken token)
+    /// <summary>Takes a removed title off its card's list, when the accepted card is in and nothing else uses it.</summary>
+    /// <returns>A problem to report, or null; a card that is out keeps its entry.</returns>
+    private async Task<string?> RemoveFromCardAsync(ManagedContentRecord content, CancellationToken token)
     {
-        List<string> problems = [];
-        var applied = 0;
-        (string Id, string Action, StorageLibraryRecord? Checkpoint)[] actions;
-        lock (_gate)
+        if (_tracker is null || content.LibraryId.Length == 0
+                             || _store.InventoryEntries().Any(entry => entry.Content?.Id == content.Id))
         {
-            actions = _storageActions.Select(pair => (pair.Key, pair.Value,
-                _stagedStorage.GetValueOrDefault(pair.Key)?.Copy())).ToArray();
+            return null;
         }
-        foreach (var (id, action, checkpoint) in actions)
+
+        await _tracker.StorageGate.WaitAsync(token).ConfigureAwait(false);
+        try
         {
+            if (_store.Libraries().FirstOrDefault(item => SameId(item.Id, content.LibraryId)) is not { } library
+                || !SameId(library.VolumeId, content.BackingPath.VolumeId)
+                || ManagedContentStorage.MountOf(library.VolumeId) is null)
+            {
+                return null;
+            }
+
+            var manifest = StorageLibraryStorage.Read(library.VolumeId, library.Id);
+            if (manifest.Entries.RemoveAll(item => item.Id == content.Id) == 0)
+            {
+                return null;
+            }
+
+            var revision = manifest.Revision;
+            manifest.Revision = checked(revision + 1);
+            StorageLibraryStorage.Publish(library.VolumeId, manifest, revision);
+            library.ManifestRevision = manifest.Revision;
+            _store.SaveLibrary(library);
+            return null;
+        }
+        catch (Exception ex) when (StorageFailure(ex) && ex is not ImportStateException)
+        {
+            return $"{content.Name} was removed from Steam, but its card's game list could not be updated: {ex.Message}";
+        }
+        finally
+        {
+            _tracker.StorageGate.Release();
+        }
+    }
+
+    /// <summary>Checks every shortcut again now, and answers once that pass has finished.</summary>
+    public Task<SteamUiCommandResult> RecheckAvailabilityAsync(CancellationToken cancellationToken)
+    {
+        return _tracker?.RecheckAsync(cancellationToken)
+               ?? Task.FromResult(new SteamUiCommandResult(false, "Storage checks are not available in this session."));
+    }
+
+    /// <summary>The Steam details page's Recheck: one pass, then whether the shortcut is tracked at all.</summary>
+    internal async Task<SteamUiCommandResult> RecheckShortcutAsync(uint appId, CancellationToken cancellationToken)
+    {
+        var result = await RecheckAvailabilityAsync(cancellationToken).ConfigureAwait(false);
+        return result.Succeeded && Tracked.Find(appId) is null
+            ? new SteamUiCommandResult(false, "This shortcut has nothing on local storage to check.")
+            : result;
+    }
+
+    /// <summary>Rebuilds a mounted card's missing or damaged game list from the titles this device knows, now.</summary>
+    public Task<SteamUiCommandResult> RepairLibraryAsync(string id, CancellationToken cancellationToken)
+    {
+        return StorageCommandAsync(id, "Repair library", token =>
+        {
+            var known = _store.Libraries().FirstOrDefault(item => SameId(item.Id, id))
+                        ?? throw new InvalidDataException("That library is no longer known. Choose Recheck.");
+            if (ManagedContentStorage.MountOf(known.VolumeId) is null)
+            {
+                throw new InvalidDataException($"Insert {known.Name} before repairing it.");
+            }
+
+            var manifest = new StorageLibraryManifest
+            {
+                Id = known.Id, Name = known.Name, Revision = checked(known.ManifestRevision + 1),
+                Entries =
+                [
+                    .. _store.InventoryEntries().Select(entry => entry.Content).OfType<ManagedContentRecord>()
+                        .Where(content => SameId(content.LibraryId, id) && SameId(content.BackingPath.VolumeId, known.VolumeId))
+                        .DistinctBy(content => content.Id)
+                        .Select(content => StorageLibraryStorage.FromManaged(content, known.VolumeId, content.Location))
+                ]
+            };
+            known.RepairRequired = true;
             token.ThrowIfCancellationRequested();
-            try
-            {
-                if (checkpoint is null)
-                {
-                    throw new InvalidDataException("Recheck this storage before choosing that action.");
-                }
-                if (_ambiguousLibraries.Contains(id))
-                {
-                    throw new InvalidDataException("The library identity is ambiguous.");
-                }
-                var known = _store.Libraries().FirstOrDefault(item => SameLibrary(item.Id, id));
-                if (action == "acceptBinding")
-                {
-                    if (!_storageCandidates.TryGetValue(id, out var candidate))
-                    {
-                        throw new InvalidDataException("Reconnect and recheck this storage before accepting it.");
-                    }
-                    var manifest = StorageLibraryStorage.Read(candidate.VolumeId, id);
-                    if (manifest.Revision != checkpoint.ManifestRevision || !SameVolume(candidate.VolumeId, checkpoint.VolumeId))
-                    {
-                        throw new InvalidDataException("The library changed. Review its storage again.");
-                    }
-                    candidate.RepairRequired = false;
-                    var recipes = manifest.Entries.ToDictionary(item => item.Id, StringComparer.Ordinal);
-                    List<ImportedEntry> rebound = [];
-                    foreach (var entry in _store.InventoryEntries().Where(entry => entry.Content is { } content
-                                 && SameLibrary(content.LibraryId, id)))
-                    {
-                        var recipe = recipes.GetValueOrDefault(entry.Content!.Id);
-                        var local = entry.Content!.Copy();
-                        RebindVolume(local, candidate.VolumeId);
-                        var updated = recipe is null || local.InventoryRemoved ? local
-                            : StorageLibraryStorage.ToManaged(recipe, candidate, entry.Source,
-                                bindingAccepted: true, localRecipe: local);
-                        updated.SourceKey = entry.Key;
-                        if (recipe?.SourceRoot is null)
-                        {
-                            updated.SourceRoot = local.SourceRoot.Copy();
-                        }
-                        entry.Content = updated;
-                        rebound.Add(entry);
-                    }
-                    token.ThrowIfCancellationRequested();
-                    _store.SaveInventories(rebound);
-                    _store.SaveLibrary(candidate);
-                }
-                else if (action == "repair")
-                {
-                    if (known is null || !_eligibleVolumes.ContainsKey(known.VolumeId)
-                        || !SameVolume(known.VolumeId, checkpoint.VolumeId) || known.ManifestRevision != checkpoint.ManifestRevision)
-                    {
-                        throw new InvalidDataException("Connect the exact expected storage before repairing its library.");
-                    }
-                    var entries = _store.InventoryEntries().Where(entry => entry.Content is { InventoryRemoved: false } content
-                        && SameLibrary(content.LibraryId, id)).ToArray();
-                    var manifest = new StorageLibraryManifest
-                    {
-                        Id = id, Name = known.Name, Revision = checked(known.ManifestRevision + 1),
-                        Entries = entries.Select(entry => StorageLibraryStorage.FromManaged(entry.Content!, known.VolumeId)).ToList()
-                    };
-                    foreach (var entry in manifest.Entries)
-                    {
-                        var check = InspectContent(entry, known.VolumeId);
-                        if (check.State is StorageLibraryPathState.Unreadable or StorageLibraryPathState.StorageUnavailable)
-                        {
-                            throw new IOException(check.Detail);
-                        }
-                    }
-                    known.RepairRequired = true;
-                    token.ThrowIfCancellationRequested();
-                    StorageLibraryStorage.Repair(known, manifest);
-                    known.ManifestRevision = manifest.Revision;
-                    known.RepairRequired = false;
-                    _store.SaveLibrary(known);
-                }
-                applied++;
-            }
-            catch (Exception ex) when (StorageFailure(ex) && ex is not ImportStateException)
-            {
-                problems.Add("Storage " + id + ": " + ex.Message + " Recheck and review the action again.");
-            }
-            lock (_gate)
-            {
-                _storageActions.Remove(id);
-                _stagedStorage.Remove(id);
-                if (_storagePublished.TryGetValue(id, out var row))
-                {
-                    _storagePublished[id] = row with { StagedAction = "" };
-                }
-            }
-        }
-        if (actions.Length > 0)
+            StorageLibraryStorage.Repair(known, manifest);
+            known.ManifestRevision = manifest.Revision;
+            known.RepairRequired = false;
+            _store.SaveLibrary(known);
+        }, cancellationToken);
+    }
+
+    /// <summary>Launches a connected card's titles from the volume it is on now, accepting that binding immediately.</summary>
+    public Task<SteamUiCommandResult> UseLibraryAsync(string id, CancellationToken cancellationToken)
+    {
+        return StorageCommandAsync(id, "Use this card", token =>
         {
-            RefreshStorage(token);
-            var result = await ReconcileStorageAsync("", token, refresh: false).ConfigureAwait(false);
-            if (!result.Succeeded && result.Error is { } error)
+            if (!Tracked.Cards.TryGetValue(id, out var card) || Tracked.Ambiguous.Contains(id))
             {
-                problems.Add(error);
+                throw new InvalidDataException("Insert the card, then choose Recheck before using it.");
             }
-            var records = _store.Entries();
+
+            // Re-read the card through its volume right before acting on what the last pass saw.
+            var manifest = StorageLibraryStorage.Read(card.Volume.VolumeId, id);
+            var candidate = new StorageLibraryRecord
+            {
+                Id = manifest.Id, Name = card.Volume.Name, VolumeId = card.Volume.VolumeId,
+                ManifestRevision = manifest.Revision
+            };
+            var recipes = manifest.Entries.ToDictionary(item => item.Id, StringComparer.Ordinal);
+            List<ImportedEntry> rebound = [];
+            foreach (var entry in _store.InventoryEntries().Where(entry => entry.Content is { } content
+                         && SameId(content.LibraryId, id)))
+            {
+                var local = entry.Content!.Copy();
+                RebindVolume(local, candidate.VolumeId);
+                var updated = recipes.GetValueOrDefault(local.Id) is { } recipe
+                    ? StorageLibraryStorage.ToManaged(recipe, candidate, entry.Source, local)
+                    : local;
+                updated.SourceKey = entry.Key;
+                if (recipes.GetValueOrDefault(local.Id)?.SourceRoot is null)
+                {
+                    updated.SourceRoot = local.SourceRoot.Copy();
+                }
+
+                entry.Content = updated;
+                rebound.Add(entry);
+            }
+
+            token.ThrowIfCancellationRequested();
+            _store.SaveInventories(rebound);
+            _store.SaveLibrary(candidate);
             lock (_gate)
             {
                 foreach (var entry in _entries.Values)
                 {
-                    var record = records.FirstOrDefault(item => item.Source == entry.Plan.Source && item.Key == entry.Plan.Key);
-                    if (record?.Content is { } accepted)
+                    if (rebound.FirstOrDefault(item => item.Source == entry.Plan.Source && item.Key == entry.Plan.Key)
+                        is { Content: { } accepted })
                     {
                         entry.Game = entry.Game with { Content = accepted.Copy() };
                     }
                 }
             }
+        }, cancellationToken);
+    }
+
+    /// <summary>Runs one immediate storage command under the storage lane and the card gate, then rechecks.</summary>
+    private async Task<SteamUiCommandResult> StorageCommandAsync(string id, string action,
+        Action<CancellationToken> command, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            if (Guard() is { } refusal)
+            {
+                return refusal;
+            }
         }
-        return (applied, problems);
+
+        if (_tracker is null || id.Length == 0)
+        {
+            return new SteamUiCommandResult(false, "That storage is no longer listed.");
+        }
+
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _shutdown.Token);
+        try
+        {
+            await _storageLane.WaitAsync(linked.Token).ConfigureAwait(false);
+            try
+            {
+                await _tracker.StorageGate.WaitAsync(linked.Token).ConfigureAwait(false);
+                try
+                {
+                    await Task.Run(() => command(linked.Token), linked.Token).ConfigureAwait(false);
+                }
+                finally
+                {
+                    _tracker.StorageGate.Release();
+                }
+            }
+            finally
+            {
+                _storageLane.Release();
+            }
+        }
+        catch (Exception ex) when (StorageFailure(ex) || ex is InvalidOperationException)
+        {
+            Log.Change("library.storage.action." + id, $"{action} failed: {ex.Message}");
+            return new SteamUiCommandResult(false, ex.Message);
+        }
+
+        Log.Change("library.storage.action." + id, $"{action} done.");
+        NotifyManagedEntriesChanged();
+        return await _tracker.RecheckAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static void RebindVolume(ManagedContentRecord content, string volumeId)
     {
         var previous = content.BackingPath.VolumeId;
-        foreach (var path in new[] { content.BackingPath, content.SourceRoot, content.Program, content.WorkingDirectory }
-                     .Concat(content.RequiredPaths))
+        foreach (var path in content.Paths().Append(content.SourceRoot))
         {
-            if (!SameVolume(path.VolumeId, previous))
+            if (!SameId(path.VolumeId, previous))
             {
                 continue;
             }
@@ -845,365 +488,5 @@ internal sealed partial class GameLibraryService
             path.VolumeId = volumeId;
             path.AbsolutePath = ManagedContentStorage.ResolveLibraryPath(volumeId, path.RelativePath);
         }
-        content.LibraryBindingAccepted = true;
-    }
-
-    private static StorageLibraryPathCheck InspectContent(StorageLibraryContent content, string volumeId)
-    {
-        var checks = new[] { content.BackingPath }.Concat(content.RequiredPaths)
-            .Select(path => StorageLibraryStorage.InspectPath(volumeId, path.RelativePath, path.Directory)).ToArray();
-        return checks.FirstOrDefault(check => check.State is StorageLibraryPathState.Unreadable
-            or StorageLibraryPathState.StorageUnavailable)
-            ?? checks.FirstOrDefault(check => check.State == StorageLibraryPathState.Missing) ?? checks[0];
-    }
-
-    private async Task<SteamUiCommandResult> ReconcileStorageAsync(string id, CancellationToken token, bool refresh = true)
-    {
-        long generation;
-        lock (_gate)
-        {
-            generation = _generation;
-        }
-        if (refresh)
-        {
-            RefreshStorage(token);
-        }
-        var requestedLibrary = id.StartsWith("library:", StringComparison.Ordinal) ? id[8..] : "";
-        var canonical = _store.InventoryEntries();
-        var requestedContent = id.Length > 0 && requestedLibrary.Length == 0
-            ? canonical.FirstOrDefault(entry => entry.Content?.Id == id || EntryId(entry.Source, entry.Key) == id)?.Content?.Id
-                ?? id
-            : "";
-        var libraries = _store.Libraries();
-        var checkedCount = 0;
-        var missing = 0;
-        HashSet<string> removedContent = new(StringComparer.Ordinal);
-        List<string> problems = [];
-        foreach (var library in libraries)
-        {
-            if (requestedLibrary.Length > 0 && !SameLibrary(requestedLibrary, library.Id))
-            {
-                continue;
-            }
-            if (id.Length > 0 && requestedLibrary.Length == 0 && !canonical.Any(entry => entry.Content?.LibraryId == library.Id
-                && (entry.Content.Id == id || EntryId(entry.Source, entry.Key) == id)))
-            {
-                continue;
-            }
-            if (!_storageCandidates.TryGetValue(library.Id, out var candidate)
-                || !SameVolume(candidate.VolumeId, library.VolumeId) || _ambiguousLibraries.Contains(library.Id))
-            {
-                continue;
-            }
-            try
-            {
-                var manifest = StorageLibraryStorage.Read(library.VolumeId, library.Id);
-                var revision = manifest.Revision;
-                var manifestIds = manifest.Entries.Select(entry => entry.Id).ToHashSet(StringComparer.Ordinal);
-                var cached = canonical.Where(entry => entry.Content is { InventoryRemoved: false } content
-                    && SameLibrary(content.LibraryId, library.Id) && PortableContent(content)
-                    && (requestedContent.Length == 0 || content.Id == requestedContent)).ToArray();
-                HashSet<string> removed = new(StringComparer.Ordinal);
-                Dictionary<string, StorageLibraryPathState> observations = new(StringComparer.Ordinal);
-                var changed = false;
-                var failed = false;
-                foreach (var portable in manifest.Entries.Where(entry => requestedContent.Length == 0
-                             || entry.Id == requestedContent).ToArray())
-                {
-                    token.ThrowIfCancellationRequested();
-                    var check = InspectContent(portable, library.VolumeId);
-                    observations[portable.Id] = check.State;
-                    checkedCount++;
-                    if (check.State == StorageLibraryPathState.Missing)
-                    {
-                        removed.Add(portable.Id);
-                    }
-                    else if (check.State != StorageLibraryPathState.Present)
-                    {
-                        failed = true;
-                        problems.Add(library.Name + ": " + check.Detail);
-                    }
-                }
-                foreach (var entry in cached)
-                {
-                    if (manifestIds.Contains(entry.Content!.Id))
-                    {
-                        // A present or unreadable card recipe cannot be removed by an older local path.
-                        if (observations.GetValueOrDefault(entry.Content.Id) != StorageLibraryPathState.Missing)
-                        {
-                            continue;
-                        }
-                    }
-                    try
-                    {
-                        var portable = StorageLibraryStorage.FromManaged(entry.Content!, library.VolumeId);
-                        var check = InspectContent(portable, library.VolumeId);
-                        checkedCount++;
-                        if (check.State == StorageLibraryPathState.Missing)
-                        {
-                            removed.Add(portable.Id);
-                        }
-                        else if (check.State == StorageLibraryPathState.Present)
-                        {
-                            if (manifestIds.Contains(portable.Id))
-                            {
-                                removed.Remove(portable.Id);
-                                failed = true;
-                                problems.Add(entry.Name + ": this device's recorded files differ from the card's library. Review the title before changing it.");
-                            }
-                            else
-                            {
-                                manifest.Entries.Add(portable);
-                                changed = true;
-                            }
-                        }
-                        else
-                        {
-                            failed = true;
-                            removed.Remove(portable.Id);
-                            problems.Add(library.Name + ": " + check.Detail);
-                        }
-                    }
-                    catch (Exception ex) when (StorageFailure(ex) && ex is not ImportStateException)
-                    {
-                        failed = true;
-                        removed.Remove(entry.Content!.Id);
-                        problems.Add(entry.Name + ": " + ex.Message);
-                    }
-                }
-                token.ThrowIfCancellationRequested();
-                lock (_gate)
-                {
-                    if (_disposed || generation != _generation)
-                    {
-                        return SteamUiCommandResult.Applied;
-                    }
-                }
-                if (removed.Count > 0 || changed)
-                {
-                    manifest.Entries.RemoveAll(item => removed.Contains(item.Id));
-                    manifest.Revision = checked(revision + 1);
-                    StorageLibraryStorage.Publish(library.VolumeId, manifest, revision);
-                }
-                else if (StorageLibraryStorage.Read(library.VolumeId, library.Id).Revision != revision)
-                {
-                    throw new InvalidDataException("The storage changed while its content was checked.");
-                }
-                List<ImportedEntry> pruned = [];
-                foreach (var entry in cached.Where(entry => removed.Contains(entry.Content!.Id)))
-                {
-                    entry.Content!.InventoryRemoved = true;
-                    entry.Content.Availability = ManagedContentAvailability.ContentMissing;
-                    entry.Content.AvailabilityDetail = "Game files were removed. Steam cleanup is pending.";
-                    pruned.Add(entry);
-                    removedContent.Add(entry.Content.Id);
-                    missing++;
-                }
-                _store.SaveInventories(pruned);
-                var checkpoint = requestedContent.Length == 0 && !failed && (library.LastValidatedUtc is null
-                    || DateTimeOffset.UtcNow - library.LastValidatedUtc > TimeSpan.FromMinutes(5));
-                if (requestedContent.Length == 0 && (library.ManifestRevision != manifest.Revision || library.Name != candidate.Name
-                    || library.LastMountPath != candidate.LastMountPath || library.RepairRequired
-                    || library.MigrationPending || checkpoint))
-                {
-                    library.ManifestRevision = manifest.Revision;
-                    library.Name = candidate.Name;
-                    library.LastMountPath = candidate.LastMountPath;
-                    library.RepairRequired = false;
-                    library.MigrationPending = false;
-                    if (checkpoint)
-                    {
-                        library.LastValidatedUtc = DateTimeOffset.UtcNow;
-                    }
-                    _store.SaveLibrary(library);
-                }
-            }
-            catch (Exception ex) when (StorageFailure(ex) && ex is not ImportStateException)
-            {
-                problems.Add(library.Name + ": " + ex.Message);
-            }
-        }
-        try
-        {
-            var snapshot = await CleanRemovedContentAsync(token, problems, requestedLibrary, requestedContent)
-                .ConfigureAwait(false);
-            if (id.Length == 0 && snapshot is not null)
-            {
-                await ObserveSteamShortcutsAsync(snapshot, token).ConfigureAwait(false);
-            }
-        }
-        catch (Exception ex) when ((StorageFailure(ex) || ex is InvalidOperationException) && ex is not ImportStateException)
-        {
-            problems.Add("Steam cleanup is pending: " + ex.Message);
-        }
-        RelabelLauncherStorage();
-        Dictionary<string, ManagedContentCheck> checks = [];
-        Dictionary<string, ManagedContentRecord> expected = [];
-        var emulators = ReadEmulatorStore();
-        var context = new ManagedContentCheckContext();
-        var current = _store.Entries();
-        var currentByIdentity = current.ToDictionary(entry => (entry.Source, entry.Key), ImportPlan.Identity);
-        removedContent.UnionWith(canonical.Where(entry => entry.Content?.InventoryRemoved == true
-                && (requestedLibrary.Length == 0 || SameLibrary(entry.Content.LibraryId, requestedLibrary))
-                && (requestedContent.Length == 0 || entry.Content.Id == requestedContent))
-            .Select(entry => entry.Content!.Id));
-        foreach (var entry in _store.InventoryEntries().Where(entry => entry.Content is not null))
-        {
-            var content = entry.Content!;
-            if (requestedLibrary.Length > 0 && !SameLibrary(content.LibraryId, requestedLibrary))
-            {
-                continue;
-            }
-            if (id.Length > 0 && requestedLibrary.Length == 0 && content.Id != id && EntryId(entry.Source, entry.Key) != id)
-            {
-                continue;
-            }
-            token.ThrowIfCancellationRequested();
-            expected[content.Id] = content;
-            checks[content.Id] = CheckStorageContent(content, emulators, context);
-        }
-        lock (_gate)
-        {
-            token.ThrowIfCancellationRequested();
-            if (_disposed || generation != _generation)
-            {
-                return SteamUiCommandResult.Applied;
-            }
-            foreach (var entry in _entries.Values.ToArray())
-            {
-                if (entry.Game.Content is not { } scoped
-                    || requestedContent.Length > 0 && scoped.Id != requestedContent
-                    || requestedLibrary.Length > 0 && !SameLibrary(scoped.LibraryId, requestedLibrary))
-                {
-                    continue;
-                }
-                var stored = currentByIdentity.GetValueOrDefault((entry.Plan.Source, entry.Plan.Key));
-                if (entry.Game.Content is { } content && removedContent.Contains(content.Id)
-                    && (stored is null || stored.Content?.InventoryRemoved == true && !stored.HasSteamMapping))
-                {
-                    _entries.Remove(entry.Id);
-                }
-                else if (stored?.Content?.InventoryRemoved == true)
-                {
-                    entry.Game = entry.Game with { Content = stored.Content.Copy() };
-                    entry.Selected = false;
-                }
-            }
-            if (removedContent.Count > 0)
-            {
-                Publish();
-            }
-            var error = problems.Count == 0 ? null : string.Join(" ", problems.Distinct());
-            if (id.Length == 0 && _storageError != error)
-            {
-                _storageError = error;
-                Publish();
-            }
-        }
-        ApplyAvailability(checks, expected, token);
-        RefreshStorage(token);
-        Log.Change("library.reconcile", $"Game libraries: checked {checkedCount}, removed {missing}, check failures {problems.Count}, cleanup pending {_store.InventoryEntries().Count(entry => entry.Content?.InventoryRemoved == true)}.");
-        Notify();
-        return problems.Count == 0 ? SteamUiCommandResult.Applied : new SteamUiCommandResult(false, string.Join(" ", problems.Distinct()));
-    }
-
-    /// <summary>Names a connected card, not the launcher, as an imported launcher title's location.</summary>
-    /// <remarks>
-    ///     Earlier imports recorded the launcher's name. The card's name is what a disconnected title
-    ///     asks the user to connect, so it is learned while the card is present and kept when it is not.
-    /// </remarks>
-    private void RelabelLauncherStorage()
-    {
-        Dictionary<string, string> volumes;
-        lock (_gate)
-        {
-            volumes = new Dictionary<string, string>(_eligibleVolumes, StringComparer.OrdinalIgnoreCase);
-        }
-
-        List<ImportedEntry> relabelled = [];
-        foreach (var entry in _store.InventoryEntries())
-        {
-            if (entry.Content is { SourceKind: LibrarySourceKind.Launcher, InventoryRemoved: false } content
-                && volumes.TryGetValue(content.BackingPath.VolumeId, out var name) && content.Location != name)
-            {
-                content.Location = name;
-                relabelled.Add(entry);
-            }
-        }
-
-        _store.SaveInventories(relabelled);
-    }
-
-    /// <returns>The Steam shortcut read the cleanup used, or null when Steam could not be read.</returns>
-    private async Task<IReadOnlyList<ExistingShortcut>?> CleanRemovedContentAsync(CancellationToken token,
-        List<string> problems, string requestedLibrary, string requestedContent)
-    {
-        IReadOnlyList<ExistingShortcut> snapshot;
-        try
-        {
-            snapshot = await _readLibrary(token).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException and not OutOfMemoryException)
-        {
-            if (_store.InventoryEntries().Any(entry => entry.Content?.InventoryRemoved == true))
-            {
-                problems.Add("Steam cleanup is pending: " + ex.Message);
-            }
-            else
-            {
-                Log.Change("library.steam-state.pending", "Steam shortcut state is pending: " + ex.Message);
-            }
-            return null;
-        }
-        var accountId = CaptureAccount(snapshot);
-        foreach (var entry in _store.Entries().Where(entry => entry.Content?.InventoryRemoved == true && entry.HasSteamMapping
-                     && (requestedLibrary.Length == 0 || SameLibrary(entry.Content.LibraryId, requestedLibrary))
-                     && (requestedContent.Length == 0 || entry.Content.Id == requestedContent)))
-        {
-            token.ThrowIfCancellationRequested();
-            RequireAccount(accountId);
-            if (entry.AppId == 0)
-            {
-                problems.Add(entry.Name + ": shortcut creation is unconfirmed. Its cleanup receipt was preserved.");
-                continue;
-            }
-            var live = await _readShortcut(entry.AppId, token).ConfigureAwait(false);
-            RequireAccount(accountId);
-            if (live is not null && !ImportPlan.OwnsRecorded(live, entry))
-            {
-                _store.Forget(entry.Source, entry.Key, accountId);
-                continue;
-            }
-            if (await _isShortcutRunning(entry.AppId, token).ConfigureAwait(false) != false)
-            {
-                continue;
-            }
-            if (live is not null)
-            {
-                if (entry.DeletionDispatched)
-                {
-                    problems.Add("Steam did not confirm a previous cleanup. Check the shortcut in Steam, then Recheck.");
-                    continue;
-                }
-                var writer = _writer();
-                if (writer is null)
-                {
-                    continue;
-                }
-                _store.MarkDeletionDispatched(entry.Source, entry.Key, accountId);
-                var result = await writer.RemoveAsync(entry.AppId, CancellationToken.None).ConfigureAwait(false);
-                RequireAccount(accountId);
-                if (!result.Confirmed)
-                {
-                    problems.Add("Steam did not confirm a cleanup. It will be observed again without retrying the write.");
-                    break;
-                }
-            }
-            await ReleaseControllerTargetAsync(entry.AppId, entry.OwnsProfile).ConfigureAwait(false);
-            RequireAccount(accountId);
-            _store.Forget(entry.Source, entry.Key, accountId);
-        }
-        // Collection creation and additions belong to explicit Apply/settings actions, never reconciliation.
-        return snapshot;
     }
 }

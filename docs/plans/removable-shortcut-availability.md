@@ -4,10 +4,14 @@ This plan completes [issue #200](https://github.com/KillerPixelCrew/WSGM/issues/
 existing Game Library. It covers ROMs, portable PC games, Windows shortcut-folder imports and
 explicitly library-backed manual commands.
 
-Status: implementation integrated through the orchestration split. Source, deployment and media
-validation are recorded in the [delivery record](../../reports/issue-200-delivery.md); the design
-below remains the implementation contract. Review findings and their disposition are recorded below
-and in the linked review report.
+Status (2026-10-29, rework): superseded in part. One `ShortcutAvailabilityTracker` now reports every
+non-Steam shortcut on every local volume in three states and never removes anything, as recorded in
+[decisions](../decisions.md) and [shortcut availability](../game-library.md#shortcut-availability).
+The automatic pruning, cleanup receipts, staged storage actions, persisted availability and
+launcher-native records described below were removed; the two ledgers, card identity and launch
+refusal remain. Read the rest as history of the first implementation, not as the current contract.
+Source, deployment and media validation of that first implementation are recorded in the
+[delivery record](../../reports/issue-200-delivery.md).
 
 ## Agreed behavior
 

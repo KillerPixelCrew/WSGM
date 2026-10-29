@@ -27,8 +27,11 @@ internal sealed class ImportState
     /// <summary>The Steam collections WSGM made for its imports, one per group.</summary>
     public List<ImportedCollection> Collections { get; set; } = [];
 
-    /// <summary>Accepted local storage identities and their validation checkpoints.</summary>
+    /// <summary>Accepted local storage identities and their manifest revisions.</summary>
     public List<StorageLibraryRecord> Libraries { get; set; } = [];
+
+    /// <summary>The card each Steam shortcut's literal drive path was last found on, per account.</summary>
+    public List<ShortcutBinding> ShortcutBindings { get; set; } = [];
 }
 
 /// <summary>One Steam collection WSGM made and keeps for a group of imported titles.</summary>
@@ -179,7 +182,7 @@ public sealed class ImportStateStore
             foreach (var entry in state.Entries)
             {
                 var mapping = entry.SteamMappings.FirstOrDefault(item => item.AccountId == accountId);
-                if (mapping is not { AppId: > 0, ConfirmedUtc.Length: > 0, PendingDeletion: false })
+                if (mapping is not { AppId: > 0, ConfirmedUtc.Length: > 0 })
                 {
                     continue;
                 }
@@ -224,7 +227,7 @@ public sealed class ImportStateStore
         return bound;
     }
 
-    /// <summary>Returns complete detached title inventory, including all accounts' cleanup receipts.</summary>
+    /// <summary>Returns complete detached title inventory, including every account's receipts.</summary>
     public IReadOnlyList<ImportedEntry> InventoryEntries()
     {
         lock (_gate)
@@ -242,7 +245,7 @@ public sealed class ImportStateStore
         }
     }
 
-    /// <summary>Upserts a library checkpoint; callers own binding acceptance and manifest validation.</summary>
+    /// <summary>Upserts a library binding; callers own its acceptance and manifest validation.</summary>
     public void SaveLibrary(StorageLibraryRecord library)
     {
         ArgumentNullException.ThrowIfNull(library);
@@ -277,88 +280,54 @@ public sealed class ImportStateStore
         Mutate(state =>
         {
             var inventory = state.Entries.ToDictionary(item => (item.Source, item.Key), ImportPlan.Identity);
-            HashSet<(string Source, string Key)> removedChoices = new(ImportPlan.Identity);
             foreach (var entry in entries)
             {
                 var identity = (entry.Source, entry.Key);
                 var previous = inventory.GetValueOrDefault(identity);
-                if (previous?.Content?.InventoryRemoved == true && entry.Content?.InventoryRemoved != true)
-                {
-                    throw new InvalidOperationException("Removed inventory must settle all account receipts before reimport.");
-                }
-
                 var saved = new ImportedEntry
                 {
                     Source = entry.Source, Key = entry.Key, Name = entry.Name, Content = entry.Content?.Copy(),
                     SteamMappings = previous is null ? [] : [.. previous.SteamMappings.Select(mapping => mapping.Copy())]
                 };
-                if (saved.Content?.InventoryRemoved == true)
-                {
-                    foreach (var mapping in saved.SteamMappings)
-                    {
-                        mapping.PendingDeletion = true;
-                    }
-                }
-
                 if (EntryDefect(saved) is { } defect)
                 {
                     throw new ArgumentException(defect, nameof(entries));
                 }
 
-                if (saved.Content?.InventoryRemoved != true || saved.SteamMappings.Count > 0)
-                {
-                    inventory[identity] = saved;
-                }
-                else
-                {
-                    inventory.Remove(identity);
-                    removedChoices.Add(identity);
-                }
+                inventory[identity] = saved;
             }
 
             state.Entries = [.. inventory.Values];
-            state.Choices.RemoveAll(choice => removedChoices.Contains((choice.Source, choice.Key)));
         });
     }
 
-    /// <summary>Applies observations in memory and persists only actual availability transitions.</summary>
-    /// <param name="checks">The completed observations, keyed by stable managed content identity.</param>
-    /// <param name="expectedContents">The original launch records inspected, or null for an unconditional owner update.</param>
-    public void UpdateAvailability(IReadOnlyDictionary<string, ManagedContentCheck> checks,
-        IReadOnlyDictionary<string, ManagedContentRecord>? expectedContents = null)
+    /// <summary>Returns the account's recorded shortcut bindings.</summary>
+    public IReadOnlyList<ShortcutBinding> ShortcutBindings(uint accountId)
     {
+        lock (_gate)
+        {
+            return [.. Read().ShortcutBindings.Where(binding => binding.AccountId == accountId)];
+        }
+    }
+
+    /// <summary>Replaces one account's shortcut bindings, writing only when they changed.</summary>
+    /// <param name="accountId">The account whose complete shortcut list produced the bindings.</param>
+    /// <param name="bindings">Every binding that account's shortcuts still need.</param>
+    public void SaveShortcutBindings(uint accountId, IReadOnlyCollection<ShortcutBinding> bindings)
+    {
+        ArgumentNullException.ThrowIfNull(bindings);
         Mutate(state =>
         {
-            var changed = false;
-            for (var index = 0; index < state.Entries.Count; index++)
+            RequireAccount(accountId);
+            var current = state.ShortcutBindings.Where(binding => binding.AccountId == accountId).ToArray();
+            if (current.Length == bindings.Count && current.All(bindings.Contains))
             {
-                var previous = state.Entries[index];
-                if (previous.Content is not { InventoryRemoved: false } content || !checks.TryGetValue(content.Id, out var check))
-                {
-                    continue;
-                }
-
-                if (expectedContents is not null && (!expectedContents.TryGetValue(content.Id, out var expected)
-                                                     || !ManagedContentStorage.SameLaunch(content, expected)))
-                {
-                    continue;
-                }
-
-                var transition = content.Availability != check.Availability ||
-                                 content.AvailabilityDetail != check.Detail;
-                if (!transition)
-                {
-                    continue;
-                }
-
-                var entry = previous.Copy();
-                entry.Content!.Availability = check.Availability;
-                entry.Content.AvailabilityDetail = check.Detail;
-                state.Entries[index] = entry;
-                changed |= transition;
+                return false;
             }
 
-            return changed;
+            state.ShortcutBindings.RemoveAll(binding => binding.AccountId == accountId);
+            state.ShortcutBindings.AddRange(bindings.Select(binding => binding with { AccountId = accountId }));
+            return true;
         });
     }
 
@@ -396,7 +365,7 @@ public sealed class ImportStateStore
             Dictionary<string, int> counts = new(StringComparer.Ordinal);
             foreach (var entry in _state.Entries)
             {
-                if (entry.Content is not { SourceKind: LibrarySourceKind.Rom, InventoryRemoved: false } content)
+                if (entry.Content is not { SourceKind: LibrarySourceKind.Rom } content)
                 {
                     continue;
                 }
@@ -508,9 +477,7 @@ public sealed class ImportStateStore
                 && mapping.SameAs(ImportAccountMapping.From(entry, accountId))
                 && ManagedContentStorage.SameLaunch(previous.Content, entry.Content)
                 && previous.Content?.Name == entry.Content?.Name
-                && previous.Content?.Location == entry.Content?.Location
-                && previous.Content?.LibraryBindingAccepted == entry.Content?.LibraryBindingAccepted
-                && previous.Content?.InventoryRemoved == entry.Content?.InventoryRemoved)
+                && previous.Content?.Location == entry.Content?.Location)
             {
                 return false;
             }
@@ -534,29 +501,6 @@ public sealed class ImportStateStore
     public void Forget(string source, string key, uint accountId)
     {
         Mutate(state => ForgetMapping(state, source, key, RequireAccount(accountId)));
-    }
-
-    /// <summary>Durably admits one cleanup removal in the exact observed account before dispatch.</summary>
-    public void MarkDeletionDispatched(string source, string key, uint accountId)
-    {
-        Mutate(state =>
-        {
-            var owner = RequireAccount(accountId);
-            var entry = state.Entries.FirstOrDefault(item => Same(item.Source, item.Key, source, key));
-            var mapping = entry?.SteamMappings.FirstOrDefault(item => item.AccountId == owner);
-            if (entry?.Content?.InventoryRemoved != true || mapping is not { PendingDeletion: true })
-            {
-                throw new InvalidOperationException("The title is not pending cleanup in this Steam account.");
-            }
-
-            if (mapping.DeletionDispatched)
-            {
-                return false;
-            }
-
-            mapping.DeletionDispatched = true;
-            return true;
-        });
     }
 
     /// <summary>Records one title's choice, replacing any earlier one.</summary>
@@ -635,28 +579,13 @@ public sealed class ImportStateStore
     private static void Replace(ImportState state, ImportedEntry entry, uint accountId)
     {
         var previous = state.Entries.FirstOrDefault(item => Same(item.Source, item.Key, entry.Source, entry.Key));
-        if (previous?.Content?.InventoryRemoved == true)
-        {
-            throw new InvalidOperationException("Removed inventory must settle its cleanup before it can be imported again.");
-        }
-
         var saved = new ImportedEntry
         {
             Source = entry.Source, Key = entry.Key, Name = entry.Name, Content = entry.Content?.Copy(),
             SteamMappings = previous is null ? [] : [.. previous.SteamMappings.Select(mapping => mapping.Copy())]
         };
-        if (saved.Content is null && previous?.Content is { } previousContent)
-        {
-            saved.Content = previousContent.Copy();
-        }
-
-        if (previous?.Content is { } observed && saved.Content is { } content
-            && ManagedContentStorage.SameLaunch(observed, content))
-        {
-            content.Availability = observed.Availability;
-            content.AvailabilityDetail = observed.AvailabilityDetail;
-        }
-
+        // The saved content replaces the earlier record: only the managed route stores one, so a title moved to
+        // another route stops carrying it.
         saved.SteamMappings.RemoveAll(mapping => mapping.AccountId == accountId);
         saved.SteamMappings.Add(ImportAccountMapping.From(entry, accountId));
         if (EntryDefect(saved) is { } defect)
@@ -677,15 +606,10 @@ public sealed class ImportStateStore
         }
 
         entry.SteamMappings.RemoveAll(mapping => mapping.AccountId == accountId);
-        if (entry.SteamMappings.Count == 0 && (entry.Content is null || entry.Content.InventoryRemoved
-                || entry.Content.LibraryId.Length == 0))
+        // A local shortcut removal never erases shared choices or another account's receipt.
+        if (entry.SteamMappings.Count == 0)
         {
             state.Entries.Remove(entry);
-            // A local shortcut removal never erases shared choices. Only inventory deletion does.
-            if (entry.Content?.InventoryRemoved == true)
-            {
-                state.Choices.RemoveAll(choice => Same(choice.Source, choice.Key, source, key));
-            }
         }
     }
 
@@ -764,7 +688,8 @@ public sealed class ImportStateStore
             Entries = [.. state.Entries.Select(entry => entry.Copy())],
             Choices = [.. state.Choices.Select(choice => choice.Copy())],
             Collections = [.. state.Collections.Select(CopyCollection)],
-            Libraries = [.. state.Libraries.Select(CopyLibrary)]
+            Libraries = [.. state.Libraries.Select(CopyLibrary)],
+            ShortcutBindings = [.. state.ShortcutBindings]
         };
     }
 
@@ -803,6 +728,7 @@ public sealed class ImportStateStore
             loaded = JsonSerializer.Deserialize(document.RootElement, ImportStateJsonContext.Default.ImportState)
                      ?? throw new JsonException("Import state is null.");
             loaded.Version = version;
+            DropLauncherRouteContent(document.RootElement, loaded);
             if (version < 2)
             {
                 _needsLegacyBackup = true;
@@ -858,6 +784,34 @@ public sealed class ImportStateStore
 
         _state = Sanitize(loaded ?? new ImportState());
         return _state;
+    }
+
+    /// <summary>Forgets content an earlier build recorded for a launcher's own route.</summary>
+    /// <remarks>
+    ///     Only the managed route carries a content record now. Shortcuts on other routes are checked from their
+    ///     own Target, so a stored launcher-route record would only mislead the plan.
+    /// </remarks>
+    private static void DropLauncherRouteContent(JsonElement root, ImportState loaded)
+    {
+        if (!root.TryGetProperty("Entries", out var entries) || entries.ValueKind != JsonValueKind.Array)
+        {
+            return;
+        }
+
+        var index = 0;
+        foreach (var element in entries.EnumerateArray())
+        {
+            if (loaded.Entries is not null && index < loaded.Entries.Count && loaded.Entries[index] is { } entry
+                && element.ValueKind == JsonValueKind.Object
+                && element.TryGetProperty("Content", out var content) && content.ValueKind == JsonValueKind.Object
+                && content.TryGetProperty("LaunchKind", out var kind) && kind.ValueKind == JsonValueKind.String
+                && kind.GetString() == "Native")
+            {
+                entry.Content = null;
+            }
+
+            index++;
+        }
     }
 
     /// <summary>Moves an unreadable file aside, keeping it for recovery rather than writing over it.</summary>
@@ -984,10 +938,25 @@ public sealed class ImportStateStore
             libraries.Add(CopyLibrary(library));
         }
 
+        List<ShortcutBinding> bindings = [];
+        foreach (var binding in state.ShortcutBindings ?? [])
+        {
+            if (binding is not { AccountId: > 0, AppId: > 0, Path.Length: > 0, VolumeId.Length: > 0,
+                    CardId: not null, Name: not null })
+            {
+                Log.Warn("Library import shortcut binding dropped: a missing field.");
+                continue;
+            }
+
+            bindings.RemoveAll(existing => existing.AccountId == binding.AccountId && existing.AppId == binding.AppId
+                                           && string.Equals(existing.Path, binding.Path, StringComparison.OrdinalIgnoreCase));
+            bindings.Add(binding);
+        }
+
         return new ImportState
         {
             Version = ImportState.CurrentVersion, Entries = entries, Choices = choices, Collections = collections,
-            Libraries = libraries
+            Libraries = libraries, ShortcutBindings = bindings
         };
     }
 
@@ -1127,8 +1096,8 @@ public sealed class ImportStateStore
 
     private static string? LibraryDefect(StorageLibraryRecord? library)
     {
-        if (library is not { Id: not null, Name: not null, VolumeId: not null, LastMountPath: not null,
-                ManifestRevision: >= 0 } || !Guid.TryParseExact(library.Id, "D", out var id) || id == Guid.Empty)
+        if (library is not { Id: not null, Name: not null, VolumeId: not null, ManifestRevision: >= 0 }
+            || !Guid.TryParseExact(library.Id, "D", out var id) || id == Guid.Empty)
         {
             return "An invalid library identity or checkpoint.";
         }

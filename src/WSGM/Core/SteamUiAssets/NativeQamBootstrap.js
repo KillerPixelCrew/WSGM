@@ -19329,11 +19329,7 @@
   ];
   const importAsset = (id) => importAssets.find((asset) => asset.id === id) ?? importAssets[0];
   const importUnavailable = (entry) => !!entry.unavailable;
-  const importShortcutCount = (shortcuts) => {
-    const unavailable = shortcuts.filter((shortcut) => !shortcut.available).length;
-    return unavailable ? `${shortcuts.length}, ${unavailable} unavailable` : `${shortcuts.length}`;
-  };
-  const importAvailability = (entry) => entry.availabilityLabel ?? "Not checked yet";
+  const importAvailability = (entry) => entry.availabilityLabel || "Not checked yet";
   // The tabs, by the group the host puts each title in. Membership is the host's, so the overlay and
   // this page cannot disagree about what "needs attention" means.
   const importTabs = [
@@ -19586,9 +19582,10 @@
         actions: [{ id: "close", label: "Close", onClick: close }],
       });
     }
-    const storage = entry.libraryId
-      ? (state?.storageLibraries ?? []).find((candidate) => candidate.id === entry.libraryId)
-      : null;
+    const tracked =
+      entry.appId > 0
+        ? (state?.shortcuts ?? []).some((shortcut) => shortcut.appId === entry.appId)
+        : false;
     const launchControl = !entry.editable
       ? null
       : entry.packaged
@@ -19648,19 +19645,14 @@
         entry.matchName ? `${entry.matchName}${entry.matchFixed ? " (fixed)" : ""}` : "—",
       ],
       ["Installed at", details?.installPath || "unknown"],
-      ...(entry.managedId
+      ...(entry.managedId || tracked
         ? [
-            ["Location", entry.location || entry.contentPath],
-            ["Availability", importAvailability(entry)],
-          ]
-        : []),
-      ...(storage ? [["Storage", `${storage.name} · ${storage.status}`]] : []),
-      ...(entry.cleanupPending
-        ? [
+            ["Location", entry.location || entry.contentPath || "—"],
             [
-              "Removing",
-              "Its game files were deleted. WSGM removes its Steam shortcut as soon as Steam allows; " +
-                "your other files and saves stay.",
+              "Availability",
+              entry.unavailable && entry.availabilityDetail
+                ? `${importAvailability(entry)}. ${entry.availabilityDetail}`
+                : importAvailability(entry),
             ],
           ]
         : []),
@@ -19669,15 +19661,13 @@
     ];
     const grid = (entry.artwork ?? []).find((slot) => slot.asset === "grid");
     const actions = [
-      entry.managedId
+      entry.managedId || tracked
         ? {
             label: "Recheck availability",
-            run: () => void importAct("recheckAvailability", { id: entry.id }),
+            run: () => void importAct("recheckAvailability"),
           }
         : null,
-      storage
-        ? { label: "Storage library…", run: () => showImportStorage(storage, openTitle) }
-        : null,
+      tracked ? { label: "Storage…", run: () => showImportStorage(openTitle) } : null,
       entry.systemId
         ? {
             label: "Rename title…",
@@ -19803,183 +19793,193 @@
       ...facts.map(([term, value], index) => importFact(term, value, `${term}${index}`)),
     );
   }
-  // Storage libraries: the host's status words, with the counts the review's titles carry. The overlay
-  // builds the same line from the same state.
-  const importStorageStaged = (action) =>
-    action === "repair"
-      ? "Repair library on apply"
-      : action === "acceptBinding"
-        ? "Use this card on apply"
-        : "Change waiting for apply";
+  // Storage: every non-Steam shortcut grouped by the card, disk or drive its files are on, with each card
+  // library's immediate Repair library or Use this card. The overlay builds the same groups from the same state.
   const importStorageAttention = (storage) =>
-    !!storage.canRepair ||
-    !!storage.canAcceptBinding ||
-    !!storage.stagedAction ||
-    String(storage.status).toLowerCase() !== "available";
-  const importStorageLine = (storage, entries) => {
-    const titles = entries.filter(
-      (entry) => entry.libraryId === storage.id && (entry.appId > 0 || entry.cleanupPending),
-    );
-    const unavailable = titles.filter((entry) => entry.unavailable && !entry.cleanupPending).length;
-    const removing = titles.filter((entry) => entry.cleanupPending).length;
+    !!storage.canRepair || !!storage.canAcceptBinding || storage.status !== "Connected";
+  const importStorageLine = (storage) =>
+    `${storage.status} · ${storage.titleCount} title${storage.titleCount === 1 ? "" : "s"}`;
+  const importShortcutLine = (shortcut) =>
+    [
+      shortcut.label,
+      shortcut.owned ? "" : "Your shortcut",
+      shortcut.available ? "" : shortcut.detail,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  const importStorageSummary = (state) => {
+    const shortcuts = state?.shortcuts ?? [];
+    const attention = (state?.storageLibraries ?? []).filter(importStorageAttention).length;
+    const unavailable = shortcuts.filter((shortcut) => !shortcut.available).length;
     return [
-      storage.status,
-      `${storage.titleCount} title${storage.titleCount === 1 ? "" : "s"}`,
-      unavailable ? `${unavailable} unavailable` : "",
-      removing ? `${removing} being removed` : "",
-      storage.stagedAction ? importStorageStaged(storage.stagedAction) : "",
+      state?.storageChecked
+        ? `${shortcuts.length} shortcut${shortcuts.length === 1 ? "" : "s"}`
+        : "Checking shortcuts",
+      state?.storageChecked && unavailable ? `${unavailable} unavailable` : "",
+      attention ? `${attention} card${attention === 1 ? " needs" : "s need"} attention` : "",
     ]
       .filter(Boolean)
       .join(" · ");
   };
-  const ImportStoragePage = 24;
-  // One storage library: what is wrong, the staged repair or new card, and a recheck. Apply on the
-  // page or here performs the staged action, like every other change in the review.
-  function ImportStorageBody({ id, close, openTitle }) {
-    const react = importUi.react;
-    const h = react.createElement;
-    const state = useImportState();
-    // Titles are shown a page at a time; the first of each newly loaded page takes focus.
-    const [shown, setShown] = react.useState(ImportStoragePage);
-    const [focusAt, setFocusAt] = react.useState(-1);
-    const storage = (state?.storageLibraries ?? []).find((candidate) => candidate.id === id);
-    react.useEffect(() => {
-      if (storage) return;
-      importReport({ text: "That storage library is no longer listed.", error: false });
-      close();
-    }, [!storage]);
-    if (!storage) {
-      return renderSteamUiSheet(importUi, {
-        note: "That storage library is no longer listed.",
-        actions: [{ id: "close", label: "Close", onClick: close }],
-      });
-    }
-    const busy = !!state?.loading;
-    const stage = (action) => void importAct("stageStorageAction", { id, action });
-    const action = storage.stagedAction
-      ? {
-          id: "action",
-          label: storage.stagedAction === "repair" ? "Don't repair" : "Don't use this card",
-          disabled: busy,
-          onClick: () => stage(""),
-        }
-      : storage.canRepair
-        ? { id: "action", label: "Repair library", disabled: busy, onClick: () => stage("repair") }
-        : storage.canAcceptBinding
-          ? {
-              id: "action",
-              label: "Use this card",
-              disabled: busy,
-              onClick: () => stage("acceptBinding"),
-            }
-          : null;
-    const saveCount = state?.selectedCount ?? 0;
-    const titles = (state?.entries ?? []).filter((entry) => entry.libraryId === id);
-    const facts = [
-      ["Status", importStorageLine(storage, state?.entries ?? [])],
-      ...(storage.detail ? [["Detail", storage.detail]] : []),
-      ...(storage.canRepair && !storage.stagedAction
-        ? [
-            [
-              "Repair library",
-              "Rebuilds this storage's game list from the titles WSGM already knows, after checking " +
-                "it is the same storage. Done when you save to Steam.",
-            ],
-          ]
-        : []),
-      ...(storage.canAcceptBinding && !storage.stagedAction
-        ? [
-            [
-              "Use this card",
-              "Launches this library's titles from the storage now connected. Done when you save to Steam.",
-            ],
-          ]
-        : []),
-      [
-        `Titles (${titles.length})`,
-        titles.length
-          ? "Open a title for its details."
-          : storage.titleCount
-            ? "Scan to list this library's titles."
-            : "None listed",
-      ],
-    ];
-    // Each title opens the same details sheet as the page; its row stays keyed by id, so a refresh
-    // keeps the focused row and the sheet's scroll.
-    const titleRows = titles.slice(0, shown).map((entry, index) => {
-      const row = renderSteamUiSelectRow(importUi, {
-        key: `title:${entry.id}`,
-        title: entry.name,
-        detail: importEntryLine(entry),
-        onClick: () => showImportDetails(entry, openTitle),
-      });
-      return index === focusAt ? react.cloneElement(row, { autoFocus: true }) : row;
+  // Card libraries first by name, then every other location; a library groups its shortcuts by id.
+  const importStorageGroups = (shortcuts, storages) => {
+    const placed = new Set();
+    const groups = storages.map((library) => {
+      const members = shortcuts.filter(
+        (shortcut) =>
+          shortcut.libraryId === library.id ||
+          (!shortcut.libraryId && shortcut.location === library.name),
+      );
+      members.forEach((member) => placed.add(member));
+      return { name: library.name, library, shortcuts: members };
     });
-    const more =
-      titles.length > shown
-        ? renderSteamUiSelectRow(importUi, {
-            key: "titles-more",
-            title: "Load more",
-            detail: `${shown} of ${titles.length}`,
+    const others = new Map();
+    for (const shortcut of shortcuts) {
+      if (placed.has(shortcut)) continue;
+      const name = shortcut.location || "Unknown location";
+      others.set(name, [...(others.get(name) ?? []), shortcut]);
+    }
+    for (const [name, members] of others) groups.push({ name, library: null, shortcuts: members });
+    return groups.sort((left, right) => left.name.localeCompare(right.name));
+  };
+  const ImportStoragePage = 48;
+  function ImportStorageBody({ close, openTitle }) {
+    const react = importUi.react;
+    const state = useImportState();
+    // Shortcuts are shown a page at a time; the first of each newly loaded page takes focus.
+    const [shown, setShown] = react.useState(ImportStoragePage);
+    const [focusAt, setFocusAt] = react.useState("");
+    const busy = !!state?.loading;
+    const shortcuts = state?.shortcuts ?? [];
+    const entries = state?.entries ?? [];
+    const groups = importStorageGroups(shortcuts, state?.storageLibraries ?? []);
+    const rows = [];
+    let count = 0;
+    let next = "";
+    for (const group of groups) {
+      if (next) break;
+      const unavailable = group.shortcuts.filter((shortcut) => !shortcut.available).length;
+      rows.push(
+        importFact(
+          group.name,
+          [
+            group.library ? importStorageLine(group.library) : "",
+            `${group.shortcuts.length} shortcut${group.shortcuts.length === 1 ? "" : "s"}`,
+            unavailable ? `${unavailable} unavailable` : "",
+            group.library?.detail ?? "",
+          ]
+            .filter(Boolean)
+            .join(" · "),
+          `group:${group.name}`,
+        ),
+      );
+      if (group.library?.canRepair) {
+        rows.push(
+          renderSteamUiSelectRow(importUi, {
+            key: `repair:${group.library.id}`,
+            title: "Repair library",
+            detail:
+              "Rebuild this card's game list from the titles WSGM knows. Your game files stay.",
             onClick: () => {
-              setFocusAt(shown);
-              setShown(shown + ImportStoragePage);
+              if (!busy) void importAct("repairLibrary", { id: group.library.id });
             },
-          })
-        : null;
+          }),
+        );
+      }
+      if (group.library?.canAcceptBinding) {
+        rows.push(
+          renderSteamUiSelectRow(importUi, {
+            key: `use:${group.library.id}`,
+            title: "Use this card",
+            detail: "Launch this card's games on this device from where it is connected now.",
+            onClick: () => {
+              if (!busy) void importAct("useLibrary", { id: group.library.id });
+            },
+          }),
+        );
+      }
+      for (const shortcut of group.shortcuts) {
+        if (count === shown) {
+          next = `shortcut:${shortcut.appId}`;
+          break;
+        }
+        count++;
+        const entry = entries.find((candidate) => candidate.appId === shortcut.appId);
+        const row = renderSteamUiSelectRow(importUi, {
+          key: `shortcut:${shortcut.appId}`,
+          title: shortcut.name,
+          detail: importShortcutLine(shortcut),
+          onClick: entry
+            ? () => showImportDetails(entry, openTitle)
+            : () =>
+                importReport({
+                  text: shortcut.available
+                    ? `${shortcut.name} is available on ${shortcut.location}.`
+                    : `${shortcut.name}: ${shortcut.detail}`,
+                  error: false,
+                }),
+        });
+        rows.push(
+          focusAt === `shortcut:${shortcut.appId}`
+            ? react.cloneElement(row, { autoFocus: true })
+            : row,
+        );
+      }
+    }
+    const more = next
+      ? renderSteamUiSelectRow(importUi, {
+          key: "shortcuts-more",
+          title: "Load more",
+          detail: `${count} of ${shortcuts.length}`,
+          onClick: () => {
+            setFocusAt(next);
+            setShown(shown + ImportStoragePage);
+          },
+        })
+      : null;
     return renderSteamUiSheet(
       importUi,
       {
+        note:
+          "Every non-Steam shortcut in Steam, grouped by where its files are. WSGM shows when a card is " +
+          "out or files are missing, and never removes a shortcut itself.",
         actions: [
-          ...(action ? [action] : []),
-          ...(saveCount
-            ? [
-                {
-                  id: "save",
-                  label: `Save to Steam (${saveCount})`,
-                  primary: true,
-                  disabled: busy,
-                  onClick: () => void importAct("apply"),
-                },
-              ]
-            : []),
           {
             id: "recheck",
             label: "Recheck",
+            primary: true,
             disabled: busy,
-            onClick: () => void importAct("recheckAvailability", { id: `library:${id}` }),
+            onClick: () => void importAct("recheckAvailability"),
           },
           { id: "close", label: "Close", onClick: close },
         ],
       },
-      ...facts.map(([term, value], index) => importFact(term, value, `${term}${index}`)),
-      ...titleRows,
+      ...(groups.length
+        ? rows
+        : [
+            importFact(
+              "Storage",
+              state?.storageChecked
+                ? "No shortcut in Steam has its files on this device's storage, and no game library card is known."
+                : "Shortcuts are listed here once Steam has been checked.",
+              "empty",
+            ),
+          ]),
       more,
     );
   }
-  const showImportStorage = (storage, openTitle) =>
+  const showImportStorage = (openTitle) =>
     showSteamModal(importUi, {
-      title: storage.name,
-      render: (close) =>
-        importUi.react.createElement(ImportStorageBody, { id: storage.id, close, openTitle }),
+      title: "Storage",
+      render: (close) => importUi.react.createElement(ImportStorageBody, { close, openTitle }),
     });
-  // One title's details, from the page or a storage library's title list.
+  // One title's details, from the page or the Storage sheet.
   const showImportDetails = (entry, openTitle) =>
     showSteamModal(importUi, {
       title: entry.name,
       render: (close) =>
         importUi.react.createElement(ImportDetailsBody, { id: entry.id, close, openTitle }),
     });
-  // What a title's row says, as the overlay's storage list says it.
-  const importEntryLine = (entry) =>
-    [
-      entry.selected ? "Selected" : "",
-      entry.actionLabel,
-      entry.launchLabel,
-      importUnavailable(entry) || entry.cleanupPending ? importAvailability(entry) : "",
-    ]
-      .filter(Boolean)
-      .join(" · ");
   // The mockup's "Add a shortcuts folder" sheet: the folder, whether its subfolders are read too,
   // and which file types it offers.
   function ImportFolderBody({ close }) {
@@ -20612,7 +20612,7 @@
       }),
       h("div", { className: "wsgm-import-name" }, launchGlyph, h("span", {}, entry.name)),
       h("div", { className: "wsgm-import-launch" }, entry.launchLabel),
-      importUnavailable(entry) || entry.cleanupPending
+      importUnavailable(entry)
         ? h("div", { className: "wsgm-import-launch" }, importAvailability(entry))
         : null,
     );
@@ -20633,7 +20633,6 @@
       entry.availability,
       entry.availabilityLabel,
       entry.unavailable,
-      entry.cleanupPending,
       entry.follows,
       entry.packaged,
       entry.mode,
@@ -20892,8 +20891,6 @@
     react.useEffect(() => subscribe(EmulatorPatchId, receiveRomChoices), []);
     const entries = state.entries ?? [];
     const sources = state.sources ?? [];
-    const storages = state.storageLibraries ?? [];
-    const steamShortcuts = state.steamShortcuts ?? [];
     const busy = !!state.loading;
     const titleEntry =
       view.name === "title" ? entries.find((entry) => entry.id === view.title) : null;
@@ -21308,59 +21305,18 @@
           ),
         ),
         entries.length ? sourceActions : null,
-        // Removable storage the library knows, connected or not; each opens its own sheet.
-        ...(storages.length || steamShortcuts.length
-          ? [
-              h(
-                "div",
-                { key: "storage-head", className: "wsgm-import-eyebrow wsgm-import-custom" },
-                storages.some(importStorageAttention)
-                  ? `Storage · ${storages.filter(importStorageAttention).length} need attention`
-                  : "Storage",
-              ),
-              // The overlay's "Recheck all storage": the same command with no library named.
-              h(
-                ui.dialogButton,
-                {
-                  key: "storage-recheck",
-                  disabled: busy,
-                  onClick: () => void importAct("recheckAvailability", { id: "" }),
-                },
-                "Recheck all storage",
-              ),
-              ...storages.map((storage) =>
-                renderSteamUiSelectRow(ui, {
-                  key: `storage:${storage.id}`,
-                  title: storage.name,
-                  detail: importStorageLine(storage, entries),
-                  onClick: () => showImportStorage(storage, actions.openTitle),
-                }),
-              ),
-              // The user's own Steam shortcuts on storage: observed, never changed. Selecting one rechecks it.
-              ...(steamShortcuts.length
-                ? [
-                    h(
-                      "div",
-                      { key: "shortcuts-head", className: "wsgm-import-muted" },
-                      `Your Steam shortcuts · ${importShortcutCount(steamShortcuts)}`,
-                    ),
-                    ...steamShortcuts.map((shortcut) =>
-                      renderSteamUiSelectRow(ui, {
-                        key: `shortcut:${shortcut.appId}`,
-                        title: shortcut.name,
-                        detail: shortcut.available
-                          ? `${shortcut.location} · Available`
-                          : shortcut.detail,
-                        onClick: () =>
-                          void importAct("recheckAvailability", {
-                            id: `shortcut:${shortcut.appId}`,
-                          }),
-                      }),
-                    ),
-                  ]
-                : []),
-            ]
-          : []),
+        // Every tracked shortcut and card library, in one sheet: the overlay's Storage level.
+        h(
+          "div",
+          { key: "storage-head", className: "wsgm-import-eyebrow wsgm-import-custom" },
+          "Storage",
+        ),
+        renderSteamUiSelectRow(ui, {
+          key: "storage",
+          title: "Storage",
+          detail: importStorageSummary(state),
+          onClick: () => showImportStorage(actions.openTitle),
+        }),
         h("div", { className: "wsgm-import-eyebrow wsgm-import-custom" }, "Steam"),
         h(
           "div",

@@ -289,19 +289,25 @@ packages. Builds remain distinct from live Steam, emulator and storage acceptanc
 
 **Portable library inventory follows the content (2026-10-29).** Issue #200 uses a card manifest and
 a device index: portable title IDs and relative paths live on the card, while cached offline
-metadata and account-local Steam mappings live on the device. Both are checked against the files.
-Disconnected storage retains unavailable titles; confirmed missing content on the correct readable
-card removes its inventory entry and owned shortcut. Moving a game or its root counts as deletion
-and requires a new Library Manager import. This supersedes retaining every missing managed title
-until manual cleanup. Read failures and missing emulator dependencies do not authorize deletion. See
-[portable library inventory](game-library.md#portable-library-inventory-and-confirmed-deletion).
+metadata and account-local Steam mappings live on the device. Disconnected storage retains its
+titles. Moving a game or its root needs a new Library Manager import. How missing content is handled
+is recorded in the single-tracker entry below. See [card libraries](game-library.md#card-libraries).
 
-**Launcher games on storage use their executable; user shortcuts are observed (2026-10-29).** A
-launcher title on participating storage imports its own executable as a managed portable record, as
-Steam ROM Manager does, and enters the card inventory. Its route through the launcher stays
-launcher-native, with availability but launcher-owned deletion. Shortcuts the user made in Steam get
-availability from their Target and Start In only; WSGM never edits or removes them. See
-[launcher games and your own Steam shortcuts](game-library.md#launcher-games-and-your-own-steam-shortcuts-on-storage).
+**Launcher games on storage use their executable (2026-10-29).** A launcher title on removable
+storage imports its own executable as a managed portable record, as Steam ROM Manager does, and
+enters the card inventory. Its other routes keep no content record; the shortcut's own follow folder
+decides their availability. See
+[launcher games on removable storage](game-library.md#launcher-games-on-removable-storage).
+
+**One tracker reports every shortcut and never removes (2026-10-29).** A single session-owned
+tracker covers every non-Steam shortcut in Steam's list, WSGM's and the user's alike, on every local
+volume. It publishes one of three states per shortcut (available, library missing, files missing)
+from the files and never stores them. It supersedes the automatic pruning recorded above: missing
+content no longer removes card entries, cached titles or Steam shortcuts, and a scan offers removal
+as an ordinary unticked choice. A drive letter never identifies a card; a card is its manifest UUID
+or Steam marker content id read through its volume GUID, and a literal path is bound per shortcut to
+the card it was found on. Repair library and Use this card are immediate commands rather than staged
+Apply actions. See [shortcut availability](game-library.md#shortcut-availability).
 
 **WSGM writes Steam shortcuts through the running client (2026-09-22).** This reverses the rule
 recorded after the September 2026 launcher trials, when CEF shortcut-management calls destabilized a
