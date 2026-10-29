@@ -3,11 +3,58 @@ using LibGPUDriverInteract;
 using SteamUiToolkit;
 using WSGM.Core;
 using WSGM.Shell;
+using WSGM.Tests.Fakes;
 
 namespace WSGM.Tests.Shell;
 
 public sealed class ScaledResolutionServiceTests
 {
+    [Fact]
+    public async Task RepeatedReadsReuseTheLastStateUntilInvalidatedAndPerDisplay()
+    {
+        using var store = new TemporaryConfigStore();
+        List<string?> reads = [];
+        var service = new ScaledResolutionService(store.Store, () => [], () => Task.CompletedTask,
+            (path, _) =>
+            {
+                reads.Add(path);
+                return Task.FromResult(new ScaledResolutionState([], path, null, null, [], [], "read " + reads.Count));
+            });
+
+        var first = await service.ReadAsync("monitor-a");
+        Assert.Same(first, await service.ReadAsync("monitor-a"));
+        Assert.Equal(["monitor-a"], reads);
+
+        // Another display is its own read; the first stays kept.
+        await service.ReadAsync("monitor-b");
+        Assert.Same(first, await service.ReadAsync("monitor-a"));
+        Assert.Equal(["monitor-a", "monitor-b"], reads);
+
+        // A display change, edit or refresh forgets everything.
+        service.Invalidate();
+        Assert.NotSame(first, await service.ReadAsync("monitor-a"));
+        Assert.Equal(["monitor-a", "monitor-b", "monitor-a"], reads);
+    }
+
+    [Fact]
+    public async Task AReadThatRacesAnInvalidationIsReturnedButNotKept()
+    {
+        using var store = new TemporaryConfigStore();
+        TaskCompletionSource<ScaledResolutionState> pending = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reads = 0;
+        var service = new ScaledResolutionService(store.Store, () => [], () => Task.CompletedTask, (path, _) =>
+            ++reads == 1
+                ? pending.Task
+                : Task.FromResult(new ScaledResolutionState([], path, null, null, [], [], "fresh")));
+
+        var racing = service.ReadAsync("monitor");
+        service.Invalidate();
+        pending.SetResult(new ScaledResolutionState([], "monitor", null, null, [], [], "stale"));
+        Assert.Equal("stale", (await racing).Detail);
+        Assert.Equal("fresh", (await service.ReadAsync("monitor")).Detail);
+        Assert.Equal(2, reads);
+    }
+
     [Fact]
     public void OriginalListSurvivesConfigurationAndRestoreKeepsTheNativeMode()
     {

@@ -33,6 +33,27 @@ public sealed class SteamNativeSettingsServiceTests
     }
 
     [Fact]
+    public void RebuildingIdenticalPagesKeepsTheRevisionSoNothingIsResent()
+    {
+        static SteamNativeSettingsPage[] Pages(int limit) =>
+        [
+            new SteamNativeSettingsPage("power",
+            [
+                new SteamSettingsSection("Limits",
+                    [new SteamSettingsRow("limit", SteamSettingsRowKind.Range, "Limit", Number: limit, Minimum: 5,
+                        Maximum: 35, Step: 1, Choices: [new SteamSettingsChoice("a", "A")])], "power.limits")
+            ])
+        ];
+
+        string? published = null;
+        var revision = SteamNativeSettingsService.NextRevision(Pages(20), ref published, 0);
+        Assert.Equal(1, revision);
+        // A fresh build with equal content, including fresh arrays, is not a new revision.
+        Assert.Equal(1, SteamNativeSettingsService.NextRevision(Pages(20), ref published, revision));
+        Assert.Equal(2, SteamNativeSettingsService.NextRevision(Pages(25), ref published, revision));
+    }
+
+    [Fact]
     public void RangeReplacementRequiresRebuildingTheMountedEditor()
     {
         var row = new DeviceOverlayCapability("limit", null, DeviceOverlaySection.PowerAndThermals,

@@ -50,21 +50,70 @@ internal sealed class ScaledResolutionService
     private readonly ConfigStore _store;
     private readonly Func<IReadOnlyList<GpuDriver>> _drivers;
     private readonly Func<Task> _ready;
+    private readonly Func<string?, CancellationToken, Task<ScaledResolutionState>> _readFresh;
+    private readonly Lock _cacheGate = new();
+    private readonly Dictionary<string, ScaledResolutionState> _cache = new(StringComparer.OrdinalIgnoreCase);
+    private long _generation;
 
     internal ScaledResolutionService(ConfigStore store, BuiltinGpuService drivers)
         : this(store, drivers.ScaledResolutionDrivers, () => drivers.StartupCompletion)
     {
     }
 
-    internal ScaledResolutionService(ConfigStore store, Func<IReadOnlyList<GpuDriver>> drivers, Func<Task> ready)
+    internal ScaledResolutionService(ConfigStore store, Func<IReadOnlyList<GpuDriver>> drivers, Func<Task> ready,
+        Func<string?, CancellationToken, Task<ScaledResolutionState>>? readFresh = null)
     {
         _store = store;
         _drivers = drivers;
         _ready = ready;
+        _readFresh = readFresh ?? ReadFreshAsync;
     }
 
-    internal async Task<ScaledResolutionState> ReadAsync(string? selectedPath,
-        CancellationToken token = default)
+    /// <summary>The display's resolution state, reusing the last read until something can have changed it.</summary>
+    /// <remarks>
+    ///     A read queries display topology, the GPU driver's custom-mode list, the monitor and every Windows
+    ///     mode. Steam's settings projection asks on every two-second publication round, so the result is kept
+    ///     until a display change, an edit or an explicit refresh calls <see cref="Invalidate" />. Edits
+    ///     themselves always read fresh.
+    /// </remarks>
+    internal async Task<ScaledResolutionState> ReadAsync(string? selectedPath, CancellationToken token = default)
+    {
+        var key = selectedPath ?? string.Empty;
+        long generation;
+        lock (_cacheGate)
+        {
+            if (_cache.TryGetValue(key, out var cached))
+            {
+                return cached;
+            }
+
+            generation = _generation;
+        }
+
+        var state = await _readFresh(selectedPath, token).ConfigureAwait(false);
+        lock (_cacheGate)
+        {
+            // A change during the read makes it stale; return it once but do not keep it.
+            if (generation == _generation)
+            {
+                _cache[key] = state;
+            }
+        }
+
+        return state;
+    }
+
+    /// <summary>Forgets every kept read after a display change, edit or refresh.</summary>
+    internal void Invalidate()
+    {
+        lock (_cacheGate)
+        {
+            _generation++;
+            _cache.Clear();
+        }
+    }
+
+    private async Task<ScaledResolutionState> ReadFreshAsync(string? selectedPath, CancellationToken token)
     {
         return await Task.Run(async () =>
         {
@@ -146,9 +195,16 @@ internal sealed class ScaledResolutionService
     internal async Task RefreshTopologyAsync(CancellationToken token = default)
     {
         await _ready().WaitAsync(token).ConfigureAwait(false);
-        foreach (var driver in _drivers())
+        try
         {
-            await driver.RefreshTopologyAsync(token).ConfigureAwait(false);
+            foreach (var driver in _drivers())
+            {
+                await driver.RefreshTopologyAsync(token).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            Invalidate();
         }
     }
 
@@ -190,7 +246,7 @@ internal sealed class ScaledResolutionService
                 return Refused("Choose valid source sizes with dimensions from 100 to 15999 pixels.");
             }
 
-            var fresh = await ReadAsync(observed.Display.DevicePath, token).ConfigureAwait(false);
+            var fresh = await _readFresh(observed.Display.DevicePath, token).ConfigureAwait(false);
             if (!Same(observed, fresh.Catalog))
             {
                 return Refused("The display's driving adapter changed. Refresh before applying.");
@@ -261,6 +317,7 @@ internal sealed class ScaledResolutionService
         }
         finally
         {
+            Invalidate();
             _edits.Release();
         }
     }
@@ -272,7 +329,7 @@ internal sealed class ScaledResolutionService
         try
         {
             _store.Read().RequireConfig();
-            var fresh = await ReadAsync(observed.Display.DevicePath, token).ConfigureAwait(false);
+            var fresh = await _readFresh(observed.Display.DevicePath, token).ConfigureAwait(false);
             if (!Same(observed, fresh.Catalog) || !fresh.Catalog!.Modes.Contains(mode))
             {
                 return Refused("The driver list or display changed. Refresh before removing this resolution.");
@@ -300,6 +357,7 @@ internal sealed class ScaledResolutionService
         }
         finally
         {
+            Invalidate();
             _edits.Release();
         }
     }
@@ -310,7 +368,7 @@ internal sealed class ScaledResolutionService
         await _edits.WaitAsync(token).ConfigureAwait(false);
         try
         {
-            var state = await ReadAsync(observed.Display.DevicePath, token).ConfigureAwait(false);
+            var state = await _readFresh(observed.Display.DevicePath, token).ConfigureAwait(false);
             if (!Same(observed, state.Catalog) || state.Original is not { } original)
             {
                 return Refused("No original list is saved for this display and driving adapter.");
@@ -345,6 +403,7 @@ internal sealed class ScaledResolutionService
         }
         finally
         {
+            Invalidate();
             _edits.Release();
         }
     }
@@ -384,7 +443,7 @@ internal sealed class ScaledResolutionService
     internal async Task<GpuScaledResolutionResult> ReapplyAsync(GpuScaledResolutionCatalog observed,
         CancellationToken token = default)
     {
-        var state = await ReadAsync(observed.Display.DevicePath, token).ConfigureAwait(false);
+        var state = await _readFresh(observed.Display.DevicePath, token).ConfigureAwait(false);
         if (!Same(observed, state.Catalog))
         {
             return Refused("The driving adapter changed. Refresh before reapplying.");
@@ -417,6 +476,7 @@ internal sealed class ScaledResolutionService
         }
         finally
         {
+            Invalidate();
             _edits.Release();
         }
     }

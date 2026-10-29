@@ -52,6 +52,7 @@ internal sealed partial class SteamNativeSettingsService(
     private readonly SemaphoreSlim _reads = new(1, 1);
     private IReadOnlyDictionary<string, Offered> _offered = new Dictionary<string, Offered>();
     private long _revision;
+    private string? _publishedPages;
 
     /// <inheritdoc />
     public Task<SteamUiCommandResult> SetAsync(string key, JsonElement value, CancellationToken cancellationToken)
@@ -99,6 +100,29 @@ internal sealed partial class SteamNativeSettingsService(
     ///     Concurrent reads are serialized. Dependencies remain borrowed, and row keys retain the profile/device
     ///     generation they describe.
     /// </remarks>
+    /// <summary>Keeps the revision while the pages are unchanged, so an idle publication round re-sends nothing.</summary>
+    /// <param name="pages">The pages just built.</param>
+    /// <param name="published">The serialized pages of the current revision; replaced on a change.</param>
+    /// <param name="revision">The current revision.</param>
+    /// <returns>The same revision for identical pages, otherwise the next one.</returns>
+    /// <remarks>
+    ///     The state is rebuilt on every two-second round. A revision that changed on every build made each
+    ///     envelope look new, so the whole Display, Power, Audio and Controller state was evaluated into
+    ///     Steam's context every two seconds even when nothing in it had changed.
+    /// </remarks>
+    internal static long NextRevision(IReadOnlyList<SteamNativeSettingsPage> pages, ref string? published,
+        long revision)
+    {
+        var content = JsonSerializer.Serialize(pages);
+        if (string.Equals(content, published, StringComparison.Ordinal))
+        {
+            return revision;
+        }
+
+        published = content;
+        return revision + 1;
+    }
+
     internal async ValueTask<SteamNativeSettingsState?> ReadAsync()
     {
         await _reads.WaitAsync().ConfigureAwait(false);
@@ -444,7 +468,8 @@ internal sealed partial class SteamNativeSettingsService(
             Page("audio", audio);
             Page("controller", controller);
             Volatile.Write(ref _offered, offered);
-            return new SteamNativeSettingsState(pages, Interlocked.Increment(ref _revision));
+            _revision = NextRevision(pages, ref _publishedPages, _revision);
+            return new SteamNativeSettingsState(pages, _revision);
 
             void Page(string id, List<SteamSettingsSection> sections)
             {
