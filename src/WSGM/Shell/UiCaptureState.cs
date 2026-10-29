@@ -54,6 +54,13 @@ internal sealed class UiCaptureState
         return false;
     }
 
+    /// <summary>Keeps controls from the game until each is observed up, without claiming capture.</summary>
+    /// <param name="buttons">Controls to add to the release mask.</param>
+    internal void WithholdUntilReleased(CanonicalButtons buttons)
+    {
+        _withheldFromGame |= buttons;
+    }
+
     /// <summary>Whether a sample stays away from the game.</summary>
     /// <remarks>
     ///     While a surface holds capture, and afterwards until every control the UI was still using has

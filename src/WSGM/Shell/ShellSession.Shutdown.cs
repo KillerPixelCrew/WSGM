@@ -735,6 +735,11 @@ public sealed partial class ShellSession
             _graphicsOverlay?.Dispose();
             _graphicsOverlay = null;
         });
+        Step(failures, "Disposing _controllerWake failed", () =>
+        {
+            _controllerWake?.Dispose();
+            _controllerWake = null;
+        });
         Step(failures, "Disposing _standbyGuard failed", () =>
         {
             _standbyGuard?.Dispose();

@@ -478,6 +478,16 @@ The `GetLastInputInfo` net below does not see gamepads or the power button. A us
 the power button and navigates by controller (HandheldCompanion blocks controller wake by design)
 depends entirely on the notifications.
 
+### A face button wakes a dark display
+
+Windows does not count gamepad input as activity, so a display the idle timeout switched off came
+back only for the power button. `Shell\ControllerDisplayWake` follows the same session display
+signal and, while it reports off, turns an A, B, X or Y press on the managed controller into one
+injected zero-distance mouse move, which Windows does count. The press itself is withheld from the
+game until released, so waking Big Picture does not also activate the focused item. It needs Device
+Integration and an unlocked session: a lock suspends the device cycle, and the lock screen does not
+accept injected input. The log records `Display off: a controller face button woke the display.`
+
 ### The mute claim keeps the endpoint it muted
 
 The service captures the endpoint ID before muting and restores that same endpoint, even if Windows

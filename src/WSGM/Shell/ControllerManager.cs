@@ -704,6 +704,17 @@ internal sealed class ControllerManager : IAsyncDisposable
         }
     }
 
+    /// <summary>Keeps controls from the game until each is released, as the controls of a closed surface are.</summary>
+    /// <param name="buttons">Controls to withhold.</param>
+    /// <remarks>Called from <see cref="PhysicalSampleObserved" />, it withholds the sample being routed.</remarks>
+    internal void WithholdUntilReleased(CanonicalButtons buttons)
+    {
+        lock (_stateGate)
+        {
+            _uiCapture.WithholdUntilReleased(buttons);
+        }
+    }
+
     /// <summary>Stops game forwarding until a target is successfully created or replaced.</summary>
     /// <param name="reason">Diagnostic reason recorded with the neutral report.</param>
     /// <param name="cancellationToken">Cancels the neutralization.</param>

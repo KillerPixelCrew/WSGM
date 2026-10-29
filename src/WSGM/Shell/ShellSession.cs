@@ -108,6 +108,7 @@ public sealed partial class ShellSession
     private AppConfig _config;
     private ManagedShortcutMonitor? _contentAvailability;
     private ControllerManager? _controllerStatusSource;
+    private ControllerDisplayWake? _controllerWake;
 
     private ExplorerDesktopHost? _desktopHost;
     private bool _desktopRecoveryPending;
@@ -545,6 +546,12 @@ public sealed partial class ShellSession
         // effect without the guard being rebuilt; _config is replaced wholesale on reload.
         TryStart("modern standby guard", () =>
             _standbyGuard = new ModernStandbyGuard(messageWindow, () => _config.ResuspendUnexplainedWakes));
+        if (_deviceCoordinator is { } wakeCoordinator)
+        {
+            TryStart("controller display wake",
+                () => _controllerWake = new ControllerDisplayWake(messageWindow, wakeCoordinator.Controllers));
+        }
+
         // Reads the flag on every wakeup, like the standby guard, so a config reload needs no rebuild.
         TryStart("update monitor", () => _updates = new UpdateMonitor(_store.Context, () => _config.CheckForUpdates));
         TryStart("screen-off mute", () =>
