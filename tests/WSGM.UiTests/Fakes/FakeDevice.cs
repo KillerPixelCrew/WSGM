@@ -70,6 +70,11 @@ internal sealed class FakeDevice : IDeviceOverlaySource
         throw new InvalidOperationException("Unexpected AutoTDP write");
     }
 
+    public Task SetAutoTdpTargetAsync(int fps, CancellationToken cancellationToken = default)
+    {
+        throw new InvalidOperationException("Unexpected AutoTDP target write");
+    }
+
     public Task SetHostSelectionAsync(string rowId, string? value, CancellationToken cancellationToken = default)
     {
         return Task.FromException(new NotSupportedException("Explicit host selection is not available."));

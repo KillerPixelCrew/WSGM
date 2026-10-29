@@ -295,7 +295,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
                 "Reset performance profile",
                 state.ApplicationProfileEnabled
                     ? "Clear every value this game overrides, so it uses Global again."
-                    : "Clear the Global frame limit, overlay, power, refresh and processor boost values.",
+                    : "Clear the Global frame limit, overlay, power, refresh, processor boost and AutoTDP target values.",
                 "Reset",
                 true,
                 DescriptorStatus.None)

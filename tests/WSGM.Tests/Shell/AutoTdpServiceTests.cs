@@ -45,21 +45,21 @@ public sealed class AutoTdpServiceTests
     }
 
     [Fact]
-    public async Task MissingLimiterRefusesAutoTdpWithoutAnInventedSixtyFpsTarget()
+    public async Task WithoutATargetControlHoldsAndWritesNothing()
     {
         Harness harness = new() { TargetFrametimeMs = 0 };
         harness.Service.Apply(true);
         harness.Frametimes.Live = [Rendering(22)];
         await harness.Service.TickAsync(CancellationToken.None);
-        Assert.False(harness.Service.Enabled);
         Assert.False(harness.Service.Availability.Available);
-        Assert.Contains("Requires frame-rate limit", harness.Service.Availability.Detail);
+        Assert.Contains("No frame-rate target", harness.Service.Availability.Detail);
+        Assert.Equal(AutoTdpState.Unavailable, harness.Service.Status.State);
         Assert.Empty(harness.Writes);
         await harness.Service.DisposeAsync();
     }
 
     [Fact]
-    public async Task LosingTheLimiterStopsControlAndRestoresThePreviousLimit()
+    public async Task AMovedDeadlineIsAnnouncedAndControlKeepsRunning()
     {
         Harness harness = new();
         harness.Service.Apply(true);
@@ -70,16 +70,15 @@ public sealed class AutoTdpServiceTests
         }
 
         Assert.Single(harness.Writes);
-        harness.TargetFrametimeMs = 0;
-        Assert.True(harness.Service.RefreshPrerequisites());
-        Assert.False(harness.Service.Enabled);
-        await WaitForStateAsync(harness, AutoTdpState.Off);
-        Assert.Equal(15, harness.Writes[^1].Value.IntegerValue);
-        Assert.Equal(2, harness.Writes.Count);
-        harness.TargetFrametimeMs = 1000d / 60;
+        var announced = 0;
+        harness.Service.StatusChanged += _ => announced++;
+        harness.TargetFrametimeMs = 1000d / 40;
         harness.Service.RefreshPrerequisites();
-        Assert.True(harness.Service.Availability.Available);
-        Assert.False(harness.Service.Enabled);
+        Assert.Equal(1, announced);
+        Assert.True(harness.Service.Enabled);
+        Assert.Equal(1000d / 40, harness.Service.Availability.TargetFrametimeMs);
+        harness.Service.RefreshPrerequisites();
+        Assert.Equal(1, announced);
         await harness.Service.DisposeAsync();
     }
 
@@ -864,30 +863,44 @@ public sealed class AutoTdpServiceTests
     }
 
     [Theory]
-    [InlineData(null, 60, 0)]
-    [InlineData(0, 60, 0)]
-    [InlineData(60, 0, 0)]
-    [InlineData(60, 60, 60)]
-    [InlineData(30, 30, 30)]
-    public void OnlyAnActiveLimiterProvidesTheControlTarget(int? observed, int? desired, int expectedFps)
+    [InlineData(null, null, null, 60)]
+    [InlineData(null, 60, 45, 45)]
+    [InlineData(0, 60, 45, 45)]
+    [InlineData(90, 90, 60, 60)]
+    [InlineData(40, 40, 60, 40)]
+    [InlineData(40, 0, 60, 60)]
+    [InlineData(null, null, 500, 60)]
+    public void TheTargetIsAutoTdpsOwnAndOnlyALowerActiveLimitHoldsItDown(int? observed, int? desired,
+        int? target, int expectedFps)
     {
         PerformanceState state = new(new RtssProbe(RtssAvailability.Ready, null, null, 1, null, null),
             null, false, ProfileSource.Global, ProfileSource.Global,
             new PerformanceValues(desired, 0), new PerformanceValues(observed, 0), DateTimeOffset.UtcNow,
             PerformanceCommandState.Idle);
-        Assert.Equal(expectedFps == 0 ? 0 : 1000d / expectedFps, AutoTdpService.TargetFrametime(state));
+        ProfileLayers layers = new(new ProfileValues { AutoTdpTargetFps = target }, null);
+        Assert.Equal(1000d / expectedFps, AutoTdpService.TargetFrametime(state, layers));
+    }
+
+    [Fact]
+    public void AGameTargetOverridesGlobalAndRunsWithoutRtss()
+    {
+        ProfileLayers layers = new(new ProfileValues { AutoTdpTargetFps = 50 },
+            new ProfileValues { AutoTdpTargetFps = 35 });
+        Assert.Equal(1000d / 35, AutoTdpService.TargetFrametime(null, layers));
+        var view = AutoTdpTargetView.Resolve(layers, new AutoTdpAvailability(true, string.Empty, 1000d / 35));
+        Assert.Equal(new AutoTdpTargetView(35, 35, true), view);
     }
 
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void QamAndOverlayUseTheSameUnavailableReasonEvenWhenTheSettingWasOn(bool enabled)
+    public void QamAndOverlayKeepTheSwitchAndShowTheSameUnavailableReason(bool enabled)
     {
-        AutoTdpAvailability availability = new(false, "Requires frame-rate limit.", null);
+        AutoTdpAvailability availability = new(false, "The paired power limit is unavailable.", 1000d / 60);
         var qam = DeviceCoordinatorNativeQamAutoTdpService.Project(enabled, null, true, availability);
         var overlay = DeviceOverlayBridge.AutoTdpView(enabled, null, availability);
-        Assert.False(qam.Available);
-        Assert.False(qam.Enabled);
+        Assert.True(qam.Available);
+        Assert.Equal(enabled, qam.Enabled);
         Assert.False(overlay.CanInvoke);
         Assert.Equal(availability.Detail, qam.StatusText);
         Assert.Equal(availability.Detail, overlay.Description);

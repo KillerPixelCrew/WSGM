@@ -114,7 +114,8 @@ public sealed class ProfileEditsTests
             Global = new ProfileValues
             {
                 FrameLimit = 60, OverlayLevel = 1, SustainedWatts = 15, VariableRefreshRate = true,
-                CpuBoost = CpuBoostMode.Disabled, ControllerTarget = ManagedControllerTarget.Xbox360
+                CpuBoost = CpuBoostMode.Disabled, AutoTdpTargetFps = 45,
+                ControllerTarget = ManagedControllerTarget.Xbox360
             }
         };
         config.Global.SetDevice("claw", "lighting.zone-color", "buttons",
@@ -127,6 +128,7 @@ public sealed class ProfileEditsTests
         Assert.Null(config.Global.SustainedWatts);
         Assert.Null(config.Global.VariableRefreshRate);
         Assert.Null(config.Global.CpuBoost);
+        Assert.Null(config.Global.AutoTdpTargetFps);
         Assert.Equal(ManagedControllerTarget.Xbox360, config.Global.ControllerTarget);
         Assert.Single(config.Global.Device);
     }

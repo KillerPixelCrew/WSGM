@@ -45,7 +45,10 @@ public enum ProfileField
     Device,
 
     /// <summary>Authored lighting color profile.</summary>
-    LightingProfile
+    LightingProfile,
+
+    /// <summary>AutoTDP's frame-rate target.</summary>
+    AutoTdpTarget
 }
 
 /// <summary>Names one setting, including a device capability instance.</summary>
@@ -167,7 +170,7 @@ public static class ProfileFields
     [
         ProfileField.FrameLimit, ProfileField.OverlayLevel, ProfileField.TdpUnified, ProfileField.UnifiedWatts,
         ProfileField.SustainedWatts, ProfileField.VariableRefreshRate,
-        ProfileField.CpuBoost
+        ProfileField.CpuBoost, ProfileField.AutoTdpTarget
     ];
 
     /// <summary>Whether a layer sets a value.</summary>
@@ -190,6 +193,7 @@ public static class ProfileFields
             ProfileField.SustainedWatts => values.SustainedWatts is not null,
             ProfileField.VariableRefreshRate => values.VariableRefreshRate is not null,
             ProfileField.CpuBoost => values.CpuBoost is not null,
+            ProfileField.AutoTdpTarget => values.AutoTdpTargetFps is not null,
             ProfileField.AcPowerPreset => values.AcPowerPreset is not null,
             ProfileField.BatteryPowerPreset => values.BatteryPowerPreset is not null,
             ProfileField.FanCurveProfile => values.FanCurveProfileId is not null,
@@ -240,6 +244,9 @@ public static class ProfileFields
                 break;
             case ProfileField.CpuBoost:
                 values.CpuBoost = null;
+                break;
+            case ProfileField.AutoTdpTarget:
+                values.AutoTdpTargetFps = null;
                 break;
             case ProfileField.AcPowerPreset:
                 values.AcPowerPreset = null;

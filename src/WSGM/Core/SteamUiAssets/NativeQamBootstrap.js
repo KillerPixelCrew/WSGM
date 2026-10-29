@@ -2269,6 +2269,18 @@
       ["rect", { x: 10, y: 8, width: 4, height: 13, rx: 1.2 }],
       ["rect", { x: 17, y: 3, width: 4, height: 18, rx: 1.2 }],
     ],
+    // An automatic controller's frame-rate target: a bullseye, because it is the rate aimed for rather
+    // than a cap the game is held under, which is the frame-rate bars' job.
+    target: [
+      [
+        "path",
+        {
+          d: "M12 1.8a10.2 10.2 0 1 0 0 20.4 10.2 10.2 0 0 0 0-20.4Zm0 2a8.2 8.2 0 1 1 0 16.4 8.2 8.2 0 0 1 0-16.4Zm0 3a5.2 5.2 0 1 0 0 10.4 5.2 5.2 0 0 0 0-10.4Zm0 2a3.2 3.2 0 1 1 0 6.4 3.2 3.2 0 0 1 0-6.4Z",
+          fillRule: "evenodd",
+        },
+      ],
+      ["circle", { cx: 12, cy: 12, r: 1.6 }],
+    ],
     // Switching the frame cap off is the slider's own negation, so the glyph is the cap removed
     // rather than a second frame-rate shape.
     infinity: [
@@ -11516,7 +11528,16 @@
    */
   function createPowerMenu() {
     const patchId = "steam-ui.power-menu";
-    const PowerTokens = new Set(["#Sleep", "#Quit_Sleep", "#Shutdown", "#Quit_Shutdown"]);
+    // The confirming entries carry their token as a prop. In the 2026-10-20 client Sleep is a plain
+    // item, so Shutdown and Restart identify the menu; the Sleep tokens stay for older clients.
+    const PowerTokens = new Set([
+      "#Sleep",
+      "#Quit_Sleep",
+      "#Shutdown",
+      "#Quit_Shutdown",
+      "#Restart",
+      "#Quit_Restart",
+    ]);
     const LabelToken = "#SwitchToDesktop";
     const EntryKey = "steam-ui-power-menu-desktop";
     const MaximumDepth = 4;
@@ -11601,8 +11622,11 @@
       const children = props?.children;
       if (!Array.isArray(children)) return undefined;
       if (menuType === null) {
-        if (typeof props.onCancel !== "function" || typeof props.label !== "string")
-          return undefined;
+        // The root is recognised by its label and power entries alone. Its onCancel is whatever
+        // opened the menu passed, and Steam's main menu Power entry and its system request pass
+        // none; only the controller power chord does. The root is created before the inner menu
+        // it renders with the same props, so the first match is the root.
+        if (typeof props.label !== "string") return undefined;
         if (!learn(type, children)) return undefined;
       } else if (!children.some(isPowerEntry)) {
         // Valve's menu component draws other menus too.
@@ -12942,6 +12966,7 @@
       autoTdp: Object.freeze({
         patchId: "steam-ui.auto-tdp",
         command: "setAutoTdp",
+        targetCommand: "setAutoTdpTarget",
       }),
       // Two commands, because this is SteamOS's unified row: one slider that is the frame cap while
       // a cap is set and the refresh rate once it is switched off.
@@ -13171,6 +13196,23 @@
         typeof value.watts === "number" && Number.isInteger(value.watts) && value.watts >= 1
           ? value.watts
           : null;
+      // The target is the slider's whole state. One with unusable bounds is dropped on its own, so a
+      // bad slider never takes the switch with it.
+      const target = value.target;
+      const usableTarget =
+        target &&
+        typeof target === "object" &&
+        [target.fps, target.minimumFps, target.maximumFps].every(Number.isInteger) &&
+        target.minimumFps >= 1 &&
+        target.minimumFps < target.maximumFps
+          ? Object.freeze({
+              fps: Math.min(target.maximumFps, Math.max(target.minimumFps, target.fps)),
+              minimumFps: target.minimumFps,
+              maximumFps: target.maximumFps,
+              statusText: normalizeText(target.statusText),
+              accent: target.accent === true,
+            })
+          : null;
       return Object.freeze({
         available: value.available,
         enabled: value.enabled,
@@ -13178,6 +13220,7 @@
         watts,
         progress: normalizeText(value.progress),
         statusText: normalizeText(value.statusText),
+        target: usableTarget,
       });
     };
     const normalizeControllerState = (value) => {
@@ -13630,6 +13673,9 @@
       function SteamUiAutoTdpControl() {
         const state = useSemanticState(controlRuntime, "autoTdp", normalizeAutoTdpState);
         const [refusal, setRefusal] = controlRuntime.react.useState("");
+        const [targetRefusal, setTargetRefusal] = controlRuntime.react.useState("");
+        // Unconditional, ahead of every early return: these are hooks.
+        const targetEcho = useEchoedValue(controlRuntime, state?.target?.fps ?? null);
         if (!state) return note("autoTdp", "no state");
         if (!state.available)
           return note("autoTdp", "unavailable: " + (state.statusText || "no reason"));
@@ -13652,7 +13698,8 @@
           state.controlling && state.watts !== null
             ? state.watts + " W · " + state.statusText
             : state.statusText;
-        return controlRuntime.react.createElement(controlRuntime.toggle, {
+        const toggle = controlRuntime.react.createElement(controlRuntime.toggle, {
+          key: "switch",
           // The host's own control; Valve has no string for it, so no token is passed.
           label: "Automatic TDP",
           icon: controlRuntime.icon("auto"),
@@ -13665,6 +13712,47 @@
           disabled: isBusy(state.progress),
           onChange: toggleCommand(definition, state, setRefusal),
         });
+        // The target only means something while the controller runs, so the slider follows the
+        // switch, the way SteamOS's frame-limit slider follows its own switch.
+        const target = state.enabled ? state.target : null;
+        if (!target || !controlRuntime.slider) return toggle;
+        const commitTarget = (fps) => {
+          if (!Number.isInteger(fps) || fps < target.minimumFps || fps > target.maximumFps) return;
+          setTargetRefusal("");
+          void sendCommand(definition, definition.targetCommand, { value: fps }).catch((reason) =>
+            setTargetRefusal(refusalText(reason)),
+          );
+        };
+        const slider = controlRuntime.react.createElement(
+          controlRuntime.row,
+          { key: "target" },
+          controlRuntime.react.createElement(controlRuntime.slider, {
+            label: "Target frame rate",
+            icon: controlRuntime.icon("target"),
+            iconLocation: "front",
+            min: target.minimumFps,
+            max: target.maximumFps,
+            step: 1,
+            value: targetEcho.value ?? target.fps,
+            valueSuffix: " FPS",
+            showValue: true,
+            showBookendLabels: true,
+            disabled: isBusy(state.progress),
+            description: accentDescription(
+              controlRuntime,
+              target.accent,
+              targetRefusal || target.statusText,
+            ),
+            onChange: targetEcho.onChange,
+            onChangeComplete: (next) => targetEcho.onChangeComplete(next, commitTarget),
+          }),
+        );
+        return controlRuntime.react.createElement(
+          controlRuntime.react.Fragment,
+          null,
+          toggle,
+          slider,
+        );
       };
     const normalizePowerProfileState = (value) => {
       if (!value || typeof value.available !== "boolean" || !Array.isArray(value.options))

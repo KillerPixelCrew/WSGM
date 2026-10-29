@@ -61,6 +61,7 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
     ];
 
     private bool _autoTdp;
+    private int _autoTdpTarget = AutoTdpTarget.DefaultFps;
     private int _brightness = 80;
     private int _chargeLimit = 80;
     private ManagedControllerTarget _controllerTarget = ManagedControllerTarget.SteamDeckComposite;
@@ -322,7 +323,9 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                     .Select(value => Choice(value.ToString(), value.ToString())).ToArray())
             },
             GlyphMode = (DeviceGlyphSelection)_glyphSelection,
-            PluginSections = PreviewSections
+            PluginSections = PreviewSections,
+            AutoTdpTarget = DeviceOverlayBridge.AutoTdpTargetRow(_autoTdp,
+                new AutoTdpTargetView(_autoTdpTarget, _autoTdpTarget, false))
         };
     }
 
@@ -380,6 +383,15 @@ internal sealed class SimulatedDeviceOverlaySource : IDeviceOverlaySource
                 break;
         }
 
+        Changed?.Invoke();
+        return Task.CompletedTask;
+    }
+
+    /// <inheritdoc />
+    public Task SetAutoTdpTargetAsync(int fps, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        _autoTdpTarget = fps;
         Changed?.Invoke();
         return Task.CompletedTask;
     }

@@ -30,6 +30,7 @@ Global wattage. A game that sets only its button colour keeps the Global ring co
 | manual power values                   | `ApplicationPerformanceReconciler`, the coordinator's power pair                 |
 | `VariableRefreshRate`                 | `ApplicationPerformanceReconciler`, on whichever graphics publisher supplies VRR |
 | `CpuBoost`                            | `ApplicationPerformanceReconciler` (Windows processor boost mode)                |
+| `AutoTdpTargetFps`                    | `AutoTdpService`, read each control window through the session's deadline        |
 | `AcPowerPreset`, `BatteryPowerPreset` | `DevicePowerAssignments`                                                         |
 | `FanCurveProfileId`                   | `DeviceCoordinator.ApplyAuthoredProfilesAsync`                                   |
 | `ControllerTarget`                    | `ControllerTargetSelection` (default `SteamDeckComposite`)                       |
@@ -118,8 +119,8 @@ its values, so switching back on restores them.
 
 "Reset to default" clears every value in the game profile when it is on, so the game inherits
 everything and keeps its binding. When it is off it clears only the Performance tab's Global values:
-frame limit, overlay level, the manual power values, VRR and the processor boost mode. It never
-reaches lighting or other device values.
+frame limit, overlay level, the manual power values, VRR, the processor boost mode and the AutoTDP
+target. It never reaches lighting or other device values.
 
 A game without a Steam AppID still gets its profile. Valve's header needs an AppID, so there it
 reads as global; WSGM's own rows still show the game layer.
@@ -136,6 +137,7 @@ overrides looks exactly as it would with no profile.
 | Overlay frame limit and overlay | the same                                     | Use global                                  |
 | Overlay power presets           | "Game override" beside the source's title    | the "Use global assignment" entry           |
 | Overlay manual power mode       | accent bar and "Game override"               | Use global                                  |
+| Overlay AutoTDP target          | accent bar and "Game override"               | Use global                                  |
 | Overlay header                  | "Profile: name · N overrides"                | Reset performance profile                   |
 | Quick Access rows WSGM owns     | "Game override" description in Steam blue    | Steam's Reset button                        |
 | Quick Access power presets      | the same                                     | the unset entry                             |

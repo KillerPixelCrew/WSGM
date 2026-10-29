@@ -693,6 +693,21 @@ public sealed class DeviceOverlayBridgeTests
     }
 
     [Fact]
+    public void TheTargetSliderFollowsTheSwitchAndMarksAGameOverride()
+    {
+        Assert.Null(DeviceOverlayBridge.AutoTdpTargetRow(false, new AutoTdpTargetView(45, 45, false)));
+
+        var row = DeviceOverlayBridge.AutoTdpTargetRow(true, new AutoTdpTargetView(45, 40, true))!;
+
+        Assert.Equal(DeviceHostRowIds.AutoTdpTarget, row.Id);
+        Assert.Equal(new DescriptorRange(AutoTdpTarget.MinimumFps, AutoTdpTarget.MaximumFps, 1), row.Range);
+        Assert.Equal(45, row.Value);
+        Assert.Equal(nameof(ProfileField.AutoTdpTarget), row.OverrideId);
+        Assert.Equal("Held to the 40 FPS frame limit.", row.Description);
+        Assert.True(row.CanInvoke);
+    }
+
+    [Fact]
     public async Task TheSimulatedSourceTogglesWithoutTouchingAnyDevice()
     {
         using SimulatedDeviceOverlaySource source = new();

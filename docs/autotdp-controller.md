@@ -82,7 +82,7 @@ Each tick the service reads what it reads today and passes it in one sample:
 | --------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------- |
 | Window identity                         | RTSS `dwTime0`, `dwTime1`                            | Dedupe. A window already judged is skipped entirely.                   |
 | Window duration, frames, mean frametime | RTSS window                                          | Ratio and severity.                                                    |
-| Target frametime                        | Observed RTSS frame limit                            | Deadline. Part of the context key.                                     |
+| Target frametime                        | AutoTDP target, or a lower active RTSS frame limit   | Deadline. Part of the context key.                                     |
 | Last frame                              | RTSS `dwFrameTime`, microseconds                     | A hiatus that ended inside the window.                                 |
 | Sample age                              | RTSS window                                          | Time since the last present, for a hiatus still in progress.           |
 | GPU load, CPU load                      | `RtssOsdMetricsSource`, shared with the OSD renderer | Tertiary evidence. Absent values disable only the rules that use them. |
@@ -377,15 +377,24 @@ permits one power write at a time, and restores the limit it took over from on s
 disposal. Every prerequisite is optional and rechecked each second; no RTSS, no plugin, no power
 capability or no rendering application means AutoTDP holds.
 
-The deadline comes only from the observed, active RTSS frame limit: the readback, or the value WSGM
-wrote until the next poll reads it back. A desired cap or a default 60 Hz target cannot substitute
-for an active limiter. The service's shared availability result drives both QAM and Overlay and
-guards the coordinator's enable command; without a limiter the controls are disabled with
-`Requires frame-rate limit.` Turning the limiter off stops control and restores the previous power
-limit, but leaves the AutoTDP setting alone: the limit is per application, so switching to a window
-without one and back is the ordinary case, and clearing the setting there left AutoTDP off when the
-game returned (Claw, 2026-09-27). A temporarily missing frame limit suspends runtime control the
-same way. An observed limiter makes the controls available again and resumes control.
+The deadline is AutoTDP's own target frame rate, a per-game profile value (`AutoTdpTargetFps`, 20 to
+144 FPS, 60 when no layer sets one) resolved like the frame limit. No frame limit is needed: an
+uncapped game runs fast while power is generous, those windows are comfortable, and the descent
+stops where the game runs just above the target. An active RTSS frame limit below the target lowers
+the deadline to the limit, because a capped game cannot reach a higher target and every window
+would read as a miss and raise power to the ceiling. A limit at or above the target changes
+nothing. An active limit is the readback, or the value WSGM wrote until the next poll reads it.
+`AutoTdpTarget` in `Core\AutoTdp.cs` holds the range and the rule; the context key carries the
+deadline, so a target or limit change starts over like a context change. The target is edited from
+the slider under the AutoTDP switch in the Overlay's Power page, in Quick Access and on Steam's Power
+settings page, all through `DeviceCoordinator.SetAutoTdpTargetAsync`; each shows the slider only
+while AutoTDP is on, says when a frame limit holds the target lower, and marks a game override.
+
+The service's shared availability result drives both QAM and Overlay and guards the coordinator's
+enable command. It refuses only for a missing or uncommandable power limit; the switch stays on
+screen with the reason, and only a device with no power limit at all leaves the Quick Access switch
+out, as it leaves out the power-limit row beside it. Until 2026-10-29 the deadline came only from an
+active frame limit, and without one the Quick Access switch disappeared.
 
 When the descriptor declares `PairedPowerLimitId`, AutoTDP requires both limits to be commandable
 and dispatches a unified target through the same coordinator, which moves both limits to it; the

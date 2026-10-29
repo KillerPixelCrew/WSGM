@@ -74,6 +74,9 @@ public sealed class ProfileValues
     /// <summary>Windows' processor boost mode.</summary>
     public CpuBoostMode? CpuBoost { get; set; }
 
+    /// <summary>The frame rate AutoTDP holds the game to, independent of the frame limit.</summary>
+    public int? AutoTdpTargetFps { get; set; }
+
     /// <summary>Device power preset on AC.</summary>
     public DevicePowerPresetReference? AcPowerPreset { get; set; }
 

@@ -250,12 +250,11 @@ public sealed partial class ShellSession
     ///     The deadline AutoTDP judges frame delivery against.
     /// </summary>
     /// <remarks>
-    ///     Only a verified, active RTSS limit supplies a deadline. Zero means no control is permitted;
-    ///     a desired value or a default 60 Hz target cannot stand in for an active limiter.
+    ///     AutoTDP's own per-game target, or an active RTSS frame limit below it; no frame limit is needed.
     /// </remarks>
     private double TargetFrametimeMs()
     {
-        return AutoTdpService.TargetFrametime(_performance?.Current);
+        return AutoTdpService.TargetFrametime(_performance?.Current, _profiles.Current.Layers);
     }
 
     /// <remarks>
@@ -269,17 +268,8 @@ public sealed partial class ShellSession
     /// </remarks>
     private void OnPerformanceStateForPairing(PerformanceState state)
     {
-        if (_autoTdp is { } autoTdp)
-        {
-            // Losing the limiter suspends control and restores the previous limit, but leaves the
-            // setting alone. The limit is per application, so switching to a window without one and
-            // back is the ordinary case, and clearing the setting there left AutoTDP off in the game.
-            autoTdp.RefreshPrerequisites();
-            if (autoTdp.Availability.Available && ShouldRunAutoTdp(_config.DeviceIntegration))
-            {
-                autoTdp.Apply(true);
-            }
-        }
+        // A frame limit below AutoTDP's target lowers the deadline; the rows hear about it from here.
+        _autoTdp?.RefreshPrerequisites();
 
         ApplyRefreshPairing(state.Desired.FrameLimit ?? 0, false);
     }

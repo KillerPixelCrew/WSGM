@@ -262,6 +262,15 @@ internal sealed partial class SteamNativeSettingsService(
                 Add(limits, new SteamSettingsRow("power.auto-tdp", SteamSettingsRowKind.Boolean, "AutoTDP",
                         automatic.StatusText, automatic.Enabled, Disabled: Busy(automatic.Progress)),
                     (value, token) => autoTdp.SetAutoTdpAsync(value.GetBoolean(), token));
+                // The target follows the switch, as it does in Quick Access and the overlay.
+                if (automatic is { Enabled: true, Target: { } target })
+                {
+                    Add(limits, new SteamSettingsRow("power.auto-tdp-target", SteamSettingsRowKind.Range,
+                            "AutoTDP target frame rate", target.StatusText, Number: target.Fps,
+                            Minimum: target.MinimumFps, Maximum: target.MaximumFps, Step: 1, Suffix: " FPS",
+                            Disabled: Busy(automatic.Progress), Accent: target.Accent),
+                        (value, token) => autoTdp.SetAutoTdpTargetAsync(Integer(value), token), true);
+                }
             }
 
             Section(power, "TDP and AutoTDP", "tdp", limits);

@@ -69,6 +69,11 @@ internal static class ProfileConfigRules
             values.ControllerTarget = null;
         }
 
+        if (values.AutoTdpTargetFps is { } autoTdpTarget && !AutoTdpTarget.IsValid(autoTdpTarget))
+        {
+            values.AutoTdpTargetFps = null;
+        }
+
         if (values.FanCurveProfileId is { } fanCurve)
         {
             values.FanCurveProfileId = authoredProfiles.Contains(fanCurve.Trim()) ? fanCurve.Trim() : null;

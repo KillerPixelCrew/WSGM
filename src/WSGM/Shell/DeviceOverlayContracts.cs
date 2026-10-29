@@ -250,12 +250,16 @@ internal sealed record DeviceOverlaySnapshot(
     /// <summary>Plugin-declared overlay sections in presentation order.</summary>
     public IReadOnlyList<DeviceOverlayPluginSection> PluginSections { get; init; } =
         DeviceOverlayBridge.ProjectSections(DeviceSections.All);
+
+    /// <summary>AutoTDP's frame-rate target slider, or null while AutoTDP is off.</summary>
+    public DescriptorRow? AutoTdpTarget { get; init; }
 }
 
 /// <summary>Stable ids of the host-owned Device rows, shared by the bridge and the overlay.</summary>
 internal static class DeviceHostRowIds
 {
     public const string AutoTdp = "device.auto-tdp";
+    public const string AutoTdpTarget = "device.auto-tdp-target";
     public const string ControllerTarget = "device.controller-target";
     public const string AuthoredProfile = "device.authored-profile";
     public const string LightingProfile = "device.lighting-profile";
@@ -328,6 +332,12 @@ internal interface IDeviceOverlaySource : IDisposable
     /// <param name="cancellationToken">Cancels the change.</param>
     /// <returns>A task completing once the new setting is persisted.</returns>
     Task ToggleAutoTdpAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Stores AutoTDP's frame-rate target in the layer in force.</summary>
+    /// <param name="fps">The target the slider settled on.</param>
+    /// <param name="cancellationToken">Cancels the save.</param>
+    /// <returns>A task completing once the target is saved.</returns>
+    Task SetAutoTdpTargetAsync(int fps, CancellationToken cancellationToken = default);
 
     /// <summary>Applies one explicit host setting selection without cycling through intermediate writes.</summary>
     /// <param name="rowId">Stable host-owned row ID, such as controller target or authored profile.</param>

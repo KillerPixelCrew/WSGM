@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
@@ -1329,7 +1330,8 @@ internal sealed class DeviceCoordinatorNativeQamDeviceControlsService : ISteamDe
 ///     <c>DeviceIntegration.AutoTdpEnabled</c> through the same method, and none of them holds a copy.
 ///     A null coordinator projects the constant unavailable state and refuses every write. The setting
 ///     and the power limit follow the coordinator's own changes, which the Steam UI host hears once for
-///     every device row; this raises only AutoTDP's own status changes.
+///     every device row; this raises only AutoTDP's own status changes. The frame-rate target is a
+///     profile value, published with the switch and saved through the coordinator like the overlay's.
 /// </remarks>
 internal sealed class DeviceCoordinatorNativeQamAutoTdpService : ISteamAutoTdpBackend, IDisposable
 {
@@ -1364,13 +1366,24 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : ISteamAutoTdpBa
     }
 
     /// <summary>The state Steam should currently be rendering.</summary>
-    public SteamAutoTdpState Current => _coordinator is null
-        ? UnavailableState
-        : Project(
-            _coordinator.AutoTdpEnabled,
-            _autoTdp?.Status,
-            PowerLimitProjection.Project(_coordinator.Capabilities.Snapshot()).Available,
-            _autoTdp?.Availability);
+    public SteamAutoTdpState Current
+    {
+        get
+        {
+            if (_coordinator is null)
+            {
+                return UnavailableState;
+            }
+
+            var availability = _autoTdp?.Availability;
+            return Project(
+                _coordinator.AutoTdpEnabled,
+                _autoTdp?.Status,
+                PowerLimitProjection.Project(_coordinator.Capabilities.Snapshot()).Available,
+                availability,
+                AutoTdpTargetView.Resolve(_coordinator.Profiles.Current.Layers, availability));
+        }
+    }
 
     /// <inheritdoc />
     public void Dispose()
@@ -1391,6 +1404,25 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : ISteamAutoTdpBa
     public Task<SteamUiCommandResult> SetAutoTdpAsync(bool enabled, CancellationToken cancellationToken)
     {
         return SetEnabledAsync(enabled, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<SteamUiCommandResult> SetAutoTdpTargetAsync(int fps, CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_coordinator is null)
+        {
+            return new SteamUiCommandResult(false, UnavailableState.StatusText);
+        }
+
+        if (!AutoTdpTarget.IsValid(fps))
+        {
+            return new SteamUiCommandResult(false, NativeQamUi.Text(string.Create(CultureInfo.InvariantCulture,
+                $"Choose a target between {AutoTdpTarget.MinimumFps} and {AutoTdpTarget.MaximumFps} FPS.")));
+        }
+
+        await _coordinator.SetAutoTdpTargetAsync(fps, cancellationToken).ConfigureAwait(false);
+        return new SteamUiCommandResult(true, null);
     }
 
     /// <summary>Raised when the projected state changes.</summary>
@@ -1417,6 +1449,12 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : ISteamAutoTdpBa
             return new SteamUiCommandResult(false, state.StatusText);
         }
 
+        if (enabled && _autoTdp?.Availability is { Available: false } availability)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return new SteamUiCommandResult(false, NativeQamUi.Text(availability.Detail));
+        }
+
         // Idempotent rather than an error: the page and the store can disagree for one frame after
         // a change made somewhere else, and re-sending the value it already has is the harmless way
         // that resolves. The coordinator compares and sets under its own transition gate, so the
@@ -1431,18 +1469,20 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : ISteamAutoTdpBa
     /// <param name="status">The running service's state, or null when it is not running.</param>
     /// <param name="powerLimitAvailable">Whether a primary power limit exists to drive.</param>
     /// <param name="availability">The service's authoritative admission state.</param>
+    /// <param name="target">The frame-rate target, or null to publish no slider.</param>
     /// <returns>The state the menu renders.</returns>
+    /// <remarks>
+    ///     Only a device without a power limit hides the switch, as it hides the power-limit row beside
+    ///     it. Anything else that keeps AutoTDP from running is said in the row's description, and the row
+    ///     stays where the user looks for it. A missing frame limit used to hide it outright.
+    /// </remarks>
     internal static SteamAutoTdpState Project(
         bool enabled,
         AutoTdpStatus? status,
         bool powerLimitAvailable,
-        AutoTdpAvailability? availability = null)
+        AutoTdpAvailability? availability = null,
+        AutoTdpTargetView? target = null)
     {
-        if (availability is { Available: false })
-        {
-            return new SteamAutoTdpState(false, false, false, null, "failed", NativeQamUi.Text(availability.Detail));
-        }
-
         // Without a power limit there is nothing to control, so the switch is not offered rather
         // than offered and then silently ineffective.
         if (!powerLimitAvailable)
@@ -1456,6 +1496,16 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : ISteamAutoTdpBa
                 NativeQamUi.Text("No primary power limit is available to control."));
         }
 
+        var slider = target is null
+            ? null
+            : new SteamAutoTdpTarget(target.Fps, AutoTdpTarget.MinimumFps, AutoTdpTarget.MaximumFps,
+                NativeQamUi.Text(target.Description), target.GameOverride);
+        if (availability is { Available: false })
+        {
+            return new SteamAutoTdpState(true, enabled, false, null, "failed",
+                NativeQamUi.Text(availability.Detail), slider);
+        }
+
         if (status is null)
         {
             return new SteamAutoTdpState(
@@ -1464,7 +1514,8 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : ISteamAutoTdpBa
                 false,
                 null,
                 enabled ? "applying" : string.Empty,
-                NativeQamUi.Text(enabled ? "Starting." : string.Empty));
+                NativeQamUi.Text(enabled ? "Starting." : string.Empty),
+                slider);
         }
 
         var controlling = status.State is AutoTdpState.Controlling;
@@ -1481,7 +1532,8 @@ internal sealed class DeviceCoordinatorNativeQamAutoTdpService : ISteamAutoTdpBa
                 AutoTdpState.Unavailable => "failed",
                 _ => string.Empty
             },
-            NativeQamUi.Text(AutoTdpReason.Describe(status.Detail)));
+            NativeQamUi.Text(AutoTdpReason.Describe(status.Detail)),
+            slider);
     }
 
     // Raised from AutoTDP's own tick loop. Queueing a publication is thread-safe, so no UI-thread hop.

@@ -337,6 +337,7 @@ internal static class DeviceOverlaySectionPages
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         yield return (DeviceOverlaySection.PowerAndThermals, snapshot.AutoTdp);
+        yield return (DeviceOverlaySection.PowerAndThermals, snapshot.AutoTdpTarget);
         // The authored fan curve sits with power and thermals: it is a decision about how the device
         // cools, and the per-game switch that scopes it is the toggle on the Device root.
         yield return (DeviceOverlaySection.PowerAndThermals, snapshot.AuthoredProfile);

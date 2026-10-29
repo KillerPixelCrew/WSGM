@@ -617,6 +617,16 @@ public sealed partial class NativeQamSemanticServicesTests
     }
 
     [Fact]
+    public void TheTargetSliderCarriesTheSharedBoundsLineAndMarker()
+    {
+        var state = DeviceCoordinatorNativeQamAutoTdpService.Project(true, null, true, null,
+            new AutoTdpTargetView(45, 40, true));
+
+        Assert.Equal(new SteamAutoTdpTarget(45, AutoTdpTarget.MinimumFps, AutoTdpTarget.MaximumFps,
+            "Held to the 40 FPS frame limit.", true), state.Target);
+    }
+
+    [Fact]
     public async Task TheUnavailableServiceRefusesRatherThanSilentlyAccepting()
     {
         // No device platform in this session: the service is constructed without a coordinator,
@@ -628,6 +638,8 @@ public sealed partial class NativeQamSemanticServicesTests
 
         Assert.False(result.Succeeded);
         Assert.Equal(service.Current.StatusText, result.Error);
+        var target = await service.SetAutoTdpTargetAsync(45, CancellationToken.None);
+        Assert.False(target.Succeeded);
     }
 
     private static SteamAutoTdpState Project(

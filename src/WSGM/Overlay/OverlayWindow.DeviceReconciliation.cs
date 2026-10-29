@@ -28,6 +28,7 @@ public partial class OverlayWindow
                              || previous.GlyphSelection is null != current.GlyphSelection is null
                              || previous.Controller is null != current.Controller is null
                              || previous.AutoTdp is null != current.AutoTdp is null
+                             || previous.AutoTdpTarget is null != current.AutoTdpTarget is null
                              || previous.AuthoredProfile is null != current.AuthoredProfile is null
                              || previous.LightingProfile is null != current.LightingProfile is null
                              || previous.Recovery is null != current.Recovery is null
@@ -118,12 +119,22 @@ public partial class OverlayWindow
         return id switch
         {
             DeviceHostRowIds.AutoTdp => snapshot.AutoTdp,
+            DeviceHostRowIds.AutoTdpTarget => snapshot.AutoTdpTarget,
             DeviceHostRowIds.ControllerTarget => snapshot.Controller,
             DeviceHostRowIds.AuthoredProfile => snapshot.AuthoredProfile,
             DeviceHostRowIds.LightingProfile => snapshot.LightingProfile,
             DeviceHostRowIds.Retry => snapshot.Recovery,
             _ => null
         };
+    }
+
+    /// <summary>AutoTDP's target slider, committing through the Device source like the switch above it.</summary>
+    private DescriptorControlView CreateAutoTdpTargetRow(DescriptorRow descriptor)
+    {
+        return new DescriptorControlView(descriptor, descriptor.Id, _ => Task.CompletedTask,
+            value => _ = RunCommandAsync(_deviceBridge, $"AutoTDP target set to {value} FPS",
+                (source, token) => source.SetAutoTdpTargetAsync(value, token)),
+            UseGlobalOnDevice);
     }
 
     private Control CreateHostDeviceRow(DeviceOverlaySnapshot snapshot, DescriptorRow descriptor)

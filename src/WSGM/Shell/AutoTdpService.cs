@@ -52,13 +52,39 @@ internal sealed record AutoTdpStatus(
     AutoTdpAction? Action = null);
 
 /// <summary>Shared admission state for AutoTDP commands and every UI projection.</summary>
-/// <param name="Available">Whether a valid frame limit and writable primary and required paired power limits are present.</param>
+/// <param name="Available">Whether writable primary and required paired power limits are present.</param>
 /// <param name="Detail">Reason admission is unavailable; empty when available.</param>
 /// <param name="TargetFrametimeMs">
-///     Deadline derived from the frame limit, even if power is unavailable; null without a
-///     usable frame limit.
+///     The deadline control judges against, from AutoTDP's own target and any lower active frame limit,
+///     even if power is unavailable; null without a usable target.
 /// </param>
 internal sealed record AutoTdpAvailability(bool Available, string Detail, double? TargetFrametimeMs);
+
+/// <summary>AutoTDP's frame-rate target as the overlay and Quick Access both draw it.</summary>
+/// <param name="Fps">The resolved profile target, or the default when no layer sets one.</param>
+/// <param name="EffectiveFps">The rate control aims for, lower than <paramref name="Fps" /> under a lower frame limit.</param>
+/// <param name="GameOverride">Whether the running game's profile supplies the target.</param>
+internal sealed record AutoTdpTargetView(int Fps, int EffectiveFps, bool GameOverride)
+{
+    /// <summary>The line under the slider: what the target does, or the frame limit holding it lower.</summary>
+    internal string Description => EffectiveFps < Fps
+        ? string.Create(CultureInfo.InvariantCulture, $"Held to the {EffectiveFps} FPS frame limit.")
+        : "Power drops until the game runs just above this rate.";
+
+    /// <summary>Resolves the target through the profile layers and the service's current deadline.</summary>
+    /// <param name="layers">The profile layers in force.</param>
+    /// <param name="availability">The service's admission state, whose deadline includes a lower frame limit.</param>
+    /// <returns>The view.</returns>
+    internal static AutoTdpTargetView Resolve(ProfileLayers layers, AutoTdpAvailability? availability)
+    {
+        var stored = layers.Value(values => values.AutoTdpTargetFps);
+        var fps = AutoTdpTarget.EffectiveFps(stored.Value, null);
+        var effective = availability?.TargetFrametimeMs is > 0 and { } deadline
+            ? Math.Min(fps, (int)Math.Round(1000d / deadline))
+            : fps;
+        return new AutoTdpTargetView(fps, effective, stored.IsGameOverride);
+    }
+}
 
 /// <summary>
 ///     The one AutoTDP session service.
@@ -170,7 +196,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
             var target = _targetFrametimeMs();
             if (!double.IsFinite(target) || target <= 0)
             {
-                return new AutoTdpAvailability(false, "Requires frame-rate limit.", null);
+                return new AutoTdpAvailability(false, "No frame-rate target is set.", null);
             }
 
             var power = FindPowerCapability();
@@ -305,17 +331,14 @@ internal sealed class AutoTdpService : IAsyncDisposable
         _trace?.SetEnabled(enabled);
     }
 
-    /// <summary>Releases control immediately when the limiter disappears.</summary>
-    /// <returns>Whether an active session was forced off.</returns>
-    internal bool RefreshPrerequisites()
+    /// <summary>Announces a change in availability or in the deadline to every projection.</summary>
+    /// <remarks>
+    ///     The deadline moves with the profile target and with a frame limit below it, neither of which
+    ///     touches the setting or the controller's state, so the rows hear about it here.
+    /// </remarks>
+    internal void RefreshPrerequisites()
     {
         var availability = Availability;
-        var disabled = Enabled && availability.TargetFrametimeMs is null;
-        if (disabled)
-        {
-            Apply(false);
-        }
-
         var enabled = Enabled;
         bool changed;
         lock (_gate)
@@ -329,16 +352,23 @@ internal sealed class AutoTdpService : IAsyncDisposable
         {
             StatusChanged?.Invoke(Status);
         }
-
-        return disabled;
     }
 
-    internal static double TargetFrametime(PerformanceState? state)
+    /// <summary>The deadline AutoTDP judges frame delivery against.</summary>
+    /// <param name="state">The RTSS state, or null without RTSS.</param>
+    /// <param name="layers">The profile layers in force for the running application.</param>
+    /// <returns>
+    ///     The frame time of the profile's AutoTDP target, or of an active frame limit below it. An active
+    ///     limit is the one RTSS reports while a cap is asked for; a desired cap alone is not holding the
+    ///     game to anything.
+    /// </returns>
+    internal static double TargetFrametime(PerformanceState? state, ProfileLayers layers)
     {
-        return state is { Observed.FrameLimit: > 0 }
-               && state.Desired.FrameLimit != 0
-            ? 1000d / state.Observed.FrameLimit.Value
-            : 0;
+        int? activeLimit = state is { Observed.FrameLimit: > 0 } && state.Desired.FrameLimit != 0
+            ? state.Observed.FrameLimit
+            : null;
+        return 1000d / AutoTdpTarget.EffectiveFps(layers.Value(values => values.AutoTdpTargetFps).Value,
+            activeLimit);
     }
 
     /// <summary>Enables or disables automatic control.</summary>
@@ -352,11 +382,6 @@ internal sealed class AutoTdpService : IAsyncDisposable
     /// </remarks>
     internal void Apply(bool enabled)
     {
-        if (enabled && Availability.TargetFrametimeMs is null)
-        {
-            enabled = false;
-        }
-
         Task<bool> stop;
         CancellationTokenSource applicationWrites;
         lock (_gate)
@@ -650,11 +675,7 @@ internal sealed class AutoTdpService : IAsyncDisposable
 
     internal async Task TickAsync(CancellationToken cancellationToken)
     {
-        if (RefreshPrerequisites())
-        {
-            return;
-        }
-
+        RefreshPrerequisites();
         if (!Volatile.Read(ref _enabled))
         {
             return;
@@ -770,12 +791,6 @@ internal sealed class AutoTdpService : IAsyncDisposable
         if (trace is not null)
         {
             trace.TargetFrametimeMs = target;
-        }
-
-        if (!double.IsFinite(target) || target <= 0)
-        {
-            Apply(false);
-            return;
         }
 
         // Read once, before the decision, and hand the same sample to the trace. The controller

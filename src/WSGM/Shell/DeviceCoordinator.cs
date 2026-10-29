@@ -2532,6 +2532,28 @@ internal sealed partial class DeviceCoordinator : IAsyncDisposable
         }
     }
 
+    /// <summary>Stores AutoTDP's frame-rate target in the layer in force.</summary>
+    /// <param name="fps">The target, within <see cref="AutoTdpTarget" />'s range.</param>
+    /// <param name="cancellationToken">Cancels the save.</param>
+    /// <returns>A task completing once the target is saved and announced.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The target lies outside the offered range.</exception>
+    /// <remarks>
+    ///     A profile value like the frame limit: it lands in the running game's profile while that is on
+    ///     and in Global otherwise. Control reads it on its next window, so nothing restarts.
+    /// </remarks>
+    internal async Task SetAutoTdpTargetAsync(int fps, CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (!AutoTdpTarget.IsValid(fps))
+        {
+            throw new ArgumentOutOfRangeException(nameof(fps), fps,
+                $"The AutoTDP target must be between {AutoTdpTarget.MinimumFps} and {AutoTdpTarget.MaximumFps} FPS.");
+        }
+
+        await Profiles.SetAsync(ProfileField.AutoTdpTarget, fps, cancellationToken).ConfigureAwait(false);
+        AutoTdp.RefreshPrerequisites();
+    }
+
     /// <summary>Claims managed controller input for one visible WSGM surface.</summary>
     /// <param name="surfaceId">Nonblank identifier retained until this surface releases its claim.</param>
     /// <param name="cancellationToken">Cancels admission or target neutralization; coordinator shutdown also cancels it.</param>

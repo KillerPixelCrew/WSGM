@@ -211,6 +211,13 @@ a profile value like the frame limit rather than a global switch, so the choice 
 is Windows power policy, so it lives beside the processor core preference on the overlay's
 Performance section and Steam's Performance tab and needs no device plugin.
 
+**AutoTDP has its own target frame rate (2026-10-29).** AutoTDP used to take its deadline from the
+active RTSS frame limit, so it could not run without one, and its Quick Access switch vanished
+whenever no limit was active. It now aims for its own per-game target, a slider under the switch
+on the Overlay, in Quick Access and on Steam's Power page. A lower active frame limit wins, because
+a capped game cannot reach a higher target. Details are in
+[AutoTDP](autotdp-controller.md#the-service).
+
 **Four display modes became two, and the old Off became Default.** Off, DPI-only and automatic
 profiles all collapse into Default, which is the DPI-only posture. Off was never a neutral choice:
 it left a handheld running the desktop's scaling inside Big Picture, so DPI-unaware games did not

@@ -563,7 +563,7 @@ with the scope and status as its description, rather than the unstyled divs it u
 | `frameLimit`         | WSGM slider with a "Disable frame limit" switch                                               | Performance    |
 | `vrr`                | WSGM toggle labelled by `#QuickAccess_Tab_Perf_EnableVRR`                                     | Performance    |
 | `powerLimit`         | Sustained power (PL1) and Boost power (PL2), driven by observed device values                 | Performance    |
-| `autoTdp`            | WSGM toggle "Automatic TDP"                                                                   | Performance    |
+| `autoTdp`            | WSGM toggle "Automatic TDP" and, while on, its "Target frame rate" slider                     | Performance    |
 | `controllerTarget`   | Valve dropdown labelled by the controller section title                                       | Performance    |
 | `valveReset`         | Valve's reset button                                                                          | Performance    |
 | `resolution`         | WSGM dropdown "Display resolution"                                                            | Quick Settings |
@@ -828,7 +828,11 @@ it never appears. The toolkit's power menu gate appends it, with Steam's localiz
 item and separator types the menu already rendered, as the menu's root passes through the shared JSX
 claim; selecting it sends `switchToDesktop`, which runs the same desktop transition as the overlay's
 Return to Desktop and is refused outside Game Mode or during another transition. The menu was mapped
-from the installed client offline on 2026-09-28.
+from the installed client offline on 2026-09-28. The gate recognises the root by its label and its
+Shutdown or Restart entry. It once also required an `onCancel`, but only the controller power chord
+passes one: the main menu's Power entry and Steam's system request open the menu without it, so the
+entry was missing there. The 2026-10-20 client also draws Sleep as a plain item, so Sleep no longer
+identifies the menu.
 
 Overlay tools now complete their workflows in the Overlay. The importer opens the native artwork
 host as a nested page, preserving its review when the user returns. CEF retains its native routes

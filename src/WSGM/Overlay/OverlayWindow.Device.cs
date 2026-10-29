@@ -385,6 +385,7 @@ public partial class OverlayWindow
             + $"capabilities={snapshot.Capabilities.Count}, "
             + $"glyphSelection={snapshot.GlyphSelection is not null}, "
             + $"autoTdp={snapshot.AutoTdp is not null}, "
+            + $"autoTdpTarget={snapshot.AutoTdpTarget is not null}, "
             + $"controller={snapshot.Controller is not null}, "
             + $"performanceProfiles={performance?.ProfileRows.Count ?? 0}, "
             + $"recovery={snapshot.Recovery is not null}",
@@ -610,6 +611,17 @@ public partial class OverlayWindow
             if (string.Equals(DeviceHostRowIds.AutoTdp, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = row;
+            }
+
+            // The target slider follows the switch, directly under it, while AutoTDP is on.
+            if (snapshot.AutoTdpTarget is { } autoTdpTarget)
+            {
+                var targetRow = CreateAutoTdpTargetRow(autoTdpTarget);
+                target.Children.Add(targetRow);
+                if (string.Equals(DeviceHostRowIds.AutoTdpTarget, focusedKey, StringComparison.Ordinal))
+                {
+                    restoreFocus = targetRow;
+                }
             }
         }
 

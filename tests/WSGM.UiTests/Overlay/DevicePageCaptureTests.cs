@@ -32,6 +32,8 @@ public sealed class DevicePageCaptureTests
     [InlineData("Info", 1280, 800)]
     [InlineData("Controller", 1280, 800)]
     [InlineData("Pinned sections", 1280, 800)]
+    [InlineData("AutoTDP", 980, 640)]
+    [InlineData("AutoTDP", 1280, 800)]
     public async Task CompleteClawPublication(string page, int width, int height)
     {
         var publication = JsonSerializer.Deserialize<Publication>(await File.ReadAllTextAsync(
@@ -46,6 +48,12 @@ public sealed class DevicePageCaptureTests
         var sections = DeviceSectionLayout.IncludePredefined(publication.Descriptors.Sections);
         var ids = sections.Select(section => section.SectionId).ToHashSet();
         using SimulatedDeviceOverlaySource hostControls = new();
+        if (page == "AutoTDP")
+        {
+            // Switched on, so the Power page carries the target slider under the switch.
+            await hostControls.ToggleAutoTdpAsync();
+        }
+
         // Variable refresh is the graphics package's now; Power and thermals shows it as the bridge does.
         using var graphics = FixtureGraphicsSource.Load();
         var state = hostControls.Snapshot() with
@@ -137,7 +145,10 @@ public sealed class DevicePageCaptureTests
         }
         else if (page != "Device")
         {
-            var section = page switch { "Power" => "power", "RGB" => "rgb", "Info" => "info", _ => "controller" };
+            var section = page switch
+            {
+                "Power" or "AutoTDP" => "power", "RGB" => "rgb", "Info" => "info", _ => "controller"
+            };
             UiFixture.Click(window, UiFixture.Rail(window, "device.section.plugin." + section));
         }
 
@@ -215,6 +226,26 @@ public sealed class DevicePageCaptureTests
             Assert.True(planGroup.TranslatePoint(default, window)!.Value.Y
                 - assignmentsGroup.TranslatePoint(new Point(0, assignmentsGroup.Bounds.Height), window)!.Value.Y >= 12,
                 "Separate power sections need a visible gap.");
+        }
+
+        if (page == "AutoTDP")
+        {
+            UiFixture.OpenSections(window);
+            Dispatcher.UIThread.RunJobs();
+            var toggle = window.GetVisualDescendants().OfType<Control>().First(control =>
+                control.IsEffectivelyVisible && Equals(control.Tag, DeviceHostRowIds.AutoTdp));
+            var slider = Assert.Single(window.GetVisualDescendants().OfType<Slider>(), candidate =>
+                candidate.IsEffectivelyVisible && Equals(candidate.Tag, DeviceHostRowIds.AutoTdpTarget));
+            Assert.True(slider.IsEffectivelyEnabled);
+            Assert.Equal(AutoTdpTarget.MinimumFps, slider.Minimum);
+            Assert.Equal(AutoTdpTarget.MaximumFps, slider.Maximum);
+            Assert.True(slider.TranslatePoint(default, window)!.Value.Y > toggle.TranslatePoint(default, window)!.Value.Y,
+                "The target slider follows the AutoTDP switch.");
+            var detail = UiFixture.Named<Control>(window, "DevicePowerOverview");
+            Assert.True(slider.TranslatePoint(new Point(slider.Bounds.Width, 0), detail)!.Value.X <= detail.Bounds.Width,
+                "The target slider fits the controls pane.");
+            slider.BringIntoView();
+            Dispatcher.UIThread.RunJobs();
         }
 
         var directory = Path.Combine(RepositoryFiles.Root, "TestResults", "ui", "claw-" +

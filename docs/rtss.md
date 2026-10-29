@@ -343,12 +343,10 @@ draws, so that step remains attended.
 ## AutoTDP
 
 RTSS is what makes AutoTDP possible: the frametime reader above supplies the windows the controller
-judges, and the observed frame limit supplies the deadline: the readback, or the value WSGM wrote
-until the next poll reads it. A desired cap or a default 60 Hz target cannot substitute for an
-active limiter. Without one the controls are disabled with `Requires frame-rate limit.`. Turning the
-limiter off stops control and restores the previous power limit but leaves the AutoTDP setting
-alone, because the limit is per application and switching to a window without one and back is the
-ordinary case (Claw, 2026-09-27). The controller, the service that admits it and the trace it
+judges. The deadline is AutoTDP's own per-game target, so no frame limit is needed. An active frame
+limit below the target lowers the deadline to the limit, because a capped game cannot reach a
+higher target; an active limit is the readback, or the value WSGM wrote until the next poll reads
+it, and a desired cap alone is not one. The controller, the service that admits it and the trace it
 records are in [AutoTDP](autotdp-controller.md).
 
 ## Remaining live work

@@ -59,6 +59,10 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             // with no capability view and no configuration change behind it.
             _autoTdp.StatusChanged += OnAutoTdpStatusChanged;
         }
+
+        // The AutoTDP target is a profile value: a game switch or Use global moves it and its marker
+        // without touching the device.
+        _coordinator.Profiles.Changed += OnProfilesChanged;
     }
 
     /// <inheritdoc />
@@ -111,10 +115,11 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         var glyphSelection = PhysicalGlyphSelectionView(
             _coordinator.PhysicalGlyphSelection,
             glyphSelectionState);
+        var autoTdpAvailability = _autoTdp?.Availability;
         var autoTdp = AutoTdpView(
             _coordinator.AutoTdpEnabled,
             _autoTdp?.Status,
-            _autoTdp?.Availability);
+            autoTdpAvailability);
         var recovery = RecoveryView(state);
         var controller = ControllerView(
             _coordinator.ControllerManagementEnabled,
@@ -186,7 +191,10 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
                     _coordinator.LightingProfileDetail, _coordinator.LightingProfileStatus)
                 : null,
             GlyphMode = _coordinator.PhysicalGlyphSelection,
-            PluginSections = ProjectSections(declaredSections)
+            PluginSections = ProjectSections(declaredSections),
+            AutoTdpTarget = AutoTdpTargetRow(
+                _coordinator.AutoTdpEnabled,
+                AutoTdpTargetView.Resolve(_coordinator.Profiles.Current.Layers, autoTdpAvailability))
         };
     }
 
@@ -254,6 +262,12 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     public Task ToggleAutoTdpAsync(CancellationToken cancellationToken = default)
     {
         return _coordinator.ToggleAutoTdpAsync(cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public Task SetAutoTdpTargetAsync(int fps, CancellationToken cancellationToken = default)
+    {
+        return _coordinator.SetAutoTdpTargetAsync(fps, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -345,6 +359,7 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         _coordinator.StateChanged -= OnStateChanged;
         _coordinator.Capabilities.Changed -= OnCapabilityViewsChanged;
         _coordinator.ConfigurationChanged -= OnConfigurationChanged;
+        _coordinator.Profiles.Changed -= OnProfilesChanged;
         if (_autoTdp is not null)
         {
             _autoTdp.StatusChanged -= OnAutoTdpStatusChanged;
@@ -735,6 +750,28 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
         return new DescriptorRow(DeviceHostRowIds.AutoTdp, "AutoTDP", detail, trailing, true, health);
     }
 
+    /// <summary>Projects AutoTDP's frame-rate target as the slider under its switch.</summary>
+    /// <param name="enabled">The persisted AutoTDP setting.</param>
+    /// <param name="target">The resolved target.</param>
+    /// <returns>The row while AutoTDP is on, else null: the target means nothing without control.</returns>
+    /// <remarks>
+    ///     Its own profile value, so AutoTDP runs without a frame limit. The Quick Access slider is fed the
+    ///     same <see cref="AutoTdpTargetView" />, so both draw the same value, bounds, marker and line.
+    /// </remarks>
+    internal static DescriptorRow? AutoTdpTargetRow(bool enabled, AutoTdpTargetView target)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        return enabled
+            ? new DescriptorRow(DeviceHostRowIds.AutoTdpTarget, "Target frame rate", target.Description,
+                string.Create(CultureInfo.InvariantCulture, $"{target.Fps} FPS"), true, DescriptorStatus.Available)
+            {
+                Range = new DescriptorRange(AutoTdpTarget.MinimumFps, AutoTdpTarget.MaximumFps, 1),
+                Value = target.Fps,
+                OverrideId = target.GameOverride ? nameof(ProfileField.AutoTdpTarget) : null
+            }
+            : null;
+    }
+
     private void ReleasePhysicalSamples()
     {
         lock (_sampleGate)
@@ -834,6 +871,11 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
 
     // Raised from AutoTDP's own tick loop. The overlay, the one subscriber, marshals its own refresh.
     private void OnAutoTdpStatusChanged(AutoTdpStatus _)
+    {
+        Changed?.Invoke();
+    }
+
+    private void OnProfilesChanged(ProfileSnapshot snapshot, ProfileChangeKind kind)
     {
         Changed?.Invoke();
     }

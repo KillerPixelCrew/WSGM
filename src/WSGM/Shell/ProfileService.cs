@@ -396,6 +396,9 @@ internal sealed class ProfileService
             case ProfileField.SustainedWatts:
                 values.SustainedWatts = value;
                 break;
+            case ProfileField.AutoTdpTarget:
+                values.AutoTdpTargetFps = value;
+                break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(field), field, "Not an integer profile field.");
         }
