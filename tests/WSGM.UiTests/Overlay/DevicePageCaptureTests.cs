@@ -154,8 +154,19 @@ public sealed class DevicePageCaptureTests
             Assert.NotEmpty(cards);
             var detail = UiFixture.Named<Control>(window, "DevicePowerOverview");
             Assert.All(cards, card => Assert.InRange(card.Bounds.Width, 240, detail.Bounds.Width));
-            Assert.Single(cards, card => Equals(card.Heading.Tag, "section.device.unified-power.expand"));
+            var power = Assert.Single(cards, card => Equals(card.Heading.Tag, "section.device.unified-power.expand"));
             Assert.DoesNotContain(cards, card => Equals(card.Heading.Tag, "section.system.power-profile.expand"));
+            // The Claw's fan group is its own fold after Power, not one of Power's open groups.
+            var fans = Assert.Single(cards, card => Equals(card.Heading.Tag,
+                "section.device.plugin.power.category.control.expand"));
+            Assert.DoesNotContain(fans, power.GetVisualDescendants());
+            Assert.Contains(fans, UiFixture.Named<Panel>(window, "DeviceFansHost").GetVisualDescendants());
+            Assert.Contains(fans.GetVisualDescendants().OfType<Control>(), control => Equals(control.Tag, "fan.mode"));
+            Assert.DoesNotContain(power.GetVisualDescendants().OfType<Control>(),
+                control => Equals(control.Tag, "fan.mode"));
+            Assert.True(fans.TranslatePoint(default, window)!.Value.Y
+                        >= power.TranslatePoint(new Point(0, power.Bounds.Height), window)!.Value.Y,
+                "Fans follows Power.");
             foreach (var header in cards.SelectMany(card => card.GetVisualDescendants()
                          .OfType<SectionPinHeader>()))
             {

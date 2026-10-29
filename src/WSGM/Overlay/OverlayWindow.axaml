@@ -422,6 +422,9 @@
                     </Border>
                   </StackPanel>
                 </Border>
+                <!-- Cooling is its own fold beside Power rather than one of Power's groups: fan
+                     mode, curve and speed are visited on their own, not on the way to a limit. -->
+                <StackPanel x:Name="DeviceFansHost" Spacing="12" IsVisible="False" />
                 <Border x:Name="DevicePerformanceCard" VerticalAlignment="Top">
                   <StackPanel x:Name="DevicePerformanceColumn" />
                 </Border>

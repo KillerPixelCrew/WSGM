@@ -314,6 +314,11 @@ public partial class OverlayWindow
                                                     && SameDeviceLayout(_deviceLayout, snapshot))
         {
             RefreshDeviceValues(DeviceCapabilityList, snapshot);
+            if (DeviceFansHost.Children.Count > 0)
+            {
+                RefreshDeviceValues(DeviceFansHost, snapshot);
+            }
+
             RenderPins();
             return;
         }
@@ -327,8 +332,11 @@ public partial class OverlayWindow
         var previousFocus = GetTopLevel(this)?.FocusManager.GetFocusedElement() as Control;
         var foldKey = previousFocus?.GetVisualAncestors().OfType<CollapsibleSection>()
             .FirstOrDefault()?.Heading.Tag;
-        var rebuildingFocus = previousFocus is not null && DeviceCapabilityList.IsVisualAncestorOf(previousFocus);
+        var rebuildingFocus = previousFocus is not null && (DeviceCapabilityList.IsVisualAncestorOf(previousFocus)
+                                                            || DeviceFansHost.IsVisualAncestorOf(previousFocus));
         DeviceCapabilityList.Children.Clear();
+        DeviceFansHost.Children.Clear();
+        DeviceFansHost.IsVisible = false;
         _renderedDevicePage = _navigation.Page;
         _renderedDeviceSection = _navigation.SectionId;
 
@@ -381,10 +389,11 @@ public partial class OverlayWindow
             + $"recovery={snapshot.Recovery is not null}",
             DeviceCapabilityList.Children.Count == 0 ? LogLevel.Warn : LogLevel.Info);
 
+        var rendered = DeviceCapabilityList.GetLogicalDescendants().Concat(DeviceFansHost.GetLogicalDescendants())
+            .OfType<Control>().ToArray();
         var focusTarget = focusedKey is null
             ? null
-            : DeviceCapabilityList.GetLogicalDescendants().OfType<Control>()
-                .FirstOrDefault(control => control.Focusable && Equals(control.Tag, focusedKey));
+            : rendered.FirstOrDefault(control => control.Focusable && Equals(control.Tag, focusedKey));
         var target = focusTarget ?? restoreFocus;
         if (target is { IsEffectivelyVisible: true, IsEffectivelyEnabled: true })
         {
@@ -392,7 +401,7 @@ public partial class OverlayWindow
         }
         else if (rebuildingFocus)
         {
-            var heading = DeviceCapabilityList.GetLogicalDescendants().OfType<Button>()
+            var heading = rendered.OfType<Button>()
                 .FirstOrDefault(button => Equals(button.Tag, foldKey) && button.IsEffectivelyVisible);
             (heading ?? SelectedSectionButton)?.Focus(NavigationMethod.Directional);
         }
@@ -478,10 +487,29 @@ public partial class OverlayWindow
                 continue;
             }
 
+            if (_unifiedPowerDetails && IsFanGroup(section))
+            {
+                // Inside the unified Power fold every group renders open; the fan group alone keeps its
+                // own fold, beside Power, under the same pin and expansion identity.
+                DeviceFansHost.Children.Add(new Border
+                {
+                    Child = FoldSection(content), Tag = content.Tag, VerticalAlignment = VerticalAlignment.Top
+                });
+                continue;
+            }
+
             DeviceCapabilityList.Children.Add(WrapDeviceSection(content));
         }
 
+        DeviceFansHost.IsVisible = DeviceFansHost.Children.Count > 0;
         return restoreFocus;
+    }
+
+    /// <summary>Whether a Power group holds the device's fan controls rather than limits or charging.</summary>
+    private static bool IsFanGroup(DevicePinSection section)
+    {
+        return section.Owned is null && section.Capabilities.Any(capability => capability.Role is CapabilityRole.FanMode
+            or CapabilityRole.FanCurve or CapabilityRole.FanDuty or CapabilityRole.FanTargetRpm);
     }
 
     /// <summary>WSGM's geometry for a declared section icon, or null for the shared default.</summary>
