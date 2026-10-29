@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Shell;
 
@@ -258,6 +259,43 @@ public sealed class DeviceFanCurveControllerTests
         sample = new DeviceFanCurveTemperature(50, Now);
         await ticks.AdvanceAsync();
         Assert.Equal([60, 90, 100, 40], writes);
+    }
+
+    [Fact]
+    public async Task ReconfiguredSmoothingStartsAFreshWindowWhileTheSameSmoothingKeepsTheRamp()
+    {
+        TickGate ticks = new();
+        DeviceFanCurveTemperature sample = new(60, Now);
+        List<int> writes = [];
+        await using DeviceFanCurveController controller = new(
+            _ => sample,
+            (_, duty, _) =>
+            {
+                writes.Add(duty);
+                return ValueTask.FromResult(new DeviceFanCurveWriteResult(true));
+            }, _ => { }, now: () => Now, waitTick: ticks.WaitAsync, smoothing: DeviceFanCurveSmoothing.None);
+        await controller.ConfigureAsync(Curve, [new DeviceFanCurveFan("cpu")], true);
+        await ticks.WaitForLoopAsync();
+        sample = new DeviceFanCurveTemperature(90, Now);
+        await ticks.AdvanceAsync();
+        Assert.Equal([60, 100], writes);
+
+        // The same curve with a two-sample average restarts the loop on a fresh window: it reads 90 alone,
+        // writes the curve's value once more, and the next reading averages with 90 rather than 60.
+        await controller.ConfigureAsync(Curve, [new DeviceFanCurveFan("cpu")], true,
+            smoothing: new DeviceFanCurveSmoothing(0, 100, 100, AverageSamples: 2));
+        await ticks.WaitForLoopAsync();
+        Assert.Equal([60, 100, 100], writes);
+        sample = new DeviceFanCurveTemperature(50, Now);
+        await ticks.AdvanceAsync();
+        Assert.Equal([60, 100, 100, 80], writes);
+
+        // Re-sending the same smoothing is not a change: the loop, its window and ramp continue.
+        await controller.ConfigureAsync(Curve, [new DeviceFanCurveFan("cpu")], true,
+            smoothing: new DeviceFanCurveSmoothing(0, 100, 100, AverageSamples: 2));
+        sample = new DeviceFanCurveTemperature(70, Now);
+        await ticks.AdvanceAsync();
+        Assert.Equal([60, 100, 100, 80, 60], writes);
     }
 
     [Fact]

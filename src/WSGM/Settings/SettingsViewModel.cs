@@ -290,7 +290,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         Func<DisplayArrangement> CaptureDisplays,
         Func<DisplayTargetIdentity, DisplayCatalogFacts?> ReadDisplayFacts,
         Func<IReadOnlyList<PluginActionOption>> ReadPluginActions,
-        Func<IEnumerable<(string Label, string Path, string Args, bool Elevated)>> DetectStartupApps,
+        Func<IEnumerable<(string Label, string Path, bool Elevated)>> DetectStartupApps,
         Action BeginImportSession,
         Action EndImportSession,
         Func<SaveRequest, Task<SaveResult>> Persist,

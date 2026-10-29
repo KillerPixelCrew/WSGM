@@ -173,10 +173,12 @@ internal sealed partial class DeviceCoordinator
             .Select(view => new DeviceFanCurveFan(view.Descriptor.InstanceId ?? string.Empty,
                 view.Descriptor.Minimum ?? 0, view.Descriptor.Maximum ?? 100))
             .Where(fan => !stopAll && InSoftwareMode(views, fan.InstanceId, change)).ToArray();
-        var effective = curve is { Count: > 0 } ? curve : DefaultSoftwareCurve();
+        var table = FanCurvePresets.For(DeviceDefinition?.Id);
+        var effective = curve is { Count: > 0 } ? curve : DefaultSoftwareCurve(table);
         _client?.SetSoftwareFans([.. fans.Select(fan => fan.InstanceId)], fans.Length > 0 ? effective : curve ?? []);
         return _fanCurves.ConfigureAsync(fans.Length > 0 ? effective : null, fans,
-            IntegrationEnabled && State is DeviceCycleState.Active or DeviceCycleState.Degraded, explicitSelection);
+            IntegrationEnabled && State is DeviceCycleState.Active or DeviceCycleState.Degraded, explicitSelection,
+            table.Smoothing);
     }
 
     private static bool InSoftwareMode(IReadOnlyList<DeviceCapabilityView> views, string instance,
@@ -201,9 +203,8 @@ internal sealed partial class DeviceCoordinator
     }
 
     // The editor's Default preset for this device on the software curve's inputs, until the user saves a curve.
-    private CurvePoint[] DefaultSoftwareCurve()
+    private static CurvePoint[] DefaultSoftwareCurve(FanCurvePresetTable table)
     {
-        var table = FanCurvePresets.For(DeviceDefinition?.Id);
         return
         [
             .. Enumerable.Range(0, 11).Select(index =>

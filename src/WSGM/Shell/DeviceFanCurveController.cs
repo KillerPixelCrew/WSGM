@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Shell;
@@ -16,29 +17,6 @@ internal readonly record struct DeviceFanCurveTemperature(double? Celsius, DateT
 /// <summary>An acknowledged duty write; refused and uncertain outcomes both stop automatic writes.</summary>
 internal readonly record struct DeviceFanCurveWriteResult(bool Applied, string? Reason = null);
 
-/// <summary>How the curve's output is steadied before it reaches a fan.</summary>
-/// <param name="HysteresisCelsius">
-///     How far the temperature must move from the one the current target was read at before the target
-///     is recomputed. Ignored beyond the curve's first and last breakpoints, where the output is pinned.
-/// </param>
-/// <param name="MaximumRisePerTick">The most the duty may rise in one tick.</param>
-/// <param name="MaximumFallPerTick">The most the duty may fall in one tick.</param>
-/// <param name="AverageSamples">How many of the latest fresh readings are averaged before the curve is read.</param>
-/// <remarks>
-///     FanControl's sensor averaging, hysteresis and step limits, which handheld users already tune by
-///     hand: one spiky reading is diluted, a sensor that jitters by a degree no longer moves the fan,
-///     and a load spike spins up briskly but spins down slowly instead of surging. The defaults are a
-///     three-sample average, 2 °C, and 10 and 3 points per one-second tick.
-/// </remarks>
-internal readonly record struct DeviceFanCurveSmoothing(double HysteresisCelsius, int MaximumRisePerTick,
-    int MaximumFallPerTick, int AverageSamples = 1)
-{
-    /// <summary>Every tick follows the curve exactly.</summary>
-    internal static readonly DeviceFanCurveSmoothing None = new(0, 100, 100);
-
-    internal static readonly DeviceFanCurveSmoothing Default = new(2, 10, 3, 3);
-}
-
 /// <summary>The session-owned software fan policy; hardware access remains with the coordinator.</summary>
 internal sealed class DeviceFanCurveController : IAsyncDisposable
 {
@@ -49,7 +27,6 @@ internal sealed class DeviceFanCurveController : IAsyncDisposable
     private readonly Func<DateTimeOffset> _now;
     private readonly Func<string, DeviceFanCurveTemperature> _readTemperature;
     private readonly Func<string, CancellationToken, ValueTask>? _releaseAutomatic;
-    private readonly DeviceFanCurveSmoothing _smoothing;
     private readonly Func<CancellationToken, ValueTask>? _waitTick;
     private readonly Func<string, int, CancellationToken, ValueTask<DeviceFanCurveWriteResult>> _writeDuty;
     private bool _availabilityPublished;
@@ -60,6 +37,7 @@ internal sealed class DeviceFanCurveController : IAsyncDisposable
     private Fan[] _fans = [];
     private string? _lastAvailability;
     private CancellationTokenSource? _loopCancellation;
+    private DeviceFanCurveSmoothing _smoothing;
     private bool _suspended;
 
     internal DeviceFanCurveController(Func<string, DeviceFanCurveTemperature> readTemperature,
@@ -84,11 +62,7 @@ internal sealed class DeviceFanCurveController : IAsyncDisposable
             throw new ArgumentOutOfRangeException(nameof(maximumTemperatureAge));
         }
 
-        if (_smoothing.HysteresisCelsius < 0 || _smoothing.MaximumRisePerTick < 1 || _smoothing.MaximumFallPerTick < 1
-            || _smoothing.AverageSamples < 1)
-        {
-            throw new ArgumentOutOfRangeException(nameof(smoothing));
-        }
+        Validate(_smoothing);
     }
 
     /// <summary>The tracked loop, including its last write and cancellation cleanup.</summary>
@@ -115,19 +89,21 @@ internal sealed class DeviceFanCurveController : IAsyncDisposable
         }
     }
 
-    /// <summary>Replaces the selected curve and current fan descriptors; changes apply immediately.</summary>
+    /// <summary>Replaces the selected curve, current fan descriptors and smoothing; changes apply immediately.</summary>
     /// <remarks>Only explicit selection or integration re-enable clears a failed-write latch.</remarks>
     internal async Task ConfigureAsync(IReadOnlyList<CurvePoint>? curve, IReadOnlyList<DeviceFanCurveFan> fans,
-        bool enabled, bool explicitSelection = false)
+        bool enabled, bool explicitSelection = false, DeviceFanCurveSmoothing? smoothing = null)
     {
         ArgumentNullException.ThrowIfNull(fans);
         var points = curve?.ToArray() ?? [];
         Validate(points, fans);
+        var tuning = smoothing ?? _smoothing;
+        Validate(tuning);
         await _lifecycle.WaitAsync().ConfigureAwait(false);
         try
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            if (!explicitSelection && enabled == _enabled && points.AsSpan().SequenceEqual(_curve)
+            if (!explicitSelection && enabled == _enabled && points.AsSpan().SequenceEqual(_curve) && tuning == _smoothing
                 && fans.Count == _fans.Length && fans.SequenceEqual(_fans.Select(fan => fan.Definition)))
             {
                 return;
@@ -140,11 +116,14 @@ internal sealed class DeviceFanCurveController : IAsyncDisposable
                 _failure = null;
             }
 
+            // A fan keeps its ramp position across a reconfiguration; only new smoothing restarts its window.
+            var retune = tuning != _smoothing;
+            _smoothing = tuning;
             var next = new Fan[fans.Count];
             for (var i = 0; i < fans.Count; i++)
             {
-                next[i] = _fans.FirstOrDefault(fan => fan.Definition == fans[i])
-                          ?? new Fan(fans[i], _smoothing.AverageSamples);
+                var existing = retune ? null : _fans.FirstOrDefault(fan => fan.Definition == fans[i]);
+                next[i] = existing ?? new Fan(fans[i], _smoothing.AverageSamples);
             }
 
             foreach (var fan in _fans)
@@ -422,6 +401,15 @@ internal sealed class DeviceFanCurveController : IAsyncDisposable
         }
 
         return Math.Clamp((int)Math.Round(output, MidpointRounding.AwayFromZero), minimumDuty, maximumDuty);
+    }
+
+    private static void Validate(DeviceFanCurveSmoothing smoothing)
+    {
+        if (smoothing.HysteresisCelsius < 0 || smoothing.MaximumRisePerTick < 1 || smoothing.MaximumFallPerTick < 1
+            || smoothing.AverageSamples < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(smoothing));
+        }
     }
 
     private static void Validate(IReadOnlyList<CurvePoint> curve, IReadOnlyList<DeviceFanCurveFan> fans)
