@@ -945,7 +945,10 @@ sections from `SteamGraphicsService`. Adapter, display and category headings com
 AutoTDP, power preset, Windows power scheme, CPU boost, hybrid-core and device-capability owners.
 Audio uses `NativeQamAudioFormatService` for the active endpoint's channels, default format and
 spatial sound. Controller projects the device's lighting capabilities, with explicit commits for
-persistent color changes.
+persistent color changes. A zone color row shows its swatch and Edit button without hex text; the
+swatch's accessible name carries the value. Effect and other choice names are the display labels
+LibHandheld declares ("Solid", "Full speed"), the same ones the Overlay's dropdowns show, while the
+published and saved values stay the ids.
 
 Profile-aware controls name the currently edited layer and use the same profile toggle and reset
 owner as Quick Access. Published rows carry supported choices, bounds, readback and unavailable
@@ -956,8 +959,12 @@ signals invalidate the shared resolution discovery cache. Audio and profile row 
 commands from an endpoint or editing scope that has since been replaced.
 
 Each native page retains a reactive host slot while it has no capabilities, so a controller's
-lighting can appear on an already open page. Power's sidebar visibility changes refresh the native
-root through the known SharedJSContext and popup documents, with the original hook order.
+lighting can appear on an already open page. Steam's page content and the slot sit inside one
+toolkit wrapper that is the page's scrolling `DialogBody`. Steam's own page body scrolls by itself
+in the desktop client, so slot sections beside it used to squeeze the native rows into a small
+scroller at the top of the page; Big Picture never scrolled that body and was unaffected. Power's
+sidebar visibility changes refresh the native root through the known SharedJSContext and popup
+documents, with the original hook order.
 
 - A toggle, a range with bounds and a choice are Steam's toggle, slider and dropdown. A value the
   page cannot edit is a value field, and an action is a button.

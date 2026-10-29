@@ -5456,7 +5456,8 @@
         });
       }
       case "color": {
-        // A colour is shown as its swatch and its text, and edited in a modal of Steam's sliders,
+        // A colour is shown as its swatch alone, which carries the value as its accessible name
+        // (hex text beside it wrapped in a narrow row), and edited in a modal of Steam's sliders,
         // the way CSSLoader's colour picker edits a theme's colour. Where this client has no
         // modal, or the value is not a colour the sliders can hold, the text itself is editable,
         // so the value is never out of reach and never replaced by a colour it was not. Text
@@ -5485,12 +5486,12 @@
               "flow-children": "row",
               style: { display: "flex", alignItems: "center", gap: "8px" },
             },
-            renderSteamUiSwatch(ui.react, current),
-            h("span", null, current),
+            renderSteamUiSwatch(ui.react, current, `${row.label}: ${current}`),
             h(
               ui.smallButton,
               {
                 disabled: !!row.disabled,
+                "aria-label": `Edit ${row.label}`,
                 onClick: () =>
                   showSteamColorEditor(ui, row.label, parsed, send, row.colorAlpha !== false),
               },
@@ -5811,6 +5812,8 @@
 .steam-ui-kit-nested .DialogToggle_Label{font-size:14px}
 .steam-ui-kit-nested .DialogToggle_Description{font-size:12px}
 .steam-ui-kit-highlight{color:#fca904}
+/* A native Settings page with host sections: the wrapper is the page's scrolling DialogBody, so Steam's own body inside it keeps its full height. */
+.steam-ui-kit-settings-body>.DialogBody{flex:none!important;overflow:visible!important;padding-inline-end:0!important;padding-bottom:0!important}
 .steam-ui-kit-swatch{width:20px;height:20px;border-radius:3px;border:1px solid rgba(255,255,255,.3);flex:0 0 auto}
 .steam-ui-kit-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px}
 .steam-ui-kit-card{display:flex;flex-direction:column;border-radius:4px;overflow:hidden;background:#ACB2C924;outline:2px solid transparent;transition:outline-color 150ms,background 150ms}
@@ -6220,10 +6223,16 @@
    * Creates a noninteractive color preview.
    * @param react Steam's React instance used by the consuming root.
    * @param color CSS color used as the swatch background.
+   * @param label Optional accessible name, such as the row and its value; without one the swatch is decorative.
    * @returns The swatch element.
    */
-  const renderSteamUiSwatch = (react, color) =>
-    react.createElement("div", { className: "steam-ui-kit-swatch", style: { background: color } });
+  const renderSteamUiSwatch = (react, color, label) =>
+    react.createElement("div", {
+      className: "steam-ui-kit-swatch",
+      style: { background: color },
+      role: label ? "img" : undefined,
+      "aria-label": label || undefined,
+    });
   /**
    * Creates one activatable gallery card using Steam controller focus.
    * @param ui Steam's resolved React and native control components.
@@ -10167,7 +10176,6 @@
       return react.createElement(
         react.Fragment,
         null,
-        steamUiKitStyle(react),
         ...page.sections
           .filter((section) => section.rows.length)
           .map((section, index) =>
@@ -10186,6 +10194,11 @@
     }
     // Match Steam's semantic descriptor keys and the native element handles already in its map.
     // No native component is replaced: the route, label, glyph and content remain Steam's own.
+    // Each native page renders its own scrolling DialogBody. In the desktop client that body is a
+    // flex:1, overflow:auto child of a fixed-height column, so host sections placed beside it took
+    // their full height and squeezed Steam's page into the remainder. The wrapper becomes the page's
+    // one DialogBody instead, and the kit stylesheet lets Steam's body inside it keep its full height
+    // (Big Picture's dialog bodies never scroll, so it lays out as before there).
     const transformDescriptors = (value) => {
       if (!installed || !value || Array.isArray(value) || typeof value !== "object") return value;
       if (
@@ -10217,13 +10230,14 @@
                 (value.Display.visible && value.Audio.visible && value.Controller.visible)
               : original.visible,
           content: react.createElement(
-            react.Fragment,
-            null,
+            "div",
+            { className: "DialogBody steam-ui-kit-settings-body" },
             original.content,
             react.createElement(SteamUiNativeSettingsSections, {
               id,
               key: `steam-ui-native-${id}`,
             }),
+            steamUiKitStyle(react),
           ),
         };
       }
