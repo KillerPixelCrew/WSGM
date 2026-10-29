@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
@@ -6,7 +7,7 @@ using WindowsDeviceControl;
 
 namespace WSGM.Core;
 
-/// <summary>One of the four user-facing idle timeouts of the active power scheme.</summary>
+/// <summary>One of the six user-facing idle timeouts of the active power scheme.</summary>
 public enum PowerTimeoutKind
 {
     /// <summary>Turn off the display after (on battery).</summary>
@@ -19,12 +20,18 @@ public enum PowerTimeoutKind
     SleepDc,
 
     /// <summary>Go to standby after (plugged in).</summary>
-    SleepAc
+    SleepAc,
+
+    /// <summary>Hibernate after (on battery); Modern Standby counts it from standby entry.</summary>
+    HibernateDc,
+
+    /// <summary>Hibernate after (plugged in); Modern Standby counts it from standby entry.</summary>
+    HibernateAc
 }
 
 /// <summary>
-///     Reads and writes the active power scheme's display-off and standby idle
-///     timeouts through the flat powrprof policy API (locale-independent, unlike parsing
+///     Reads and writes the active power scheme's display-off, standby and hibernate idle
+///     timeouts, located by Windows Device Control, through the flat powrprof policy API (locale-independent, unlike parsing
 ///     <c>powercfg /q</c>). Values are seconds; 0 means Never. Writes go to the active
 ///     scheme and are applied immediately via <c>PowerSetActiveScheme</c> — the same thing
 ///     the Settings app does, so Windows may later replace them (updates, OEM tools);
@@ -34,10 +41,6 @@ public enum PowerTimeoutKind
 /// <param name="schemes">The session's scheme owner, whose lock and active scheme every write uses.</param>
 internal sealed class PowerTimeouts(PowerSchemes schemes)
 {
-    private static readonly Guid SubVideo = new("7516b95f-f776-4464-8c53-06167f40cc99");
-    private static readonly Guid VideoIdle = new("3c0bc021-c8a8-4e07-a973-6b14cbcb2b7e");
-    private static readonly Guid StandbyIdle = new("29f6c1db-86da-48c5-9fdb-f2b67b1f44da");
-
     /// <summary>
     ///     The cycle presets offered by the quick-access rows, in click order;
     ///     0 (Never) sits last so cycling reads as "longer, longer, …, never, shortest".
@@ -64,25 +67,33 @@ internal sealed class PowerTimeouts(PowerSchemes schemes)
     }
 
     /// <summary>
-    ///     Reads all four timeout values after resolving the active power scheme once.
+    ///     Reads every timeout value after resolving the active power scheme once.
     /// </summary>
-    /// <returns>Four independently nullable values in seconds; all are null when the active scheme cannot be read.</returns>
-    internal (int? DisplayDc, int? DisplayAc, int? SleepDc, int? SleepAc) ReadAll()
+    /// <returns>
+    ///     One independently nullable value in seconds per kind; all are null when the active scheme cannot be
+    ///     read, and the hibernate values are null while the machine cannot hibernate.
+    /// </returns>
+    internal IReadOnlyDictionary<PowerTimeoutKind, int?> ReadAll()
     {
-        if (!TryGetActiveScheme(out var scheme))
-        {
-            return (null, null, null, null);
-        }
-
-        return (
-            Read(scheme, PowerTimeoutKind.DisplayDc),
-            Read(scheme, PowerTimeoutKind.DisplayAc),
-            Read(scheme, PowerTimeoutKind.SleepDc),
-            Read(scheme, PowerTimeoutKind.SleepAc));
+        var found = TryGetActiveScheme(out var scheme);
+        var hibernation = found && HibernationAvailable();
+        return Enum.GetValues<PowerTimeoutKind>().ToDictionary(kind => kind,
+            kind => found ? Read(scheme, kind, hibernation) : null);
     }
 
     private int? Read(Guid scheme, PowerTimeoutKind kind)
     {
+        return Read(scheme, kind, !IsHibernate(kind) || HibernationAvailable());
+    }
+
+    private int? Read(Guid scheme, PowerTimeoutKind kind, bool hibernation)
+    {
+        // A hibernate timeout on a machine that cannot hibernate does nothing, so it is not offered.
+        if (IsHibernate(kind) && !hibernation)
+        {
+            return null;
+        }
+
         var (subgroup, setting, dc) = Locate(kind);
         try
         {
@@ -176,13 +187,33 @@ internal sealed class PowerTimeouts(PowerSchemes schemes)
 
     private static (Guid Subgroup, Guid Setting, bool Dc) Locate(PowerTimeoutKind kind)
     {
-        return kind switch
+        var (subgroup, setting) = WindowsPower.LocateIdleTimeout(kind switch
         {
-            PowerTimeoutKind.DisplayDc => (SubVideo, VideoIdle, true),
-            PowerTimeoutKind.DisplayAc => (SubVideo, VideoIdle, false),
-            PowerTimeoutKind.SleepDc => (ModernStandby.SubgroupSleep, StandbyIdle, true),
-            _ => (ModernStandby.SubgroupSleep, StandbyIdle, false)
-        };
+            PowerTimeoutKind.DisplayDc or PowerTimeoutKind.DisplayAc => WindowsIdleTimeout.DisplayOff,
+            PowerTimeoutKind.SleepDc or PowerTimeoutKind.SleepAc => WindowsIdleTimeout.Standby,
+            _ => WindowsIdleTimeout.Hibernate
+        });
+        return (subgroup, setting,
+            kind is PowerTimeoutKind.DisplayDc or PowerTimeoutKind.SleepDc or PowerTimeoutKind.HibernateDc);
+    }
+
+    private static bool IsHibernate(PowerTimeoutKind kind)
+    {
+        return kind is PowerTimeoutKind.HibernateDc or PowerTimeoutKind.HibernateAc;
+    }
+
+    /// <summary>Whether a hibernate timeout would take effect; a failed query counts as unavailable.</summary>
+    private static bool HibernationAvailable()
+    {
+        try
+        {
+            return WindowsPower.IsHibernationAvailable();
+        }
+        catch (Win32Exception ex)
+        {
+            Log.Warn($"Hibernation availability could not be read (status {ex.NativeErrorCode}).");
+            return false;
+        }
     }
 
     private bool TryGetActiveScheme(out Guid scheme)

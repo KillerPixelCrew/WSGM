@@ -237,6 +237,23 @@ internal sealed class DisplayTimeouts : ISteamScreensaverBackend
         return written;
     }
 
+    /// <summary>Reads one timeout from the active scheme and records the observation.</summary>
+    /// <param name="kind">The timeout to read.</param>
+    /// <returns>Seconds, zero for never, or null when Windows gives no answer or the machine cannot hibernate.</returns>
+    internal int? Read(PowerTimeoutKind kind)
+    {
+        using (_schemes.EnterMutation())
+        {
+            var current = _read(kind);
+            lock (_gate)
+            {
+                _observed[kind] = current;
+            }
+
+            return current;
+        }
+    }
+
     /// <summary>Publishes accepted writes once, then resumes independent Windows readings.</summary>
     /// <returns>One row per display timeout, with only the choices the screensaver allows.</returns>
     internal SteamScreensaverState ReadState()

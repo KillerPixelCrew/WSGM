@@ -13,6 +13,7 @@ namespace WSGM.Overlay;
 
 public partial class OverlayWindow
 {
+    private readonly Dictionary<PowerTimeoutKind, FASettingsExpanderItem> _hibernateRows = [];
     private readonly Dictionary<PowerTimeoutKind, ComboBox> _timeoutEditors = [];
     private bool _refreshingPowerEditors;
     private ComboBox? _wakeEditor;
@@ -44,17 +45,29 @@ public partial class OverlayWindow
                 PowerTimeoutKind.DisplayDc => "Screen off · battery",
                 PowerTimeoutKind.DisplayAc => "Screen off · plugged in",
                 PowerTimeoutKind.SleepDc => "Standby · battery",
-                _ => "Standby · plugged in"
+                PowerTimeoutKind.SleepAc => "Standby · plugged in",
+                PowerTimeoutKind.HibernateDc => "Hibernate · battery",
+                _ => "Hibernate · plugged in"
             };
+            var hibernate = kind is PowerTimeoutKind.HibernateDc or PowerTimeoutKind.HibernateAc;
             var editor = new ComboBox { MinWidth = 150, HorizontalAlignment = HorizontalAlignment.Stretch };
             _timeoutEditors.Add(kind, editor);
             AutomationProperties.SetName(editor, title);
             ObservePowerChoice<TimeoutChoice>(editor, selected => PowerTimeoutSelected?.Invoke(kind, selected.Seconds));
-            PowerTimeoutEditors.Children.Add(new FASettingsExpanderItem
+            FASettingsExpanderItem row = new()
             {
                 Content = title, Footer = editor, HorizontalAlignment = HorizontalAlignment.Stretch,
-                Focusable = false
-            });
+                Focusable = false,
+                Description = hibernate ? "Time in standby before the device hibernates" : null,
+                // Shown once a reading says the machine can hibernate.
+                IsVisible = !hibernate
+            };
+            if (hibernate)
+            {
+                _hibernateRows.Add(kind, row);
+            }
+
+            PowerTimeoutEditors.Children.Add(row);
         }
 
         if (DataContext is OverlayViewModel vm)
@@ -98,6 +111,12 @@ public partial class OverlayWindow
             }
 
             KeepAwakeDetail.Text = vm.KeepAwakeDescription;
+            foreach (var (kind, row) in _hibernateRows)
+            {
+                // A machine that cannot hibernate reads no value; its timeout would do nothing.
+                row.IsVisible = vm.PowerTimeoutValues.GetValueOrDefault(kind) is not null;
+            }
+
             foreach (var (kind, editor) in _timeoutEditors)
             {
                 // A readback must not replace the popup's draft or its item objects.

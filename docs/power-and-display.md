@@ -588,10 +588,15 @@ share, which excludes presets below Steam's reported screensaver timeout and nam
 row's description. The bound and how it is enforced are in
 [the Steam CEF system](steam-cef-system.md#screensaver-settings).
 
-Four selectors (screen-off and standby, each for battery and plugged-in) offer 1, 3, 5, 10, 15, 30,
-60 min and never, preserving a current custom value. A popup stages browsing until it closes;
-confirmed choices enter an ordered background queue and re-read the active scheme before one write
-through `Core\PowerTimeouts.cs`, using Windows Device Control's policy-value API. Parsing
+Six selectors (screen-off, standby and hibernate, each for battery and plugged-in) offer 1, 3, 5,
+10, 15, 30, 60 min and never, preserving a current custom value. Steam's Power page carries the
+standby and hibernate rows in a "Sleep and hibernation" section; the screen-off rows stay with
+Steam's screensaver. Windows Device Control locates each setting and reports whether the machine can
+hibernate; the hibernate rows are hidden while it cannot (hibernation off, or a reduced fast-startup
+file), because the value would do nothing. On Modern Standby the hibernate timeout counts time spent
+in standby, not idle time, so it starts after the standby timeout. A popup stages browsing until it
+closes; confirmed choices enter an ordered background queue and re-read the active scheme before one
+write through `Core\PowerTimeouts.cs`, using Windows Device Control's policy-value API. Parsing
 `powercfg /q` was rejected: its output is localized, the same trap as netstat. The rows are a
 convenience over the active scheme, deliberately not snapshotted or restored.
 

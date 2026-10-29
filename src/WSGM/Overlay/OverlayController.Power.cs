@@ -17,7 +17,7 @@ public sealed partial class OverlayController
     private Task _windowsReads = Task.CompletedTask;
 
     /// <summary>
-    ///     Reads the four idle timeouts from the active power scheme into the
+    ///     Reads the idle timeouts from the active power scheme into the
     ///     Power tab's badges ("—" when the power API gives no answer), and says when Steam's
     ///     screensaver holds a display timeout up.
     /// </summary>
@@ -25,7 +25,7 @@ public sealed partial class OverlayController
     {
         QueueWindowsRead(() =>
         {
-            (int? DisplayDc, int? DisplayAc, int? SleepDc, int? SleepAc) timeouts;
+            IReadOnlyDictionary<PowerTimeoutKind, int?> timeouts;
             try
             {
                 timeouts = _power.Timeouts.ReadAll();
@@ -33,7 +33,7 @@ public sealed partial class OverlayController
             catch (Exception ex)
             {
                 Log.Error("Could not read the idle timeouts", ex);
-                timeouts = (null, null, null, null);
+                timeouts = new Dictionary<PowerTimeoutKind, int?>();
             }
 
             return () => ApplyPowerTimeouts(vm, timeouts);
@@ -41,28 +41,23 @@ public sealed partial class OverlayController
     }
 
     private void ApplyPowerTimeouts(OverlayViewModel vm,
-        (int? DisplayDc, int? DisplayAc, int? SleepDc, int? SleepAc) timeouts)
+        IReadOnlyDictionary<PowerTimeoutKind, int?> timeouts)
     {
         if (_disposed || !ReferenceEquals(_overlayViewModel, vm))
         {
             return;
         }
 
-        vm.DisplayDcTimeout = Format(timeouts.DisplayDc);
-        vm.DisplayAcTimeout = Format(timeouts.DisplayAc);
+        vm.DisplayDcTimeout = Format(timeouts.GetValueOrDefault(PowerTimeoutKind.DisplayDc));
+        vm.DisplayAcTimeout = Format(timeouts.GetValueOrDefault(PowerTimeoutKind.DisplayAc));
         vm.DisplayDcDescription = DisplayTimeoutDescription(PowerTimeoutKind.DisplayDc);
         vm.DisplayAcDescription = DisplayTimeoutDescription(PowerTimeoutKind.DisplayAc);
-        vm.SleepDcTimeout = Format(timeouts.SleepDc);
-        vm.SleepAcTimeout = Format(timeouts.SleepAc);
+        vm.SleepDcTimeout = Format(timeouts.GetValueOrDefault(PowerTimeoutKind.SleepDc));
+        vm.SleepAcTimeout = Format(timeouts.GetValueOrDefault(PowerTimeoutKind.SleepAc));
         vm.PowerTimeoutMinimums = Enum.GetValues<PowerTimeoutKind>().ToDictionary(kind => kind,
             kind => _displayTimeouts?.Minimum(kind));
-        vm.PowerTimeoutValues = new Dictionary<PowerTimeoutKind, int?>
-        {
-            [PowerTimeoutKind.DisplayDc] = timeouts.DisplayDc,
-            [PowerTimeoutKind.DisplayAc] = timeouts.DisplayAc,
-            [PowerTimeoutKind.SleepDc] = timeouts.SleepDc,
-            [PowerTimeoutKind.SleepAc] = timeouts.SleepAc
-        };
+        vm.PowerTimeoutValues = Enum.GetValues<PowerTimeoutKind>().ToDictionary(kind => kind,
+            kind => timeouts.GetValueOrDefault(kind));
         _displayTimeouts?.Observe(vm.PowerTimeoutValues);
         return;
 

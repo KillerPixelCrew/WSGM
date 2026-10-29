@@ -274,6 +274,42 @@ internal sealed partial class SteamNativeSettingsService(
                 Section(power, "Windows power policy", "windows-power", rows);
             }
 
+            if (displayTimeouts is not null)
+            {
+                List<SteamSettingsRow> rows = [];
+                SleepTimeout(PowerTimeoutKind.SleepDc, "standby-battery", "Standby after (on battery)",
+                    "Idle time before the device enters standby.");
+                SleepTimeout(PowerTimeoutKind.SleepAc, "standby-plugged-in", "Standby after (plugged in)",
+                    "Idle time before the device enters standby.");
+                SleepTimeout(PowerTimeoutKind.HibernateDc, "hibernate-battery", "Hibernate after (on battery)",
+                    "Time in standby before the device hibernates. Only the power button wakes it.");
+                SleepTimeout(PowerTimeoutKind.HibernateAc, "hibernate-plugged-in", "Hibernate after (plugged in)",
+                    "Time in standby before the device hibernates. Only the power button wakes it.");
+                Section(power, "Sleep and hibernation", "sleep", rows);
+
+                void SleepTimeout(PowerTimeoutKind kind, string id, string label, string description)
+                {
+                    // An unreadable value, or a hibernate timeout on a machine that cannot hibernate, is not offered.
+                    if (displayTimeouts.Read(kind) is not { } current)
+                    {
+                        return;
+                    }
+
+                    Add(rows, new SteamSettingsRow("power.timeout-" + id, SteamSettingsRowKind.Choice, label,
+                            description, Text: current.ToString(CultureInfo.InvariantCulture),
+                            Choices:
+                            [
+                                .. DisplayTimeoutPolicy.Choices(current, null).Select(seconds =>
+                                    new SteamSettingsChoice(seconds.ToString(CultureInfo.InvariantCulture),
+                                        PowerTimeouts.Describe(seconds)))
+                            ]),
+                        (value, _) => Task.FromResult(
+                            displayTimeouts.Select(kind, int.Parse(value.GetString()!, CultureInfo.InvariantCulture))
+                                ? SteamUiCommandResult.Applied
+                                : new SteamUiCommandResult(false, "Windows did not accept the timeout.")));
+                }
+            }
+
             List<SteamSettingsRow> cpu = [];
             if (cpuBoost is not null && await cpuBoost.ReadAsync().ConfigureAwait(false) is { Available: true } boost)
             {
