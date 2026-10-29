@@ -69,7 +69,7 @@ internal sealed class ManagedShortcutMonitor : IAsyncDisposable
         Wake(full: false);
     }
 
-    private void Request()
+    internal void Request()
     {
         Wake(full: true);
     }
@@ -97,6 +97,10 @@ internal sealed class ManagedShortcutMonitor : IAsyncDisposable
                 bool full;
                 lock (_gate)
                 {
+                    if (_emulators is { Initialized: false })
+                    {
+                        continue;
+                    }
                     full = _fullCheck || !signalled;
                     _fullCheck = false;
                 }
@@ -116,7 +120,11 @@ internal sealed class ManagedShortcutMonitor : IAsyncDisposable
                     {
                         // One bounded read-only observation recovers an arrival that was not ready at the first settle.
                         await Task.Delay(TimeSpan.FromSeconds(2), _stop.Token).ConfigureAwait(false);
-                        await _library.RecheckStorageChangesAsync(_stop.Token).ConfigureAwait(false);
+                        var settled = await _library.RecheckStorageChangesAsync(_stop.Token).ConfigureAwait(false);
+                        if (!settled.Succeeded)
+                        {
+                            Log.Change("library.availability.error", settled.Error ?? "Availability could not be checked.");
+                        }
                     }
                 }
                 catch (Exception ex) when (ex is IOException or InvalidDataException or JsonException

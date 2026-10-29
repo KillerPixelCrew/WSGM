@@ -81,6 +81,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
 
     private readonly Func<Action<GameLibraryConfig>, GameLibraryConfig>? _updateSettings;
     private readonly Func<SteamShortcutWriter?> _writer;
+    private readonly Func<uint, CancellationToken, Task<IReadOnlyList<ImportedCollection>>>? _readCollections;
     private bool _disposed;
     private string? _error;
     private long _generation;
@@ -136,6 +137,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     /// </param>
     /// <param name="emulators">The session-owned emulator manager, or null in an isolated importer.</param>
     /// <param name="isShortcutRunning">Whether one shortcut is running, or null when its state is unknown.</param>
+    /// <param name="readCollections">Reads collections while verifying the captured Steam account.</param>
     internal GameLibraryService(
         IReadOnlyList<ILibrarySource> sources,
         Func<IReadOnlyList<UninstallEntry>> readPrograms,
@@ -157,12 +159,14 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         Func<string?, string, IReadOnlyCollection<uint>, IReadOnlyCollection<uint>, CancellationToken,
             Task<SteamCollectionSyncResult>>? syncCollection = null,
         EmulatorService? emulators = null,
-        Func<uint, CancellationToken, Task<bool?>>? isShortcutRunning = null)
+        Func<uint, CancellationToken, Task<bool?>>? isShortcutRunning = null,
+        Func<uint, CancellationToken, Task<IReadOnlyList<ImportedCollection>>>? readCollections = null)
     {
         _launchers = sources;
         _readPrograms = readPrograms;
         _store = store;
         _writer = writer;
+        _readCollections = readCollections;
         _readLibrary = readLibrary;
         _readShortcut = readShortcut;
         _applyArtwork = applyArtwork;
@@ -1151,7 +1155,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
 
     internal IReadOnlyList<ManagedContentEntry> ReadManagedEntries()
     {
-        return _store.Entries().Where(entry => entry.Content is not null)
+        return _store.Entries().Where(entry => entry.Content is not null && !entry.RemovedFromSteam)
             .Select(entry => new ManagedContentEntry(entry.AppId, entry.Content!)).ToArray();
     }
 
@@ -1659,7 +1663,15 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         })).ConfigureAwait(false);
 
         var existing = await _readLibrary(cancellationToken).ConfigureAwait(false);
-        _ = CaptureAccount(existing);
+        var scanAccount = CaptureAccount(existing);
+        try
+        {
+            await ObserveLegacyCollectionsAsync(scanAccount, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when ((StorageFailure(ex) || ex is InvalidOperationException) && ex is not ImportStateException)
+        {
+            Note(generation, "Collection ownership could not be checked; its changes remain pending. " + ex.Message);
+        }
         // Emulator UI shortcuts share the ownership ledger, but are reconciled by their manager.
         var recorded = _store.Entries().Where(entry => entry.Source != EmulatorShortcutSync.Source).ToArray();
         var scanChoices = _store.Choices().ToDictionary(choice => (choice.Source, choice.Key), ImportPlan.Identity);
@@ -2000,7 +2012,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             storageActionCount = _storageActions.Count;
         }
         RefreshStorage(cancellationToken);
-        await ApplyStorageActionsAsync(cancellationToken).ConfigureAwait(false);
+        var (storageApplied, problems) = await ApplyStorageActionsAsync(cancellationToken).ConfigureAwait(false);
         if (selected.Count == 0)
         {
             lock (_gate)
@@ -2010,8 +2022,9 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                     return;
                 }
                 _phase = Phase.Done;
-                _progress = storageActionCount;
-                _notes.Add($"Applied {storageActionCount} storage change(s).");
+                _progress = storageApplied;
+                _error = problems.Count == 0 ? null : string.Join(" ", problems);
+                _notes.Add($"Applied {_progress} storage change(s).");
                 Publish();
             }
             Notify();
@@ -2035,14 +2048,26 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             records[(record.Source, record.Key)] = record;
         }
 
-        List<string> problems = [];
-        var applied = storageActionCount;
+        var applied = storageApplied;
         foreach (var entry in selected)
         {
             cancellationToken.ThrowIfCancellationRequested();
             RequireAccount(accountId);
             var identity = (entry.Plan.Source, entry.Plan.Key);
             var record = records.GetValueOrDefault(identity);
+            if (record is { HasUnresolvedLegacyMapping: true })
+            {
+                if (record.SteamMappings.Any(mapping => mapping.AccountId is null
+                        && (mapping.AppId == 0 && !entry.Plan.Unconfirmed
+                            || mapping.AppId > 0 && existing.Any(shortcut => shortcut.AppId == mapping.AppId))))
+                {
+                    problems.Add($"{entry.Plan.Name}: legacy shortcut ownership is unresolved. This title was preserved.");
+                    continue;
+                }
+
+                // A new account receipt may be created, but the unknown receipt remains canonical and untouched.
+                record = null;
+            }
             if (record?.Content?.InventoryRemoved == true || entry.Game.Content?.InventoryRemoved == true)
             {
                 continue;
@@ -2101,12 +2126,20 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 continue;
             }
 
-            if (entry.Game.Content is not null)
+            var artworkOnly = entry.ArtworkOnly;
+            if (!artworkOnly && entry.Game.Content is not null)
             {
-                PublishImportedContent(entry, cancellationToken);
+                try
+                {
+                    PublishImportedContent(entry, cancellationToken);
+                }
+                catch (Exception ex) when (StorageFailure(ex) && ex is not ImportStateException)
+                {
+                    problems.Add($"{entry.Plan.Name}: its storage inventory could not be saved. Unlock or reconnect the card and retry this title. {ex.Message}");
+                    continue;
+                }
             }
 
-            var artworkOnly = entry.ArtworkOnly;
             var confirmedName = current.Action == ImportAction.Add ? entry.Plan.Name
                 : live is { Name.Length: > 0 } named ? named.Name : record?.Name ?? entry.Plan.Name;
             if (entry.RenameRequested && current.AppId > 0)
@@ -2316,6 +2349,19 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         {
             var accountSnapshot = await _readLibrary(cancellationToken).ConfigureAwait(false);
             var accountId = CaptureAccount(accountSnapshot);
+            if (_store.LegacyCollections().Count > 0)
+            {
+                if (_readCollections is null)
+                {
+                    problems.Add("Steam collections could not be checked. Legacy collection changes remain pending.");
+                    return;
+                }
+
+                var observed = await _readCollections(accountId, cancellationToken).ConfigureAwait(false);
+                RequireAccount(accountId);
+                _store.BindLegacyCollections(accountId, observed);
+            }
+
             var settings = ReadSettings();
             var names = SourceNames(Sources());
             foreach (var system in _romSystems ?? RomProfiles.All)
@@ -2348,7 +2394,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             }
 
             var imported = importedEntries
-                .Where(entry => entry.AppId != 0)
+                .Where(entry => entry.AppId != 0 && !entry.RemovedFromSteam)
                 .GroupBy(CollectionGroup, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(group => group.Key, group => group.Select(entry => entry.AppId).Distinct().ToList(),
                     StringComparer.OrdinalIgnoreCase);
@@ -2403,7 +2449,8 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 });
             }
         }
-        catch (ImportStateException ex)
+        catch (Exception ex) when (ex is ImportStateException or InvalidOperationException
+                                      or IOException or UnauthorizedAccessException or JsonException)
         {
             problems.Add(ex.Message);
         }
@@ -2411,6 +2458,19 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         {
             _collectionSync.Release();
         }
+    }
+
+    private async Task ObserveLegacyCollectionsAsync(uint accountId, CancellationToken cancellationToken)
+    {
+        if (_readCollections is null || _store.LegacyCollections().Count == 0)
+        {
+            return;
+        }
+
+        var observed = await _readCollections(accountId, cancellationToken).ConfigureAwait(false);
+        RequireAccount(accountId);
+        _store.BindLegacyCollections(accountId, observed);
+        // Absent IDs remain unbound; an independent active-account collection may be created without erasing them.
     }
 
     /// <summary>The collection an imported title belongs in: its source's.</summary>

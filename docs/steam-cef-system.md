@@ -1311,8 +1311,10 @@ The project installs `chrome-devtools-mcp` with `npm ci`. Both Claude's `.mcp.js
 `.codex/config.toml` start `node eng/steam-cef-mcp.mjs` from the checkout. The shared launcher uses
 the pinned local package, attaches to Steam's existing loopback endpoint, disables usage statistics
 and CrUX lookups, and roots relative screenshot paths in this checkout. It never starts a browser.
-The launcher also prevents Puppeteer auto-attachment from pausing newly created Steam popup targets
-before their JavaScript context starts. On Steam's older CEF this startup wait can freeze the UI.
+The launcher prevents all three pinned startup waits, including the bundled DevTools frontend's
+separate connection, from pausing newly created Steam popup targets before their JavaScript context
+starts. A scoped Node loader applies the policy in memory and rejects an unexpected dependency
+layout; it never rewrites node_modules. On Steam's older CEF this startup wait can freeze the UI.
 This connection safeguard does not waive the log-confirmed startup preflight or authorize explicit
 debugger pauses. Reconnect an existing MCP server after changing its launcher. Open agent sessions
 need to reconnect their MCP server after configuration changes. Listing targets and bounded

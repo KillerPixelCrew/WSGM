@@ -570,6 +570,13 @@ changes Valve's global install store nor wraps all `RunGame` calls. The launch h
 checks the host-accepted local binding and required files, and refuses unavailable content with its
 logical location.
 
+Deleting a shortcut in Steam preserves its title and portable inventory. A complete read of the
+confirmed Steam account marks that account's receipt `RemovedFromSteam`; it does not erase unknown
+receipts or other accounts' mappings. The importer offers an unticked Add choice, excluded from bulk
+selection. Emulator shortcut sync also preserves manual deletion; explicitly enabling its shortcut
+in Emulator Manager can request recreation. Startup, scans and storage reconciliation cannot grant
+that request automatically.
+
 The schema-v2 migration keeps one immutable v1 index backup and preserves existing managed IDs and
 Steam shortcuts. A legacy card is initialized only on its expected readable volume. Already-missing
 legacy content is intentionally pruned on its first successful reconciliation. Unresolved legacy

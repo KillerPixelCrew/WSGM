@@ -167,7 +167,36 @@ public sealed class ImportStateStore
         return bound;
     }
 
-    /// <summary>Binds legacy collection ownership only after observing its exact id and recorded membership.</summary>
+    /// <summary>Records shortcut absence only for confirmed receipts belonging to the fully read account.</summary>
+    public void ObserveShortcutPresence(uint accountId, IReadOnlyList<ExistingShortcut> shortcuts)
+    {
+        ArgumentNullException.ThrowIfNull(shortcuts);
+        var present = shortcuts.Select(shortcut => shortcut.AppId).ToHashSet();
+        Mutate(state =>
+        {
+            RequireAccount(accountId);
+            var changed = false;
+            foreach (var entry in state.Entries)
+            {
+                var mapping = entry.SteamMappings.FirstOrDefault(item => item.AccountId == accountId);
+                if (mapping is not { AppId: > 0, ConfirmedUtc.Length: > 0, PendingDeletion: false })
+                {
+                    continue;
+                }
+
+                var removed = !present.Contains(mapping.AppId);
+                if (mapping.RemovedFromSteam != removed)
+                {
+                    mapping.RemovedFromSteam = removed;
+                    changed = true;
+                }
+            }
+
+            return changed;
+        });
+    }
+
+    /// <summary>Binds legacy collection ownership only after observing its exact id in the confirmed account.</summary>
     public int BindLegacyCollections(uint accountId, IReadOnlyList<ImportedCollection> observed)
     {
         ArgumentNullException.ThrowIfNull(observed);
@@ -183,7 +212,7 @@ public sealed class ImportStateStore
                     continue;
                 }
 
-                if (observed.Any(item => item.Id == collection.Id && collection.AppIds.All(item.AppIds.Contains)))
+                if (observed.Any(item => item.Id == collection.Id))
                 {
                     collection.AccountId = accountId;
                     bound++;
@@ -413,6 +442,15 @@ public sealed class ImportStateStore
         }
     }
 
+    /// <summary>Returns detached legacy collection receipts whose account ownership is not yet confirmed.</summary>
+    public IReadOnlyList<ImportedCollection> LegacyCollections()
+    {
+        lock (_gate)
+        {
+            return [.. Read().Collections.Where(collection => collection.AccountId is null).Select(CopyCollection)];
+        }
+    }
+
     /// <summary>Records one group's collection, replacing the earlier record; one with no id is forgotten.</summary>
     /// <param name="collection">What Steam now has for the group.</param>
     /// <exception cref="ImportStateException">The record could not be written.</exception>
@@ -486,6 +524,7 @@ public sealed class ImportStateStore
     /// <param name="source">Which source it came from.</param>
     /// <param name="key">Its identity in that source.</param>
     /// <exception cref="ImportStateException">The change could not be written.</exception>
+    [Obsolete("Pass the captured Steam account to Forget.", error: true)]
     public void Forget(string source, string key)
     {
         throw new InvalidOperationException("Forgetting a shortcut requires its captured Steam account. Use the account-scoped overload.");
@@ -779,7 +818,17 @@ public sealed class ImportStateStore
                             var mapping = JsonSerializer.Deserialize(legacy, ImportStateJsonContext.Default.ImportAccountMapping)
                                           ?? throw new JsonException("Legacy shortcut receipt is null.");
                             mapping.AccountId = null;
-                            entry.SteamMappings = [mapping];
+                            if (MappingDefect(mapping) is { } defect)
+                            {
+                                // Preserve v1's row-local recovery without weakening v2 ownership validation.
+                                Log.Warn($"Library import legacy record {Describe(entry)} dropped: {defect}.");
+                                entry.Source = "";
+                                entry.SteamMappings = [];
+                            }
+                            else
+                            {
+                                entry.SteamMappings = [mapping];
+                            }
                         }
 
                         index++;

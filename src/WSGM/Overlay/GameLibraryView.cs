@@ -193,8 +193,14 @@ public sealed partial class GameLibraryView : ServiceSubView
 
         if (state.Entries.FirstOrDefault(entry => entry.Id == id) is not { } entry)
         {
-            // A rescan replaced the list, or the title's files were deleted and it was removed:
-            // never leave a level about a title that is gone.
+            // A scan or apply in progress may be replacing the list, so the title can return when
+            // it settles; only a settled list that lacks it means the title is gone.
+            if (state.Loading)
+            {
+                RenderEntryPending(state);
+                return;
+            }
+
             LeaveRemovedEntry(id, state);
             return;
         }

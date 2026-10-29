@@ -150,6 +150,7 @@ public sealed partial class ShellSession
         if (!wasReady && _steamUiReadiness.IsReady)
         {
             _emulatorTool?.RequestShortcutSync();
+            _contentAvailability?.Request();
         }
         Log.Change("steam-ui-transport-gate", DescribeSteamUiTransportGate(open, master, inGameMode, holds));
         return open;

@@ -9,6 +9,9 @@ public sealed class ImportAccountMapping
     /// <summary>The shortcut id, or zero while creation is unconfirmed.</summary>
     public uint AppId { get; set; }
 
+    /// <summary>A complete read of this account confirmed that its previously created shortcut is absent.</summary>
+    public bool RemovedFromSteam { get; set; }
+
     /// <summary>The exact target WSGM wrote.</summary>
     public string Target { get; set; } = "";
 
@@ -55,7 +58,8 @@ public sealed class ImportAccountMapping
 
     internal bool SameAs(ImportAccountMapping other)
     {
-        return AccountId == other.AccountId && AppId == other.AppId && Target == other.Target
+        return AccountId == other.AccountId && AppId == other.AppId && RemovedFromSteam == other.RemovedFromSteam
+               && Target == other.Target
                && LaunchOptions == other.LaunchOptions && StartDirectory == other.StartDirectory
                && PendingLaunch == other.PendingLaunch && PendingDeletion == other.PendingDeletion
                && DeletionDispatched == other.DeletionDispatched
@@ -68,7 +72,7 @@ public sealed class ImportAccountMapping
     {
         return new ImportAccountMapping
         {
-            AccountId = accountId, AppId = entry.AppId, Target = entry.Target,
+            AccountId = accountId, AppId = entry.AppId, RemovedFromSteam = entry.RemovedFromSteam, Target = entry.Target,
             LaunchOptions = entry.LaunchOptions, StartDirectory = entry.StartDirectory,
             PendingLaunch = entry.PendingLaunch, PendingDeletion = entry.PendingDeletion,
             DeletionDispatched = entry.DeletionDispatched,
@@ -82,6 +86,7 @@ public sealed class ImportAccountMapping
     {
         entry.AccountId = AccountId;
         entry.AppId = AppId;
+        entry.RemovedFromSteam = RemovedFromSteam;
         entry.Target = Target;
         entry.LaunchOptions = LaunchOptions;
         entry.StartDirectory = StartDirectory;

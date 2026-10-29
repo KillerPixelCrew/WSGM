@@ -480,7 +480,7 @@ internal sealed partial class GameLibraryService
             : RecheckAvailabilityAsync(content.Id, cancellationToken);
     }
 
-    private void NotifyManagedEntriesChanged()
+    internal void NotifyManagedEntriesChanged()
     {
         UpdateEmulatorDependencies();
         ManagedEntriesChanged?.Invoke();

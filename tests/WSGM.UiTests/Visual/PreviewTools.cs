@@ -35,7 +35,7 @@ public static class PreviewTools
     private static readonly string[] StorageScenarios =
     [
         "importer-storage-home", "importer-storage-list", "importer-storage-detail", "importer-storage-empty",
-        "importer-storage-error", "importer-entry-removed"
+        "importer-storage-error", "importer-entry-removed", "importer-entry-loading"
     ];
 
     internal static OverlayWindow Create(UiFixture fixture, int width = 1280, int height = 800,
@@ -196,7 +196,7 @@ public static class PreviewTools
                     library.Publish();
                 }
 
-                if (scenario == "importer-entry-removed")
+                if (scenario is "importer-entry-removed" or "importer-entry-loading")
                 {
                     // Cleanup finished while the title was open: the host publishes a state without it, and
                     // the production view returns to the library with the neighbouring title focused.
@@ -204,6 +204,7 @@ public static class PreviewTools
                     Click("Deleted Platformer");
                     library.State = library.State with
                     {
+                        Loading = scenario == "importer-entry-loading",
                         Entries = library.State.Entries.Where(entry => entry.Id != "retro-deleted").ToArray(),
                         StorageLibraries = library.State.StorageLibraries!.Select(storage =>
                             storage.Id == "lib-retro" ? storage with { TitleCount = 2 } : storage).ToArray()

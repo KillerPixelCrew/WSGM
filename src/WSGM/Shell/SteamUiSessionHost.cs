@@ -749,6 +749,13 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         return switches.LibraryBadge || (switches.HostSurfaces && LibraryBadges.HasManagedShortcuts);
     }
 
+    /// <summary>Whether the availability gate, which claims Steam's library filter, is needed.</summary>
+    /// <remarks>Decorative badges alone keep the badge and details gates, never this one.</remarks>
+    private static bool ManagedAvailabilityWanted(SteamUiSurfaceSwitches switches)
+    {
+        return LibraryBadges.HasManagedShortcuts && LibraryAvailabilityWanted(switches);
+    }
+
     /// <summary>Whether any surface that runs without native Quick Access is on.</summary>
     private static bool IndependentSurfacesEnabled(SteamUiSurfaceSwitches switches)
     {
@@ -873,6 +880,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             if (snapshot.Health == SteamUiTransportHealth.Ready)
             {
                 _emulators?.RequestShortcutSync();
+                _libraryImport?.NotifyManagedEntriesChanged();
             }
 
             Log.Observe(_nativeSettings.StopRumblePreviewAsync(), "Stopping rumble preview after Steam reload");
@@ -1707,7 +1715,8 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             {
                 SteamDownloadSort.PatchId => switches.DownloadSort,
                 SteamLibraryBadgeSurface.PatchId or SteamLibraryBadgeSurface.DetailsPatchId
-                    or SteamLibraryBadgeSurface.AvailabilityPatchId => LibraryAvailabilityWanted(switches),
+                    => LibraryAvailabilityWanted(switches),
+                SteamLibraryBadgeSurface.AvailabilityPatchId => ManagedAvailabilityWanted(switches),
                 SteamHomeCarouselSurface.PatchId => switches.HomeCarousel,
                 SteamScreensaverSurface.PatchId => switches.ScreensaverRows,
                 SteamUiBridgePatch.PatchId => bootstrap,

@@ -1,5 +1,6 @@
 // Shared project-local launcher for Codex and Claude. Never starts a browser or changes Steam flags.
 import { existsSync } from "node:fs";
+import { register } from "node:module";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -28,6 +29,15 @@ process.argv = [
 // Steam creates native popup targets before their JavaScript context is ready. Pausing those
 // targets during Puppeteer's auto-attach can deadlock CEF and freeze every Steam window.
 // Keep the normal MCP tools, but never ask Steam to wait for a debugger on a new target.
+// The bundled DevTools frontend has its own connection as well as Puppeteer's two attach paths.
+register(new URL("./steam-cef-mcp-loader.mjs", import.meta.url), {
+  data: {
+    dependencyUrl: new URL(
+      "../node_modules/chrome-devtools-mcp/build/src/third_party/index.js",
+      import.meta.url,
+    ).href,
+  },
+});
 const { puppeteer } = await import(
   new URL("../node_modules/chrome-devtools-mcp/build/src/third_party/index.js", import.meta.url)
     .href

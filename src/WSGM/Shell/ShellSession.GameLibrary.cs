@@ -15,6 +15,32 @@ public sealed partial class ShellSession
 {
     private readonly SemaphoreSlim _shortcutOperations = new(initialCount: 1, maxCount: 1);
 
+    private async Task<IReadOnlyList<ImportedCollection>> ReadLibraryCollectionsAsync(uint accountId,
+        CancellationToken cancellationToken)
+    {
+        var steam = RequireSteamClient();
+        await _shortcutOperations.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await RequireSameSteamAccountAsync(steam, accountId, cancellationToken).ConfigureAwait(false);
+            var read = await steam.Library.ReadCollectionsAsync(cancellationToken).ConfigureAwait(false);
+            await RequireSameSteamAccountAsync(steam, accountId, cancellationToken).ConfigureAwait(false);
+            if (!read.Succeeded || read.Value is null)
+            {
+                throw new InvalidOperationException("Steam collections could not be read. Legacy collection changes remain pending.");
+            }
+
+            return read.Value.Select(collection => new ImportedCollection
+            {
+                AccountId = accountId, Id = collection.Id, Name = collection.Name, AppIds = [.. collection.AppIds]
+            }).ToArray();
+        }
+        finally
+        {
+            _shortcutOperations.Release();
+        }
+    }
+
     private SteamShortcutWriter CreateSteamShortcutWriter()
     {
         var steam = RequireSteamClient();
@@ -160,6 +186,7 @@ public sealed partial class ShellSession
                 shortcut.LaunchOptions, shortcut.StartDirectory, shortcut.Name)).ToArray();
             _libraryImportState.SetActiveAccount(account);
             _libraryImportState.BindLegacyAccount(account, result);
+            _libraryImportState.ObserveShortcutPresence(account, result);
             return new SteamShortcutSnapshot(account, result);
         }
         finally

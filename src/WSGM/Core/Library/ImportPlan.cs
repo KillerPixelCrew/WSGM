@@ -125,6 +125,10 @@ public sealed class ImportedEntry
     [JsonIgnore]
     public bool HasUnresolvedLegacyMapping { get; set; }
 
+    /// <summary>Whether the confirmed account no longer contains this previously created shortcut.</summary>
+    [JsonIgnore]
+    public bool RemovedFromSteam { get; set; }
+
     /// <summary>Whether shortcut cleanup is queued for this account.</summary>
     [JsonIgnore]
     public bool PendingDeletion { get; set; }
@@ -435,12 +439,17 @@ public static class ImportPlan
             }
 
             var record = records.GetValueOrDefault((game.SourceId, game.Key));
-            if (record is { AccountUnknown: true } or { HasUnresolvedLegacyMapping: true }
-                or { Content.InventoryRemoved: true })
+            var unresolvedHere = record is { HasUnresolvedLegacyMapping: true }
+                && record.SteamMappings.Any(mapping => mapping.AccountId is null
+                    && mapping.AppId > 0 && byId.ContainsKey(mapping.AppId));
+            if (record is { AccountUnknown: true } || unresolvedHere
+                || record is { Content.InventoryRemoved: true })
             {
-                plan.Add(new ImportPlanEntry(game.SourceId, game.Key, game.Name, ImportAction.Skip,
-                    record.Content?.InventoryRemoved == true
+                plan.Add(new ImportPlanEntry(game.SourceId, game.Key, game.Name,
+                    unresolvedHere ? ImportAction.Conflict : ImportAction.Skip,
+                    record?.Content?.InventoryRemoved == true
                         ? "This title has been removed from its library; shortcut cleanup is pending."
+                        : unresolvedHere ? "This legacy shortcut was edited in Steam. Restore its recorded command and scan again before changing it."
                         : "Waiting for an exact Steam account observation before changing this title.",
                     defaultMode, false, false, 0, false));
                 continue;
@@ -476,6 +485,19 @@ public static class ImportPlan
             if ((game.Packaged ? Describe(game, record, context) : DescribeCommand(game, record, context))
                 is { } entry)
             {
+                if (records.GetValueOrDefault((game.SourceId, game.Key)) is { HasUnresolvedLegacyMapping: true } legacy
+                    && entry.Action == ImportAction.Add)
+                {
+                    entry = entry with
+                    {
+                        Reason = legacy.SteamMappings.Any(mapping => mapping.AccountId is null && mapping.AppId == 0)
+                            ? "The earlier shortcut creation was never confirmed. Check Steam, then select this title only if you want to retry it manually."
+                            : "This title is not imported in the current account. Select it to add it here; unresolved receipts are preserved.",
+                        Unconfirmed = legacy.SteamMappings.Any(mapping => mapping.AccountId is null && mapping.AppId == 0),
+                        Preselect = false
+                    };
+                }
+
                 if (record is null && entry.Action == ImportAction.Add && duplicateNames.Contains((game.SourceId, game.Key)))
                 {
                     entry = entry with
@@ -514,6 +536,13 @@ public static class ImportPlan
             }
 
             var state = sources?.Invoke(record.Source) ?? ImportSourceState.Read;
+            if (record.RemovedFromSteam)
+            {
+                plan.Add(Removal(record, ImportAction.Skip,
+                    "You removed this shortcut from Steam. Connect its storage and scan again to add it explicitly.",
+                    false) with { AppId = 0 });
+                continue;
+            }
             if (record.Content is
                 { SourceKind: LibrarySourceKind.Rom or LibrarySourceKind.Folder or LibrarySourceKind.Manual })
             {

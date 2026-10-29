@@ -1014,7 +1014,8 @@ public sealed partial class ShellSession
                 syncCollection: (id, name, add, remove, token) =>
                     steam.Collections.SyncAsync(id, name, add, remove, true, token),
                 emulators: _emulatorTool,
-                isShortcutRunning: IsManagedShortcutRunning);
+                isShortcutRunning: IsManagedShortcutRunning,
+                readCollections: ReadLibraryCollectionsAsync);
             _libraryArtwork = libraryArtwork;
             _libraryImport.Start();
             if (_messageWindow is { } contentWindow)

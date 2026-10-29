@@ -47,6 +47,18 @@ public sealed partial class GameLibraryView
         }
     }
 
+    /// <summary>Holds a title's level while a scan or apply has taken it out of the list for now.</summary>
+    /// <remarks>The next published state renders the level again, with the title or without it.</remarks>
+    /// <param name="state">The current state.</param>
+    private void RenderEntryPending(GameLibraryState state)
+    {
+        var stack = NewStack(_openEntryName.Length > 0 ? _openEntryName : "Title");
+        AddStatus(stack, state);
+        stack.Children.Add(Caption("The library is being updated. This title returns when the update "
+                                   + "finishes, unless it was removed."));
+        SetContent(stack);
+    }
+
     private void RenderStorageLibraries()
     {
         var stack = NewStack("Storage libraries");

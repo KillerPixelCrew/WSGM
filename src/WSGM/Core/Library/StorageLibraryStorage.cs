@@ -7,10 +7,20 @@ using System.Text.Json;
 namespace WSGM.Core;
 
 /// <summary>A library format this build cannot interpret and must never repair or overwrite.</summary>
-/// <param name="version">The schema version read from the card.</param>
-public sealed class StorageLibraryUnsupportedVersionException(int version)
-    : IOException($"Library format {version} is not supported by this WSGM. Update WSGM before using this card.")
+public sealed class StorageLibraryUnsupportedVersionException : IOException
 {
+    /// <summary>Identifies an unsupported schema version.</summary>
+    /// <param name="version">The schema version read from the card.</param>
+    public StorageLibraryUnsupportedVersionException(int version)
+        : base($"Library format {version} is not supported by this WSGM. Update WSGM before using this card.")
+    {
+    }
+
+    /// <summary>Identifies schema fields this reader cannot safely preserve.</summary>
+    /// <param name="detail">The unsupported schema information.</param>
+    public StorageLibraryUnsupportedVersionException(string detail) : base(detail)
+    {
+    }
 }
 
 /// <summary>Bounded host-owned card inventory I/O and portable identity matching.</summary>
@@ -36,6 +46,7 @@ public static class StorageLibraryStorage
             throw new StorageLibraryUnsupportedVersionException(version);
         }
 
+        CheckKnownFields(document.RootElement, typeof(StorageLibraryManifest));
         var manifest = document.RootElement.Deserialize(StorageLibraryJsonContext.Default.StorageLibraryManifest)
                        ?? throw new InvalidDataException("The library manifest is empty.");
         Validate(manifest, volumeId);
@@ -44,6 +55,40 @@ public static class StorageLibraryStorage
             throw new InvalidDataException("This storage contains a different library. Review it in Game Library.");
         }
         return manifest;
+    }
+
+    private static void CheckKnownFields(JsonElement element, Type type)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            return;
+        }
+
+        var metadata = StorageLibraryJsonContext.Default.GetTypeInfo(type)!;
+        foreach (var property in element.EnumerateObject())
+        {
+            var known = metadata.Properties.FirstOrDefault(item => item.Name == property.Name);
+            if (known is null)
+            {
+                throw new StorageLibraryUnsupportedVersionException(
+                    $"This library contains an unsupported field '{property.Name}'. Update WSGM before using this card.");
+            }
+            if (known.PropertyType == typeof(StorageLibraryPath))
+            {
+                CheckKnownFields(property.Value, typeof(StorageLibraryPath));
+            }
+            else if (property.Value.ValueKind == JsonValueKind.Array
+                     && (known.PropertyType == typeof(List<StorageLibraryPath>)
+                         || known.PropertyType == typeof(List<StorageLibraryContent>)))
+            {
+                var itemType = known.PropertyType == typeof(List<StorageLibraryPath>)
+                    ? typeof(StorageLibraryPath) : typeof(StorageLibraryContent);
+                foreach (var item in property.Value.EnumerateArray())
+                {
+                    CheckKnownFields(item, itemType);
+                }
+            }
+        }
     }
 
     private static byte[] ReadBytes(string volumeId)
@@ -326,7 +371,7 @@ public static class StorageLibraryStorage
         HashSet<string> ids = new(StringComparer.OrdinalIgnoreCase);
         foreach (var entry in manifest.Entries)
         {
-            if (entry is null || string.IsNullOrWhiteSpace(entry.Id) || entry.Id.Length > 128
+            if (entry is null || entry.Id is null || entry.Id.Length != 32 || !entry.Id.All(Uri.IsHexDigit)
                 || !ids.Add(entry.Id) || entry.Name is null || entry.SourceName is null || entry.SystemId is null
                 || entry.RawArguments is null || entry.RequiredPaths is null || entry.BackingPath is null
                 || entry.SourceKind is not (LibrarySourceKind.Rom or LibrarySourceKind.Folder or LibrarySourceKind.Manual)
@@ -357,7 +402,11 @@ public static class StorageLibraryStorage
             throw new InvalidDataException(defect);
         }
         StorageLibraryPath? Portable(ManagedContentPath path) => path.VolumeId.Equals(volumeId, StringComparison.OrdinalIgnoreCase)
-            ? new StorageLibraryPath { RelativePath = path.RelativePath == "." ? "" : path.RelativePath, Directory = path.Directory }
+            ? new StorageLibraryPath
+            {
+                RelativePath = ManagedContentStorage.NormalizeLocalRelativePath(path.RelativePath),
+                Directory = path.Directory
+            }
             : null;
         var backing = Portable(content.BackingPath)
                       ?? throw new InvalidDataException("The backing content belongs to different storage.");

@@ -364,18 +364,23 @@ function ImportDetailsBody({ id, close, openTitle }: any) {
   const name = react.useRef("");
   if (entry) name.current = entry.name;
   // A title can go while its sheet is open, such as when its files were deleted. Close rather than
-  // leave a sheet about nothing; the page says what happened and keeps its own focus.
+  // leave a sheet about nothing; the page says what happened and keeps its own focus. A scan or save
+  // in progress may only be replacing the list, so the sheet waits for it to settle first.
+  const pending = !entry && (!state || !!state.loading);
   react.useEffect(() => {
-    if (entry) return;
+    if (entry || pending) return;
     importReport({
       text: name.current ? `${name.current} is no longer listed.` : "That title is no longer listed.",
       error: false,
     });
     close();
-  }, [!entry]);
+  }, [!entry, pending]);
   if (!entry) {
     return renderSteamUiSheet(importUi, {
-      note: "This title is no longer listed.",
+      note: pending
+        ? "The library is being updated. This title returns when the update finishes, unless it " +
+          "was removed."
+        : "This title is no longer listed.",
       actions: [{ id: "close", label: "Close", onClick: close }],
     });
   }
@@ -472,7 +477,9 @@ function ImportDetailsBody({ id, close, openTitle }: any) {
           run: () => void importAct("recheckAvailability", { id: entry.id }),
         }
       : null,
-    storage ? { label: "Storage library…", run: () => showImportStorage(storage) } : null,
+    storage
+      ? { label: "Storage library…", run: () => showImportStorage(storage, openTitle) }
+      : null,
     entry.systemId
       ? {
           label: "Rename title…",
@@ -630,12 +637,17 @@ const importStorageLine = (storage: any, entries: any[]) => {
     .join(" · ");
 };
 
+const ImportStoragePage = 24;
+
 // One storage library: what is wrong, the staged repair or new card, and a recheck. Apply on the
 // page or here performs the staged action, like every other change in the review.
-function ImportStorageBody({ id, close }: any) {
+function ImportStorageBody({ id, close, openTitle }: any) {
   const react = importUi.react;
   const h = react.createElement;
   const state = useImportState();
+  // Titles are shown a page at a time; the first of each newly loaded page takes focus.
+  const [shown, setShown] = react.useState(ImportStoragePage);
+  const [focusAt, setFocusAt] = react.useState(-1);
   const storage = (state?.storageLibraries ?? []).find((candidate: any) => candidate.id === id);
   react.useEffect(() => {
     if (storage) return;
@@ -691,17 +703,37 @@ function ImportStorageBody({ id, close }: any) {
         ] as [string, string][])
       : []),
     [
-      "Titles",
+      `Titles (${titles.length})`,
       titles.length
-        ? titles
-            .slice(0, 12)
-            .map((entry: any) => entry.name)
-            .join(" · ") + (titles.length > 12 ? ` · and ${titles.length - 12} more` : "")
+        ? "Open a title for its details."
         : storage.titleCount
           ? "Scan to list this library's titles."
           : "None listed",
     ],
   ];
+  // Each title opens the same details sheet as the page; its row stays keyed by id, so a refresh
+  // keeps the focused row and the sheet's scroll.
+  const titleRows = titles.slice(0, shown).map((entry: any, index: number) => {
+    const row = renderSteamUiSelectRow(importUi, {
+      key: `title:${entry.id}`,
+      title: entry.name,
+      detail: importEntryLine(entry),
+      onClick: () => showImportDetails(entry, openTitle),
+    });
+    return index === focusAt ? react.cloneElement(row, { autoFocus: true }) : row;
+  });
+  const more =
+    titles.length > shown
+      ? renderSteamUiSelectRow(importUi, {
+          key: "titles-more",
+          title: "Load more",
+          detail: `${shown} of ${titles.length}`,
+          onClick: () => {
+            setFocusAt(shown);
+            setShown(shown + ImportStoragePage);
+          },
+        })
+      : null;
   return renderSteamUiSheet(
     importUi,
     {
@@ -728,13 +760,33 @@ function ImportStorageBody({ id, close }: any) {
       ],
     },
     ...facts.map(([term, value], index) => importFact(term, value, `${term}${index}`)),
+    ...titleRows,
+    more,
   );
 }
-const showImportStorage = (storage: any) =>
+const showImportStorage = (storage: any, openTitle: any) =>
   showSteamModal(importUi, {
     title: storage.name,
-    render: (close) => importUi.react.createElement(ImportStorageBody, { id: storage.id, close }),
+    render: (close) =>
+      importUi.react.createElement(ImportStorageBody, { id: storage.id, close, openTitle }),
   });
+// One title's details, from the page or a storage library's title list.
+const showImportDetails = (entry: any, openTitle: any) =>
+  showSteamModal(importUi, {
+    title: entry.name,
+    render: (close) =>
+      importUi.react.createElement(ImportDetailsBody, { id: entry.id, close, openTitle }),
+  });
+// What a title's row says, as the overlay's storage list says it.
+const importEntryLine = (entry: any) =>
+  [
+    entry.selected ? "Selected" : "",
+    entry.actionLabel,
+    entry.launchLabel,
+    importUnavailable(entry) || entry.cleanupPending ? importAvailability(entry) : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
 // The mockup's "Add a shortcuts folder" sheet: the folder, whether its subfolders are read too,
 // and which file types it offers.
@@ -1673,16 +1725,7 @@ function LibraryImportPage({ context, page }: any) {
           from: current.name === "title" ? current.from : current.name,
         }));
       },
-      openDetails: (entry: any) =>
-        showSteamModal(importUi, {
-          title: entry.name,
-          render: (close) =>
-            importUi.react.createElement(ImportDetailsBody, {
-              id: entry.id,
-              close,
-              openTitle: actions.openTitle,
-            }),
-        }),
+      openDetails: (entry: any) => showImportDetails(entry, actions.openTitle),
     }),
     [],
   );
@@ -2083,12 +2126,22 @@ function LibraryImportPage({ context, page }: any) {
                 ? `Storage · ${storages.filter(importStorageAttention).length} need attention`
                 : "Storage",
             ),
+            // The overlay's "Recheck all storage": the same command with no library named.
+            h(
+              ui.dialogButton,
+              {
+                key: "storage-recheck",
+                disabled: busy,
+                onClick: () => void importAct("recheckAvailability", { id: "" }),
+              },
+              "Recheck all storage",
+            ),
             ...storages.map((storage: any) =>
               renderSteamUiSelectRow(ui, {
                 key: `storage:${storage.id}`,
                 title: storage.name,
                 detail: importStorageLine(storage, entries),
-                onClick: () => showImportStorage(storage),
+                onClick: () => showImportStorage(storage, actions.openTitle),
               }),
             ),
           ]

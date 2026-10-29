@@ -150,21 +150,22 @@ public sealed class ImportStateStoreTests
     }
 
     [Fact]
-    public void ForgettingATitleDropsItsRecordAndItsChoiceTogether()
+    public void ForgettingAnAccountsShortcutPreservesItsSharedChoice()
     {
         using TemporaryDirectory temporary = new();
         ImportStateStore store = new(temporary.GetPath("library-import.json"));
+        store.SetActiveAccount(7);
         store.Save(new ImportedEntry
         {
-            Source = "epic", Key = "Moonlit", AppId = 9, Name = "Moonlit", Target = "t", LaunchOptions = "o",
+            AccountId = 7, Source = "epic", Key = "Moonlit", AppId = 9, Name = "Moonlit", Target = "t", LaunchOptions = "o",
             Mode = nameof(ImportMode.ControllerOnly)
         });
         store.SaveChoice(new ImportChoice { Source = "epic", Key = "Moonlit", MatchId = "7" });
 
-        store.Forget("EPIC", "moonlit");
+        store.Forget("EPIC", "moonlit", accountId: 7);
 
         Assert.Empty(store.Entries());
-        Assert.Empty(store.Choices());
+        Assert.Equal("Moonlit", Assert.Single(store.Choices()).Key);
     }
 
     [Fact]
@@ -321,12 +322,13 @@ public sealed class ImportStateStoreTests
     {
         using TemporaryDirectory temporary = new();
         ImportStateStore store = new(temporary.GetPath("library-import.json"));
+        store.SetActiveAccount(7);
         store.SaveChoice(new ImportChoice { Source = "xbox", Key = "A_x!App", Excluded = true });
         store.SaveChoice(new ImportChoice { Source = "xbox", Key = "B_y!App", Excluded = true });
 
-        store.Forget("xbox", "A_x!App");
+        store.Forget("xbox", "A_x!App", accountId: 7);
 
-        Assert.Equal("B_y!App", Assert.Single(store.Choices()).Key);
+        Assert.Equal(["A_x!App", "B_y!App"], store.Choices().Select(choice => choice.Key).Order().ToArray());
     }
 
     [Fact]
