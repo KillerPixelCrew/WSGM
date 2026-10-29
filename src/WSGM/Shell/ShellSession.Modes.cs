@@ -63,9 +63,10 @@ public sealed partial class ShellSession
     ///     Creates the game-mode-only surfaces in one shared order: tray host
     ///     first (startup apps' Shell_NotifyIcon registrations need a living
     ///     Shell_TrayWnd, or they only get an icon after the TaskbarCreated-driven retry,
-    ///     which message-only tray windows never hear), volume buttons, then card
-    ///     services. Direct boot and the service takeover are separate entry paths from
-    ///     the desktop-to-game transition, so each initial entry calls this explicitly.
+    ///     which message-only tray windows never hear), the shell hook with its volume buttons
+    ///     and launched-window focus, then card services. Direct boot and the service takeover
+    ///     are separate entry paths from the desktop-to-game transition, so each initial entry
+    ///     calls this explicitly.
     /// </summary>
     private void EnterGameModeSurfaces()
     {
@@ -73,7 +74,14 @@ public sealed partial class ShellSession
         _trayHost ??= TrayHost.Create()
                       ?? throw new InvalidOperationException("The Game Mode tray could not be created.");
         _overlay?.AttachTrayHost(_trayHost);
+        // One registration for both shell-hook consumers; desktop mode returns it to Explorer.
+        if (_messageWindow?.RegisterShellHook() == false)
+        {
+            Log.Warn("Game Mode shell hook unavailable: volume buttons and launched-window focus are off.");
+        }
+
         _volumeButtons?.SetGameModeActive(true);
+        _launchedWindows?.SetGameModeActive(true);
         ApplyCardServices(true);
     }
 

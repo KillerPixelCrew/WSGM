@@ -126,8 +126,12 @@ internal static partial class NativeMethods
     internal const nint HwndBroadcast = 0xFFFF;
     internal const int SwHide = 0;
 
-    // ---- Shell-hook notifications (replacement shell volume commands) ----
+    // ---- Shell-hook notifications (replacement shell volume commands, launched windows) ----
+    internal const int HshellWindowCreated = 1;
     internal const int HshellAppCommand = 12;
+
+    /// <summary>HSHELL_FLASH: HSHELL_REDRAW with the high bit, sent when a window flashes for attention.</summary>
+    internal const int HshellFlash = 0x8006;
 
     /// <summary>WM_POWERBROADCAST.</summary>
     internal const uint WmPowerBroadcast = 0x0218;
@@ -432,6 +436,18 @@ internal static partial class NativeMethods
 
     [LibraryImport("user32.dll")]
     internal static partial nint GetForegroundWindow();
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool BringWindowToTop(nint hWnd);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool AttachThreadInput(uint idAttach, uint idAttachTo,
+        [MarshalAs(UnmanagedType.Bool)] bool fAttach);
+
+    [LibraryImport("kernel32.dll")]
+    internal static partial uint GetCurrentThreadId();
 
     [LibraryImport("user32.dll", EntryPoint = "GetClassNameW", StringMarshalling = StringMarshalling.Utf16)]
     internal static unsafe partial int GetClassNameW(nint window, char* className, int maxCount);

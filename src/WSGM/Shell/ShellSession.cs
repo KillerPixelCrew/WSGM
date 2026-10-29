@@ -236,6 +236,7 @@ public sealed partial class ShellSession
     private TrayHost? _trayHost;
     private UpdateMonitor? _updates;
     private VolumeButtonService? _volumeButtons;
+    private LaunchedWindowFocus? _launchedWindows;
     private WsgmSteamSettingsService? _wsgmSettings;
 
     /// <summary>Creates the shell session without performing any Windows state changes.</summary>
@@ -542,6 +543,9 @@ public sealed partial class ShellSession
 
         var downloadActive = _keepAwake?.DownloadActive ?? false;
         TryStart("volume buttons", () => _volumeButtons = new VolumeButtonService(messageWindow, _audio!));
+        TryStart("launched window focus", () => _launchedWindows = new LaunchedWindowFocus(messageWindow,
+            () => _runningApplications?.Current is { } target
+                  && (target.SteamAppId is not null || target.State == RunningApplicationTargetState.Ambiguous)));
         // Reads the flag on every look rather than capturing it, so a runtime config reload takes
         // effect without the guard being rebuilt; _config is replaced wholesale on reload.
         TryStart("modern standby guard", () =>
@@ -1533,6 +1537,8 @@ public sealed partial class ShellSession
             // settles. The Wi-Fi indicator and download sort stay: Big Picture on the desktop draws
             // the same header and the same download queue (Claw, 2026-09-11).
             _volumeButtons?.SetGameModeActive(false);
+            _launchedWindows?.SetGameModeActive(false);
+            _messageWindow?.DeregisterShellHook();
         };
         _modes.GameModeEntered += () =>
         {

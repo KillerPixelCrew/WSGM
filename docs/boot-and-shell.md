@@ -564,6 +564,28 @@ still need clicks. An out-of-range callback still registers, so shell32 does not
 loop; only activation is dropped, logged once per host. `WM_USER` is the lower bound because
 WinForms uses `WM_USER + 1024` and Qt an even higher `WM_APP` value.
 
+### Windows opened behind Big Picture come forward
+
+A game, launcher or installer that Steam starts can open its window behind Big Picture. Windows
+grants the foreground only under narrow conditions: a launcher's game is not a child of the
+foreground process, and controller input during loading cancels Steam's grant. Explorer would show
+such a window on the taskbar; in Game Mode it was reachable only through the open apps strip.
+
+`Shell\LaunchedWindowFocus` listens to the same Game Mode shell hook as the volume buttons. The
+session registers that hook on `GameModeEntered` and returns it on `DesktopModeStarting`; the two
+consumers only gate on their active flag. A new top-level window (`HSHELL_WINDOWCREATED`) or a
+window Windows flashed after refusing its focus request (`HSHELL_FLASH`) is checked one second
+later, so a window that activates itself is left alone. It is raised when it passes the open apps
+strip's switchable filter, does not refuse activation, is not minimized and not Steam's own, a Steam
+window or nothing holds the foreground, and Steam reports a running app. The running-app condition
+keeps startup applications from covering Big Picture at boot; it needs Steam integration, so with
+CEF off nothing is raised. `WindowFinder.ForceForeground` attaches to the foreground thread's input
+for the call, because a background process cannot take the foreground otherwise.
+
+Each window is attempted once. A refused attempt makes Windows flash the window, and that flash must
+not start another attempt. `Launched window:` log lines record each raise with its verified result,
+and a window left behind Big Picture because Steam named no running app.
+
 ## Desktop start at sign-in
 
 A Desktop start projects `DesktopResident`, and the service launches `--shell --desktop-resident`

@@ -337,6 +337,24 @@ public static class WindowFinder
                && titleLength > 0;
     }
 
+    /// <summary>Whether one window passes the filter <see cref="ListSwitchableWindows" /> applies.</summary>
+    /// <param name="hWnd">Borrowed window handle.</param>
+    /// <returns>Whether the window is switchable; this process's windows never are.</returns>
+    public static bool IsSwitchableWindow(nint hWnd)
+    {
+        NativeMethods.GetWindowThreadProcessId(hWnd, out var pid);
+        var cloaked = NativeMethods.DwmGetWindowAttribute(hWnd, NativeMethods.DwmWaCloaked, out var value, 4) == 0
+            ? value
+            : 0u;
+        return PassesSwitchableFilter(
+            NativeMethods.IsWindowVisible(hWnd),
+            hWnd == NativeMethods.GetShellWindow(),
+            NativeMethods.GetWindowLong(hWnd, NativeMethods.GwlExStyle),
+            pid == (uint)Environment.ProcessId,
+            cloaked,
+            NativeMethods.GetWindowTextLengthW(hWnd));
+    }
+
     [UnmanagedCallersOnly]
     private static int ListWindowsProc(nint hWnd, nint lParam)
     {
@@ -413,6 +431,42 @@ public static class WindowFinder
         }
 
         NativeMethods.SetForegroundWindow(hWnd);
+    }
+
+    /// <summary>
+    ///     Focuses a window while another process holds the foreground and this one has no
+    ///     right to take it, by sharing the foreground thread's input state for the call.
+    /// </summary>
+    /// <param name="hWnd">Borrowed target window handle; the caller has excluded minimized windows.</param>
+    /// <returns>Whether the window is now the foreground window.</returns>
+    /// <remarks>
+    ///     Windows refuses <c>SetForegroundWindow</c> from a background process, and in Game Mode
+    ///     WSGM is one whenever Big Picture holds focus. Attaching the calling thread to the
+    ///     foreground thread makes the request come from the input owner, which Windows accepts.
+    ///     The attachment is released before returning. Call it on a thread with a message queue.
+    /// </remarks>
+    public static bool ForceForeground(nint hWnd)
+    {
+        var foreground = NativeMethods.GetForegroundWindow();
+        var foregroundThread = foreground == 0 ? 0 : NativeMethods.GetWindowThreadProcessId(foreground, out _);
+        var currentThread = NativeMethods.GetCurrentThreadId();
+        var attached = foregroundThread != 0
+                       && foregroundThread != currentThread
+                       && NativeMethods.AttachThreadInput(currentThread, foregroundThread, true);
+        try
+        {
+            NativeMethods.BringWindowToTop(hWnd);
+            NativeMethods.SetForegroundWindow(hWnd);
+        }
+        finally
+        {
+            if (attached)
+            {
+                NativeMethods.AttachThreadInput(currentThread, foregroundThread, false);
+            }
+        }
+
+        return NativeMethods.GetForegroundWindow() == hWnd;
     }
 
     private static unsafe string ReadWindowTitle(nint window)

@@ -23,7 +23,7 @@ internal sealed class VolumeButtonService : IDisposable
     private int _generation;
 
     /// <summary>Creates the game-mode volume handler on the Avalonia UI thread.</summary>
-    /// <param name="window">The process message-only window carrying the shell hook.</param>
+    /// <param name="window">The process message-only window carrying the session's Game Mode shell hook.</param>
     /// <param name="audio">
     ///     The session's audio state owner, told about every volume
     ///     this service writes so the taskbar slider does not lag the button by a poll.
@@ -35,7 +35,7 @@ internal sealed class VolumeButtonService : IDisposable
         _window.ShellHookReceived += OnShellHook;
     }
 
-    /// <summary>Unsubscribes and relinquishes shell-hook ownership.</summary>
+    /// <summary>Unsubscribes from the shell hook.</summary>
     public void Dispose()
     {
         if (_disposed)
@@ -46,16 +46,13 @@ internal sealed class VolumeButtonService : IDisposable
         _disposed = true;
         Interlocked.Increment(ref _generation);
         _window.ShellHookReceived -= OnShellHook;
-        if (_gameModeActive)
-        {
-            _window.DeregisterShellHook();
-        }
     }
 
     /// <summary>Enables or disables WSGM's replacement-shell volume handling.</summary>
     /// <param name="active">
-    ///     True requests shell-hook ownership; false relinquishes it. Invoke on the UI
-    ///     thread; disposed or unchanged state is ignored.
+    ///     Whether WSGM is the shell. The session registers the shell hook for Game Mode; this only
+    ///     decides whether its app commands are handled. Invoke on the UI thread; disposed or
+    ///     unchanged state is ignored.
     /// </param>
     internal void SetGameModeActive(bool active)
     {
@@ -66,24 +63,11 @@ internal sealed class VolumeButtonService : IDisposable
 
         _gameModeActive = active;
         Interlocked.Increment(ref _generation);
-        if (active)
-        {
-            // VolumeFeedback is preopened by AudioManager.Start, which the session
-            // runs before this service exists; Play() self-initializes as backstop.
-            if (_window.RegisterShellHook())
-            {
-                Log.Info("Game-mode volume buttons enabled (shell hook + default audio endpoint).");
-            }
-            else
-            {
-                Log.Warn("Game-mode volume buttons unavailable: shell-hook registration failed.");
-            }
-
-            return;
-        }
-
-        _window.DeregisterShellHook();
-        Log.Info("Game-mode volume buttons disabled; Explorer owns volume commands.");
+        // VolumeFeedback is preopened by AudioManager.Start, which the session
+        // runs before this service exists; Play() self-initializes as backstop.
+        Log.Info(active
+            ? "Game-mode volume buttons enabled (shell hook + default audio endpoint)."
+            : "Game-mode volume buttons disabled; Explorer owns volume commands.");
     }
 
     private void OnShellHook(nint eventCode, nint data)

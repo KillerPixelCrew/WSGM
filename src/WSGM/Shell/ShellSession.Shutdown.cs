@@ -760,6 +760,11 @@ public sealed partial class ShellSession
             _volumeButtons?.Dispose();
             _volumeButtons = null;
         });
+        Step(failures, "Disposing _launchedWindows failed", () =>
+        {
+            _launchedWindows?.Dispose();
+            _launchedWindows = null;
+        });
         Step(failures, "Disposing _cardVolumes failed", () =>
         {
             _cardVolumes?.Dispose();
