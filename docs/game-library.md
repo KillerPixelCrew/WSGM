@@ -514,17 +514,71 @@ launcher-follow routes retain their own mechanisms. Explicit title edits rename 
 shortcuts in place through Steam's write API; automatic source-name changes preserve Steam edits.
 
 Volume changes, resume, explicit checks and changed emulator installations trigger stored-content
-rechecks. There are no filesystem watchers on games or emulator folders. Scans check discovered
-titles without requesting a second full pass. Batch checks reuse volume and prerequisite
-observations; shutdown closes admission to late results. Unavailable titles stay visible with grey
-artwork and a location/reason badge while Library Badges is enabled. Reinsertion needs no Steam
-restart. The toolkit publishes explicit shortcut availability without changing Valve's global
-installed store or intercepting `RunGame`.
+rechecks. The monitor follows the existing removable-drive inventory's mount/readiness changes as
+well as native volume notifications, so a software unmount is noticed without scanning every game on
+each inventory tick. It coalesces arrival notifications, observes a newly mounted volume again after
+settling, and runs a five-minute recovery check for missed events and manual file edits. It checks
+known content rather than repeatedly discovering entire ROM trees. Shutdown closes admission to late
+observations. Reinsertion needs no Steam restart.
 
-The proposed [removable-content implementation plan](plans/removable-shortcut-availability.md)
-extends this with a card manifest and device index. It distinguishes disconnected storage from
-confirmed deleted files, with automatic cleanup for the latter. This is planned behavior, not the
-current implementation described above.
+### Portable library inventory and confirmed deletion
+
+Participating non-system removable and hot-pluggable volumes carry `.wsgm/library.json`. Its library
+UUID, stable title IDs and relative paths travel with the games. The device's versioned
+`library-import.json` caches known libraries and title metadata for disconnected cards, and owns
+local Steam-account shortcut mappings and per-title choices. The card's own Steam library marker
+supplies its name when present, otherwise the volume label does. WSGM does not edit Steam's ACF
+files to represent non-Steam content.
+
+Both ledgers are compared with actual files. A disconnected card keeps its titles visible as
+unavailable, with the expected location and a recheck action. On the correct readable card, a
+confirmed missing backing file or required disc track removes the title from the card inventory and
+queues removal of WSGM's local Steam shortcut. A renamed/deleted ROM root counts as moved content:
+its old entries are removed and the user can import the new location through Library Manager. There
+is no locate or relink workflow. Access failures, unsupported manifests and missing host emulators,
+BIOS or working directories do not establish deleted content.
+
+Cleanup checks the active Steam account and exact recorded command before mutation. Other accounts'
+receipts remain until that account can settle them. A command-edited shortcut stays untouched and
+WSGM releases only its local mapping. Running or uncertain-running titles defer cleanup; an
+uncertain native removal is observed again rather than blindly retried. Neither pruning nor shortcut
+cleanup deletes game files, saves or user-owned profiles. Inventory changes are persisted in batches
+per reconciliation, rather than rewriting the complete index for each missing ROM.
+
+Folder imports follow Windows `.lnk` targets and adopt their arguments and Start in directory,
+defaulting an empty Start in to the executable's directory. A shortcuts folder on C: can therefore
+represent PC games on several cards: each game follows its target volume. Deleting the source
+shortcut alone does not delete an imported title whose executable remains. Executable and working
+directory bindings survive a drive-letter change; arbitrary absolute paths inside arguments remain
+as authored. Leading/trailing argument whitespace is trimmed, with quoting and internal spacing
+preserved.
+
+Both surfaces expose Storage libraries with readable status, Recheck, and staged Repair library or
+Use this card actions committed through the existing Apply flow. A card on a new local volume
+binding must be reviewed before it replaces the accepted binding. Unknown card inventory is offered
+for import, never executed on insertion. Lost/corrupt known inventory can be explicitly rebuilt from
+cached records; future schema versions cannot be repaired by an older reader. New imports require a
+writable manifest. Fixed-only, protocol-link, emulator-interface and launcher-native imports retain
+their existing separate lifecycle.
+
+The toolkit owns a reversible managed-shortcut availability projection: grey artwork, unavailable
+details, a disabled native Play action, a separate Recheck action and installed-only filtering.
+Available managed titles return to installed views; disconnected titles remain in general views and
+collections. This remains enabled under the Steam integration master even when decorative library
+badges are off. No native persistent shortcut-uninstalled toggle has been verified; the code neither
+changes Valve's global install store nor wraps all `RunGame` calls. The launch helper independently
+checks the host-accepted local binding and required files, and refuses unavailable content with its
+logical location.
+
+The schema-v2 migration keeps one immutable v1 index backup and preserves existing managed IDs and
+Steam shortcuts. A legacy card is initialized only on its expected readable volume. Already-missing
+legacy content is intentionally pruned on its first successful reconciliation. Unresolved legacy
+account receipts remain non-destructive until matched to the active account.
+
+The [implementation plan](plans/removable-shortcut-availability.md),
+[orchestration split](plans/removable-shortcut-orchestration.md) and
+[validation record](../reports/issue-200-delivery.md) distinguish implemented source from live
+Steam, input, media-swap and launch acceptance.
 
 ROM artwork queries Screenscraper with system and ROM identity; PC sources prefer SteamGridDB. Empty
 matches, provider failures and a paused provider can fall back to another provider. A pause is shown

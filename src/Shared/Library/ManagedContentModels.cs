@@ -93,6 +93,15 @@ public sealed class ManagedContentRecord
     /// <summary>The stable identity allocated before Steam shortcut creation.</summary>
     public string Id { get; set; } = "";
 
+    /// <summary>The portable library UUID, empty for legacy and fixed-only records.</summary>
+    public string LibraryId { get; set; } = "";
+
+    /// <summary>Whether review/Apply accepted this library on the backing path's local volume.</summary>
+    public bool LibraryBindingAccepted { get; set; }
+
+    /// <summary>Whether only cleanup receipts remain and this record must no longer launch.</summary>
+    public bool InventoryRemoved { get; set; }
+
     /// <summary>The configured source identity.</summary>
     public string SourceId { get; set; } = "";
 
@@ -203,7 +212,7 @@ public sealed class ManagedContentCheckContext
 public static class ManagedContentStorage
 {
     /// <summary>The importer schema shared with its independent native launch consumer.</summary>
-    public const int FormatVersion = 1;
+    public const int FormatVersion = 2;
 
     /// <summary>Creates the durable identity before Steam assigns an app id.</summary>
     public static string ContentId(string sourceId, string key)
@@ -306,6 +315,42 @@ public static class ManagedContentStorage
             if (RecordDefect(record) is { } defect)
             {
                 throw new InvalidDataException(defect);
+            }
+
+            if (record.InventoryRemoved)
+            {
+                throw new InvalidDataException("This title was removed from its library. Import it again in Game Library.");
+            }
+
+            if (record.LibraryId.Length > 0)
+            {
+                if (!record.LibraryBindingAccepted
+                    || !document.RootElement.TryGetProperty("Libraries", out var libraries)
+                    || libraries.ValueKind != JsonValueKind.Array)
+                {
+                    throw new InvalidDataException("Review and apply this library in Game Library before launching it.");
+                }
+
+                var matches = libraries.EnumerateArray().Where(library =>
+                    library.TryGetProperty("Id", out var libraryId)
+                    && libraryId.ValueKind == JsonValueKind.String
+                    && string.Equals(libraryId.GetString(), record.LibraryId, StringComparison.OrdinalIgnoreCase))
+                    .ToArray();
+                if (matches.Length != 1
+                    || !matches[0].TryGetProperty("VolumeId", out var volumeId)
+                    || volumeId.ValueKind != JsonValueKind.String
+                    || !string.Equals(volumeId.GetString(), record.BackingPath.VolumeId,
+                        StringComparison.OrdinalIgnoreCase)
+                    || matches[0].TryGetProperty("RepairRequired", out var repair) && repair.ValueKind != JsonValueKind.False
+                    || matches[0].TryGetProperty("MigrationPending", out var pending) && pending.ValueKind != JsonValueKind.False)
+                {
+                    throw new InvalidDataException("This library's storage binding needs review or repair in Game Library.");
+                }
+
+                if (matches[0].TryGetProperty("Name", out var name) && name.ValueKind == JsonValueKind.String)
+                {
+                    record.Location = name.GetString() ?? record.Location;
+                }
             }
 
             return record;
@@ -425,6 +470,52 @@ public static class ManagedContentStorage
         return ResolveWithin(mount, path.RelativePath);
     }
 
+    /// <summary>Resolves file evidence and launch paths through a volume GUID after confirming its current mount.</summary>
+    public static string ResolveBoundPath(ManagedContentPath path, ManagedContentCheckContext? context = null)
+    {
+        var mounted = ResolvePath(path, context);
+        return path.VolumeId.Length == 0 ? mounted
+            : ResolveLibraryPath(path.VolumeId, path.RelativePath == "." ? "" : path.RelativePath);
+    }
+
+    /// <summary>Validates a volume GUID and relative path without following a mount letter.</summary>
+    public static string ResolveLibraryPath(string volumeId, string relativePath)
+    {
+        if (volumeId.Length != 49 || !volumeId.StartsWith(@"\\?\Volume{", StringComparison.OrdinalIgnoreCase)
+            || !volumeId.EndsWith(@"}\", StringComparison.Ordinal)
+            || !Guid.TryParseExact(volumeId.Substring(11, 36), "D", out _))
+        {
+            throw new InvalidDataException("The expected storage volume identity is invalid.");
+        }
+
+        if (relativePath.Length > 32700 || Path.IsPathRooted(relativePath)
+            || relativePath.IndexOfAny([':', '\0', '<', '>', '"', '|', '?', '*']) >= 0
+            || relativePath.Split(['\\', '/']).Any(part => part is ".." || part.EndsWith(' ') || part.EndsWith('.')))
+        {
+            // The root itself is represented by an empty string, never dot segments.
+            throw new InvalidDataException("A library path escapes or aliases its storage root.");
+        }
+
+        return relativePath.Length == 0 ? volumeId : volumeId + relativePath.Replace('/', '\\');
+    }
+
+    /// <summary>Rejects reparse points in every existing volume-relative path segment.</summary>
+    public static void RejectLibraryReparsePoints(string volumeId, string relativePath)
+    {
+        _ = ResolveLibraryPath(volumeId, relativePath);
+        var current = volumeId;
+        var segments = new[] { "" }.Concat(relativePath.Split(['\\', '/'], StringSplitOptions.RemoveEmptyEntries));
+        foreach (var segment in segments)
+        {
+            current = segment.Length == 0 ? current : Path.Combine(current, segment);
+            var attributes = File.GetAttributes(current);
+            if ((attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                throw new InvalidDataException("A library path contains a reparse point. Use a path on this storage.");
+            }
+        }
+    }
+
     private static string ResolveWithin(string mount, string relativePath)
     {
         var root = Path.GetFullPath(mount).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
@@ -442,12 +533,16 @@ public static class ManagedContentStorage
     {
         try
         {
-            var primary = ResolvePath(record.BackingPath, context);
+            var primary = ResolveBoundPath(record.BackingPath, context);
             foreach (var path in new[] { record.BackingPath }.Concat(record.RequiredPaths))
             {
-                var resolved = ReferenceEquals(path, record.BackingPath) ? primary : ResolvePath(path, context);
+                var resolved = ReferenceEquals(path, record.BackingPath) ? primary : ResolveBoundPath(path, context);
                 try
                 {
+                    if (record.LibraryId.Length > 0 && path.VolumeId.Length > 0)
+                    {
+                        RejectLibraryReparsePoints(path.VolumeId, path.RelativePath == "." ? "" : path.RelativePath);
+                    }
                     var attributes = File.GetAttributes(resolved);
                     if (path.Directory != attributes.HasFlag(FileAttributes.Directory))
                     {
@@ -456,10 +551,12 @@ public static class ManagedContentStorage
                 }
                 catch (FileNotFoundException)
                 {
+                    ConfirmReadableContentParent(path);
                     return Missing(record);
                 }
                 catch (DirectoryNotFoundException)
                 {
+                    ConfirmReadableContentParent(path);
                     return Missing(record);
                 }
             }
@@ -479,6 +576,44 @@ public static class ManagedContentStorage
         }
     }
 
+    /// <summary>Establishes that a not-found observation still belongs to readable expected storage.</summary>
+    public static void ConfirmReadableVolume(ManagedContentPath path)
+    {
+        if (path.VolumeId.Length == 0)
+        {
+            return;
+        }
+
+        RejectLibraryReparsePoints(path.VolumeId, "");
+        using var entries = Directory.EnumerateFileSystemEntries(path.VolumeId).GetEnumerator();
+        _ = entries.MoveNext();
+    }
+
+    private static void ConfirmReadableContentParent(ManagedContentPath path)
+    {
+        if (path.VolumeId.Length == 0)
+        {
+            return;
+        }
+        var parent = Path.GetDirectoryName(path.RelativePath) ?? "";
+        while (true)
+        {
+            try
+            {
+                RejectLibraryReparsePoints(path.VolumeId, parent);
+                using var entries = Directory.EnumerateFileSystemEntries(
+                    ResolveLibraryPath(path.VolumeId, parent)).GetEnumerator();
+                _ = entries.MoveNext();
+                ConfirmReadableVolume(path);
+                return;
+            }
+            catch (Exception ex) when (parent.Length > 0 && (ex is FileNotFoundException or DirectoryNotFoundException))
+            {
+                parent = Path.GetDirectoryName(parent) ?? "";
+            }
+        }
+    }
+
     /// <summary>Checks the backing content, preference and emulator dependencies with one consistent policy.</summary>
     /// <param name="record">The authoritative launch record.</param>
     /// <param name="store">A fresh emulator snapshot acquired by the owner.</param>
@@ -492,6 +627,12 @@ public static class ManagedContentStorage
         if (RecordDefect(record) is { } defect)
         {
             return new ManagedContentCheck(ManagedContentAvailability.Unreadable, defect, Content: record);
+        }
+
+        if (record.InventoryRemoved || record.LibraryId.Length > 0 && !record.LibraryBindingAccepted)
+        {
+            return new ManagedContentCheck(ManagedContentAvailability.Unreadable,
+                "Review this library in Game Library before launching it.", Content: record);
         }
 
         var content = ResolveEmulatorPreference(store, record);
@@ -544,8 +685,31 @@ public static class ManagedContentStorage
 
         try
         {
-            var program = ResolvePath(content.Program, context);
-            var directory = ResolvePath(content.WorkingDirectory, context);
+            var program = ResolveBoundPath(content.Program, context);
+            var directory = ResolveBoundPath(content.WorkingDirectory, context);
+            if (content.LibraryId.Length > 0)
+            {
+                foreach (var dependency in new[] { content.Program, content.WorkingDirectory })
+                {
+                    if (dependency.VolumeId.Length > 0)
+                    {
+                        try
+                        {
+                            RejectLibraryReparsePoints(dependency.VolumeId,
+                                dependency.RelativePath == "." ? "" : dependency.RelativePath);
+                        }
+                        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+                        {
+                            ConfirmReadableVolume(dependency);
+                            return checkedContent with
+                            {
+                                Availability = ManagedContentAvailability.EmulatorUnavailable,
+                                Detail = "The program or its working directory is missing. Repair it or edit this shortcut."
+                            };
+                        }
+                    }
+                }
+            }
             if (!File.Exists(program) || !Directory.Exists(directory))
             {
                 return checkedContent with
@@ -595,8 +759,7 @@ public static class ManagedContentStorage
         }
 
         return before.Id == after.Id && before.SourceId == after.SourceId && before.SourceKey == after.SourceKey
-               && before.Name == after.Name && before.SourceKind == after.SourceKind &&
-               before.Location == after.Location
+               && before.LibraryId == after.LibraryId && before.SourceKind == after.SourceKind
                && EmulatorStorage.NormalizeSystemId(before.SystemId) ==
                EmulatorStorage.NormalizeSystemId(after.SystemId)
                && before.EmulatorInstallationId == after.EmulatorInstallationId && before.CoreId == after.CoreId
@@ -629,10 +792,13 @@ public static class ManagedContentStorage
         return record is
                {
                    Id.Length: > 0, SourceId: not null, SourceKey: not null, Name: not null,
+                   LibraryId: not null,
                    Location: not null, SystemId: not null, EmulatorInstallationId: not null, CoreId: not null,
                    RawArguments: not null, Arguments: not null, RequiredPaths: not null,
                    AvailabilityDetail: not null
                }
+               && (record.LibraryId.Length == 0 || Guid.TryParseExact(record.LibraryId, "D", out var libraryId)
+                   && libraryId != Guid.Empty && record.BackingPath is { VolumeId.Length: > 0 })
                && record.Arguments.All(argument => argument is not null)
                && record.RequiredPaths.All(PathValid) && PathValid(record.BackingPath)
                && PathValid(record.Program) && PathValid(record.WorkingDirectory) && PathValid(record.SourceRoot)

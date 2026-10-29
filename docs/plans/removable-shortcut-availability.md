@@ -4,8 +4,9 @@ This plan completes [issue #200](https://github.com/KillerPixelCrew/WSGM/issues/
 existing Game Library. It covers ROMs, portable PC games, Windows shortcut-folder imports and
 explicitly library-backed manual commands.
 
-Status: proposed implementation, revised after a full Claude review. No feature code, deployment or
-media changes have been made for this plan. Review findings and their disposition are recorded below
+Status: implementation integrated through the orchestration split. Source, deployment and media
+validation are recorded in the [delivery record](../../reports/issue-200-delivery.md); the design
+below remains the implementation contract. Review findings and their disposition are recorded below
 and in the linked review report.
 
 ## Agreed behavior
@@ -348,11 +349,11 @@ larger sizes.
 
 Keep availability presentation and enforcement independent of the optional location-badge display.
 The required CEF feature includes unavailable card styling, details-page state, a native-style
-unavailable/recheck primary action replacing the ordinary Play affordance for an unavailable managed
-shortcut, and shared availability semantics for relevant installed-only library filters. Restore the
-exact normal behavior on availability, feature removal or renderer replacement. Keep focus and
-controller activation intact. Never present a Steam Install/download action for content that only
-needs its card reconnected.
+disabled native Play action and a separate Recheck action for an unavailable managed shortcut, and
+shared availability semantics for relevant installed-only library filters. Restore the exact normal
+behavior on availability, feature removal or renderer replacement. Keep focus and controller
+activation intact. Never present a Steam Install/download action for content that only needs its
+card reconnected.
 
 The filter contract is explicit: managed unavailable shortcuts remain in All Games and Non-Steam
 views, are excluded from installed-only views, and return to those installed-only views once
@@ -489,7 +490,7 @@ copies during attended validation.
 | Second WSGM device/account                                                      | Card offers reviewable inventory, local mappings stay local, no automatic execution                                                               |
 | Known UUID on a new local volume or copied media                                | Existing binding not silently replaced; review/Apply required; duplicate attached UUIDs remain ambiguous                                          |
 | Known card loses/corrupts its manifest, then Repair library is applied          | Exact binding checked, original bytes preserved where present, inventory rebuilt from known records, normal file checks resume                    |
-| Normal Steam library, Big Art Mode, details and badges disabled                 | Consistent unavailable presentation, unavailable/recheck primary action and usable focus/navigation                                               |
+| Normal Steam library, Big Art Mode, details and badges disabled                 | Consistent unavailable presentation, disabled native Play, separate Recheck and usable focus/navigation                                           |
 | All Games, Non-Steam, installed-only filters and Steam-owned titles             | Unavailable managed titles remain in general views but leave installed-only views; reinsertion restores them; other titles retain native behavior |
 | Details page open when its title is removed                                     | Page exits or reaches a clear removed state; Back and focus remain usable                                                                         |
 | Overlay compact/larger, populated/empty/error                                   | Personally inspected renders; no clipping, lost Back or disruptive refresh                                                                        |

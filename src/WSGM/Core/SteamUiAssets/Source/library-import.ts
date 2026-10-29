@@ -361,12 +361,27 @@ function ImportDetailsBody({ id, close, openTitle }: any) {
   }, [id]);
 
   const entry = (state?.entries ?? []).find((candidate: any) => candidate.id === id);
+  const name = react.useRef("");
+  if (entry) name.current = entry.name;
+  // A title can go while its sheet is open, such as when its files were deleted. Close rather than
+  // leave a sheet about nothing; the page says what happened and keeps its own focus.
+  react.useEffect(() => {
+    if (entry) return;
+    importReport({
+      text: name.current ? `${name.current} is no longer listed.` : "That title is no longer listed.",
+      error: false,
+    });
+    close();
+  }, [!entry]);
   if (!entry) {
     return renderSteamUiSheet(importUi, {
       note: "This title is no longer listed.",
       actions: [{ id: "close", label: "Close", onClick: close }],
     });
   }
+  const storage = entry.libraryId
+    ? (state?.storageLibraries ?? []).find((candidate: any) => candidate.id === entry.libraryId)
+    : null;
 
   const launchControl = !entry.editable
     ? null
@@ -434,6 +449,18 @@ function ImportDetailsBody({ id, close, openTitle }: any) {
           ["Availability", importAvailability(entry)],
         ] as [string, string][])
       : []),
+    ...(storage
+      ? ([["Storage", `${storage.name} · ${storage.status}`]] as [string, string][])
+      : []),
+    ...(entry.cleanupPending
+      ? ([
+          [
+            "Removing",
+            "Its game files were deleted. WSGM removes its Steam shortcut as soon as Steam allows; " +
+              "your other files and saves stay.",
+          ],
+        ] as [string, string][])
+      : []),
     ["Identity", details?.identity ?? "…"],
     ...((details?.notes ?? []) as string[]).map((note: string): [string, string] => ["Note", note]),
   ];
@@ -445,6 +472,7 @@ function ImportDetailsBody({ id, close, openTitle }: any) {
           run: () => void importAct("recheckAvailability", { id: entry.id }),
         }
       : null,
+    storage ? { label: "Storage library…", run: () => showImportStorage(storage) } : null,
     entry.systemId
       ? {
           label: "Rename title…",
@@ -572,6 +600,142 @@ function ImportDetailsBody({ id, close, openTitle }: any) {
   );
 }
 
+// Storage libraries: the host's status words, with the counts the review's titles carry. The overlay
+// builds the same line from the same state.
+const importStorageStaged = (action: string) =>
+  action === "repair"
+    ? "Repair library on apply"
+    : action === "acceptBinding"
+      ? "Use this card on apply"
+      : "Change waiting for apply";
+const importStorageAttention = (storage: any) =>
+  !!storage.canRepair ||
+  !!storage.canAcceptBinding ||
+  !!storage.stagedAction ||
+  String(storage.status).toLowerCase() !== "available";
+const importStorageLine = (storage: any, entries: any[]) => {
+  const titles = entries.filter(
+    (entry) => entry.libraryId === storage.id && (entry.appId > 0 || entry.cleanupPending),
+  );
+  const unavailable = titles.filter((entry) => entry.unavailable && !entry.cleanupPending).length;
+  const removing = titles.filter((entry) => entry.cleanupPending).length;
+  return [
+    storage.status,
+    `${storage.titleCount} title${storage.titleCount === 1 ? "" : "s"}`,
+    unavailable ? `${unavailable} unavailable` : "",
+    removing ? `${removing} being removed` : "",
+    storage.stagedAction ? importStorageStaged(storage.stagedAction) : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+};
+
+// One storage library: what is wrong, the staged repair or new card, and a recheck. Apply on the
+// page or here performs the staged action, like every other change in the review.
+function ImportStorageBody({ id, close }: any) {
+  const react = importUi.react;
+  const h = react.createElement;
+  const state = useImportState();
+  const storage = (state?.storageLibraries ?? []).find((candidate: any) => candidate.id === id);
+  react.useEffect(() => {
+    if (storage) return;
+    importReport({ text: "That storage library is no longer listed.", error: false });
+    close();
+  }, [!storage]);
+  if (!storage) {
+    return renderSteamUiSheet(importUi, {
+      note: "That storage library is no longer listed.",
+      actions: [{ id: "close", label: "Close", onClick: close }],
+    });
+  }
+
+  const busy = !!state?.loading;
+  const stage = (action: string) => void importAct("stageStorageAction", { id, action });
+  const action = storage.stagedAction
+    ? {
+        id: "action",
+        label: storage.stagedAction === "repair" ? "Don't repair" : "Don't use this card",
+        disabled: busy,
+        onClick: () => stage(""),
+      }
+    : storage.canRepair
+      ? { id: "action", label: "Repair library", disabled: busy, onClick: () => stage("repair") }
+      : storage.canAcceptBinding
+        ? {
+            id: "action",
+            label: "Use this card",
+            disabled: busy,
+            onClick: () => stage("acceptBinding"),
+          }
+        : null;
+  const saveCount = state?.selectedCount ?? 0;
+  const titles = (state?.entries ?? []).filter((entry: any) => entry.libraryId === id);
+  const facts: [string, string][] = [
+    ["Status", importStorageLine(storage, state?.entries ?? [])],
+    ...(storage.detail ? ([["Detail", storage.detail]] as [string, string][]) : []),
+    ...(storage.canRepair && !storage.stagedAction
+      ? ([
+          [
+            "Repair library",
+            "Rebuilds this storage's game list from the titles WSGM already knows, after checking " +
+              "it is the same storage. Done when you save to Steam.",
+          ],
+        ] as [string, string][])
+      : []),
+    ...(storage.canAcceptBinding && !storage.stagedAction
+      ? ([
+          [
+            "Use this card",
+            "Launches this library's titles from the storage now connected. Done when you save to Steam.",
+          ],
+        ] as [string, string][])
+      : []),
+    [
+      "Titles",
+      titles.length
+        ? titles
+            .slice(0, 12)
+            .map((entry: any) => entry.name)
+            .join(" · ") + (titles.length > 12 ? ` · and ${titles.length - 12} more` : "")
+        : storage.titleCount
+          ? "Scan to list this library's titles."
+          : "None listed",
+    ],
+  ];
+  return renderSteamUiSheet(
+    importUi,
+    {
+      actions: [
+        ...(action ? [action] : []),
+        ...(saveCount
+          ? [
+              {
+                id: "save",
+                label: `Save to Steam (${saveCount})`,
+                primary: true,
+                disabled: busy,
+                onClick: () => void importAct("apply"),
+              },
+            ]
+          : []),
+        {
+          id: "recheck",
+          label: "Recheck",
+          disabled: busy,
+          onClick: () => void importAct("recheckAvailability", { id: `library:${id}` }),
+        },
+        { id: "close", label: "Close", onClick: close },
+      ],
+    },
+    ...facts.map(([term, value], index) => importFact(term, value, `${term}${index}`)),
+  );
+}
+const showImportStorage = (storage: any) =>
+  showSteamModal(importUi, {
+    title: storage.name,
+    render: (close) => importUi.react.createElement(ImportStorageBody, { id: storage.id, close }),
+  });
+
 // The mockup's "Add a shortcuts folder" sheet: the folder, whether its subfolders are read too,
 // and which file types it offers.
 function ImportFolderBody({ close }: any) {
@@ -601,7 +765,9 @@ function ImportFolderBody({ close }: any) {
   return renderSteamUiSheet(
     importUi,
     {
-      note: "Every shortcut in the folder becomes a title. The folder appears in the sidebar and is scanned with the launchers.",
+      note:
+        "Every shortcut in the folder becomes a title and keeps its program, arguments and Start in folder. " +
+        "A game on removable storage follows that storage, wherever this folder is.",
       error,
       actions: [
         { id: "cancel", label: "Cancel", onClick: close },
@@ -1196,7 +1362,7 @@ function ImportCard({ entry, slot, asset, actions, returning }: any) {
     }),
     h("div", { className: "wsgm-import-name" }, launchGlyph, h("span", {}, entry.name)),
     h("div", { className: "wsgm-import-launch" }, entry.launchLabel),
-    importUnavailable(entry)
+    importUnavailable(entry) || entry.cleanupPending
       ? h("div", { className: "wsgm-import-launch" }, importAvailability(entry))
       : null,
   );
@@ -1216,6 +1382,9 @@ const importCardKey = (entry: any, slot: any) =>
     entry.reason,
     entry.launchLabel,
     entry.availability,
+    entry.availabilityLabel,
+    entry.unavailable,
+    entry.cleanupPending,
     entry.follows,
     entry.packaged,
     entry.mode,
@@ -1478,6 +1647,7 @@ function LibraryImportPage({ context, page }: any) {
 
   const entries: any[] = state.entries ?? [];
   const sources: any[] = state.sources ?? [];
+  const storages: any[] = state.storageLibraries ?? [];
   const busy = !!state.loading;
   const titleEntry =
     view.name === "title" ? entries.find((entry) => entry.id === view.title) : null;
@@ -1903,6 +2073,26 @@ function LibraryImportPage({ context, page }: any) {
         ),
       ),
       entries.length ? sourceActions : null,
+      // Removable storage the library knows, connected or not; each opens its own sheet.
+      ...(storages.length
+        ? [
+            h(
+              "div",
+              { key: "storage-head", className: "wsgm-import-eyebrow wsgm-import-custom" },
+              storages.some(importStorageAttention)
+                ? `Storage · ${storages.filter(importStorageAttention).length} need attention`
+                : "Storage",
+            ),
+            ...storages.map((storage: any) =>
+              renderSteamUiSelectRow(ui, {
+                key: `storage:${storage.id}`,
+                title: storage.name,
+                detail: importStorageLine(storage, entries),
+                onClick: () => showImportStorage(storage),
+              }),
+            ),
+          ]
+        : []),
       h("div", { className: "wsgm-import-eyebrow wsgm-import-custom" }, "Steam"),
       h(
         "div",

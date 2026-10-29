@@ -284,8 +284,17 @@ RPCS3, PCSX2, Eden and Dolphin. Libretro Buildbot supplies RetroArch; Scoop meta
 sources supply the other definitions. Steam ROM Manager presets and reviewed EmuDeck Windows
 behavior inform launch/configuration defaults. Both Overlay and Steam CEF expose the same backend.
 Stable content/emulator ids let the launch helper resolve current mounts and program versions;
-missing content stays visible with its logical location. Emulator binaries are not Plugin SDK
+disconnected content stays visible with its logical location. Emulator binaries are not Plugin SDK
 packages. Builds remain distinct from live Steam, emulator and storage acceptance.
+
+**Portable library inventory follows the content (2026-10-29).** Issue #200 uses a card manifest and
+a device index: portable title IDs and relative paths live on the card, while cached offline
+metadata and account-local Steam mappings live on the device. Both are checked against the files.
+Disconnected storage retains unavailable titles; confirmed missing content on the correct readable
+card removes its inventory entry and owned shortcut. Moving a game or its root counts as deletion
+and requires a new Library Manager import. This supersedes retaining every missing managed title
+until manual cleanup. Read failures and missing emulator dependencies do not authorize deletion. See
+[portable library inventory](game-library.md#portable-library-inventory-and-confirmed-deletion).
 
 **WSGM writes Steam shortcuts through the running client (2026-09-22).** This reverses the rule
 recorded after the September 2026 launcher trials, when CEF shortcut-management calls destabilized a

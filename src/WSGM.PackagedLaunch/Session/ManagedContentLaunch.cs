@@ -34,7 +34,10 @@ internal static class ManagedContentLaunch
                             false);
                     }
 
-                    check = ManagedContentStorage.Check(ManagedContentStorage.Read(userRoot, id),
+                    // The host's accepted local snapshot is the only launch authority. Never parse or
+                    // adopt card-authored inventory in this independently started helper.
+                    var content = ManagedContentStorage.Read(userRoot, id);
+                    check = ManagedContentStorage.Check(content,
                         EmulatorStorage.ReadStore(userRoot));
                     if (check.Available && check.Content!.LaunchKind == ManagedLaunchKind.Direct)
                     {

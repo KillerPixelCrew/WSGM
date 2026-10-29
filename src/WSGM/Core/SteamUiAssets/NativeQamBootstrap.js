@@ -8932,6 +8932,9 @@
     const libraries = new Map();
     const shortcuts = new Map();
     const published = Array.isArray(state?.libraries) ? state.libraries : [];
+    // The host's badge preference. Off, no library is named; managed availability is still drawn,
+    // because a shortcut on absent storage must not look launchable.
+    const showBadges = state?.showBadges !== false;
     let count = 0;
     for (const entry of published) {
       if (!entry || typeof entry.name !== "string" || !Array.isArray(entry.appIds)) continue;
@@ -8957,7 +8960,14 @@
         continue;
       shortcuts.set(entry.appId, entry);
     }
-    return { libraries, shortcuts, count };
+    return { libraries, shortcuts, count, showBadges };
+  };
+  // The host's verdict on a managed shortcut that cannot launch now, or null for every other app:
+  // an available managed shortcut, an ordinary shortcut and a Steam game alike.
+  const unavailableShortcut = (appid, reading) => {
+    if (typeof appid !== "number") return null;
+    const shortcut = reading.shortcuts.get(appid);
+    return shortcut && !shortcut.available ? shortcut : null;
   };
   // The library to name for one app overview, or null when there is none. Steam's own installed flag is
   // the authority on installed; a disconnected card's games are not installed by Steam's reckoning. The
@@ -8966,7 +8976,7 @@
   const libraryForOverview = (overview, reading) => {
     const appid = typeof overview?.appid === "number" ? overview.appid : null;
     if (appid === null) return null;
-    const library = reading.libraries.get(appid);
+    const library = reading.showBadges ? reading.libraries.get(appid) : undefined;
     const shortcut = reading.shortcuts.get(appid);
     const installed =
       typeof overview.installed === "boolean" ? overview.installed : (library?.connected ?? false);
@@ -9005,7 +9015,8 @@
             before?.name !== after?.name ||
             before?.installed !== after?.installed ||
             before?.reason !== after?.reason ||
-            before?.managed !== after?.managed
+            before?.managed !== after?.managed ||
+            previous.showBadges !== current.showBadges
           ) {
             store.changed();
           }
@@ -9095,7 +9106,7 @@
     const renderBadge = (overview) => {
       // Grey when not installed, which is exactly what a disconnected card amounts to.
       const library = libraryForOverview(overview, reading);
-      if (!library) return null;
+      if (!library || !reading.showBadges) return null;
       return react.createElement(
         "span",
         {
@@ -9534,6 +9545,426 @@
     return { install, remove, status };
   }
   registerGate("libraryDetails", createLibraryDetails());
+  // Availability of host-managed shortcuts where Steam acts on "installed": the primary action on a
+  // game's play bar, the library's Installed tab, and the play-state options of the library filter.
+  //
+  // Read offline from the installed client (sp.js of 2026-10-20) without executing it:
+  //
+  //   play bar   a mobx observer class renders one Focusable container whose className carries the
+  //              play button class map's `PlayButtonContainer`. Its first child is the primary
+  //              Focusable button (`PlayButton`, autoFocus in the gamepad UI, launching from onClick,
+  //              or from onMouseUp when it fakes actions); its last is a remote-play explainer
+  //              carrying the overview.
+  //   Installed  the tab is drawn as an element given `collection`, Steam's `local-install`
+  //              collection. That collection is every installed app of the games type and, while the
+  //              gamepad window is active, no shortcut at all; All Games leaves shortcuts out the same
+  //              way, and the Non-Steam tab is a collection of its own.
+  //   filter     the library's own filters (desktop, gamepad and VR) are instances of one subclass of
+  //              Steam's app filter class, read inside each grid's render through mobx-react-lite's
+  //              useObserver. Its `MatchesImpl` and `MatchesScoredImpl` read the play states from the
+  //              overview: `local_per_client_data.installed`, `installed` and
+  //              `per_client_data[].installed`. Users' dynamic collections hold a base-class filter
+  //              of their own and are not touched.
+  //
+  // The client has no shortcut-specific installed setter, so nothing in Valve's app store is written.
+  //
+  // The action: for a managed shortcut the host reports unavailable, the container keeps Valve's
+  // Focusable, autoFocus and ref, trades its green for Valve's disabled look, and its primary button
+  // reads Recheck and sends `recheck` instead of launching. Any other app keeps Valve's element.
+  //
+  // The Installed tab: the collection an element is given is replaced by a read-only view of it that
+  // adds the managed shortcuts the host reports available and Steam reports installed, and drops the
+  // unavailable ones, in the games collection's own order. Ordinary shortcuts and Steam games keep
+  // Steam's verdict.
+  //
+  // The filter: an unavailable managed shortcut is evaluated through a read-only view of its overview
+  // whose installed fields read false, so Installed and Ready to Play leave it out while every other
+  // option, All Games and Non-Steam judge it as before.
+  //
+  // Every swap is a live component following the publication, so a change in availability redraws
+  // the play bar and the grids, whose render reruns the filter, without waiting for a Steam render.
+  // Nothing is drawn differently while the host manages no shortcut.
+  function createLibraryAvailability() {
+    const publicationId = "steam-ui.library-badge";
+    const TransformName = "libraryAvailability";
+    const ClassMapTokens = ['PlayButtonContainer:"', 'ShutdownAppButton:"', 'ShowingStreaming:"'];
+    const AppFilterTokens = ["MatchesScoredImpl", "MatchesImpl"];
+    const CollectionStoreTokens = ["Computing localGamesCollection", "local-install"];
+    const InstalledCollection = "local-install";
+    const GamesCollection = "type-games";
+    const FilterMembers = ["MatchesImpl", "MatchesScoredImpl"];
+    const RequiredClasses = [
+      "PlayButtonContainer",
+      "PlayButton",
+      "ButtonText",
+      "Green",
+      "Disabled",
+    ];
+    const ClientFields = new Set([
+      "local_per_client_data",
+      "most_available_per_client_data",
+      "selected_per_client_data",
+    ]);
+    const claimKeys = {
+      marker: "__steamUiLibraryAvailabilityClaimed",
+      original: "__steamUiLibraryAvailabilityOriginal",
+    };
+    let runtime;
+    let react = null;
+    let jsxRuntime = null;
+    let filterPrototype = null;
+    let collections = null;
+    let classes = null;
+    let installed = false;
+    let lastError = "";
+    let unsubscribe = null;
+    let availabilityKey = "";
+    let replaced = 0;
+    let viewed = 0;
+    let projected = 0;
+    const local = createLibraryBadgeReading();
+    // One store for the grids: they redraw when the set of managed shortcuts or their state moves.
+    const grids = createLocalStore();
+    let reading = local.read();
+    const hasClass = (className, name) =>
+      typeof className === "string" && ` ${className} `.includes(` ${name} `);
+    const isShortcut = (overview) => {
+      try {
+        return typeof overview?.BIsShortcut === "function" && overview.BIsShortcut() === true;
+      } catch {
+        return false;
+      }
+    };
+    const childrenOf = (props) =>
+      Array.isArray(props?.children) ? props.children : [props?.children];
+    const overviewIn = (children) => {
+      for (let index = children.length - 1; index >= 0; index--) {
+        const overview = children[index]?.props?.overview;
+        if (overview && typeof overview.appid === "number") return overview;
+      }
+      return null;
+    };
+    // Keep Valve's localized Play label, but remove launch activation. Recheck stays in the details stat.
+    const unavailableAction = (container, shortcut) => {
+      const description = shortcut.location
+        ? `${shortcut.location} is unavailable. ${shortcut.reason}`.trim()
+        : shortcut.reason || "This game is unavailable.";
+      let primary = false;
+      const children = childrenOf(container.props).map((child) => {
+        if (
+          primary ||
+          !react.isValidElement(child) ||
+          !hasClass(child.props?.className, classes.button)
+        )
+          return child;
+        primary = true;
+        return react.cloneElement(child, {
+          disabled: true,
+          "aria-disabled": true,
+          onClick: undefined,
+          onMouseUp: undefined,
+          onActivate: undefined,
+          onOKButton: undefined,
+          onButtonDown: undefined,
+          title: description,
+        });
+      });
+      if (!primary) return container;
+      replaced++;
+      const className = String(container.props.className ?? "")
+        .split(" ")
+        .filter((name) => name && name !== classes.green && name !== classes.disabled)
+        .concat(classes.disabled)
+        .join(" ");
+      return react.cloneElement(container, { className, children });
+    };
+    function LiveAvailabilityAction(props) {
+      const appId = props.overview?.appid ?? 0;
+      const store = local.storeFor(appId);
+      react.useSyncExternalStore(store.subscribe, store.revision, store.revision);
+      if (!installed) return props.element;
+      reading = local.read();
+      const shortcut = unavailableShortcut(appId, reading);
+      // Steam's running status is authoritative. Removing media must leave Stop usable.
+      if (!shortcut || Number(props.overview?.display_status) === 4) return props.element;
+      return unavailableAction(props.element, shortcut);
+    }
+    // Whether the host reports this managed shortcut available and Steam reports it installed:
+    // the shortcuts the gamepad window's Installed tab would otherwise leave out.
+    const availableManaged = (overview) =>
+      reading.shortcuts.get(overview?.appid)?.available === true &&
+      overview.local_per_client_data?.installed === true &&
+      isShortcut(overview);
+    const visible = (overview) => {
+      try {
+        return collections.BIsVisible(overview) === true;
+      } catch {
+        return false;
+      }
+    };
+    // A read-only view of Steam's Installed collection. Its lists are derived on each read from the
+    // collections Steam keeps, so the grid's observer still tracks Steam's own state.
+    const installedView = (collection) => {
+      const all = () => {
+        const kept = collection.apps;
+        const games = collections.GetCollection(GamesCollection)?.allApps;
+        if (!Array.isArray(games)) return collection.allApps;
+        return games.filter((overview) =>
+          unavailableShortcut(overview?.appid, reading)
+            ? false
+            : kept.has(overview?.appid) || availableManaged(overview),
+        );
+      };
+      const visibleOf = () => all().filter(visible);
+      // Steam's count with the same apps added and dropped: the difference is only shortcuts,
+      // which a tools filter never removes.
+      const count = (filter) => {
+        const native = collection.GetAppCountWithToolsFilter(filter);
+        const kept = collection.apps;
+        let difference = 0;
+        for (const overview of visibleOf()) if (!kept.has(overview.appid)) difference++;
+        for (const overview of collection.allApps) {
+          if (unavailableShortcut(overview?.appid, reading) && visible(overview)) difference--;
+        }
+        return native + difference;
+      };
+      viewed++;
+      return new Proxy(collection, {
+        get: (target, property) => {
+          switch (property) {
+            case "allApps":
+              return all();
+            case "visibleApps":
+              return visibleOf();
+            case "apps":
+              return new Set(all().map((overview) => overview.appid));
+            case "GetAppCountWithToolsFilter":
+              return count;
+            default:
+              return Reflect.get(target, property, target);
+          }
+        },
+      });
+    };
+    // A grid, keyed by its collection, redrawn when availability moves. The Installed tab is given
+    // the view; every other grid its own collection, so its render reruns the library filter.
+    function LiveAvailabilityCollection(props) {
+      const revision = react.useSyncExternalStore(grids.subscribe, grids.revision, grids.revision);
+      const original = props.props.collection;
+      const collection = react.useMemo(
+        () =>
+          installed && original.id === InstalledCollection ? installedView(original) : original,
+        [original, revision],
+      );
+      return props.create(props.type, { ...props.props, collection }, props.elementKey);
+    }
+    const isCollection = (value) =>
+      !!value &&
+      typeof value === "object" &&
+      typeof value.id === "string" &&
+      "visibleApps" in value;
+    // The play bar of a shortcut, and every grid given a collection while the host manages
+    // shortcuts. A Steam game's play bar keeps Valve's element.
+    const transform = (create, type, props, key) => {
+      if (!installed || !classes || !props) return undefined;
+      if (hasClass(props.className, classes.container)) {
+        const overview = overviewIn(childrenOf(props));
+        if (!overview || !isShortcut(overview)) return undefined;
+        return react.createElement(LiveAvailabilityAction, {
+          key,
+          overview,
+          element: create(type, props, key),
+        });
+      }
+      if (!reading.shortcuts.size || !isCollection(props.collection)) return undefined;
+      return react.createElement(LiveAvailabilityCollection, {
+        key,
+        create,
+        type,
+        props,
+        elementKey: key,
+      });
+    };
+    const notInstalled = new WeakMap();
+    const withoutInstall = (data) => {
+      if (!data || typeof data !== "object") return data;
+      const existing = notInstalled.get(data);
+      if (existing) return existing;
+      const view = new Proxy(data, {
+        get: (target, property) =>
+          property === "installed" ? false : Reflect.get(target, property, target),
+      });
+      notInstalled.set(data, view);
+      return view;
+    };
+    // A read-only view of one overview as the filter would see it without its storage. Built only
+    // for an unavailable managed shortcut; every other app reaches the filter as it is.
+    const uninstalledView = (overview) =>
+      new Proxy(overview, {
+        get: (target, property) => {
+          if (property === "installed") return false;
+          const value = Reflect.get(target, property, target);
+          if (typeof property !== "string") return value;
+          if (ClientFields.has(property)) return withoutInstall(value);
+          if (property === "per_client_data" && Array.isArray(value))
+            return value.map(withoutInstall);
+          return value;
+        },
+      });
+    const claimFilter = (member) =>
+      claimMember(filterPrototype, member, claimKeys, (original) => {
+        if (typeof original !== "function") return original;
+        return function SteamUiLibraryAvailabilityFilter(overview) {
+          if (installed && unavailableShortcut(overview?.appid, reading) && isShortcut(overview)) {
+            projected++;
+            try {
+              return original.call(this, uninstalledView(overview));
+            } catch {
+              // A view Valve's code cannot read falls back to Valve's verdict.
+            }
+          }
+          return original.call(this, overview);
+        };
+      });
+    const availabilityKeyOf = (current) => {
+      const entries = [];
+      for (const [appId, shortcut] of current.shortcuts)
+        entries.push(`${appId}:${shortcut.available ? 1 : 0}`);
+      return entries.sort().join(",");
+    };
+    // Redraws the grids only when a managed shortcut is added, removed or changes availability.
+    const refreshGrids = () => {
+      const next = installed ? availabilityKeyOf(reading) : "";
+      if (next === availabilityKey) return;
+      availabilityKey = next;
+      grids.changed();
+    };
+    const resolve = () => {
+      runtime = getWebpackRuntime("library-availability");
+      react = resolveReact(runtime);
+      if (
+        !react ||
+        typeof react.useSyncExternalStore !== "function" ||
+        typeof react.useState !== "function" ||
+        typeof react.useMemo !== "function"
+      ) {
+        lastError = "React unavailable or lacks useSyncExternalStore";
+        return false;
+      }
+      jsxRuntime = runtime.resolve([...JsxRuntimeTokens]);
+      if (typeof jsxRuntime?.jsx !== "function" || typeof jsxRuntime?.jsxs !== "function") {
+        lastError = "JSX runtime lacks jsx or jsxs";
+        return false;
+      }
+      // Valve's names for the play button's classes, mapped to whatever this build emitted.
+      const map = classMapOf(runtime.resolve([...ClassMapTokens]));
+      if (!map || RequiredClasses.some((name) => typeof map[name] !== "string" || !map[name])) {
+        lastError = "the play button class map lacks a required class";
+        return false;
+      }
+      classes = {
+        container: map.PlayButtonContainer,
+        button: map.PlayButton,
+        text: map.ButtonText,
+        green: map.Green,
+        disabled: map.Disabled,
+      };
+      // The library's filter class: it owns both evaluation methods and extends the base filter
+      // class, which owns them too. Users' dynamic collections hold the base class.
+      const owns = (host, member) => !!host && Object.prototype.hasOwnProperty.call(host, member);
+      const filter = runtime.exported([...AppFilterTokens], (value) => {
+        const prototype = value?.prototype;
+        if (typeof value !== "function" || !prototype) return false;
+        const parent = Object.getPrototypeOf(prototype);
+        return FilterMembers.every((member) => owns(prototype, member) && owns(parent, member));
+      });
+      filterPrototype = filter.prototype;
+      // The collection store, by the members the library reads from it.
+      collections = runtime.exported(
+        [...CollectionStoreTokens],
+        (value) =>
+          !!value &&
+          typeof value === "object" &&
+          typeof value.GetCollection === "function" &&
+          typeof value.BIsVisible === "function",
+      );
+      return true;
+    };
+    const releaseFilter = () => {
+      for (const member of FilterMembers) {
+        const released = releaseMember(filterPrototype, member, claimKeys);
+        if (!released.ok) return released;
+      }
+      return { ok: true };
+    };
+    const install = () => {
+      if (installed) return { ok: true, alreadyInstalled: true };
+      const resolved = attemptResolution(resolve, (error) => {
+        lastError = "library availability resolution failed: " + String(error);
+      });
+      if (!resolved) return { ok: false, error: lastError };
+      for (const member of FilterMembers) {
+        const claim = claimFilter(member);
+        if (!claim.ok) {
+          releaseFilter();
+          lastError = claim.error ?? `the library filter's ${member} could not be claimed`;
+          return { ok: false, error: lastError };
+        }
+      }
+      installed = true;
+      const elements = interceptElements(jsxRuntime, TransformName, transform);
+      if (!elements.ok) {
+        installed = false;
+        releaseFilter();
+        lastError = elements.error ?? "the JSX runtime could not be intercepted";
+        return { ok: false, error: lastError };
+      }
+      lastError = "";
+      unsubscribe = subscribe(publicationId, (state) => {
+        reading = local.publish(state);
+        refreshGrids();
+      });
+      return { ok: true, installed: true };
+    };
+    const remove = () => {
+      if (!installed) return { ok: true, absent: true };
+      // Released before anything is forgotten, so a failed release stays installed and the next
+      // remove retries it.
+      const elements = releaseElements(jsxRuntime, TransformName);
+      if (!elements.ok) {
+        lastError = elements.error ?? "library availability release failed";
+        return { ok: false, error: lastError };
+      }
+      const filter = releaseFilter();
+      if (!filter.ok) {
+        lastError = filter.error ?? "the library filter release failed";
+        return { ok: false, error: lastError };
+      }
+      installed = false;
+      unsubscribe = endSubscription(unsubscribe);
+      reading = local.publish(null);
+      // Live actions hand Valve's element back, and the grids their own collections.
+      local.changed();
+      refreshGrids();
+      return { ok: true, removed: true };
+    };
+    const status = () => ({
+      ok: true,
+      installed,
+      resolved: !!react && !!jsxRuntime && !!classes && !!filterPrototype && !!collections,
+      claimed:
+        elementsIntercepted(jsxRuntime, TransformName) &&
+        !!filterPrototype &&
+        FilterMembers.every((member) => memberClaimed(filterPrototype, member, claimKeys)),
+      managed: reading.shortcuts.size,
+      replaced,
+      viewed,
+      projected,
+      lastError,
+    });
+    return { install, remove, status };
+  }
+  registerGate("libraryAvailability", createLibraryAvailability());
   // @fragment gates/native-settings.ts
   /**
    * Contributes host settings pages to Steam using reversible member and render claims.
@@ -19087,12 +19518,29 @@
       };
     }, [id]);
     const entry = (state?.entries ?? []).find((candidate) => candidate.id === id);
+    const name = react.useRef("");
+    if (entry) name.current = entry.name;
+    // A title can go while its sheet is open, such as when its files were deleted. Close rather than
+    // leave a sheet about nothing; the page says what happened and keeps its own focus.
+    react.useEffect(() => {
+      if (entry) return;
+      importReport({
+        text: name.current
+          ? `${name.current} is no longer listed.`
+          : "That title is no longer listed.",
+        error: false,
+      });
+      close();
+    }, [!entry]);
     if (!entry) {
       return renderSteamUiSheet(importUi, {
         note: "This title is no longer listed.",
         actions: [{ id: "close", label: "Close", onClick: close }],
       });
     }
+    const storage = entry.libraryId
+      ? (state?.storageLibraries ?? []).find((candidate) => candidate.id === entry.libraryId)
+      : null;
     const launchControl = !entry.editable
       ? null
       : entry.packaged
@@ -19158,6 +19606,16 @@
             ["Availability", importAvailability(entry)],
           ]
         : []),
+      ...(storage ? [["Storage", `${storage.name} · ${storage.status}`]] : []),
+      ...(entry.cleanupPending
+        ? [
+            [
+              "Removing",
+              "Its game files were deleted. WSGM removes its Steam shortcut as soon as Steam allows; " +
+                "your other files and saves stay.",
+            ],
+          ]
+        : []),
       ["Identity", details?.identity ?? "…"],
       ...(details?.notes ?? []).map((note) => ["Note", note]),
     ];
@@ -19169,6 +19627,7 @@
             run: () => void importAct("recheckAvailability", { id: entry.id }),
           }
         : null,
+      storage ? { label: "Storage library…", run: () => showImportStorage(storage) } : null,
       entry.systemId
         ? {
             label: "Rename title…",
@@ -19294,6 +19753,139 @@
       ...facts.map(([term, value], index) => importFact(term, value, `${term}${index}`)),
     );
   }
+  // Storage libraries: the host's status words, with the counts the review's titles carry. The overlay
+  // builds the same line from the same state.
+  const importStorageStaged = (action) =>
+    action === "repair"
+      ? "Repair library on apply"
+      : action === "acceptBinding"
+        ? "Use this card on apply"
+        : "Change waiting for apply";
+  const importStorageAttention = (storage) =>
+    !!storage.canRepair ||
+    !!storage.canAcceptBinding ||
+    !!storage.stagedAction ||
+    String(storage.status).toLowerCase() !== "available";
+  const importStorageLine = (storage, entries) => {
+    const titles = entries.filter(
+      (entry) => entry.libraryId === storage.id && (entry.appId > 0 || entry.cleanupPending),
+    );
+    const unavailable = titles.filter((entry) => entry.unavailable && !entry.cleanupPending).length;
+    const removing = titles.filter((entry) => entry.cleanupPending).length;
+    return [
+      storage.status,
+      `${storage.titleCount} title${storage.titleCount === 1 ? "" : "s"}`,
+      unavailable ? `${unavailable} unavailable` : "",
+      removing ? `${removing} being removed` : "",
+      storage.stagedAction ? importStorageStaged(storage.stagedAction) : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  };
+  // One storage library: what is wrong, the staged repair or new card, and a recheck. Apply on the
+  // page or here performs the staged action, like every other change in the review.
+  function ImportStorageBody({ id, close }) {
+    const react = importUi.react;
+    const h = react.createElement;
+    const state = useImportState();
+    const storage = (state?.storageLibraries ?? []).find((candidate) => candidate.id === id);
+    react.useEffect(() => {
+      if (storage) return;
+      importReport({ text: "That storage library is no longer listed.", error: false });
+      close();
+    }, [!storage]);
+    if (!storage) {
+      return renderSteamUiSheet(importUi, {
+        note: "That storage library is no longer listed.",
+        actions: [{ id: "close", label: "Close", onClick: close }],
+      });
+    }
+    const busy = !!state?.loading;
+    const stage = (action) => void importAct("stageStorageAction", { id, action });
+    const action = storage.stagedAction
+      ? {
+          id: "action",
+          label: storage.stagedAction === "repair" ? "Don't repair" : "Don't use this card",
+          disabled: busy,
+          onClick: () => stage(""),
+        }
+      : storage.canRepair
+        ? { id: "action", label: "Repair library", disabled: busy, onClick: () => stage("repair") }
+        : storage.canAcceptBinding
+          ? {
+              id: "action",
+              label: "Use this card",
+              disabled: busy,
+              onClick: () => stage("acceptBinding"),
+            }
+          : null;
+    const saveCount = state?.selectedCount ?? 0;
+    const titles = (state?.entries ?? []).filter((entry) => entry.libraryId === id);
+    const facts = [
+      ["Status", importStorageLine(storage, state?.entries ?? [])],
+      ...(storage.detail ? [["Detail", storage.detail]] : []),
+      ...(storage.canRepair && !storage.stagedAction
+        ? [
+            [
+              "Repair library",
+              "Rebuilds this storage's game list from the titles WSGM already knows, after checking " +
+                "it is the same storage. Done when you save to Steam.",
+            ],
+          ]
+        : []),
+      ...(storage.canAcceptBinding && !storage.stagedAction
+        ? [
+            [
+              "Use this card",
+              "Launches this library's titles from the storage now connected. Done when you save to Steam.",
+            ],
+          ]
+        : []),
+      [
+        "Titles",
+        titles.length
+          ? titles
+              .slice(0, 12)
+              .map((entry) => entry.name)
+              .join(" · ") + (titles.length > 12 ? ` · and ${titles.length - 12} more` : "")
+          : storage.titleCount
+            ? "Scan to list this library's titles."
+            : "None listed",
+      ],
+    ];
+    return renderSteamUiSheet(
+      importUi,
+      {
+        actions: [
+          ...(action ? [action] : []),
+          ...(saveCount
+            ? [
+                {
+                  id: "save",
+                  label: `Save to Steam (${saveCount})`,
+                  primary: true,
+                  disabled: busy,
+                  onClick: () => void importAct("apply"),
+                },
+              ]
+            : []),
+          {
+            id: "recheck",
+            label: "Recheck",
+            disabled: busy,
+            onClick: () => void importAct("recheckAvailability", { id: `library:${id}` }),
+          },
+          { id: "close", label: "Close", onClick: close },
+        ],
+      },
+      ...facts.map(([term, value], index) => importFact(term, value, `${term}${index}`)),
+    );
+  }
+  const showImportStorage = (storage) =>
+    showSteamModal(importUi, {
+      title: storage.name,
+      render: (close) => importUi.react.createElement(ImportStorageBody, { id: storage.id, close }),
+    });
   // The mockup's "Add a shortcuts folder" sheet: the folder, whether its subfolders are read too,
   // and which file types it offers.
   function ImportFolderBody({ close }) {
@@ -19323,7 +19915,9 @@
     return renderSteamUiSheet(
       importUi,
       {
-        note: "Every shortcut in the folder becomes a title. The folder appears in the sidebar and is scanned with the launchers.",
+        note:
+          "Every shortcut in the folder becomes a title and keeps its program, arguments and Start in folder. " +
+          "A game on removable storage follows that storage, wherever this folder is.",
         error,
         actions: [
           { id: "cancel", label: "Cancel", onClick: close },
@@ -19924,7 +20518,7 @@
       }),
       h("div", { className: "wsgm-import-name" }, launchGlyph, h("span", {}, entry.name)),
       h("div", { className: "wsgm-import-launch" }, entry.launchLabel),
-      importUnavailable(entry)
+      importUnavailable(entry) || entry.cleanupPending
         ? h("div", { className: "wsgm-import-launch" }, importAvailability(entry))
         : null,
     );
@@ -19943,6 +20537,9 @@
       entry.reason,
       entry.launchLabel,
       entry.availability,
+      entry.availabilityLabel,
+      entry.unavailable,
+      entry.cleanupPending,
       entry.follows,
       entry.packaged,
       entry.mode,
@@ -20201,6 +20798,7 @@
     react.useEffect(() => subscribe(EmulatorPatchId, receiveRomChoices), []);
     const entries = state.entries ?? [];
     const sources = state.sources ?? [];
+    const storages = state.storageLibraries ?? [];
     const busy = !!state.loading;
     const titleEntry =
       view.name === "title" ? entries.find((entry) => entry.id === view.title) : null;
@@ -20624,6 +21222,26 @@
           ),
         ),
         entries.length ? sourceActions : null,
+        // Removable storage the library knows, connected or not; each opens its own sheet.
+        ...(storages.length
+          ? [
+              h(
+                "div",
+                { key: "storage-head", className: "wsgm-import-eyebrow wsgm-import-custom" },
+                storages.some(importStorageAttention)
+                  ? `Storage · ${storages.filter(importStorageAttention).length} need attention`
+                  : "Storage",
+              ),
+              ...storages.map((storage) =>
+                renderSteamUiSelectRow(ui, {
+                  key: `storage:${storage.id}`,
+                  title: storage.name,
+                  detail: importStorageLine(storage, entries),
+                  onClick: () => showImportStorage(storage),
+                }),
+              ),
+            ]
+          : []),
         h("div", { className: "wsgm-import-eyebrow wsgm-import-custom" }, "Steam"),
         h(
           "div",

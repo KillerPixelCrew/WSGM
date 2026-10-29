@@ -102,6 +102,8 @@ public sealed record GameLibrarySource(
 /// <param name="Arguments">The effective typed ROM argument override, or null for other sources.</param>
 /// <param name="Unavailable">Whether the host currently considers its managed content unavailable.</param>
 /// <param name="AvailabilityLabel">The host's user-facing description of the current availability.</param>
+/// <param name="LibraryId">The backing library identity, or empty for device-only content.</param>
+/// <param name="CleanupPending">Whether confirmed missing content awaits local shortcut cleanup.</param>
 public sealed record GameLibraryEntry(
     string Id,
     string Name,
@@ -140,7 +142,28 @@ public sealed record GameLibraryEntry(
     string ContentPath = "",
     IReadOnlyList<string>? Arguments = null,
     bool Unavailable = false,
-    string AvailabilityLabel = "");
+    string AvailabilityLabel = "",
+    string LibraryId = "",
+    bool CleanupPending = false);
+
+/// <summary>One known content library, including disconnected storage and staged recovery.</summary>
+/// <param name="Id">The opaque stable library identity.</param>
+/// <param name="Name">The logical storage name retained while disconnected.</param>
+/// <param name="Status">The host's readable availability or recovery label.</param>
+/// <param name="Detail">The current explanation, or empty.</param>
+/// <param name="TitleCount">The number of managed titles remembered for this library.</param>
+/// <param name="CanRepair">Whether review/apply can restore its missing or damaged inventory.</param>
+/// <param name="CanAcceptBinding">Whether review/apply can accept a newly observed volume binding.</param>
+/// <param name="StagedAction">The pending repair or binding intent, or empty.</param>
+public sealed record GameLibraryStorage(
+    string Id,
+    string Name,
+    string Status,
+    string Detail,
+    int TitleCount,
+    bool CanRepair,
+    bool CanAcceptBinding,
+    string StagedAction = "");
 
 /// <summary>The host's wording and presentation policy for managed availability.</summary>
 internal static class ManagedAvailabilityPresentation
@@ -202,6 +225,7 @@ public static class GameLibraryPhases
 /// <param name="Revision">Monotonic publication revision.</param>
 /// <param name="RomSources">The configured sources shown by both editors.</param>
 /// <param name="ManualSources">The editable user-authored command sources.</param>
+/// <param name="StorageLibraries">Known backing libraries and their staged recovery actions.</param>
 public sealed record GameLibraryState(
     IReadOnlyList<GameLibrarySource> Sources,
     IReadOnlyList<string> Reading,
@@ -219,7 +243,8 @@ public sealed record GameLibraryState(
     bool CreateCollections = false,
     long Revision = 0,
     IReadOnlyList<RomSourceConfig>? RomSources = null,
-    IReadOnlyList<ManualShortcutConfig>? ManualSources = null);
+    IReadOnlyList<ManualShortcutConfig>? ManualSources = null,
+    IReadOnlyList<GameLibraryStorage>? StorageLibraries = null);
 
 /// <summary>The installed choices needed by ROM editors, without downloader progress or release offers.</summary>
 /// <param name="Choices">Compatible installations and cores per system.</param>
@@ -284,6 +309,15 @@ public interface IGameLibraryBackend
 
     /// <summary>Checks one title, or all titles for an empty identity, without a full source scan.</summary>
     Task<SteamUiCommandResult> RecheckAvailabilityAsync(string id, CancellationToken cancellationToken);
+
+    /// <summary>Stages repair, acceptance of a new volume binding, or cancellation for the next Apply.</summary>
+    /// <param name="id">The known library identity.</param>
+    /// <param name="action">repair, acceptBinding, or empty to cancel the staged action.</param>
+    /// <param name="cancellationToken">Cancels request admission.</param>
+    Task<SteamUiCommandResult> StageStorageActionAsync(string id, string action, CancellationToken cancellationToken)
+    {
+        return Task.FromResult(SteamUiCommandResult.Refused);
+    }
 
     /// <summary>Scans the ticked sources. Writes nothing to Steam.</summary>
     /// <param name="cancellationToken">Cancels request admission; accepted background work uses the owning service’s lifetime.</param>

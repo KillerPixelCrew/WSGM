@@ -23,6 +23,15 @@ scale argument. This exports only available Device pages, including individual e
 dotnet run --project tools/OverlayPreview -c Release -p:SkipNativeArtifacts=true -- artifacts/atlas-preview 980 640 1 artifacts/acer-ui-publication.json "Acer Predator Atlas 8"
 ```
 
+To render only the removable storage library levels of the Game Library, pass `storage-cases`
+after the scale. It exports `importer-storage-home`, `-list`, `-detail` (a staged repair with Apply
+focused), `-empty`, `-error` and `importer-entry-removed` from an explicit fictional storage fixture:
+
+```powershell
+dotnet run --project tools/OverlayPreview -c Release -p:SkipNativeArtifacts=true -- artifacts/storage-preview 980 640 1 storage-cases
+dotnet run --project tools/OverlayPreview -c Release -p:SkipNativeArtifacts=true -- artifacts/storage-preview 1280 800 1 storage-cases
+```
+
 The publication is an offline fixture. Rendering it does not acquire its original hardware or
 establish live Steam acceptance.
 

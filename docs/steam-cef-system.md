@@ -1311,13 +1311,17 @@ The project installs `chrome-devtools-mcp` with `npm ci`. Both Claude's `.mcp.js
 `.codex/config.toml` start `node eng/steam-cef-mcp.mjs` from the checkout. The shared launcher uses
 the pinned local package, attaches to Steam's existing loopback endpoint, disables usage statistics
 and CrUX lookups, and roots relative screenshot paths in this checkout. It never starts a browser.
-Open agent sessions need to reconnect their MCP server after configuration changes. Listing targets
-and bounded read-only evaluation are observation, and `close_page` closes Steam's real window. The
-raw helpers do not all prove that port 8080 belongs to Steam, and `run-file*.mjs` does not turn
-JavaScript `exceptionDetails` into a failing exit code. Verify the listener owner and loopback
-websocket target only after the log-confirmed startup preflight below; inspect output rather than
-trusting exit zero, and do not treat `qam-harness.mjs status` as pure observation. Neither the
-harness nor the MCP relaxes the fingerprint rule.
+The launcher also prevents Puppeteer auto-attachment from pausing newly created Steam popup targets
+before their JavaScript context starts. On Steam's older CEF this startup wait can freeze the UI.
+This connection safeguard does not waive the log-confirmed startup preflight or authorize explicit
+debugger pauses. Reconnect an existing MCP server after changing its launcher. Open agent sessions
+need to reconnect their MCP server after configuration changes. Listing targets and bounded
+read-only evaluation are observation, and `close_page` closes Steam's real window. The raw helpers
+do not all prove that port 8080 belongs to Steam, and `run-file*.mjs` does not turn JavaScript
+`exceptionDetails` into a failing exit code. Verify the listener owner and loopback websocket target
+only after the log-confirmed startup preflight below; inspect output rather than trusting exit zero,
+and do not treat `qam-harness.mjs status` as pure observation. Neither the harness nor the MCP
+relaxes the fingerprint rule.
 
 `node eng\check-steam-fingerprints.mjs [<Steam directory>]` answers whether a Steam update moved a
 fingerprint without attaching to Steam. It reads every token conjunction out of the toolkit's

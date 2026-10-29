@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using WSGM.Core;
@@ -19,7 +20,7 @@ internal static class GameLibraryRows
     internal static string Describe(GameLibraryEntry entry)
     {
         List<string> parts = [entry.ActionLabel, entry.LaunchLabel];
-        if (IsUnavailable(entry))
+        if (IsUnavailable(entry) || entry.CleanupPending)
         {
             parts.Add(entry.AvailabilityLabel);
         }
@@ -140,6 +141,58 @@ internal static class GameLibraryRows
             : entry.RequiresAcknowledgement && !entry.Acknowledged
                 ? "This title is multiplayer; switching to the Steam overlay asks you to accept the risk."
                 : "Press to switch to the Steam overlay.";
+    }
+
+    /// <summary>Whether a storage library has something for the user to look at.</summary>
+    /// <param name="storage">The library.</param>
+    /// <returns>True unless it is available with nothing to repair, accept or apply.</returns>
+    internal static bool StorageNeedsAttention(GameLibraryStorage storage)
+    {
+        return storage.CanRepair || storage.CanAcceptBinding || storage.StagedAction.Length > 0
+               || !string.Equals(storage.Status, "Available", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The home level's line for the storage libraries row.</summary>
+    /// <param name="storages">The known storage libraries.</param>
+    /// <returns>How many need attention, or that they are all available.</returns>
+    internal static string StorageSummary(IReadOnlyList<GameLibraryStorage> storages)
+    {
+        var attention = storages.Count(StorageNeedsAttention);
+        return attention == 0
+            ? "All available"
+            : $"{attention} need{(attention == 1 ? "s" : "")} attention";
+    }
+
+    /// <summary>One storage library's line: its status, titles and what is waiting for it.</summary>
+    /// <param name="storage">The library.</param>
+    /// <param name="entries">The listed titles, for the counts of unavailable and departing ones.</param>
+    /// <returns>The host's status followed by concise counts.</returns>
+    internal static string StorageLine(GameLibraryStorage storage, IReadOnlyList<GameLibraryEntry> entries)
+    {
+        List<string> parts = [storage.Status, storage.TitleCount == 1 ? "1 title" : $"{storage.TitleCount} titles"];
+        var titles = entries.Where(entry => entry.LibraryId == storage.Id
+                                            && (entry.AppId > 0 || entry.CleanupPending)).ToArray();
+        AddWhenAny(parts, titles.Count(entry => entry.Unavailable && !entry.CleanupPending), "unavailable");
+        AddWhenAny(parts, titles.Count(entry => entry.CleanupPending), "being removed");
+        if (storage.StagedAction.Length > 0)
+        {
+            parts.Add(StagedStorageAction(storage.StagedAction));
+        }
+
+        return string.Join(" · ", parts);
+    }
+
+    /// <summary>What a staged storage action is called.</summary>
+    /// <param name="action"><c>repair</c> or <c>acceptBinding</c>.</param>
+    /// <returns>Its label, saying that Apply performs it.</returns>
+    internal static string StagedStorageAction(string action)
+    {
+        return action switch
+        {
+            "repair" => "Repair library on apply",
+            "acceptBinding" => "Use this card on apply",
+            _ => "Change waiting for apply"
+        };
     }
 
     private static void AddWhenAny(List<string> parts, int count, string label)

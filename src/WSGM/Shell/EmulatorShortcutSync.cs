@@ -118,7 +118,15 @@ internal sealed class EmulatorShortcutSync : IDisposable
         var snapshot = _manager.GetSnapshot();
         var writer = _writer() ?? throw new InvalidOperationException("Steam is unavailable. Shortcut changes are pending.");
         var library = await _readLibrary(token).ConfigureAwait(false);
-        var records = _store.Entries().Where(item => item.Source == Source).ToArray();
+        var account = library is SteamShortcutSnapshot snapshotRead
+            ? snapshotRead.AccountId
+            : _store.ActiveAccountId ?? throw new InvalidOperationException("Steam's account is not known. Shortcut changes remain pending.");
+        if (_store.ActiveAccountId != account)
+        {
+            throw new InvalidOperationException("Steam's account changed while reading shortcuts. Sync again.");
+        }
+
+        var records = _store.Entries().Where(item => item.Source == Source && item.HasSteamMapping).ToArray();
         var artworkErrors = new List<string>();
         var wanted = snapshot.Installations.Where(item => item.SteamShortcutEnabled).ToDictionary(item => item.Id);
         foreach (var recorded in records.Where(item => !wanted.ContainsKey(item.Key)))
@@ -144,7 +152,7 @@ internal sealed class EmulatorShortcutSync : IDisposable
                 throw new InvalidOperationException("An emulator shortcut creation is unconfirmed. Check Steam before retrying.");
             }
 
-            _store.Forget(Source, recorded.Key);
+            _store.Forget(Source, recorded.Key, account);
             _changed();
         }
 
@@ -210,6 +218,7 @@ internal sealed class EmulatorShortcutSync : IDisposable
 
             var entry = recorded?.Copy() ?? new ImportedEntry
             {
+                AccountId = account,
                 Source = Source, Key = installed.Id, Name = installed.Name, Route = "managed",
                 Mode = nameof(ImportMode.SteamIntegration),
                 Target = fields.Target, StartDirectory = fields.StartDirectory, LaunchOptions = fields.LaunchOptions,
@@ -231,7 +240,7 @@ internal sealed class EmulatorShortcutSync : IDisposable
                 var added = await writer.AddAsync(installed.Name, fields, CancellationToken.None).ConfigureAwait(false);
                 if (!added.Confirmed && !added.CreationMayExist)
                 {
-                    _store.Forget(Source, installed.Id);
+                    _store.Forget(Source, installed.Id, account);
                     throw new InvalidOperationException(added.Error ?? "Steam did not create the emulator shortcut.");
                 }
 

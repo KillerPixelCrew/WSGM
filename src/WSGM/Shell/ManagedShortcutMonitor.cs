@@ -13,6 +13,7 @@ namespace WSGM.Shell;
 internal sealed class ManagedShortcutMonitor : IAsyncDisposable
 {
     private readonly EmulatorManager? _emulators;
+    private readonly RemovableDriveManager? _drives;
     private readonly object _gate = new();
     private readonly GameLibraryService _library;
     private readonly bool _registered;
@@ -22,12 +23,19 @@ internal sealed class ManagedShortcutMonitor : IAsyncDisposable
     private readonly Task _worker;
     private Task? _dispose;
     private bool _disposed;
+    private bool _fullCheck;
 
-    internal ManagedShortcutMonitor(MessageWindow window, GameLibraryService library, EmulatorManager? emulators)
+    internal ManagedShortcutMonitor(MessageWindow window, GameLibraryService library, EmulatorManager? emulators,
+        RemovableDriveManager? drives = null)
     {
         _window = window;
         _library = library;
         _emulators = emulators;
+        _drives = drives;
+        if (drives is not null)
+        {
+            drives.TopologyChanged += OnStorageTopologyChanged;
+        }
         _registered = window.RegisterVolumeNotifications();
         window.VolumeChanged += OnVolumeChanged;
         window.SystemResumed += Request;
@@ -53,13 +61,24 @@ internal sealed class ManagedShortcutMonitor : IAsyncDisposable
 
     private void OnVolumeChanged(bool arrived)
     {
-        Request();
+        Wake(full: false);
+    }
+
+    private void OnStorageTopologyChanged()
+    {
+        Wake(full: false);
     }
 
     private void Request()
     {
+        Wake(full: true);
+    }
+
+    private void Wake(bool full)
+    {
         lock (_gate)
         {
+            _fullCheck |= full;
             if (!_disposed && (_emulators is null || _emulators.Initialized)
                            && _wake.CurrentCount == 0)
             {
@@ -74,14 +93,30 @@ internal sealed class ManagedShortcutMonitor : IAsyncDisposable
         {
             while (true)
             {
-                await _wake.WaitAsync(_stop.Token).ConfigureAwait(false);
+                var signalled = await _wake.WaitAsync(TimeSpan.FromMinutes(5), _stop.Token).ConfigureAwait(false);
+                bool full;
+                lock (_gate)
+                {
+                    full = _fullCheck || !signalled;
+                    _fullCheck = false;
+                }
+                // Native notifications arrive in bursts, often before a newly mounted filesystem is ready.
+                await Task.Delay(TimeSpan.FromMilliseconds(750), _stop.Token).ConfigureAwait(false);
                 try
                 {
-                    var result = await _library.RecheckAvailabilityAsync("", _stop.Token).WaitAsync(_stop.Token)
+                    var result = await (full
+                            ? _library.RecheckAvailabilityAsync("", _stop.Token)
+                            : _library.RecheckStorageChangesAsync(_stop.Token)).WaitAsync(_stop.Token)
                         .ConfigureAwait(false);
                     if (!result.Succeeded)
                     {
                         Log.Change("library.availability.error", result.Error ?? "Availability could not be checked.");
+                    }
+                    if (!full)
+                    {
+                        // One bounded read-only observation recovers an arrival that was not ready at the first settle.
+                        await Task.Delay(TimeSpan.FromSeconds(2), _stop.Token).ConfigureAwait(false);
+                        await _library.RecheckStorageChangesAsync(_stop.Token).ConfigureAwait(false);
                     }
                 }
                 catch (Exception ex) when (ex is IOException or InvalidDataException or JsonException
@@ -99,6 +134,11 @@ internal sealed class ManagedShortcutMonitor : IAsyncDisposable
 
     private async Task DisposeCoreAsync()
     {
+        if (_drives is not null)
+        {
+            _drives.TopologyChanged -= OnStorageTopologyChanged;
+        }
+
         _library.ManagedEntriesChanged -= Request;
         if (_emulators is not null)
         {

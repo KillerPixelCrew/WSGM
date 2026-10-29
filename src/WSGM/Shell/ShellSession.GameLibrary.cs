@@ -13,17 +13,67 @@ namespace WSGM.Shell;
 
 public sealed partial class ShellSession
 {
+    private readonly SemaphoreSlim _shortcutOperations = new(initialCount: 1, maxCount: 1);
+
     private SteamShortcutWriter CreateSteamShortcutWriter()
     {
         var steam = RequireSteamClient();
-        return new SteamShortcutWriter(AddShortcutAsync,
-            async (appId, fields, token) =>
+        var writerAccount = _libraryImportState.ActiveAccountId;
+        return new SteamShortcutWriter(
+            (name, fields, token) => WriteAsync(() => AddShortcutAsync(name, fields, token), token),
+            (appId, fields, token) => WriteAsync(async () =>
                 (await steam.Apps.SetShortcutLaunchAsync(appId, fields.Target, fields.StartDirectory,
-                    fields.LaunchOptions, token).ConfigureAwait(false)).Succeeded,
-            async (appId, token) =>
-                (await steam.Apps.RemoveShortcutAsync(appId, token).ConfigureAwait(false)).Succeeded,
-            async (appId, name, token) =>
-                (await steam.Apps.SetShortcutNameAsync(appId, name, token).ConfigureAwait(false)).Succeeded);
+                    fields.LaunchOptions, token).ConfigureAwait(false)).Succeeded, token),
+            (appId, token) => WriteAsync(async () =>
+                (await steam.Apps.RemoveShortcutAsync(appId, token).ConfigureAwait(false)).Succeeded, token),
+            (appId, name, token) => WriteAsync(async () =>
+                (await steam.Apps.SetShortcutNameAsync(appId, name, token).ConfigureAwait(false)).Succeeded, token));
+
+        async Task<T> WriteAsync<T>(Func<Task<T>> write, CancellationToken token)
+        {
+            await _shortcutOperations.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                var account = await ReadSteamAccountAsync(steam, token).ConfigureAwait(false);
+                writerAccount ??= account;
+                if (writerAccount != account || _libraryImportState.ActiveAccountId != account)
+                {
+                    _libraryImportState.SetActiveAccount(null);
+                    throw new InvalidOperationException("The Steam account changed. Scan the library before saving again.");
+                }
+
+                var result = await write().ConfigureAwait(false);
+                await RequireSameSteamAccountAsync(steam, account, token).ConfigureAwait(false);
+                return result;
+            }
+            finally
+            {
+                _shortcutOperations.Release();
+            }
+        }
+    }
+
+    private async Task<uint> ReadSteamAccountAsync(SteamClient steam, CancellationToken cancellationToken)
+    {
+        var read = await steam.Apps.ReadAccountIdAsync(cancellationToken).ConfigureAwait(false);
+        if (!ReferenceEquals(steam, _steamClient) || !read.Succeeded || read.Value == 0)
+        {
+            _libraryImportState.SetActiveAccount(null);
+            throw new InvalidOperationException("Steam's signed-in account could not be confirmed. Shortcut changes remain pending.");
+        }
+
+        return read.Value;
+    }
+
+    private async Task RequireSameSteamAccountAsync(SteamClient steam, uint expected,
+        CancellationToken cancellationToken)
+    {
+        if (await ReadSteamAccountAsync(steam, cancellationToken).ConfigureAwait(false) != expected
+            || _libraryImportState.ActiveAccountId != expected)
+        {
+            _libraryImportState.SetActiveAccount(null);
+            throw new InvalidOperationException("The Steam account changed during the operation. Scan again before making changes.");
+        }
     }
 
     /// <summary>Puts packages a killed launcher left exempt back under lifetime management.</summary>
@@ -83,20 +133,39 @@ public sealed partial class ShellSession
             throw new InvalidOperationException("Steam's library is not ready. Shortcut changes remain pending.");
         }
 
-        var listed = await steam.Apps.ListShortcutsAsync(cancellationToken).ConfigureAwait(false);
-        if (listed is not { Succeeded: true, Value: { } shortcuts })
+        await _shortcutOperations.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            throw new InvalidOperationException(listed.Dispatch == SteamUiDispatch.Answered
-                ? $"Steam's library could not be read ({listed.Error}). Nothing was changed; try again."
-                : "Steam is not reachable, so its library could not be read. Nothing was changed.");
-        }
+            var account = await ReadSteamAccountAsync(steam, cancellationToken).ConfigureAwait(false);
+            if (_libraryImportState.ActiveAccountId != account)
+            {
+                _libraryImportState.SetActiveAccount(null);
+            }
 
-        return
-        [
-            .. shortcuts.Select(shortcut =>
-                new ExistingShortcut(shortcut.AppId, shortcut.Target, shortcut.LaunchOptions, shortcut.StartDirectory,
-                    shortcut.Name))
-        ];
+            var listed = await steam.Apps.ListShortcutsAsync(cancellationToken).ConfigureAwait(false);
+            if (listed is not { Succeeded: true, Value: { } shortcuts })
+            {
+                throw new InvalidOperationException(listed.Dispatch == SteamUiDispatch.Answered
+                    ? $"Steam's library could not be read ({listed.Error}). Nothing was changed; try again."
+                    : "Steam is not reachable, so its library could not be read. Nothing was changed.");
+            }
+
+            if (await ReadSteamAccountAsync(steam, cancellationToken).ConfigureAwait(false) != account)
+            {
+                _libraryImportState.SetActiveAccount(null);
+                throw new InvalidOperationException("The Steam account changed while reading its shortcuts. Scan again.");
+            }
+
+            var result = shortcuts.Select(shortcut => new ExistingShortcut(shortcut.AppId, shortcut.Target,
+                shortcut.LaunchOptions, shortcut.StartDirectory, shortcut.Name)).ToArray();
+            _libraryImportState.SetActiveAccount(account);
+            _libraryImportState.BindLegacyAccount(account, result);
+            return new SteamShortcutSnapshot(account, result);
+        }
+        finally
+        {
+            _shortcutOperations.Release();
+        }
     }
 
     /// <summary>Reads one shortcut again, right before an apply writes to it.</summary>
@@ -104,18 +173,35 @@ public sealed partial class ShellSession
     /// <exception cref="InvalidOperationException">Steam could not be reached.</exception>
     private async Task<ExistingShortcut?> ReadShortcutAsync(uint appId, CancellationToken cancellationToken)
     {
-        var read = await RequireSteamClient().Apps.ReadDetailsAsync(appId, cancellationToken).ConfigureAwait(false);
-        if (read.Dispatch != SteamUiDispatch.Answered)
+        var steam = RequireSteamClient();
+        await _shortcutOperations.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            throw new InvalidOperationException(
-                "Steam is not reachable, so the save stopped. Nothing else was changed.");
-        }
+            var account = _libraryImportState.ActiveAccountId;
+            if (account is null)
+            {
+                throw new InvalidOperationException("Read Steam's library before checking a shortcut's ownership.");
+            }
 
-        // Steam answered without details: it has no shortcut with that id any more.
-        return read.Value is { } details
-            ? new ExistingShortcut(appId, details.ShortcutExe, details.ShortcutLaunchOptions, details.ShortcutStartDir,
-                details.Name ?? "")
-            : null;
+            await RequireSameSteamAccountAsync(steam, account.Value, cancellationToken).ConfigureAwait(false);
+            var read = await steam.Apps.ReadDetailsAsync(appId, cancellationToken).ConfigureAwait(false);
+            if (read.Dispatch != SteamUiDispatch.Answered)
+            {
+                throw new InvalidOperationException(
+                    "Steam is not reachable, so the save stopped. Nothing else was changed.");
+            }
+
+            await RequireSameSteamAccountAsync(steam, account.Value, cancellationToken).ConfigureAwait(false);
+            // Only an answer in the same confirmed account can establish absence.
+            return read.Value is { } details
+                ? new ExistingShortcut(appId, details.ShortcutExe, details.ShortcutLaunchOptions, details.ShortcutStartDir,
+                    details.Name ?? "")
+                : null;
+        }
+        finally
+        {
+            _shortcutOperations.Release();
+        }
     }
 
     /// <summary>Creates one shortcut through the toolkit, which confirms which library entry it is.</summary>
@@ -146,5 +232,11 @@ public sealed partial class ShellSession
     private SteamClient RequireSteamClient()
     {
         return _steamClient ?? throw new InvalidOperationException("Steam is not available in this mode.");
+    }
+
+    private Task<bool?> IsManagedShortcutRunning(uint appId, CancellationToken cancellationToken)
+    {
+        return _runningApplications?.IsSteamAppRunningAsync(appId, cancellationToken)
+               ?? Task.FromResult<bool?>(null);
     }
 }

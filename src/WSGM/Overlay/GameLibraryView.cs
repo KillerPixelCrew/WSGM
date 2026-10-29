@@ -70,6 +70,13 @@ public sealed partial class GameLibraryView : ServiceSubView
         stack.Children.Add(Tagged(Row($"Sources ({state.Reading.Count} on)",
             "Tick the launchers and folders a scan reads", Icons.ListLines,
             () => Navigate(RenderSources)), "sources"));
+        if (state.StorageLibraries is { Count: > 0 } storages)
+        {
+            stack.Children.Add(Tagged(Row($"Storage libraries ({storages.Count})",
+                GameLibraryRows.StorageSummary(storages), Icons.SdCard,
+                () => Navigate(RenderStorageLibraries)), "storage"));
+        }
+
         stack.Children.Add(Tagged(Row("Scan for games", "Look again. Nothing is written until you apply",
             Icons.Restart, () => Run(_service.ScanAsync)), "scan"));
         if (state.Entries.Count > 0)
@@ -178,17 +185,25 @@ public sealed partial class GameLibraryView : ServiceSubView
 
     private void RenderEntry(string id)
     {
-        if (_service?.ReadState() is not { } state || state.Entries.FirstOrDefault(entry => entry.Id == id) is not
-                { } entry)
+        if (_service?.ReadState() is not { } state)
         {
-            // A rescan replaced the list this entry belonged to.
-            RenderMessage("Review", "That title is no longer listed. Go back and pick it again.");
+            RenderMessage("Review", "The Game Library is not available in this session.");
             return;
         }
 
+        if (state.Entries.FirstOrDefault(entry => entry.Id == id) is not { } entry)
+        {
+            // A rescan replaced the list, or the title's files were deleted and it was removed:
+            // never leave a level about a title that is gone.
+            LeaveRemovedEntry(id, state);
+            return;
+        }
+
+        _openEntryName = entry.Name;
         var stack = NewStack(entry.Name);
         AddStatus(stack, state);
         stack.Children.Add(Caption(entry.Reason));
+        AddStorageEntryControls(stack, state, entry);
         AddRomEntryControls(stack, state, entry);
 
         if (entry.Selectable)

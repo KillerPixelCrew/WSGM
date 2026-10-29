@@ -14,6 +14,13 @@ is also a Quick Access Extensions tool in Steam, the same manager over the same
 `LibraryManagerService` (see [steam-cef-system.md](steam-cef-system.md), "SD Card Manager and
 Library Tab Manager"); every card remembers the capacity and free space of its last mount.
 
+Non-Steam ROMs and portable PC games use the Game Library's
+[portable inventory](game-library.md#portable-library-inventory-and-confirmed-deletion), separate
+from Steam's native library registration. The card stores its managed title inventory and the device
+remembers disconnected titles and local Steam mappings. Card removal retains unavailable shortcuts;
+confirmed deleted content on the correct readable card is pruned automatically. Neither this
+reconciliation nor Repair library formats media or deletes game files.
+
 ## A card is named by its own marker, never by Steam's config label
 
 `config\libraryfolders.vdf` carries a `label` per **registration at a path**, not per card. A reader

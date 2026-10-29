@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json.Serialization;
 
 namespace WSGM.Core;
 
@@ -47,42 +48,53 @@ public sealed class ImportedEntry
     public string Key { get; set; } = "";
 
     /// <summary>The shortcut id Steam generated, or zero while unconfirmed.</summary>
+    [JsonIgnore]
     public uint AppId { get; set; }
 
     /// <summary>What the entry was called when it was created.</summary>
     public string Name { get; set; } = "";
 
     /// <summary>Exactly the Target that was written.</summary>
+    [JsonIgnore]
     public string Target { get; set; } = "";
 
     /// <summary>Exactly the Launch Arguments that were written.</summary>
+    [JsonIgnore]
     public string LaunchOptions { get; set; } = "";
 
     /// <summary>The exact working directory written to Steam, retained for edit detection.</summary>
+    [JsonIgnore]
     public string StartDirectory { get; set; } = "";
 
     /// <summary>Emulator shortcut command persisted before an update, settled only by a Steam answer or observation.</summary>
+    [JsonIgnore]
     public ShortcutFields? PendingLaunch { get; set; }
 
     /// <summary>The content and launch metadata resolved by the installed helper.</summary>
     public ManagedContentRecord? Content { get; set; }
 
     /// <summary>Which input mode it was generated for: the packaged route's choice.</summary>
+    [JsonIgnore]
     public string Mode { get; set; } = "";
 
     /// <summary>Which command route it was generated for, or empty for the packaged route.</summary>
+    [JsonIgnore]
     public string Route { get; set; } = "";
 
     /// <summary>Whether the user accepted the ban risk for this title.</summary>
+    [JsonIgnore]
     public bool Acknowledged { get; set; }
 
     /// <summary>When it was created, round-trip UTC.</summary>
+    [JsonIgnore]
     public string ImportedUtc { get; set; } = "";
 
     /// <summary>When its id was confirmed by a library read, or empty while unconfirmed.</summary>
+    [JsonIgnore]
     public string ConfirmedUtc { get; set; } = "";
 
     /// <summary>How many images, from any source or provider, have been applied to its shortcut.</summary>
+    [JsonIgnore]
     public int ArtworkApplied { get; set; }
 
     /// <summary>Whether an import created the per-game profile holding its controller override.</summary>
@@ -91,7 +103,35 @@ public sealed class ImportedEntry
     ///     A profile the user made, or had before an entry was adopted, keeps its name, executables
     ///     and switch.
     /// </remarks>
+    [JsonIgnore]
     public bool OwnsProfile { get; set; }
+
+    /// <summary>Account-local shortcut receipts, the only persisted shortcut fields.</summary>
+    public List<ImportAccountMapping> SteamMappings { get; set; } = [];
+
+    /// <summary>The account represented by this detached flattened projection.</summary>
+    [JsonIgnore]
+    public uint? AccountId { get; set; }
+
+    /// <summary>Whether the current Steam account could not be established.</summary>
+    [JsonIgnore]
+    public bool AccountUnknown { get; set; }
+
+    /// <summary>Whether the projection has an active-account shortcut receipt.</summary>
+    [JsonIgnore]
+    public bool HasSteamMapping { get; set; }
+
+    /// <summary>Whether an exact account observation is still needed for a legacy receipt.</summary>
+    [JsonIgnore]
+    public bool HasUnresolvedLegacyMapping { get; set; }
+
+    /// <summary>Whether shortcut cleanup is queued for this account.</summary>
+    [JsonIgnore]
+    public bool PendingDeletion { get; set; }
+
+    /// <summary>Whether an admitted native removal still requires an independent observation.</summary>
+    [JsonIgnore]
+    public bool DeletionDispatched { get; set; }
 
     /// <summary>Copies this import record for a detached caller projection.</summary>
     /// <returns>A new record object carrying the same scalar and string values.</returns>
@@ -99,6 +139,7 @@ public sealed class ImportedEntry
     {
         var copy = (ImportedEntry)MemberwiseClone();
         copy.Content = Content?.Copy();
+        copy.SteamMappings = [.. SteamMappings.Select(mapping => mapping.Copy())];
         return copy;
     }
 }
@@ -168,7 +209,10 @@ public sealed class ImportChoice
     internal ImportChoice Copy()
     {
         var copy = (ImportChoice)MemberwiseClone();
-        copy.Artwork = [.. Artwork];
+        copy.Artwork = [.. Artwork.Select(pick => new ArtworkPick
+        {
+            Asset = pick.Asset, Url = pick.Url, Thumb = pick.Thumb, Provider = pick.Provider
+        })];
         copy.Arguments = [.. Arguments];
         return copy;
     }
@@ -391,6 +435,22 @@ public static class ImportPlan
             }
 
             var record = records.GetValueOrDefault((game.SourceId, game.Key));
+            if (record is { AccountUnknown: true } or { HasUnresolvedLegacyMapping: true }
+                or { Content.InventoryRemoved: true })
+            {
+                plan.Add(new ImportPlanEntry(game.SourceId, game.Key, game.Name, ImportAction.Skip,
+                    record.Content?.InventoryRemoved == true
+                        ? "This title has been removed from its library; shortcut cleanup is pending."
+                        : "Waiting for an exact Steam account observation before changing this title.",
+                    defaultMode, false, false, 0, false));
+                continue;
+            }
+
+            // Inventory exists independently of whether this account imported it.
+            if (record is { AccountId: not null, HasSteamMapping: false })
+            {
+                record = null;
+            }
             if (ContentIdentity(game.Content) is { } contentIdentity)
             {
                 if (contentOwners.TryGetValue(contentIdentity, out var owner)
@@ -447,7 +507,8 @@ public static class ImportPlan
         // Removals last, and only for entries WSGM itself created whose title is gone.
         foreach (var record in records.Values)
         {
-            if (seen.Contains((record.Source, record.Key)) || record.AppId == 0)
+            if (seen.Contains((record.Source, record.Key)) || record.AppId == 0
+                || record.AccountUnknown || record.HasUnresolvedLegacyMapping || record.Content?.InventoryRemoved == true)
             {
                 continue;
             }
@@ -457,7 +518,7 @@ public static class ImportPlan
                 { SourceKind: LibrarySourceKind.Rom or LibrarySourceKind.Folder or LibrarySourceKind.Manual })
             {
                 plan.Add(Removal(record, ImportAction.Skip,
-                    "This source did not report the title. Its shortcut and artwork stay in your library; select cleanup only to remove it.",
+                    "This source did not report the title. Storage reconciliation will check its content; the scan leaves its shortcut and artwork unchanged.",
                     false));
                 continue;
             }

@@ -135,6 +135,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     ///     a token. An emptied collection is deleted.
     /// </param>
     /// <param name="emulators">The session-owned emulator manager, or null in an isolated importer.</param>
+    /// <param name="isShortcutRunning">Whether one shortcut is running, or null when its state is unknown.</param>
     internal GameLibraryService(
         IReadOnlyList<ILibrarySource> sources,
         Func<IReadOnlyList<UninstallEntry>> readPrograms,
@@ -155,7 +156,8 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         GameLibraryArtwork? artwork = null,
         Func<string?, string, IReadOnlyCollection<uint>, IReadOnlyCollection<uint>, CancellationToken,
             Task<SteamCollectionSyncResult>>? syncCollection = null,
-        EmulatorService? emulators = null)
+        EmulatorService? emulators = null,
+        Func<uint, CancellationToken, Task<bool?>>? isShortcutRunning = null)
     {
         _launchers = sources;
         _readPrograms = readPrograms;
@@ -174,6 +176,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         _artwork = artwork;
         _syncCollection = syncCollection;
         _emulators = emulators;
+        _isShortcutRunning = isShortcutRunning ?? ((_, _) => Task.FromResult<bool?>(null));
         if (_emulators is not null)
         {
             _emulators.ChoicesChanged += OnEmulatorsChanged;
@@ -502,7 +505,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 .Where(entry => entry is { Selected: true, Selectable: true })
                 .OrderBy(entry => entry.Plan.Name, StringComparer.CurrentCulture)
                 .ToList();
-            if (selected.Count == 0)
+            if (selected.Count == 0 && _storageActions.Count == 0)
             {
                 return Refuse("Nothing is selected.");
             }
@@ -516,7 +519,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             }
 
             var (generation, token) = Begin(Phase.Applying);
-            _progressTotal = selected.Count;
+            _progressTotal = selected.Count + _storageActions.Count;
             Run(async work =>
             {
                 try
@@ -1195,6 +1198,8 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         try
         {
             await running.WaitAsync(stop.Token).ConfigureAwait(false);
+            await _storageLane.WaitAsync(stop.Token).ConfigureAwait(false);
+            _storageLane.Release();
             await _collectionSync.WaitAsync(stop.Token).ConfigureAwait(false);
             // Every collection writer uses the cancelled lifetime or run token.
             _collectionSync.Release();
@@ -1554,7 +1559,8 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             [
                 .. existing,
                 .. settings.RomSources.Select(source => new RomLibrarySource(source, _romSystems)),
-                new ManualLibrarySource(settings.ManualSources, _romSystems)
+                new ManualLibrarySource(settings.ManualSources, _romSystems),
+                .. ManifestSources()
             ];
         }
     }
@@ -1612,6 +1618,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
 
     private async Task ScanCoreAsync(long generation, CancellationToken cancellationToken)
     {
+        RefreshStorage(cancellationToken);
         var launcher = _resolveLauncher();
         var settings = ReadSettings();
         var sources = Sources();
@@ -1652,6 +1659,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         })).ConfigureAwait(false);
 
         var existing = await _readLibrary(cancellationToken).ConfigureAwait(false);
+        _ = CaptureAccount(existing);
         // Emulator UI shortcuts share the ownership ledger, but are reconciled by their manager.
         var recorded = _store.Entries().Where(entry => entry.Source != EmulatorShortcutSync.Source).ToArray();
         var scanChoices = _store.Choices().ToDictionary(choice => (choice.Source, choice.Key), ImportPlan.Identity);
@@ -1661,6 +1669,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         List<string> notes = [];
         Dictionary<string, int> counts = new(StringComparer.OrdinalIgnoreCase);
         List<DiscoveredGame> discovered = [];
+        HashSet<(string Source, string Key)> discoveredIdentities = new(ImportPlan.Identity);
         Dictionary<string, ManagedContentCheck> scanObservations = [];
         Dictionary<string, ManagedContentRecord> checkedRecords = [];
         foreach (var (source, found, failure) in answers)
@@ -1673,11 +1682,15 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
 
             foreach (var foundGame in found)
             {
-                var game = ApplyContentChoice(foundGame,
-                    scanChoices.GetValueOrDefault((foundGame.SourceId, foundGame.Key)));
+                var bound = BindDiscoveredContent(foundGame);
+                var game = ApplyContentChoice(bound, scanChoices.GetValueOrDefault((bound.SourceId, bound.Key)));
+                if (!discoveredIdentities.Add((game.SourceId, game.Key)))
+                {
+                    continue;
+                }
                 if (game.Content is { } observed)
                 {
-                    var check = ManagedContentStorage.Check(observed, emulatorSnapshot, contentChecks);
+                    var check = CheckStorageContent(observed, emulatorSnapshot, contentChecks);
                     scanObservations[observed.Id] = check;
                     checkedRecords[observed.Id] = observed;
                     observed.Availability = check.Availability;
@@ -1728,7 +1741,17 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
 
         var plan = ImportPlan.Build(
             discovered, recorded, existing, launcher ?? string.Empty, settings.DefaultMode, settings.ImportUnroutable,
-            StateOf);
+            StateOf).ToList();
+        foreach (var pending in recorded.Where(record => record.Content?.InventoryRemoved == true && record.HasSteamMapping))
+        {
+            if (plan.Any(entry => entry.Source == pending.Source && entry.Key == pending.Key))
+            {
+                continue;
+            }
+            plan.Add(new ImportPlanEntry(pending.Source, pending.Key, pending.Name, ImportAction.Skip,
+                "Game files were removed. Steam cleanup is pending.", settings.DefaultMode,
+                false, false, pending.AppId, false, Route: pending.Route));
+        }
 
         Dictionary<(string Source, string Key), DiscoveredGame> games = new(ImportPlan.Identity);
         foreach (var game in discovered)
@@ -1971,6 +1994,29 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     private async Task ApplyCoreAsync(
         long generation, IReadOnlyList<Entry> selected, string launcher, CancellationToken cancellationToken)
     {
+        int storageActionCount;
+        lock (_gate)
+        {
+            storageActionCount = _storageActions.Count;
+        }
+        RefreshStorage(cancellationToken);
+        await ApplyStorageActionsAsync(cancellationToken).ConfigureAwait(false);
+        if (selected.Count == 0)
+        {
+            lock (_gate)
+            {
+                if (_disposed || generation != _generation)
+                {
+                    return;
+                }
+                _phase = Phase.Done;
+                _progress = storageActionCount;
+                _notes.Add($"Applied {storageActionCount} storage change(s).");
+                Publish();
+            }
+            Notify();
+            return;
+        }
         var writer = _writer();
         if (writer is null)
         {
@@ -1980,7 +2026,9 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
 
         // Read once for the run. Each entry's own shortcut is read again right before its write, and
         // this run's own writes are folded in as they happen.
-        var existing = (await _readLibrary(cancellationToken).ConfigureAwait(false)).ToList();
+        var snapshot = await _readLibrary(cancellationToken).ConfigureAwait(false);
+        var accountId = CaptureAccount(snapshot);
+        var existing = snapshot.ToList();
         Dictionary<(string Source, string Key), ImportedEntry> records = new(ImportPlan.Identity);
         foreach (var record in _store.Entries())
         {
@@ -1988,12 +2036,17 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         }
 
         List<string> problems = [];
-        var applied = 0;
+        var applied = storageActionCount;
         foreach (var entry in selected)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            RequireAccount(accountId);
             var identity = (entry.Plan.Source, entry.Plan.Key);
             var record = records.GetValueOrDefault(identity);
+            if (record?.Content?.InventoryRemoved == true || entry.Game.Content?.InventoryRemoved == true)
+            {
+                continue;
+            }
 
             // Re-read immediately before the write: the user may have changed the shortcut in Steam
             // since the scan, and acting on stale state is how the wrong entry is changed.
@@ -2034,7 +2087,8 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 // would leave a removal the next scan offers again.
                 await ReleaseControllerTargetAsync(current.AppId, record?.OwnsProfile == true)
                     .ConfigureAwait(false);
-                _store.Forget(entry.Plan.Source, entry.Plan.Key);
+                RequireAccount(accountId);
+                _store.Forget(entry.Plan.Source, entry.Plan.Key, accountId);
                 records.Remove(identity);
                 existing.RemoveAll(shortcut => shortcut.AppId == current.AppId);
                 lock (_gate)
@@ -2045,6 +2099,11 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 applied++;
                 Progress(generation, applied);
                 continue;
+            }
+
+            if (entry.Game.Content is not null)
+            {
+                PublishImportedContent(entry, cancellationToken);
             }
 
             var artworkOnly = entry.ArtworkOnly;
@@ -2101,6 +2160,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 ? record
                 : new ImportedEntry
                 {
+                    AccountId = accountId,
                     Source = entry.Plan.Source,
                     Key = entry.Plan.Key,
                     AppId = result.AppId,
@@ -2137,6 +2197,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                             saved.Target = observed.Target;
                             saved.LaunchOptions = observed.LaunchOptions;
                             saved.ConfirmedUtc = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+                            RequireAccount(accountId);
                             _store.Save(saved);
                         }
                     }
@@ -2154,6 +2215,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 // record remains, including after a partial update. Neither path retries the write.
                 if (current.Action is ImportAction.Add && result.AppId > 0)
                 {
+                    RequireAccount(accountId);
                     _store.Save(saved);
                 }
 
@@ -2197,6 +2259,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 // are facts about Steam now.
                 saved.OwnsProfile = ownsProfile;
                 saved.ArtworkApplied = Math.Max(saved.ArtworkApplied, artwork);
+                RequireAccount(accountId);
                 _store.SaveApplied(saved);
             }
 
@@ -2221,7 +2284,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             }
 
             _phase = Phase.Done;
-            _notes.Add($"Applied {applied} of {selected.Count} selected entry/entries.");
+            _notes.Add($"Applied {applied} of {selected.Count + storageActionCount} selected changes.");
 
             // A problem is an error the user sees, not a note the completion message replaces: a
             // controller-only title with no override has no working controller route, and nothing on a
@@ -2251,6 +2314,8 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         await _collectionSync.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            var accountSnapshot = await _readLibrary(cancellationToken).ConfigureAwait(false);
+            var accountId = CaptureAccount(accountSnapshot);
             var settings = ReadSettings();
             var names = SourceNames(Sources());
             foreach (var system in _romSystems ?? RomProfiles.All)
@@ -2318,9 +2383,10 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                     // kept, so the next sync changes it instead of creating a second one.
                     if (result.Id is { Length: > 0 } createdId)
                     {
+                        RequireAccount(accountId);
                         _store.SaveCollection(new ImportedCollection
                         {
-                            Group = group, Id = createdId, Name = name, AppIds = [.. want]
+                            AccountId = accountId, Group = group, Id = createdId, Name = name, AppIds = [.. want]
                         });
                     }
 
@@ -2330,9 +2396,10 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                     continue;
                 }
 
+                RequireAccount(accountId);
                 _store.SaveCollection(new ImportedCollection
                 {
-                    Group = group, Id = result.Id ?? string.Empty, Name = name, AppIds = [.. want]
+                    AccountId = accountId, Group = group, Id = result.Id ?? string.Empty, Name = name, AppIds = [.. want]
                 });
             }
         }
@@ -2744,7 +2811,16 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         {
             try
             {
-                await work(token).ConfigureAwait(false);
+                await _storageLane.WaitAsync(token).ConfigureAwait(false);
+                try
+                {
+                    token.ThrowIfCancellationRequested();
+                    await work(token).ConfigureAwait(false);
+                }
+                finally
+                {
+                    _storageLane.Release();
+                }
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -2792,6 +2868,9 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
 
     private (long Generation, CancellationToken Token) Begin(Phase phase)
     {
+        _storageObservation.Cancel();
+        _storageObservation.Dispose();
+        _storageObservation = new CancellationTokenSource();
         _work?.Cancel();
         _work?.Dispose();
         _work = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
@@ -2914,7 +2993,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 _ => GameLibraryPhases.Idle
             },
             entries,
-            entries.Count(entry => entry.Selected),
+            entries.Count(entry => entry.Selected) + _storageActions.Count,
             _progress,
             _progressTotal,
             _launcher is not null,
@@ -2923,12 +3002,13 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 : null,
             Busy,
             _notes.Count == 0 ? null : string.Join(" ", _notes),
-            _error,
+            _error is null ? _storageError : _storageError is null ? _error : _error + " " + _storageError,
             settings.ArtworkPreference.ToString(),
             settings.CreateCollections,
             _revision,
             [.. settings.RomSources.Select(source => source.Copy())],
-            [.. settings.ManualSources.Select(source => source.Copy())]);
+            [.. settings.ManualSources.Select(source => source.Copy())],
+            StorageLibraries: [.. _storagePublished.Values.OrderBy(library => library.Name, StringComparer.CurrentCulture)]);
     }
 
     private static DiscoveredGame Placeholder(ImportPlanEntry entry, ImportedEntry? record)
@@ -2994,7 +3074,8 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             entry.Game.Content?.Arguments,
             entry.Game.Content is { } content && ManagedAvailabilityPresentation.Unavailable(content.Availability),
             ManagedAvailabilityPresentation.Label(
-                entry.Game.Content?.Availability ?? ManagedContentAvailability.Unknown));
+                entry.Game.Content?.Availability ?? ManagedContentAvailability.Unknown),
+            entry.Game.Content?.LibraryId ?? "", entry.Game.Content?.InventoryRemoved == true);
     }
 
     private enum Phase
@@ -3089,7 +3170,8 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         internal uint AppId => Plan.AppId;
 
         /// <summary>Whether its launch and artwork can be changed here.</summary>
-        internal bool Editable => Action is not (ImportAction.Remove or ImportAction.Conflict) && !Excluded;
+        internal bool Editable => Game.Content?.InventoryRemoved != true
+                                  && Action is not (ImportAction.Remove or ImportAction.Conflict) && !Excluded;
 
         /// <summary>Whether the user has moved this entry off the mode or route Steam's entry launches with.</summary>
         private bool Rerouted => (Mode != Plan.Mode || Route != Plan.Route) && Plan.AppId > 0;
@@ -3125,7 +3207,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         internal string ActionName => ArtworkOnly ? "Artwork" : Action.ToString();
 
         /// <summary>Whether the user may tick this entry.</summary>
-        internal bool Selectable => !Excluded && (Plan.Selectable || PendingChange);
+        internal bool Selectable => !Excluded && Game.Content?.InventoryRemoved != true && (Plan.Selectable || PendingChange);
 
         /// <summary>Whether "select all" may tick it: never a removal, an unconfirmed add, or a title the user deleted.</summary>
         internal bool BulkSelectable =>
