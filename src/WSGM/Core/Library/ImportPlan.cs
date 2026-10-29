@@ -129,6 +129,10 @@ public sealed class ImportedEntry
     [JsonIgnore]
     public bool RemovedFromSteam { get; set; }
 
+    /// <summary>The active account's explicit artwork choices already handled for this shortcut.</summary>
+    [JsonIgnore]
+    public Dictionary<ArtworkAsset, AppliedArtworkChoice> SettledArtwork { get; set; } = [];
+
     /// <summary>Whether shortcut cleanup is queued for this account.</summary>
     [JsonIgnore]
     public bool PendingDeletion { get; set; }
@@ -143,6 +147,7 @@ public sealed class ImportedEntry
     {
         var copy = (ImportedEntry)MemberwiseClone();
         copy.Content = Content?.Copy();
+        copy.SettledArtwork = new Dictionary<ArtworkAsset, AppliedArtworkChoice>(SettledArtwork);
         copy.SteamMappings = [.. SteamMappings.Select(mapping => mapping.Copy())];
         return copy;
     }
@@ -215,7 +220,7 @@ public sealed class ImportChoice
         var copy = (ImportChoice)MemberwiseClone();
         copy.Artwork = [.. Artwork.Select(pick => new ArtworkPick
         {
-            Asset = pick.Asset, Url = pick.Url, Thumb = pick.Thumb, Provider = pick.Provider
+            Asset = pick.Asset, Url = pick.Url, Thumb = pick.Thumb, Provider = pick.Provider, Revision = pick.Revision
         })];
         copy.Arguments = [.. Arguments];
         return copy;
@@ -247,6 +252,9 @@ public sealed class ImportChoice
 /// </remarks>
 public sealed class ArtworkPick
 {
+    /// <summary>Identifies this explicit selection, so selecting the same URL again remains pending.</summary>
+    public string Revision { get; set; } = "";
+
     /// <summary>Which artwork type.</summary>
     public ArtworkAsset Asset { get; set; }
 

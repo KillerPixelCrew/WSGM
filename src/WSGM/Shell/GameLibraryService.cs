@@ -913,7 +913,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         cancellationToken.ThrowIfCancellationRequested();
         return EditArtwork(id, asset, (entry, type) =>
         {
-            entry.Picks[type] = new ArtworkPick { Asset = type };
+            entry.Picks[type] = new ArtworkPick { Asset = type, Revision = Guid.NewGuid().ToString("N") };
             return null;
         });
     }
@@ -1505,7 +1505,8 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             Acknowledged = picked is ImportMode.SteamIntegration && entry.Acknowledged,
             Excluded = entry.Excluded,
             Route = entry.Route != entry.Plan.Route ? entry.Route : string.Empty,
-            Artwork = [.. entry.Picks.Values],
+            Artwork = [.. entry.SettledPicks.Concat(entry.Picks).GroupBy(pair => pair.Key)
+                .Select(group => group.Last().Value)],
             MatchProvider = entry.Match?.ProviderId ?? string.Empty,
             MatchId = entry.Match?.Id ?? string.Empty,
             MatchName = entry.Match?.Name ?? string.Empty,
@@ -1952,7 +1953,16 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         {
             foreach (var pick in choice.Artwork)
             {
-                created.Picks[pick.Asset] = pick;
+                if (record is null || record.AppId != planned.AppId
+                    || !record.SettledArtwork.TryGetValue(pick.Asset, out var applied)
+                    || applied.Url != pick.Url || applied.Revision != pick.Revision)
+                {
+                    created.Picks[pick.Asset] = pick;
+                }
+                else
+                {
+                    created.SettledPicks[pick.Asset] = pick;
+                }
             }
 
             if (choice.MatchId.Length > 0)
@@ -2209,12 +2219,14 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                     ConfirmedUtc = result.Confirmed
                         ? DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture)
                         : string.Empty,
-                    ArtworkApplied = record?.ArtworkApplied ?? 0,
+                    ArtworkApplied = record is not null && record.AppId == result.AppId ? record.ArtworkApplied : 0,
+                    SettledArtwork = record is null || record.AppId != result.AppId
+                        ? [] : new Dictionary<ArtworkAsset, AppliedArtworkChoice>(record.SettledArtwork),
 
                     // Whether an earlier run created this title's profile. Only such a profile may be
                     // removed when its override is cleared; one the user made, or had before an
                     // adoption, is theirs.
-                    OwnsProfile = record?.OwnsProfile == true
+                    OwnsProfile = record is { OwnsProfile: true } && record.AppId == result.AppId
                 };
 
             if (!result.Confirmed)
@@ -2258,7 +2270,9 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 return;
             }
 
-            // The confirmed title and its decoration settle together in the final durable write.
+            // Persist confirmed ownership before any slower decoration or controller-profile work.
+            RequireAccount(accountId);
+            _store.SaveApplied(saved);
             records[identity] = saved;
             existing.RemoveAll(shortcut => shortcut.AppId == result.AppId);
             existing.Add(new ExistingShortcut(result.AppId, fields.Target, fields.LaunchOptions, fields.StartDirectory,
@@ -2280,10 +2294,13 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             // so a failure here is noted and the run carries on.
             var ownsProfile = await WriteControllerTargetAsync(entry, current.Action, result.AppId,
                 saved.OwnsProfile, problems).ConfigureAwait(false);
+            saved.OwnsProfile = ownsProfile;
+            RequireAccount(accountId);
+            _store.SaveApplied(saved);
             var artwork = 0;
             try
             {
-                artwork = await ApplyImagesAsync(entry, current.Action is ImportAction.Add, result.AppId, problems,
+                artwork = await ApplyImagesAsync(entry, saved, current.Action is ImportAction.Add, result.AppId, problems,
                     cancellationToken).ConfigureAwait(false);
             }
             finally
@@ -2298,7 +2315,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
 
             lock (_gate)
             {
-                entry.Settle(result.AppId, saved.ArtworkApplied);
+                entry.Settle(result.AppId, saved.ArtworkApplied, saved.SettledArtwork);
             }
 
             applied++;
@@ -2610,21 +2627,31 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     /// <summary>Applies an entry's artwork to its confirmed shortcut.</summary>
     /// <returns>How many images the shortcut now has from WSGM.</returns>
     private async Task<int> ApplyImagesAsync(
-        Entry entry, bool created, uint appId, List<string> problems, CancellationToken cancellationToken)
+        Entry entry, ImportedEntry receipt, bool created, uint appId, List<string> problems, CancellationToken cancellationToken)
     {
         IReadOnlyList<(ArtworkAsset Asset, string Url)> images;
+        Dictionary<ArtworkAsset, ArtworkPick> picks;
         lock (_gate)
         {
             images = Images(entry, created);
+            picks = new Dictionary<ArtworkAsset, ArtworkPick>(entry.Picks);
         }
 
-        var before = entry.ArtworkApplied ?? 0;
+        var before = receipt.ArtworkApplied;
         if (images.Count == 0 || _applyArtwork is null)
         {
             return before;
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         var results = await _applyArtwork(appId, images, cancellationToken).ConfigureAwait(false);
+        for (var index = 0; index < Math.Min(images.Count, results.Count); index++)
+        {
+            if (results[index].Succeeded && picks.TryGetValue(images[index].Asset, out var pick))
+            {
+                receipt.SettledArtwork[images[index].Asset] = new AppliedArtworkChoice(images[index].Url, pick.Revision);
+            }
+        }
         var failed = results.Where(result => !result.Succeeded).Select(result => result.Detail).Distinct().ToList();
         if (failed.Count > 0)
         {
@@ -2784,7 +2811,11 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
 
     private static ArtworkPick Pick(ArtworkAsset type, GameLibraryArtworkOption option)
     {
-        return new ArtworkPick { Asset = type, Url = option.Url, Thumb = option.Thumb, Provider = option.Provider };
+        return new ArtworkPick
+        {
+            Asset = type, Url = option.Url, Thumb = option.Thumb, Provider = option.Provider,
+            Revision = Guid.NewGuid().ToString("N")
+        };
     }
 
     private static string StatusName(GameLibraryArtworkStatus status)
@@ -3207,6 +3238,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
 
         /// <summary>The artwork the user picked, by type. A pick with no URL clears that type.</summary>
         internal Dictionary<ArtworkAsset, ArtworkPick> Picks { get; } = [];
+        internal Dictionary<ArtworkAsset, ArtworkPick> SettledPicks { get; } = [];
 
         /// <summary>The game the user matched the title to at the artwork providers, or null.</summary>
         internal ArtworkGameMatch? Match { get; set; }
@@ -3279,11 +3311,13 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
         /// <summary>Takes the outcome of a save: Steam now has exactly what the entry says.</summary>
         /// <param name="appId">The confirmed shortcut id.</param>
         /// <param name="artworkApplied">How many images it has from WSGM.</param>
+        /// <param name="settled">The account's artwork selections already handled for this shortcut.</param>
         /// <remarks>
         ///     Without this the entry kept its scan-time action: a title just imported showed as new,
         ///     and a later artwork pick went through an update that rewrote the shortcut.
         /// </remarks>
-        internal void Settle(uint appId, int artworkApplied)
+        internal void Settle(uint appId, int artworkApplied,
+            IReadOnlyDictionary<ArtworkAsset, AppliedArtworkChoice> settled)
         {
             Plan = Plan with
             {
@@ -3298,8 +3332,16 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
                 Route = Packaged ? string.Empty : Route
             };
             ArtworkApplied = artworkApplied;
-            Picks.Clear();
-            Selected = false;
+            foreach (var (asset, pick) in Picks.ToArray())
+            {
+                if (settled.TryGetValue(asset, out var applied) && applied.Url == pick.Url
+                    && applied.Revision == pick.Revision)
+                {
+                    SettledPicks[asset] = pick;
+                    Picks.Remove(asset);
+                }
+            }
+            Selected = Picks.Count > 0;
             ContentChanged = false;
             RecordedTitleName = Game.Content?.Name ?? Game.Name;
         }

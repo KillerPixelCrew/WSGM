@@ -99,12 +99,15 @@ internal sealed class EmulatorShortcutSync : IDisposable
             while (true)
             {
                 await _wake.WaitAsync(_stop.Token).ConfigureAwait(false);
+                HashSet<(uint AccountId, string InstallationId)> requests;
+                lock (_gate)
+                {
+                    requests = [.. _explicitRecreates];
+                    _explicitRecreates.Clear();
+                }
                 if (!_manager.Initialized || !_ready())
                 {
-                    lock (_gate)
-                    {
-                        _explicitRecreates.Clear();
-                    }
+                    RestoreRequests(requests);
                     _status("Steam shortcuts will sync when Steam is ready.");
                     continue;
                 }
@@ -112,20 +115,14 @@ internal sealed class EmulatorShortcutSync : IDisposable
                 try
                 {
                     _notices.Clear();
-                    await ReconcileAsync(_stop.Token).ConfigureAwait(false);
+                    await ReconcileAsync(requests, _stop.Token).ConfigureAwait(false);
                     _status(string.Join(" ", _notices));
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException && ex is not OperationCanceledException)
                 {
+                    RestoreRequests(requests);
                     _status(ex.Message);
                     Log.Warn("Emulator Steam shortcuts: " + ex.Message);
-                }
-                finally
-                {
-                    lock (_gate)
-                    {
-                        _explicitRecreates.Clear();
-                    }
                 }
             }
         }
@@ -139,7 +136,26 @@ internal sealed class EmulatorShortcutSync : IDisposable
         }
     }
 
-    private async Task ReconcileAsync(CancellationToken token)
+    private void RestoreRequests(IEnumerable<(uint AccountId, string InstallationId)> requests)
+    {
+        var activeAccount = _store.ActiveAccountId;
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+            foreach (var request in requests)
+            {
+                if (activeAccount is null || request.AccountId == activeAccount)
+                {
+                    _explicitRecreates.Add(request);
+                }
+            }
+        }
+    }
+
+    private async Task ReconcileAsync(HashSet<(uint AccountId, string InstallationId)> requests, CancellationToken token)
     {
         var snapshot = _manager.GetSnapshot();
         var writer = _writer() ?? throw new InvalidOperationException("Steam is unavailable. Shortcut changes are pending.");
@@ -193,11 +209,7 @@ internal sealed class EmulatorShortcutSync : IDisposable
         foreach (var installed in wanted.Values)
         {
             token.ThrowIfCancellationRequested();
-            bool explicitCreate;
-            lock (_gate)
-            {
-                explicitCreate = _explicitRecreates.Remove((account, installed.Id));
-            }
+            var explicitCreate = requests.Remove((account, installed.Id));
             if (receipts.Any(item => item.Key == installed.Id && item.HasUnresolvedLegacyMapping
                     && (!explicitCreate || item.SteamMappings.Any(mapping => mapping.AccountId is null
                         && mapping.AppId > 0 && library.Any(shortcut => shortcut.AppId == mapping.AppId)))))

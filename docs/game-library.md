@@ -587,6 +587,12 @@ The [implementation plan](plans/removable-shortcut-availability.md),
 [validation record](../reports/issue-200-delivery.md) distinguish implemented source from live
 Steam, input, media-swap and launch acceptance.
 
+Artwork choices remain shared across accounts. Each shortcut receipt separately records which
+selection revisions that account handled for its current AppId. Rescanning does not reapply settled
+choices, and editing another field preserves them for other accounts. Selecting the same image again
+creates a new request. Failed slots remain pending; successful slots, including explicit clears,
+stay settled.
+
 ROM artwork queries Screenscraper with system and ROM identity; PC sources prefer SteamGridDB. Empty
 matches, provider failures and a paused provider can fall back to another provider. A pause is shown
 when no provider answers. Provider caches retain results; the importer keeps candidate choices in

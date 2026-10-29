@@ -845,6 +845,7 @@ internal sealed partial class GameLibraryService
                     && SameLibrary(content.LibraryId, library.Id) && PortableContent(content)
                     && (requestedContent.Length == 0 || content.Id == requestedContent)).ToArray();
                 HashSet<string> removed = new(StringComparer.Ordinal);
+                Dictionary<string, StorageLibraryPathState> observations = new(StringComparer.Ordinal);
                 var changed = false;
                 var failed = false;
                 foreach (var portable in manifest.Entries.Where(entry => requestedContent.Length == 0
@@ -852,6 +853,7 @@ internal sealed partial class GameLibraryService
                 {
                     token.ThrowIfCancellationRequested();
                     var check = InspectContent(portable, library.VolumeId);
+                    observations[portable.Id] = check.State;
                     checkedCount++;
                     if (check.State == StorageLibraryPathState.Missing)
                     {
@@ -865,6 +867,14 @@ internal sealed partial class GameLibraryService
                 }
                 foreach (var entry in cached)
                 {
+                    if (manifestIds.Contains(entry.Content!.Id))
+                    {
+                        // A present or unreadable card recipe cannot be removed by an older local path.
+                        if (observations.GetValueOrDefault(entry.Content.Id) != StorageLibraryPathState.Missing)
+                        {
+                            continue;
+                        }
+                    }
                     try
                     {
                         var portable = StorageLibraryStorage.FromManaged(entry.Content!, library.VolumeId);
@@ -876,13 +886,14 @@ internal sealed partial class GameLibraryService
                         }
                         else if (check.State == StorageLibraryPathState.Present)
                         {
-                            var replacesMissing = removed.Remove(portable.Id);
-                            if (replacesMissing || !manifestIds.Contains(portable.Id))
+                            if (manifestIds.Contains(portable.Id))
                             {
-                                if (replacesMissing)
-                                {
-                                    manifest.Entries.RemoveAll(item => item.Id == portable.Id);
-                                }
+                                removed.Remove(portable.Id);
+                                failed = true;
+                                problems.Add(entry.Name + ": this device's recorded files differ from the card's library. Review the title before changing it.");
+                            }
+                            else
+                            {
                                 manifest.Entries.Add(portable);
                                 changed = true;
                             }

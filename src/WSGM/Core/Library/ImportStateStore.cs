@@ -1032,8 +1032,10 @@ public sealed class ImportStateStore
         if (mapping is not
             {
                 Target: not null, LaunchOptions: not null, StartDirectory: not null, Route: not null,
-                ImportedUtc: not null, ConfirmedUtc: not null
-            } || mapping.AccountId == 0)
+                ImportedUtc: not null, ConfirmedUtc: not null, SettledArtwork: not null
+            } || mapping.AccountId == 0
+              || mapping.SettledArtwork.Any(pair => !Enum.IsDefined(pair.Key)
+                  || pair.Value is not { Url: not null, Revision: not null }))
         {
             return "an incomplete account shortcut receipt";
         }
@@ -1074,7 +1076,7 @@ public sealed class ImportStateStore
     /// <summary>Why a loaded artwork pick cannot be kept beside the ones already kept, or null when it can.</summary>
     private static string? PickDefect(ArtworkPick? pick, List<ArtworkPick> kept)
     {
-        if (pick is not { Url: not null, Thumb: not null, Provider: not null })
+        if (pick is not { Url: not null, Thumb: not null, Provider: not null, Revision: not null })
         {
             return "a missing field";
         }

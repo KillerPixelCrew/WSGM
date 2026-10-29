@@ -10,6 +10,59 @@ namespace WSGM.Tests.Core;
 public sealed class ImportStateStoreTests
 {
     [Fact]
+    public void ArtworkSettlementRoundTripsOnlyForItsAccountAndPreservesSharedChoices()
+    {
+        using TemporaryDirectory temporary = new();
+        var path = temporary.GetPath("library-import.json");
+        var store = new ImportStateStore(path);
+        store.SetActiveAccount(7);
+        store.SaveChoice(new ImportChoice
+        {
+            Source = "folder", Key = "game",
+            Artwork = [new ArtworkPick { Asset = ArtworkAsset.Hero, Url = "https://example.test/hero.png", Revision = "pick-1" }]
+        });
+        store.SaveApplied(new ImportedEntry
+        {
+            AccountId = 7, Source = "folder", Key = "game", Name = "Game", AppId = 42,
+            Mode = nameof(ImportMode.SteamIntegration),
+            SettledArtwork = new Dictionary<ArtworkAsset, AppliedArtworkChoice>
+            {
+                [ArtworkAsset.Hero] = new AppliedArtworkChoice("https://example.test/hero.png", "pick-1")
+            }
+        });
+
+        var reloaded = new ImportStateStore(path);
+        reloaded.SetActiveAccount(7);
+        Assert.Equal(new AppliedArtworkChoice("https://example.test/hero.png", "pick-1"),
+            Assert.Single(reloaded.Entries()).SettledArtwork[ArtworkAsset.Hero]);
+        Assert.Single(Assert.Single(reloaded.Choices()).Artwork);
+        reloaded.SetActiveAccount(8);
+        Assert.Empty(Assert.Single(reloaded.Entries()).SettledArtwork);
+        Assert.Single(Assert.Single(reloaded.Choices()).Artwork);
+    }
+
+    [Fact]
+    public void MutatingAnArtworkSettlementProjectionDoesNotChangeItsReceipt()
+    {
+        using TemporaryDirectory temporary = new();
+        var store = new ImportStateStore(temporary.GetPath("library-import.json"));
+        store.SetActiveAccount(7);
+        store.SaveApplied(new ImportedEntry
+        {
+            AccountId = 7, Source = "folder", Key = "game", Name = "Game", AppId = 42,
+            Mode = nameof(ImportMode.SteamIntegration),
+            SettledArtwork = new Dictionary<ArtworkAsset, AppliedArtworkChoice>
+            {
+                [ArtworkAsset.Hero] = new AppliedArtworkChoice("", "clear-1")
+            }
+        });
+        var detached = Assert.Single(store.Entries());
+        detached.SettledArtwork.Clear();
+        detached.SteamMappings[0].SettledArtwork.Clear();
+        Assert.True(Assert.Single(store.Entries()).SettledArtwork.ContainsKey(ArtworkAsset.Hero));
+    }
+
+    [Fact]
     public void ARecordWithANullStringIsDroppedRatherThanThrowing()
     {
         // Dereferencing one threw out of the scan, and out of every scan after it, so the importer
