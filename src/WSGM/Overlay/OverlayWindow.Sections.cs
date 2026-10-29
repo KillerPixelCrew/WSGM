@@ -142,9 +142,11 @@ public partial class OverlayWindow
     private void PlaceUnifiedPowerControls(DeviceOverlaySnapshot snapshot)
     {
         _unifiedPowerDetails = _navigation.Page == OverlayPage.DevicePowerAndThermals
-            || _navigation.Page == OverlayPage.DevicePluginSection
-            && DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot, _navigation.SectionId ?? string.Empty)
-            == DeviceOverlaySection.PowerAndThermals;
+                               || _navigation.Page == OverlayPage.DevicePluginSection
+                               && DeviceOverlaySectionPages.SectionAbsorbedInto(snapshot,
+                                   _navigation.SectionId ?? string.Empty)
+                               == DeviceOverlaySection.PowerAndThermals
+                               || _navigation.Page == OverlayPage.Device && OverviewPowerEntry(snapshot) is not null;
         if (_unifiedPowerDetails && !ReferenceEquals(DeviceCapabilityList.Parent, UnifiedDevicePowerBody))
         {
             ((Panel)DeviceCapabilityList.Parent!).Children.Remove(DeviceCapabilityList);
@@ -155,6 +157,15 @@ public partial class OverlayWindow
             UnifiedDevicePowerBody.Children.Remove(DeviceCapabilityList);
             _deviceCapabilityParent!.Children.Insert(_deviceCapabilityIndex, DeviceCapabilityList);
         }
+    }
+
+    /// <summary>The Power page the Overview repeats, or null while integration publishes no power controls.</summary>
+    private static DeviceOverlaySectionEntry? OverviewPowerEntry(DeviceOverlaySnapshot snapshot)
+    {
+        return snapshot.Visible
+            ? DeviceOverlaySectionPages.Build(snapshot)
+                .FirstOrDefault(entry => entry.Section == DeviceOverlaySection.PowerAndThermals)
+            : null;
     }
 
     private DevicePinSection[] DevicePinSections(DeviceOverlaySnapshot snapshot)

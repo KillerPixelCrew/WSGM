@@ -287,8 +287,7 @@ public partial class OverlayWindow
                             == DeviceOverlaySection.PowerAndThermals);
         DevicePowerSchemeHost.IsVisible = powerPage;
         DeviceWindowsPower.IsVisible = _powerSchemeSelection is { Offered: true };
-        DevicePowerPresetContainer.IsVisible = powerPage && _navigation.Page != OverlayPage.Device &&
-                                               snapshot.Visible && DevicePowerPresetHost.IsVisible;
+        DevicePowerPresetContainer.IsVisible = powerPage && snapshot.Visible && DevicePowerPresetHost.IsVisible;
         ManualTdpHost.IsVisible = snapshot.Visible &&
                                   ManualTdpHost.Children.OfType<ManualTdpModeView>().Any(view => view.IsVisible);
         var powerControlsVisible = powerPage && (_unifiedPowerDetails || DeviceWindowsPower.IsVisible
@@ -313,10 +312,9 @@ public partial class OverlayWindow
         if (_renderedDevicePage == _navigation.Page && _renderedDeviceSection == _navigation.SectionId
                                                     && SameDeviceLayout(_deviceLayout, snapshot))
         {
-            RefreshDeviceValues(DeviceCapabilityList, snapshot);
-            if (DeviceFansHost.Children.Count > 0)
+            foreach (var host in DeviceRenderHosts.Where(host => host.Children.Count > 0))
             {
-                RefreshDeviceValues(DeviceFansHost, snapshot);
+                RefreshDeviceValues(host, snapshot);
             }
 
             RenderPins();
@@ -332,11 +330,14 @@ public partial class OverlayWindow
         var previousFocus = GetTopLevel(this)?.FocusManager.GetFocusedElement() as Control;
         var foldKey = previousFocus?.GetVisualAncestors().OfType<CollapsibleSection>()
             .FirstOrDefault()?.Heading.Tag;
-        var rebuildingFocus = previousFocus is not null && (DeviceCapabilityList.IsVisualAncestorOf(previousFocus)
-                                                            || DeviceFansHost.IsVisualAncestorOf(previousFocus));
-        DeviceCapabilityList.Children.Clear();
-        DeviceFansHost.Children.Clear();
-        DeviceFansHost.IsVisible = false;
+        var rebuildingFocus = previousFocus is not null
+                              && DeviceRenderHosts.Any(host => host.IsVisualAncestorOf(previousFocus));
+        foreach (var host in DeviceRenderHosts)
+        {
+            host.Children.Clear();
+        }
+
+        DeviceFansHost.IsVisible = DeviceApplicationProfileHost.IsVisible = false;
         _renderedDevicePage = _navigation.Page;
         _renderedDeviceSection = _navigation.SectionId;
 
@@ -389,8 +390,7 @@ public partial class OverlayWindow
             + $"recovery={snapshot.Recovery is not null}",
             DeviceCapabilityList.Children.Count == 0 ? LogLevel.Warn : LogLevel.Info);
 
-        var rendered = DeviceCapabilityList.GetLogicalDescendants().Concat(DeviceFansHost.GetLogicalDescendants())
-            .OfType<Control>().ToArray();
+        var rendered = DeviceRenderHosts.SelectMany(host => host.GetLogicalDescendants()).OfType<Control>().ToArray();
         var focusTarget = focusedKey is null
             ? null
             : rendered.FirstOrDefault(control => control.Focusable && Equals(control.Tag, focusedKey));
@@ -411,7 +411,8 @@ public partial class OverlayWindow
     }
 
     /// <summary>
-    ///     Renders the application profile control on the Device overview.
+    ///     Renders the Device overview: the application profile switch, then the device's Power and
+    ///     Fans folds as the Power page draws them. Performance follows from its own shared tree.
     /// </summary>
     private Control? RenderDeviceSectionMenu(
         DeviceOverlaySnapshot snapshot,
@@ -423,8 +424,7 @@ public partial class OverlayWindow
 
         // The per-application profile toggle is the headline of the Device root, the way Steam's own
         // per-game toggle heads the Performance tab: one control, on top of the page, that turns a
-        // separate profile for the running application on or off. Its settings live on Power and
-        // thermals; this is only the switch. The section rail owns navigation.
+        // separate profile for the running application on or off. The section rail owns navigation.
         if (performance is { Visible: true }
             && performance.ProfileRows.FirstOrDefault(row => string.Equals(
                 row.Id,
@@ -432,16 +432,28 @@ public partial class OverlayWindow
                 StringComparison.Ordinal)) is { } applicationProfile)
         {
             var toggle = CreatePerformanceRow(applicationProfile, ApplicationProfileFocusKey);
-            toggle.Margin = new Thickness(0, 0, 0, 12);
-            DeviceCapabilityList.Children.Add(toggle);
+            DeviceApplicationProfileHost.Children.Add(toggle);
+            DeviceApplicationProfileHost.IsVisible = true;
             if (string.Equals(ApplicationProfileFocusKey, focusedKey, StringComparison.Ordinal))
             {
                 restoreFocus = toggle;
             }
         }
 
+        // The Overview is where a handheld user lands mid-game, so it carries the controls they came
+        // for: the same Power and Fans folds as the Power page, drawn by the same renderer and keys.
+        if (_unifiedPowerDetails && OverviewPowerEntry(snapshot) is { } power)
+        {
+            restoreFocus = (power.PluginSectionId is { } sectionId
+                ? RenderDevicePluginSection(snapshot, sectionId, focusedKey)
+                : RenderDeviceSection(snapshot, DeviceOverlaySection.PowerAndThermals, focusedKey)) ?? restoreFocus;
+        }
+
         return restoreFocus;
     }
+
+    /// <summary>Every panel a Device render fills, for clearing, value refresh and focus restore.</summary>
+    private Panel[] DeviceRenderHosts => [DeviceCapabilityList, DeviceFansHost, DeviceApplicationProfileHost];
 
     /// <summary>Renders one plugin-declared section page: lead rows, then category groups.</summary>
     private Control? RenderDevicePluginSection(

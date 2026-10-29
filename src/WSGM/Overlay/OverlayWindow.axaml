@@ -402,6 +402,8 @@
                 </StackPanel>
               </Border>
               <StackPanel x:Name="DevicePowerOverview" Spacing="12" IsVisible="False">
+                <!-- The Overview's headline: the per-application profile switch, above what it scopes. -->
+                <StackPanel x:Name="DeviceApplicationProfileHost" IsVisible="False" />
                 <Border x:Name="DevicePowerControlsCard" VerticalAlignment="Top">
                   <StackPanel x:Name="UnifiedDevicePowerBody" Spacing="12">
                     <!-- AC and battery assignments lead, as in Steam's Quick Access; the Windows

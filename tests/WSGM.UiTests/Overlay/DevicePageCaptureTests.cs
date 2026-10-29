@@ -142,6 +142,24 @@ public sealed class DevicePageCaptureTests
         }
 
         Dispatcher.UIThread.RunJobs();
+        if (page == "Device")
+        {
+            UiFixture.OpenSections(window);
+            Dispatcher.UIThread.RunJobs();
+            // The Overview carries the Power page's folds, assignments included, under the per-game switch.
+            var folds = window.GetVisualDescendants().OfType<CollapsibleSection>()
+                .Where(section => section.IsEffectivelyVisible).ToArray();
+            var power = Assert.Single(folds, card => Equals(card.Heading.Tag, "section.device.unified-power.expand"));
+            Assert.Single(folds, card => Equals(card.Heading.Tag, "section.device.plugin.power.category.control.expand"));
+            Assert.True(UiFixture.Named<StackPanel>(window, "DevicePowerPresetContainer").IsEffectivelyVisible);
+            Assert.Contains(power.GetVisualDescendants().OfType<Control>(),
+                control => Equals(control.Tag, "power.primary-limit"));
+            var toggle = UiFixture.Named<StackPanel>(window, "DeviceApplicationProfileHost");
+            Assert.True(toggle.IsEffectivelyVisible);
+            Assert.True(toggle.TranslatePoint(default, window)!.Value.Y < power.TranslatePoint(default, window)!.Value.Y,
+                "The per-application switch heads the Overview.");
+        }
+
         if (page == "Power")
         {
             UiFixture.OpenSections(window);

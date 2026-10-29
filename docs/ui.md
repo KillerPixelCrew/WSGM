@@ -223,17 +223,18 @@ Manual, from 8/8 W up to Full Power at the firmware-advertised 40/65 W maxima, w
 power mode. Custom uses the manual controls. Selecting a firmware scenario pauses AutoTDP so its
 next write cannot overwrite that selection.
 
-The Device Overview shows Power and Performance beside the persistent section rail. Available
-sections and Quick Access pin choices keep stable identities. Windows energy plans are visible
-directly, including with integration disabled. Power holds the assignments and device-specific
-groups for manual power and display, fans, charging and automatic control; profile details and reset
-are collapsible. Controller stacks button glyph selection above controller output and explains
-unavailable output. Normal capability persistence and readback details are tooltips, and faults stay
-visible in their rows. Device groups stack vertically at full width and share native folding headers
-with vertically centered titles. The closed SDK prominence and pairing hints guide their
-presentation. FluentAvalonia footer rows hold real sliders, numeric inputs, toggles or ComboBoxes,
-while compact statistics display read-only values. Commands use ActionButton and attention messages
-use InfoBar.
+The Device Overview shows the per-application profile switch, then the same Power and Fans folds as
+the Power page while device integration publishes power controls, then Performance, beside the
+persistent section rail. Available sections and Quick Access pin choices keep stable identities.
+Windows energy plans are visible directly, including with integration disabled. Power holds the
+assignments and device-specific groups for manual power and display, fans, charging and automatic
+control; profile details and reset are collapsible. Controller stacks button glyph selection above
+controller output and explains unavailable output. Normal capability persistence and readback
+details are tooltips, and faults stay visible in their rows. Device groups stack vertically at full
+width and share native folding headers with vertically centered titles. The closed SDK prominence
+and pairing hints guide their presentation. FluentAvalonia footer rows hold real sliders, numeric
+inputs, toggles or ComboBoxes, while compact statistics display read-only values. Commands use
+ActionButton and attention messages use InfoBar.
 
 `DevicePageCaptureTests` renders the Claw descriptor and state fixture with simulated WSGM services
 at 720p, 1280 × 800, 1920 × 1200 and 4K. It writes viewport and full-content PNGs under
