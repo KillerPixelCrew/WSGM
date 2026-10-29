@@ -91,6 +91,14 @@ identity). `Executables` never activates a profile; only `ProcessNames` does. Th
 ordinary value change, so the sync that follows carries the new name and a feature the driver
 changes live applies to the running game at once.
 
+## AMD frame generation turns Anti-Lag on
+
+Turning AMD Fluid Motion Frames on from the overlay or Steam first turns Radeon Anti-Lag on for the
+same GPU and saves it to the layer the AFMF edit lands in, as Handheld Companion does with every
+AFMF change. One already on is only saved. A profile pass writes Anti-Lag before AFMF, and turning
+AFMF off leaves Anti-Lag as it is. `Shell\GraphicsPrerequisites.cs` holds the rule; `GpuCoordinator`
+applies it.
+
 ## Where an edit lands
 
 A running game with its profile on: the game. Anything else: Global. The overlay rows, the Quick

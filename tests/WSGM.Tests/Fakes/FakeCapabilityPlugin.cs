@@ -9,6 +9,12 @@ internal sealed class FakeCapabilityPlugin(string id) : IPlugin, ICapabilityPlug
 {
     internal int Commands { get; private set; }
 
+    /// <summary>The capability of every command, in the order they arrived.</summary>
+    internal List<string> Received { get; } = [];
+
+    /// <summary>Runs inside each command before it answers, such as publishing the state it produced.</summary>
+    internal Func<CapabilityCommand, ValueTask>? OnCommand { get; set; }
+
     /// <summary>What <see cref="StopAsync" /> answers; false leaves the stop unconfirmed.</summary>
     internal bool Released { get; init; } = true;
 
@@ -17,16 +23,22 @@ internal sealed class FakeCapabilityPlugin(string id) : IPlugin, ICapabilityPlug
 
     internal List<ApplicationProfileSync> Syncs { get; } = [];
 
-    public ValueTask<CapabilityCommandResult> ExecuteCommandAsync(CapabilityCommand command,
+    public async ValueTask<CapabilityCommandResult> ExecuteCommandAsync(CapabilityCommand command,
         CancellationToken cancellationToken)
     {
         Commands++;
-        return ValueTask.FromResult(new CapabilityCommandResult
+        Received.Add(command.CapabilityId);
+        if (OnCommand is { } onCommand)
+        {
+            await onCommand(command);
+        }
+
+        return new CapabilityCommandResult
         {
             CommandId = command.CommandId,
             Outcome = CommandOutcome.AppliedUnverified,
             CompletedAt = DateTimeOffset.UtcNow
-        });
+        };
     }
 
     public ValueTask<ApplicationProfileSyncResult> SyncApplicationProfilesAsync(ApplicationProfileSync sync,

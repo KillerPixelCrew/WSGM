@@ -1,3 +1,4 @@
+using WSGM.Core;
 using WSGM.Device.Sdk.Capabilities;
 using WSGM.Plugin.Sdk;
 using WSGM.Shell;
@@ -248,6 +249,101 @@ public sealed class GpuCoordinatorTests
         await coordinator.ApplyProfilesAsync(profiles.Current, CancellationToken.None);
 
         Assert.Equal(syncs, plugin.Syncs.Count);
+    }
+
+    [Fact]
+    public async Task TurningAfmfOnTurnsAntiLagOnFirstAndSavesBothToTheSameLayer()
+    {
+        var profiles = Profiles();
+        FakeCapabilityPlugin plugin = new(GpuInstance.PluginId);
+        await using var coordinator = Coordinator(profiles);
+        await OpenFrameGenerationAsync(coordinator, plugin, false);
+
+        var result = await coordinator.ExecuteAsync(GpuInstance.PluginId, GraphicsPrerequisites.Afmf, null,
+            Flag(true));
+
+        Assert.Equal(CommandOutcome.AppliedUnverified, result.Outcome);
+        Assert.Equal([GraphicsPrerequisites.AntiLag, GraphicsPrerequisites.Afmf], plugin.Received);
+        Assert.True(Saved(profiles, GraphicsPrerequisites.AntiLag));
+        Assert.True(Saved(profiles, GraphicsPrerequisites.Afmf));
+    }
+
+    [Fact]
+    public async Task AnAntiLagAlreadyOnIsSavedBesideAfmfWithoutBeingWrittenAgain()
+    {
+        var profiles = Profiles();
+        FakeCapabilityPlugin plugin = new(GpuInstance.PluginId);
+        await using var coordinator = Coordinator(profiles);
+        await OpenFrameGenerationAsync(coordinator, plugin, true);
+
+        await coordinator.ExecuteAsync(GpuInstance.PluginId, GraphicsPrerequisites.Afmf, null, Flag(true));
+
+        Assert.Equal([GraphicsPrerequisites.Afmf], plugin.Received);
+        Assert.True(Saved(profiles, GraphicsPrerequisites.AntiLag));
+    }
+
+    [Fact]
+    public async Task TurningAfmfOffLeavesAntiLagAlone()
+    {
+        var profiles = Profiles();
+        FakeCapabilityPlugin plugin = new(GpuInstance.PluginId);
+        await using var coordinator = Coordinator(profiles);
+        await OpenFrameGenerationAsync(coordinator, plugin, true);
+
+        await coordinator.ExecuteAsync(GpuInstance.PluginId, GraphicsPrerequisites.Afmf, null, Flag(false));
+
+        Assert.Equal([GraphicsPrerequisites.Afmf], plugin.Received);
+        Assert.Null(Saved(profiles, GraphicsPrerequisites.AntiLag));
+        Assert.False(Saved(profiles, GraphicsPrerequisites.Afmf));
+    }
+
+    [Fact]
+    public async Task AProfilePassWritesAntiLagBeforeAfmf()
+    {
+        var profiles = Profiles();
+        foreach (var id in new[] { GraphicsPrerequisites.Afmf, GraphicsPrerequisites.AntiLag })
+        {
+            Assert.True(await CapabilityUserWrites.PersistAsync(profiles, GpuPublisher,
+                View(Toggle(CapabilityProfileScope.Switched, id), null, null), Flag(true), CancellationToken.None));
+        }
+
+        FakeCapabilityPlugin plugin = new(GpuInstance.PluginId);
+        await using var coordinator = Coordinator(profiles);
+        await OpenFrameGenerationAsync(coordinator, plugin, false);
+
+        // The restore that the first states start and this pass share one lane; whichever runs first writes
+        // both, and the published states leave the other nothing to write.
+        await coordinator.ApplyProfilesAsync(profiles.Current, CancellationToken.None);
+
+        Assert.Equal([GraphicsPrerequisites.AntiLag, GraphicsPrerequisites.Afmf], plugin.Received);
+    }
+
+    /// <summary>Opens a cycle publishing AFMF (off) and Anti-Lag; every command publishes what it set.</summary>
+    private static async Task OpenFrameGenerationAsync(GpuCoordinator coordinator, FakeCapabilityPlugin plugin,
+        bool antiLag)
+    {
+        var channel = coordinator.Open(GpuInstance, Manifest(), plugin);
+        plugin.OnCommand = command => channel.PublishCapabilityStateAsync(
+            Observed(command.CapabilityId, command.RequestedValue!.BooleanValue == true), CancellationToken.None);
+        channel.Open();
+        await channel.PublishDescriptorsAsync(Set(1, Toggle(CapabilityProfileScope.Switched,
+                GraphicsPrerequisites.Afmf),
+            Toggle(CapabilityProfileScope.Switched, GraphicsPrerequisites.AntiLag)), CancellationToken.None);
+        await channel.PublishCapabilityStateAsync(Observed(GraphicsPrerequisites.Afmf, false),
+            CancellationToken.None);
+        await channel.PublishCapabilityStateAsync(Observed(GraphicsPrerequisites.AntiLag, antiLag),
+            CancellationToken.None);
+    }
+
+    private static CapabilityState Observed(string capabilityId, bool value)
+    {
+        return State(1, Flag(value)) with { CapabilityId = capabilityId };
+    }
+
+    /// <summary>The value Global holds for a capability, or null when it holds none.</summary>
+    private static bool? Saved(ProfileService profiles, string capabilityId)
+    {
+        return profiles.Current.Config.Global.FindDevice(GpuPublisher, capabilityId, null)?.Value?.BooleanValue;
     }
 
     [Fact]

@@ -506,6 +506,12 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
         var view = publisher.Router.TryGetView(new DeviceCapabilityKey(capabilityId, instanceId));
         if (origin is CapabilityCommandOrigin.User && value is not null && view is not null)
         {
+            if (GraphicsPrerequisites.Required(capabilityId, value) is { } prerequisite)
+            {
+                await EnablePrerequisiteAsync(publisher, prerequisite, capabilityId, instanceId, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             var result = await CapabilityUserWrites.HandleUserWriteAsync(_profiles, publisher.ProfileKey, view,
                     value, () => publisher.Router.ExecuteAsync(capabilityId, instanceId, value, CommandTimeout,
                         cancellationToken: cancellationToken), _manualVariableRefresh, cancellationToken)
@@ -516,6 +522,50 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
 
         return await publisher.Router.ExecuteAsync(capabilityId, instanceId, value, CommandTimeout,
             cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Turns a setting's prerequisite on and saves it beside the setting, before the setting itself.</summary>
+    /// <param name="publisher">The publisher both belong to.</param>
+    /// <param name="prerequisite">The capability that must be on.</param>
+    /// <param name="dependent">The capability the user is changing, for the log.</param>
+    /// <param name="instanceId">The instance both share.</param>
+    /// <param name="cancellationToken">Cancels the wait.</param>
+    /// <remarks>
+    ///     Saved to the same layer the user's edit lands in, so a later profile pass keeps it on instead of
+    ///     restoring an older value under the setting that needs it. One already on is only saved. A refusal
+    ///     is logged and the user's own write still goes ahead.
+    /// </remarks>
+    private async Task EnablePrerequisiteAsync(GpuPublisher publisher, string prerequisite, string dependent,
+        string? instanceId, CancellationToken cancellationToken)
+    {
+        var view = publisher.Router.TryGetView(new DeviceCapabilityKey(prerequisite, instanceId));
+        if (view is null || !view.Descriptor.SupportsWrite)
+        {
+            return;
+        }
+
+        var on = GraphicsPrerequisites.On;
+        if (view.Projection.State.ObservedValue is { } observed && CapabilityValues.Same(observed, on))
+        {
+            await CapabilityUserWrites.PersistAsync(_profiles, publisher.ProfileKey, view, on, cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        var result = await CapabilityUserWrites.HandleUserWriteAsync(_profiles, publisher.ProfileKey, view, on,
+                () => publisher.Router.ExecuteAsync(prerequisite, instanceId, on, CommandTimeout,
+                    cancellationToken: cancellationToken), _manualVariableRefresh, cancellationToken)
+            .ConfigureAwait(false);
+        var message = $"Graphics {publisher.ProfileKey}: {prerequisite} turned on for {dependent}: {result.Outcome}"
+                      + (result.Reason?.Detail is { Length: > 0 } detail ? $", {detail}." : ".");
+        if (result.Outcome.IsApplied())
+        {
+            Log.Info(message);
+        }
+        else
+        {
+            Log.Warn(message);
+        }
     }
 
     /// <summary>Returns a graphics setting to Global for the running game.</summary>
@@ -813,6 +863,7 @@ internal sealed class GpuCoordinator : ICapabilityChannelRegistry, IAsyncDisposa
                     new CapabilityReconcilePass(ProfileKey, Router.Snapshot, RestoreAsync)
                     {
                         ReadCurrent = Router.TryGetView,
+                        Priority = GraphicsPrerequisites.Priority,
                         // A capability the plugin has not reported yet is waiting, not unavailable; the
                         // pass that follows its first state restores it.
                         HasState = view => Router.HasState(view.Descriptor)
