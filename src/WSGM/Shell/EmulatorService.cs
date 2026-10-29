@@ -252,11 +252,20 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
     public async Task<SteamUiCommandResult> SetEmulatorShortcutAsync(string installationId, bool enabled, int launchMode,
         CancellationToken cancellationToken)
     {
+        var wasEnabled = _manager.GetSnapshot().Installations
+            .FirstOrDefault(installation => installation.Id == installationId)?.SteamShortcutEnabled == true;
         var result = await Run(() => _manager.SetSteamShortcutAsync(installationId, enabled, launchMode, cancellationToken))
             .ConfigureAwait(false);
         if (result.Succeeded)
         {
-            RequestShortcutSync();
+            if (enabled && !wasEnabled)
+            {
+                _shortcuts?.RequestExplicitCreate(installationId);
+            }
+            else
+            {
+                RequestShortcutSync();
+            }
         }
 
         return result;

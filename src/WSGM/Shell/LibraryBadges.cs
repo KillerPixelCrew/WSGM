@@ -47,6 +47,18 @@ internal static class LibraryBadges
     /// <summary>Raised after <see cref="Update(AppConfig, IReadOnlySet{string})" /> replaced the reading.</summary>
     internal static event Action? Changed;
 
+    /// <summary>Whether managed shortcut availability must remain published without decorative badges.</summary>
+    internal static bool HasManagedShortcuts
+    {
+        get
+        {
+            lock (Gate)
+            {
+                return _shortcuts.Count > 0;
+            }
+        }
+    }
+
     /// <summary>
     ///     Rebuilds the reading from the card model, the cards present right now and Steam's library
     ///     registrations.

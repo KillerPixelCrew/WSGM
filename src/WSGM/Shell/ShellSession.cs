@@ -1020,12 +1020,14 @@ public sealed partial class ShellSession
                 artwork: libraryArtwork,
                 syncCollection: (id, name, add, remove, token) =>
                     steam.Collections.SyncAsync(id, name, add, remove, true, token),
-                emulators: _emulatorTool);
+                emulators: _emulatorTool,
+                isShortcutRunning: IsManagedShortcutRunning,
+                readCollections: ReadLibraryCollectionsAsync);
             _libraryArtwork = libraryArtwork;
             _libraryImport.Start();
             if (_messageWindow is { } contentWindow)
             {
-                _contentAvailability = new ManagedShortcutMonitor(contentWindow, _libraryImport, _emulators);
+                _contentAvailability = new ManagedShortcutMonitor(contentWindow, _libraryImport, _emulators, _drives);
             }
         });
 

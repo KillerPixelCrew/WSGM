@@ -235,6 +235,64 @@ internal static class OverlayToolFixtures
             Entry("removed-one", "Removed game", "attention", "Remove", false, 43)
         ], 1, 0, 3, true, ArtworkPreference: "Catalog", CreateCollections: true, Revision: 1);
 
+    /// <summary>
+    ///     Removable libraries in every published condition, with the host's own status wording. Every path is
+    ///     fictional and nothing reads a volume.
+    /// </summary>
+    internal static GameLibraryState Storage => Library with
+    {
+        Entries =
+        [
+            StorageEntry("retro-quest", "Pixel Quest", "lib-retro", @"F:\Roms\snes\Pixel Quest.sfc"),
+            StorageEntry("retro-deleted", "Deleted Platformer", "lib-retro", @"F:\Roms\snes\Deleted Platformer.sfc")
+                with
+                {
+                    Unavailable = true, AvailabilityLabel = "Game files missing", Availability = "ContentMissing",
+                    CleanupPending = true
+                },
+            StorageEntry("retro-racer", "Kart Rally", "lib-retro", @"F:\Roms\n64\Kart Rally.z64"),
+            StorageEntry("travel-rpg", "Lantern Saga", "lib-travel", @"G:\Games\Lantern Saga\Lantern.exe")
+                with
+                {
+                    Unavailable = true, AvailabilityLabel = "Storage disconnected", Availability = "StorageUnavailable"
+                },
+            StorageEntry("travel-puzzle", "Tile Garden", "lib-travel", @"G:\Games\Tile Garden\TileGarden.exe")
+                with
+                {
+                    Unavailable = true, AvailabilityLabel = "Storage disconnected", Availability = "StorageUnavailable"
+                },
+            StorageEntry("handheld-shooter", "Star Courier", "lib-handheld", @"H:\Roms\gba\Star Courier.gba"),
+            StorageEntry("long-one", "Chronicle of the Endless Northern Lighthouse Keeper: Definitive Edition",
+                "lib-long", @"J:\Portable Games\Chronicle of the Endless Northern Lighthouse Keeper\Keeper.exe")
+        ],
+        SelectedCount = 0,
+        StorageLibraries =
+        [
+            new GameLibraryStorage("lib-long",
+                "Extremely long removable storage library name for checking wrapping (Example 1 TB card)",
+                "Available", "", 1, CanRepair: false, CanAcceptBinding: false),
+            new GameLibraryStorage("lib-handheld", "Handheld microSD", "Check failed",
+                "The library manifest is missing from this storage.", 1, CanRepair: true, CanAcceptBinding: false),
+            new GameLibraryStorage("lib-new", "New card", "Review storage",
+                "Review this library and Apply to accept its storage on this device.", 4, CanRepair: false,
+                CanAcceptBinding: true),
+            new GameLibraryStorage("lib-retro", "Retro card", "Available", "", 3, CanRepair: false,
+                CanAcceptBinding: false),
+            new GameLibraryStorage("lib-travel", "Travel SSD", "Disconnected",
+                "Connect the expected storage to check its games.", 2, CanRepair: false, CanAcceptBinding: false)
+        ]
+    };
+
+    private static GameLibraryEntry StorageEntry(string id, string name, string libraryId, string path)
+    {
+        return Entry(id, name, "imported", "Update", false, 0) with
+        {
+            Source = "Removable games", SourceId = "storage", ManagedId = id, LibraryId = libraryId,
+            Location = path[..2], ContentPath = path, Availability = "Available", AvailabilityLabel = "Available",
+            Reason = "Imported from removable storage"
+        };
+    }
+
     private static string MakeImage()
     {
         using var bitmap = new SKBitmap(180, 260);
@@ -715,6 +773,28 @@ internal sealed class FakeLibrarySource : IGameLibraryOverlaySource
     public Task<SteamUiCommandResult> RecheckAvailabilityAsync(string id, CancellationToken cancellationToken)
     {
         return Command("RecheckAvailabilityAsync");
+    }
+
+    public Task<SteamUiCommandResult> StageStorageActionAsync(string id, string action,
+        CancellationToken cancellationToken)
+    {
+        // Mirrors the host's publication: a staged action counts toward Apply. Nothing is written.
+        var delta = 0;
+        State = State with
+        {
+            StorageLibraries = State.StorageLibraries?.Select(storage =>
+            {
+                if (storage.Id != id)
+                {
+                    return storage;
+                }
+
+                delta = (action.Length > 0 ? 1 : 0) - (storage.StagedAction.Length > 0 ? 1 : 0);
+                return storage with { StagedAction = action };
+            }).ToArray()
+        };
+        State = State with { SelectedCount = State.SelectedCount + delta };
+        return Command("StageStorageActionAsync");
     }
 
     public GameLibraryState ReadState()

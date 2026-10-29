@@ -50,6 +50,8 @@ public sealed partial class GameLibraryView
     private void RenderAddFolder()
     {
         var body = NewStack("Add a shortcuts folder");
+        body.Children.Add(Caption("Each shortcut keeps its program, arguments and Start in folder. A game on "
+                                  + "removable storage follows that storage, wherever this folder is."));
         body.Children.Add(Tagged(
             Row("Choose folder", _folderPath, Icons.Grid4, () => _ = RunSafelyAsync(ChooseAsync(), "folder picker")),
             "folder.choose"));
@@ -162,6 +164,7 @@ public sealed partial class GameLibraryView
             state.Loading || state.SelectedCount == 0 ? null : () => Run(_service!.ApplyAsync)), "apply"));
         body.Children.Add(Tagged(Row("All artwork", "Review and fill selected titles before applying", Icons.Palette,
             state.SelectedCount == 0 ? null : () => Navigate(RenderAllArtwork)), "all-artwork"));
+        var order = entries.Select(entry => entry.Id).ToArray();
         var cards = new WrapPanel();
         foreach (var entry in entries.Take(_shown))
         {
@@ -171,14 +174,14 @@ public sealed partial class GameLibraryView
             if (_grid)
             {
                 var card = PreviewCard(id, slot?.Thumb, entry.Name, description,
-                    () => Navigate(() => RenderEntry(id)));
+                    () => OpenEntry(id, order));
                 card.Tag = "card:" + id;
                 card.Opacity = GameLibraryRows.IsUnavailable(entry) ? 0.55 : 1;
                 cards.Children.Add(card);
             }
             else
             {
-                body.Children.Add(Tagged(Row(entry.Name, description, null, () => Navigate(() => RenderEntry(id))),
+                body.Children.Add(Tagged(Row(entry.Name, description, null, () => OpenEntry(id, order)),
                     "entry:" + id));
             }
         }

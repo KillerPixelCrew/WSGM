@@ -743,11 +743,20 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
     }
 
+    /// <summary>Whether badges or managed shortcuts require the shared library surface.</summary>
+    private static bool LibraryAvailabilityWanted(SteamUiSurfaceSwitches switches)
+    {
+        return switches.LibraryBadge || (switches.HostSurfaces && LibraryBadges.HasManagedShortcuts);
+    }
+
+    /// <summary>Whether the availability gate, which claims Steam's library filter, is needed.</summary>
+    /// <remarks>Decorative badges alone keep the badge and details gates, never this one.</remarks>
+    private static bool ManagedAvailabilityWanted(SteamUiSurfaceSwitches switches)
+    {
+        return LibraryBadges.HasManagedShortcuts && LibraryAvailabilityWanted(switches);
+    }
+
     /// <summary>Whether any surface that runs without native Quick Access is on.</summary>
-    /// <remarks>
-    ///     Download sort counts: it registers its transform on the toolkit's shared JSX-runtime claim,
-    ///     which the bridge serves.
-    /// </remarks>
     private static bool IndependentSurfacesEnabled(SteamUiSurfaceSwitches switches)
     {
         return switches.NetworkIndicator
@@ -871,6 +880,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             if (snapshot.Health == SteamUiTransportHealth.Ready)
             {
                 _emulators?.RequestShortcutSync();
+                _libraryImport?.NotifyManagedEntriesChanged();
             }
 
             Log.Observe(_nativeSettings.StopRumblePreviewAsync(), "Stopping rumble preview after Steam reload");
@@ -1110,8 +1120,10 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             // unconditionally: which cards exist is the reading's business, and a session with
             // none publishes an empty list, which names every installed game as internal.
             SteamLibraryBadgeSurface.Module(
-                () => _switches.LibraryBadge,
-                () => new ValueTask<SteamLibraryBadgeState?>(LibraryBadges.Current),
+                () => LibraryAvailabilityWanted(_switches),
+                () => new ValueTask<SteamLibraryBadgeState?>(LibraryBadges.Current is { } state
+                    ? state with { ShowBadges = _switches.LibraryBadge }
+                    : null),
                 _libraryBadge),
 
             // Home's carousel, built from the same card reading as the badge so the two never
@@ -1702,7 +1714,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             var enabled = patch.Id switch
             {
                 SteamDownloadSort.PatchId => switches.DownloadSort,
-                SteamLibraryBadgeSurface.PatchId or SteamLibraryBadgeSurface.DetailsPatchId => switches.LibraryBadge,
+                SteamLibraryBadgeSurface.PatchId or SteamLibraryBadgeSurface.DetailsPatchId
+                    => LibraryAvailabilityWanted(switches),
+                SteamLibraryBadgeSurface.AvailabilityPatchId => ManagedAvailabilityWanted(switches),
                 SteamHomeCarouselSurface.PatchId => switches.HomeCarousel,
                 SteamScreensaverSurface.PatchId => switches.ScreensaverRows,
                 SteamUiBridgePatch.PatchId => bootstrap,

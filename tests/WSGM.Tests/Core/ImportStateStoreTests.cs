@@ -10,6 +10,59 @@ namespace WSGM.Tests.Core;
 public sealed class ImportStateStoreTests
 {
     [Fact]
+    public void ArtworkSettlementRoundTripsOnlyForItsAccountAndPreservesSharedChoices()
+    {
+        using TemporaryDirectory temporary = new();
+        var path = temporary.GetPath("library-import.json");
+        var store = new ImportStateStore(path);
+        store.SetActiveAccount(7);
+        store.SaveChoice(new ImportChoice
+        {
+            Source = "folder", Key = "game",
+            Artwork = [new ArtworkPick { Asset = ArtworkAsset.Hero, Url = "https://example.test/hero.png", Revision = "pick-1" }]
+        });
+        store.SaveApplied(new ImportedEntry
+        {
+            AccountId = 7, Source = "folder", Key = "game", Name = "Game", AppId = 42,
+            Mode = nameof(ImportMode.SteamIntegration),
+            SettledArtwork = new Dictionary<ArtworkAsset, AppliedArtworkChoice>
+            {
+                [ArtworkAsset.Hero] = new AppliedArtworkChoice("https://example.test/hero.png", "pick-1")
+            }
+        });
+
+        var reloaded = new ImportStateStore(path);
+        reloaded.SetActiveAccount(7);
+        Assert.Equal(new AppliedArtworkChoice("https://example.test/hero.png", "pick-1"),
+            Assert.Single(reloaded.Entries()).SettledArtwork[ArtworkAsset.Hero]);
+        Assert.Single(Assert.Single(reloaded.Choices()).Artwork);
+        reloaded.SetActiveAccount(8);
+        Assert.Empty(Assert.Single(reloaded.Entries()).SettledArtwork);
+        Assert.Single(Assert.Single(reloaded.Choices()).Artwork);
+    }
+
+    [Fact]
+    public void MutatingAnArtworkSettlementProjectionDoesNotChangeItsReceipt()
+    {
+        using TemporaryDirectory temporary = new();
+        var store = new ImportStateStore(temporary.GetPath("library-import.json"));
+        store.SetActiveAccount(7);
+        store.SaveApplied(new ImportedEntry
+        {
+            AccountId = 7, Source = "folder", Key = "game", Name = "Game", AppId = 42,
+            Mode = nameof(ImportMode.SteamIntegration),
+            SettledArtwork = new Dictionary<ArtworkAsset, AppliedArtworkChoice>
+            {
+                [ArtworkAsset.Hero] = new AppliedArtworkChoice("", "clear-1")
+            }
+        });
+        var detached = Assert.Single(store.Entries());
+        detached.SettledArtwork.Clear();
+        detached.SteamMappings[0].SettledArtwork.Clear();
+        Assert.True(Assert.Single(store.Entries()).SettledArtwork.ContainsKey(ArtworkAsset.Hero));
+    }
+
+    [Fact]
     public void ARecordWithANullStringIsDroppedRatherThanThrowing()
     {
         // Dereferencing one threw out of the scan, and out of every scan after it, so the importer
@@ -150,21 +203,22 @@ public sealed class ImportStateStoreTests
     }
 
     [Fact]
-    public void ForgettingATitleDropsItsRecordAndItsChoiceTogether()
+    public void ForgettingAnAccountsShortcutPreservesItsSharedChoice()
     {
         using TemporaryDirectory temporary = new();
         ImportStateStore store = new(temporary.GetPath("library-import.json"));
+        store.SetActiveAccount(7);
         store.Save(new ImportedEntry
         {
-            Source = "epic", Key = "Moonlit", AppId = 9, Name = "Moonlit", Target = "t", LaunchOptions = "o",
+            AccountId = 7, Source = "epic", Key = "Moonlit", AppId = 9, Name = "Moonlit", Target = "t", LaunchOptions = "o",
             Mode = nameof(ImportMode.ControllerOnly)
         });
         store.SaveChoice(new ImportChoice { Source = "epic", Key = "Moonlit", MatchId = "7" });
 
-        store.Forget("EPIC", "moonlit");
+        store.Forget("EPIC", "moonlit", accountId: 7);
 
         Assert.Empty(store.Entries());
-        Assert.Empty(store.Choices());
+        Assert.Equal("Moonlit", Assert.Single(store.Choices()).Key);
     }
 
     [Fact]
@@ -321,12 +375,13 @@ public sealed class ImportStateStoreTests
     {
         using TemporaryDirectory temporary = new();
         ImportStateStore store = new(temporary.GetPath("library-import.json"));
+        store.SetActiveAccount(7);
         store.SaveChoice(new ImportChoice { Source = "xbox", Key = "A_x!App", Excluded = true });
         store.SaveChoice(new ImportChoice { Source = "xbox", Key = "B_y!App", Excluded = true });
 
-        store.Forget("xbox", "A_x!App");
+        store.Forget("xbox", "A_x!App", accountId: 7);
 
-        Assert.Equal("B_y!App", Assert.Single(store.Choices()).Key);
+        Assert.Equal(["A_x!App", "B_y!App"], store.Choices().Select(choice => choice.Key).Order().ToArray());
     }
 
     [Fact]

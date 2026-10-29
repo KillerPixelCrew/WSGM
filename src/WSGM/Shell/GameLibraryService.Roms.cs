@@ -291,34 +291,28 @@ internal sealed partial class GameLibraryService
 
     public async Task<SteamUiCommandResult> RecheckAvailabilityAsync(string id, CancellationToken cancellationToken)
     {
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _shutdown.Token);
-        cancellationToken = linked.Token;
+        using var linked = LinkStorageObservation(cancellationToken);
         try
         {
-            var observation = await Task.Run(() =>
+            await _storageLane.WaitAsync(linked.Token).ConfigureAwait(false);
+            try
             {
-                Dictionary<string, ManagedContentCheck> result = [];
-                Dictionary<string, ManagedContentRecord> expected = [];
-                var emulatorStore = ReadEmulatorStore();
-                var context = new ManagedContentCheckContext();
-                foreach (var record in _store.Entries().Where(record => record.Content is not null
-                                                                        && (id.Length == 0 || record.Content.Id == id ||
-                                                                            EntryId(record.Source, record.Key) == id)))
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    var content = record.Content!;
-                    expected[content.Id] = content;
-                    result[content.Id] = ManagedContentStorage.Check(content, emulatorStore, context);
-                }
-
-                return (Checks: result, Expected: expected);
-            }, cancellationToken).WaitAsync(cancellationToken).ConfigureAwait(false);
-            ApplyAvailability(observation.Checks, observation.Expected, cancellationToken);
-            return SteamUiCommandResult.Applied;
+                return await Task.Run(() => ReconcileStorageAsync(id, linked.Token), linked.Token)
+                    .ConfigureAwait(false);
+            }
+            finally
+            {
+                _storageLane.Release();
+            }
         }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or JsonException or ImportStateException)
+        catch (Exception ex) when (ex is IOException or InvalidDataException or JsonException
+                                   or ImportStateException or UnauthorizedAccessException or InvalidOperationException)
         {
             return new SteamUiCommandResult(false, ex.Message);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && !_shutdown.IsCancellationRequested)
+        {
+            return new SteamUiCommandResult(false, "The library changed during its check. It will be checked again.");
         }
     }
 
@@ -486,7 +480,7 @@ internal sealed partial class GameLibraryService
             : RecheckAvailabilityAsync(content.Id, cancellationToken);
     }
 
-    private void NotifyManagedEntriesChanged()
+    internal void NotifyManagedEntriesChanged()
     {
         UpdateEmulatorDependencies();
         ManagedEntriesChanged?.Invoke();

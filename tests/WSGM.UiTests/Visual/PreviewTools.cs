@@ -1,5 +1,7 @@
 using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Headless;
+using Avalonia.Input;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using WSGM.Controls;
@@ -22,13 +24,28 @@ public static class PreviewTools
         Export(directory, width, height, ["emulators-detail", "emulators-install", "importer-rom-source"]);
     }
 
-    internal static OverlayWindow Create(UiFixture fixture, int width = 1280, int height = 800)
+    /// <summary>Exports only the removable storage library levels and the removed-title return path.</summary>
+    public static void ExportStorageCases(string directory, int width, int height)
+    {
+        Directory.CreateDirectory(directory);
+        Export(directory, width, height, StorageScenarios);
+    }
+
+    /// <summary>Storage cases render only when a filter names them, so ordinary exports are unchanged.</summary>
+    private static readonly string[] StorageScenarios =
+    [
+        "importer-storage-home", "importer-storage-list", "importer-storage-detail", "importer-storage-empty",
+        "importer-storage-error", "importer-entry-removed", "importer-entry-loading"
+    ];
+
+    internal static OverlayWindow Create(UiFixture fixture, int width = 1280, int height = 800,
+        FakeLibrarySource? library = null)
     {
         var window = fixture.Overlay(width, height);
         UiFixture.Named<ThemesView>(window, "ThemesHost").AttachSession(new FakeThemesSource());
         UiFixture.Named<AnimationsView>(window, "AnimationsHost").AttachSession(new FakeMoviesSource());
         UiFixture.Named<ArtworkView>(window, "ArtworkHost").AttachSession(new FakeArtworkSource());
-        UiFixture.Named<GameLibraryView>(window, "GameLibraryHost").Attach(new FakeLibrarySource());
+        UiFixture.Named<GameLibraryView>(window, "GameLibraryHost").Attach(library ?? new FakeLibrarySource());
         UiFixture.Named<EmulatorManagerView>(window, "EmulatorManagerHost").Attach(PreviewEmulators.Create());
         window.AttachPrograms(new ProgramsOverlaySource());
         var model = (OverlayViewModel)window.DataContext!;
@@ -50,7 +67,7 @@ public static class PreviewTools
                      "importer-review", "importer-artwork", "importer-all-artwork", "importer-rom-source", "emulators-installed",
                      "emulators-detail", "emulators-install", "emulators-cores", "emulators-defaults", "emulators-bios",
                      "programs", "programs-detail", "programs-unavailable", "programs-pins"
-                 })
+                 }.Concat(scenarioFilter is null ? Array.Empty<string>() : StorageScenarios))
         {
             if (scenarioFilter is not null && !scenarioFilter.Contains(scenario, StringComparer.Ordinal))
             {
@@ -58,7 +75,11 @@ public static class PreviewTools
             }
 
             using var fixture = new UiFixture();
-            var window = Create(fixture, width, height);
+            var library = StorageScenarios.Contains(scenario, StringComparer.Ordinal)
+                ? new FakeLibrarySource { State = OverlayToolFixtures.Storage }
+                : null;
+            var window = Create(fixture, width, height, library);
+            var keepFocus = false;
             var page = scenario.StartsWith("themes", StringComparison.Ordinal) ? OverlayPage.SystemThemes
                 : scenario.StartsWith("programs", StringComparison.Ordinal) ? OverlayPage.Programs
                 : scenario.StartsWith("emulators", StringComparison.Ordinal) ? OverlayPage.EmulatorManager
@@ -141,7 +162,60 @@ public static class PreviewTools
                 }
             }
 
-            if (scenario == "importer-rom-source")
+            if (library is not null)
+            {
+                if (scenario != "importer-storage-home")
+                {
+                    Click($"Storage libraries ({library.State.StorageLibraries!.Count})");
+                }
+
+                if (scenario == "importer-storage-detail")
+                {
+                    Click("Handheld microSD");
+                    Click("Repair library");
+                    var apply = FocusSearch.First<ActionButton>(window,
+                                    button => button.Title == "Apply 1" && button.IsEffectivelyVisible)
+                                ?? throw new InvalidOperationException("The staged repair has no Apply action.");
+                    apply.BringIntoView();
+                    apply.Focus(NavigationMethod.Directional);
+                    keepFocus = true;
+                }
+
+                if (scenario == "importer-storage-empty")
+                {
+                    library.State = library.State with { StorageLibraries = [] };
+                    library.Publish();
+                }
+
+                if (scenario == "importer-storage-error")
+                {
+                    library.State = library.State with
+                    {
+                        Error = "Steam's account could not be confirmed. Recheck before importing."
+                    };
+                    library.Publish();
+                }
+
+                if (scenario is "importer-entry-removed" or "importer-entry-loading")
+                {
+                    // Cleanup finished while the title was open: the host publishes a state without it, and
+                    // the production view returns to the library with the neighbouring title focused.
+                    Click("Retro card");
+                    Click("Deleted Platformer");
+                    library.State = library.State with
+                    {
+                        Loading = scenario == "importer-entry-loading",
+                        Entries = library.State.Entries.Where(entry => entry.Id != "retro-deleted").ToArray(),
+                        StorageLibraries = library.State.StorageLibraries!.Select(storage =>
+                            storage.Id == "lib-retro" ? storage with { TitleCount = 2 } : storage).ToArray()
+                    };
+                    library.Publish();
+                    keepFocus = true;
+                }
+
+                Dispatcher.UIThread.RunJobs();
+            }
+            else if (scenario == "importer-rom-source")
             {
                 Click($"Sources ({OverlayToolFixtures.Library.Reading.Count} on)");
                 Click("Add a ROM library");
@@ -162,7 +236,11 @@ public static class PreviewTools
             }
 
             Dispatcher.UIThread.RunJobs();
-            window.FocusManager!.Focus(null);
+            if (!keepFocus)
+            {
+                window.FocusManager!.Focus(null);
+            }
+
             window.MouseMove(new Point(-20, -20));
             using var image = window.CaptureRenderedFrame() ??
                               throw new InvalidOperationException("No tool preview was rendered.");

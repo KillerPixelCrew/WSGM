@@ -79,6 +79,9 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
     /// </remarks>
     internal StorageInventory Inventory => Volatile.Read(ref _inventory);
 
+    /// <summary>Raised on the inventory worker when external mount points or readiness change.</summary>
+    internal event Action? TopologyChanged;
+
     /// <summary>
     ///     Gets whether anything ejectable is present; the sheet shows
     ///     its eject pill only while this is true.
@@ -217,7 +220,15 @@ public sealed class RemovableDriveManager : ObservableObject, IDisposable
             try
             {
                 var inventory = StorageInventory.Read();
+                var previous = Volatile.Read(ref _inventory);
+                var topologyChanged = !previous.ReadyExternalVolumes().OrderBy(volume => volume.Letter)
+                    .SequenceEqual(inventory.ReadyExternalVolumes().OrderBy(volume => volume.Letter));
                 Volatile.Write(ref _inventory, inventory);
+                if (topologyChanged)
+                {
+                    TopologyChanged?.Invoke();
+                }
+
                 var devices = Project(inventory);
                 Dispatcher.UIThread.Post(() => Apply(devices));
             }

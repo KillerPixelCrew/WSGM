@@ -99,37 +99,53 @@ internal static class SteamArtwork
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(images);
-        var downloads = await Task.WhenAll(images.Select(async image =>
+        (byte[]? Bytes, string? Failure)[] downloads;
+        try
         {
-            if (image.Url.Length == 0)
+            downloads = await Task.WhenAll(images.Select(async image =>
             {
-                return (Bytes: null, Failure: null);
-            }
+                if (image.Url.Length == 0)
+                {
+                    return (Bytes: null, Failure: null);
+                }
 
-            try
-            {
-                return (Bytes: await ArtworkSearch.DownloadAsync(image.Url, config, cancellationToken)
-                    .ConfigureAwait(false), Failure: null);
-            }
-            catch (ArtworkProviderException ex)
-            {
-                return (Bytes: (byte[]?)null, Failure: (string?)ex.Message);
-            }
-        })).ConfigureAwait(false);
+                try
+                {
+                    return (Bytes: await ArtworkSearch.DownloadAsync(image.Url, config, cancellationToken)
+                        .ConfigureAwait(false), Failure: null);
+                }
+                catch (ArtworkProviderException ex)
+                {
+                    return (Bytes: (byte[]?)null, Failure: (string?)ex.Message);
+                }
+            })).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // Downloads finish before any write. A stopped batch has no native side effects yet.
+            return images.Select(_ => new ArtworkResult("Stopped before the image was written.")).ToArray();
+        }
 
         var results = new ArtworkResult[images.Count];
         for (var index = 0; index < images.Count; index++)
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            if (cancellationToken.IsCancellationRequested)
+            {
+                for (var remaining = index; remaining < images.Count; remaining++)
+                {
+                    results[remaining] = new ArtworkResult("Stopped before the image was written.");
+                }
+                break;
+            }
             if (images[index].Url.Length == 0)
             {
-                results[index] = await ClearAsync(steam, appId, images[index].Asset, cancellationToken)
+                results[index] = await ClearAsync(steam, appId, images[index].Asset, CancellationToken.None)
                     .ConfigureAwait(false);
                 continue;
             }
 
             results[index] = downloads[index] is { Bytes: { } bytes }
-                ? await ApplyAsync(steam, appId, images[index].Asset, bytes, cancellationToken).ConfigureAwait(false)
+                ? await ApplyAsync(steam, appId, images[index].Asset, bytes, CancellationToken.None).ConfigureAwait(false)
                 : new ArtworkResult(downloads[index].Failure ?? "The image did not download.");
         }
 

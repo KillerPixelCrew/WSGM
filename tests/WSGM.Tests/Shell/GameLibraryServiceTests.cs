@@ -17,6 +17,37 @@ public sealed class GameLibraryServiceTests
     private const string Aumid = "Publisher.Game_abc!App";
 
     [Fact]
+    public async Task EditingAnotherFieldPreservesSettledArtworkForOtherAccounts()
+    {
+        using Harness harness = new();
+        harness.Store.SetActiveAccount(7);
+        var record = Recorded(ImportMode.SteamIntegration);
+        record.AccountId = 7;
+        record.SettledArtwork[ArtworkAsset.Hero] = new AppliedArtworkChoice("https://example.test/hero.png", "pick-1");
+        harness.Import(record);
+        harness.ReadLibrary = _ => Task.FromResult<IReadOnlyList<ExistingShortcut>>(
+            new SteamShortcutSnapshot(7, harness.Library.ToArray()));
+        harness.Store.SaveChoice(new ImportChoice
+        {
+            Source = record.Source, Key = record.Key,
+            Artwork = [new ArtworkPick
+            {
+                Asset = ArtworkAsset.Hero, Url = "https://example.test/hero.png", Revision = "pick-1"
+            }]
+        });
+        using var source = harness.Create([Game()]);
+        var entry = Assert.Single((await ScannedAsync(source)).Entries);
+
+        Assert.True((await source.SetModeAsync(entry.Id, nameof(ImportMode.ControllerOnly), false,
+            CancellationToken.None)).Succeeded);
+
+        harness.Store.SetActiveAccount(8);
+        var retained = Assert.Single(Assert.Single(harness.Store.Choices()).Artwork);
+        Assert.Equal(("https://example.test/hero.png", "pick-1"), (retained.Url, retained.Revision));
+        Assert.Empty(Assert.Single(harness.Store.Entries()).SettledArtwork);
+    }
+
+    [Fact]
     public async Task ACancelledScanDoesNotPruneChoicesAfterAnUncooperativeReadCompletes()
     {
         using Harness harness = new();

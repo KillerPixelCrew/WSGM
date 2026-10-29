@@ -25,6 +25,8 @@ internal sealed class EmulatorShortcutSync : IDisposable
     private readonly CancellationTokenSource _stop = new();
     private readonly SemaphoreSlim _wake = new(initialCount: 0, maxCount: 1);
     private readonly Lock _gate = new();
+    private readonly HashSet<(uint AccountId, string InstallationId)> _explicitRecreates = [];
+    private readonly List<string> _notices = [];
     private bool _disposed;
 
     internal EmulatorShortcutSync(EmulatorManager manager, ImportStateStore store,
@@ -50,6 +52,18 @@ internal sealed class EmulatorShortcutSync : IDisposable
     }
 
     internal Task Completion { get; }
+
+    internal void RequestExplicitCreate(string installationId)
+    {
+        if (_store.ActiveAccountId is { } accountId)
+        {
+            lock (_gate)
+            {
+                _explicitRecreates.Add((accountId, installationId));
+            }
+        }
+        Request();
+    }
 
     internal void Request()
     {
@@ -85,19 +99,28 @@ internal sealed class EmulatorShortcutSync : IDisposable
             while (true)
             {
                 await _wake.WaitAsync(_stop.Token).ConfigureAwait(false);
+                HashSet<(uint AccountId, string InstallationId)> requests;
+                lock (_gate)
+                {
+                    requests = [.. _explicitRecreates];
+                    _explicitRecreates.Clear();
+                }
                 if (!_manager.Initialized || !_ready())
                 {
+                    RestoreRequests(requests);
                     _status("Steam shortcuts will sync when Steam is ready.");
                     continue;
                 }
 
                 try
                 {
-                    await ReconcileAsync(_stop.Token).ConfigureAwait(false);
-                    _status("");
+                    _notices.Clear();
+                    await ReconcileAsync(requests, _stop.Token).ConfigureAwait(false);
+                    _status(string.Join(" ", _notices));
                 }
                 catch (Exception ex) when (ex is not OutOfMemoryException && ex is not OperationCanceledException)
                 {
+                    RestoreRequests(requests);
                     _status(ex.Message);
                     Log.Warn("Emulator Steam shortcuts: " + ex.Message);
                 }
@@ -113,12 +136,40 @@ internal sealed class EmulatorShortcutSync : IDisposable
         }
     }
 
-    private async Task ReconcileAsync(CancellationToken token)
+    private void RestoreRequests(IEnumerable<(uint AccountId, string InstallationId)> requests)
+    {
+        var activeAccount = _store.ActiveAccountId;
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+            foreach (var request in requests)
+            {
+                if (activeAccount is null || request.AccountId == activeAccount)
+                {
+                    _explicitRecreates.Add(request);
+                }
+            }
+        }
+    }
+
+    private async Task ReconcileAsync(HashSet<(uint AccountId, string InstallationId)> requests, CancellationToken token)
     {
         var snapshot = _manager.GetSnapshot();
         var writer = _writer() ?? throw new InvalidOperationException("Steam is unavailable. Shortcut changes are pending.");
         var library = await _readLibrary(token).ConfigureAwait(false);
-        var records = _store.Entries().Where(item => item.Source == Source).ToArray();
+        var account = library is SteamShortcutSnapshot snapshotRead
+            ? snapshotRead.AccountId
+            : _store.ActiveAccountId ?? throw new InvalidOperationException("Steam's account is not known. Shortcut changes remain pending.");
+        if (_store.ActiveAccountId != account)
+        {
+            throw new InvalidOperationException("Steam's account changed while reading shortcuts. Sync again.");
+        }
+
+        var receipts = _store.Entries().Where(item => item.Source == Source).ToArray();
+        var records = receipts.Where(item => item.HasSteamMapping).ToArray();
         var artworkErrors = new List<string>();
         var wanted = snapshot.Installations.Where(item => item.SteamShortcutEnabled).ToDictionary(item => item.Id);
         foreach (var recorded in records.Where(item => !wanted.ContainsKey(item.Key)))
@@ -144,7 +195,7 @@ internal sealed class EmulatorShortcutSync : IDisposable
                 throw new InvalidOperationException("An emulator shortcut creation is unconfirmed. Check Steam before retrying.");
             }
 
-            _store.Forget(Source, recorded.Key);
+            _store.Forget(Source, recorded.Key, account);
             _changed();
         }
 
@@ -158,6 +209,15 @@ internal sealed class EmulatorShortcutSync : IDisposable
         foreach (var installed in wanted.Values)
         {
             token.ThrowIfCancellationRequested();
+            var explicitCreate = requests.Remove((account, installed.Id));
+            if (receipts.Any(item => item.Key == installed.Id && item.HasUnresolvedLegacyMapping
+                    && (!explicitCreate || item.SteamMappings.Any(mapping => mapping.AccountId is null
+                        && mapping.AppId > 0 && library.Any(shortcut => shortcut.AppId == mapping.AppId)))))
+            {
+                artworkErrors.Add(installed.Name + ": legacy shortcut ownership could not be confirmed; this shortcut was preserved.");
+                continue;
+            }
+
             var content = new ManagedContentRecord
             {
                 Id = ManagedContentStorage.ContentId(Source, installed.Id), SourceId = Source,
@@ -203,6 +263,18 @@ internal sealed class EmulatorShortcutSync : IDisposable
                 RequireOwned(recorded, live);
             }
 
+            if (recorded is { AppId: > 0, ConfirmedUtc.Length: > 0 } && live is null && !explicitCreate)
+            {
+                if (!recorded.RemovedFromSteam)
+                {
+                    recorded.RemovedFromSteam = true;
+                    _store.Save(recorded);
+                    _changed();
+                }
+                _notices.Add(installed.Name + ": removed from Steam. Turn its shortcut Off and On to add it again.");
+                continue;
+            }
+
             if (recorded is { AppId: 0 } && live is null)
             {
                 throw new InvalidOperationException($"{installed.Name}: shortcut creation is unconfirmed. Check Steam before retrying.");
@@ -210,6 +282,7 @@ internal sealed class EmulatorShortcutSync : IDisposable
 
             var entry = recorded?.Copy() ?? new ImportedEntry
             {
+                AccountId = account,
                 Source = Source, Key = installed.Id, Name = installed.Name, Route = "managed",
                 Mode = nameof(ImportMode.SteamIntegration),
                 Target = fields.Target, StartDirectory = fields.StartDirectory, LaunchOptions = fields.LaunchOptions,
@@ -218,6 +291,7 @@ internal sealed class EmulatorShortcutSync : IDisposable
             entry.Content = content;
             if (live is null)
             {
+                entry.RemovedFromSteam = false;
                 entry.AppId = 0;
                 entry.Target = fields.Target;
                 entry.StartDirectory = fields.StartDirectory;
@@ -231,7 +305,7 @@ internal sealed class EmulatorShortcutSync : IDisposable
                 var added = await writer.AddAsync(installed.Name, fields, CancellationToken.None).ConfigureAwait(false);
                 if (!added.Confirmed && !added.CreationMayExist)
                 {
-                    _store.Forget(Source, installed.Id);
+                    _store.Forget(Source, installed.Id, account);
                     throw new InvalidOperationException(added.Error ?? "Steam did not create the emulator shortcut.");
                 }
 
@@ -293,7 +367,7 @@ internal sealed class EmulatorShortcutSync : IDisposable
 
         if (artworkErrors.Count > 0)
         {
-            throw new InvalidOperationException("Steam shortcuts synced; artwork: " + string.Join(" ", artworkErrors));
+            throw new InvalidOperationException("Some emulator shortcut changes remain pending: " + string.Join(" ", artworkErrors));
         }
     }
 

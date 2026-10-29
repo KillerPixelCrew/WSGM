@@ -29,7 +29,7 @@ internal static partial class SteamLibraryImportSurface
         "cycleArtwork",
         "pickArtwork", "clearArtwork", "fillArtwork", "resetArtwork", "artworkOptions", "searchMatch", "setMatch",
         "addRomSource", "removeRomSource", "addManualSource", "removeManualSource", "setRomEmulator", "setRomTitle",
-        "setCleanup", "recheckAvailability", "setRomArguments"
+        "setCleanup", "recheckAvailability", "setRomArguments", "stageStorageAction"
     ];
 
     /// <summary>Installs the import renderer and its state subscription.</summary>
