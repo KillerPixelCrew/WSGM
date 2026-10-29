@@ -59,7 +59,8 @@ internal sealed class DeviceCapabilityControl : ContentControl
         {
             _body = new DeviceCurveRow(key, capability.Title, capability.Description,
                 capability.CurrentValue?.CurveValue ?? [], marker, capability.CanInvoke,
-                value => Commit(new CapabilityValue { Kind = CapabilityValueKind.Curve, CurveValue = value }));
+                value => Commit(new CapabilityValue { Kind = CapabilityValueKind.Curve, CurveValue = value }),
+                capability.Presets);
         }
         else if (capability.Writable || capability.SupportsAction ||
                  (capability.ValueKind == CapabilityValueKind.None && capability.CanInvoke))

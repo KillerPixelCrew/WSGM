@@ -56,7 +56,13 @@ Software is a WSGM choice that never reaches the firmware. The curve runs only o
 Software, starting from the Default preset until a curve is saved, and those fans read Software even
 though the firmware reports custom while the curve writes duty. The duty slider appears only in
 Manual and the curve editor only while a fan uses Software, on the Overlay and in Steam alike. A
-restore never replays a saved duty or curve for a fan in another mode.
+restore never replays a saved duty or curve for a fan in another mode. The curve follows the hotter
+of the device's own temperature and RTSS's readings, averaged over the latest three seconds. It
+recomputes its target only after a 2 °C change, except beyond its end points, and steps the duty by
+at most 10 points up or 3 points down per second, so one spiky reading and sensor jitter do not move
+the fans and a load spike spins up briskly and down slowly. The Quiet, Default and Aggressive
+presets are HandheldCompanion's shapes on devices it also supports and a measured table on the
+Atlas 8.
 
 ## Controllers and OEM buttons
 
@@ -135,10 +141,14 @@ controls, Windows motion and controller RAM lighting. The same descriptors suppl
 controls for performance mode, manual power, both fans, charge protection and lighting. Controller
 acquisition selects the native rear-button reporting mode and restores the original mode on release;
 users do not need to configure rear assignments in Predator Sense first. Fan originals without
-readable behavior return to firmware Auto with unverified restoration. Lighting changes retain the
-other profile fields and never write ROM. Shared ring color and eight measured segment colors use
-the same backend; the unassigned ninth wire slot is retained. Optional Intel voltage settings use
-the signed PawnIO IntelMSR module. Exact on-device results and remaining acceptance are in the
+readable behavior return to firmware Auto with unverified restoration. Atlas fan duty is an absolute
+share of full speed, about 70 RPM per percent, from 10% upwards because slower commands stall the
+fans. The firmware honours a speed command absolutely only for a few seconds after a behavior write,
+so LibHandheld re-arms manual mode every second while WSGM drives a fan; a failed re-arm is resolved
+by readback and dropped, never repeated blindly. Lighting changes retain the other profile fields
+and never write ROM. Shared ring color and eight measured segment colors use the same backend; the
+unassigned ninth wire slot is retained. Optional Intel voltage settings use the signed PawnIO
+IntelMSR module. Exact on-device results and remaining acceptance are in the
 [Acer provenance](../external/libhandheld/src/LibHandheld/Families/Acer/PROVENANCE.md).
 
 113 exact definitions select authored artwork through 107 glyph profiles. WSGM imports those

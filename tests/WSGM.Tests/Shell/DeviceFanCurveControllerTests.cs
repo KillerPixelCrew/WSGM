@@ -38,7 +38,7 @@ public sealed class DeviceFanCurveControllerTests
             {
                 writes.Add((fan, duty));
                 return ValueTask.FromResult(new DeviceFanCurveWriteResult(true));
-            }, _ => { }, now: () => Now, waitTick: ticks.WaitAsync);
+            }, _ => { }, now: () => Now, waitTick: ticks.WaitAsync, smoothing: DeviceFanCurveSmoothing.None);
         await controller.ConfigureAsync(Curve,
             [new DeviceFanCurveFan("cpu"), new DeviceFanCurveFan("gpu", MaximumDuty: 75)], true);
         await ticks.WaitForLoopAsync();
@@ -79,7 +79,7 @@ public sealed class DeviceFanCurveControllerTests
             {
                 releases++;
                 return ValueTask.CompletedTask;
-            }, () => Now, ticks.WaitAsync);
+            }, () => Now, ticks.WaitAsync, smoothing: DeviceFanCurveSmoothing.None);
         await controller.ConfigureAsync(Curve, [new DeviceFanCurveFan("cpu")], true);
         await ticks.WaitForLoopAsync();
         await ticks.AdvanceAsync();
@@ -106,7 +106,7 @@ public sealed class DeviceFanCurveControllerTests
                 attempts++;
                 return ValueTask.FromResult(new DeviceFanCurveWriteResult(false,
                     "The fan write outcome is uncertain."));
-            }, statuses.Add, now: () => Now, waitTick: ticks.WaitAsync);
+            }, statuses.Add, now: () => Now, waitTick: ticks.WaitAsync, smoothing: DeviceFanCurveSmoothing.None);
         await controller.ConfigureAsync(Curve, [new DeviceFanCurveFan("cpu")], true);
         await controller.Completion.WaitAsync(TimeSpan.FromSeconds(2));
         await controller.ConfigureAsync([new CurvePoint(40, 30), new CurvePoint(80, 100)],
@@ -142,7 +142,7 @@ public sealed class DeviceFanCurveControllerTests
             {
                 released.Add(fan);
                 return ValueTask.CompletedTask;
-            }, () => Now, ticks.WaitAsync);
+            }, () => Now, ticks.WaitAsync, smoothing: DeviceFanCurveSmoothing.None);
         await controller.ConfigureAsync(Curve, [new DeviceFanCurveFan("cpu"), new DeviceFanCurveFan("gpu")], true);
         await ticks.WaitForLoopAsync();
         await controller.SuspendAsync();
@@ -181,7 +181,7 @@ public sealed class DeviceFanCurveControllerTests
             {
                 released = true;
                 return ValueTask.CompletedTask;
-            }, () => Now);
+            }, () => Now, smoothing: DeviceFanCurveSmoothing.None);
         await controller.ConfigureAsync(Curve, [new DeviceFanCurveFan("cpu")], true);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
         var stopping = controller.StopAsync();
@@ -191,6 +191,94 @@ public sealed class DeviceFanCurveControllerTests
         await stopping.WaitAsync(TimeSpan.FromSeconds(2));
         Assert.True(released);
         Assert.True(controller.Completion.IsCompleted);
+    }
+
+    [Fact]
+    public async Task SmoothingHoldsTheTargetWithinHysteresisAndLimitsEachStep()
+    {
+        TickGate ticks = new();
+        var temperature = 60.0;
+        List<int> writes = [];
+        await using DeviceFanCurveController controller = new(
+            _ => new DeviceFanCurveTemperature(temperature, Now),
+            (_, duty, _) =>
+            {
+                writes.Add(duty);
+                return ValueTask.FromResult(new DeviceFanCurveWriteResult(true));
+            }, _ => { }, now: () => Now, waitTick: ticks.WaitAsync,
+            smoothing: new DeviceFanCurveSmoothing(2, 10, 3));
+        await controller.ConfigureAsync(Curve, [new DeviceFanCurveFan("cpu")], true);
+        await ticks.WaitForLoopAsync();
+        Assert.Equal([60], writes);
+
+        // One degree of jitter changes nothing; two recompute the target.
+        temperature = 61;
+        await ticks.AdvanceAsync();
+        Assert.Equal([60], writes);
+        temperature = 62;
+        await ticks.AdvanceAsync();
+        Assert.Equal([60, 64], writes);
+
+        // A cold reading falls three points a tick toward the curve's floor.
+        temperature = 40;
+        await ticks.AdvanceAsync();
+        await ticks.AdvanceAsync();
+        Assert.Equal([60, 64, 61, 58], writes);
+
+        // Past the last breakpoint hysteresis is ignored and the rise is capped at ten.
+        temperature = 90;
+        await ticks.AdvanceAsync();
+        Assert.Equal([60, 64, 61, 58, 68], writes);
+    }
+
+    [Fact]
+    public async Task TheCurveReadsTheAverageOfTheLatestReadingsAndAGapStartsAFreshWindow()
+    {
+        TickGate ticks = new();
+        DeviceFanCurveTemperature sample = new(60, Now);
+        List<int> writes = [];
+        await using DeviceFanCurveController controller = new(
+            _ => sample,
+            (_, duty, _) =>
+            {
+                writes.Add(duty);
+                return ValueTask.FromResult(new DeviceFanCurveWriteResult(true));
+            }, _ => { }, now: () => Now, waitTick: ticks.WaitAsync,
+            smoothing: new DeviceFanCurveSmoothing(0, 100, 100, AverageSamples: 3));
+        await controller.ConfigureAsync(Curve, [new DeviceFanCurveFan("cpu")], true);
+        await ticks.WaitForLoopAsync();
+        sample = new DeviceFanCurveTemperature(90, Now);
+        await ticks.AdvanceAsync();
+        await ticks.AdvanceAsync();
+        // 60, then the means of (60, 90) and (60, 90, 90).
+        Assert.Equal([60, 90, 100], writes);
+
+        sample = new DeviceFanCurveTemperature(null, Now);
+        await ticks.AdvanceAsync();
+        sample = new DeviceFanCurveTemperature(50, Now);
+        await ticks.AdvanceAsync();
+        Assert.Equal([60, 90, 100, 40], writes);
+    }
+
+    [Fact]
+    public async Task ANewCurveIsFollowedAtOnceWithinTheStepLimit()
+    {
+        TickGate ticks = new();
+        List<int> writes = [];
+        await using DeviceFanCurveController controller = new(
+            _ => new DeviceFanCurveTemperature(60, Now),
+            (_, duty, _) =>
+            {
+                writes.Add(duty);
+                return ValueTask.FromResult(new DeviceFanCurveWriteResult(true));
+            }, _ => { }, now: () => Now, waitTick: ticks.WaitAsync,
+            smoothing: new DeviceFanCurveSmoothing(2, 10, 3));
+        await controller.ConfigureAsync(Curve, [new DeviceFanCurveFan("cpu")], true);
+        await ticks.WaitForLoopAsync();
+        await controller.ConfigureAsync([new CurvePoint(40, 60), new CurvePoint(80, 100)],
+            [new DeviceFanCurveFan("cpu")], true);
+        await ticks.WaitForLoopAsync();
+        Assert.Equal([60, 70], writes);
     }
 
     private sealed class TickGate

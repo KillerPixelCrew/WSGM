@@ -16,6 +16,29 @@ internal readonly record struct DeviceFanCurveTemperature(double? Celsius, DateT
 /// <summary>An acknowledged duty write; refused and uncertain outcomes both stop automatic writes.</summary>
 internal readonly record struct DeviceFanCurveWriteResult(bool Applied, string? Reason = null);
 
+/// <summary>How the curve's output is steadied before it reaches a fan.</summary>
+/// <param name="HysteresisCelsius">
+///     How far the temperature must move from the one the current target was read at before the target
+///     is recomputed. Ignored beyond the curve's first and last breakpoints, where the output is pinned.
+/// </param>
+/// <param name="MaximumRisePerTick">The most the duty may rise in one tick.</param>
+/// <param name="MaximumFallPerTick">The most the duty may fall in one tick.</param>
+/// <param name="AverageSamples">How many of the latest fresh readings are averaged before the curve is read.</param>
+/// <remarks>
+///     FanControl's sensor averaging, hysteresis and step limits, which handheld users already tune by
+///     hand: one spiky reading is diluted, a sensor that jitters by a degree no longer moves the fan,
+///     and a load spike spins up briskly but spins down slowly instead of surging. The defaults are a
+///     three-sample average, 2 °C, and 10 and 3 points per one-second tick.
+/// </remarks>
+internal readonly record struct DeviceFanCurveSmoothing(double HysteresisCelsius, int MaximumRisePerTick,
+    int MaximumFallPerTick, int AverageSamples = 1)
+{
+    /// <summary>Every tick follows the curve exactly.</summary>
+    internal static readonly DeviceFanCurveSmoothing None = new(0, 100, 100);
+
+    internal static readonly DeviceFanCurveSmoothing Default = new(2, 10, 3, 3);
+}
+
 /// <summary>The session-owned software fan policy; hardware access remains with the coordinator.</summary>
 internal sealed class DeviceFanCurveController : IAsyncDisposable
 {
@@ -26,6 +49,7 @@ internal sealed class DeviceFanCurveController : IAsyncDisposable
     private readonly Func<DateTimeOffset> _now;
     private readonly Func<string, DeviceFanCurveTemperature> _readTemperature;
     private readonly Func<string, CancellationToken, ValueTask>? _releaseAutomatic;
+    private readonly DeviceFanCurveSmoothing _smoothing;
     private readonly Func<CancellationToken, ValueTask>? _waitTick;
     private readonly Func<string, int, CancellationToken, ValueTask<DeviceFanCurveWriteResult>> _writeDuty;
     private bool _availabilityPublished;
@@ -44,7 +68,8 @@ internal sealed class DeviceFanCurveController : IAsyncDisposable
         Func<string, CancellationToken, ValueTask>? releaseAutomatic = null,
         Func<DateTimeOffset>? now = null,
         Func<CancellationToken, ValueTask>? waitTick = null,
-        TimeSpan? maximumTemperatureAge = null)
+        TimeSpan? maximumTemperatureAge = null,
+        DeviceFanCurveSmoothing? smoothing = null)
     {
         _readTemperature = readTemperature;
         _writeDuty = writeDuty;
@@ -53,9 +78,16 @@ internal sealed class DeviceFanCurveController : IAsyncDisposable
         _now = now ?? (() => DateTimeOffset.UtcNow);
         _waitTick = waitTick;
         _maximumTemperatureAge = maximumTemperatureAge ?? MaximumTemperatureAge;
+        _smoothing = smoothing ?? DeviceFanCurveSmoothing.Default;
         if (_maximumTemperatureAge <= TimeSpan.Zero)
         {
             throw new ArgumentOutOfRangeException(nameof(maximumTemperatureAge));
+        }
+
+        if (_smoothing.HysteresisCelsius < 0 || _smoothing.MaximumRisePerTick < 1 || _smoothing.MaximumFallPerTick < 1
+            || _smoothing.AverageSamples < 1)
+        {
+            throw new ArgumentOutOfRangeException(nameof(smoothing));
         }
     }
 
@@ -111,7 +143,8 @@ internal sealed class DeviceFanCurveController : IAsyncDisposable
             var next = new Fan[fans.Count];
             for (var i = 0; i < fans.Count; i++)
             {
-                next[i] = _fans.FirstOrDefault(fan => fan.Definition == fans[i]) ?? new Fan(fans[i]);
+                next[i] = _fans.FirstOrDefault(fan => fan.Definition == fans[i])
+                          ?? new Fan(fans[i], _smoothing.AverageSamples);
             }
 
             foreach (var fan in _fans)
@@ -119,6 +152,15 @@ internal sealed class DeviceFanCurveController : IAsyncDisposable
                 if (!enabled || points.Length == 0 || !next.Contains(fan))
                 {
                     await ReleaseAsync(fan, CancellationToken.None).ConfigureAwait(false);
+                }
+            }
+
+            if (!points.AsSpan().SequenceEqual(_curve))
+            {
+                // A new shape is followed from the next tick; only the step limits still apply.
+                foreach (var fan in next)
+                {
+                    fan.Target = null;
                 }
             }
 
@@ -242,7 +284,7 @@ internal sealed class DeviceFanCurveController : IAsyncDisposable
                         continue;
                     }
 
-                    var duty = Interpolate(_curve, temperature, fan.Definition.MinimumDuty, fan.Definition.MaximumDuty);
+                    var duty = NextDuty(fan, fan.Average(temperature));
                     if (fan.LastDuty == duty)
                     {
                         continue;
@@ -309,6 +351,8 @@ internal sealed class DeviceFanCurveController : IAsyncDisposable
 
         fan.Released = true;
         fan.LastDuty = null;
+        fan.Target = null;
+        fan.ForgetSamples();
         if (_releaseAutomatic is not { } release)
         {
             return;
@@ -335,6 +379,23 @@ internal sealed class DeviceFanCurveController : IAsyncDisposable
             _lastAvailability = reason;
             _availabilityChanged(reason);
         }
+    }
+
+    /// <summary>Recomputes the fan's target only past the hysteresis or beyond the curve's ends, then steps toward it.</summary>
+    private int NextDuty(Fan fan, double temperature)
+    {
+        var pinned = temperature <= _curve[0].Input || temperature >= _curve[^1].Input;
+        if (fan.Target is not { } target || pinned
+            || Math.Abs(temperature - fan.TargetTemperature) >= _smoothing.HysteresisCelsius)
+        {
+            target = Interpolate(_curve, temperature, fan.Definition.MinimumDuty, fan.Definition.MaximumDuty);
+            fan.Target = target;
+            fan.TargetTemperature = temperature;
+        }
+
+        return fan.LastDuty is { } last
+            ? Math.Clamp(target, last - _smoothing.MaximumFallPerTick, last + _smoothing.MaximumRisePerTick)
+            : target;
     }
 
     /// <summary>Evaluates a validated curve linearly and clamps to this logical fan's declared bounds.</summary>
@@ -386,8 +447,12 @@ internal sealed class DeviceFanCurveController : IAsyncDisposable
         }
     }
 
-    private sealed class Fan(DeviceFanCurveFan definition)
+    private sealed class Fan(DeviceFanCurveFan definition, int averageSamples)
     {
+        private readonly double[] _samples = new double[averageSamples];
+        private int _count;
+        private int _next;
+
         internal DeviceFanCurveFan Definition { get; } = definition;
 
         internal string UnavailableReason { get; } =
@@ -395,5 +460,32 @@ internal sealed class DeviceFanCurveController : IAsyncDisposable
 
         internal int? LastDuty { get; set; }
         internal bool Released { get; set; }
+
+        /// <summary>The curve's output at <see cref="TargetTemperature" />, which the duty steps toward.</summary>
+        internal int? Target { get; set; }
+
+        internal double TargetTemperature { get; set; }
+
+        /// <summary>Records one fresh reading and returns the mean of the latest window.</summary>
+        internal double Average(double temperature)
+        {
+            _samples[_next] = temperature;
+            _next = (_next + 1) % _samples.Length;
+            _count = Math.Min(_count + 1, _samples.Length);
+            var sum = 0.0;
+            for (var i = 0; i < _count; i++)
+            {
+                sum += _samples[i];
+            }
+
+            return sum / _count;
+        }
+
+        /// <summary>A gap in readings ends the window; the next reading starts a fresh average.</summary>
+        internal void ForgetSamples()
+        {
+            _count = 0;
+            _next = 0;
+        }
     }
 }

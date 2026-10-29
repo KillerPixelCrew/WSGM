@@ -81,8 +81,9 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             DeviceSectionLayout.IncludePredefined(declaredSections).Select(section => section.SectionId),
             StringComparer.Ordinal);
         var deviceViews = _coordinator.PresentedCapabilities();
+        var presets = FanCurvePresets.For(device?.Id);
         var capabilities = deviceViews
-            .Select(view => ToOverlayCapability(view, declaredSectionIds, _coordinator.Profiles.Current.Layers))
+            .Select(view => ToOverlayCapability(view, declaredSectionIds, _coordinator.Profiles.Current.Layers, presets))
             .ToList();
         // Variable refresh moved to the graphics packages; the Power and thermals row stays where users
         // look for it, backed by whichever package publishes the capability.
@@ -840,11 +841,13 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
     internal static DeviceOverlayCapability ToOverlayCapability(
         DeviceCapabilityView view,
         IReadOnlySet<string> declaredSections,
-        ProfileLayers? layers = null)
+        ProfileLayers? layers = null,
+        FanCurvePresetTable? presets = null)
     {
         var descriptor = view.Descriptor;
         var projection = view.Projection;
         var state = projection.State;
+        var table = presets ?? FanCurvePresetTable.HandheldCompanion;
         var displayed = projection.PendingValue
                         ?? state.ObservedValue
                         ?? projection.DesiredValue;
@@ -852,10 +855,10 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             && descriptor.CurveInputs.Count > 0
             && displayed?.CurveValue is not { Count: > 0 })
         {
-            // An editor draft is not an observed firmware setting. Use the existing WSGM preset until Apply.
+            // An editor draft is not an observed firmware setting. Use the device's Default preset until Apply.
             displayed = CapabilityValue.Curve(descriptor.CurveInputs
                 .Select(input => new CurvePoint(input, Math.Clamp(
-                    FanCurvePresets.DutyAt(FanCurvePreset.Default, input),
+                    FanCurvePresets.DutyAt(table, FanCurvePreset.Default, input),
                     descriptor.Minimum ?? 0, descriptor.Maximum ?? 100))).ToArray());
         }
         var actionOnlyReady = state is { Available: true, Reason: null, Quality: HardwareStateQuality.Unknown }
@@ -918,7 +921,8 @@ internal sealed class DeviceOverlayBridge : IDeviceOverlaySource
             Unit = descriptor.Unit,
             Choices = descriptor.Choices,
             CurveInputs = descriptor.CurveInputs,
-            MaximumLength = descriptor.MaximumLength
+            MaximumLength = descriptor.MaximumLength,
+            Presets = descriptor.Role == CapabilityRole.FanCurve ? table : null
         };
     }
 

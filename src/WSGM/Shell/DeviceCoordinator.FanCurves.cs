@@ -173,7 +173,7 @@ internal sealed partial class DeviceCoordinator
             .Select(view => new DeviceFanCurveFan(view.Descriptor.InstanceId ?? string.Empty,
                 view.Descriptor.Minimum ?? 0, view.Descriptor.Maximum ?? 100))
             .Where(fan => !stopAll && InSoftwareMode(views, fan.InstanceId, change)).ToArray();
-        var effective = curve is { Count: > 0 } ? curve : DefaultSoftwareCurve;
+        var effective = curve is { Count: > 0 } ? curve : DefaultSoftwareCurve();
         _client?.SetSoftwareFans([.. fans.Select(fan => fan.InstanceId)], fans.Length > 0 ? effective : curve ?? []);
         return _fanCurves.ConfigureAsync(fans.Length > 0 ? effective : null, fans,
             IntegrationEnabled && State is DeviceCycleState.Active or DeviceCycleState.Degraded, explicitSelection);
@@ -200,12 +200,16 @@ internal sealed partial class DeviceCoordinator
             .DesiredValue?.CurveValue;
     }
 
-    // The editor's Default preset on the software curve's inputs, until the user saves a curve.
-    private static readonly CurvePoint[] DefaultSoftwareCurve =
-    [
-        .. Enumerable.Range(0, 11).Select(index =>
-            new CurvePoint(index * 10, FanCurvePresets.DutyAt(FanCurvePreset.Default, index * 10)))
-    ];
+    // The editor's Default preset for this device on the software curve's inputs, until the user saves a curve.
+    private CurvePoint[] DefaultSoftwareCurve()
+    {
+        var table = FanCurvePresets.For(DeviceDefinition?.Id);
+        return
+        [
+            .. Enumerable.Range(0, 11).Select(index =>
+                new CurvePoint(index * 10, FanCurvePresets.DutyAt(table, FanCurvePreset.Default, index * 10)))
+        ];
+    }
 
     private Task ConfigureChargeLimitAsync(int? percent, bool explicitSelection)
     {

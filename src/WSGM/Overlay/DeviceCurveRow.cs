@@ -36,6 +36,7 @@ internal sealed class DeviceCurveRow : Border
     private readonly CurveEditor _editor;
     private readonly Action<IReadOnlyList<CurvePoint>> _onCommit;
     private readonly StackPanel _presets;
+    private readonly FanCurvePresetTable _table;
 
     /// <summary>Builds the row for one curve capability.</summary>
     /// <param name="key">Stable focus key, mirrored onto the editor for focus restore.</param>
@@ -45,6 +46,7 @@ internal sealed class DeviceCurveRow : Border
     /// <param name="markerInput">The live input to mark, or null when none is published.</param>
     /// <param name="enabled">Whether the editor accepts input.</param>
     /// <param name="onCommit">Invoked with the settled curve to write.</param>
+    /// <param name="presets">The device's preset shapes; HandheldCompanion's when the host named none.</param>
     internal DeviceCurveRow(
         string key,
         string title,
@@ -52,11 +54,13 @@ internal sealed class DeviceCurveRow : Border
         IReadOnlyList<CurvePoint> points,
         int? markerInput,
         bool enabled,
-        Action<IReadOnlyList<CurvePoint>> onCommit)
+        Action<IReadOnlyList<CurvePoint>> onCommit,
+        FanCurvePresetTable? presets = null)
     {
         ArgumentNullException.ThrowIfNull(points);
         ArgumentNullException.ThrowIfNull(onCommit);
         _onCommit = onCommit;
+        _table = presets ?? FanCurvePresetTable.HandheldCompanion;
         _commit = new DispatcherTimer { Interval = CommitDelay };
         _commit.Tick += OnCommitTick;
 
@@ -125,7 +129,7 @@ internal sealed class DeviceCurveRow : Border
     /// </remarks>
     private void ApplyPreset(FanCurvePreset preset)
     {
-        var sampled = FanCurvePresets.SampleOnto(preset, _editor.Points);
+        var sampled = FanCurvePresets.SampleOnto(_table, preset, _editor.Points);
         if (sampled.Count == 0)
         {
             Log.Warn($"Fan preset {preset} not applied: the device published no curve to shape.");

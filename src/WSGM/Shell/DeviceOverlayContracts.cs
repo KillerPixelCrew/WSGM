@@ -99,6 +99,9 @@ internal sealed record DeviceOverlayCapability(
     /// <summary>Placement within its section and category.</summary>
     public int SortOrder { get; init; }
 
+    /// <summary>The preset shapes a fan curve editor offers for this device, or null for other rows.</summary>
+    public FanCurvePresetTable? Presets { get; init; }
+
     /// <summary>
     ///     What kind of value this capability carries, so the overlay picks a control:
     ///     integer range → slider, choice → dropdown, boolean → toggle, text → textbox, color →

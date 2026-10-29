@@ -124,6 +124,52 @@ public sealed class FanCurvePresetTests
         Assert.Empty(FanCurvePresets.SampleOnto(FanCurvePreset.Default, []));
     }
 
+    /// Only the Atlas has a measured table of its own; every other definition keeps HandheldCompanion's.
+    [Fact]
+    public void TheMeasuredAtlasTableIsChosenByItsExactDefinitionOnly()
+    {
+        Assert.Same(FanCurvePresetTable.AcerAtlas8, FanCurvePresets.For(FanCurvePresets.AcerAtlas8DefinitionId));
+        Assert.Same(FanCurvePresetTable.HandheldCompanion, FanCurvePresets.For("msi-claw-8-ai-plus-a2vm"));
+        Assert.Same(FanCurvePresetTable.HandheldCompanion, FanCurvePresets.For(null));
+    }
+
+    /// The Atlas fans stall below 10% and the SoC idles at 52..66 °C, so every shape rests at a quiet,
+    /// spinning floor through 50 °C and only reaches full speed at the processor's 100 °C limit.
+    [Fact]
+    public void TheAtlasShapesIdleQuietlyRiseWithoutDipsAndStayDistinct()
+    {
+        var table = FanCurvePresetTable.AcerAtlas8;
+        var inputs = Enumerable.Range(0, 11).Select(index => new CurvePoint(index * 10, 0)).ToArray();
+        var shapes = Enum.GetValues<FanCurvePreset>()
+            .Select(preset => FanCurvePresets.SampleOnto(table, preset, inputs).Select(point => point.Output).ToArray())
+            .ToArray();
+        foreach (var shape in shapes)
+        {
+            Assert.InRange(shape[5], 10, 35);
+            Assert.Equal(100, shape[10]);
+            Assert.True(shape.Zip(shape.Skip(1)).All(pair => pair.Second >= pair.First));
+            Assert.True(shape.All(duty => duty >= 10));
+        }
+
+        Assert.Equal(3, shapes.Distinct(new ArrayComparer()).Count());
+        // Default is 45 at 70 °C and 65 at 80 °C, so the midpoint is 55.
+        Assert.Equal(45, FanCurvePresets.DutyAt(table, FanCurvePreset.Default, 70));
+        Assert.Equal(55, FanCurvePresets.DutyAt(table, FanCurvePreset.Default, 75));
+    }
+
+    private sealed class ArrayComparer : IEqualityComparer<int[]>
+    {
+        public bool Equals(int[]? x, int[]? y)
+        {
+            return x is not null && y is not null && x.SequenceEqual(y);
+        }
+
+        public int GetHashCode(int[] obj)
+        {
+            return obj.Length;
+        }
+    }
+
     /// The firmware refuses a fan table whose duties dip, so a drag that would make one is held
     /// against its neighbours rather than failing on apply with nothing to show for it.
     [Fact]
