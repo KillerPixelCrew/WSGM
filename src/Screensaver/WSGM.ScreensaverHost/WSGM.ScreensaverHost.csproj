@@ -15,7 +15,7 @@
     <Compile Include="../../Shared/Screensavers/ScreensaverConfig.cs" Link="ScreensaverConfig.cs" />
     <Compile Include="../../Shared/Screensavers/ScreensaverContent.cs" Link="ScreensaverContent.cs" />
     <Compile Include="../../Shared/Interop/BrowserNative.cs" Link="BrowserNative.cs" />
-    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4258.31" GeneratePathProperty="true" ExcludeAssets="compile;build;buildTransitive" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" GeneratePathProperty="true" ExcludeAssets="compile;build;buildTransitive" />
     <Reference Include="Microsoft.Web.WebView2.Core">
       <HintPath>$(PkgMicrosoft_Web_WebView2)/lib_manual/netcoreapp3.0/Microsoft.Web.WebView2.Core.dll</HintPath>
       <Private>true</Private>

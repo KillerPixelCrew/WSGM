@@ -7,7 +7,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../WSGM.Plugin.Sdk/WSGM.Plugin.Sdk.csproj"/>
-    <PackageReference Include="System.IO.Ports" Version="10.0.13"/>
+    <PackageReference Include="System.IO.Ports" Version="10.0.14"/>
     <InternalsVisibleTo Include="WSGM.Plugin.Ir.Tests"/>
     <None Update="plugin.wsgm.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"/>
     <None Include="../../LICENSE" Link="LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"/>
