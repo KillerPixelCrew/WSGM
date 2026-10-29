@@ -7,7 +7,7 @@ namespace WSGM.Settings;
 public sealed partial class SettingsViewModel
 {
     private int _selectedSuggestionIndex;
-    private List<(string Path, bool Elevated)> _startupSuggestionTargets = [];
+    private List<(string Path, string Args, bool Elevated)> _startupSuggestionTargets = [];
 
     /// <summary>Gets the command that removes one startup-program row.</summary>
     public RelayCommand<StartupAppRow> RemoveAppCommand { get; }
@@ -60,16 +60,16 @@ public sealed partial class SettingsViewModel
     private void BuildStartupSuggestions()
     {
         var names = new List<string>();
-        var targets = new List<(string, bool)>();
+        var targets = new List<(string, string, bool)>();
 
-        foreach (var (label, path, elevated) in _services.DetectStartupApps())
+        foreach (var (label, path, args, elevated) in _services.DetectStartupApps())
         {
             names.Add(label);
-            targets.Add((path, elevated));
+            targets.Add((path, args, elevated));
         }
 
         names.Add("Choose a program…");
-        targets.Add(("", false));
+        targets.Add(("", "", false));
 
         StartupSuggestions = names;
         _startupSuggestionTargets = targets;
@@ -85,13 +85,13 @@ public sealed partial class SettingsViewModel
             return false;
         }
 
-        var (path, elevated) = _startupSuggestionTargets[_selectedSuggestionIndex];
+        var (path, args, elevated) = _startupSuggestionTargets[_selectedSuggestionIndex];
         if (string.IsNullOrEmpty(path))
         {
             return false; // caller opens the file picker
         }
 
-        StartupApps.Add(new StartupAppRow { Path = path, Elevated = elevated, Enabled = true });
+        StartupApps.Add(new StartupAppRow { Path = path, Args = args, Elevated = elevated, Enabled = true });
         return true;
     }
 

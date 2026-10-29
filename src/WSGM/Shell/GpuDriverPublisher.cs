@@ -196,6 +196,14 @@ internal sealed class GpuDriverPublisher : ICapabilityPublisher, IBuiltinGpuDriv
             CapabilityId = command.CapabilityId, InstanceId = command.InstanceId,
             RequestedValue = command.RequestedValue is null ? null : ToLibrary(command.RequestedValue)
         }, token).ConfigureAwait(false);
+        if (Definition.Vendor == GpuVendor.Amd && AmdSoftwareHost.IsServiceWide(command.CapabilityId)
+            && result.Outcome is not (GpuCommandOutcome.AppliedVerified or GpuCommandOutcome.AppliedUnverified))
+        {
+            // AFMF and RSR are the two ADLX settings other tools could only apply with AMD Software
+            // running, so a pasted log says whether its host was here when the driver refused.
+            Log.Change("gpu/amd/software-host", AmdSoftwareHost.Describe(), LogLevel.Warn);
+        }
+
         return Result(command, result.Outcome switch
             {
                 GpuCommandOutcome.AppliedVerified => CommandOutcome.AppliedVerified,

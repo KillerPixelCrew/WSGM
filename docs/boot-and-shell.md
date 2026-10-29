@@ -169,7 +169,12 @@ The takeover (`ShellSession.StartBootTakeover`) runs in this order:
 4. `ExplorerControl.ExitExplorerAndWait`, 30 s budget.
 5. Apply posture, create the tray host, start the startup apps, skipping any that Explorer's
    autostart already launched. An optional `StartupDelayMs` wait ("First app delay") precedes the
-   first; the rest start staggered, optionally elevated.
+   first; the rest start staggered, optionally elevated. Windows holds Run-key and Startup-folder
+   programs back for several seconds after the desktop appears, so an entry Explorer never reached
+   before step 4 only runs in Game Mode when it is configured here. AMD Software: Adrenalin
+   Edition's background host (`cncmd.exe restart`, Windows' `StartCN` entry) is among the one-click
+   suggestions because AMD's service-wide AFMF and RSR settings are reported to take effect only
+   while it runs; a refused AFMF or RSR write logs whether that host was present.
 6. Start Steam, strictly after Explorer is gone.
 
 The splash's "Switch to desktop" button is a recovery owned by `ShellSession`. During steps 2 and 3
