@@ -399,7 +399,18 @@ internal sealed class AudioProfileService : IAsyncDisposable
                 "The selected playback format is no longer supported by the default endpoint.");
         }
 
-        return Result("playback format", _operations.SetDeviceFormat(endpointId, format));
+        var result = _operations.SetDeviceFormat(endpointId, format);
+        if (result >= 0)
+        {
+            return Result("playback format", result);
+        }
+
+        Log.Warn($"Audio format {format.Channels}ch {format.SampleRate} Hz {format.BitsPerSample}-bit"
+                 + $"{(format.IsFloat ? " float" : string.Empty)} was refused by Windows: HRESULT 0x{result:X8}.");
+        return result is CoreAudio.UnsupportedFormat or unchecked((int)0x80070057)
+            ? new AudioProfileOperationResult("playback format", false,
+                "Windows refused this format for the current output.")
+            : Result("playback format", result);
     }
 
     private AudioProfileOperationResult SetSpatialFormat(string endpointId, Guid format,

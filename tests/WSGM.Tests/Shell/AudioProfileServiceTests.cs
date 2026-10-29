@@ -82,11 +82,26 @@ public sealed class AudioProfileServiceTests
         Assert.DoesNotContain("default:tv", native.Writes);
     }
 
+    [Fact]
+    public async Task AFormatWindowsRefusesExplainsTheRefusalInsteadOfShowingTheHresult()
+    {
+        var native = new AudioOperations { InitiallyAvailable = true, FormatResult = unchecked((int)0x80070057) };
+        await using var service = new AudioProfileService(native);
+
+        var result = await service.SetPlaybackFormatAsync("tv", CoreAudio.AudioDeviceFormat.Pcm(2, 48000, 24),
+            CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Equal("Windows refused this format for the current output.", result.Detail);
+        Assert.Equal(["format:tv"], native.Writes);
+    }
+
     private sealed class AudioOperations : IAudioProfileOperations
     {
         private bool _available;
         private bool _selected;
         internal bool ArriveOnWatch { get; init; }
+        internal int FormatResult { get; init; }
 
         internal bool InitiallyAvailable
         {
@@ -163,7 +178,7 @@ public sealed class AudioProfileServiceTests
         public int SetDeviceFormat(string endpointId, CoreAudio.AudioDeviceFormat format)
         {
             Writes.Add("format:" + endpointId);
-            return 0;
+            return FormatResult;
         }
 
         public int GetSpatialAudio(string endpointId, out CoreAudio.SpatialAudioState state)
