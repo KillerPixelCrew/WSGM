@@ -216,11 +216,12 @@ their existing Quick Access pin actions without introducing separate power expan
 sections keep their independent folds. The shared view also covers integration disabled and devices
 without firmware power controls; Windows plans remain independently available.
 
-Atlas assignments offer Quiet, Balanced, Turbo, Full Power and Custom through the shared Overlay and
-Steam backend. Stock choices select the complete firmware scenario and Windows power mode without
-overwriting firmware wattages. Full Power selects Manual at the firmware-advertised PL1/PL2 maxima,
-currently 40/65 W, and Windows Best performance. Custom uses the manual controls. Selecting a
-firmware scenario pauses AutoTDP so its next write cannot overwrite that selection.
+The device integration defines the preset list; both surfaces list every published preset in order.
+Atlas assignments offer Battery Saver, Efficiency, Light, Quiet, Balanced, Turbo, Full Power and
+Custom through the shared Overlay and Steam backend. Each preset writes explicit PL1/PL2 through
+Manual, from 8/8 W up to Full Power at the firmware-advertised 40/65 W maxima, with its Windows
+power mode. Custom uses the manual controls. Selecting a firmware scenario pauses AutoTDP so its
+next write cannot overwrite that selection.
 
 The Device Overview shows Power and Performance beside the persistent section rail. Available
 sections and Quick Access pin choices keep stable identities. Windows energy plans are visible

@@ -168,9 +168,10 @@ the retired `wsgm.device` category.
 
 Atlas 8 power range and load findings are recorded in the LibHandheld
 [power-limit investigation](../external/libhandheld/src/LibHandheld/Families/Acer/POWER_LIMIT_TESTS.md).
-The supported runtime keeps firmware-advertised 10..40 W sustained and up to 65 W boost, in 1 W
-steps, with boost at least sustained. Wider stored values are experimental; the OCCT observation
-above 45 W does not establish their enforcement or a sustained maximum.
+The supported runtime offers 8..40 W sustained and up to 65 W boost, in 1 W steps, with boost at
+least sustained. The maxima are firmware-advertised; the 8 W floor is below the advertised 10 W and
+was confirmed by the maintainer on the device. Wider stored values are experimental; the OCCT
+observation above 45 W does not establish their enforcement or a sustained maximum.
 
 Atlas 8
 [motion and controller-mode evidence](../external/libhandheld/src/LibHandheld/Families/Acer/MOTION_TESTS.md)

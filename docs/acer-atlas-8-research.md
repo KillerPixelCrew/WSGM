@@ -11,9 +11,9 @@ LibHandheld supplies exact detection, the `0502:F901` XInput controller, native 
 input, glyphs, volatile rear-button mode ownership, EC power profiles, both WMI fans, charging
 protection, eight measured RGB segments and Windows gyro/accelerometer delivery. Both motion axes
 use the attended `(X, Z, -Y)` mapping. The attended XInput rumble calibration is a 2% event floor
-and 5 ms minimum pulse. Firmware-advertised power bounds remain 10..40 W sustained and up to 65 W
-boost in 1 W steps. The ordinary shared Overlay and Steam descriptor/control paths consume these
-capabilities.
+and 5 ms minimum pulse. Power bounds are 8..40 W sustained and up to 65 W boost in 1 W steps; the 8
+W floor is below the firmware's advertised 10 W and was confirmed on the device. The ordinary shared
+Overlay and Steam descriptor/control paths consume these capabilities.
 
 WSGM's existing Full-mode manager takeover now includes the measured Acer services/tasks, the two
 exact Predator Sense package families, and only the dedicated controller keyboard leaf. It records
