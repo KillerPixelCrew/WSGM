@@ -19329,6 +19329,10 @@
   ];
   const importAsset = (id) => importAssets.find((asset) => asset.id === id) ?? importAssets[0];
   const importUnavailable = (entry) => !!entry.unavailable;
+  const importShortcutCount = (shortcuts) => {
+    const unavailable = shortcuts.filter((shortcut) => !shortcut.available).length;
+    return unavailable ? `${shortcuts.length}, ${unavailable} unavailable` : `${shortcuts.length}`;
+  };
   const importAvailability = (entry) => entry.availabilityLabel ?? "Not checked yet";
   // The tabs, by the group the host puts each title in. Membership is the host's, so the overlay and
   // this page cannot disagree about what "needs attention" means.
@@ -20889,6 +20893,7 @@
     const entries = state.entries ?? [];
     const sources = state.sources ?? [];
     const storages = state.storageLibraries ?? [];
+    const steamShortcuts = state.steamShortcuts ?? [];
     const busy = !!state.loading;
     const titleEntry =
       view.name === "title" ? entries.find((entry) => entry.id === view.title) : null;
@@ -21304,7 +21309,7 @@
         ),
         entries.length ? sourceActions : null,
         // Removable storage the library knows, connected or not; each opens its own sheet.
-        ...(storages.length
+        ...(storages.length || steamShortcuts.length
           ? [
               h(
                 "div",
@@ -21331,6 +21336,29 @@
                   onClick: () => showImportStorage(storage, actions.openTitle),
                 }),
               ),
+              // The user's own Steam shortcuts on storage: observed, never changed. Selecting one rechecks it.
+              ...(steamShortcuts.length
+                ? [
+                    h(
+                      "div",
+                      { key: "shortcuts-head", className: "wsgm-import-muted" },
+                      `Your Steam shortcuts · ${importShortcutCount(steamShortcuts)}`,
+                    ),
+                    ...steamShortcuts.map((shortcut) =>
+                      renderSteamUiSelectRow(ui, {
+                        key: `shortcut:${shortcut.appId}`,
+                        title: shortcut.name,
+                        detail: shortcut.available
+                          ? `${shortcut.location} · Available`
+                          : shortcut.detail,
+                        onClick: () =>
+                          void importAct("recheckAvailability", {
+                            id: `shortcut:${shortcut.appId}`,
+                          }),
+                      }),
+                    ),
+                  ]
+                : []),
             ]
           : []),
         h("div", { className: "wsgm-import-eyebrow wsgm-import-custom" }, "Steam"),

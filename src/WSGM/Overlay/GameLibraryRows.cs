@@ -163,6 +163,14 @@ internal static class GameLibraryRows
             : $"{attention} need{(attention == 1 ? "s" : "")} attention";
     }
 
+    /// <summary>The storage row's summary when only the user's own Steam shortcuts are on storage.</summary>
+    internal static string ShortcutSummary(IReadOnlyList<GameLibraryShortcut> shortcuts)
+    {
+        var unavailable = shortcuts.Count(shortcut => !shortcut.Available);
+        var count = shortcuts.Count == 1 ? "1 Steam shortcut" : $"{shortcuts.Count} Steam shortcuts";
+        return unavailable == 0 ? count + " · All available" : $"{count} · {unavailable} unavailable";
+    }
+
     /// <summary>One storage library's line: its status, titles and what is waiting for it.</summary>
     /// <param name="storage">The library.</param>
     /// <param name="entries">The listed titles, for the counts of unavailable and departing ones.</param>

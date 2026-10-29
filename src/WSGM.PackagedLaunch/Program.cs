@@ -94,6 +94,11 @@ internal static class Program
         }
 
         HideConsole();
+        if (request.Directory.Length > 0 && !ManagedContentLaunch.FollowedFolderPresent(request.Directory))
+        {
+            return ExitActivationFailed;
+        }
+
         using CancellationTokenSource cancellation = new();
         var shutdown = new ShutdownRequest(cancellation.Cancel);
         Console.CancelKeyPress += (_, eventArgs) =>

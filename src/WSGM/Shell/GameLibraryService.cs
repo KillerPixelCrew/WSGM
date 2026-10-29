@@ -357,6 +357,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
 
                 var index = routes.ToList().FindIndex(route => route.Id == entry.Route);
                 entry.Route = routes[(index + 1) % routes.Count].Id;
+                entry.Game = entry.Game.ForRoute(entry.Route);
                 return null;
             }
 
@@ -390,6 +391,7 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             }
 
             entry.Route = route;
+            entry.Game = entry.Game.ForRoute(route);
             return null;
         });
     }
@@ -1736,6 +1738,20 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             }
         }
 
+        // A launcher stops listing a title whose storage is gone. Observe it now, so the plan can tell
+        // a disconnected card from an uninstall instead of trusting an older observation.
+        foreach (var record in recorded.Where(record => record.Content is
+                     { SourceKind: LibrarySourceKind.Launcher, InventoryRemoved: false }
+                     && !discoveredIdentities.Contains((record.Source, record.Key))))
+        {
+            var content = record.Content!;
+            var check = CheckStorageContent(content, emulatorSnapshot, contentChecks);
+            scanObservations[content.Id] = check;
+            checkedRecords[content.Id] = content.Copy();
+            content.Availability = check.Availability;
+            content.AvailabilityDetail = check.Detail;
+        }
+
         var known = sources.Select(source => source.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         ImportSourceState StateOf(string sourceId)
@@ -1898,6 +1914,15 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
     private static Entry Create(
         ImportPlanEntry planned, DiscoveredGame? game, ImportedEntry? record, ImportChoice? choice)
     {
+        if (choice is { Route.Length: > 0 } && game?.CommandRoutes.Any(route => route.Id == choice.Route) == true)
+        {
+            game = game.ForRoute(choice.Route);
+        }
+        else
+        {
+            game = game?.ForRoute(planned.Route);
+        }
+
         var created = new Entry(EntryId(planned.Source, planned.Key), planned, game ?? Placeholder(planned, record))
         {
             RecordedTitleName = record?.Content?.Name ?? record?.Name ?? game?.Name ?? planned.Name,
@@ -3099,7 +3124,8 @@ internal sealed partial class GameLibraryService : IGameLibraryOverlaySource, ID
             _revision,
             [.. settings.RomSources.Select(source => source.Copy())],
             [.. settings.ManualSources.Select(source => source.Copy())],
-            StorageLibraries: [.. _storagePublished.Values.OrderBy(library => library.Name, StringComparer.CurrentCulture)]);
+            StorageLibraries: [.. _storagePublished.Values.OrderBy(library => library.Name, StringComparer.CurrentCulture)],
+            SteamShortcuts: _steamShortcuts);
     }
 
     private static DiscoveredGame Placeholder(ImportPlanEntry entry, ImportedEntry? record)

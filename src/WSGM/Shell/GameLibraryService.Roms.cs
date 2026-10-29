@@ -297,6 +297,13 @@ internal sealed partial class GameLibraryService
             await _storageLane.WaitAsync(linked.Token).ConfigureAwait(false);
             try
             {
+                if (id.StartsWith("shortcut:", StringComparison.Ordinal))
+                {
+                    await Task.Run(() => ObserveSteamShortcutsAsync(null, linked.Token), linked.Token)
+                        .ConfigureAwait(false);
+                    return SteamUiCommandResult.Applied;
+                }
+
                 return await Task.Run(() => ReconcileStorageAsync(id, linked.Token), linked.Token)
                     .ConfigureAwait(false);
             }
@@ -442,10 +449,7 @@ internal sealed partial class GameLibraryService
             Notify();
         }
 
-        LibraryBadges.UpdateShortcuts(ReadManagedEntries().Where(entry => entry.AppId > 0)
-            .Select(entry => new SteamShortcutAvailability(entry.AppId,
-                entry.Content.Availability == ManagedContentAvailability.Available,
-                entry.Content.Location, entry.Content.AvailabilityDetail)).ToArray());
+        PublishShortcutAvailability();
     }
 
     private EmulatorStore ReadEmulatorStore()
@@ -475,9 +479,20 @@ internal sealed partial class GameLibraryService
     internal Task<SteamUiCommandResult> RecheckShortcutAsync(uint appId, CancellationToken cancellationToken)
     {
         var content = ReadManagedEntries().FirstOrDefault(entry => entry.AppId == appId)?.Content;
-        return content is null
-            ? Refuse("This shortcut has no tracked content.")
-            : RecheckAvailabilityAsync(content.Id, cancellationToken);
+        if (content is not null)
+        {
+            return RecheckAvailabilityAsync(content.Id, cancellationToken);
+        }
+
+        lock (_gate)
+        {
+            if (_steamShortcuts.All(shortcut => shortcut.AppId != appId))
+            {
+                return Refuse("This shortcut has no tracked content.");
+            }
+        }
+
+        return RecheckAvailabilityAsync(ShortcutCheckId(appId), cancellationToken);
     }
 
     internal void NotifyManagedEntriesChanged()

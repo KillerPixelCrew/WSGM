@@ -74,6 +74,10 @@ public sealed record GameLaunch(string Label, bool Validated, string Evidence);
 /// </param>
 /// <param name="Content">Authoritative backing content and stable managed-launch identity, when tracked.</param>
 /// <param name="ArtworkQuery">Source-owned artwork lookup metadata, without later UI-thread file checks.</param>
+/// <param name="NativeContent">
+///     The launcher-native record a launcher title keeps when it starts through any route other than
+///     its managed executable, or null when the title has one content form.
+/// </param>
 public sealed record DiscoveredGame(
     string SourceId,
     string Key,
@@ -87,10 +91,41 @@ public sealed record DiscoveredGame(
     IReadOnlyList<DiscoveredArtwork> Artwork,
     IReadOnlyList<ShortcutRoute>? Routes = null,
     ManagedContentRecord? Content = null,
-    LibraryArtworkQuery? ArtworkQuery = null)
+    LibraryArtworkQuery? ArtworkQuery = null,
+    ManagedContentRecord? NativeContent = null)
 {
     /// <summary>The command routes, empty for a packaged title.</summary>
     public IReadOnlyList<ShortcutRoute> CommandRoutes => Routes ?? [];
+
+    /// <summary>The managed portable record, retained while the native form is active.</summary>
+    private ManagedContentRecord? ManagedContent { get; init; }
+
+    /// <summary>Selects the content record that matches the chosen route.</summary>
+    /// <param name="routeId">The chosen route's id.</param>
+    /// <returns>
+    ///     This game with its managed record for the managed route and its launcher-native record for
+    ///     every other route. The latest availability observation carries over to the selected form.
+    /// </returns>
+    public DiscoveredGame ForRoute(string routeId)
+    {
+        if (NativeContent is null || Content is null)
+        {
+            return this;
+        }
+
+        // The active form may have been replaced by an accepted stored copy, so it stays authoritative.
+        var native = Content.LaunchKind == ManagedLaunchKind.Native ? Content : NativeContent;
+        var managed = Content.LaunchKind == ManagedLaunchKind.Direct ? Content : ManagedContent;
+        var selected = routeId == "managed" ? managed : native;
+        if (selected is null || ReferenceEquals(selected, Content))
+        {
+            return this;
+        }
+
+        selected.Availability = Content.Availability;
+        selected.AvailabilityDetail = Content.AvailabilityDetail;
+        return this with { Content = selected, NativeContent = native, ManagedContent = managed };
+    }
 
     /// <summary>Whether the title launches through the packaged launcher rather than a command.</summary>
     public bool Packaged => CommandRoutes.Count == 0;

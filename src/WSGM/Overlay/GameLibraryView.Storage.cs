@@ -73,8 +73,9 @@ public sealed partial class GameLibraryView
                                    + "return when it is inserted again. A title whose files were deleted is "
                                    + "removed from Steam automatically."));
         var storages = state.StorageLibraries ?? [];
+        var shortcuts = state.SteamShortcuts ?? [];
         stack.Children.Add(Tagged(Row("Recheck all storage", "Check every connected library's files again",
-            Icons.Restart, state.Loading || storages.Count == 0
+            Icons.Restart, state.Loading || storages.Count == 0 && shortcuts.Count == 0
                 ? null
                 : () => Run(token => _service.RecheckAvailabilityAsync("", token))), "storage.recheck-all"));
         foreach (var storage in storages)
@@ -95,8 +96,34 @@ public sealed partial class GameLibraryView
                                        + "keep track of them here."));
         }
 
+        AddSteamShortcuts(stack, shortcuts, state.Loading);
         AddApplyRow(stack, state);
         SetContent(stack);
+    }
+
+    /// <summary>Lists shortcuts the user made in Steam whose program is on storage, each rechecked in place.</summary>
+    private void AddSteamShortcuts(StackPanel stack, IReadOnlyList<GameLibraryShortcut> shortcuts, bool busy)
+    {
+        if (shortcuts.Count == 0)
+        {
+            return;
+        }
+
+        var unavailable = shortcuts.Count(shortcut => !shortcut.Available);
+        stack.Children.Add(SectionLabel(unavailable > 0
+            ? $"YOUR STEAM SHORTCUTS ({shortcuts.Count}, {unavailable} UNAVAILABLE)"
+            : $"YOUR STEAM SHORTCUTS ({shortcuts.Count})"));
+        stack.Children.Add(Caption("Shortcuts you added in Steam yourself. WSGM checks their storage and never "
+                                   + "changes or removes them."));
+        foreach (var shortcut in shortcuts)
+        {
+            var appId = shortcut.AppId;
+            stack.Children.Add(Tagged(Row(shortcut.Name,
+                shortcut.Available ? shortcut.Location + " · Available" : shortcut.Detail,
+                shortcut.Available ? Icons.SdCard : Icons.BlockedCircle,
+                busy ? null : () => Run(token => _service!.RecheckAvailabilityAsync(
+                    GameLibraryService.ShortcutCheckId(appId), token))), "storage.shortcut:" + appId));
+        }
     }
 
     private void RenderStorageLibrary(string id)

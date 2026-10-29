@@ -35,7 +35,7 @@ public static class PreviewTools
     private static readonly string[] StorageScenarios =
     [
         "importer-storage-home", "importer-storage-list", "importer-storage-detail", "importer-storage-empty",
-        "importer-storage-error", "importer-entry-removed", "importer-entry-loading"
+        "importer-storage-error", "importer-entry-removed", "importer-entry-loading", "importer-storage-shortcuts"
     ];
 
     internal static OverlayWindow Create(UiFixture fixture, int width = 1280, int height = 800,
@@ -164,6 +164,29 @@ public static class PreviewTools
 
             if (library is not null)
             {
+                if (scenario == "importer-storage-shortcuts")
+                {
+                    // Only the user's own Steam shortcuts are on storage: the level still opens and lists them.
+                    library.State = library.State with
+                    {
+                        StorageLibraries = [],
+                        SteamShortcuts =
+                        [
+                            new WSGM.Shell.GameLibraryShortcut(AppId: 1, "Celeste", "Travel SSD", Available: true,
+                                Detail: ""),
+                            new WSGM.Shell.GameLibraryShortcut(AppId: 2, "Hollow Knight", "E:", Available: false,
+                                "Connect the storage for drive E: and choose Recheck."),
+                            new WSGM.Shell.GameLibraryShortcut(AppId: 3,
+                                "A shortcut with an extremely long name that the user typed into Steam themselves",
+                                "Extremely long removable storage library name (Example 1 TB card)", Available: false,
+                                @"G:\Games\Very Long Folder Name\Another Level\Game.exe is missing from Extremely long "
+                                + "removable storage library name (Example 1 TB card). Edit the shortcut in Steam if the game moved.")
+                        ]
+                    };
+                    library.Publish();
+                    Dispatcher.UIThread.RunJobs();
+                }
+
                 if (scenario != "importer-storage-home")
                 {
                     Click($"Storage libraries ({library.State.StorageLibraries!.Count})");

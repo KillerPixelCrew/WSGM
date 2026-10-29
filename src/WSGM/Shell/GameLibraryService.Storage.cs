@@ -376,8 +376,55 @@ internal sealed partial class GameLibraryService
             .ToArray();
     }
 
+    /// <summary>Gives a launcher title on participating storage the portable executable lifecycle.</summary>
+    /// <remarks>
+    ///     Like Steam ROM Manager, the game's own executable is the portable recipe: it enters the card
+    ///     inventory, launches through the managed content check and follows its volume across drive
+    ///     letters. Starting through the launcher keeps the launcher's own native lifecycle, so the
+    ///     launcher-native record stays beside it for that route.
+    /// </remarks>
+    private DiscoveredGame TrackLauncherStorage(DiscoveredGame game)
+    {
+        if (game.Content is not { SourceKind: LibrarySourceKind.Launcher, LaunchKind: ManagedLaunchKind.Native } native
+            || native.BackingPath.VolumeId.Length == 0
+            || !_eligibleVolumes.TryGetValue(native.BackingPath.VolumeId, out var storage))
+        {
+            return game;
+        }
+
+        native = native.Copy();
+        native.Location = storage;
+        var direct = game.CommandRoutes.FirstOrDefault(route => route is { Id: "direct", Follows: false });
+        if (direct is null || !StoragePaths.IsUnder(native.BackingPath.AbsolutePath, direct.Target))
+        {
+            return game with { Content = native };
+        }
+
+        var directory = direct.StartDirectory.Length > 0
+            ? direct.StartDirectory : Path.GetDirectoryName(direct.Target) ?? "";
+        var managed = ManagedContentStorage.CreateRecord(game.SourceId, game.Key, game.Name,
+            LibrarySourceKind.Folder, storage, direct.Target,
+            binding: ManagedContentStorage.BindPath(native.BackingPath, direct.Target));
+        managed.SourceRoot = native.BackingPath.Copy();
+        managed.Program = managed.BackingPath.Copy();
+        managed.WorkingDirectory = ManagedContentStorage.BindPath(native.BackingPath, directory, true);
+        managed.RawArguments = direct.LaunchOptions;
+        return game with
+        {
+            Content = managed, NativeContent = native,
+            Routes = game.CommandRoutes.Select(route => ReferenceEquals(route, direct)
+                ? route with
+                {
+                    Id = "managed", ManagedId = managed.Id,
+                    Evidence = route.Evidence + " WSGM checks its storage first, so it follows the card across drive letters."
+                }
+                : route).ToArray()
+        };
+    }
+
     private DiscoveredGame BindDiscoveredContent(DiscoveredGame game)
     {
+        game = TrackLauncherStorage(game);
         if (game.Content is not { } content || !PortableContent(content))
         {
             return game;
@@ -404,9 +451,17 @@ internal sealed partial class GameLibraryService
         var key = known?.Key ?? (match is null ? game.Key : copy.Id);
         copy.SourceId = source;
         copy.SourceKey = key;
+        var native = game.NativeContent?.Copy();
+        if (native is not null)
+        {
+            // Both forms are one title: a route change must never change its identity.
+            native.Id = copy.Id;
+            native.SourceId = source;
+            native.SourceKey = key;
+        }
         return game with
         {
-            SourceId = source, Key = key, Content = copy,
+            SourceId = source, Key = key, Content = copy, NativeContent = native,
             Routes = game.CommandRoutes.Select(route => route.IsManaged ? route with { ManagedId = copy.Id } : route).ToArray()
         };
     }
@@ -463,6 +518,10 @@ internal sealed partial class GameLibraryService
                     {
                         problems.Add(error);
                     }
+                }
+                if (changed.Count > 0)
+                {
+                    await ObserveSteamShortcutsAsync(null, linked.Token).ConfigureAwait(false);
                 }
                 Notify();
                 return problems.Count == 0 ? SteamUiCommandResult.Applied
@@ -966,12 +1025,18 @@ internal sealed partial class GameLibraryService
         }
         try
         {
-            await CleanRemovedContentAsync(token, problems, requestedLibrary, requestedContent).ConfigureAwait(false);
+            var snapshot = await CleanRemovedContentAsync(token, problems, requestedLibrary, requestedContent)
+                .ConfigureAwait(false);
+            if (id.Length == 0 && snapshot is not null)
+            {
+                await ObserveSteamShortcutsAsync(snapshot, token).ConfigureAwait(false);
+            }
         }
         catch (Exception ex) when ((StorageFailure(ex) || ex is InvalidOperationException) && ex is not ImportStateException)
         {
             problems.Add("Steam cleanup is pending: " + ex.Message);
         }
+        RelabelLauncherStorage();
         Dictionary<string, ManagedContentCheck> checks = [];
         Dictionary<string, ManagedContentRecord> expected = [];
         var emulators = ReadEmulatorStore();
@@ -1042,8 +1107,36 @@ internal sealed partial class GameLibraryService
         return problems.Count == 0 ? SteamUiCommandResult.Applied : new SteamUiCommandResult(false, string.Join(" ", problems.Distinct()));
     }
 
-    private async Task CleanRemovedContentAsync(CancellationToken token, List<string> problems,
-        string requestedLibrary, string requestedContent)
+    /// <summary>Names a connected card, not the launcher, as an imported launcher title's location.</summary>
+    /// <remarks>
+    ///     Earlier imports recorded the launcher's name. The card's name is what a disconnected title
+    ///     asks the user to connect, so it is learned while the card is present and kept when it is not.
+    /// </remarks>
+    private void RelabelLauncherStorage()
+    {
+        Dictionary<string, string> volumes;
+        lock (_gate)
+        {
+            volumes = new Dictionary<string, string>(_eligibleVolumes, StringComparer.OrdinalIgnoreCase);
+        }
+
+        List<ImportedEntry> relabelled = [];
+        foreach (var entry in _store.InventoryEntries())
+        {
+            if (entry.Content is { SourceKind: LibrarySourceKind.Launcher, InventoryRemoved: false } content
+                && volumes.TryGetValue(content.BackingPath.VolumeId, out var name) && content.Location != name)
+            {
+                content.Location = name;
+                relabelled.Add(entry);
+            }
+        }
+
+        _store.SaveInventories(relabelled);
+    }
+
+    /// <returns>The Steam shortcut read the cleanup used, or null when Steam could not be read.</returns>
+    private async Task<IReadOnlyList<ExistingShortcut>?> CleanRemovedContentAsync(CancellationToken token,
+        List<string> problems, string requestedLibrary, string requestedContent)
     {
         IReadOnlyList<ExistingShortcut> snapshot;
         try
@@ -1060,7 +1153,7 @@ internal sealed partial class GameLibraryService
             {
                 Log.Change("library.steam-state.pending", "Steam shortcut state is pending: " + ex.Message);
             }
-            return;
+            return null;
         }
         var accountId = CaptureAccount(snapshot);
         foreach (var entry in _store.Entries().Where(entry => entry.Content?.InventoryRemoved == true && entry.HasSteamMapping
@@ -1111,5 +1204,6 @@ internal sealed partial class GameLibraryService
             _store.Forget(entry.Source, entry.Key, accountId);
         }
         // Collection creation and additions belong to explicit Apply/settings actions, never reconciliation.
+        return snapshot;
     }
 }

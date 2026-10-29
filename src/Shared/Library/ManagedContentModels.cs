@@ -41,13 +41,16 @@ public enum LibrarySourceKind
     /// <summary>An emulated ROM or its primary descriptor.</summary>
     Rom,
 
-    /// <summary>A configured executable or shortcut folder.</summary>
+    /// <summary>
+    ///     A directly started executable: from a configured shortcut folder, or a launcher title's own
+    ///     executable on participating storage.
+    /// </summary>
     Folder,
 
     /// <summary>An explicitly authored command.</summary>
     Manual,
 
-    /// <summary>A third-party launcher's installed-game metadata.</summary>
+    /// <summary>A third-party launcher's install folder, for a title that starts through that launcher.</summary>
     Launcher,
 
     /// <summary>The selected emulator's own interface, resolved from its active installation.</summary>
@@ -703,7 +706,7 @@ public static class ManagedContentStorage
         // Native launcher routes may retain storage metadata without an indirection or a program recipe.
         if (content.LaunchKind == ManagedLaunchKind.Native)
         {
-            return checkedContent;
+            return MountedWhereLauncherExpects(content, checkedContent);
         }
 
         try
@@ -799,6 +802,32 @@ public static class ManagedContentStorage
                && SamePath(before.SourceRoot, after.SourceRoot) &&
                before.RequiredPaths.Count == after.RequiredPaths.Count
                && before.RequiredPaths.Zip(after.RequiredPaths).All(pair => SamePath(pair.First, pair.Second));
+    }
+
+    /// <summary>Refuses a launcher title whose storage came back under another drive letter.</summary>
+    /// <remarks>
+    ///     A launcher records the absolute install path and does not follow the volume, so the game is
+    ///     only startable where the launcher expects it, however present its files are.
+    /// </remarks>
+    private static ManagedContentCheck MountedWhereLauncherExpects(ManagedContentRecord content,
+        ManagedContentCheck check)
+    {
+        if (content.SourceKind != LibrarySourceKind.Launcher || content.BackingPath.VolumeId.Length == 0
+                                                             || check.Path.Length == 0)
+        {
+            return check;
+        }
+
+        var expected = Path.TrimEndingDirectorySeparator(content.BackingPath.AbsolutePath);
+        var current = Path.TrimEndingDirectorySeparator(check.Path);
+        return string.Equals(expected, current, StringComparison.OrdinalIgnoreCase)
+            ? check
+            : check with
+            {
+                Availability = ManagedContentAvailability.StorageUnavailable,
+                Detail = $"{content.Location} is now at {Path.GetPathRoot(current)}, but its launcher expects "
+                         + $"{Path.GetPathRoot(expected)}. Give it that drive letter again, then choose Recheck."
+            };
     }
 
     private static ManagedContentCheck Missing(ManagedContentRecord record)

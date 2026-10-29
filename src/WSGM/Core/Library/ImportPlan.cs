@@ -375,6 +375,14 @@ public static class ImportPlan
     private const string CommandChanged =
         "What this title's shortcut should run has changed, so the shortcut is rewritten.";
 
+    private const string TrackedStorage =
+        "This game is on removable storage. Its shortcut now checks that storage before starting the game, "
+        + "so Steam shows it unavailable while the storage is disconnected.";
+
+    private const string StorageDisconnected =
+        "Its storage is disconnected, so its launcher cannot list it. The shortcut and artwork stay; connect "
+        + "the storage and scan again.";
+
     /// <summary>Compares titles by both halves of their identity, the way the plan does.</summary>
     public static IEqualityComparer<(string Source, string Key)> Identity => IdentityComparer.Instance;
 
@@ -557,6 +565,13 @@ public static class ImportPlan
                 plan.Add(Removal(record, ImportAction.Skip,
                     "This source did not report the title. Storage reconciliation will check its content; the scan leaves its shortcut and artwork unchanged.",
                     false));
+                continue;
+            }
+            if (record.Content is
+                { SourceKind: LibrarySourceKind.Launcher, Availability: ManagedContentAvailability.StorageUnavailable })
+            {
+                // A launcher drops a title whose folder is unreachable; that is not an uninstall.
+                plan.Add(Removal(record, ImportAction.Skip, StorageDisconnected, false));
                 continue;
             }
 
@@ -754,6 +769,14 @@ public static class ImportPlan
             if (!OwnsRecorded(live, record))
             {
                 return Command(ImportAction.Conflict, EditedByHand, record.AppId, false, recordedRoute);
+            }
+
+            // A launcher title's executable on participating storage now starts through the content
+            // check; its earlier direct shortcut moves to that route rather than to the launcher.
+            if (recordedRoute == "direct" && game.CommandRoutes.All(route => route.Id != "direct")
+                                          && game.CommandRoutes.FirstOrDefault(route => route.IsManaged) is { } tracked)
+            {
+                return Command(ImportAction.Update, TrackedStorage, record.AppId, true, tracked.Id, true);
             }
 
             // The route it was imported with may be gone: the launcher it went through was

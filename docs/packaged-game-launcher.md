@@ -119,6 +119,9 @@ backslash, because under Windows' argument rules a backslash before the closing 
 swallows the rest of the line. The composer trims them once for every source, and a shortcut written
 before that is read back in the same form.
 
+A `--dir` that does not exist, such as an install folder on a disconnected card, is refused with
+Retry before anything starts, because the launcher would otherwise show its own repair prompt.
+
 The program those launchers are started with usually hands the request to a copy that is already
 running and exits at once. Steam reads that as the game stopping, and the shortcut's Steam Input
 layout goes with the running state. So the follow mode stays alive instead:

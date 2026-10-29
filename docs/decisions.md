@@ -296,6 +296,13 @@ and requires a new Library Manager import. This supersedes retaining every missi
 until manual cleanup. Read failures and missing emulator dependencies do not authorize deletion. See
 [portable library inventory](game-library.md#portable-library-inventory-and-confirmed-deletion).
 
+**Launcher games on storage use their executable; user shortcuts are observed (2026-10-29).** A
+launcher title on participating storage imports its own executable as a managed portable record, as
+Steam ROM Manager does, and enters the card inventory. Its route through the launcher stays
+launcher-native, with availability but launcher-owned deletion. Shortcuts the user made in Steam get
+availability from their Target and Start In only; WSGM never edits or removes them. See
+[launcher games and your own Steam shortcuts](game-library.md#launcher-games-and-your-own-steam-shortcuts-on-storage).
+
 **WSGM writes Steam shortcuts through the running client (2026-09-22).** This reverses the rule
 recorded after the September 2026 launcher trials, when CEF shortcut-management calls destabilized a
 live Steam session during an attended investigation

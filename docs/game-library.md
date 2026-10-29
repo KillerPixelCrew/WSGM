@@ -561,6 +561,27 @@ cached records; future schema versions cannot be repaired by an older reader. Ne
 writable manifest. Fixed-only, protocol-link, emulator-interface and launcher-native imports retain
 their existing separate lifecycle.
 
+### Launcher games and your own Steam shortcuts on storage
+
+A launcher title (Epic, GOG, Ubisoft and the others) whose install folder is on a participating
+volume is imported the way Steam ROM Manager imports it: its own executable becomes the managed
+route, replacing the plain direct route. That record joins the card inventory as a directly started
+executable, launches through the content check, follows its volume across drive letters and is
+pruned like a folder import when its executable is confirmed missing. An earlier direct shortcut is
+offered as an update to that route. Choosing the route through the launcher instead keeps a
+launcher-native record: it gets availability, the card's name as its location, and a refusal when
+the card comes back under another drive letter, because the launcher keeps the old absolute path.
+Its deletion stays the launcher's to report. A launcher stops listing a title whose folder is
+unreachable, so a scan keeps such a title as disconnected rather than offering its removal. The
+follow launcher refuses a missing install folder with Retry before starting the launcher.
+
+Shortcuts the user added in Steam are observed too, never changed. When a shortcut's Target or Start
+In names a drive that is not connected, or a participating volume where that file or folder is
+missing, Steam shows it unavailable, and both Storage libraries pages list it with a recheck.
+Arguments are not parsed for paths, there is no launch guard because Steam starts the program
+itself, and nothing is removed. Startup, volume changes, the five-minute recovery check and Recheck
+all storage refresh them.
+
 The toolkit owns a reversible managed-shortcut availability projection: grey artwork, unavailable
 details, a disabled native Play action, a separate Recheck action and installed-only filtering.
 Available managed titles return to installed views; disconnected titles remain in general views and

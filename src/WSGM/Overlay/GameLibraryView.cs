@@ -70,10 +70,14 @@ public sealed partial class GameLibraryView : ServiceSubView
         stack.Children.Add(Tagged(Row($"Sources ({state.Reading.Count} on)",
             "Tick the launchers and folders a scan reads", Icons.ListLines,
             () => Navigate(RenderSources)), "sources"));
-        if (state.StorageLibraries is { Count: > 0 } storages)
+        var storages = state.StorageLibraries ?? [];
+        var shortcuts = state.SteamShortcuts ?? [];
+        if (storages.Count > 0 || shortcuts.Count > 0)
         {
             stack.Children.Add(Tagged(Row($"Storage libraries ({storages.Count})",
-                GameLibraryRows.StorageSummary(storages), Icons.SdCard,
+                storages.Count > 0
+                    ? GameLibraryRows.StorageSummary(storages)
+                    : GameLibraryRows.ShortcutSummary(shortcuts), Icons.SdCard,
                 () => Navigate(RenderStorageLibraries)), "storage"));
         }
 

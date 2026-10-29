@@ -226,6 +226,7 @@ public static class GameLibraryPhases
 /// <param name="RomSources">The configured sources shown by both editors.</param>
 /// <param name="ManualSources">The editable user-authored command sources.</param>
 /// <param name="StorageLibraries">Known backing libraries and their staged recovery actions.</param>
+/// <param name="SteamShortcuts">Shortcuts the user made in Steam whose program or folder is on storage.</param>
 public sealed record GameLibraryState(
     IReadOnlyList<GameLibrarySource> Sources,
     IReadOnlyList<string> Reading,
@@ -244,7 +245,16 @@ public sealed record GameLibraryState(
     long Revision = 0,
     IReadOnlyList<RomSourceConfig>? RomSources = null,
     IReadOnlyList<ManualShortcutConfig>? ManualSources = null,
-    IReadOnlyList<GameLibraryStorage>? StorageLibraries = null);
+    IReadOnlyList<GameLibraryStorage>? StorageLibraries = null,
+    IReadOnlyList<GameLibraryShortcut>? SteamShortcuts = null);
+
+/// <summary>A shortcut the user made in Steam, observed against the storage its program needs.</summary>
+/// <param name="AppId">Steam's shortcut id.</param>
+/// <param name="Name">The name Steam shows.</param>
+/// <param name="Location">The storage's name, or the drive letter of storage that is not connected.</param>
+/// <param name="Available">Whether its program and working folder are present.</param>
+/// <param name="Detail">What to do when they are not.</param>
+public sealed record GameLibraryShortcut(uint AppId, string Name, string Location, bool Available, string Detail);
 
 /// <summary>The installed choices needed by ROM editors, without downloader progress or release offers.</summary>
 /// <param name="Choices">Compatible installations and cores per system.</param>

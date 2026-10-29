@@ -85,6 +85,27 @@ internal static class ManagedContentLaunch
         }
     }
 
+    /// <summary>Waits for a followed game's install folder, offering Retry while its storage is missing.</summary>
+    /// <param name="directory">The follow request's install folder.</param>
+    /// <returns>Whether the folder is present and the launcher may be started.</returns>
+    /// <remarks>
+    ///     A launcher asked to start a game on disconnected storage shows its own repair or install
+    ///     prompt, which reads as a broken game rather than a missing card.
+    /// </remarks>
+    internal static bool FollowedFolderPresent(string directory)
+    {
+        while (!Directory.Exists(directory))
+        {
+            if (Refuse($"The game folder {directory} is not available.\n\nConnect the storage that holds it.",
+                    true) != 1)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private static ProcessStartInfo StartInfo(ManagedContentCheck check)
     {
         var record = check.Content!;
