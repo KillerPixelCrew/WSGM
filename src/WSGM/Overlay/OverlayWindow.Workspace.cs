@@ -32,7 +32,8 @@ public partial class OverlayWindow
         if (_closed || e.PropertyName is not (
                 nameof(OverlayViewModel.ShowThemes) or nameof(OverlayViewModel.ShowAnimations)
                 or nameof(OverlayViewModel.ShowSounds) or nameof(OverlayViewModel.ShowArtwork)
-                or nameof(OverlayViewModel.ShowGameLibrary) or nameof(OverlayViewModel.ShowEmulators)))
+                or nameof(OverlayViewModel.ShowGameLibrary) or nameof(OverlayViewModel.ShowEmulators)
+                or nameof(OverlayViewModel.ShowGameTools)))
         {
             return;
         }

@@ -491,6 +491,8 @@ public sealed partial class OverlayController : IDisposable
         vm.ShowGameLibrary = _sources.GameLibrary is not null;
         vm.ShowEmulators = _sources.Emulators is not null;
         vm.ShowArtwork = config.Cef.Enabled && _sources.Artwork is not null;
+        // The install folder and shortcut target come from Steam's frontend on every scan.
+        vm.ShowGameTools = config.Cef.Enabled && _sources.GameTools is not null;
         vm.ShowThemes = config.Cef.Enabled && _sources.Themes is not null;
         vm.ShowAnimations = config.Cef.Enabled && _sources.Animations is not null;
         vm.ShowSounds = _sources.Sounds is not null;
@@ -658,6 +660,7 @@ public sealed partial class OverlayController : IDisposable
         _overlay.AttachAnimations(_sources.Animations);
         _overlay.AttachSounds(_sources.Sounds);
         _overlay.AttachArtwork(_sources.Artwork);
+        _overlay.AttachGameTools(_sources.GameTools);
         _overlay.AttachPerformanceSource(_sources.Performance);
         _overlay.SetPins(_pins);
         _overlay.PinToggleRequested += OnPinToggleRequested;

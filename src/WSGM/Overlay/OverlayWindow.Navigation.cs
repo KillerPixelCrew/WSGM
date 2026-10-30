@@ -47,6 +47,8 @@ public partial class OverlayWindow
             Title: "Steam library", Icon: Icons.SteamLike),
         new SubView(OverlayPage.SteamLaunchFixes, PanelSteamLaunch, PanelSteam, OverlayDestination.Steam,
             Title: "Per-game launch fixes", Icon: Icons.Rocket),
+        new SubView(OverlayPage.SteamGameTools, GameToolsHost, PanelSteam, OverlayDestination.Steam,
+            Title: "Game Tools", Icon: Icons.Wrench, Available: () => ViewModel.ShowGameTools),
         new SubView(OverlayPage.SystemTools, PanelSystemTools, PanelSystem, OverlayDestination.System, Title: "System",
             Icon: Icons.Gear),
         new SubView(OverlayPage.DeviceGpu, GpuHost, PanelDevice, OverlayDestination.Device),

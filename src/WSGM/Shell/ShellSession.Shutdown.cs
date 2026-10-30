@@ -476,6 +476,12 @@ public sealed partial class ShellSession
             _emulators = null;
             return Task.CompletedTask;
         }).ConfigureAwait(false);
+        await StepAsync(failures, "Disposing Game Tools during application shutdown failed", () =>
+        {
+            _gameTools?.Dispose();
+            _gameTools = null;
+            return Task.CompletedTask;
+        }).ConfigureAwait(false);
         await StepAsync(failures, "Disposing Programs during application shutdown failed", async () =>
         {
             var programs = _programs;

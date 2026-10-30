@@ -400,6 +400,7 @@ public partial class OverlayWindow : Window
         AnimationsHost.Attach(null);
         SoundsHost.Attach(null);
         ArtworkHost.Attach(null);
+        GameToolsHost.Attach(null);
         DeviceHybridCoreHost.Attach(null);
         DevicePowerPresetHost.Attach(null);
         _deviceLifetime.Cancel();

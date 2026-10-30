@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
-using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -1157,14 +1156,9 @@ public sealed partial class EmulatorManager : IDisposable
 
     private static string PeArchitecture(string path)
     {
-        using var stream = File.OpenRead(path);
-        using PEReader reader = new(stream);
-        return reader.PEHeaders.CoffHeader.Machine switch
-        {
-            Machine.Amd64 => "x64",
-            Machine.I386 => "x86",
-            Machine.Arm64 => "arm64",
-            _ => throw new InvalidDataException("This Windows emulator architecture is unsupported.")
-        };
+        var architecture = PeImage.Architecture(path);
+        return architecture.Length > 0
+            ? architecture
+            : throw new InvalidDataException("This Windows emulator architecture is unsupported.");
     }
 }

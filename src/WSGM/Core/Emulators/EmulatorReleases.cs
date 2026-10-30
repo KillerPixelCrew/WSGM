@@ -168,6 +168,23 @@ internal sealed class EmulatorReleases(EmulatorNetwork network)
             new EmulatorAsset(name, url, hash), extract);
     }
 
+    /// <summary>Finds the newest GitHub or Forgejo release with exactly one matching asset.</summary>
+    /// <param name="source">A hosted source; non-emulator owners such as Game Tools build one from their own data.</param>
+    /// <param name="channel">The channel; only <c>stable</c> skips prereleases.</param>
+    /// <param name="architecture">The architecture substituted into the asset pattern.</param>
+    /// <param name="cancellationToken">Cancels the lookup.</param>
+    /// <returns>The selected release and its asset, including GitHub's published digest when present.</returns>
+    internal Task<EmulatorRelease> FindHostedAsync(EmulatorSource source, string channel, string architecture,
+        CancellationToken cancellationToken)
+    {
+        return source.Provider switch
+        {
+            "GitHub" => HostedAsync(source, channel, architecture, true, cancellationToken),
+            "Forgejo" => HostedAsync(source, channel, architecture, false, cancellationToken),
+            _ => throw new InvalidDataException("Unsupported hosted release provider: " + source.Provider)
+        };
+    }
+
     private async Task<EmulatorRelease> HostedAsync(EmulatorSource source, string channel, string architecture,
         bool github, CancellationToken cancellationToken)
     {

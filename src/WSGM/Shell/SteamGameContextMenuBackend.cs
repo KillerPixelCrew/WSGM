@@ -36,6 +36,9 @@ internal sealed class SteamGameContextMenuBackend : ISteamGameContextMenuBackend
     /// <summary>The single launch configuration entry; its AppID comes from the cog activation.</summary>
     internal const string LaunchActionsId = "wsgm.launch-actions";
 
+    /// <summary>The per-game Game Tools page; its AppID comes from the cog activation.</summary>
+    internal const string GameToolsId = "wsgm.game-tools";
+
     /// <summary>The prefix every WSGM-owned entry carries.</summary>
     private const string ReservedPrefix = "wsgm.";
 
@@ -44,18 +47,26 @@ internal sealed class SteamGameContextMenuBackend : ISteamGameContextMenuBackend
 
     private readonly CommonPluginSteamUiSource? _pluginSteamUi;
     private readonly Func<uint, CancellationToken, Task<SteamUiCommandResult>>? _openLaunchActions;
+    private readonly Func<uint, CancellationToken, Task<SteamUiCommandResult>>? _openGameTools;
+    private readonly Func<uint, string>? _gameToolsRoute;
 
     /// <summary>Creates the menu over WSGM's artwork browser and an optional plugin source.</summary>
     /// <param name="pluginSteamUi">The admitted-package projection, or null when there is none.</param>
     /// <param name="openArtwork">Opens the artwork page for a game, or null without one.</param>
     /// <param name="artworkRoute">The route that shows the artwork page for a game.</param>
     /// <param name="openLaunchActions">Opens the shared launch configuration for the activating AppID.</param>
+    /// <param name="openGameTools">Opens the Game Tools page state for the activating AppID.</param>
+    /// <param name="gameToolsRoute">The route that shows the Game Tools page for a game.</param>
     internal SteamGameContextMenuBackend(
         CommonPluginSteamUiSource? pluginSteamUi,
         Func<uint, CancellationToken, Task<SteamUiCommandResult>>? openArtwork,
         Func<uint, string>? artworkRoute,
-        Func<uint, CancellationToken, Task<SteamUiCommandResult>>? openLaunchActions = null)
+        Func<uint, CancellationToken, Task<SteamUiCommandResult>>? openLaunchActions = null,
+        Func<uint, CancellationToken, Task<SteamUiCommandResult>>? openGameTools = null,
+        Func<uint, string>? gameToolsRoute = null)
     {
+        _openGameTools = openGameTools;
+        _gameToolsRoute = gameToolsRoute;
         _pluginSteamUi = pluginSteamUi;
         _openArtwork = openArtwork;
         _artworkRoute = artworkRoute;
@@ -74,6 +85,17 @@ internal sealed class SteamGameContextMenuBackend : ISteamGameContextMenuBackend
             }
 
             return await _openLaunchActions(appId, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (id == GameToolsId)
+        {
+            if (_openGameTools is null || _gameToolsRoute is null)
+            {
+                return new SteamUiCommandResult(false, "Game Tools are unavailable in this session.");
+            }
+
+            var openedTools = await _openGameTools(appId, cancellationToken).ConfigureAwait(false);
+            return openedTools.Succeeded ? SteamUiCommandResult.Route(_gameToolsRoute(appId)) : openedTools;
         }
 
         if (id == ArtworkId)
@@ -119,6 +141,11 @@ internal sealed class SteamGameContextMenuBackend : ISteamGameContextMenuBackend
         if (_openLaunchActions is not null)
         {
             items.Add(new SteamGameContextMenuItem(LaunchActionsId, "Launch Actions", SteamLaunchActionsSurface.Template));
+        }
+
+        if (_openGameTools is not null)
+        {
+            items.Add(new SteamGameContextMenuItem(GameToolsId, "Game Tools…"));
         }
 
         if (_pluginSteamUi is not null)

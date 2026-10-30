@@ -95,6 +95,9 @@ internal sealed record SteamUiBackends
     /// <summary>Game launch actions shared with the Overlay.</summary>
     internal LaunchActionService? LaunchActions { get; init; }
 
+    /// <summary>Per-game Game Tools shared with the Overlay.</summary>
+    internal GameToolsService? GameTools { get; init; }
+
     /// <summary>The physical-display source-size editor, independent of game profiles.</summary>
     internal ScaledResolutionService? ScaledResolutions { get; init; }
 

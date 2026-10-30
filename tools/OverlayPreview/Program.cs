@@ -26,6 +26,12 @@ internal static class Program
             return;
         }
 
+        if (args.Length > 4 && args[4] == "game-tools-cases")
+        {
+            PreviewGameTools.Export(output, width, height);
+            return;
+        }
+
         PreviewExports.Export(output, width, height, scale,
             publicationPath: args.Length > 4 ? Path.GetFullPath(args[4]) : null,
             deviceName: args.Length > 5 ? args[5] : null);

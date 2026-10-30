@@ -44,12 +44,24 @@ internal sealed class OverlayFilePicker : UserControl
     private long _generation;
     private SteamFileListing? _listing;
     private CancellationTokenSource? _load;
+    private readonly string? _start;
 
+    /// <summary>Creates a picker for one file or folder.</summary>
+    /// <param name="folder">True to choose a directory, false to choose a file.</param>
+    /// <param name="extensions">Allowed file extensions; empty permits all file types.</param>
+    /// <param name="readPlaces">Reads the places pane; defaults to the shared local places.</param>
+    /// <param name="readFolder">Lists one folder; defaults to the shared local listing.</param>
+    /// <param name="start">
+    ///     The folder shown first, such as a game's install folder. Null or a missing folder opens the first
+    ///     place instead.
+    /// </param>
     internal OverlayFilePicker(bool folder, IEnumerable<string> extensions,
         Func<CancellationToken, Task<SteamFilePlaces>>? readPlaces = null,
-        Func<string, IReadOnlyCollection<string>, CancellationToken, Task<SteamFileListing>>? readFolder = null)
+        Func<string, IReadOnlyCollection<string>, CancellationToken, Task<SteamFileListing>>? readFolder = null,
+        string? start = null)
     {
         _folder = folder;
+        _start = string.IsNullOrWhiteSpace(start) ? null : start;
         _extensions = extensions.ToArray();
         _readPlaces = readPlaces ?? (token => Task.Run(SteamFilePickerSurface.ListPlaces, token).WaitAsync(token));
         _readFolder = readFolder ?? ((path, filters, token) =>
@@ -259,7 +271,16 @@ internal sealed class OverlayFilePicker : UserControl
                 _places.Children.Add(button);
             }
 
-            if (_generation == 0 && places.Places.FirstOrDefault() is { } first)
+            if (_generation == 0 && _start is { } start
+                                 && await Task.Run(() => Directory.Exists(start), _lifetime.Token))
+            {
+                // The user may have opened a place while the start folder was being checked.
+                if (_generation == 0)
+                {
+                    await ReadDirectoryAsync(start);
+                }
+            }
+            else if (_generation == 0 && places.Places.FirstOrDefault() is { } first)
             {
                 await ReadDirectoryAsync(first.Path);
             }

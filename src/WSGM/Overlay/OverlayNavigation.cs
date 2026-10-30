@@ -119,7 +119,10 @@ internal enum OverlayPage
     SystemBrowser,
 
     /// <summary>Local image and scene screensaver sources.</summary>
-    Screensavers
+    Screensavers,
+
+    /// <summary>Per-game Game Tools such as OptiScaler, shared with the routed Steam page.</summary>
+    SteamGameTools
 }
 
 /// <summary>The single action selected by Back/B after higher-priority UI has been considered.</summary>
@@ -409,7 +412,7 @@ internal sealed class OverlayNavigation
             OverlayPage.QuickAccess => OverlayDestination.QuickAccess,
             OverlayPage.Steam or OverlayPage.SteamLibrary or OverlayPage.SteamLaunchFixes
                 or OverlayPage.SteamLibraryTabs or OverlayPage.SteamCardManager
-                or OverlayPage.SteamLaunchConfiguration
+                or OverlayPage.SteamLaunchConfiguration or OverlayPage.SteamGameTools
                 => OverlayDestination.Steam,
             OverlayPage.Device or OverlayPage.DeviceOverview or OverlayPage.DeviceGpu or OverlayPage.DeviceProfiles
                 or OverlayPage.DevicePowerAndThermals or OverlayPage.DeviceControllerAndMotion

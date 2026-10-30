@@ -26,6 +26,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
     /// <summary>The artwork browser behind Steam's Change Artwork page, or null.</summary>
     private readonly SteamArtworkBrowserSource? _artwork;
     private readonly LaunchActionService? _launchActions;
+    private readonly GameToolsService? _gameTools;
     private readonly LibraryManagerService? _libraryManager;
     private readonly NotesService? _notes;
     private readonly ScreensaverService? _screensavers;
@@ -205,6 +206,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         // source the way it was while artwork was a package.
         _artwork = backends.Artwork;
         _launchActions = backends.LaunchActions;
+        _gameTools = backends.GameTools;
         _libraryManager = backends.LibraryManager;
         _notes = backends.Notes;
         _screensavers = backends.Screensavers;
@@ -219,7 +221,9 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _pluginSteamUi,
             _artwork is null ? null : _artwork.OpenAsync,
             _artwork is null ? null : SteamArtworkBrowserSurface.RouteFor,
-            _launchActions is null ? null : _launchActions.OpenAsync);
+            _launchActions is null ? null : _launchActions.OpenAsync,
+            _gameTools is null ? null : _gameTools.OpenAsync,
+            _gameTools is null ? null : SteamGameToolsSurface.RouteFor);
         var libraryImport = _libraryImport;
         _extensionsTab = new SteamExtensionsTabBackend(
             _pluginSteamUi,
@@ -399,6 +403,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             _launchActions.Changed += QueueStatePublication;
         }
 
+        if (_gameTools is not null)
+        {
+            _gameTools.Changed += QueueStatePublication;
+        }
+
         if (_libraryManager is not null)
         {
             _libraryManager.Changed += QueueStatePublication;
@@ -506,6 +515,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         if (_launchActions is not null)
         {
             _launchActions.Changed -= QueueStatePublication;
+        }
+
+        if (_gameTools is not null)
+        {
+            _gameTools.Changed -= QueueStatePublication;
         }
 
         if (_libraryManager is not null)
@@ -1206,6 +1220,11 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
             modules.Add(SteamLaunchActionsSurface.Module(HostSteamUiEnabled, launchActions));
         }
 
+        if (_gameTools is { } gameTools)
+        {
+            modules.Add(SteamGameToolsSurface.Module(HostSteamUiEnabled, gameTools));
+        }
+
         if (_libraryManager is { } libraryManager)
         {
             modules.Add(SteamCardManagerSurface.Module(
@@ -1215,7 +1234,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
         }
 
         if (_libraryImport is not null || _artwork is not null || _emulators is not null || _launchActions is not null
-            || _screensavers is not null)
+            || _gameTools is not null || _screensavers is not null)
         {
             modules.Add(SteamFilePickerSurface.Module(HostSteamUiEnabled));
         }
@@ -1426,6 +1445,15 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 SteamEmulatorSurface.Route,
                 "Emulator Manager",
                 Template: SteamEmulatorSurface.Template));
+        }
+
+        if (_gameTools is not null)
+        {
+            pages.Add(new SteamPage(
+                SteamGameToolsSurface.PageId,
+                SteamGameToolsSurface.Route,
+                SteamGameToolsSurface.Title,
+                Template: SteamGameToolsSurface.Template));
         }
 
         if (_libraryManager is { } libraryManager)
@@ -1726,7 +1754,7 @@ internal sealed class SteamUiSessionHost : IAsyncDisposable
                 SteamPageSurface.PatchId or SteamExtensionsTabSurface.PatchId
                     or SteamGameContextMenuSurface.PatchId or SteamPowerMenuSurface.PatchId
                     or SteamArtworkBrowserSurface.PatchId
-                    or SteamLaunchActionsSurface.PatchId
+                    or SteamLaunchActionsSurface.PatchId or SteamGameToolsSurface.PatchId
                     or SteamCardManagerSurface.PatchId or SteamLibraryTabsSurface.PatchId
                     or SteamLibraryImportSurface.PatchId or SteamEmulatorSurface.PatchId
                     or SteamWsgmSettingsSurface.PatchId

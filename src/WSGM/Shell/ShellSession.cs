@@ -96,6 +96,7 @@ public sealed partial class ShellSession
     private BuiltinGpuService? _builtinGpu;
     private ScaledResolutionService? _scaledResolutions;
     private LaunchActionService? _launchActions;
+    private GameToolsService? _gameTools;
     private LibraryManagerService? _libraryManager;
     private CardAcfWatcher? _cardAcfWatcher;
     private CardVolumeMonitor? _cardVolumes;
@@ -1037,6 +1038,9 @@ public sealed partial class ShellSession
 
         _launchActions ??= new LaunchActionService(_store, () => _steamClient,
             () => _config.SteamInputManagementEnabled);
+        // Steam's running AppID is extra evidence only; the exact process-path check stays authoritative.
+        _gameTools ??= new GameToolsService(_store.Context, () => _steamClient,
+            appId => _runningApplications?.Current.SteamAppId is { } running ? running == appId : null);
         _emulatorTool?.AttachSteamShortcuts(_libraryImportState, CreateSteamShortcutWriter,
             ReadShortcutsAsync, ReadShortcutAsync, () => _config.SteamInputManagementEnabled,
             () => _steamUiReadiness.IsReady, async (definition, appId, token) =>
@@ -1221,7 +1225,8 @@ public sealed partial class ShellSession
                 _libraryManager,
                 Notes: _notes,
                 Screensavers: _screensavers,
-                Browser: _browser),
+                Browser: _browser,
+                GameTools: _gameTools),
             _audio,
             _audioProfiles,
             _radios,
@@ -1471,6 +1476,7 @@ public sealed partial class ShellSession
                     Notes = _notes,
                     Screensavers = _screensavers,
                     LaunchActions = _launchActions,
+                    GameTools = _gameTools,
                     ScaledResolutions = _scaledResolutions,
                     WsgmSettings = _wsgmSettings,
                     CpuBoost = _applicationProfiles.CpuBoostAvailable

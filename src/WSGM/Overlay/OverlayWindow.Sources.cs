@@ -235,6 +235,13 @@ public partial class OverlayWindow
     }
 
 
+    /// <summary>Gives the Game Tools page this session's owner, or none.</summary>
+    /// <param name="gameTools">The shared Game Tools service, or null in overlay-test and when the window closes.</param>
+    internal void AttachGameTools(GameToolsService? gameTools)
+    {
+        GameToolsHost.Attach(gameTools);
+    }
+
     internal void AttachArtwork(SteamArtworkBrowserSource? artwork)
     {
         ArtworkHost.Attach(artwork);

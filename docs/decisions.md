@@ -213,9 +213,9 @@ Performance section and Steam's Performance tab and needs no device plugin.
 
 **AutoTDP has its own target frame rate (2026-10-29).** AutoTDP used to take its deadline from the
 active RTSS frame limit, so it could not run without one, and its Quick Access switch vanished
-whenever no limit was active. It now aims for its own per-game target, a slider under the switch
-on the Overlay, in Quick Access and on Steam's Power page. A lower active frame limit wins, because
-a capped game cannot reach a higher target. Details are in
+whenever no limit was active. It now aims for its own per-game target, a slider under the switch on
+the Overlay, in Quick Access and on Steam's Power page. A lower active frame limit wins, because a
+capped game cannot reach a higher target. Details are in
 [AutoTDP](autotdp-controller.md#the-service).
 
 **Four display modes became two, and the old Off became Default.** Off, DPI-only and automatic
@@ -315,6 +315,18 @@ as an ordinary unticked choice. A drive letter never identifies a card; a card i
 or Steam marker content id read through its volume GUID, and a literal path is bound per shortcut to
 the card it was found on. Repair library and Use this card are immediate commands rather than staged
 Apply actions. See [shortcut availability](game-library.md#shortcut-availability).
+
+**Game Tools is a routed page backed by one WSGM-owned manifest (2026-10-30).** Issue #218 adds
+per-game tools, starting with OptiScaler. The game menu's "Game Tools…" opens a routed Big Picture
+page rather than a nested menu, because a tool needs the detected program, upscalers, anti-cheat,
+versions, a proxy name and settings in one view; the Overlay has the same page over the same
+service. OptiScaler is downloaded from its upstream GitHub release when the user installs it, with
+its published digest required, and WSGM never redistributes it. WSGM states it is not affiliated
+with OptiScaler. Every change is a journaled transaction recorded in WSGM's own `game-tools.json`:
+WSGM removes only files it wrote and whose hash still matches, restores what it backed up, and
+refuses any file it cannot classify, including another mod or a copy of the tool installed outside
+WSGM, which only an explicit, confirmed replacement may take over. Install waits for an explicit
+acknowledgement when anti-cheat is found. See [Game Tools](game-tools.md).
 
 **WSGM writes Steam shortcuts through the running client (2026-09-22).** This reverses the rule
 recorded after the September 2026 launcher trials, when CEF shortcut-management calls destabilized a

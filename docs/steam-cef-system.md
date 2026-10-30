@@ -336,7 +336,7 @@ while the session runs.
 | Layout and folds                   | `SteamQuickAccessLayoutSurface` publishes `NativeQamLayout.Layout`; `SteamPanelFoldsSurface` uses `SteamPanelFoldsBackend`.                                                                                                                                              |
 | Native Settings and graphics       | `SteamNativeSettingsSurface` uses `SteamNativeSettingsService`; the optional graphics owner also publishes `SteamSettingsQuickAccessRow` through `SteamGraphicsService`.                                                                                                 |
 | Library presentation               | `SteamLibraryBadgeSurface` publishes `LibraryBadges.Current`, with the game-page details patch in the same module; `SteamHomeCarouselSurface` projects the same reading through `HomeCarousel`.                                                                          |
-| Product pages                      | One `SteamPageSurface` merges all routes. Available artwork, library-import, settings, themes and animations services contribute their own WSGM renderer modules; the file picker is added with artwork or library import.                                               |
+| Product pages                      | One `SteamPageSurface` merges all routes. Available artwork, library-import, Game Tools, settings, themes and animations services contribute their own WSGM renderer modules; the file picker is added with artwork, library import or Game Tools.                       |
 | Navigation and actions             | WSGM settings adds `SteamNavigationPanelSurface`; `SteamExtensionsTabSurface` and `SteamGameContextMenuSurface` always have WSGM's own content; optional `SteamPowerMenuSurface` hands Switch to Desktop to its host backend.                                            |
 | Presentation assets                | Theme styles follow `ThemeService.Enabled`; sound overrides read `SoundPackService` and report decoder status; glyph-style is a separate MainWindow patch.                                                                                                               |
 | Other resident hooks               | Download sort has its own switch. Controller capabilities are registered for the session; guide-chord reset is registered when its mirror exists. Their publication policy follows host surfaces, while their patch ids take the default QAM switch in `SetPatchStates`. |
@@ -799,6 +799,7 @@ answer at once and finish in the background.
 | `steam-ui.power-menu`        | `SteamPowerMenuBackend`             | its `Changed`, when the session mode changes | nothing                  |
 | `wsgm.artwork-browser`       | `SteamArtworkBrowserSource`         | its `Changed`                                | `ConfigurationChanged()` |
 | `wsgm.library-import`        | `GameLibraryService`                | its `Changed`, its artwork stage's `Changed` | reads `AppConfig` live   |
+| `wsgm.game-tools`            | `GameToolsService.ReadStateAsync`   | its `Changed`                                | nothing                  |
 | `wsgm.cards`                 | `LibraryManagerService`             | its `Changed`                                | `ConfigurationChanged()` |
 | `wsgm.library-tabs`          | `LibraryManagerService`             | its `Changed`                                | `ConfigurationChanged()` |
 | `steam-ui.file-picker`       | toolkit `SteamFilePickerSurface`    | nothing: commands only                       | nothing                  |
@@ -1387,20 +1388,22 @@ running client and recorded in [steam-cef.md](steam-cef.md).
   migration lands. The library badge made that move for #28 and the Home carousel was built on it.
 - The Extensions tab and selected-game context-menu surfaces are host-rendered. WSGM's own entries
   come first and are not conditional on a plugin existing: the tab carries the "Game Library" row
-  that opens the importer, and the game menu carries "Change Artwork…", with admitted common plugins
-  appended after, unable to claim a reserved id. The tab draws every row with Steam's own panel
-  pieces and fields (`PanelSection`, its rows, `DialogButton`, `ToggleField`, the dropdown and text
-  field) and has no fallback drawing of its own. The game menu uses Steam's native
-  `additionalActions` slot through the shared JSX owner. It validates the actual native class and
-  observes naturally returned collection-menu items across later reactive renders, without calling
-  native methods eagerly or depending on the first render or a private factory's source location.
-  Competing handles and malformed native returns refuse the extension and preserve native behavior.
-  Toolkit sizing applies to its layout boxes, preserving Valve's slider internals. Cards use the
-  host's existing horizontal inset: adding another card margin squeezed native fields below their
-  minimum width and let sliders and dropdowns overflow. Both host pages are served on host-owned
-  routes: `wsgm.artwork-browser` and `wsgm.library-import`. Regression checks cover those seams;
-  live visual acceptance remains open. Completing a live 1:1 comparison of the artwork page with
-  Decky SteamGridDB remains an acceptance task.
+  that opens the importer, and the game menu carries "Change Artwork…", Launch Actions and "Game
+  Tools…", with admitted common plugins appended after, unable to claim a reserved id. The tab draws
+  every row with Steam's own panel pieces and fields (`PanelSection`, its rows, `DialogButton`,
+  `ToggleField`, the dropdown and text field) and has no fallback drawing of its own. The game menu
+  uses Steam's native `additionalActions` slot through the shared JSX owner. It validates the actual
+  native class and observes naturally returned collection-menu items across later reactive renders,
+  without calling native methods eagerly or depending on the first render or a private factory's
+  source location. Competing handles and malformed native returns refuse the extension and preserve
+  native behavior. Toolkit sizing applies to its layout boxes, preserving Valve's slider internals.
+  Cards use the host's existing horizontal inset: adding another card margin squeezed native fields
+  below their minimum width and let sliders and dropdowns overflow. Both host pages are served on
+  host-owned routes: `wsgm.artwork-browser` and `wsgm.library-import`. "Game Tools…" answers with
+  the route `/wsgm/game-tools/<appId>` of the host's `wsgm.game-tools` page; see
+  [Game Tools](game-tools.md). Regression checks cover those seams; live visual acceptance remains
+  open. Completing a live 1:1 comparison of the artwork page with Decky SteamGridDB remains an
+  acceptance task.
 
 Project MCP file output follows the client's advertised workspace roots. A client without roots can
 save captures in the temporary directory and copy them into the checkout.
