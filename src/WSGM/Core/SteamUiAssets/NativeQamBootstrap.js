@@ -10816,6 +10816,11 @@
     let syntheticKeys = [];
     // Access point id -> SSID for the networks this gate wrote, which Steam's backend has never seen.
     const syntheticSsids = new Map();
+    // One id per network for as long as it is listed. Steam's connecting dialog holds the entry it
+    // opened with and waits for that entry to report connected, so an entry must be updated in place
+    // under the same id, never recreated or renumbered when the list reorders.
+    const syntheticIds = new Map();
+    let nextSyntheticId = 990001;
     let latestJoin = null;
     const joinWaiters = new Set();
     // Steam publishes this singleton after its own module initialization. Requiring the module
@@ -10841,6 +10846,7 @@
       }
       syntheticKeys = [];
       syntheticSsids.clear();
+      syntheticIds.clear();
       if (refresh) {
         try {
           window.SteamClient?.System?.Network?.ForceRefresh?.();
@@ -10870,23 +10876,44 @@
       try {
         const device = JSON.parse(JSON.stringify(instance.m_WirelessDevice));
         if (!device.wireless) device.wireless = { aps: [], esecurity_supported: 0 };
-        const accessPoints = networks.map((network, index) => ({
-          id: 990001 + index,
-          esecurity: network.secured ? 16 : 0,
-          estrength: Math.max(1, Math.min(4, Number(network.strength) || 1)),
-          ssid: String(network.ssid || ""),
-          is_active: network.connected === true,
-          is_autoconnect: network.connected === true,
-          is_hidden: false,
-        }));
+        const listed = new Set();
+        const accessPoints = [];
+        for (const network of networks) {
+          const ssid = String(network.ssid || "");
+          // The host joins by name, so a second row with the same name is one network to Steam.
+          if (listed.has(ssid)) continue;
+          listed.add(ssid);
+          let id = syntheticIds.get(ssid);
+          if (id === undefined) {
+            id = nextSyntheticId++;
+            syntheticIds.set(ssid, id);
+          }
+          accessPoints.push({
+            id,
+            esecurity: network.secured ? 16 : 0,
+            estrength: Math.max(1, Math.min(4, Number(network.strength) || 1)),
+            ssid,
+            is_active: network.connected === true,
+            is_autoconnect: network.connected === true,
+            is_hidden: false,
+          });
+        }
+        for (const [ssid, id] of [...syntheticIds]) {
+          if (listed.has(ssid)) continue;
+          syntheticIds.delete(ssid);
+          instance.m_mapNetworkAccessPoints.delete(`${device.id}:${id}`);
+        }
         const keys = accessPoints.map((accessPoint) => `${device.id}:${accessPoint.id}`);
-        for (const key of [...syntheticKeys, ...keys])
-          instance.m_mapNetworkAccessPoints.delete(key);
+        // Keys from an earlier wireless device id belong to no listed network any more.
+        for (const key of syntheticKeys) {
+          if (!keys.includes(key)) instance.m_mapNetworkAccessPoints.delete(key);
+        }
         device.estate = networks.some((network) => network.connected === true) ? 5 : device.estate;
         device.wireless.aps = accessPoints;
         syntheticSsids.clear();
         accessPoints.forEach((accessPoint) => {
           syntheticSsids.set(accessPoint.id, accessPoint.ssid);
+          // The store updates an existing entry in place, which is what an open dialog observes.
           instance.SetDeviceInfo(device, accessPoint.id);
           const entry = instance.m_mapNetworkAccessPoints.get(`${device.id}:${accessPoint.id}`);
           if (entry) {

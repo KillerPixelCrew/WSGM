@@ -243,7 +243,13 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
             await NativeQamUi.RunAsync(() => operation = _radios.ConnectAsync(network, password))
                 .ConfigureAwait(false);
             joined = await operation!.ConfigureAwait(false);
-            if (!joined)
+            if (joined)
+            {
+                // Steam's connecting dialog closes only when the joined row reads connected, so the
+                // status is current before the outcome is published.
+                await _radios.RefreshWifiStatusAsync().ConfigureAwait(false);
+            }
+            else
             {
                 await NativeQamUi.RunAsync(() => error = _radios.StatusText).ConfigureAwait(false);
             }
