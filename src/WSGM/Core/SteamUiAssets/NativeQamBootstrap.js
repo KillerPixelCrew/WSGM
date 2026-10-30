@@ -10808,6 +10808,11 @@
       marker: "__steamUiOwnedNetworkConnect",
       original: "__steamUiOriginalNetworkConnect",
     };
+    const listing = {
+      marker: "__steamUiOwnedAccessPointList",
+      original: "__steamUiOriginalAccessPointList",
+    };
+    let listingTarget = null;
     // A Windows join waits up to 25 seconds for the WLAN verdict before the host publishes it.
     const joinTimeoutMilliseconds = 40000;
     let scanWrapped = false;
@@ -11000,6 +11005,29 @@
       connectClaimed = claim.ok;
       if (!claim.ok) lastError = claim.error;
     };
+    // Steam's Windows backend reports the connected access point of the wireless device without a
+    // name, which the page lists as a second connected network under the generic Wi-Fi label. While
+    // this gate feeds the networks, the page's list leaves out the wireless device's own entries;
+    // wired and other devices stay.
+    const claimListing = (proto) => {
+      const current = Object.getOwnPropertyDescriptor(proto, "accessPoints");
+      const displaced = claimed(current?.get, listing)
+        ? storedOriginal(current.get, listing)
+        : current;
+      const originalGet = displaced?.get;
+      if (typeof originalGet !== "function") return;
+      const claim = claimAccessor(proto, "accessPoints", listing, function () {
+        const all = originalGet.call(this);
+        const wirelessId = this?.m_WirelessDevice?.id;
+        if (syntheticSsids.size === 0 || wirelessId == null || !Array.isArray(all)) return all;
+        return all.filter(
+          (entry) =>
+            entry?.deviceId !== wirelessId || syntheticSsids.has(Number(entry?.deviceWapId)),
+        );
+      });
+      if (claim.ok) listingTarget = proto;
+      else lastError = claim.error;
+    };
     const install = () => {
       if (target) return { ok: true, alreadyInstalled: true };
       const instance = store();
@@ -11025,6 +11053,7 @@
       lastError = "";
       wrapScanning();
       wrapConnect(instance);
+      claimListing(proto);
       unsubscribe = subscribe(patchId, onState);
       return { ok: true, installed: true, available: instance[property] === true };
     };
@@ -11062,7 +11091,16 @@
       scanWrapped = started || stopped;
     };
     const remove = () => {
-      if (!target && !scanWrapped && !connectClaimed) return { ok: true, absent: true };
+      if (!target && !scanWrapped && !connectClaimed && !listingTarget)
+        return { ok: true, absent: true };
+      if (listingTarget) {
+        const released = releaseAccessor(listingTarget, "accessPoints", listing);
+        if (!released.ok) {
+          lastError = released.error ?? "network list release failed";
+          return { ok: false, error: lastError };
+        }
+        listingTarget = null;
+      }
       // Every claim goes back before anything is forgotten, so a failed release leaves the gate as
       // it was and the next remove retries what is left (a released claim answers ok again).
       if (scanWrapped) {
