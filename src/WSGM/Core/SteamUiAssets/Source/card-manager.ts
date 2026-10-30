@@ -13,29 +13,16 @@ const cardManagerStyles = `
 #wsgm-cards .wsgm-cards-state { font-size: 12px; font-weight: 600; white-space: nowrap; color: #8b929a; }
 #wsgm-cards .wsgm-cards-state[data-inserted="true"] { color: #a3dca3; }
 #wsgm-cards .wsgm-cards-detail { font-size: 13px; color: #8b929a; overflow-wrap: anywhere; }
-#wsgm-cards .wsgm-cards-meter { height: 6px; border-radius: 3px; background: rgba(255,255,255,.12); overflow: hidden; margin-top: 4px; }
-#wsgm-cards .wsgm-cards-meter > div { height: 100%; background: var(--gpSystemBlue, #1a9fff); }
+#wsgm-cards .wsgm-cards-row .steam-ui-kit-meter { margin-top: 4px; }
 #wsgm-cards .wsgm-cards-games { display: flex; flex-direction: column; }
 `;
-
-/**
- * Formats a byte count the way the overlay's card manager prints it.
- * @param bytes The count.
- * @returns Gigabytes with one decimal, or megabytes below one gigabyte.
- */
-const formatCardBytes = (bytes: number) => {
-  const gigabyte = 1024 * 1024 * 1024;
-  return bytes >= gigabyte
-    ? `${(bytes / gigabyte).toFixed(1).replace(/\.0$/, "")} GB`
-    : `${Math.round(bytes / (1024 * 1024))} MB`;
-};
 
 // What a card row says under its name: games, space with the last reading marked, tab and hidden state.
 const cardManagerDetail = (card) => {
   const bits = [`${card.gameCount} games`];
   if (card.hasCapacity) {
     bits.push(
-      `${formatCardBytes(card.freeBytes)} free of ${formatCardBytes(card.capacityBytes)}` +
+      `${wsgmFormatBytes(card.freeBytes)} free of ${wsgmFormatBytes(card.capacityBytes)}` +
         (card.inserted ? "" : " (last reading)"),
     );
   }
@@ -44,9 +31,8 @@ const cardManagerDetail = (card) => {
   return bits.join(" · ");
 };
 
-const cardManagerRow = (h, card) => {
-  const used = card.hasCapacity ? Math.max(0, card.capacityBytes - card.freeBytes) : 0;
-  const percent = card.hasCapacity ? Math.min(100, Math.round((used / card.capacityBytes) * 100)) : 0;
+const cardManagerRow = (react, card) => {
+  const h = react.createElement;
   return h(
     "div",
     { className: "wsgm-cards-row" },
@@ -58,7 +44,13 @@ const cardManagerRow = (h, card) => {
         card.inserted ? "Connected" : "Not connected"),
     ),
     h("div", { className: "wsgm-cards-detail" }, cardManagerDetail(card)),
-    card.hasCapacity ? h("div", { className: "wsgm-cards-meter" }, h("div", { style: { width: `${percent}%` } })) : null,
+    card.hasCapacity
+      ? renderSteamUiMeter(react, {
+          value: Math.max(0, card.capacityBytes - card.freeBytes),
+          max: card.capacityBytes,
+          usage: true,
+        })
+      : null,
   );
 };
 
@@ -99,7 +91,7 @@ function CardManagerList({ ui, state, returnTo, onOpen }: any) {
             onClick: () => onOpen(card.contentId),
             onOKActionDescription: "Manage",
           },
-          cardManagerRow(h, card),
+          cardManagerRow(ui.react, card),
         ),
       ),
     );
@@ -138,8 +130,8 @@ function CardManagerCard({ ui, state, card, onBack, onGames, onForgotten }: any)
   const busy = !!state.busy;
   const used = Math.max(0, card.capacityBytes - card.freeBytes);
   const space = card.hasCapacity
-    ? `${formatCardBytes(used)} used · ${formatCardBytes(card.freeBytes)} free · ` +
-      `${formatCardBytes(card.capacityBytes)} in all${card.inserted ? "" : " (last reading)"}`
+    ? `${wsgmFormatBytes(used)} used · ${wsgmFormatBytes(card.freeBytes)} free · ` +
+      `${wsgmFormatBytes(card.capacityBytes)} in all${card.inserted ? "" : " (last reading)"}`
     : "Not read yet; connect the card once.";
   const rows = [
     { key: "status", kind: "note", label: "Status", text: card.inserted ? "Connected" : "Not connected (remembered)" },

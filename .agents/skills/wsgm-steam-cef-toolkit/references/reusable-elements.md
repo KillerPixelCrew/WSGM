@@ -129,16 +129,16 @@ color editor stages changes and sends on Save; cancelling sends nothing.
 
 Everything around native fields comes from `ui-kit.ts`, rendered with the same resolved `ui`:
 
-| Need                        | Helpers                                                                                                     |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Styles and sections         | `steamUiKitStyle`, `renderSteamUiHeader`, `renderSteamUiGroup`.                                             |
-| Actions and pagination      | `renderSteamUiActions`, `renderSteamUiMore`.                                                                |
-| Page/focus levels           | `renderSteamUiPane`, `renderSteamUiLevel`, `renderSteamUiTabbedPage`, `renderSteamUiDetail`.                |
-| Color and empty/error state | `renderSteamUiSwatch`, `renderSteamUiEmpty`, `renderSteamUiBanner`.                                         |
-| Cards and media             | `renderSteamUiCard`, `renderSteamUiGrid`, `renderSteamUiGallery`, `renderSteamUiVideo`.                     |
-| Inline controls             | `renderSteamUiToolbar`, `renderSteamUiTool`, `renderSteamUiChips`, `renderSteamUiBox`.                      |
-| Glyphs                      | `renderSteamUiGlyph`, `SteamUiGlyphs`, `renderSteamGlyph` and the shared `icons.ts` vocabulary.             |
-| Dialogs                     | `showSteamUiConfirm`, `showSteamUiPrompt`, `showSteamModal`, `showSteamFilePicker`, `showSteamColorEditor`. |
+| Need                     | Helpers                                                                                                     |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| Styles and sections      | `steamUiKitStyle`, `renderSteamUiHeader`, `renderSteamUiGroup`.                                             |
+| Actions and pagination   | `renderSteamUiActions`, `renderSteamUiMore`.                                                                |
+| Page/focus levels        | `renderSteamUiPane`, `renderSteamUiLevel`, `renderSteamUiTabbedPage`, `renderSteamUiDetail`.                |
+| Color, meters and states | `renderSteamUiSwatch`, `renderSteamUiMeter`, `renderSteamUiEmpty`, `renderSteamUiBanner`.                   |
+| Cards and media          | `renderSteamUiCard`, `renderSteamUiGrid`, `renderSteamUiGallery`, `renderSteamUiVideo`.                     |
+| Inline controls          | `renderSteamUiToolbar`, `renderSteamUiTool`, `renderSteamUiChips`, `renderSteamUiBox`.                      |
+| Glyphs                   | `renderSteamUiGlyph`, `SteamUiGlyphs`, `renderSteamGlyph` and the shared `icons.ts` vocabulary.             |
+| Dialogs                  | `showSteamUiConfirm`, `showSteamUiPrompt`, `showSteamModal`, `showSteamFilePicker`, `showSteamColorEditor`. |
 
 Render `steamUiKitStyle(react)` once per consuming document root. Keep flat `steam-ui-kit-*`
 classes, Steam panel spacing/vocabulary, Focusable controller behavior and the `gpfocus` highlight.

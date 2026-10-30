@@ -17,9 +17,12 @@ code. The product decisions behind it are in [decisions.md](decisions.md#steam).
 | Catalog                      | `Core/GameTools/game-tools.json`, `GameToolCatalog.cs`                      | The embedded, validated tool definitions                                                                    |
 | Releases                     | `Core/GameTools/GameToolReleases.cs`, `GameToolVersions.cs`                 | Latest-release lookup, package cache, payload validation and version families                               |
 | Configuration edits          | `Core/GameTools/GameToolIni.cs`                                             | Editing existing keys of a tool's own INI file                                                              |
+| Admission                    | `Core/GameTools/GameToolAdmission.cs`                                       | Whether a request may start: settings, install preconditions, interrupted changes, the program choice       |
 | Transaction                  | `Core/GameTools/GameToolInstaller.cs`                                       | Planning, journaling, copying, rollback, rename, reconfigure and remove                                     |
-| Durable state                | `Core/GameTools/GameToolStore.cs`                                           | `game-tools.json`: remembered programs and per-tool manifests                                               |
-| Service                      | `Shell/GameToolsService.cs`                                                 | Scans, state for both surfaces, one mutation at a time, progress, running checks                            |
+| Recovery                     | `Core/GameTools/GameToolRecovery.cs`                                        | Rolling back interrupted transactions once the game is closed, and rebasing a moved game                    |
+| Running check                | `Core/GameTools/GameRunningCheck.cs`                                        | Whether the game is closed, failing closed, from the `IGameProcessProbe` answers the session supplies       |
+| Durable state                | `Core/GameTools/GameToolStore.cs`                                           | `game-tools.json`: remembered programs, identities and per-tool manifests                                   |
+| Service                      | `Shell/GameToolsService.cs`                                                 | Steam and process answers, scans, state for both surfaces, one mutation at a time, progress                 |
 | Steam page                   | `Shell/SteamGameToolsSurface.cs`, `Core/SteamUiAssets/Source/game-tools.ts` | The routed Big Picture page, its publication and commands                                                   |
 | Steam entry                  | `Shell/SteamGameContextMenuBackend.cs`                                      | The game menu's "Game Tools…" item                                                                          |
 | Overlay page                 | `Overlay/` Game Tools view, through `OverlaySources.GameTools`              | The same page in the Overlay, calling the service directly                                                  |
@@ -162,9 +165,10 @@ or ReScaleFrame is a new entry, plus whatever its install mode needs that the cu
 `GameToolInstaller` runs install, replace existing, update, repair, configure and remove as a
 recoverable transaction in the folder of the chosen program.
 
-1. **Refuse while running.** The service refuses when Steam reports the AppID running or when any
-   program in the target or install folder, or the chosen program, is running by full image path. An
-   unknown answer counts as running.
+1. **Refuse while running.** `GameRunningCheck` refuses when Steam reports the AppID running or when
+   any program in the target or install folder, or the chosen program, is running by full image
+   path. An unknown answer counts as running. The session supplies Steam's answer and the process
+   lookup through `IGameProcessProbe`, so the decision is testable without Shell.
 2. **Stage.** Download and extract outside the game folder. Cancelling here changes nothing in the
    game.
 3. **Plan.** Every target file is classified. Absent files are created. Files WSGM owns are replaced
@@ -237,9 +241,13 @@ manual install, removes them and installs as usual. A later Remove restores them
 
 ## Revalidation
 
-Every scan, including the one `open` starts, reconciles the store with the folder Steam reports now:
+Every scan of an existing folder, including the one `open` starts and the one each mutation runs
+first, reconciles the store with the folder Steam reports now through `GameToolRecovery`:
 
-- A `Pending` manifest left by a crash is rolled back.
+- A `Pending` manifest left by a crash is rolled back once the game is known to be closed; until
+  then it stays pending and the tool shows the interrupted state. A finished rollback is published
+  once as the game's notice. One that can't restore every file becomes `Failed` and waits for
+  Remove; one whose drive is disconnected stays pending for the next scan.
 - A different install root means the game moved library; manifests are rebased because their paths
   are relative.
 - A missing folder is `folderUnavailable` (an unplugged drive or card); nothing can be changed.

@@ -33,9 +33,20 @@ internal sealed record EmulatorProgressState(bool Busy, string Status);
 /// <summary>The emulator tool's commands, independent of library scans and Steam writes.</summary>
 internal interface IEmulatorBackend : IChangeSource
 {
+    /// <summary>
+    ///     Advances whenever <see cref="ReadPageState" />'s projection changes: catalogue, installations, BIOS,
+    ///     choices, dependencies or shortcut status. Progress alone never advances it.
+    /// </summary>
+    long CatalogRevision { get; }
+
     EmulatorSnapshot ReadState();
+
+    /// <summary>The page projection; its catalogue carries no busy state or status line.</summary>
     EmulatorPageState ReadPageState();
+
+    /// <summary>The manager's busy state and status line, published apart from the catalogue.</summary>
     EmulatorProgressState ReadProgressState();
+
     Task<SteamUiCommandResult> CancelAsync(CancellationToken cancellationToken);
     Task<SteamUiCommandResult> RefreshEmulatorsAsync(CancellationToken cancellationToken);
     Task<SteamUiCommandResult> SetBiosFolderAsync(string path, CancellationToken cancellationToken);
@@ -106,7 +117,9 @@ internal sealed class EmulatorService : IEmulatorBackend, IDisposable
         OnChanged();
     }
 
-    internal long CatalogRevision => Interlocked.Read(ref _catalogRevision);
+    /// <inheritdoc />
+    public long CatalogRevision => Interlocked.Read(ref _catalogRevision);
+
     internal long ProgressRevision => Interlocked.Read(ref _progressRevision);
     internal long ChoicesRevision => Interlocked.Read(ref _choicesRevision);
 

@@ -1723,23 +1723,34 @@ function LibraryImportPage({ context, page }: any) {
 
   // Every message stays visible: a refusal does not hide what the host says, and the other way round.
   const refusal = context.refusal();
+  const progressText =
+    state.phase === "applying"
+      ? `Saving ${state.progress ?? 0} of ${state.progressTotal ?? 0}…`
+      : state.phase === "scanning"
+        ? "Scanning…"
+        : "";
   const statusLines = [
     refusal ? { text: `The library could not be shown in full: ${refusal}`, error: true } : null,
     message,
     state.error ? { text: state.error, error: true } : null,
-    state.phase === "applying"
-      ? { text: `Saving ${state.progress ?? 0} of ${state.progressTotal ?? 0}…`, error: false }
-      : state.notice
-        ? { text: state.notice, error: false }
-        : null,
+    progressText ? { text: progressText, error: false } : state.notice ? { text: state.notice, error: false } : null,
     state.launcherDetail ? { text: state.launcherDetail, error: false } : null,
   ].filter((line) => line !== null) as { text: string; error: boolean }[];
+  // The Overlay shows the same phase line and bar: indeterminate while scanning, counted while saving.
   const status = h(
     "div",
     { className: "wsgm-import-status", role: "status" },
     ...statusLines.map((line, index) =>
       h("div", { key: index, className: line.error ? "wsgm-import-error" : undefined }, line.text),
     ),
+    progressText
+      ? renderSteamUiMeter(react, {
+          key: "progress",
+          value: state.progress ?? 0,
+          max: state.phase === "applying" ? (state.progressTotal ?? 0) : 0,
+          label: progressText,
+        })
+      : null,
   );
 
   const saveCount = state.selectedCount ?? 0;

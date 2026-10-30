@@ -22,6 +22,33 @@ internal sealed record GameToolTarget(uint AppId, string InstallRoot, string Run
 
     /// <summary>The target directory relative to the install root, or absolute outside it.</summary>
     internal string RelativeTargetDirectory => GameToolPaths.RelativeDirectory(InstallRoot, TargetDirectory);
+
+    /// <summary>The target a manifest was written for, resolved against the game's current install root.</summary>
+    /// <param name="appId">The game.</param>
+    /// <param name="installRoot">The game's current install root.</param>
+    /// <param name="manifest">The manifest; its paths are relative to the root.</param>
+    /// <returns>The target.</returns>
+    /// <remarks>
+    ///     Configure, remove, update, repair and recovery act where the tool is, never where the program chosen now
+    ///     sits.
+    /// </remarks>
+    internal static GameToolTarget FromManifest(uint appId, string installRoot, GameToolManifest manifest)
+    {
+        return new GameToolTarget(appId, installRoot, GameToolPaths.Resolve(installRoot, manifest.RuntimeExecutable),
+            manifest.Architecture, manifest.Engine);
+    }
+
+    /// <summary>The target a fresh install uses: beside the program the folder's resolution chose.</summary>
+    /// <param name="appId">The game.</param>
+    /// <param name="installRoot">The game's current install root.</param>
+    /// <param name="resolution">The folder's resolution, which names the engine.</param>
+    /// <param name="runtime">The chosen program.</param>
+    /// <returns>The target.</returns>
+    internal static GameToolTarget FromRuntime(uint appId, string installRoot, GameRuntimeResolution resolution,
+        GameRuntimeCandidate runtime)
+    {
+        return new GameToolTarget(appId, installRoot, runtime.FullPath, runtime.Architecture, resolution.Engine);
+    }
 }
 
 /// <summary>An unmanaged copy of the tool found in the target directory.</summary>
@@ -92,6 +119,14 @@ internal sealed class GameToolException(string message, Exception? inner = null)
 /// </remarks>
 internal sealed class GameToolInstaller(string userRoot)
 {
+    /// <summary>The notice for an operation stopped by Cancel.</summary>
+    /// <remarks>
+    ///     Cancellation is observed only while downloading, extracting and planning; once the first game file is about
+    ///     to change, the transaction completes or rolls back without looking at the token, so a cancelled operation has
+    ///     left the game folder as it was.
+    /// </remarks>
+    internal const string CancelledNotice = "Cancelled. Nothing in the game folder was changed.";
+
     /// <summary>Inspects the target directory without changing anything.</summary>
     /// <param name="tool">The tool.</param>
     /// <param name="targetDirectory">The absolute target directory.</param>
@@ -543,8 +578,8 @@ internal sealed class GameToolInstaller(string userRoot)
                 message += " Left in place because they changed since: " + string.Join(", ", changed) + ".";
             }
 
-            return new GameToolOutcome(undone ? GameToolStorage.Read(userRoot).Find(target.AppId)?.Tools
-                .FirstOrDefault(manifest => manifest.ToolId == tool.Id) : current, message);
+            return new GameToolOutcome(undone ? GameToolStorage.Read(userRoot).Find(target.AppId)?.Manifest(tool.Id)
+                : current, message);
         }
 
         List<GameToolOwnedFile> remaining = [];

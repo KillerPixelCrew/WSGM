@@ -50,7 +50,10 @@ ownership stay in the toolkit. Nine pages register with its `registerSteamPage`:
 
 Themes and Animations share `page-kit.ts`, which is no feature of its own: the command sender and
 the tabbed frame's tab switch and banner, which differ between them only by patch id. The two
-manager pages use its command sender too.
+manager pages use its command sender too. Its `wsgmFormatBytes` is the one byte formatter for every
+fragment, with the rule of the Overlay's `LibraryManagerService.FormatBytes`: binary units, from 1
+GiB gigabytes to one decimal with a trailing ".0" dropped, below that whole megabytes. A progress or
+capacity bar is the toolkit's `renderSteamUiMeter`, never a page's own track and fill.
 
 Five are gates of their own, registered with `registerGate`:
 
@@ -98,7 +101,7 @@ and `SteamLibraryTabsSurface`. Their service readings become publications; these
 through `registerSteamPage`, send their exact semantic commands back through the bridge, and let the
 service validate/save the result. One `SteamPageSurface` merges routes, so a page renderer does not
 claim the router independently. `page-kit.ts` shares the Themes and Animations command/tab/banner
-plumbing; it has no standalone route or backend.
+plumbing and the byte formatter; it has no standalone route or backend.
 
 Host pages follow CEF master enablement and remain available with custom Quick Access rows off.
 Sound packs have no renderer fragment here: the overlay owns their browser and preview, while the

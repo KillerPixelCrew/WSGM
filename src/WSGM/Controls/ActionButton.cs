@@ -40,6 +40,8 @@ public class ActionButton : Button
     private readonly PhysicalGlyphImage _glyph = new() { Width = 18, Height = 18 };
     private readonly TextBlock _hint = new() { VerticalAlignment = VerticalAlignment.Center };
 
+    private readonly StackPanel _labels = new() { Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
+
     private readonly Path _icon = new()
     {
         Width = 20, Stretch = Stretch.Uniform, StrokeThickness = 1.6,
@@ -59,9 +61,8 @@ public class ActionButton : Button
     public ActionButton()
     {
         Classes.Add("deck-action");
-        var labels = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
-        labels.Children.Add(_title);
-        labels.Children.Add(_description);
+        _labels.Children.Add(_title);
+        _labels.Children.Add(_description);
         var hints = new StackPanel
             { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
         hints.Children.Add(_pin);
@@ -69,8 +70,8 @@ public class ActionButton : Button
         hints.Children.Add(_hint);
         var layout = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto"), ColumnSpacing = 12 };
         layout.Children.Add(_icon);
-        Grid.SetColumn(labels, 1);
-        layout.Children.Add(labels);
+        Grid.SetColumn(_labels, 1);
+        layout.Children.Add(_labels);
         Grid.SetColumn(hints, 2);
         layout.Children.Add(hints);
         Content = layout;
@@ -113,6 +114,34 @@ public class ActionButton : Button
     {
         get => GetValue(IsPinnedProperty);
         set => SetValue(IsPinnedProperty, value);
+    }
+
+    /// <summary>
+    ///     An optional control under the description, inside the command's own surface, such as a capacity meter
+    ///     that belongs to this row; null removes it. The footer is presentation only and takes no focus.
+    /// </summary>
+    internal Control? Footer
+    {
+        get;
+        set
+        {
+            if (ReferenceEquals(field, value))
+            {
+                return;
+            }
+
+            if (field is not null)
+            {
+                _labels.Children.Remove(field);
+            }
+
+            field = value;
+            if (value is not null)
+            {
+                value.Focusable = false;
+                _labels.Children.Add(value);
+            }
+        }
     }
 
     /// <summary>Optional physical-controller render plan; null restores the textual activation hint.</summary>

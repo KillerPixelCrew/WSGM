@@ -102,7 +102,75 @@ public static class PreviewGameTools
             using var image = window.CaptureRenderedFrame() ??
                               throw new InvalidOperationException("No Game Tools preview was rendered.");
             image.Save(Path.Combine(directory, $"{scenario}-{width}x{height}.png"), new PngBitmapEncoderOptions());
+            if (scenario == "game-tools-busy")
+            {
+                VerifyProgressTick(window, source, directory, width, height);
+            }
+
             window.Close();
+        }
+    }
+
+    /// <summary>
+    ///     Publishes a download tick and then the operation's end, checking that the tick updates the progress
+    ///     element in place without drawing the page again and that the end does draw it again. The tick's frame is
+    ///     saved as <c>game-tools-busy-tick</c>.
+    /// </summary>
+    private static void VerifyProgressTick(Window window, FakeGameToolsSource source, string directory, int width,
+        int height)
+    {
+        var busy = source.State!;
+        var progress = Single<OverlayProgress>(window, "game.busy");
+        var cancel = Single<ActionButton>(window, "game.cancel");
+        // A redraw reconciles every retained row and clears an opacity its fresh copy did not set, so a marked
+        // opacity on the Back row survives only while the level is not drawn again.
+        var back = Single<ActionButton>(window, "game.back");
+        back.Opacity = 0.5;
+        var bar = progress.GetVisualDescendants().OfType<ProgressBar>().Single();
+
+        source.Publish(busy with { Busy = busy.Busy! with { Bytes = 25_165_824 } });
+        Dispatcher.UIThread.RunJobs();
+        Require(ReferenceEquals(progress, Single<OverlayProgress>(window, "game.busy")),
+            "The progress tick replaced the progress element.");
+        Require(ReferenceEquals(cancel, Single<ActionButton>(window, "game.cancel")),
+            "The progress tick replaced the Cancel row.");
+        Require(ReferenceEquals(back, Single<ActionButton>(window, "game.back")) && back.Opacity == 0.5,
+            "The progress tick redrew the page.");
+        Require(progress.State?.Text == "Downloading OptiScaler… · 24 MB of 30 MB",
+            "The progress tick did not update the phase line: " + progress.State?.Text);
+        Require(Math.Abs(bar.Value - 0.8) < 0.0001 && !bar.IsIndeterminate,
+            "The progress tick did not move the bar: " + bar.Value);
+        // The Back row sits below the fold in every captured viewport, so its marked opacity is not in the frame.
+        window.MouseMove(new Point(-20, -20));
+        using (var image = window.CaptureRenderedFrame()
+                           ?? throw new InvalidOperationException("No Game Tools tick preview was rendered."))
+        {
+            image.Save(Path.Combine(directory, $"game-tools-busy-tick-{width}x{height}.png"),
+                new PngBitmapEncoderOptions());
+        }
+
+        source.Publish(busy with { Busy = null });
+        Dispatcher.UIThread.RunJobs();
+        Require(Single<ActionButton>(window, "game.back").Opacity == 1,
+            "The operation's end did not redraw the page.");
+        Require(FocusSearch.First<ActionButton>(window, button => button.Title == "Install OptiScaler")?.IsEnabled == true,
+            "The operation's end left Install disabled.");
+        Require(!Single<OverlayProgress>(window, "game.busy").IsVisible,
+            "The progress element stayed visible after the operation ended.");
+    }
+
+    private static T Single<T>(Window window, string tag)
+        where T : Control
+    {
+        return window.GetVisualDescendants().OfType<T>().SingleOrDefault(control => Equals(control.Tag, tag))
+               ?? throw new InvalidOperationException("Preview control is missing: " + tag + ".");
+    }
+
+    private static void Require(bool condition, string failure)
+    {
+        if (!condition)
+        {
+            throw new InvalidOperationException(failure);
         }
     }
 
@@ -259,24 +327,31 @@ public static class PreviewGameTools
     }
 
     /// <summary>
-    ///     A Game Tools owner that publishes one seeded state and admits every command without doing anything,
-    ///     so the page draws exactly the case.
+    ///     A Game Tools owner that publishes a seeded state, and later states through <see cref="Publish" />, and
+    ///     admits every command without doing anything, so the page draws exactly the case.
     /// </summary>
     private sealed class FakeGameToolsSource(GameToolsState? state) : IGameToolsSource
     {
+        /// <summary>The state published now.</summary>
+        internal GameToolsState? State { get; private set; } = state;
+
         /// <inheritdoc />
-        public event Action? Changed
-        {
-            add { }
-            remove { }
-        }
+        public event Action? Changed;
 
         /// <inheritdoc />
         public GameToolsState Peek(uint appId)
         {
-            return state is not null && appId == state.AppId
-                ? state
+            return State is { } current && appId == current.AppId
+                ? current
                 : throw new InvalidOperationException("The preview has no state for game " + appId + ".");
+        }
+
+        /// <summary>Publishes a new state, as the service does after a change.</summary>
+        /// <param name="next">The state.</param>
+        internal void Publish(GameToolsState next)
+        {
+            State = next;
+            Changed?.Invoke();
         }
 
         /// <inheritdoc />

@@ -107,10 +107,39 @@ public sealed partial class GameToolsView
 
         body.Children.Add(Tagged(Row("Back", "Return to the game list", Icons.ArrowLeft, () => Back()),
             "game.back"));
-        SetContent(body);
+        SetGameContent(body, state, ProgressOf);
     }
 
-    private void AddProgress(StackPanel body, GameToolsState state)
+    /// <summary>
+    ///     Sets a level of the open game: download and phase ticks update its progress element in place, and only
+    ///     a structural change of the game's state redraws it.
+    /// </summary>
+    /// <param name="body">The level.</param>
+    /// <param name="state">The state the level was drawn from.</param>
+    /// <param name="progress">The level's progress element state, or null for a level without one.</param>
+    private void SetGameContent(StackPanel body, GameToolsState state,
+        Func<GameToolsState, OverlayProgressState?>? progress)
+    {
+        SetLiveContent(body, state, CurrentState, SameStructure, progress);
+    }
+
+    /// <summary>
+    ///     Whether two states of the game draw the same page apart from the running work's phase, amount and
+    ///     Cancel availability. Work starting, ending or changing operation is structural, because every action's
+    ///     enablement follows it.
+    /// </summary>
+    private static bool SameStructure(GameToolsState shown, GameToolsState next)
+    {
+        // The cached scan's lists keep their identity between publications; Peek re-projects only the tools.
+        return shown with { Busy = null, Tools = Array.Empty<GameToolsTool>() }
+               == next with { Busy = null, Tools = Array.Empty<GameToolsTool>() }
+               && shown.Busy?.Operation == next.Busy?.Operation
+               && (shown.Busy is null) == (next.Busy is null)
+               && shown.Tools.SequenceEqual(next.Tools);
+    }
+
+    /// <summary>The game page's progress element: the operation's phase and amount, or the folder scan.</summary>
+    private OverlayProgressState? ProgressOf(GameToolsState state)
     {
         if (state.Busy is { } busy)
         {
@@ -119,18 +148,21 @@ public sealed partial class GameToolsView
                 : busy.Total > 0
                     ? $" · {LibraryManagerService.FormatBytes(busy.Bytes)} of {LibraryManagerService.FormatBytes(busy.Total)}"
                     : $" · {LibraryManagerService.FormatBytes(busy.Bytes)}";
-            body.Children.Add(Tagged(Caption(busy.Phase + "…" + amount), "game.busy"));
-            if (busy.Cancellable)
-            {
-                body.Children.Add(Tagged(Row("Cancel", "Stop before any game file is changed", Icons.Close,
-                    () => RunTool((service, token) => service.CancelAsync(_appId, token), "cancel")), "game.cancel"));
-            }
-        }
-        else if (state.Loading)
-        {
-            body.Children.Add(Tagged(Caption("Scanning the game folder…"), "game.busy"));
+            var appId = state.AppId;
+            return new OverlayProgressState(busy.Phase + "…" + amount, true,
+                busy.Total > 0 ? (double)busy.Bytes / busy.Total : null,
+                busy.Cancellable
+                    ? new OverlayProgressCancel("Cancel", "Stop before any game file is changed",
+                        () => RunTool((service, token) => service.CancelAsync(appId, token), "cancel"))
+                    : null);
         }
 
+        return state.Loading ? new OverlayProgressState("Scanning the game folder…", true) : null;
+    }
+
+    private void AddProgress(StackPanel body, GameToolsState state)
+    {
+        body.Children.Add(new OverlayProgress("game.busy", ProgressOf(state), "game.cancel"));
         AddStatus(body, false, state.Error, state.Notice, "game.result");
     }
 
@@ -201,8 +233,10 @@ public sealed partial class GameToolsView
             : tool.LatestVersion is { } tag
                 ? "Latest " + tag
                 : tool.LatestError ?? "";
-        body.Children.Add(Tagged(Caption(string.Join(" · ",
-                new[] { tool.StatusText, versions, latest }.Where(part => part.Length > 0))),
+        // The status is a sentence; the version facts follow it as a list, as on the Steam page's status note.
+        var facts = string.Join(" · ", new[] { versions, latest }.Where(part => part.Length > 0));
+        body.Children.Add(Tagged(Caption(string.Join(" ",
+                new[] { tool.StatusText, facts }.Where(part => part.Length > 0))),
             key + ".status"));
         if (tool.IncompatibleReason is { Length: > 0 } incompatible)
         {
@@ -211,7 +245,7 @@ public sealed partial class GameToolsView
 
         foreach (var conflict in tool.Conflicts)
         {
-            body.Children.Add(Tagged(Caption($"{conflict.KindLabel}:{conflict.Path}. {conflict.Message}"),
+            body.Children.Add(Tagged(Caption($"{conflict.KindLabel}: {conflict.Path}. {conflict.Message}"),
                 key + ".conflict:" + conflict.Path));
         }
 
@@ -333,13 +367,13 @@ public sealed partial class GameToolsView
 
     private void RenderProxy(string toolId)
     {
-        if (CurrentState()?.Tools.FirstOrDefault(tool => tool.Id == toolId) is not { } tool)
+        // One read: the level registers the state it was drawn from, so a later change still redraws it.
+        if (CurrentState() is not { } state || state.Tools.FirstOrDefault(tool => tool.Id == toolId) is not { } tool)
         {
             Back();
             return;
         }
 
-        var state = CurrentState()!;
         var installed = tool.InstalledVersion is not null;
         var enabled = state.Busy is null && tool.CanEditOptions;
         var body = NewStack(tool.Name + " file name");
@@ -360,7 +394,7 @@ public sealed partial class GameToolsView
         }
 
         body.Children.Add(Tagged(Row("Back", "", Icons.ArrowLeft, () => Back()), "proxy.back"));
-        SetContent(body);
+        SetGameContent(body, state, null);
     }
 
     private void ChooseProxy(GameToolsTool tool, string name, bool installed)
@@ -424,7 +458,7 @@ public sealed partial class GameToolsView
         }
 
         body.Children.Add(Tagged(Row("Back", "", Icons.ArrowLeft, () => Back()), "candidates.back"));
-        SetContent(body);
+        SetGameContent(body, state, null);
     }
 
     private void ChooseRuntime(string path)

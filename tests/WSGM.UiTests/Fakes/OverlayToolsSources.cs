@@ -6,9 +6,26 @@ using WSGM.Shell;
 
 namespace WSGM.UiTests.Fakes;
 
+/// <summary>
+///     An emulator backend over a settable snapshot that publishes like <see cref="EmulatorService" />: one page
+///     projection per catalogue revision, while a busy or status change that leaves the catalogue alone keeps it.
+/// </summary>
 internal sealed class EmulatorOverlaySource : IEmulatorBackend
 {
-    internal EmulatorSnapshot State { get; set; } = new()
+    private EmulatorBiosState _bios = new(@"D:\Emulation\bios", true,
+    [
+        new EmulatorBiosSystem("psx", "PlayStation", "Verified", ["DuckStation", "RetroArch"],
+            [new EmulatorBiosFile("scph5501.bin", "Verified", "example checksum", false)],
+            ["DuckStation · BIOS → shared folder"]),
+        new EmulatorBiosSystem("ps2", "PlayStation 2", "Missing", ["PCSX2"],
+            [new EmulatorBiosFile("PS2 BIOS", "Missing", "", false)], []),
+        new EmulatorBiosSystem("saturn", "Sega Saturn", "Wrong file", ["RetroArch"],
+            [new EmulatorBiosFile("saturn_bios.bin", "Wrong file", "example checksum", false)], [])
+    ]);
+
+    private EmulatorPageState? _page;
+
+    private EmulatorSnapshot _state = new()
     {
         Definitions =
         [
@@ -20,21 +37,41 @@ internal sealed class EmulatorOverlaySource : IEmulatorBackend
         ]
     };
 
+    /// <summary>The manager's snapshot; a change outside its busy state and status line advances the revision.</summary>
+    internal EmulatorSnapshot State
+    {
+        get => _state;
+        set
+        {
+            if (value with { Busy = false, Status = "" } != _state with { Busy = false, Status = "" })
+            {
+                _page = null;
+                CatalogRevision++;
+            }
+
+            _state = value;
+        }
+    }
+
     internal List<string> Commands { get; } = [];
 
     internal TaskCompletionSource<string> CommandCompleted { get; } =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    internal EmulatorBiosState Bios { get; set; } = new(@"D:\Emulation\bios", true,
-    [
-        new EmulatorBiosSystem("psx", "PlayStation", "Verified", ["DuckStation", "RetroArch"],
-            [new EmulatorBiosFile("scph5501.bin", "Verified", "example checksum", false)],
-            ["DuckStation · BIOS → shared folder"]),
-        new EmulatorBiosSystem("ps2", "PlayStation 2", "Missing", ["PCSX2"],
-            [new EmulatorBiosFile("PS2 BIOS", "Missing", "", false)], []),
-        new EmulatorBiosSystem("saturn", "Sega Saturn", "Wrong file", ["RetroArch"],
-            [new EmulatorBiosFile("saturn_bios.bin", "Wrong file", "example checksum", false)], [])
-    ]);
+    /// <summary>The BIOS folder's state; replacing it advances the revision.</summary>
+    internal EmulatorBiosState Bios
+    {
+        get => _bios;
+        set
+        {
+            _bios = value;
+            _page = null;
+            CatalogRevision++;
+        }
+    }
+
+    /// <inheritdoc />
+    public long CatalogRevision { get; private set; }
 
     public event Action? Changed;
 
@@ -48,10 +85,23 @@ internal sealed class EmulatorOverlaySource : IEmulatorBackend
         return new EmulatorProgressState(State.Busy, State.Status);
     }
 
+    /// <summary>Publishes a new snapshot, as the manager does after a change.</summary>
+    /// <param name="next">The snapshot.</param>
+    internal void Publish(EmulatorSnapshot next)
+    {
+        State = next;
+        Changed?.Invoke();
+    }
+
     public EmulatorPageState ReadPageState()
     {
+        if (_page is { } page)
+        {
+            return page;
+        }
+
         var systems = RomProfiles.ForInstallations(State.Installations);
-        return new EmulatorPageState(State with { Busy = false, Status = "" }, systems,
+        return _page = new EmulatorPageState(State with { Busy = false, Status = "" }, systems,
             RomEmulatorProjection.Create(State, systems).Choices, [], "x64")
         {
             Bios = Bios,
@@ -603,7 +653,16 @@ internal sealed class FakeMoviesSource : IAnimationBrowseSession
 internal sealed class FakeArtworkSource : IArtworkBrowseSession
 {
     internal readonly List<string> Commands = [];
+    private int _gameRead;
     internal SteamArtworkBrowserState State = OverlayToolFixtures.Artwork;
+
+    /// <summary>
+    ///     The answers to the library reads, in order; the last one repeats. The default answers every read with
+    ///     one example game.
+    /// </summary>
+    internal Task<OverlayLibraryResult>[] GameReads { get; init; } =
+        [Task.FromResult(new OverlayLibraryResult([new SteamLibraryApp(42, "Example game")], null))];
+
     public event Action? Changed;
 
     public SteamArtworkBrowserState ReadState()
@@ -627,7 +686,7 @@ internal sealed class FakeArtworkSource : IArtworkBrowseSession
 
     public Task<OverlayLibraryResult> ReadGamesAsync()
     {
-        return Task.FromResult(new OverlayLibraryResult([new SteamLibraryApp(42, "Example game")], null));
+        return GameReads[Math.Min(_gameRead++, GameReads.Length - 1)];
     }
 
     public Task<SteamLogoPosition?> ReadLogoPositionAsync()

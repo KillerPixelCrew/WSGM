@@ -5814,6 +5814,9 @@
 .steam-ui-kit-highlight{color:#fca904}
 /* A native Settings page with host sections: the wrapper is the page's scrolling DialogBody, so Steam's own body inside it keeps its full height. */
 .steam-ui-kit-settings-body>.DialogBody{flex:none!important;overflow:visible!important;padding-inline-end:0!important;padding-bottom:0!important}
+.steam-ui-kit-meter{height:6px;min-width:0;border-radius:3px;background:rgba(255,255,255,.12);overflow:hidden}
+.steam-ui-kit-meter>div{height:100%;background:var(--gpSystemBlue,#1a9fff)}
+.steam-ui-kit-meter.indeterminate>div{width:100%;opacity:.45}
 .steam-ui-kit-swatch{width:20px;height:20px;border-radius:3px;border:1px solid rgba(255,255,255,.3);flex:0 0 auto}
 .steam-ui-kit-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px}
 .steam-ui-kit-card{display:flex;flex-direction:column;border-radius:4px;overflow:hidden;background:#ACB2C924;outline:2px solid transparent;transition:outline-color 150ms,background 150ms}
@@ -6233,6 +6236,35 @@
       role: label ? "img" : undefined,
       "aria-label": label || undefined,
     });
+  /**
+   * Creates a thin fill meter for an operation's progress or a capacity's use.
+   * @param react Steam's React instance used by the consuming root.
+   * @param props The amount and its whole, where a whole of zero or less draws the indeterminate
+   * track; `usage` marks a capacity reading rather than progress; `label` gives the meter an
+   * accessible name, and without one it is decorative because adjacent text states the amount.
+   * @returns The meter element; the fill is the rounded share, clamped to 0-100%.
+   */
+  const renderSteamUiMeter = (react, props) => {
+    const known = props.max > 0;
+    const named = !!props.label;
+    const percent = known
+      ? Math.min(100, Math.max(0, Math.round((props.value / props.max) * 100)))
+      : 0;
+    return react.createElement(
+      "div",
+      {
+        key: props.key,
+        className: `steam-ui-kit-meter${known ? "" : " indeterminate"}`,
+        role: named ? (props.usage ? "meter" : "progressbar") : undefined,
+        "aria-label": named ? props.label : undefined,
+        "aria-valuemin": named && known ? 0 : undefined,
+        "aria-valuemax": named && known ? 100 : undefined,
+        "aria-valuenow": named && known ? percent : undefined,
+        "aria-hidden": named ? undefined : "true",
+      },
+      react.createElement("div", { style: known ? { width: `${percent}%` } : undefined }),
+    );
+  };
   /**
    * Creates one activatable gallery card using Steam controller focus.
    * @param ui Steam's resolved React and native control components.
@@ -16904,27 +16936,15 @@
 #wsgm-cards .wsgm-cards-state { font-size: 12px; font-weight: 600; white-space: nowrap; color: #8b929a; }
 #wsgm-cards .wsgm-cards-state[data-inserted="true"] { color: #a3dca3; }
 #wsgm-cards .wsgm-cards-detail { font-size: 13px; color: #8b929a; overflow-wrap: anywhere; }
-#wsgm-cards .wsgm-cards-meter { height: 6px; border-radius: 3px; background: rgba(255,255,255,.12); overflow: hidden; margin-top: 4px; }
-#wsgm-cards .wsgm-cards-meter > div { height: 100%; background: var(--gpSystemBlue, #1a9fff); }
+#wsgm-cards .wsgm-cards-row .steam-ui-kit-meter { margin-top: 4px; }
 #wsgm-cards .wsgm-cards-games { display: flex; flex-direction: column; }
 `;
-  /**
-   * Formats a byte count the way the overlay's card manager prints it.
-   * @param bytes The count.
-   * @returns Gigabytes with one decimal, or megabytes below one gigabyte.
-   */
-  const formatCardBytes = (bytes) => {
-    const gigabyte = 1024 * 1024 * 1024;
-    return bytes >= gigabyte
-      ? `${(bytes / gigabyte).toFixed(1).replace(/\.0$/, "")} GB`
-      : `${Math.round(bytes / (1024 * 1024))} MB`;
-  };
   // What a card row says under its name: games, space with the last reading marked, tab and hidden state.
   const cardManagerDetail = (card) => {
     const bits = [`${card.gameCount} games`];
     if (card.hasCapacity) {
       bits.push(
-        `${formatCardBytes(card.freeBytes)} free of ${formatCardBytes(card.capacityBytes)}` +
+        `${wsgmFormatBytes(card.freeBytes)} free of ${wsgmFormatBytes(card.capacityBytes)}` +
           (card.inserted ? "" : " (last reading)"),
       );
     }
@@ -16932,11 +16952,8 @@
     if (card.hidden) bits.push("hidden");
     return bits.join(" · ");
   };
-  const cardManagerRow = (h, card) => {
-    const used = card.hasCapacity ? Math.max(0, card.capacityBytes - card.freeBytes) : 0;
-    const percent = card.hasCapacity
-      ? Math.min(100, Math.round((used / card.capacityBytes) * 100))
-      : 0;
+  const cardManagerRow = (react, card) => {
+    const h = react.createElement;
     return h(
       "div",
       { className: "wsgm-cards-row" },
@@ -16952,7 +16969,11 @@
       ),
       h("div", { className: "wsgm-cards-detail" }, cardManagerDetail(card)),
       card.hasCapacity
-        ? h("div", { className: "wsgm-cards-meter" }, h("div", { style: { width: `${percent}%` } }))
+        ? renderSteamUiMeter(react, {
+            value: Math.max(0, card.capacityBytes - card.freeBytes),
+            max: card.capacityBytes,
+            usage: true,
+          })
         : null,
     );
   };
@@ -16997,7 +17018,7 @@
               onClick: () => onOpen(card.contentId),
               onOKActionDescription: "Manage",
             },
-            cardManagerRow(h, card),
+            cardManagerRow(ui.react, card),
           ),
         ),
       );
@@ -17048,8 +17069,8 @@
     const busy = !!state.busy;
     const used = Math.max(0, card.capacityBytes - card.freeBytes);
     const space = card.hasCapacity
-      ? `${formatCardBytes(used)} used · ${formatCardBytes(card.freeBytes)} free · ` +
-        `${formatCardBytes(card.capacityBytes)} in all${card.inserted ? "" : " (last reading)"}`
+      ? `${wsgmFormatBytes(used)} used · ${wsgmFormatBytes(card.freeBytes)} free · ` +
+        `${wsgmFormatBytes(card.capacityBytes)} in all${card.inserted ? "" : " (last reading)"}`
       : "Not read yet; connect the card once.";
     const rows = [
       {
@@ -19186,6 +19207,10 @@
         progress.busy ? button("Stop operation", () => void emulatorAct("cancel"), false) : null,
         progress.status ? h("span", { role: "status" }, progress.status) : null,
       ),
+      // The manager reports phases, not amounts, so the bar is indeterminate, as in the Overlay.
+      progress.busy
+        ? renderSteamUiMeter(react, { value: 0, max: 0, label: progress.status || "Working…" })
+        : null,
       content,
     );
     return renderSteamUiLevel(
@@ -19211,9 +19236,6 @@
 #wsgm-game-tools { overflow-wrap: anywhere; }
 #wsgm-game-tools .wsgm-game-tools-busy { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: 3px; background: rgba(255,255,255,.06); }
 #wsgm-game-tools .wsgm-game-tools-busy-title { font-size: 15px; font-weight: 600; color: #fff; }
-#wsgm-game-tools .wsgm-game-tools-meter { height: 6px; border-radius: 3px; background: rgba(255,255,255,.12); overflow: hidden; }
-#wsgm-game-tools .wsgm-game-tools-meter > div { height: 100%; background: var(--gpSystemBlue, #1a9fff); }
-#wsgm-game-tools .wsgm-game-tools-meter[data-indeterminate="true"] > div { width: 100%; opacity: .45; }
 #wsgm-game-tools .wsgm-game-tools-list { display: flex; flex-direction: column; gap: 8px; }
 #wsgm-game-tools .wsgm-game-tools-list .DialogButton { width: 100%; min-width: 0; height: auto; padding: 10px 14px; }
 #wsgm-game-tools .wsgm-game-tools-tag { font-size: 12px; font-weight: 600; white-space: nowrap; color: #8b929a; }
@@ -19228,12 +19250,6 @@
     configure: "Saving settings",
     remove: "Removing",
   };
-  /**
-   * Formats a byte count for the download line.
-   * @param bytes The count.
-   * @returns Megabytes with one decimal.
-   */
-  const formatGameToolsBytes = (bytes) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   /**
    * Keeps a field description's separate facts on separate lines; a long path still wraps.
    * @param react Steam's React instance.
@@ -19254,32 +19270,23 @@
    */
   function GameToolsProgress({ ui, busy, onCancel }) {
     const h = ui.react.createElement;
-    const known = busy.total > 0;
-    const percent = known ? Math.min(100, Math.round((busy.bytes / busy.total) * 100)) : 0;
+    const title = `${gameToolsOperations[busy.operation] ?? "Working"}…`;
     const amount =
       busy.bytes > 0
-        ? known
-          ? `${formatGameToolsBytes(busy.bytes)} of ${formatGameToolsBytes(busy.total)}`
-          : formatGameToolsBytes(busy.bytes)
+        ? busy.total > 0
+          ? `${wsgmFormatBytes(busy.bytes)} of ${wsgmFormatBytes(busy.total)}`
+          : wsgmFormatBytes(busy.bytes)
         : "";
     return h(
       "div",
       { className: "wsgm-game-tools-busy", role: "status" },
-      h(
-        "div",
-        { className: "wsgm-game-tools-busy-title" },
-        `${gameToolsOperations[busy.operation] ?? "Working"}…`,
-      ),
+      h("div", { className: "wsgm-game-tools-busy-title" }, title),
       h(
         "div",
         { className: "steam-ui-kit-muted" },
         [busy.phase, amount].filter(Boolean).join(" · "),
       ),
-      h(
-        "div",
-        { className: "wsgm-game-tools-meter", "data-indeterminate": known ? "false" : "true" },
-        h("div", { style: known ? { width: `${percent}%` } : undefined }),
-      ),
+      renderSteamUiMeter(ui.react, { value: busy.bytes, max: busy.total, label: title }),
       busy.cancellable
         ? renderSteamUiActions(ui, [{ id: "cancel", label: "Cancel", onClick: onCancel }], {
             compact: true,
@@ -21908,17 +21915,24 @@
     );
     // Every message stays visible: a refusal does not hide what the host says, and the other way round.
     const refusal = context.refusal();
+    const progressText =
+      state.phase === "applying"
+        ? `Saving ${state.progress ?? 0} of ${state.progressTotal ?? 0}…`
+        : state.phase === "scanning"
+          ? "Scanning…"
+          : "";
     const statusLines = [
       refusal ? { text: `The library could not be shown in full: ${refusal}`, error: true } : null,
       message,
       state.error ? { text: state.error, error: true } : null,
-      state.phase === "applying"
-        ? { text: `Saving ${state.progress ?? 0} of ${state.progressTotal ?? 0}…`, error: false }
+      progressText
+        ? { text: progressText, error: false }
         : state.notice
           ? { text: state.notice, error: false }
           : null,
       state.launcherDetail ? { text: state.launcherDetail, error: false } : null,
     ].filter((line) => line !== null);
+    // The Overlay shows the same phase line and bar: indeterminate while scanning, counted while saving.
     const status = h(
       "div",
       { className: "wsgm-import-status", role: "status" },
@@ -21929,6 +21943,14 @@
           line.text,
         ),
       ),
+      progressText
+        ? renderSteamUiMeter(react, {
+            key: "progress",
+            value: state.progress ?? 0,
+            max: state.phase === "applying" ? (state.progressTotal ?? 0) : 0,
+            label: progressText,
+          })
+        : null,
     );
     const saveCount = state.selectedCount ?? 0;
     const saveButton = h(
@@ -25092,6 +25114,20 @@
         ? { text: banner, error: !!state.error, onDismiss: () => void act("dismiss") }
         : null,
     };
+  }
+  /**
+   * Formats a byte count exactly as the Overlay's LibraryManagerService.FormatBytes does, so a size or
+   * download amount reads the same on both surfaces. Units are binary: from one gibibyte (1024^3
+   * bytes) up it is gigabytes rounded to one decimal with a trailing ".0" dropped, and below that it
+   * is whole megabytes (1024^2 bytes), rounded to the nearest.
+   * @param bytes The non-negative byte count.
+   * @returns The count with its unit, such as "512 MB", "1 GB" or "14.6 GB".
+   */
+  function wsgmFormatBytes(bytes) {
+    const gigabyte = 1024 * 1024 * 1024;
+    return bytes >= gigabyte
+      ? `${(bytes / gigabyte).toFixed(1).replace(/\.0$/, "")} GB`
+      : `${Math.round(bytes / (1024 * 1024))} MB`;
   }
   // @fragment consumer/sounds.ts
   // UI sounds frontend; SoundPackService owns the library, the store, the choice and the previews.

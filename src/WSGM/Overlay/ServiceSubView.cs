@@ -21,8 +21,14 @@ namespace WSGM.Overlay;
 ///     keeps focus on the row the user was on through that redraw, and runs the service's commands
 ///     with their refusal shown as a toast. The Game Library and Themes views are two of these.
 /// </summary>
+/// <remarks>
+///     A level that shows running work registers it with <see cref="SetLiveContent{TState}" />. A publication that
+///     leaves the level's structure unchanged then updates its <see cref="OverlayProgress" /> element in place instead
+///     of running the level again; only a structural change redraws it.
+/// </remarks>
 public abstract class ServiceSubView : OverlaySubView
 {
+    private LiveLevel? _live;
     private OverlayWindow? _owner;
     private int _refreshQueued;
     private bool _renderDeferred;
@@ -91,9 +97,65 @@ public abstract class ServiceSubView : OverlaySubView
         }
     }
 
+    /// <summary>
+    ///     Sets a level whose service state is partly live: later publications with the same structure update the
+    ///     level's <see cref="OverlayProgress" /> element in place, and any other publication redraws the level.
+    /// </summary>
+    /// <typeparam name="TState">The service state the level was drawn from.</typeparam>
+    /// <param name="stack">The level.</param>
+    /// <param name="rendered">
+    ///     The state the level was drawn from, read before drawing it, so a change published during the draw still
+    ///     counts as a change.
+    /// </param>
+    /// <param name="read">Reads the service's current state on the UI thread; null redraws the level.</param>
+    /// <param name="sameStructure">
+    ///     Whether two states draw the same level apart from its live progress: the same rows, actions,
+    ///     availability, enablement and messages.
+    /// </param>
+    /// <param name="progress">
+    ///     The live progress element's state, or null for a level without one; its publications then change nothing
+    ///     until the structure does.
+    /// </param>
+    /// <remarks>
+    ///     The level draws at most one <see cref="OverlayProgress" />, mounted even while hidden so that work which
+    ///     starts without a structural change can still be shown. Live updates also run behind an in-window surface,
+    ///     since they replace no control and move no focus.
+    /// </remarks>
+    private protected void SetLiveContent<TState>(StackPanel stack, TState rendered, Func<TState?> read,
+        Func<TState, TState, bool> sameStructure, Func<TState, OverlayProgressState?>? progress)
+        where TState : class
+    {
+        SetContent(stack);
+        if (CurrentLevel is not { } level)
+        {
+            return;
+        }
+
+        var element = Content is Control root
+            ? root.GetLogicalDescendants().OfType<OverlayProgress>().FirstOrDefault()
+            : null;
+        _live = new LiveLevel<TState>(level, NavigationGeneration, element, rendered, read, sameStructure, progress);
+    }
+
+    /// <summary>Sets a level that shows no service state, so the service's publications leave it as drawn.</summary>
+    /// <param name="stack">The level.</param>
+    private protected void SetStaticContent(StackPanel stack)
+    {
+        SetLiveContent(stack, stack, () => stack, static (_, _) => true, null);
+    }
+
+    /// <inheritdoc />
+    internal override void Leave()
+    {
+        _live = null;
+        base.Leave();
+    }
+
     /// <inheritdoc />
     private protected override void SetContent(StackPanel stack)
     {
+        // Every draw replaces the previous level's registration; a live level registers again after this.
+        _live = null;
         if (_renderGeneration != NavigationGeneration || Content is not Control old)
         {
             _renderGeneration = NavigationGeneration;
@@ -221,9 +283,12 @@ public abstract class ServiceSubView : OverlaySubView
         }
     }
 
-    /// <summary>A level's status: working, then the error, else the notice.</summary>
+    /// <summary>A level's status: the shared progress element while working, then the error, else the notice.</summary>
     /// <param name="stack">The level.</param>
-    /// <param name="busy">Whether the service is working.</param>
+    /// <param name="busy">
+    ///     Whether the service is working; it then shows an indeterminate <see cref="OverlayProgress" />, the same
+    ///     element a level with measured progress shows.
+    /// </param>
     /// <param name="error">The last refusal, or null.</param>
     /// <param name="notice">A line worth reading, or null.</param>
     /// <param name="tag">The error or notice line's stable tag, or null to leave it untagged.</param>
@@ -232,7 +297,7 @@ public abstract class ServiceSubView : OverlaySubView
     {
         if (busy)
         {
-            stack.Children.Add(Caption("Working…"));
+            stack.Children.Add(new OverlayProgress("status.progress", new OverlayProgressState("Working…", true)));
         }
 
         var message = error is { Length: > 0 } ? error : notice is { Length: > 0 } ? notice : null;
@@ -424,7 +489,8 @@ public abstract class ServiceSubView : OverlaySubView
             body.Children.Add(Tagged(
                 DangerRow("Confirm", "", Icons.Close, () => _ = RunSafelyAsync(CommitAsync(), "confirm")),
                 "confirm.accept"));
-            SetContent(body);
+            // The question is fixed text: a publication while it is open must not redraw it under the user.
+            SetStaticContent(body);
         });
         return;
 
@@ -464,6 +530,11 @@ public abstract class ServiceSubView : OverlaySubView
             Interlocked.Exchange(ref _refreshQueued, 0);
             if (_source is not null && IsEffectivelyVisible && RedrawsOnSourceChange)
             {
+                if (_live is { } live && live.TryUpdate(this))
+                {
+                    return;
+                }
+
                 if (_owner?.HasActiveSurface == true)
                 {
                     _renderDeferred = true;
@@ -474,6 +545,55 @@ public abstract class ServiceSubView : OverlaySubView
                 }
             }
         }, DispatcherPriority.Background);
+    }
+
+    /// <summary>A registered live level: what it was drawn from and how its progress element follows the service.</summary>
+    private abstract class LiveLevel
+    {
+        /// <summary>Applies a publication in place when the level's structure is unchanged.</summary>
+        /// <param name="view">The view that registered the level.</param>
+        /// <returns>True when the level needs no redraw; false when the caller must redraw it.</returns>
+        internal abstract bool TryUpdate(ServiceSubView view);
+    }
+
+    /// <summary>A live level over one kind of service state.</summary>
+    /// <typeparam name="TState">The service state the level was drawn from.</typeparam>
+    private sealed class LiveLevel<TState>(
+        Action level,
+        int generation,
+        OverlayProgress? element,
+        TState shown,
+        Func<TState?> read,
+        Func<TState, TState, bool> sameStructure,
+        Func<TState, OverlayProgressState?>? progress) : LiveLevel
+        where TState : class
+    {
+        private TState _shown = shown;
+
+        /// <inheritdoc />
+        internal override bool TryUpdate(ServiceSubView view)
+        {
+            if (generation != view.NavigationGeneration || !ReferenceEquals(level, view.CurrentLevel)
+                                                        || read() is not { } next
+                                                        || !sameStructure(_shown, next))
+            {
+                return false;
+            }
+
+            if (progress is not null)
+            {
+                // A progress element that left the tree falls back to a redraw, which registers the mounted one.
+                if (element is null || !view.IsLogicalAncestorOf(element))
+                {
+                    return false;
+                }
+
+                element.Apply(progress(next));
+            }
+
+            _shown = next;
+            return true;
+        }
     }
 
     /// <summary>A view's Steam library list: the games read last, the search and how many rows are shown.</summary>

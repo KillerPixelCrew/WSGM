@@ -266,7 +266,10 @@ function ImportEmulatorPage({ state, status, onBack }: any) {
       canBack ? button("Back",back,false) : null,
       button("Check for updates",()=>void emulatorAct("refreshEmulators")),
       progress.busy ? button("Stop operation",()=>void emulatorAct("cancel"),false) : null,
-      progress.status ? h("span",{role:"status"},progress.status) : null),content);
+      progress.status ? h("span",{role:"status"},progress.status) : null),
+    // The manager reports phases, not amounts, so the bar is indeterminate, as in the Overlay.
+    progress.busy ? renderSteamUiMeter(react,{value:0,max:0,label:progress.status || "Working…"}) : null,
+    content);
   return renderSteamUiLevel(importUi,{className:"wsgm-emu-content",onBack:canBack ? back : undefined},
     h("style",{},emulatorStyles),steamUiKitStyle(react),h(importUi.tabs,{
       autoFocusContents:true,activeTab:tab,onShowTab:selectTab,

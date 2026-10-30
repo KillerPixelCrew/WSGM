@@ -9,17 +9,19 @@ public sealed partial class EmulatorManagerView
 {
     private void RenderBios()
     {
-        var page = _service?.ReadPageState();
-        var snapshot = _service?.ReadState();
-        if (page is null || snapshot is null)
+        var shown = ReadShown();
+        if (shown is null)
         {
             RenderMessage("BIOS & firmware", "Emulator information is not available in this session.");
             return;
         }
 
+        var page = shown.Page;
+        var snapshot = shown.Snapshot;
+
         var body = NewStack("BIOS & firmware");
         body.Children.Add(ManagerTabs(snapshot, "bios"));
-        AddEmulatorStatus(body, snapshot);
+        AddEmulatorStatus(body, shown);
         body.Children.Add(Caption("BIOS folder · " + page.Bios.Folder));
         body.Children.Add(
             Caption("EmuDeck layout · MD5 checked against retrobios. Unhashed files are marked Present."));
@@ -87,7 +89,7 @@ public sealed partial class EmulatorManagerView
             }
         }
 
-        SetContent(body);
+        SetEmulatorContent(body, shown);
     }
 
     private async Task ChooseFolder()

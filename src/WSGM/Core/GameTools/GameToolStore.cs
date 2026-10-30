@@ -210,6 +210,36 @@ internal sealed record GameToolRecord
 
     /// <summary>Installed tools.</summary>
     public List<GameToolManifest> Tools { get; init; } = [];
+
+    /// <summary>Finds a tool's manifest.</summary>
+    /// <param name="toolId">The tool id.</param>
+    /// <returns>The manifest, or null when WSGM has not installed the tool for this game.</returns>
+    internal GameToolManifest? Manifest(string toolId)
+    {
+        return Tools.FirstOrDefault(manifest => manifest.ToolId == toolId);
+    }
+
+    /// <summary>Every file the manifests own below the install root, so folder scans can leave them out.</summary>
+    /// <param name="root">The game's current install root.</param>
+    /// <returns>Forward-slash paths relative to the root, compared ignoring case.</returns>
+    internal HashSet<string> OwnedPaths(string root)
+    {
+        HashSet<string> owned = new(StringComparer.OrdinalIgnoreCase);
+        foreach (var manifest in Tools)
+        {
+            var directory = GameToolPaths.Resolve(root, manifest.TargetDirectory);
+            foreach (var file in manifest.Files)
+            {
+                var full = GameToolPaths.Resolve(directory, file.RelativePath);
+                if (StoragePaths.IsUnder(root, full))
+                {
+                    owned.Add(GameToolPattern.Normalize(Path.GetRelativePath(root, full)));
+                }
+            }
+        }
+
+        return owned;
+    }
 }
 
 /// <summary>The durable Game Tools state.</summary>
@@ -349,6 +379,34 @@ internal static class GameToolStorage
                 Tools = [.. current.Tools.Select(manifest => manifest with { InstallRoot = root })]
             })
             : store).Find(appId);
+    }
+
+    /// <summary>Remembers the program the user confirmed for a game, with the game's identity.</summary>
+    /// <param name="userRoot">The per-user data root.</param>
+    /// <param name="appId">The game.</param>
+    /// <param name="isShortcut">Whether the id is a non-Steam shortcut.</param>
+    /// <param name="name">The game's name.</param>
+    /// <param name="runtime">The confirmed program.</param>
+    internal static void RememberRuntime(string userRoot, uint appId, bool isShortcut, string name,
+        GameRuntimeChoice runtime)
+    {
+        Mutate(userRoot, store =>
+        {
+            var current = store.Find(appId) ?? new GameToolRecord { AppId = appId };
+            return store.With(appId, current with { IsShortcut = isShortcut, Name = name, Runtime = runtime });
+        });
+    }
+
+    /// <summary>Refreshes a game's identity on its existing record; a game without a record gets none.</summary>
+    /// <param name="userRoot">The per-user data root.</param>
+    /// <param name="appId">The game.</param>
+    /// <param name="isShortcut">Whether the id is a non-Steam shortcut.</param>
+    /// <param name="name">The game's name.</param>
+    internal static void RememberIdentity(string userRoot, uint appId, bool isShortcut, string name)
+    {
+        Mutate(userRoot, store => store.Find(appId) is { } record
+            ? store.With(appId, record with { IsShortcut = isShortcut, Name = name })
+            : store);
     }
 
     /// <summary>Removes a WSGM-owned folder such as a backup or staging tree, logging instead of failing.</summary>

@@ -8,9 +8,6 @@ const gameToolsStyles = `
 #wsgm-game-tools { overflow-wrap: anywhere; }
 #wsgm-game-tools .wsgm-game-tools-busy { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: 3px; background: rgba(255,255,255,.06); }
 #wsgm-game-tools .wsgm-game-tools-busy-title { font-size: 15px; font-weight: 600; color: #fff; }
-#wsgm-game-tools .wsgm-game-tools-meter { height: 6px; border-radius: 3px; background: rgba(255,255,255,.12); overflow: hidden; }
-#wsgm-game-tools .wsgm-game-tools-meter > div { height: 100%; background: var(--gpSystemBlue, #1a9fff); }
-#wsgm-game-tools .wsgm-game-tools-meter[data-indeterminate="true"] > div { width: 100%; opacity: .45; }
 #wsgm-game-tools .wsgm-game-tools-list { display: flex; flex-direction: column; gap: 8px; }
 #wsgm-game-tools .wsgm-game-tools-list .DialogButton { width: 100%; min-width: 0; height: auto; padding: 10px 14px; }
 #wsgm-game-tools .wsgm-game-tools-tag { font-size: 12px; font-weight: 600; white-space: nowrap; color: #8b929a; }
@@ -26,13 +23,6 @@ const gameToolsOperations = {
   configure: "Saving settings",
   remove: "Removing",
 };
-
-/**
- * Formats a byte count for the download line.
- * @param bytes The count.
- * @returns Megabytes with one decimal.
- */
-const formatGameToolsBytes = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 
 /**
  * Keeps a field description's separate facts on separate lines; a long path still wraps.
@@ -53,23 +43,18 @@ const gameToolsLines = (react, lines: any[]) => {
  */
 function GameToolsProgress({ ui, busy, onCancel }: any) {
   const h = ui.react.createElement;
-  const known = busy.total > 0;
-  const percent = known ? Math.min(100, Math.round((busy.bytes / busy.total) * 100)) : 0;
+  const title = `${gameToolsOperations[busy.operation] ?? "Working"}…`;
   const amount = busy.bytes > 0
-    ? known
-      ? `${formatGameToolsBytes(busy.bytes)} of ${formatGameToolsBytes(busy.total)}`
-      : formatGameToolsBytes(busy.bytes)
+    ? busy.total > 0
+      ? `${wsgmFormatBytes(busy.bytes)} of ${wsgmFormatBytes(busy.total)}`
+      : wsgmFormatBytes(busy.bytes)
     : "";
   return h(
     "div",
     { className: "wsgm-game-tools-busy", role: "status" },
-    h("div", { className: "wsgm-game-tools-busy-title" }, `${gameToolsOperations[busy.operation] ?? "Working"}…`),
+    h("div", { className: "wsgm-game-tools-busy-title" }, title),
     h("div", { className: "steam-ui-kit-muted" }, [busy.phase, amount].filter(Boolean).join(" · ")),
-    h(
-      "div",
-      { className: "wsgm-game-tools-meter", "data-indeterminate": known ? "false" : "true" },
-      h("div", { style: known ? { width: `${percent}%` } : undefined }),
-    ),
+    renderSteamUiMeter(ui.react, { value: busy.bytes, max: busy.total, label: title }),
     busy.cancellable
       ? renderSteamUiActions(ui, [{ id: "cancel", label: "Cancel", onClick: onCancel }], { compact: true })
       : h("div", { className: "steam-ui-kit-muted" }, "Game files are being written; this can't be cancelled now."),

@@ -46,6 +46,7 @@ the external state the feature reads or changes.
 | Switch tabs or descend into details           | `renderSteamUiTabbedPage`, `renderSteamUiLevel` and `renderSteamUiDetail`                                          | [`ServiceSubView`](../../../../src/WSGM/Overlay/ServiceSubView.cs), `Navigate` / Back, and `ToolTabs` from [`OverlaySubView.Tools`](../../../../src/WSGM/Overlay/OverlaySubView.Tools.cs). Use the window's existing destinations and modal host.                                                                                        |
 | Browse images or previews                     | `renderSteamUiGrid`, `renderSteamUiCard`, `renderSteamUiGallery`, `renderSteamUiVideo`                             | `PreviewCard`, [`OverlayPreviewImage`](../../../../src/WSGM/Overlay/OverlayPreviewImage.cs) and [`OverlayMediaPreview`](../../../../src/WSGM/Overlay/OverlayMediaPreview.cs). Keep bounded image loading and explicit media playback/release.                                                                                            |
 | Explain loading, an empty result or a refusal | `renderSteamUiEmpty` / `renderSteamUiBanner`; WSGM pages use `wsgmPageFrame`                                       | `ServiceSubView.AddStatus`, captions and `Run` / `ConfirmCommand`. Distinguish unavailable, working, no results and failed; preserve the service's reason.                                                                                                                                                                               |
+| Show an operation's progress or a capacity    | `renderSteamUiMeter`, with `wsgmFormatBytes` for amounts; `usage` for a capacity                                   | [`OverlayProgress`](../../../../src/WSGM/Overlay/OverlayProgress.cs): phase line, determinate or indeterminate bar and Cancel row, registered with `ServiceSubView.SetLiveContent` so ticks update it in place; `OverlayProgress.UsageMeter` for a capacity. Show the same phase text and bar on both surfaces.                          |
 | Enter text or choose a file/folder            | Toolkit text/modal controls and file-picker surface                                                                | `OverlaySubView.EditText` / [`OverlayWindow.RequestText`](../../../../src/WSGM/Overlay/OverlayWindow.Surfaces.cs) and [`OverlayFilePicker`](../../../../src/WSGM/Overlay/OverlayFilePicker.cs) through the owning view. Use the in-window controller flow; a normal `TextBox` alone does not supply it.                                  |
 
 The `OverlaySubView` helpers are `private protected` implementation helpers for WSGM views, not a
@@ -117,8 +118,9 @@ device operation that explicitly requires Apply must keep that requirement. Do n
 timer to every slider or color control.
 
 For navigation, preserve the Overlay's nested Back path, stable section selection and confined modal
-focus. A refresh must not move focus behind an open utility surface. `ServiceSubView` defers its
-current-level refresh while that surface is open. Keep folded bodies mounted for state
+focus. A refresh must not move focus behind an open utility surface. `ServiceSubView` defers a
+current-level redraw while that surface is open; a live level's in-place progress update still runs
+behind it, because it replaces no control and moves no focus. Keep folded bodies mounted for state
 reconciliation but exclude their controls from focus. Full behavior and input ownership are in
 [overlay and input](../../../../docs/overlay-and-input.md).
 

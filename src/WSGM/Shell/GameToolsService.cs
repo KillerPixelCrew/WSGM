@@ -228,10 +228,16 @@ internal sealed record GameToolsInstallRequest(
     bool ReplaceExisting);
 
 /// <summary>
-///     Owns Game Tools for both interfaces: resolving a game's runtime, scanning its folder, and running
-///     install, update, repair, configure and remove transactions one at a time.
+///     Runs Game Tools for both interfaces: scanning a game's folder, publishing its state, and running install,
+///     update, repair, configure and remove transactions one at a time.
 /// </summary>
 /// <remarks>
+///     <para>
+///         Transaction policy lives in <c>Core/GameTools</c>: <see cref="GameToolAdmission" /> decides whether a
+///         request may start, <see cref="GameToolInstaller" /> runs it, <see cref="GameToolRecovery" /> undoes what
+///         a crash interrupted and <see cref="GameRunningCheck" /> decides whether the game is closed. This service
+///         supplies Steam's and the session's answers, serializes the work and publishes the results.
+///     </para>
 ///     <para>
 ///         The install folder and shortcut target are read from Steam on every scan; an absolute path is
 ///         never kept as truth. The durable record keeps paths relative to the install root, so a game moved
@@ -258,9 +264,10 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
 
     private readonly string _userRoot;
     private readonly Func<SteamClient?> _steam;
-    private readonly Func<uint, bool?> _appRunning;
+    private readonly GameRunningCheck _running;
     private readonly Lazy<GameToolReleases> _releases;
     private readonly GameToolInstaller _installer;
+    private readonly GameToolRecovery _recovery;
     private readonly Lazy<IReadOnlyList<string>> _vendors;
     private readonly PeArchitectureCache _architectures = new();
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -291,9 +298,10 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
     {
         _userRoot = context.Root;
         _steam = steam;
-        _appRunning = appRunning;
+        _running = new GameRunningCheck(new SessionProcessProbe(appRunning));
         _releases = new Lazy<GameToolReleases>(() => new GameToolReleases(_userRoot, handler));
         _installer = new GameToolInstaller(_userRoot);
+        _recovery = new GameToolRecovery(_userRoot, _installer, _running);
         var detect = vendors ?? GpuDriver.DetectVendors;
         _vendors = new Lazy<IReadOnlyList<string>>(() => DetectVendors(detect));
     }
@@ -477,65 +485,22 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
         {
             // The choice only needs the install root and the record; the page's walk is reused.
             var scan = await ScanAsync(appId, CancellationToken.None, true).ConfigureAwait(false);
-            if (scan.InstallFolder.Length == 0 || !scan.HasFolder)
+            if (GameToolAdmission.Folder(scan.InstallFolder.Length > 0 && scan.HasFolder, scan.Reason) is { } missing)
             {
-                return Fail(appId, scan.Reason ?? "The game's folder is not available.");
+                return Fail(appId, missing);
             }
 
-            string full;
-            try
-            {
-                full = Path.GetFullPath(GameToolPaths.Resolve(scan.InstallFolder, path));
-            }
-            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-            {
-                return Fail(appId, "Choose the game's program.");
-            }
-
-            if (!full.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) || !File.Exists(full))
-            {
-                return Fail(appId, "Choose the game's program (.exe).");
-            }
-
-            // A program inside the install root is accepted wherever it sits; one outside it gets the broad-folder
-            // guard too.
-            if (GameFolderGuard.Reject(full, StoragePaths.IsUnder(scan.InstallFolder, full)) is { } refused)
+            if (GameToolAdmission.RuntimeChoice(scan.InstallFolder, path, scan.Record, Catalog, out var choice) is
+                { } refused)
             {
                 return Fail(appId, refused);
             }
 
-            if (PeImage.TryArchitecture(full) is not { Length: > 0 })
-            {
-                return Fail(appId, "That file is not a Windows program WSGM can read.");
-            }
-
-            var relative = GameToolPaths.Relative(scan.InstallFolder, full);
-            var installedElsewhere = scan.Record?.Tools.FirstOrDefault(manifest =>
-                !StoragePaths.Same(GameToolPaths.Resolve(scan.InstallFolder, manifest.TargetDirectory),
-                    Path.GetDirectoryName(full)!));
-            if (installedElsewhere is not null)
-            {
-                var name = Catalog.Find(installedElsewhere.ToolId)?.Name ?? installedElsewhere.ToolId;
-                return Fail(appId, "Remove " + name + " first; it is installed beside the current program.");
-            }
-
-            var info = new FileInfo(full);
-            GameToolStorage.Mutate(_userRoot, store =>
-            {
-                var current = store.Find(appId) ?? new GameToolRecord { AppId = appId };
-                return store.With(appId, current with
-                {
-                    IsShortcut = scan.IsShortcut,
-                    Name = scan.Name,
-                    Runtime = new GameRuntimeChoice
-                    {
-                        RelativePath = relative, Size = info.Length, LastWriteUtc = info.LastWriteTimeUtc
-                    }
-                });
-            });
-            Log.Info($"Game Tools: runtime for {appId} set to {relative}.");
+            var runtime = choice!;
+            GameToolStorage.RememberRuntime(_userRoot, appId, scan.IsShortcut, scan.Name, runtime);
+            Log.Info($"Game Tools: runtime for {appId} set to {runtime.RelativePath}.");
             await ScanAsync(appId, CancellationToken.None, true).ConfigureAwait(false);
-            SetMessage(appId, null, "WSGM will use " + Path.GetFileName(full) + ".");
+            SetMessage(appId, null, "WSGM will use " + Path.GetFileName(runtime.RelativePath) + ".");
             return SteamUiCommandResult.Applied;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
@@ -556,7 +521,7 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
     {
         cancellationToken.ThrowIfCancellationRequested();
         return Start(request.AppId, request.ToolId, request.ReplaceExisting ? "replaceExisting" : "install",
-            tool => ValidateSettings(tool, request.Settings),
+            tool => GameToolAdmission.Settings(tool, request.Settings),
             (tool, context, token) => InstallCoreAsync(tool, request, context, token));
     }
 
@@ -585,16 +550,14 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
     {
         cancellationToken.ThrowIfCancellationRequested();
         return Start(appId, toolId, "configure",
-            tool => ValidateSettings(tool, settings)
-                    ?? (proxyName is null && settings.Count == 0 ? "Nothing to change." : null),
+            tool => GameToolAdmission.Configure(tool, proxyName, settings),
             async (tool, context, _) =>
             {
-                var (scan, manifest) = await InstalledAsync(tool, appId).ConfigureAwait(false);
-                var target = ManifestTarget(scan, manifest);
-                await RequireClosedAsync(appId, target).ConfigureAwait(false);
+                var (target, manifest) = await InstalledAsync(tool, appId).ConfigureAwait(false);
+                await RequireClosedAsync(target).ConfigureAwait(false);
                 context.Phase("Saving settings", false);
                 var outcome = await Task.Run(() => _installer.Configure(tool, target, manifest, proxyName, settings,
-                    () => ClosedMessage(appId, target)), CancellationToken.None).ConfigureAwait(false);
+                    () => _running.ClosedMessage(target)), CancellationToken.None).ConfigureAwait(false);
                 return outcome.Notice;
             });
     }
@@ -605,9 +568,8 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
         cancellationToken.ThrowIfCancellationRequested();
         return Start(appId, toolId, "remove", null, async (tool, context, _) =>
         {
-            var (scan, manifest) = await InstalledAsync(tool, appId).ConfigureAwait(false);
-            var target = ManifestTarget(scan, manifest);
-            await RequireClosedAsync(appId, target).ConfigureAwait(false);
+            var (target, manifest) = await InstalledAsync(tool, appId).ConfigureAwait(false);
+            await RequireClosedAsync(target).ConfigureAwait(false);
             context.Phase("Removing " + tool.Name, false);
             var outcome = await Task.Run(() => _installer.Remove(tool, target, manifest), CancellationToken.None)
                 .ConfigureAwait(false);
@@ -643,30 +605,9 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
     {
         var appId = request.AppId;
         var scan = await ScanAsync(appId, token).ConfigureAwait(false);
-        RequireReady(scan);
-        if (scan.Record?.Tools.FirstOrDefault(manifest => manifest.ToolId == tool.Id) is not null)
-        {
-            throw new GameToolException(tool.Name + " is already installed. Use Update or Repair.");
-        }
-
-        if (scan.Resolution?.Chosen is not { } runtime)
-        {
-            throw new GameToolException("Choose the game's program first.");
-        }
-
-        if (scan.AntiCheat.Count > 0 && !request.AcknowledgeRisk)
-        {
-            throw new GameToolException(tool.AntiCheatWarning + " Confirm the warning to continue.");
-        }
-
-        if (GameToolInstaller.Incompatible(tool, runtime.Architecture) is { } incompatible)
-        {
-            throw new GameToolException(incompatible);
-        }
-
-        var target = new GameToolTarget(appId, scan.InstallFolder, runtime.FullPath, runtime.Architecture,
-            scan.Resolution.Engine);
-        await RequireClosedAsync(appId, target).ConfigureAwait(false);
+        var target = GameToolAdmission.RequireInstallable(tool, appId, scan.InstallFolder, scan.Availability,
+            scan.Reason, scan.Record, scan.Resolution, scan.AntiCheat, request.AcknowledgeRisk);
+        await RequireClosedAsync(target).ConfigureAwait(false);
         var release = await LatestReleaseAsync(tool, token).ConfigureAwait(false);
         var package = await Releases.PrepareAsync(tool, release, context.Progress, token).ConfigureAwait(false);
         context.Phase("Installing " + tool.Name, false);
@@ -677,9 +618,9 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
         var proxy = request.ProxyName ?? GameToolInstaller.SuggestProxy(inspection.Proxies, tool.Proxy.Default);
         var outcome = await _installer.InstallAsync(tool, target, package,
             new GameToolRequest(request.ReplaceExisting ? "replaceExisting" : "install", proxy, request.Settings),
-            null, () => ClosedMessage(appId, target), phase => context.Phase(phase, false), token, inspection)
+            null, () => _running.ClosedMessage(target), phase => context.Phase(phase, false), token, inspection)
             .ConfigureAwait(false);
-        RememberIdentity(appId, scan);
+        GameToolStorage.RememberIdentity(_userRoot, appId, scan.IsShortcut, scan.Name);
         return outcome.Notice;
     }
 
@@ -687,21 +628,16 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
         Func<GameToolManifest, CancellationToken, Task<HostedRelease>> release, string phase, bool replaceConfig,
         OperationContext context, CancellationToken token)
     {
-        var (scan, manifest) = await InstalledAsync(tool, appId).ConfigureAwait(false);
-        if (manifest.State != GameToolManifestState.Installed)
-        {
-            throw new GameToolException("An earlier change was interrupted. Use Remove to finish undoing it.");
-        }
-
-        var target = ManifestTarget(scan, manifest);
-        await RequireClosedAsync(appId, target).ConfigureAwait(false);
+        var (target, manifest) = await InstalledAsync(tool, appId).ConfigureAwait(false);
+        GameToolAdmission.RequireCompleted(manifest);
+        await RequireClosedAsync(target).ConfigureAwait(false);
         var package = await Releases.PrepareAsync(tool, await release(manifest, token).ConfigureAwait(false),
             context.Progress, token).ConfigureAwait(false);
         context.Phase(phase, false);
         var outcome = await _installer.InstallAsync(tool, target, package,
             new GameToolRequest(operation, manifest.ProxyName, new Dictionary<string, string>(StringComparer.Ordinal),
                 replaceConfig),
-            manifest, () => ClosedMessage(appId, target), text => context.Phase(text, false), token)
+            manifest, () => _running.ClosedMessage(target), text => context.Phase(text, false), token)
             .ConfigureAwait(false);
         return outcome.Notice;
     }
@@ -713,122 +649,21 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
     }
 
     // Configure, remove and the reinstalls act on the manifest's own target, so the cached walk is reused.
-    private async Task<(GameToolsScan Scan, GameToolManifest Manifest)> InstalledAsync(GameToolDefinition tool,
+    private async Task<(GameToolTarget Target, GameToolManifest Manifest)> InstalledAsync(GameToolDefinition tool,
         uint appId)
     {
         var scan = await ScanAsync(appId, CancellationToken.None, true).ConfigureAwait(false);
-        if (!scan.HasFolder)
-        {
-            throw new GameToolException(scan.Reason ?? "The game's folder is not available.");
-        }
-
-        var manifest = scan.Record?.Tools.FirstOrDefault(item => item.ToolId == tool.Id)
-                       ?? throw new GameToolException(tool.Name + " is not installed by WSGM for this game.");
-        return (scan, manifest);
+        var manifest = GameToolAdmission.RequireInstalled(tool, scan.HasFolder, scan.Reason, scan.Record);
+        return (GameToolTarget.FromManifest(appId, scan.InstallFolder, manifest), manifest);
     }
 
-    private static GameToolTarget ManifestTarget(GameToolsScan scan, GameToolManifest manifest)
+    // The check lists folders and processes, so it runs off the caller's thread.
+    private async Task RequireClosedAsync(GameToolTarget target)
     {
-        return new GameToolTarget(scan.AppId, scan.InstallFolder,
-            GameToolPaths.Resolve(scan.InstallFolder, manifest.RuntimeExecutable), manifest.Architecture,
-            manifest.Engine);
-    }
-
-    private static void RequireReady(GameToolsScan scan)
-    {
-        if (scan.Availability != "ready")
-        {
-            throw new GameToolException(scan.Reason ?? "The game is not available.");
-        }
-    }
-
-    private async Task RequireClosedAsync(uint appId, GameToolTarget target)
-    {
-        if (await Task.Run(() => ClosedMessage(appId, target)).ConfigureAwait(false) is { } running)
+        if (await Task.Run(() => _running.ClosedMessage(target)).ConfigureAwait(false) is { } running)
         {
             throw new GameToolException(running);
         }
-    }
-
-    // Fails closed: an unknown answer is treated as running, and the check runs again right before the
-    // first game-file write. It always lists the folders afresh.
-    private string? ClosedMessage(uint appId, GameToolTarget target)
-    {
-        if (_appRunning(appId) == true)
-        {
-            return "Close the game first.";
-        }
-
-        return RunningPaths(target.InstallRoot, target.TargetDirectory, target.RuntimeExecutable) switch
-        {
-            true => "Close the game first.",
-            null => "WSGM couldn't confirm that the game is closed. Close it and try again.",
-            _ => null
-        };
-    }
-
-    // Lists the programs in the target folder and the install root afresh, each folder once.
-    private static bool? RunningPaths(string root, string? directory, string? runtime)
-    {
-        List<string> paths = [];
-        if (runtime is not null && File.Exists(runtime))
-        {
-            paths.Add(runtime);
-        }
-
-        string?[] folders = directory is not null && StoragePaths.Same(directory, root) ? [root] : [directory, root];
-        foreach (var folder in folders.Where(folder => folder is not null && Directory.Exists(folder)))
-        {
-            try
-            {
-                paths.AddRange(Directory.EnumerateFiles(folder!, "*.exe", SearchOption.TopDirectoryOnly).Take(64));
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                return null;
-            }
-        }
-
-        return Running(paths);
-    }
-
-    // The page's running check reads the programs the walk already found in the root and the runtime's folder.
-    private static bool? RunningPaths(GameFolderLayout layout, string? runtime)
-    {
-        if (runtime is not null && !StoragePaths.IsUnder(layout.Root, runtime))
-        {
-            return RunningPaths(layout.Root, Path.GetDirectoryName(runtime), runtime);
-        }
-
-        var directory = runtime is null ? "" : GameToolPaths.RelativeDirectory(layout.Root, Path.GetDirectoryName(runtime)!);
-        List<string> paths = [];
-        if (runtime is not null && File.Exists(runtime))
-        {
-            paths.Add(runtime);
-        }
-
-        paths.AddRange(layout.Executables.Where(file => file.Directory.Length == 0).Take(64).Select(file => file.FullPath));
-        if (directory.Length > 0)
-        {
-            paths.AddRange(layout.Executables
-                .Where(file => file.Directory.Equals(directory, StringComparison.OrdinalIgnoreCase)).Take(64)
-                .Select(file => file.FullPath));
-        }
-
-        return Running(paths);
-    }
-
-    private static bool? Running(IReadOnlyList<string> paths)
-    {
-        if (paths.Count == 0)
-        {
-            return false;
-        }
-
-        var running = WindowFinder.ReadRunningPaths(paths);
-        return running.Values.Any(value => value == true) ? true
-            : running.Values.Any(value => value is null) ? null
-            : false;
     }
 
     // Finds the tool and checks the request before admitting the work, then runs it behind the gate.
@@ -892,7 +727,7 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
         }
         catch (OperationCanceledException)
         {
-            notice = "Cancelled. Nothing in the game folder was changed.";
+            notice = GameToolInstaller.CancelledNotice;
             Log.Info($"Game Tools: {operation} {toolId} for {appId} cancelled.");
         }
         catch (GameToolException ex)
@@ -1155,86 +990,32 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
             _scans[appId] = scan;
             _states[appId] = state;
             _releaseStale.Remove(appId);
+            if (scan.RecoveryNotice is { } recovered)
+            {
+                // An operation that scanned first replaces this with its own outcome when it finishes.
+                _messages[appId] = (_messages.GetValueOrDefault(appId).Error, recovered);
+            }
         }
 
         return scan;
     }
 
+    // Recovery runs first in every scan of an existing folder, so the page never shows a crash's half-finished
+    // change as current and every mutation, which scans before it acts, starts from a reconciled record.
     private GameToolsScan ScanFolder(uint appId, string name, bool shortcut, string root, string? directTarget,
         GameToolRecord? record, GameFolderLayout? layout)
     {
-        record = Reconcile(appId, root, record);
+        var recovery = _recovery.Recover(appId, root, record, Catalog);
+        record = recovery.Record;
         layout ??= GameFolderLayout.Scan(root);
         var resolution = GameRuntimeResolver.Resolve(layout, directTarget, record?.Runtime?.RelativePath, name,
             _architectures);
-        HashSet<string> installed = new(StringComparer.OrdinalIgnoreCase);
-        foreach (var manifest in record?.Tools ?? [])
-        {
-            var directory = GameToolPaths.Resolve(root, manifest.TargetDirectory);
-            foreach (var file in manifest.Files)
-            {
-                var full = GameToolPaths.Resolve(directory, file.RelativePath);
-                if (StoragePaths.IsUnder(root, full))
-                {
-                    installed.Add(GameToolPattern.Normalize(Path.GetRelativePath(root, full)));
-                }
-            }
-        }
-
+        IReadOnlySet<string> installed = record?.OwnedPaths(root) ?? new HashSet<string>();
         var upscalers = UpscalerScan.Scan(layout, installed);
         var antiCheat = AntiCheatScan.Scan(layout);
-        var running = _appRunning(appId) == true || RunningPaths(layout, resolution.Chosen?.FullPath) == true;
-        return new GameToolsScan(appId, name, shortcut, root, running ? "running" : "ready",
-            running ? "Close the game to change its tools." : null, resolution, layout.Truncated, upscalers, antiCheat,
-            record, layout, Environment.TickCount64);
-    }
-
-    // Rolls back transactions a crash left pending and rebases manifests of a game that moved library.
-    private GameToolRecord? Reconcile(uint appId, string root, GameToolRecord? record)
-    {
-        if (record is null)
-        {
-            return null;
-        }
-
-        var changed = false;
-        foreach (var manifest in record.Tools.Where(manifest => manifest.State == GameToolManifestState.Pending))
-        {
-            // Rolling back writes game files, so it waits until the game is known to be closed; until then
-            // the change stays pending and the page shows it as interrupted.
-            var directory = GameToolPaths.Resolve(root, manifest.TargetDirectory);
-            var runtime = GameToolPaths.Resolve(root, manifest.RuntimeExecutable);
-            if (_appRunning(appId) == true || RunningPaths(root, directory, runtime) != false)
-            {
-                Log.Info($"Game Tools: interrupted {manifest.Operation} of {manifest.ToolId} for {appId} waits "
-                         + "until the game is closed.");
-                continue;
-            }
-
-            Log.Warn($"Game Tools: rolling back an interrupted {manifest.Operation} of {manifest.ToolId} for {appId}.");
-            _installer.Rollback(appId, directory, manifest);
-            changed = true;
-        }
-
-        if (changed)
-        {
-            record = GameToolStorage.ReadLocked(_userRoot).Find(appId);
-        }
-
-        if (record?.Tools.Any(manifest => !StoragePaths.Same(manifest.InstallRoot, root)) == true)
-        {
-            Log.Info($"Game Tools: game {appId} moved to {root}; rebasing its manifests.");
-            record = GameToolStorage.Rebase(_userRoot, appId, root);
-        }
-
-        return record;
-    }
-
-    private void RememberIdentity(uint appId, GameToolsScan scan)
-    {
-        GameToolStorage.Mutate(_userRoot, store => store.Find(appId) is { } record
-            ? store.With(appId, record with { IsShortcut = scan.IsShortcut, Name = scan.Name })
-            : store);
+        var (availability, reason) = _running.FolderAvailability(appId, layout, resolution.Chosen?.FullPath);
+        return new GameToolsScan(appId, name, shortcut, root, availability, reason, resolution, layout.Truncated,
+            upscalers, antiCheat, record, layout, Environment.TickCount64, recovery.Notice);
     }
 
     // Builds the published state from a scan. It reads the target folder and configuration file, so callers
@@ -1263,7 +1044,7 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
 
     private GameToolsTool ToolState(GameToolDefinition tool, GameToolsScan scan)
     {
-        var manifest = scan.Record?.Tools.FirstOrDefault(item => item.ToolId == tool.Id);
+        var manifest = scan.Record?.Manifest(tool.Id);
         var latest = Releases.Cached(tool);
         var chosen = scan.Resolution?.Chosen;
         var targetDirectory = manifest is not null && scan.HasFolder
@@ -1305,20 +1086,6 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
             evaluation.Warnings, evaluation.Actions,
             new GameToolsFiles(relativeTarget, manifest?.Files.Count ?? 0, manifest?.Replaced.Count ?? 0,
                 inspection?.Missing ?? [], inspection?.Modified ?? []));
-    }
-
-    private static string? ValidateSettings(GameToolDefinition tool, IReadOnlyDictionary<string, string> settings)
-    {
-        foreach (var (id, value) in settings)
-        {
-            var setting = tool.Settings.FirstOrDefault(item => item.Id == id);
-            if (setting is null || setting.Options.All(option => option.Value != value))
-            {
-                return "Unknown setting or value: " + id + ".";
-            }
-        }
-
-        return null;
     }
 
     private static IReadOnlyList<string> DetectVendors(Func<IReadOnlyList<GpuVendor>> detect)
@@ -1407,6 +1174,23 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
         }
     }
 
+    /// <summary>The session's process answers for the Core running check.</summary>
+    /// <param name="appRunning">Whether Steam reports an AppID running; null when unknown.</param>
+    private sealed class SessionProcessProbe(Func<uint, bool?> appRunning) : IGameProcessProbe
+    {
+        /// <inheritdoc />
+        public bool? IsAppRunning(uint appId)
+        {
+            return appRunning(appId);
+        }
+
+        /// <inheritdoc />
+        public IReadOnlyDictionary<string, bool?> ReadRunningPaths(IReadOnlyList<string> executables)
+        {
+            return WindowFinder.ReadRunningPaths(executables);
+        }
+    }
+
     /// <summary>Progress reporting handed to one operation.</summary>
     private sealed class OperationContext(GameToolsService owner)
     {
@@ -1443,6 +1227,7 @@ internal sealed class GameToolsService : IGameToolsSource, IDisposable
 /// <param name="Record">The game's durable record as this scan read it, after recovery and rebasing.</param>
 /// <param name="Layout">The folder walk, reused by rescans that don't need a new one; null without a folder.</param>
 /// <param name="ScannedAt">When the scan finished, in <see cref="Environment.TickCount64" /> milliseconds.</param>
+/// <param name="RecoveryNotice">What this scan's recovery undid, published once as the game's notice; null when nothing.</param>
 internal sealed record GameToolsScan(
     uint AppId,
     string Name,
@@ -1456,7 +1241,8 @@ internal sealed record GameToolsScan(
     IReadOnlyList<string> AntiCheat,
     GameToolRecord? Record,
     GameFolderLayout? Layout,
-    long ScannedAt)
+    long ScannedAt,
+    string? RecoveryNotice = null)
 {
     /// <summary>Whether the game has a folder to work in, even while it runs.</summary>
     internal bool HasFolder => GameToolStatus.HasFolder(Availability);
