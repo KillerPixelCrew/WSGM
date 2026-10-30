@@ -15,7 +15,7 @@ code. The product decisions behind it are in [decisions.md](decisions.md#steam).
 | Runtime resolution           | `Core/GameTools/GameRuntimeResolver.cs`                                     | Ranking every executable and choosing the one the game runs, or asking                                      |
 | Upscaler and anti-cheat scan | `Core/GameTools/GameFolderScans.cs`                                         | Standalone upscaler and frame-generation libraries; anti-cheat markers                                      |
 | Catalog                      | `Core/GameTools/game-tools.json`, `GameToolCatalog.cs`                      | The embedded, validated tool definitions                                                                    |
-| Releases                     | `Core/GameTools/GameToolReleases.cs`, `GameToolVersions.cs`                 | Latest-release lookup, verified download, package cache, payload validation, version families and channels  |
+| Releases                     | `Core/GameTools/GameToolReleases.cs`, `GameToolVersions.cs`                 | Latest-release lookup, package cache, payload validation and version families                               |
 | Configuration edits          | `Core/GameTools/GameToolIni.cs`                                             | Editing existing keys of a tool's own INI file                                                              |
 | Transaction                  | `Core/GameTools/GameToolInstaller.cs`                                       | Planning, journaling, copying, rollback, rename, reconfigure and remove                                     |
 | Durable state                | `Core/GameTools/GameToolStore.cs`                                           | `game-tools.json`: remembered programs and per-tool manifests                                               |
@@ -24,9 +24,11 @@ code. The product decisions behind it are in [decisions.md](decisions.md#steam).
 | Steam entry                  | `Shell/SteamGameContextMenuBackend.cs`                                      | The game menu's "Game Tools…" item                                                                          |
 | Overlay page                 | `Overlay/` Game Tools view, through `OverlaySources.GameTools`              | The same page in the Overlay, calling the service directly                                                  |
 
-The release, download and extraction mechanics are the emulator owner's (`EmulatorReleases`,
-`EmulatorNetwork`, `EmulatorPackages`, `VerifiedDownload`). Game Tools calls the hosted-source
-lookup through a tool's `EmulatorSource` rather than keeping a second HTTP or archive path.
+Release lookup, download and extraction come from the shared `Core/Downloads` utility, which the
+emulator owner also uses: `DownloadClient` (HTTPS only), `HostedReleases` (GitHub and Forgejo
+releases from a `HostedReleaseSource`), `VerifiedDownload` (bounded, size and SHA-256 checked) and
+`PackageArchive` (extraction that refuses paths escaping the staging folder). Game Tools keeps no
+second HTTP or archive path.
 
 ## From the menu to the service
 
@@ -126,8 +128,8 @@ catalog load rather than being skipped.
 | `replaceable`                                | Game-shipped files that may be backed up and replaced                                                                   |
 | `legacyFiles`                                | Files of an older manual install that "Replace existing installation" backs up and removes                              |
 | `runtimeArtifacts`                           | Logs the tool writes at runtime, removed on uninstall                                                                   |
-| `requiresUpscaler`                           | Upscaler families the tool needs as input; only a warning                                                               |
-| `families`, `channels`                       | Version-family patterns and preview/stable markers                                                                      |
+| `requiresUpscaler`                           | Upscaler families the tool needs as input, with the labels its warning names; only a warning                            |
+| `families`                                   | Version-family patterns                                                                                                 |
 | `settings`                                   | Data-driven options: id, label, section, key, default, options mapped to INI values, per-vendor notes                   |
 
 Patterns use DOS wildcards. A pattern containing `/` matches the relative path only; any other
@@ -220,15 +222,15 @@ ignoring case, and none of the seven identity fields mentions ReShade. The veto 
 file without a readable version resource is not the tool. Identity checks run on every detection
 name, every top-level `*.dll` and `*.asi`, and `plugins/*.dll`.
 
-| Kind            | When                                               | What the user can do                                      |
-| --------------- | -------------------------------------------------- | --------------------------------------------------------- |
-| `unmanagedTool` | A copy of the tool installed outside WSGM          | "Replace existing installation", after a confirm          |
-| `needsReview`   | Several copies, or versions whose fields disagree  | Review the folder                                         |
-| `foreignFile`   | A game file or another mod holds a name WSGM needs | Pick another proxy name; WSGM suggests the first free one |
+| Kind            | When                                              | What the user can do                             |
+| --------------- | ------------------------------------------------- | ------------------------------------------------ |
+| `unmanagedTool` | A copy of the tool installed outside WSGM         | "Replace existing installation", after a confirm |
+| `needsReview`   | Several copies, or versions whose fields disagree | Review the folder                                |
 
 ReShade and Special K are recognised from their version fields. The proxy options name them as the
-conflict on that name, and the suggested name moves past them; WSGM never touches their files. The
-`otherMod` kind exists in the state contract but nothing produces it yet.
+conflict on that name, and the suggested name moves past them; WSGM never touches their files. Any
+other game file or mod holding a name WSGM needs refuses the install with a message naming the file,
+and WSGM suggests the first free proxy name.
 
 "Replace existing installation" backs up every identity-matched copy and the legacy files of a
 manual install, removes them and installs as usual. A later Remove restores them.

@@ -9,13 +9,15 @@ namespace WSGM.Core.GameTools;
 /// <param name="RelativePath">The forward-slash path relative to the walked root.</param>
 /// <param name="FullPath">The absolute path.</param>
 /// <param name="Size">The size in bytes.</param>
-internal sealed record GameFolderFile(string RelativePath, string FullPath, long Size)
+/// <param name="LastWriteUtc">The last write time, which with the size identifies an unchanged file.</param>
+internal sealed record GameFolderFile(string RelativePath, string FullPath, long Size, DateTime LastWriteUtc)
 {
     /// <summary>The file name.</summary>
-    internal string Name => Path.GetFileName(RelativePath);
+    internal string Name { get; } = Path.GetFileName(RelativePath);
 
     /// <summary>The forward-slash relative directory, empty at the root.</summary>
-    internal string Directory => RelativePath.Contains('/') ? RelativePath[..RelativePath.LastIndexOf('/')] : "";
+    internal string Directory { get; } =
+        RelativePath.Contains('/') ? RelativePath[..RelativePath.LastIndexOf('/')] : "";
 }
 
 /// <summary>The executables, libraries and directory names of a game folder, collected in one bounded walk.</summary>
@@ -32,6 +34,8 @@ internal sealed class GameFolderLayout
     private const int MaximumDirectories = 6000;
     private const int MaximumFiles = 40000;
 
+    private readonly HashSet<string> _files;
+
     private GameFolderLayout(string root, List<GameFolderFile> executables, List<GameFolderFile> libraries,
         List<GameFolderFile> drivers, HashSet<string> directories, bool truncated)
     {
@@ -41,6 +45,8 @@ internal sealed class GameFolderLayout
         Drivers = drivers;
         Directories = directories;
         Truncated = truncated;
+        _files = new HashSet<string>(libraries.Concat(executables).Select(file => file.RelativePath),
+            StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>The walked root.</summary>
@@ -74,8 +80,7 @@ internal sealed class GameFolderLayout
     /// <returns>True when present among executables or libraries.</returns>
     internal bool HasFile(string relativePath)
     {
-        return Libraries.Any(file => file.RelativePath.Equals(relativePath, StringComparison.OrdinalIgnoreCase))
-               || Executables.Any(file => file.RelativePath.Equals(relativePath, StringComparison.OrdinalIgnoreCase));
+        return _files.Contains(relativePath);
     }
 
     /// <summary>Walks a game folder.</summary>
@@ -135,7 +140,7 @@ internal sealed class GameFolderLayout
                     : extension.Equals(".dll", StringComparison.OrdinalIgnoreCase) ? libraries
                     : extension.Equals(".sys", StringComparison.OrdinalIgnoreCase) ? drivers
                     : null;
-                list?.Add(new GameFolderFile(path, entry.FullName, ((FileInfo)entry).Length));
+                list?.Add(new GameFolderFile(path, entry.FullName, ((FileInfo)entry).Length, entry.LastWriteTimeUtc));
             }
         }
 
@@ -148,12 +153,14 @@ internal static class GameFolderGuard
 {
     /// <summary>Explains why a picked executable's folder can't be a game folder, or returns null.</summary>
     /// <param name="executable">The absolute path the user picked.</param>
+    /// <param name="broadAllowed">Skips the broad-folder check, for a program inside an already accepted install root.</param>
     /// <returns>A user-facing reason, or null when the folder is acceptable.</returns>
     /// <remarks>
     ///     The match is exact: subfolders of these locations are allowed, so a game under Program Files
-    ///     or Documents still works. WindowsApps is refused because packaged games can't be modified.
+    ///     or Documents still works. WindowsApps is always refused because packaged games can't be modified;
+    ///     this is the one place that rule lives.
     /// </remarks>
-    internal static string? Reject(string executable)
+    internal static string? Reject(string executable, bool broadAllowed = false)
     {
         string folder;
         try
@@ -168,6 +175,11 @@ internal static class GameFolderGuard
         if (folder.Contains(@"\WindowsApps", StringComparison.OrdinalIgnoreCase))
         {
             return "Games in the protected WindowsApps folder can't be modified.";
+        }
+
+        if (broadAllowed)
+        {
+            return null;
         }
 
         if (folder.Length == 0 || Path.GetPathRoot(folder) is { } root

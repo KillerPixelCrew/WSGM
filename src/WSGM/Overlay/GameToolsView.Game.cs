@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia.Controls;
+using Avalonia.Media;
+using SteamUiToolkit;
 using WSGM.Controls;
 using WSGM.Shell;
 
@@ -129,14 +131,7 @@ public sealed partial class GameToolsView
             body.Children.Add(Tagged(Caption("Scanning the game folder…"), "game.busy"));
         }
 
-        if (state.Error is { Length: > 0 } error)
-        {
-            body.Children.Add(Tagged(Caption(error), "game.result"));
-        }
-        else if (state.Notice is { Length: > 0 } notice)
-        {
-            body.Children.Add(Tagged(Caption(notice), "game.result"));
-        }
+        AddStatus(body, false, state.Error, state.Notice, "game.result");
     }
 
     private void AddRuntime(StackPanel body, GameToolsState state)
@@ -147,7 +142,7 @@ public sealed partial class GameToolsView
         {
             var detail = string.Join(" · ", new[]
             {
-                state.EngineLabel, ArchitectureLabel(runtime.Architecture), ConfidenceLabel(runtime.Confidence)
+                state.EngineLabel, runtime.ArchitectureLabel, runtime.ConfidenceLabel
             }.Where(part => part.Length > 0));
             body.Children.Add(Tagged(Row(runtime.FileName, detail, Icons.Rocket,
                 idle ? () => Navigate(RenderCandidates) : null), "runtime.change"));
@@ -164,11 +159,9 @@ public sealed partial class GameToolsView
 
     private static void AddAntiCheat(StackPanel body, GameToolsState state)
     {
-        if (state.AntiCheat.Count > 0)
+        if (state.AntiCheatWarning is { } warning)
         {
-            body.Children.Add(Tagged(Caption("Anti-cheat found: " + string.Join(", ", state.AntiCheat)
-                                             + ". Do not use these tools with online games. Anti-cheat may ban accounts."),
-                "detect.anticheat"));
+            body.Children.Add(Tagged(Caption(warning), "detect.anticheat"));
         }
     }
 
@@ -211,14 +204,14 @@ public sealed partial class GameToolsView
         body.Children.Add(Tagged(Caption(string.Join(" · ",
                 new[] { tool.StatusText, versions, latest }.Where(part => part.Length > 0))),
             key + ".status"));
-        if (!tool.Compatible && tool.IncompatibleReason is { Length: > 0 } incompatible)
+        if (tool.IncompatibleReason is { Length: > 0 } incompatible)
         {
             body.Children.Add(Tagged(Caption(incompatible), key + ".incompatible"));
         }
 
         foreach (var conflict in tool.Conflicts)
         {
-            body.Children.Add(Tagged(Caption($"{ConflictLabel(conflict.Kind)}: {conflict.Path}. {conflict.Message}"),
+            body.Children.Add(Tagged(Caption($"{conflict.KindLabel}:{conflict.Path}. {conflict.Message}"),
                 key + ".conflict:" + conflict.Path));
         }
 
@@ -235,11 +228,9 @@ public sealed partial class GameToolsView
         }
 
         AddPrimaryAction(body, state, tool, idle);
-        var canInstall = tool.Actions.Contains("install");
-        var canConfigure = tool.Actions.Contains("configure");
-        if (tool.Compatible && tool.Status != "unavailable" && (canInstall || canConfigure || installed))
+        if (tool.ShowOptions)
         {
-            AddOptions(body, tool, idle && (canInstall || canConfigure), canConfigure && installed);
+            AddOptions(body, tool, idle && tool.CanEditOptions, installed && tool.Actions.Contains("configure"));
         }
 
         if (tool.Actions.Contains("remove"))
@@ -264,12 +255,11 @@ public sealed partial class GameToolsView
 
         if (tool.Actions.Contains("repair"))
         {
-            var repair = tool.Status == "modified"
-                ? PrimaryRow("Repair " + tool.Name, "Restore its missing or changed files", Icons.Wrench,
-                    idle ? () => RunTool((service, token) => service.RepairAsync(_appId, tool.Id, token), "repair") : null)
-                : Row("Repair " + tool.Name, "Restore its missing or changed files", Icons.Wrench,
-                    idle ? () => RunTool((service, token) => service.RepairAsync(_appId, tool.Id, token), "repair") : null);
-            body.Children.Add(Tagged(repair, key + ".repair"));
+            // Repair leads only when files are missing or changed; otherwise it is a supporting command.
+            Func<string, string, Geometry?, Action?, ActionButton> row = tool.Status == "modified" ? PrimaryRow : Row;
+            body.Children.Add(Tagged(row("Repair " + tool.Name, "Restore its missing or changed files", Icons.Wrench,
+                idle ? () => RunTool((service, token) => service.RepairAsync(_appId, tool.Id, token), "repair") : null),
+                key + ".repair"));
         }
 
         if (tool.Actions.Contains("replaceExisting"))
@@ -351,12 +341,9 @@ public sealed partial class GameToolsView
 
         var state = CurrentState()!;
         var installed = tool.InstalledVersion is not null;
-        var enabled = state.Busy is null && (tool.Actions.Contains("install") || tool.Actions.Contains("configure"));
+        var enabled = state.Busy is null && tool.CanEditOptions;
         var body = NewStack(tool.Name + " file name");
-        body.Children.Add(Tagged(Caption(installed
-            ? "WSGM renames the installed file. Try another name when the game ignores OptiScaler or crashes."
-            : "OptiScaler loads by taking the name of a Windows library the game loads. Try the first one first."),
-            "proxy.intro"));
+        body.Children.Add(Tagged(Caption(tool.ProxyIntro), "proxy.intro"));
         var current = ProxyFor(tool);
         foreach (var option in tool.ProxyOptions)
         {
@@ -422,7 +409,7 @@ public sealed partial class GameToolsView
             var path = candidate.RelativePath;
             var detail = string.Join(" · ", new[]
             {
-                RoleLabel(candidate.Role), ArchitectureLabel(candidate.Architecture), path
+                candidate.RoleLabel, candidate.ArchitectureLabel, path
             }.Where(part => part.Length > 0));
             if (candidate.Reasons.Count > 0)
             {
@@ -467,23 +454,23 @@ public sealed partial class GameToolsView
 
     private void StartInstall(GameToolsState state, GameToolsTool tool)
     {
-        var request = InstallRequest(tool, tool.RequiresRiskAcknowledgement, false);
-        if (!tool.RequiresRiskAcknowledgement)
+        var request = InstallRequest(tool, state.AntiCheatWarning is not null, false);
+        if (state.AntiCheatWarning is null)
         {
             RunTool((service, token) => service.InstallAsync(request, token), "install");
             return;
         }
 
         ConfirmTool("Install " + tool.Name,
-            $"{tool.RiskWarning ?? "Anti-cheat was found in this game."} Found: {string.Join(", ", state.AntiCheat)}. "
+            $"{state.AntiCheatWarning} "
             + $"Install {tool.Name} for {state.Name} anyway?",
             service => service.InstallAsync(request, default));
     }
 
     private void ConfirmReplace(GameToolsState state, GameToolsTool tool)
     {
-        var request = InstallRequest(tool, tool.RequiresRiskAcknowledgement, true);
-        var risk = tool.RequiresRiskAcknowledgement ? " " + (tool.RiskWarning ?? "") : "";
+        var request = InstallRequest(tool, state.AntiCheatWarning is not null, true);
+        var risk = state.AntiCheatWarning is { } warning ? " " + warning : "";
         ConfirmTool("Replace existing " + tool.Name,
             $"WSGM backs up the {tool.Name} files that were installed outside WSGM in {state.Name}, removes them and "
             + $"installs its own copy. Removing it later restores the backed-up files.{risk}",
@@ -515,7 +502,7 @@ public sealed partial class GameToolsView
     }
 
     private void ConfirmTool(string title, string message,
-        Func<GameToolsService, Task<SteamUiToolkit.SteamUiCommandResult>> command)
+        Func<IGameToolsSource, Task<SteamUiCommandResult>> command)
     {
         if (_service is not { } service)
         {
@@ -546,50 +533,6 @@ public sealed partial class GameToolsView
         }
 
         return tool.ProxyName;
-    }
-
-    private static string ConfidenceLabel(string confidence)
-    {
-        return confidence switch
-        {
-            "confirmed" => "You chose this program",
-            "structural" => "Identified from the folder layout or Steam's launch target",
-            "single" => "The only likely program in the folder",
-            _ => ""
-        };
-    }
-
-    private static string RoleLabel(string role)
-    {
-        return role switch
-        {
-            "game" => "Game",
-            "launcher" => "Launcher or settings",
-            "helper" => "Installer or helper",
-            _ => "Program"
-        };
-    }
-
-    private static string ArchitectureLabel(string architecture)
-    {
-        return architecture switch
-        {
-            "x64" => "64-bit",
-            "x86" => "32-bit",
-            "arm64" => "Arm64",
-            _ => ""
-        };
-    }
-
-    private static string ConflictLabel(string kind)
-    {
-        return kind switch
-        {
-            "unmanagedTool" => "Installed outside WSGM",
-            "needsReview" => "Needs review",
-            "otherMod" => "Used by another mod",
-            _ => "Game file in the way"
-        };
     }
 
     private static string VendorLabel(string vendor)

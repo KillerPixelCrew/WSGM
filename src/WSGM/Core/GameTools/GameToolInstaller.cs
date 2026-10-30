@@ -21,39 +21,21 @@ internal sealed record GameToolTarget(uint AppId, string InstallRoot, string Run
     internal string TargetDirectory => Path.GetDirectoryName(RuntimeExecutable)!;
 
     /// <summary>The target directory relative to the install root, or absolute outside it.</summary>
-    internal string RelativeTargetDirectory
-    {
-        get
-        {
-            if (!StoragePaths.IsUnder(InstallRoot, TargetDirectory))
-            {
-                return TargetDirectory;
-            }
-
-            var relative = GameToolPattern.Normalize(Path.GetRelativePath(InstallRoot, TargetDirectory));
-            return relative == "." ? "" : relative;
-        }
-    }
+    internal string RelativeTargetDirectory => GameToolPaths.RelativeDirectory(InstallRoot, TargetDirectory);
 }
-
-/// <summary>Something that blocks an install or that the user should know about.</summary>
-/// <param name="RelativePath">The file relative to the target directory.</param>
-/// <param name="Kind"><c>unmanagedTool</c>, <c>otherMod</c>, <c>foreignFile</c> or <c>needsReview</c>.</param>
-/// <param name="Message">The user-facing explanation.</param>
-internal sealed record GameToolConflict(string RelativePath, string Kind, string Message);
 
 /// <summary>An unmanaged copy of the tool found in the target directory.</summary>
 /// <param name="RelativePath">The file relative to the target directory.</param>
 /// <param name="Version">Its product version.</param>
-/// <param name="Family">Its version family, empty when unresolved.</param>
-internal sealed record GameToolUnmanagedCopy(string RelativePath, string Version, string Family);
+internal sealed record GameToolUnmanagedCopy(string RelativePath, string Version);
 
 /// <summary>Availability of one proxy name in the target directory.</summary>
 /// <param name="Name">The proxy file name.</param>
 /// <param name="Hint">When to choose it.</param>
 /// <param name="Available">Whether installing under this name is possible now.</param>
 /// <param name="Conflict">Why not, or null.</param>
-internal sealed record GameToolProxyStatus(string Name, string Hint, bool Available, string? Conflict);
+/// <param name="Suggest">Whether WSGM may pick it on its own.</param>
+internal sealed record GameToolProxyStatus(string Name, string Hint, bool Available, string? Conflict, bool Suggest);
 
 /// <summary>A read-only inspection of a target directory for one tool.</summary>
 /// <param name="Unmanaged">Identity-matched copies WSGM does not own.</param>
@@ -66,18 +48,23 @@ internal sealed record GameToolInspection(
     IReadOnlyList<string> Missing,
     IReadOnlyList<string> Modified);
 
-/// <summary>What an install, update, repair or reconfiguration should do.</summary>
-/// <param name="Operation"><c>install</c>, <c>update</c>, <c>repair</c> or <c>configure</c>.</param>
+/// <summary>What an install, update or repair should do.</summary>
+/// <param name="Operation">
+///     <c>install</c>, <c>replaceExisting</c> (back up and replace an unmanaged installation), <c>update</c> or
+///     <c>repair</c>.
+/// </param>
 /// <param name="ProxyName">The name the primary file is installed under.</param>
 /// <param name="Settings">Setting values by id; missing ids keep their current or default value.</param>
-/// <param name="ReplaceExisting">Back up and replace an unmanaged installation.</param>
 /// <param name="ReplaceConfig">Take the package's stock configuration file, then re-apply WSGM's settings.</param>
 internal sealed record GameToolRequest(
     string Operation,
     string ProxyName,
     IReadOnlyDictionary<string, string> Settings,
-    bool ReplaceExisting = false,
-    bool ReplaceConfig = false);
+    bool ReplaceConfig = false)
+{
+    /// <summary>Whether an unmanaged installation is backed up and replaced instead of refusing the install.</summary>
+    internal bool ReplaceExisting => Operation == "replaceExisting";
+}
 
 /// <summary>The outcome of a transaction.</summary>
 /// <param name="Manifest">The resulting manifest, or null when nothing is installed.</param>
@@ -127,8 +114,7 @@ internal sealed class GameToolInstaller(string userRoot)
             if (info is not null && GameToolIdentityCheck.IsTool(tool, info))
             {
                 unmanaged.Add(new GameToolUnmanagedCopy(relative,
-                    info.ProductVersion.Length > 0 ? info.ProductVersion : info.FileVersion,
-                    GameToolVersions.Family(tool, info)));
+                    info.ProductVersion.Length > 0 ? info.ProductVersion : info.FileVersion));
             }
         }
 
@@ -139,12 +125,12 @@ internal sealed class GameToolInstaller(string userRoot)
             if (manifest?.ProxyName.Equals(option.Name, StringComparison.OrdinalIgnoreCase) == true
                 || !File.Exists(path))
             {
-                proxies.Add(new GameToolProxyStatus(option.Name, option.Hint, true, null));
+                proxies.Add(new GameToolProxyStatus(option.Name, option.Hint, true, null, option.Suggest));
                 continue;
             }
 
             proxies.Add(new GameToolProxyStatus(option.Name, option.Hint, false,
-                DescribeExisting(tool, path, owned.Contains(option.Name))));
+                DescribeExisting(tool, path, owned.Contains(option.Name)), option.Suggest));
         }
 
         List<string> missing = [];
@@ -169,7 +155,10 @@ internal sealed class GameToolInstaller(string userRoot)
         return new GameToolInspection(unmanaged, proxies, missing, modified);
     }
 
-    /// <summary>The first offered proxy name that is free, starting at the preferred one and wrapping around.</summary>
+    /// <summary>
+    ///     The first offered proxy name that is free and may be suggested, starting at the preferred one and
+    ///     wrapping around.
+    /// </summary>
     /// <param name="proxies">The inspection's proxy states.</param>
     /// <param name="preferred">The preferred name.</param>
     /// <returns>A free name, or the preferred one when none is free.</returns>
@@ -180,7 +169,7 @@ internal sealed class GameToolInstaller(string userRoot)
         for (var offset = 0; offset < proxies.Count; offset++)
         {
             var candidate = proxies[(start + offset) % proxies.Count];
-            if (candidate.Available && !candidate.Name.EndsWith(".asi", StringComparison.OrdinalIgnoreCase))
+            if (candidate is { Available: true, Suggest: true })
             {
                 return candidate.Name;
             }
@@ -189,17 +178,30 @@ internal sealed class GameToolInstaller(string userRoot)
         return preferred;
     }
 
+    /// <summary>Explains why a tool can't be installed for a runtime architecture, or returns null.</summary>
+    /// <param name="tool">The tool.</param>
+    /// <param name="architecture">The runtime executable's architecture.</param>
+    /// <returns>A user-facing reason, or null when the architecture is supported.</returns>
+    internal static string? Incompatible(GameToolDefinition tool, string architecture)
+    {
+        if (tool.Architectures.Contains(architecture, StringComparer.Ordinal))
+        {
+            return null;
+        }
+
+        var label = PeImage.Label(architecture);
+        return tool.Name + " doesn't support " + (label.Length > 0 ? label + " games" : "this game's program") + ".";
+    }
+
     /// <summary>Describes why a target directory can't be written to, or null when it can.</summary>
     /// <param name="directory">The target directory.</param>
     /// <returns>A user-facing reason, or null.</returns>
-    /// <remarks>Creates, renames and deletes a uniquely named probe file, as the install would.</remarks>
+    /// <remarks>
+    ///     Creates, renames and deletes a uniquely named probe file, as the install would. Protected folders such
+    ///     as WindowsApps are refused earlier by <see cref="GameFolderGuard.Reject" />.
+    /// </remarks>
     internal static string? ProbeWritable(string directory)
     {
-        if (directory.Contains(@"\WindowsApps\", StringComparison.OrdinalIgnoreCase))
-        {
-            return "This game is in the protected WindowsApps folder, which WSGM can't change.";
-        }
-
         if (!Directory.Exists(directory))
         {
             return "The game's folder is not available.";
@@ -231,19 +233,23 @@ internal sealed class GameToolInstaller(string userRoot)
     /// <param name="package">The verified package.</param>
     /// <param name="request">What to do.</param>
     /// <param name="current">The current manifest, or null for a fresh install.</param>
-    /// <param name="ensureClosed">Rechecks right before the first game-file write that the game is closed.</param>
+    /// <param name="ensureClosed">
+    ///     Rechecks right before the first game-file write that the game is closed; returns why not, or null.
+    /// </param>
     /// <param name="phase">Receives the current phase text.</param>
     /// <param name="cancellationToken">Cancels planning; once files are being written the transaction completes or rolls back.</param>
+    /// <param name="inspection">
+    ///     The caller's inspection of the target directory with <paramref name="current" />, reused instead of
+    ///     inspecting again; null to inspect here.
+    /// </param>
     /// <returns>The outcome.</returns>
     internal async Task<GameToolOutcome> InstallAsync(GameToolDefinition tool, GameToolTarget target,
-        GameToolPackage package, GameToolRequest request, GameToolManifest? current,
-        Func<CancellationToken, Task<string?>> ensureClosed, Action<string> phase,
-        CancellationToken cancellationToken)
+        GameToolPackage package, GameToolRequest request, GameToolManifest? current, Func<string?> ensureClosed,
+        Action<string> phase, CancellationToken cancellationToken, GameToolInspection? inspection = null)
     {
-        if (!tool.Architectures.Contains(target.Architecture, StringComparer.Ordinal))
+        if (Incompatible(tool, target.Architecture) is { } incompatible)
         {
-            throw new GameToolException(tool.Name + " supports only " + string.Join(", ", tool.Architectures)
-                                        + " games; this game's program is " + Describe(target.Architecture) + ".");
+            throw new GameToolException(incompatible);
         }
 
         if (package.Architecture != target.Architecture)
@@ -267,19 +273,10 @@ internal sealed class GameToolInstaller(string userRoot)
         var directory = target.TargetDirectory;
         var proxy = tool.Proxy.Options.First(option =>
             option.Name.Equals(request.ProxyName, StringComparison.OrdinalIgnoreCase)).Name;
-        var plan = await Task.Run(() => Plan(tool, directory, package, proxy, request, current), cancellationToken)
-            .ConfigureAwait(false);
+        var plan = await Task.Run(() => Plan(tool, directory, package, proxy, request, current,
+            inspection ?? Inspect(tool, directory, current)), cancellationToken).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
-        if (GameFolderGuard.Reject(target.RuntimeExecutable) is { } broad)
-        {
-            throw new GameToolException(broad);
-        }
-
-        if (ProbeWritable(directory) is { } unwritable)
-        {
-            throw new GameToolException(unwritable);
-        }
-
+        RequireWritable(target);
         var installId = current?.InstallId ?? Guid.NewGuid().ToString("N");
         var transaction = "tx-" + Guid.NewGuid().ToString("N");
         var originals = GameToolStorage.BackupRoot(userRoot, target.AppId, tool.Id, installId);
@@ -336,9 +333,9 @@ internal sealed class GameToolInstaller(string userRoot)
             ToolId = tool.Id, InstallId = installId, Version = package.Version, Family = package.Family,
             ReleaseId = package.Release.Id, ReleaseVersion = package.Release.Version,
             SourceUrl = package.Release.Asset.Url, AssetName = package.Release.Asset.Name,
-            AssetSha256 = GameToolReleases.NormalizeDigest(package.Release.Asset.Sha256) ?? "",
+            AssetSha256 = package.Release.Asset.Sha256,
             ProxyName = proxy, InstallRoot = target.InstallRoot, TargetDirectory = target.RelativeTargetDirectory,
-            RuntimeExecutable = GameRuntimeResolver.Relative(target.InstallRoot, target.RuntimeExecutable),
+            RuntimeExecutable = GameToolPaths.Relative(target.InstallRoot, target.RuntimeExecutable),
             Architecture = target.Architecture, Engine = target.Engine, Files = current?.Files ?? [],
             Replaced = current?.Replaced ?? [], CreatedDirectories = current?.CreatedDirectories ?? [],
             Settings = current?.Settings ?? new Dictionary<string, string>(StringComparer.Ordinal),
@@ -351,11 +348,7 @@ internal sealed class GameToolInstaller(string userRoot)
         Persist(target.AppId, pending);
         try
         {
-            if (await ensureClosed(CancellationToken.None).ConfigureAwait(false) is { } running)
-            {
-                throw new GameToolException(running);
-            }
-
+            RequireClosed(ensureClosed);
             phase("Copying files");
             await Task.Run(() => Execute(directory, plan, journal), CancellationToken.None).ConfigureAwait(false);
             if (configIndex < 0 && (configWritten || request.Settings.Count > 0))
@@ -380,7 +373,7 @@ internal sealed class GameToolInstaller(string userRoot)
                 Previous = null, Operation = ""
             };
             Persist(target.AppId, installed);
-            DeleteTree(temporary);
+            GameToolStorage.DeleteTree(temporary);
             var notice = request.Operation switch
             {
                 "update" => tool.Name + " updated to " + GameToolVersions.NumericToken(package.Version) + ".",
@@ -400,7 +393,7 @@ internal sealed class GameToolInstaller(string userRoot)
         {
             var undone = await Task.Run(() => Rollback(target.AppId, directory, pending), CancellationToken.None)
                 .ConfigureAwait(false);
-            DeleteTree(staging);
+            GameToolStorage.DeleteTree(staging);
             Log.Warn($"Game Tools: {request.Operation} {tool.Id} for {target.AppId} failed and was "
                      + (undone ? "rolled back" : "only partly rolled back") + $": {ex.Message}");
             throw Translate(ex, undone);
@@ -413,23 +406,13 @@ internal sealed class GameToolInstaller(string userRoot)
     /// <param name="current">The installed manifest.</param>
     /// <param name="proxyName">The new proxy name, or null to keep it.</param>
     /// <param name="settings">Changed settings.</param>
-    /// <param name="ensureClosed">Rechecks right before writing that the game is closed.</param>
+    /// <param name="ensureClosed">Rechecks right before writing that the game is closed; returns why not, or null.</param>
     /// <returns>The outcome.</returns>
-    internal async Task<GameToolOutcome> ConfigureAsync(GameToolDefinition tool, GameToolTarget target,
-        GameToolManifest current, string? proxyName, IReadOnlyDictionary<string, string> settings,
-        Func<CancellationToken, Task<string?>> ensureClosed)
+    internal GameToolOutcome Configure(GameToolDefinition tool, GameToolTarget target, GameToolManifest current,
+        string? proxyName, IReadOnlyDictionary<string, string> settings, Func<string?> ensureClosed)
     {
         var directory = target.TargetDirectory;
-        if (GameFolderGuard.Reject(target.RuntimeExecutable) is { } broad)
-        {
-            throw new GameToolException(broad);
-        }
-
-        if (ProbeWritable(directory) is { } unwritable)
-        {
-            throw new GameToolException(unwritable);
-        }
-
+        RequireWritable(target);
         var manifest = current;
         var notices = new List<string>();
         if (proxyName is not null && !proxyName.Equals(current.ProxyName, StringComparison.OrdinalIgnoreCase))
@@ -470,11 +453,7 @@ internal sealed class GameToolInstaller(string userRoot)
             Persist(target.AppId, pending);
             try
             {
-                if (await ensureClosed(CancellationToken.None).ConfigureAwait(false) is { } running)
-                {
-                    throw new GameToolException(running);
-                }
-
+                RequireClosed(ensureClosed);
                 Directory.CreateDirectory(transaction);
                 File.Copy(source, backup, true);
                 CopyInto(source, destination);
@@ -497,7 +476,7 @@ internal sealed class GameToolInstaller(string userRoot)
                     UpdatedUtc = DateTime.UtcNow
                 };
                 Persist(target.AppId, manifest);
-                DeleteTree(transaction);
+                GameToolStorage.DeleteTree(transaction);
                 notices.Add(tool.Name + " now loads as " + option.Name + ".");
                 Log.Info($"Game Tools: renamed {tool.Id} for {target.AppId} from {current.ProxyName} to {option.Name}.");
             }
@@ -511,11 +490,7 @@ internal sealed class GameToolInstaller(string userRoot)
 
         if (settings.Count > 0)
         {
-            if (await ensureClosed(CancellationToken.None).ConfigureAwait(false) is { } running)
-            {
-                throw new GameToolException(running);
-            }
-
+            RequireClosed(ensureClosed);
             var merged = MergeSettings(tool, manifest.Settings, settings);
             List<string> unavailable;
             try
@@ -659,7 +634,7 @@ internal sealed class GameToolInstaller(string userRoot)
             notice = tool.Name + " removed.";
             if (unrestored.Count == 0)
             {
-                DeleteTree(GameToolStorage.BackupRoot(userRoot, target.AppId, tool.Id, current.InstallId));
+                GameToolStorage.DeleteTree(GameToolStorage.BackupRoot(userRoot, target.AppId, tool.Id, current.InstallId));
             }
             else
             {
@@ -787,12 +762,12 @@ internal sealed class GameToolInstaller(string userRoot)
                      .Select(path => path[..(path.IndexOf(@"\tx-", StringComparison.Ordinal) + 36)])
                      .Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            DeleteTree(backups);
+            GameToolStorage.DeleteTree(backups);
         }
 
         if (pending.Previous is null)
         {
-            DeleteTree(GameToolStorage.BackupRoot(userRoot, appId, pending.ToolId, pending.InstallId));
+            GameToolStorage.DeleteTree(GameToolStorage.BackupRoot(userRoot, appId, pending.ToolId, pending.InstallId));
         }
 
         Log.Info($"Game Tools: rolled back {pending.Operation} of {pending.ToolId} for {appId}.");
@@ -891,21 +866,22 @@ internal sealed class GameToolInstaller(string userRoot)
     private sealed record PlanItem(string Relative, string? Source, GameToolJournalAction Action, bool Original,
         string NewSha256, string PreviousSha256, GameToolFileKind Kind, bool Restore = false);
 
-    private sealed record InstallPlan(List<PlanItem> Items, List<string> Directories, HashSet<string> Unchanged);
+    // Unchanged maps each file the plan leaves alone to its hash when planning already read it, else null.
+    private sealed record InstallPlan(List<PlanItem> Items, List<string> Directories,
+        Dictionary<string, string?> Unchanged);
 
     private static InstallPlan Plan(GameToolDefinition tool, string directory, GameToolPackage package, string proxy,
-        GameToolRequest request, GameToolManifest? current)
+        GameToolRequest request, GameToolManifest? current, GameToolInspection inspection)
     {
         var owned = (current?.Files ?? []).ToDictionary(file => file.RelativePath, StringComparer.OrdinalIgnoreCase);
         var replaced = (current?.Replaced ?? []).ToDictionary(file => file.RelativePath, StringComparer.OrdinalIgnoreCase);
         List<PlanItem> items = [];
         List<string> directories = [];
-        List<GameToolConflict> conflicts = [];
-        HashSet<string> unchanged = new(StringComparer.OrdinalIgnoreCase);
+        List<string> conflicts = [];
+        Dictionary<string, string?> unchanged = new(StringComparer.OrdinalIgnoreCase);
         HashSet<string> written = new(StringComparer.OrdinalIgnoreCase);
 
         // An unmanaged installation is either a conflict or, when the user asked, backed up and replaced.
-        var inspection = Inspect(tool, directory, current);
         HashSet<string> clearing = new(StringComparer.OrdinalIgnoreCase);
         if (inspection.Unmanaged.Count > 0)
         {
@@ -956,22 +932,23 @@ internal sealed class GameToolInstaller(string userRoot)
             {
                 if (Directory.Exists(destination))
                 {
-                    conflicts.Add(new GameToolConflict(relative, "foreignFile", "A folder has the name of a file."));
+                    conflicts.Add("A folder has the name of a file.");
                     continue;
                 }
 
-                items.Add(new PlanItem(relative, source, GameToolJournalAction.Create, false, Sha256(source), "", kind));
+                items.Add(new PlanItem(relative, source, GameToolJournalAction.Create, false,
+                    package.Sha256(payloadRelative, source), "", kind));
                 continue;
             }
 
             if (kind == GameToolFileKind.Config && owned.ContainsKey(relative) && !request.ReplaceConfig)
             {
-                unchanged.Add(relative);
+                unchanged[relative] = null;
                 continue;
             }
 
             var previous = Sha256(destination);
-            var newSha = Sha256(source);
+            var newSha = package.Sha256(payloadRelative, source);
             if (owned.TryGetValue(relative, out var ownedFile))
             {
                 if (!previous.Equals(newSha, StringComparison.OrdinalIgnoreCase))
@@ -987,7 +964,7 @@ internal sealed class GameToolInstaller(string userRoot)
                 }
                 else
                 {
-                    unchanged.Add(relative);
+                    unchanged[relative] = previous;
                 }
 
                 continue;
@@ -1009,13 +986,12 @@ internal sealed class GameToolInstaller(string userRoot)
             if (relative.Equals(proxy, StringComparison.OrdinalIgnoreCase))
             {
                 var suggestion = SuggestProxy(inspection.Proxies, proxy);
-                conflicts.Add(new GameToolConflict(relative, "foreignFile", DescribeExisting(tool, destination, false)
-                    + (suggestion.Equals(proxy, StringComparison.OrdinalIgnoreCase) ? "" : " Try " + suggestion + ".")));
+                conflicts.Add(DescribeExisting(tool, destination, false)
+                              + (suggestion.Equals(proxy, StringComparison.OrdinalIgnoreCase) ? "" : " Try " + suggestion + "."));
             }
             else
             {
-                conflicts.Add(new GameToolConflict(relative, "foreignFile",
-                    relative + " already exists and is not a file " + tool.Name + " may replace."));
+                conflicts.Add(relative + " already exists and is not a file " + tool.Name + " may replace.");
             }
         }
 
@@ -1049,7 +1025,7 @@ internal sealed class GameToolInstaller(string userRoot)
 
         if (conflicts.Count > 0)
         {
-            throw new GameToolException(string.Join(" ", conflicts.Select(conflict => conflict.Message).Distinct()));
+            throw new GameToolException(string.Join(" ", conflicts.Distinct()));
         }
 
         return new InstallPlan(items, directories, unchanged);
@@ -1101,7 +1077,7 @@ internal sealed class GameToolInstaller(string userRoot)
         Dictionary<string, GameToolOwnedFile> files = new(StringComparer.OrdinalIgnoreCase);
         foreach (var file in current?.Files ?? [])
         {
-            if (plan.Unchanged.Contains(file.RelativePath))
+            if (plan.Unchanged.ContainsKey(file.RelativePath))
             {
                 files[file.RelativePath] = file;
             }
@@ -1113,13 +1089,14 @@ internal sealed class GameToolInstaller(string userRoot)
         }
 
         // Files the plan left unchanged because they already matched are still owned; refresh their stamps.
-        foreach (var relative in plan.Unchanged.Where(relative => !files.ContainsKey(relative)
-                                                                   || files[relative].Kind == GameToolFileKind.Binary))
+        // Planning hashed them already and the transaction didn't touch them.
+        foreach (var (relative, sha) in plan.Unchanged.Where(entry => !files.ContainsKey(entry.Key)
+                                                                       || files[entry.Key].Kind == GameToolFileKind.Binary))
         {
             var path = Path.Combine(directory, relative);
             if (File.Exists(path))
             {
-                files[relative] = Owned(directory, relative, Sha256(path),
+                files[relative] = Owned(directory, relative, sha ?? Sha256(path),
                     tool.IsConfig(relative) ? GameToolFileKind.Config : GameToolFileKind.Binary);
             }
         }
@@ -1270,30 +1247,21 @@ internal sealed class GameToolInstaller(string userRoot)
         }
     }
 
-    private static void DeleteTree(string path)
+    // Refuses protected or shared folders and folders WSGM can't write before anything is persisted.
+    private static void RequireWritable(GameToolTarget target)
     {
-        try
+        if ((GameFolderGuard.Reject(target.RuntimeExecutable) ?? ProbeWritable(target.TargetDirectory)) is { } reason)
         {
-            if (Directory.Exists(path))
-            {
-                Directory.Delete(path, true);
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            Log.Warn($"Game Tools: could not remove {path}: {ex.Message}");
+            throw new GameToolException(reason);
         }
     }
 
-    private static string Describe(string architecture)
+    private static void RequireClosed(Func<string?> ensureClosed)
     {
-        return architecture switch
+        if (ensureClosed() is { } running)
         {
-            PeImage.X86 => "32-bit (x86)",
-            PeImage.Arm64 => "ARM64",
-            PeImage.X64 => "64-bit (x64)",
-            _ => "an unknown architecture"
-        };
+            throw new GameToolException(running);
+        }
     }
 
     /// <summary>Hashes a file.</summary>

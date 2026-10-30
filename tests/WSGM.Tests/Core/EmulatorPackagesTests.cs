@@ -4,6 +4,7 @@ using SharpCompress.Common;
 using SharpCompress.Writers;
 using SharpCompress.Writers.SevenZip;
 using WSGM.Core;
+using WSGM.Core.Downloads;
 using WSGM.Testing;
 
 namespace WSGM.Tests.Core;
@@ -26,7 +27,7 @@ public sealed class EmulatorPackagesTests
         }
 
         var destination = temporary.GetPath("program");
-        EmulatorPackages.Extract(archivePath, destination, CancellationToken.None);
+        PackageArchive.Extract(archivePath, destination, CancellationToken.None);
 
         Assert.Equal("first entry", File.ReadAllText(Path.Combine(destination, "nested", "first.txt")));
         Assert.Equal("second entry", File.ReadAllText(Path.Combine(destination, "nested", "second.txt")));
@@ -51,7 +52,7 @@ public sealed class EmulatorPackagesTests
         }
 
         var output = temporary.GetPath("program");
-        EmulatorPackages.Extract(archivePath, output, CancellationToken.None);
+        PackageArchive.Extract(archivePath, output, CancellationToken.None);
         Assert.Equal("second", File.ReadAllText(Path.Combine(output, "emulator.txt")));
 
         var escaping = temporary.GetPath("escaping.zip");
@@ -61,7 +62,7 @@ public sealed class EmulatorPackagesTests
             entry.Write("outside");
         }
 
-        Assert.Throws<InvalidDataException>(() => EmulatorPackages.Extract(escaping, output, CancellationToken.None));
+        Assert.Throws<InvalidDataException>(() => PackageArchive.Extract(escaping, output, CancellationToken.None));
         Assert.False(File.Exists(temporary.GetPath("outside.txt")));
     }
 
@@ -80,7 +81,7 @@ public sealed class EmulatorPackagesTests
             PackageName = name, PackageCachePath = cache,
             PackageHashes = new Dictionary<string, string> { [name] = hash }
         };
-        using var network = new EmulatorNetwork(null);
+        using var network = new DownloadClient(null);
         var packages = new EmulatorPackages(network);
         var destination = temporary.GetPath("repaired.7z");
 

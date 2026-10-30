@@ -1,4 +1,3 @@
-using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
@@ -8,7 +7,6 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using SteamUiToolkit;
 using WSGM.Controls;
-using WSGM.Core;
 using WSGM.Input;
 using WSGM.Overlay;
 using WSGM.Shell;
@@ -17,8 +15,8 @@ using WSGM.UiTests.Infrastructure;
 namespace WSGM.UiTests.Visual;
 
 /// <summary>
-///     Render-only Game Tools captures. The real service runs without Steam, network or GPU access; each case
-///     seeds its published state, so no game folder is scanned and nothing is installed.
+///     Render-only Game Tools captures. An explicit fake owner publishes each case's state and a fixed library
+///     stands in for Steam, so no game folder is scanned, nothing is installed and nothing is downloaded.
 /// </summary>
 public static class PreviewGameTools
 {
@@ -41,82 +39,70 @@ public static class PreviewGameTools
         Directory.CreateDirectory(directory);
         foreach (var scenario in Scenarios)
         {
-            var root = Path.Combine(Path.GetTempPath(), "wsgm-game-tools-" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(root);
             using var fixture = new UiFixture();
-            var service = new GameToolsService(new UserDataContext(root, @"Local\WSGM.UiTests.GameTools." +
-                                                                         Guid.NewGuid().ToString("N")),
-                () => null, _ => false, new RefusingHandler(), () => []);
-            try
+            var source = new FakeGameToolsSource(State(scenario));
+            var window = PreviewTools.Create(fixture, width, height);
+            var view = UiFixture.Named<GameToolsView>(window, "GameToolsHost");
+            // Without a Steam client the page finds no open game and shows this library.
+            view.LibraryReader = () => Task.FromResult(new OverlayLibraryResult(
+            [
+                new SteamLibraryApp(AppId, "ELDEN RING"),
+                new SteamLibraryApp(1091500, "Cyberpunk 2077"),
+                new SteamLibraryApp(2050650, "Resident Evil 4"),
+                new SteamLibraryApp(3000000001,
+                    "A non-Steam game with a very long name that should wrap or trim cleanly", true),
+                new SteamLibraryApp(1174180, "Red Dead Redemption 2"),
+                new SteamLibraryApp(990080, "Hogwarts Legacy")
+            ], null));
+            window.AttachGameTools(source);
+            ((OverlayViewModel)window.DataContext!).ShowGameTools = true;
+            Dispatcher.UIThread.RunJobs();
+            UiFixture.Tab(window, 1).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Dispatcher.UIThread.RunJobs();
+            UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SteamGameTools));
+            Dispatcher.UIThread.RunJobs();
+            if (scenario != "game-tools-list")
             {
-                Seed(service, scenario);
-                var window = PreviewTools.Create(fixture, width, height);
-                var view = UiFixture.Named<GameToolsView>(window, "GameToolsHost");
-                SetField(view, "_games", new List<SteamLibraryApp>
-                {
-                    new(AppId, "ELDEN RING"),
-                    new(1091500, "Cyberpunk 2077"),
-                    new(2050650, "Resident Evil 4"),
-                    new(3000000001, "A non-Steam game with a very long name that should wrap or trim cleanly", true),
-                    new(1174180, "Red Dead Redemption 2"),
-                    new(990080, "Hogwarts Legacy")
-                });
-                SetField(view, "_gamesRead", true);
-                SetField(view, "_resolveCurrent", false);
-                window.AttachGameTools(service);
-                ((OverlayViewModel)window.DataContext!).ShowGameTools = true;
-                Dispatcher.UIThread.RunJobs();
-                UiFixture.Tab(window, 1).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                Dispatcher.UIThread.RunJobs();
-                UiFixture.Click(window, UiFixture.Rail(window, OverlayPage.SteamGameTools));
-                Dispatcher.UIThread.RunJobs();
-                if (scenario != "game-tools-list")
-                {
-                    Click(window, "ELDEN RING");
-                }
-
-                if (scenario == "game-tools-proxy")
-                {
-                    Click(window, "File name: dxgi.dll");
-                }
-
-                if (scenario == "game-tools-candidates")
-                {
-                    Click(window, "Choose the program…");
-                }
-
-                Dispatcher.UIThread.RunJobs();
-                window.FocusManager!.Focus(null);
-                if (scenario.EndsWith("-end", StringComparison.Ordinal))
-                {
-                    var back = FocusSearch.First<ActionButton>(window,
-                                   button => button.Title == "Back" && button.IsEffectivelyVisible)
-                               ?? throw new InvalidOperationException("Back is missing.");
-                    back.BringIntoView();
-                    Dispatcher.UIThread.RunJobs();
-                }
-
-                if (scenario.EndsWith("-tool", StringComparison.Ordinal))
-                {
-                    // The tool card's middle: its actions sit just above the file name row.
-                    var name = FocusSearch.First<ActionButton>(window,
-                                   button => button.Title?.StartsWith("File name:", StringComparison.Ordinal) == true
-                                             && button.IsEffectivelyVisible)
-                               ?? throw new InvalidOperationException("The file name row is missing.");
-                    name.BringIntoView();
-                    Dispatcher.UIThread.RunJobs();
-                }
-
-                window.MouseMove(new Point(-20, -20));
-                using var image = window.CaptureRenderedFrame() ??
-                                  throw new InvalidOperationException("No Game Tools preview was rendered.");
-                image.Save(Path.Combine(directory, $"{scenario}-{width}x{height}.png"), new PngBitmapEncoderOptions());
-                window.Close();
+                Click(window, "ELDEN RING");
             }
-            finally
+
+            if (scenario == "game-tools-proxy")
             {
-                service.Dispose();
+                Click(window, "File name: dxgi.dll");
             }
+
+            if (scenario == "game-tools-candidates")
+            {
+                Click(window, "Choose the program…");
+            }
+
+            Dispatcher.UIThread.RunJobs();
+            window.FocusManager!.Focus(null);
+            if (scenario.EndsWith("-end", StringComparison.Ordinal))
+            {
+                var back = FocusSearch.First<ActionButton>(window,
+                               button => button.Title == "Back" && button.IsEffectivelyVisible)
+                           ?? throw new InvalidOperationException("Back is missing.");
+                back.BringIntoView();
+                Dispatcher.UIThread.RunJobs();
+            }
+
+            if (scenario.EndsWith("-tool", StringComparison.Ordinal))
+            {
+                // The tool card's middle: its actions sit just above the file name row.
+                var name = FocusSearch.First<ActionButton>(window,
+                               button => button.Title?.StartsWith("File name:", StringComparison.Ordinal) == true
+                                         && button.IsEffectivelyVisible)
+                           ?? throw new InvalidOperationException("The file name row is missing.");
+                name.BringIntoView();
+                Dispatcher.UIThread.RunJobs();
+            }
+
+            window.MouseMove(new Point(-20, -20));
+            using var image = window.CaptureRenderedFrame() ??
+                              throw new InvalidOperationException("No Game Tools preview was rendered.");
+            image.Save(Path.Combine(directory, $"{scenario}-{width}x{height}.png"), new PngBitmapEncoderOptions());
+            window.Close();
         }
     }
 
@@ -131,52 +117,24 @@ public static class PreviewGameTools
         Dispatcher.UIThread.RunJobs();
     }
 
-    // Holding the service gate keeps ReadAsync waiting, so the page shows the seeded state instead of a scan.
-    private static void Seed(GameToolsService service, string scenario)
-    {
-        ((SemaphoreSlim)GetField(service, "_gate")).Wait();
-        var state = State(scenario);
-        if (state is null)
-        {
-            return;
-        }
-
-        ((Dictionary<uint, GameToolsState>)GetField(service, "_states"))[AppId] = state with { Busy = null };
-        if (state.Busy is { } busy)
-        {
-            SetField(service, "_busy", busy);
-        }
-
-        if (state.Loading)
-        {
-            ((HashSet<uint>)GetField(service, "_loading")).Add(AppId);
-        }
-
-        if (state.Error is not null || state.Notice is not null)
-        {
-            ((Dictionary<uint, (string? Error, string? Notice)>)GetField(service, "_messages"))[AppId] =
-                (state.Error, state.Notice);
-        }
-    }
-
     private static GameToolsState? State(string scenario)
     {
         const string folder = @"D:\SteamLibrary\steamapps\common\ELDEN RING";
-        var runtime = new GameToolsRuntime("Game/eldenring.exe", "eldenring.exe", "x64", "structural",
-            ["Named like the game", "Largest program in the folder"]);
+        var runtime = new GameToolsRuntime("Game/eldenring.exe", "eldenring.exe", "x64", "64-bit", "structural",
+            "Identified from the folder layout or Steam's launch target");
         GameToolsCandidate[] candidates =
         [
-            new("Game/eldenring.exe", "eldenring.exe", "x64", "unknown", "game",
-                ["Named like the game", "Largest program in the folder"], 25, true),
-            new("Game/start_protected_game.exe", "start_protected_game.exe", "x64", "unknown", "launcher",
-                ["Starts the anti-cheat"], 4, false),
-            new("Game/EasyAntiCheat/EasyAntiCheat_EOS_Setup.exe", "EasyAntiCheat_EOS_Setup.exe", "x86", "unknown",
-                "helper", ["Installer"], -10, false)
+            new("Game/eldenring.exe", "eldenring.exe", "x64", "64-bit", "game", "Game",
+                ["Named like the game", "Largest program in the folder"], true),
+            new("Game/start_protected_game.exe", "start_protected_game.exe", "x64", "64-bit", "launcher",
+                "Launcher or settings", ["Starts the anti-cheat"], false),
+            new("Game/EasyAntiCheat/EasyAntiCheat_EOS_Setup.exe", "EasyAntiCheat_EOS_Setup.exe", "x86", "32-bit",
+                "helper", "Installer or helper", ["Installer"], false)
         ];
-        var ready = new GameToolsState(AppId, "ELDEN RING", false, folder, "ready", null, false, "unknown",
+        var ready = new GameToolsState(AppId, "ELDEN RING", false, folder, "ready", null, false,
             "Unknown engine", runtime, candidates, false, false,
-            [new GameToolsUpscaler("FSR 3", "fsr", "upscaler", "Game/amd_fidelityfx_dx12.dll", "3.1.2.0")],
-            [], ["amd"], [Tool()], null, null, null);
+            [new GameToolsUpscaler("FSR 3", "Game/amd_fidelityfx_dx12.dll", "3.1.2.0")],
+            [], null, ["amd"], [Tool()], null, null, null);
         return scenario switch
         {
             "game-tools-list" => null,
@@ -205,13 +163,15 @@ public static class PreviewGameTools
                 [
                     Tool() with
                     {
-                        Compatible = false, IncompatibleReason = "Choose the game's program first.", Actions = []
+                        IncompatibleReason = "Choose the game's program first.", Actions = [],
+                        ShowOptions = false, CanEditOptions = false
                     }
                 ]
             },
             "game-tools-conflict" or "game-tools-conflict-end" => ready with
             {
                 AntiCheat = ["Easy Anti-Cheat"],
+                AntiCheatWarning = "Anti-cheat found: Easy Anti-Cheat. Do not use with online games. Anti-cheat may ban accounts.",
                 Error = "OptiScaler is already installed outside WSGM (dxgi.dll). Use \"Replace existing installation\" to let WSGM take over.",
                 Tools =
                 [
@@ -220,16 +180,11 @@ public static class PreviewGameTools
                         Status = "conflict", StatusText = "Installed outside WSGM.",
                         Conflicts =
                         [
-                            new GameToolsConflict("dxgi.dll", "unmanagedTool",
+                            new GameToolsConflict("dxgi.dll", "unmanagedTool", "Installed outside WSGM",
                                 "OptiScaler 0.9.4-final installed outside WSGM."),
-                            new GameToolsConflict("winmm.dll", "otherMod", "ReShade uses this name.")
+                            new GameToolsConflict("winmm.dll", "needsReview", "Needs review", "ReShade uses this name.")
                         ],
-                        Warnings =
-                        [
-                            "Do not use with online games. Anti-cheat may ban accounts. Found: Easy Anti-Cheat."
-                        ],
-                        Actions = ["replaceExisting"], RequiresRiskAcknowledgement = true,
-                        RiskWarning = "Do not use with online games. Anti-cheat may ban accounts."
+                        Actions = ["replaceExisting"], CanEditOptions = false
                     }
                 ]
             },
@@ -241,7 +196,7 @@ public static class PreviewGameTools
                     Tool() with
                     {
                         Status = "installed", StatusText = "Installed as dxgi.dll.",
-                        InstalledVersion = "0.9.4-final (7534ad0)", Actions = [],
+                        InstalledVersion = "0.9.4-final (7534ad0)", Actions = [], CanEditOptions = false,
                         Files = new GameToolsFiles("Game", 6, 1, [], [])
                     }
                 ]
@@ -251,11 +206,18 @@ public static class PreviewGameTools
                 Availability = "folderUnavailable",
                 Reason = "The game's folder isn't available. Connect the drive or library it is on.",
                 Runtime = null, Candidates = [], Upscalers = [],
-                Tools = [Tool() with { Status = "unavailable", StatusText = "The game's folder isn't available.", Actions = [] }]
+                Tools =
+                [
+                    Tool() with
+                    {
+                        Status = "unavailable", StatusText = "The game's folder isn't available.", Actions = [],
+                        ShowOptions = false, CanEditOptions = false
+                    }
+                ]
             },
             "game-tools-busy" => ready with
             {
-                Busy = new GameToolsBusy(AppId, "optiscaler", "install", "Downloading OptiScaler", 12_582_912,
+                Busy = new GameToolsBusy(AppId, "install", "Downloading OptiScaler", 12_582_912,
                     31_457_280, true)
             },
             "game-tools-loading" => ready with { Loading = true, Tools = [], Candidates = [], Runtime = null },
@@ -268,8 +230,9 @@ public static class PreviewGameTools
         return new GameToolsTool("optiscaler", "OptiScaler",
             "Swaps a game's DLSS, FSR or XeSS upscaler for another one, and can add frame generation.",
             "https://github.com/optiscaler/OptiScaler", "GPL-3.0",
-            "WSGM is not affiliated with OptiScaler; report problems to WSGM.", true, null, "notInstalled",
+            "WSGM is not affiliated with OptiScaler; report problems to WSGM.", null, "notInstalled",
             "Not installed.", null, "v0.9.4", null, false, false, "dxgi.dll",
+            "OptiScaler loads by taking the name of a Windows library the game loads. Try the first one first.",
             [
                 new GameToolsProxyOption("dxgi.dll", "Most compatible. Try this first.", true, null),
                 new GameToolsProxyOption("winmm.dll", "Use for Vulkan games.", false, "ReShade uses this name."),
@@ -292,31 +255,97 @@ public static class PreviewGameTools
                 new GameToolsSetting("hideSplash", "Hide the start message", "Hides OptiScaler's splash text.", "off",
                     null, [new GameToolsSettingOption("off", "Off"), new GameToolsSettingOption("on", "On")], true, null)
             ],
-            [], [], ["install"], false, null, new GameToolsFiles("Game", 0, 0, [], []));
+            true, true, [], [], ["install"], new GameToolsFiles("Game", 0, 0, [], []));
     }
 
-    private static object GetField(object target, string name)
+    /// <summary>
+    ///     A Game Tools owner that publishes one seeded state and admits every command without doing anything,
+    ///     so the page draws exactly the case.
+    /// </summary>
+    private sealed class FakeGameToolsSource(GameToolsState? state) : IGameToolsSource
     {
-        return Field(target, name).GetValue(target)!;
-    }
+        /// <inheritdoc />
+        public event Action? Changed
+        {
+            add { }
+            remove { }
+        }
 
-    private static void SetField(object target, string name, object? value)
-    {
-        Field(target, name).SetValue(target, value);
-    }
+        /// <inheritdoc />
+        public GameToolsState Peek(uint appId)
+        {
+            return state is not null && appId == state.AppId
+                ? state
+                : throw new InvalidOperationException("The preview has no state for game " + appId + ".");
+        }
 
-    private static FieldInfo Field(object target, string name)
-    {
-        return target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
-               ?? throw new InvalidOperationException($"{target.GetType().Name} has no field {name}.");
-    }
+        /// <inheritdoc />
+        public Task<GameToolsState> ReadAsync(uint appId, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(Peek(appId));
+        }
 
-    private sealed class RefusingHandler : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
+        /// <inheritdoc />
+        public Task<SteamUiCommandResult> RefreshAsync(uint appId, CancellationToken cancellationToken)
+        {
+            return Admitted();
+        }
+
+        /// <inheritdoc />
+        public Task<SteamUiCommandResult> CheckUpdatesAsync(uint appId, CancellationToken cancellationToken)
+        {
+            return Admitted();
+        }
+
+        /// <inheritdoc />
+        public Task<SteamUiCommandResult> ChooseRuntimeAsync(uint appId, string path,
             CancellationToken cancellationToken)
         {
-            throw new HttpRequestException("Previews never use the network.");
+            return Admitted();
+        }
+
+        /// <inheritdoc />
+        public Task<SteamUiCommandResult> InstallAsync(GameToolsInstallRequest request,
+            CancellationToken cancellationToken)
+        {
+            return Admitted();
+        }
+
+        /// <inheritdoc />
+        public Task<SteamUiCommandResult> UpdateAsync(uint appId, string toolId, bool replaceConfig,
+            CancellationToken cancellationToken)
+        {
+            return Admitted();
+        }
+
+        /// <inheritdoc />
+        public Task<SteamUiCommandResult> RepairAsync(uint appId, string toolId, CancellationToken cancellationToken)
+        {
+            return Admitted();
+        }
+
+        /// <inheritdoc />
+        public Task<SteamUiCommandResult> ConfigureAsync(uint appId, string toolId, string? proxyName,
+            IReadOnlyDictionary<string, string> settings, CancellationToken cancellationToken)
+        {
+            return Admitted();
+        }
+
+        /// <inheritdoc />
+        public Task<SteamUiCommandResult> RemoveAsync(uint appId, string toolId, CancellationToken cancellationToken)
+        {
+            return Admitted();
+        }
+
+        /// <inheritdoc />
+        public Task<SteamUiCommandResult> CancelAsync(uint appId, CancellationToken cancellationToken)
+        {
+            return Admitted();
+        }
+
+        private static Task<SteamUiCommandResult> Admitted()
+        {
+            return Task.FromResult(SteamUiCommandResult.Applied);
         }
     }
 }

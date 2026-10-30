@@ -1,9 +1,8 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
@@ -175,7 +174,9 @@ internal sealed record GameToolManifest
     /// <summary>The manifest restored when the transaction rolls back; null for a fresh install.</summary>
     public GameToolManifest? Previous { get; init; }
 
-    /// <summary>The transaction kind: <c>install</c>, <c>update</c>, <c>repair</c>, <c>configure</c> or <c>replace</c>.</summary>
+    /// <summary>
+    ///     The transaction kind: <c>install</c>, <c>replaceExisting</c>, <c>update</c>, <c>repair</c> or <c>configure</c>.
+    /// </summary>
     public string Operation { get; init; } = "";
 }
 
@@ -251,6 +252,9 @@ internal sealed record GameToolStore
 /// </remarks>
 internal static class GameToolStorage
 {
+    // Every read and write takes the gate, so its hashed name is computed once per data root.
+    private static readonly ConcurrentDictionary<string, string> GateNames = new(StringComparer.Ordinal);
+
     /// <summary>Camel-case options with string enums for the store and the catalog.</summary>
     internal static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -331,9 +335,41 @@ internal static class GameToolStorage
         return Read(userRoot);
     }
 
+    /// <summary>Records a game's new install root on its manifests after the game moved to another library.</summary>
+    /// <param name="userRoot">The per-user data root.</param>
+    /// <param name="appId">The game.</param>
+    /// <param name="root">The current install root.</param>
+    /// <returns>The game's rebased record, or null when it has none.</returns>
+    /// <remarks>Manifest paths are relative to the root, so only the recorded root changes.</remarks>
+    internal static GameToolRecord? Rebase(string userRoot, uint appId, string root)
+    {
+        return Mutate(userRoot, store => store.Find(appId) is { } current
+            ? store.With(appId, current with
+            {
+                Tools = [.. current.Tools.Select(manifest => manifest with { InstallRoot = root })]
+            })
+            : store).Find(appId);
+    }
+
+    /// <summary>Removes a WSGM-owned folder such as a backup or staging tree, logging instead of failing.</summary>
+    /// <param name="path">The folder; a missing one is ignored.</param>
+    internal static void DeleteTree(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                Directory.Delete(path, true);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Log.Warn($"Game Tools: could not remove {path}: {ex.Message}");
+        }
+    }
+
     private static string GateName(string userRoot)
     {
-        return @"Local\WSGM.GameTools." + Convert.ToHexString(
-            SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(userRoot).ToUpperInvariant())))[..32];
+        return GateNames.GetOrAdd(userRoot, static root => StoragePaths.GateName(@"Local\WSGM.GameTools.", root));
     }
 }

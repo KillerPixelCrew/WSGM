@@ -11,6 +11,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32;
+using WSGM.Core.Downloads;
 
 namespace WSGM.Core;
 
@@ -20,7 +21,7 @@ public sealed partial class EmulatorManager : IDisposable
     private readonly UserDataContext _context;
     private readonly ImportStateStore? _importState;
     private readonly CancellationTokenSource _lifetime = new();
-    private readonly EmulatorNetwork _network;
+    private readonly DownloadClient _client;
     private readonly SemaphoreSlim _operations = new(1);
     private readonly EmulatorPackages _packages;
     private readonly EmulatorReleases _releases;
@@ -44,9 +45,9 @@ public sealed partial class EmulatorManager : IDisposable
     {
         _context = context;
         _importState = importState;
-        _network = new EmulatorNetwork(handler);
-        _releases = new EmulatorReleases(_network);
-        _packages = new EmulatorPackages(_network);
+        _client = new DownloadClient(handler);
+        _releases = new EmulatorReleases(_client);
+        _packages = new EmulatorPackages(_client);
         Initialization = Task.Run(InitializeLocal);
     }
 
@@ -81,7 +82,7 @@ public sealed partial class EmulatorManager : IDisposable
 
         _lifetime.Cancel();
         Cancel();
-        _network.Dispose();
+        _client.Dispose();
         _lifetime.Dispose();
     }
 
@@ -464,7 +465,7 @@ public sealed partial class EmulatorManager : IDisposable
         SetStatus("Finding " + definition.Name + " (" + channel + ")");
         var release = repair && previous is not null
             ? new EmulatorRelease(previous.Version, previous.ReleaseId, "", previous.Source,
-                new EmulatorAsset(previous.PackageName,
+                new ReleaseAsset(previous.PackageName,
                     previous.SourceUrl,
                     previous.ExpectedSha256.Length > 0 ? previous.ExpectedSha256 : previous.Sha256))
             : await _releases.FindAsync(definition, channel, architecture, cancellationToken).ConfigureAwait(false);
@@ -489,9 +490,9 @@ public sealed partial class EmulatorManager : IDisposable
             var hash = repair && previous is not null
                 ? await _packages.RestoreArchiveAsync(previous, release.Asset.Name, archive, release.Asset.Url,
                     release.Asset.Sha256, cancellationToken).ConfigureAwait(false)
-                : await _packages.DownloadAsync(release.Asset, archive, cancellationToken).ConfigureAwait(false);
+                : await _client.DownloadAsync(release.Asset, archive, cancellationToken).ConfigureAwait(false);
             SetStatus("Extracting " + definition.Name);
-            await Task.Run(() => EmulatorPackages.Extract(archive, program, cancellationToken), cancellationToken)
+            await Task.Run(() => PackageArchive.Extract(archive, program, cancellationToken), cancellationToken)
                 .ConfigureAwait(false);
             if (release.ExtractDirectory.Length > 0)
             {

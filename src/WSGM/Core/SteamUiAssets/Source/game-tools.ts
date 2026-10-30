@@ -18,26 +18,6 @@ const gameToolsStyles = `
 #wsgm-game-tools .wsgm-game-tools-warnings { display: flex; flex-direction: column; gap: 8px; }
 `;
 
-const gameToolsConfidence = {
-  confirmed: "You chose this program.",
-  structural: "Identified from the folder layout or Steam's launch target.",
-  single: "The only likely program in the folder.",
-};
-
-const gameToolsRoles = {
-  game: "Game",
-  launcher: "Launcher or settings",
-  helper: "Installer or helper",
-  unknown: "Program",
-};
-
-const gameToolsConflictKinds = {
-  unmanagedTool: "Installed outside WSGM",
-  needsReview: "Needs review",
-  otherMod: "Used by another mod",
-  foreignFile: "Game file in the way",
-};
-
 const gameToolsOperations = {
   install: "Installing",
   replaceExisting: "Replacing the existing installation",
@@ -110,26 +90,51 @@ function GameToolsCandidates({ ui, state, disabled, onChoose }: any) {
   return h(
     ui.focusable,
     { className: "wsgm-game-tools-list", "flow-children": "column" },
-    ...candidates.map((candidate) =>
-      renderSteamUiSelectRow(ui, {
+    ...candidates.map((candidate) => {
+      const role = candidate.roleLabel || "Program";
+      return renderSteamUiSelectRow(ui, {
         key: candidate.relativePath,
         title: candidate.fileName,
         selected: !!candidate.chosen,
         status: h(
           "span",
           { className: "wsgm-game-tools-tag", "data-current": candidate.chosen ? "true" : "false" },
-          candidate.chosen ? "In use" : (gameToolsRoles[candidate.role] ?? "Program"),
+          candidate.chosen ? "In use" : role,
         ),
         detail: [
           candidate.relativePath,
-          [gameToolsRoles[candidate.role] ?? "Program", candidate.architecture || "Unknown architecture"].join(" · "),
+          [role, candidate.architectureLabel || "Unknown architecture"].join(" · "),
           ...(candidate.reasons ?? []),
         ].join("\n"),
         onClick: () => {
           if (!disabled) onChoose(candidate.relativePath);
         },
-      }),
-    ),
+      });
+    }),
+  );
+}
+
+/**
+ * The program choice: a heading, the large-folder note, every candidate and Browse, with Back when it
+ * is a level of its own.
+ * @param props Resolved components, published state, whether changes are allowed, the heading and the
+ * choose, browse and optional back callbacks.
+ * @returns The chooser's elements.
+ */
+function GameToolsChooser({ ui, state, locked, page, title, detail, onChoose, onBrowse, onBack }: any) {
+  const react = ui.react;
+  const h = react.createElement;
+  const actions: any[] = [{ id: "browse", label: "Browse…", disabled: locked, onClick: onBrowse }];
+  if (onBack) actions.push({ id: "back", label: "Back", onClick: onBack });
+  return h(
+    react.Fragment,
+    null,
+    renderSteamUiHeader(ui, { page, title, detail }),
+    state.scanTruncated
+      ? renderSteamUiEmpty(react, "The folder is large, so this list may be incomplete. Use Browse if the program is missing.")
+      : null,
+    h(GameToolsCandidates, { ui, state, disabled: locked, onChoose }),
+    renderSteamUiActions(ui, actions, { compact: true }),
   );
 }
 
@@ -144,7 +149,6 @@ function GameToolsTool({ ui, state, tool, draft, locked, act, setDraft, confirm 
   const h = react.createElement;
   const actions: string[] = tool.actions ?? [];
   const installing = actions.includes("install");
-  const configurable = actions.includes("configure");
   // Before an install the choices are a draft that goes out with Install; afterwards each change is
   // sent on its own and the row shows what the host published until it answers.
   const proxyName = installing ? (draft.proxyName ?? tool.proxyName) : tool.proxyName;
@@ -152,18 +156,14 @@ function GameToolsTool({ ui, state, tool, draft, locked, act, setDraft, confirm 
     installing && draft.settings?.[setting.id] !== undefined ? draft.settings[setting.id] : setting.value;
   const appId = state.appId;
   const toolId = tool.id;
-  const risk = () =>
-    tool.requiresRiskAcknowledgement
-      ? `${tool.riskWarning ?? ""} Found: ${(state.antiCheat ?? []).join(", ")}.`.trim()
-      : "";
-
   const install = (replaceExisting: boolean) => {
     const payload: any = { appId, toolId, replaceExisting };
     if (draft.proxyName && draft.proxyName !== tool.proxyName) payload.proxyName = draft.proxyName;
     if (draft.settings && Object.keys(draft.settings).length) payload.settings = draft.settings;
-    if (tool.requiresRiskAcknowledgement) payload.acknowledgeRisk = true;
+    // The host's anti-cheat text names what it found; showing it is the acknowledgement it asks for.
+    const warning = state.antiCheatWarning ?? "";
+    if (warning) payload.acknowledgeRisk = true;
     const run = () => void act("install", payload);
-    const warning = risk();
     if (replaceExisting) {
       confirm({
         title: `Replace the existing ${tool.name}?`,
@@ -229,7 +229,7 @@ function GameToolsTool({ ui, state, tool, draft, locked, act, setDraft, confirm 
       label: "Status",
       text: "",
       description: gameToolsLines(react, [
-        tool.compatible ? tool.statusText : (tool.incompatibleReason ?? tool.statusText),
+        tool.incompatibleReason ?? tool.statusText,
         versions,
       ]),
       accent: tool.status === "conflict" || tool.status === "modified",
@@ -239,7 +239,7 @@ function GameToolsTool({ ui, state, tool, draft, locked, act, setDraft, confirm 
     rows.push({
       key: `conflict-${conflict.path}`,
       kind: "note",
-      label: gameToolsConflictKinds[conflict.kind] ?? "Conflict",
+      label: conflict.kindLabel || "Conflict",
       text: "",
       description: gameToolsLines(react, [conflict.message, conflict.path]),
       accent: true,
@@ -249,7 +249,8 @@ function GameToolsTool({ ui, state, tool, draft, locked, act, setDraft, confirm 
   // Proxy names another file already uses stay listed, with the reason, so the user sees why the
   // suggested one differs; choosing one says why it can't be used instead of sending it.
   const proxyOption = (tool.proxyOptions ?? []).find((option) => option.name === proxyName);
-  if ((tool.proxyOptions ?? []).length && (installing || tool.installedVersion)) {
+  const editable = !locked && !!tool.canEditOptions;
+  if ((tool.proxyOptions ?? []).length && tool.showOptions) {
     rows.push({
       key: "proxy",
       kind: "choice",
@@ -260,11 +261,11 @@ function GameToolsTool({ ui, state, tool, draft, locked, act, setDraft, confirm 
         value: option.name,
         label: option.available || option.name === tool.proxyName ? option.name : `${option.name} (in use)`,
       })),
-      disabled: locked || !(installing || configurable),
+      disabled: !editable,
       layout: "below",
     });
   }
-  if (installing || tool.installedVersion) {
+  if (tool.showOptions) {
     for (const setting of tool.settings ?? []) {
       const value = settingValue(setting);
       const choices = (setting.options ?? []).map((option) => ({ value: option.value, label: option.label }));
@@ -279,7 +280,7 @@ function GameToolsTool({ ui, state, tool, draft, locked, act, setDraft, confirm 
         description: [setting.description, setting.note].filter(Boolean).join(" "),
         text: value,
         choices,
-        disabled: locked || !setting.available || !(installing || configurable),
+        disabled: !editable || !setting.available,
         layout: "below",
       });
     }
@@ -355,41 +356,31 @@ function GameToolsProgram({ ui, state, locked, onChange, onBrowse, onChoose }: a
   const h = react.createElement;
   const runtime = state.runtime;
   if (!runtime) {
-    return h(
-      react.Fragment,
-      null,
-      renderSteamUiHeader(ui, {
-        title: "Choose the program the game runs",
-        detail: state.rememberedMissing
-          ? "The program you chose earlier is gone, maybe after an update. Choose it again."
-          : "WSGM couldn't tell which program starts the game. Tools install beside the one you choose.",
-      }),
-      state.scanTruncated
-        ? renderSteamUiEmpty(react, "The folder is large, so this list may be incomplete. Use Browse if the program is missing.")
-        : null,
-      h(GameToolsCandidates, { ui, state, disabled: locked, onChoose }),
-      renderSteamUiActions(ui, [{ id: "browse", label: "Browse…", disabled: locked, onClick: onBrowse }], { compact: true }),
-    );
+    return h(GameToolsChooser, {
+      ui,
+      state,
+      locked,
+      title: "Choose the program the game runs",
+      detail: state.rememberedMissing
+        ? "The program you chose earlier is gone, maybe after an update. Choose it again."
+        : "WSGM couldn't tell which program starts the game. Tools install beside the one you choose.",
+      onChoose,
+      onBrowse,
+    });
   }
-  const rows = [
-    {
-      key: "program",
-      kind: "action",
-      label: runtime.fileName,
-      description: gameToolsLines(react, [
-        runtime.relativePath,
-        [state.engineLabel, runtime.architecture || "Unknown architecture"].filter(Boolean).join(" · "),
-        gameToolsConfidence[runtime.confidence],
-      ]),
-      buttonLabel: "Change…",
-      disabled: locked,
-    },
-  ];
-  return h(
-    react.Fragment,
-    null,
-    h(ui.settingsSection, { label: "Game program" }, ...rows.map((row) => renderSteamSettingRow(ui, row, undefined, () => {}, onChange))),
-  );
+  const row = {
+    key: "program",
+    kind: "action",
+    label: runtime.fileName,
+    description: gameToolsLines(react, [
+      runtime.relativePath,
+      [state.engineLabel, runtime.architectureLabel || "Unknown architecture"].filter(Boolean).join(" · "),
+      runtime.confidenceLabel,
+    ]),
+    buttonLabel: "Change…",
+    disabled: locked,
+  };
+  return h(ui.settingsSection, { label: "Game program" }, renderSteamSettingRow(ui, row, undefined, () => {}, onChange));
 }
 
 /**
@@ -419,9 +410,9 @@ function GameToolsDetected({ ui, state }: any) {
         },
       ];
   return h(
-    react.Fragment,
-    null,
-    h(ui.settingsSection, { label: "Detected in the game folder" }, ...rows.map((row) => renderSteamSettingRow(ui, row, undefined, () => {}, () => {}))),
+    ui.settingsSection,
+    { label: "Detected in the game folder" },
+    ...rows.map((row) => renderSteamSettingRow(ui, row, undefined, () => {}, () => {})),
   );
 }
 
@@ -529,10 +520,8 @@ function GameToolsPage({ context, page }: any) {
   if (state.availability !== "ready" && state.reason) {
     banners.push(renderSteamUiBanner(ui, { text: state.reason, error: state.availability !== "running" }));
   }
-  if ((state.antiCheat ?? []).length) {
-    const warning = (state.tools ?? []).find((tool) => tool.riskWarning)?.riskWarning
-      ?? "Do not use with online games. Anti-cheat may ban accounts.";
-    banners.push(renderSteamUiBanner(ui, { text: `Anti-cheat found: ${state.antiCheat.join(", ")}. ${warning}`, error: true }));
+  if (state.antiCheatWarning) {
+    banners.push(renderSteamUiBanner(ui, { text: state.antiCheatWarning, error: true }));
   }
   const banner = banners.length
     ? h("div", { className: "steam-ui-kit-page-banner" }, ...banners.map((element, index) => h("div", { key: index }, element)))
@@ -569,23 +558,17 @@ function GameToolsPage({ context, page }: any) {
       renderSteamUiLevel(
         ui,
         { bounded: true, onBack: () => setLevel("page") },
-        renderSteamUiHeader(ui, {
+        h(GameToolsChooser, {
+          ui,
+          state,
+          locked,
           page: true,
           title: "Choose the game's program",
           detail: `${state.name} · Tools install beside the program you choose.`,
+          onChoose: (path) => void choose(path),
+          onBrowse: () => void browse(),
+          onBack: () => setLevel("page"),
         }),
-        state.scanTruncated
-          ? renderSteamUiEmpty(react, "The folder is large, so this list may be incomplete. Use Browse if the program is missing.")
-          : null,
-        h(GameToolsCandidates, { ui, state, disabled: locked, onChoose: (path) => void choose(path) }),
-        renderSteamUiActions(
-          ui,
-          [
-            { id: "browse", label: "Browse…", disabled: locked, onClick: () => void browse() },
-            { id: "back", label: "Back", onClick: () => setLevel("page") },
-          ],
-          { compact: true },
-        ),
       ),
     );
   }

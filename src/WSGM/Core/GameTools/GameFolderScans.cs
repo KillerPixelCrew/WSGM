@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.IO.Enumeration;
 using System.Linq;
 
@@ -47,9 +48,9 @@ internal static class UpscalerScan
     ];
 
     /// <summary>Lists recognised libraries, skipping files WSGM created itself.</summary>
-    /// <param name="layout">The walked install folder.</param>
+    /// <param name="layout">The walked install folder, possibly from an earlier walk.</param>
     /// <param name="installed">Install-root-relative paths WSGM created, which are not the game's.</param>
-    /// <returns>The libraries, by path.</returns>
+    /// <returns>The libraries, by path; a walked file removed since is skipped.</returns>
     internal static IReadOnlyList<GameUpscalerFile> Scan(GameFolderLayout layout, IReadOnlySet<string> installed)
     {
         List<GameUpscalerFile> found = [];
@@ -64,6 +65,11 @@ internal static class UpscalerScan
             {
                 if (file.Name.Equals(known.Name, StringComparison.OrdinalIgnoreCase))
                 {
+                    if (!File.Exists(file.FullPath))
+                    {
+                        break;
+                    }
+
                     var version = PeImage.TryVersion(file.FullPath);
                     var text = version is null ? null
                         : version.ProductVersion.Length > 0 ? version.ProductVersion

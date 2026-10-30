@@ -1,45 +1,68 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using WSGM.Core.Downloads;
 
 namespace WSGM.Core.GameTools;
 
 /// <summary>A verified, extracted tool package ready to be copied into a game.</summary>
-/// <param name="Release">The release it came from.</param>
+/// <param name="Release">The release it came from, carrying the normalized SHA-256 of its asset.</param>
 /// <param name="Root">The payload root, after unwrapping a single top-level folder.</param>
 /// <param name="Version">The primary file's product version.</param>
 /// <param name="Family">The primary file's version family.</param>
 /// <param name="Architecture">The primary file's PE architecture.</param>
-internal sealed record GameToolPackage(EmulatorRelease Release, string Root, string Version, string Family,
-    string Architecture);
+internal sealed record GameToolPackage(HostedRelease Release, string Root, string Version, string Family,
+    string Architecture)
+{
+    /// <summary>File hashes recorded at extraction, by forward-slash path relative to <see cref="Root" />.</summary>
+    internal IReadOnlyDictionary<string, (string Sha256, long Size)> Hashes { get; init; } =
+        new Dictionary<string, (string Sha256, long Size)>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The SHA-256 of a payload file, from the extraction record while its size still matches.</summary>
+    /// <param name="relativePath">The forward-slash path relative to <see cref="Root" />.</param>
+    /// <param name="source">The file's absolute path.</param>
+    /// <returns>The lowercase SHA-256.</returns>
+    internal string Sha256(string relativePath, string source)
+    {
+        return Hashes.TryGetValue(relativePath, out var recorded) && new FileInfo(source).Length == recorded.Size
+            ? recorded.Sha256
+            : GameToolInstaller.Sha256(source);
+    }
+}
 
 /// <summary>The cached result of the latest-release lookup.</summary>
 /// <param name="Release">The release, or null when the lookup failed.</param>
 /// <param name="Error">Why the lookup failed.</param>
 /// <param name="CheckedUtc">When the lookup ran.</param>
-internal sealed record GameToolLatest(EmulatorRelease? Release, string? Error, DateTime CheckedUtc);
+internal sealed record GameToolLatest(HostedRelease? Release, string? Error, DateTime CheckedUtc);
 
 /// <summary>Finds, downloads, verifies and caches tool packages through the shared release adapters.</summary>
 /// <remarks>
 ///     Latest-release lookups are cached in memory for the session, because GitHub's anonymous API limit is
-///     small; an explicit "Check for updates" refreshes. Downloads fail closed: a release without a
-///     published SHA-256 is refused. Packages are kept extracted under
-///     <c>&lt;root&gt;\GameTools\packages\&lt;tool&gt;\&lt;release&gt;</c>, keyed by version, asset, hash and URL.
+///     small: an answer for six hours and a failure for ten minutes. An explicit "Check for updates"
+///     refreshes. Downloads fail closed: a release without a published SHA-256 is refused. Packages are kept
+///     extracted under <c>&lt;root&gt;\GameTools\packages\&lt;tool&gt;\&lt;release&gt;</c>, keyed by version, asset,
+///     hash and URL, with the hash of every payload file recorded beside them.
 /// </remarks>
 internal sealed class GameToolReleases : IDisposable
 {
+    private const string IdentityFile = "identity.txt";
+    private const string HashesFile = "hashes.txt";
+
     private static readonly TimeSpan LatestLifetime = TimeSpan.FromHours(6);
+    private static readonly TimeSpan FailureLifetime = TimeSpan.FromMinutes(10);
 
     private readonly string _userRoot;
-    private readonly EmulatorNetwork _network;
-    private readonly EmulatorReleases _releases;
+    private readonly DownloadClient _client;
+    private readonly HostedReleases _releases;
     private readonly Dictionary<string, GameToolLatest> _latest = new(StringComparer.Ordinal);
     private readonly object _latestGate = new();
     private int _swept;
@@ -50,14 +73,14 @@ internal sealed class GameToolReleases : IDisposable
     internal GameToolReleases(string userRoot, HttpMessageHandler? handler)
     {
         _userRoot = userRoot;
-        _network = new EmulatorNetwork(handler);
-        _releases = new EmulatorReleases(_network);
+        _client = new DownloadClient(handler);
+        _releases = new HostedReleases(_client);
     }
 
     /// <inheritdoc />
     public void Dispose()
     {
-        _network.Dispose();
+        _client.Dispose();
     }
 
     /// <summary>The cached latest release without contacting the network.</summary>
@@ -71,7 +94,17 @@ internal sealed class GameToolReleases : IDisposable
         }
     }
 
-    /// <summary>Looks up the latest release, reusing a recent answer unless forced.</summary>
+    /// <summary>Whether opening a page should look the release up: nothing is known, or a failure has aged out.</summary>
+    /// <param name="tool">The tool.</param>
+    /// <returns>True when an unforced lookup is due.</returns>
+    /// <remarks>A known release is kept for the session on page opens; installs and updates apply its lifetime.</remarks>
+    internal bool LookupDue(GameToolDefinition tool)
+    {
+        return Cached(tool) is not { } cached
+               || cached.Release is null && DateTime.UtcNow - cached.CheckedUtc >= FailureLifetime;
+    }
+
+    /// <summary>Looks up the latest release, reusing a recent answer or failure unless forced.</summary>
     /// <param name="tool">The tool.</param>
     /// <param name="force">Whether to bypass the cache.</param>
     /// <param name="cancellationToken">Cancels the lookup.</param>
@@ -79,8 +112,8 @@ internal sealed class GameToolReleases : IDisposable
     internal async Task<GameToolLatest> LatestAsync(GameToolDefinition tool, bool force,
         CancellationToken cancellationToken)
     {
-        if (!force && Cached(tool) is { } cached && DateTime.UtcNow - cached.CheckedUtc < LatestLifetime
-            && cached.Release is not null)
+        if (!force && Cached(tool) is { } cached
+                   && DateTime.UtcNow - cached.CheckedUtc < (cached.Release is null ? FailureLifetime : LatestLifetime))
         {
             return cached;
         }
@@ -88,15 +121,15 @@ internal sealed class GameToolReleases : IDisposable
         GameToolLatest answer;
         try
         {
-            var release = await _releases.FindHostedAsync(tool.Source.Hosted(), tool.Source.Channel,
-                tool.Architectures[0], cancellationToken).ConfigureAwait(false);
+            var release = await _releases.FindAsync(tool.Source.Hosted(), tool.Architectures[0], cancellationToken)
+                .ConfigureAwait(false);
             answer = new GameToolLatest(release, null, DateTime.UtcNow);
         }
         catch (Exception ex) when (ex is HttpRequestException or InvalidDataException or JsonException
                                        or TimeoutException or IOException or KeyNotFoundException)
         {
             Log.Warn($"Game Tools: release lookup for {tool.Id} failed: {ex.Message}");
-            answer = new GameToolLatest(null, ReleaseError(ex), DateTime.UtcNow);
+            answer = new GameToolLatest(null, ReleaseError(ex, tool.Source.Provider), DateTime.UtcNow);
         }
 
         lock (_latestGate)
@@ -113,13 +146,14 @@ internal sealed class GameToolReleases : IDisposable
     /// <param name="progress">Receives the phase text, the bytes copied and the expected total.</param>
     /// <param name="cancellationToken">Cancels the download and extraction.</param>
     /// <returns>The package.</returns>
-    internal async Task<GameToolPackage> PrepareAsync(GameToolDefinition tool, EmulatorRelease release,
+    internal async Task<GameToolPackage> PrepareAsync(GameToolDefinition tool, HostedRelease release,
         Action<string, long, long> progress, CancellationToken cancellationToken)
     {
         SweepStages(tool);
-        var sha = NormalizeDigest(release.Asset.Sha256)
+        var sha = UpdateChecker.ParseHash(release.Asset.Sha256)
                   ?? throw new InvalidDataException(
                       "The publisher didn't provide a checksum for this download, so WSGM won't install it.");
+        release = release with { Asset = release.Asset with { Sha256 = sha } };
         if (!Path.GetExtension(release.Asset.Name).TrimStart('.').Equals(tool.Source.PackageType,
                 StringComparison.OrdinalIgnoreCase))
         {
@@ -130,12 +164,12 @@ internal sealed class GameToolReleases : IDisposable
         var identity = string.Join('|', release.Version, release.Asset.Name, sha, release.Asset.Url);
         var directory = PackageDirectory(tool, release.Version, sha);
         var payload = Path.Combine(directory, "payload");
-        if (File.Exists(Path.Combine(directory, "identity.txt"))
-            && File.ReadAllText(Path.Combine(directory, "identity.txt")) == identity && Directory.Exists(payload))
+        if (File.Exists(Path.Combine(directory, IdentityFile))
+            && File.ReadAllText(Path.Combine(directory, IdentityFile)) == identity && Directory.Exists(payload))
         {
             try
             {
-                return Validate(tool, release, Unwrap(payload));
+                return Validate(tool, release, Unwrap(payload)) with { Hashes = ReadHashes(directory) };
             }
             catch (InvalidDataException)
             {
@@ -148,16 +182,18 @@ internal sealed class GameToolReleases : IDisposable
         try
         {
             var archive = Path.Combine(stage, release.Asset.Name);
-            await DownloadAsync(release.Asset with { Sha256 = sha }, archive,
+            await DownloadAsync(release.Asset, archive,
                 copied => progress("Downloading " + tool.Name, copied, release.Asset.Size), cancellationToken)
                 .ConfigureAwait(false);
             progress("Extracting", 0, 0);
             var extracted = Path.Combine(stage, "payload");
-            await Task.Run(() => EmulatorPackages.Extract(archive, extracted, cancellationToken), cancellationToken)
+            await Task.Run(() => PackageArchive.Extract(archive, extracted, cancellationToken), cancellationToken)
                 .ConfigureAwait(false);
             File.Delete(archive);
-            _ = Validate(tool, release, Unwrap(extracted));
-            File.WriteAllText(Path.Combine(stage, "identity.txt"), identity);
+            var staged = Validate(tool, release, Unwrap(extracted));
+            var hashes = await Task.Run(() => HashPayload(staged.Root), cancellationToken).ConfigureAwait(false);
+            WriteHashes(stage, hashes);
+            File.WriteAllText(Path.Combine(stage, IdentityFile), identity);
 
             // Promote: move the old entry aside, move the stage in, then delete the old entry.
             var old = directory + ".old-" + Guid.NewGuid().ToString("N");
@@ -180,38 +216,28 @@ internal sealed class GameToolReleases : IDisposable
                 throw;
             }
 
-            DeleteTree(old);
-            return Validate(tool, release, Unwrap(payload));
+            GameToolStorage.DeleteTree(old);
+
+            // The move keeps the validated contents; only the location of the unwrapped root changes.
+            var unwrapped = Path.GetRelativePath(extracted, staged.Root);
+            return staged with
+            {
+                Root = unwrapped == "." ? payload : Path.Combine(payload, unwrapped), Hashes = hashes
+            };
         }
         finally
         {
-            DeleteTree(stage);
+            GameToolStorage.DeleteTree(stage);
         }
-    }
-
-    /// <summary>Normalizes a published digest to 64 lowercase hex characters.</summary>
-    /// <param name="digest">The digest, optionally prefixed with <c>sha256:</c>.</param>
-    /// <returns>The normalized hash, or null when it is missing or malformed.</returns>
-    internal static string? NormalizeDigest(string? digest)
-    {
-        var value = (digest ?? "").Trim();
-        if (value.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase))
-        {
-            value = value[7..];
-        }
-
-        return Regex.IsMatch(value, "^[0-9a-fA-F]{64}$", RegexOptions.CultureInvariant, TimeSpan.FromSeconds(1))
-            ? value.ToLowerInvariant()
-            : null;
     }
 
     /// <summary>Validates an extracted payload against the definition.</summary>
     /// <param name="tool">The tool.</param>
     /// <param name="release">The release.</param>
     /// <param name="root">The payload root.</param>
-    /// <returns>The package.</returns>
+    /// <returns>The package, without recorded hashes.</returns>
     /// <exception cref="InvalidDataException">The payload is incomplete or not the expected tool.</exception>
-    internal static GameToolPackage Validate(GameToolDefinition tool, EmulatorRelease release, string root)
+    internal static GameToolPackage Validate(GameToolDefinition tool, HostedRelease release, string root)
     {
         foreach (var required in tool.Payload.Required)
         {
@@ -256,30 +282,29 @@ internal sealed class GameToolReleases : IDisposable
     /// <summary>Builds a release record from a manifest so a repair can fetch the installed version again.</summary>
     /// <param name="manifest">The installed manifest.</param>
     /// <returns>The release.</returns>
-    internal static EmulatorRelease FromManifest(GameToolManifest manifest)
+    internal static HostedRelease FromManifest(GameToolManifest manifest)
     {
-        return new EmulatorRelease(manifest.ReleaseVersion, manifest.ReleaseId, "", "",
-            new EmulatorAsset(manifest.AssetName, manifest.SourceUrl, manifest.AssetSha256));
+        return new HostedRelease(manifest.ReleaseVersion, manifest.ReleaseId, "", "",
+            new ReleaseAsset(manifest.AssetName, manifest.SourceUrl, manifest.AssetSha256));
     }
 
-    private async Task DownloadAsync(EmulatorAsset asset, string destination, Action<long> copied,
+    private async Task DownloadAsync(ReleaseAsset asset, string destination, Action<long> copied,
         CancellationToken cancellationToken)
     {
-        // Three transfer attempts on transient failures, and a single verified re-download after a
+        // Checked once here: an unsafe name is not a transfer failure and is never retried.
+        if (!DownloadClient.IsSafeAssetName(asset.Name))
+        {
+            throw new InvalidDataException("The published package has an unsafe file name.");
+        }
+
+        // Three transfer attempts on transient failures, and a single verified re-download after a size or
         // hash mismatch. Both are bounded re-fetches of a verified file, not repeated writes to a game.
         var mismatches = 0;
         for (var attempt = 1;; attempt++)
         {
             try
             {
-                if (asset.Name.Length == 0 || Path.GetFileName(asset.Name) != asset.Name
-                                           || asset.Name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-                {
-                    throw new IOException("The published package has an unsafe file name.");
-                }
-
-                await VerifiedDownload.WriteAsync(token => _network.OpenAsync(asset.Url, token), destination,
-                    asset.Sha256, asset.Size, cancellationToken, copied).ConfigureAwait(false);
+                await _client.DownloadAsync(asset, destination, cancellationToken, copied).ConfigureAwait(false);
                 return;
             }
             catch (InvalidDataException) when (mismatches++ == 0)
@@ -307,13 +332,63 @@ internal sealed class GameToolReleases : IDisposable
         };
     }
 
-    private static string ReleaseError(Exception ex)
+    private static string ReleaseError(Exception ex, string provider)
     {
         return ex is HttpRequestException { StatusCode: HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests }
-            ? "GitHub is limiting requests right now. Try again later."
+            ? provider + " is limiting requests right now. Try again later."
             : ex is HttpRequestException or TimeoutException
-                ? "Couldn't reach GitHub to check for releases."
+                ? "Couldn't reach " + provider + " to check for releases."
                 : "Couldn't read the published releases: " + ex.Message;
+    }
+
+    private static Dictionary<string, (string Sha256, long Size)> HashPayload(string root)
+    {
+        Dictionary<string, (string Sha256, long Size)> hashes = new(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+        {
+            hashes[GameToolPattern.Normalize(Path.GetRelativePath(root, file))] =
+                (GameToolInstaller.Sha256(file), new FileInfo(file).Length);
+        }
+
+        return hashes;
+    }
+
+    private static void WriteHashes(string directory, IReadOnlyDictionary<string, (string Sha256, long Size)> hashes)
+    {
+        // Tab-separated: a file name can't contain a tab.
+        var text = new StringBuilder();
+        foreach (var (relative, (sha, size)) in hashes)
+        {
+            text.Append(sha).Append('\t').Append(size.ToString(CultureInfo.InvariantCulture)).Append('\t')
+                .Append(relative).Append('\n');
+        }
+
+        File.WriteAllText(Path.Combine(directory, HashesFile), text.ToString());
+    }
+
+    // A missing or unreadable record only costs hashing at install time, so it is never an error.
+    private static Dictionary<string, (string Sha256, long Size)> ReadHashes(string directory)
+    {
+        Dictionary<string, (string Sha256, long Size)> hashes = new(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            foreach (var line in File.ReadLines(Path.Combine(directory, HashesFile)))
+            {
+                var parts = line.Split('\t');
+                if (parts.Length == 3 && UpdateChecker.ParseHash(parts[0]) is { } sha
+                                      && long.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture,
+                                          out var size))
+                {
+                    hashes[parts[2]] = (sha, size);
+                }
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            hashes.Clear();
+        }
+
+        return hashes;
     }
 
     private string PackageDirectory(GameToolDefinition tool, string version, string sha)
@@ -347,22 +422,7 @@ internal sealed class GameToolReleases : IDisposable
                      .Where(path => path.Contains(".stage-", StringComparison.Ordinal)
                                     || path.Contains(".old-", StringComparison.Ordinal)))
         {
-            DeleteTree(stale);
-        }
-    }
-
-    private static void DeleteTree(string path)
-    {
-        try
-        {
-            if (Directory.Exists(path))
-            {
-                Directory.Delete(path, true);
-            }
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            Log.Warn($"Game Tools: could not remove staging folder {path}: {ex.Message}");
+            GameToolStorage.DeleteTree(stale);
         }
     }
 }

@@ -5,8 +5,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using System.Threading;
 
@@ -474,8 +472,7 @@ public static class EmulatorStorage
     /// <summary>Returns the per-user mutex shared by fresh launch admission and synchronous metadata activation.</summary>
     public static string GateName(string userRoot)
     {
-        return @"Local\WSGM.Emulators." + Convert.ToHexString(
-            SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(userRoot).ToUpperInvariant())))[..32];
+        return StoragePaths.GateName(@"Local\WSGM.Emulators.", userRoot);
     }
 
     /// <summary>Reads fresh emulator state and rejects unsupported store formats.</summary>

@@ -20,7 +20,7 @@ internal enum GameToolVersionRelation
     NewerThanLatest
 }
 
-/// <summary>Version family, channel and ordering rules driven by catalog data.</summary>
+/// <summary>Version family and ordering rules driven by catalog data.</summary>
 internal static class GameToolVersions
 {
     /// <summary>The first numeric token of a version string, such as <c>0.9.4</c>.</summary>
@@ -99,23 +99,6 @@ internal static class GameToolVersions
         }
 
         return product.Length > 0 ? product : file;
-    }
-
-    /// <summary>Resolves the channel from a product version.</summary>
-    /// <param name="tool">The definition carrying channel tokens.</param>
-    /// <param name="version">The product version.</param>
-    /// <returns><c>preview</c>, <c>stable</c>, or an empty string.</returns>
-    internal static string Channel(GameToolDefinition tool, string? version)
-    {
-        var text = version ?? "";
-        if (tool.Channels.Preview.Any(token => text.Contains(token, StringComparison.OrdinalIgnoreCase)))
-        {
-            return "preview";
-        }
-
-        return tool.Channels.Stable.Any(token => text.Contains(token, StringComparison.OrdinalIgnoreCase))
-            ? "stable"
-            : "";
     }
 
     /// <summary>Relates an installed copy to the latest stable release.</summary>

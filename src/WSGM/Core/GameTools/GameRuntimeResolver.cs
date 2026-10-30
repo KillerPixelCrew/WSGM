@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Enumeration;
 using System.Linq;
 
 namespace WSGM.Core.GameTools;
@@ -41,21 +42,17 @@ internal enum GameRuntimeRole
 /// <param name="RelativePath">The forward-slash path relative to the install root, or absolute outside it.</param>
 /// <param name="FileName">The file name.</param>
 /// <param name="Architecture"><c>x64</c>, <c>x86</c>, <c>arm64</c>, or empty when unknown.</param>
-/// <param name="Engine">The engine id: <c>unreal</c>, <c>unity</c> or <c>unknown</c>.</param>
 /// <param name="Role">What it most likely is.</param>
 /// <param name="Reasons">User-facing evidence, strongest first.</param>
 /// <param name="Score">The ranking score; higher is more likely the game.</param>
-/// <param name="Size">The file size.</param>
 /// <param name="FullPath">The absolute path.</param>
 internal sealed record GameRuntimeCandidate(
     string RelativePath,
     string FileName,
     string Architecture,
-    string Engine,
     GameRuntimeRole Role,
     IReadOnlyList<string> Reasons,
     int Score,
-    long Size,
     string FullPath);
 
 /// <summary>The resolver's answer.</summary>
@@ -211,10 +208,11 @@ internal static class GameRuntimeResolver
 
     private static readonly IGameEngineDetector[] Detectors = [new UnrealEngineDetector(), new UnityEngineDetector()];
 
+    // Folder-name prefixes: each matches the folder itself and any name that starts with it.
     private static readonly string[] HelperDirectories =
     [
-        "_CommonRedist", "Redist", "Redistributables", "DirectX", "vcredist", "__Installer", "Installer", "Support",
-        "EasyAntiCheat", "BattlEye", "CrashReporter", "Prereqs", "_Redist"
+        "_CommonRedist*", "Redist*", "Redistributables*", "DirectX*", "vcredist*", "__Installer*", "Installer*",
+        "Support*", "EasyAntiCheat*", "BattlEye*", "CrashReporter*", "Prereqs*", "_Redist*"
     ];
 
     private static readonly string[] HelperNames =
@@ -233,9 +231,10 @@ internal static class GameRuntimeResolver
     /// <param name="directTarget">Steam's shortcut target, already seen through WSGM's wrapper, or null.</param>
     /// <param name="remembered">The remembered relative or absolute executable, or null.</param>
     /// <param name="gameName">The game's name, for name similarity.</param>
+    /// <param name="architectures">Reuses architectures of unchanged files across scans, or null to read every file.</param>
     /// <returns>The resolution.</returns>
     internal static GameRuntimeResolution Resolve(GameFolderLayout layout, string? directTarget, string? remembered,
-        string gameName)
+        string gameName, PeArchitectureCache? architectures = null)
     {
         var evidence = new GameRuntimeEvidence(layout);
         foreach (var detector in Detectors)
@@ -248,7 +247,9 @@ internal static class GameRuntimeResolver
         List<GameRuntimeCandidate> candidates = [];
         foreach (var file in layout.Executables)
         {
-            var architecture = PeImage.TryArchitecture(file.FullPath);
+            var architecture = architectures is null
+                ? PeImage.TryArchitecture(file.FullPath)
+                : architectures.Read(file);
             if (architecture is null)
             {
                 continue;
@@ -259,9 +260,8 @@ internal static class GameRuntimeResolver
             var score = mark.Score;
             var role = mark.Role ?? GameRuntimeRole.Unknown;
             if (file.Directory.Split('/').Any(part => HelperDirectories.Any(helper =>
-                    System.IO.Enumeration.FileSystemName.MatchesSimpleExpression(helper + "*", part)))
-                || HelperNames.Any(pattern => System.IO.Enumeration.FileSystemName.MatchesSimpleExpression(pattern,
-                    file.Name)))
+                    FileSystemName.MatchesSimpleExpression(helper, part)))
+                || HelperNames.Any(pattern => FileSystemName.MatchesSimpleExpression(pattern, file.Name)))
             {
                 score -= 100;
                 role = GameRuntimeRole.Helper;
@@ -297,7 +297,7 @@ internal static class GameRuntimeResolver
                 reasons.Add("Much smaller than the largest program");
             }
 
-            if (directTarget is not null && PathsEqual(file.FullPath, directTarget))
+            if (directTarget is not null && StoragePaths.Same(file.FullPath, directTarget))
             {
                 score += 40;
                 reasons.Add("The program Steam's shortcut starts");
@@ -308,18 +308,18 @@ internal static class GameRuntimeResolver
                 role = GameRuntimeRole.Game;
             }
 
-            candidates.Add(new GameRuntimeCandidate(file.RelativePath, file.Name, architecture, evidence.Engine, role,
-                reasons, score, file.Size, file.FullPath));
+            candidates.Add(new GameRuntimeCandidate(file.RelativePath, file.Name, architecture, role, reasons, score,
+                file.FullPath));
         }
 
         // A shortcut can start a program outside its start folder; it is still the strongest candidate.
         if (directTarget is not null && File.Exists(directTarget)
-                                     && candidates.All(candidate => !PathsEqual(candidate.FullPath, directTarget))
+                                     && candidates.All(candidate => !StoragePaths.Same(candidate.FullPath, directTarget))
                                      && PeImage.TryArchitecture(directTarget) is { } targetArchitecture)
         {
-            candidates.Add(new GameRuntimeCandidate(Relative(layout.Root, directTarget), Path.GetFileName(directTarget),
-                targetArchitecture, evidence.Engine, GameRuntimeRole.Game, ["The program Steam's shortcut starts"], 40,
-                new FileInfo(directTarget).Length, directTarget));
+            candidates.Add(new GameRuntimeCandidate(GameToolPaths.Relative(layout.Root, directTarget),
+                Path.GetFileName(directTarget), targetArchitecture, GameRuntimeRole.Game,
+                ["The program Steam's shortcut starts"], 40, directTarget));
         }
 
         candidates = [.. candidates.OrderByDescending(candidate => candidate.Score)
@@ -327,14 +327,12 @@ internal static class GameRuntimeResolver
         var rememberedMissing = false;
         if (!string.IsNullOrEmpty(remembered))
         {
-            var full = Path.IsPathFullyQualified(remembered)
-                ? remembered
-                : Path.Combine(layout.Root, remembered.Replace('/', Path.DirectorySeparatorChar));
-            var found = candidates.FirstOrDefault(candidate => PathsEqual(candidate.FullPath, full));
+            var full = GameToolPaths.Resolve(layout.Root, remembered);
+            var found = candidates.FirstOrDefault(candidate => StoragePaths.Same(candidate.FullPath, full));
             if (found is null && File.Exists(full) && PeImage.TryArchitecture(full) is { } rememberedArchitecture)
             {
-                found = new GameRuntimeCandidate(Relative(layout.Root, full), Path.GetFileName(full),
-                    rememberedArchitecture, evidence.Engine, GameRuntimeRole.Game, [], 0, new FileInfo(full).Length, full);
+                found = new GameRuntimeCandidate(GameToolPaths.Relative(layout.Root, full), Path.GetFileName(full),
+                    rememberedArchitecture, GameRuntimeRole.Game, [], 0, full);
                 candidates.Insert(0, found);
             }
 
@@ -363,7 +361,7 @@ internal static class GameRuntimeResolver
         {
             chosen = plausible[0];
             var structuralWinner = evidence.Structural && chosen.Role == GameRuntimeRole.Game
-                                   || directTarget is not null && PathsEqual(chosen.FullPath, directTarget);
+                                   || directTarget is not null && StoragePaths.Same(chosen.FullPath, directTarget);
             confidence = structuralWinner ? GameRuntimeConfidence.Structural : GameRuntimeConfidence.Single;
         }
 
@@ -371,31 +369,48 @@ internal static class GameRuntimeResolver
             rememberedMissing);
     }
 
-    /// <summary>The forward-slash relative path of a file under a root, or its absolute path outside it.</summary>
-    /// <param name="root">The install root.</param>
-    /// <param name="path">The file.</param>
-    /// <returns>The relative or absolute path.</returns>
-    internal static string Relative(string root, string path)
-    {
-        return StoragePaths.IsUnder(root, path)
-            ? GameToolPattern.Normalize(Path.GetRelativePath(root, path))
-            : Path.GetFullPath(path);
-    }
-
-    private static bool PathsEqual(string left, string right)
-    {
-        try
-        {
-            return Path.GetFullPath(left).Equals(Path.GetFullPath(right), StringComparison.OrdinalIgnoreCase);
-        }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
-        {
-            return false;
-        }
-    }
-
     private static string Simplify(string value)
     {
         return new string(value.Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant();
+    }
+}
+
+/// <summary>Remembers the PE architecture of executables across scans while their size and time are unchanged.</summary>
+/// <remarks>Each scan opens every executable of a game; a rescan of an unchanged folder then reads none.</remarks>
+internal sealed class PeArchitectureCache
+{
+    private const int Capacity = 4096;
+
+    private readonly Dictionary<string, (long Size, DateTime LastWriteUtc, string? Architecture)> _entries =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    private readonly object _sync = new();
+
+    /// <summary>The architecture a program runs as, read from the file only when it changed.</summary>
+    /// <param name="file">The walked file.</param>
+    /// <returns>The architecture, or null when the file is not a readable PE image.</returns>
+    internal string? Read(GameFolderFile file)
+    {
+        lock (_sync)
+        {
+            if (_entries.TryGetValue(file.FullPath, out var entry) && entry.Size == file.Size
+                                                                  && entry.LastWriteUtc == file.LastWriteUtc)
+            {
+                return entry.Architecture;
+            }
+        }
+
+        var architecture = PeImage.TryArchitecture(file.FullPath);
+        lock (_sync)
+        {
+            if (_entries.Count >= Capacity)
+            {
+                _entries.Clear();
+            }
+
+            _entries[file.FullPath] = (file.Size, file.LastWriteUtc, architecture);
+        }
+
+        return architecture;
     }
 }

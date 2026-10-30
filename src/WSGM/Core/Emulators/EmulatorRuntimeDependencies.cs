@@ -6,6 +6,7 @@ using System.Linq;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
+using WSGM.Core.Downloads;
 using WSGM.Interop;
 using WSGM.Shared;
 
@@ -112,7 +113,7 @@ public sealed partial class EmulatorManager
 
                     SetStatus("Downloading " + label + " from Microsoft");
                     var installer = Path.Combine(root, name);
-                    await _packages.DownloadAsync(new EmulatorAsset(name, url), installer, cancellation)
+                    await _client.DownloadAsync(new ReleaseAsset(name, url), installer, cancellation)
                         .ConfigureAwait(false);
                     using var held = new FileStream(installer, FileMode.Open, FileAccess.Read, FileShare.Read);
                     if (NativeAuthenticode.VerifyFile(installer) != 0)

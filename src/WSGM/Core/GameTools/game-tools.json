@@ -38,8 +38,14 @@
           { "name": "d3d12.dll", "hint": "Try this when DLSS crashes with the other names." },
           { "name": "wininet.dll", "hint": "An alternative when the others do not load." },
           { "name": "winhttp.dll", "hint": "An alternative when the others do not load." },
-          { "name": "OptiScaler.asi", "hint": "Only with an ASI loader already installed in this game." }
+          {
+            "name": "OptiScaler.asi",
+            "hint": "Only with an ASI loader already installed in this game.",
+            "suggest": false
+          }
         ],
+        "intro": "OptiScaler loads by taking the name of a Windows library the game loads. Try the first one first.",
+        "renameIntro": "WSGM renames the installed file. Try another name when the game ignores OptiScaler or crashes.",
         "detectionNames": [
           "OptiScaler.asi",
           "OptiScaler.dll",
@@ -86,15 +92,15 @@
         "dlssg_to_fsr3.log",
         "OptiScaler/OptiScaler.log"
       ],
-      "requiresUpscaler": ["dlss", "fsr", "xess"],
+      "requiresUpscaler": [
+        { "family": "dlss", "label": "DLSS" },
+        { "family": "fsr", "label": "FSR" },
+        { "family": "xess", "label": "XeSS" }
+      ],
       "families": [
         { "id": "v09", "pattern": "^0[.]9([.]|$)" },
         { "id": "v10", "pattern": "^(0[.]10|10)([.]|$)" }
       ],
-      "channels": {
-        "preview": ["-pre", "preview", "-dev"],
-        "stable": ["-final", "stable"]
-      },
       "settings": [
         {
           "id": "dlssInputs",

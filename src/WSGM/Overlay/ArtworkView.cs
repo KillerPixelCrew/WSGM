@@ -19,15 +19,10 @@ namespace WSGM.Overlay;
 public sealed class ArtworkView : ServiceSubView
 {
     private int _cardSize = 160;
+    private readonly GameList _games = new();
     private UserDataContext? _context;
-    private IReadOnlyList<SteamLibraryApp> _games = [];
-    private string? _gamesError;
-    private bool _gamesRead;
     private SteamLogoPosition _logo = new("BottomLeft", 50, 50);
     private uint _logoApp;
-    private string _query = "";
-    private bool _readingGames;
-    private int _shown = 48;
     private IArtworkBrowseSession? _source;
 
     private UserDataContext Context =>
@@ -104,50 +99,9 @@ public sealed class ArtworkView : ServiceSubView
             return;
         }
 
-        body.Children.Add(Tagged(Row("Search games", _query, Icons.ListLines,
-            () => EditText("Search your Steam library", _query, 0, query =>
-            {
-                _query = query;
-                _shown = 48;
-                RenderHome();
-            })), "games.search"));
-        body.Children.Add(Tagged(
-            Row("Refresh games", "", Icons.Restart,
-                _readingGames ? null : () => _ = RunSafelyAsync(ReadGamesAsync(), "games")), "games.refresh"));
-        if (_gamesError is not null)
-        {
-            body.Children.Add(Caption(_gamesError));
-        }
-
-        if (_readingGames)
-        {
-            body.Children.Add(Caption("Asking Steam…"));
-        }
-
-        var games = _games.Where(game => game.Name.Contains(_query, StringComparison.OrdinalIgnoreCase)).ToArray();
-        foreach (var game in games.Take(_shown))
-        {
-            var id = game.AppId;
-            body.Children.Add(Tagged(Row(game.Name, game.Shortcut ? "Non-Steam game" : "Steam game", Icons.Grid4,
-                () => _ = RunSafelyAsync(OpenGameAsync(id, game.Name), "open game")), "game:" + id));
-        }
-
-        if (games.Length > _shown)
-        {
-            var added = "game:" + games[_shown].AppId;
-            body.Children.Add(Tagged(Row("Load more", $"{_shown} of {games.Length}", Icons.ArrowDown, () =>
-            {
-                _shown += 48;
-                RenderHome();
-                PagedRows.FocusAdded(this, added);
-            }), "games.more"));
-        }
-
-        if (_gamesRead && !_readingGames && _gamesError is null && games.Length == 0)
-        {
-            body.Children.Add(Caption("No matching games in Steam."));
-        }
-
+        var source = _source;
+        AddGameList(body, _games, Icons.Grid4, source.ReadGamesAsync,
+            game => _ = RunSafelyAsync(OpenGameAsync(game.AppId, game.Name), "open game"), RenderHome);
         if (ReturnRequested is not null)
         {
             body.Children.Add(Tagged(Row("Return to importer", "", Icons.ArrowLeft, () => ReturnRequested?.Invoke()),
@@ -155,27 +109,7 @@ public sealed class ArtworkView : ServiceSubView
         }
 
         SetContent(body);
-        if (!_gamesRead && !_readingGames)
-        {
-            _ = RunSafelyAsync(ReadGamesAsync(), "games");
-        }
-    }
-
-    private async Task ReadGamesAsync()
-    {
-        var generation = NavigationGeneration;
-        _readingGames = true;
-        var result = await _source!.ReadGamesAsync();
-        _readingGames = false;
-        _gamesRead = true;
-        if (generation != NavigationGeneration)
-        {
-            return;
-        }
-
-        _games = result.Games;
-        _gamesError = result.Error;
-        CurrentLevel?.Invoke();
+        EnsureGameList(_games, source.ReadGamesAsync);
     }
 
     private void RenderArtwork()

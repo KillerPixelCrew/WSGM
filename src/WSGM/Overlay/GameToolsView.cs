@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,7 +12,7 @@ namespace WSGM.Overlay;
 
 /// <summary>
 ///     The Overlay's Game Tools page: a searchable list of the Steam library and, per game, the same runtime,
-///     detection and tool actions the routed Steam page offers, all through <see cref="GameToolsService" />.
+///     detection and tool actions the routed Steam page offers, all through <see cref="IGameToolsSource" />.
 /// </summary>
 /// <remarks>
 ///     Entering the page opens the game whose Steam page is on screen, when Steam reports one; Back from that
@@ -22,22 +21,24 @@ namespace WSGM.Overlay;
 /// </remarks>
 public sealed partial class GameToolsView : ServiceSubView
 {
-    private const int ListChunk = 48;
-    private IReadOnlyList<SteamLibraryApp> _games = [];
-    private string? _gamesError;
-    private bool _gamesRead;
-    private string _query = "";
-    private bool _readingGames;
+    private readonly GameList _games = new();
     private bool _resolveCurrent = true;
-    private GameToolsService? _service;
-    private int _shown = ListChunk;
+    private IGameToolsSource? _service;
 
     /// <inheritdoc />
     protected override string LogScope => "Game Tools";
 
+    /// <summary>Reads the Steam library for the game list; null reads it from the session's Steam client.</summary>
+    /// <remarks>Headless captures supply a fixed library here instead of a Steam client.</remarks>
+    internal Func<Task<OverlayLibraryResult>>? LibraryReader { get; set; }
+
+    /// <inheritdoc />
+    /// <remarks>The game list shows no service state, so the service's progress does not redraw it.</remarks>
+    private protected override bool RedrawsOnSourceChange => HasNestedLevel;
+
     /// <summary>Supplies the session's Game Tools owner, or none.</summary>
     /// <param name="service">Borrowed service; null detaches it when the overlay closes or in overlay-test.</param>
-    internal void Attach(GameToolsService? service)
+    internal void Attach(IGameToolsSource? service)
     {
         _service = service;
         AttachSource(IsEffectivelyVisible ? service : null);
@@ -83,11 +84,7 @@ public sealed partial class GameToolsView : ServiceSubView
         uint appId = 0;
         try
         {
-            if (Steam is { } steam)
-            {
-                var page = await steam.CurrentPage.GetAsync();
-                appId = page.Succeeded ? page.Value.AppId : 0;
-            }
+            appId = await SteamCurrentGame.AppIdAsync(Steam);
         }
         catch (Exception ex)
         {
@@ -106,7 +103,7 @@ public sealed partial class GameToolsView : ServiceSubView
             return;
         }
 
-        var name = _games.FirstOrDefault(game => game.AppId == appId)?.Name ?? "";
+        var name = _games.Games.FirstOrDefault(game => game.AppId == appId)?.Name ?? "";
         OpenGame(appId, name);
     }
 
@@ -123,93 +120,22 @@ public sealed partial class GameToolsView : ServiceSubView
         body.Children.Add(Tagged(Caption(
             "Add tools such as OptiScaler to a game's folder. Choose a game, or open its page in Steam first."),
             "games.intro"));
-        body.Children.Add(Tagged(Row("Search games", _query, Icons.ListLines,
-            () => EditText("Search your Steam library", _query, 0, query =>
-            {
-                _query = query;
-                _shown = ListChunk;
-                RenderList();
-            })), "games.search"));
-        body.Children.Add(Tagged(Row("Refresh games", "Read the library from Steam again", Icons.Restart,
-            _readingGames ? null : () => _ = RunSafelyAsync(ReadGamesAsync(), "games")), "games.refresh"));
-        if (_gamesError is not null)
-        {
-            body.Children.Add(Tagged(Caption(_gamesError), "games.error"));
-        }
-
-        if (_readingGames)
-        {
-            body.Children.Add(Tagged(Caption("Asking Steam…"), "games.reading"));
-        }
-
-        var games = _games.Where(game => game.Name.Contains(_query, StringComparison.OrdinalIgnoreCase)).ToArray();
-        foreach (var game in games.Take(_shown))
-        {
-            var id = game.AppId;
-            var name = game.Name;
-            body.Children.Add(Tagged(Row(name, game.Shortcut ? "Non-Steam game" : "Steam game", Icons.Wrench,
-                () => OpenGame(id, name)), "game:" + id));
-        }
-
-        if (games.Length > _shown)
-        {
-            var added = "game:" + games[_shown].AppId;
-            body.Children.Add(Tagged(Row("Load more", $"{_shown} of {games.Length}", Icons.ArrowDown, () =>
-            {
-                _shown += ListChunk;
-                RenderList();
-                PagedRows.FocusAdded(this, added);
-            }), "games.more"));
-        }
-
-        if (_gamesRead && !_readingGames && _gamesError is null && games.Length == 0)
-        {
-            body.Children.Add(Tagged(Caption(_games.Count == 0
-                ? "Your Steam library has no games."
-                : "No games match the search."), "games.empty"));
-        }
-
+        AddGameList(body, _games, Icons.Wrench, ReadLibraryAsync, game => OpenGame(game.AppId, game.Name),
+            RenderList);
         SetContent(body);
-        if (!_gamesRead && !_readingGames)
-        {
-            _ = RunSafelyAsync(ReadGamesAsync(), "games");
-        }
+        EnsureGameList(_games, ReadLibraryAsync);
     }
 
-    private async Task ReadGamesAsync()
+    private Task<OverlayLibraryResult> ReadLibraryAsync()
     {
-        var generation = NavigationGeneration;
-        _readingGames = true;
-        CurrentLevel?.Invoke();
-        OverlayLibraryResult result;
-        try
-        {
-            result = await OverlayLibraryLookup.ReadAsync(Steam);
-        }
-        finally
-        {
-            _readingGames = false;
-            _gamesRead = true;
-        }
-
-        if (result.Succeeded)
-        {
-            _games = result.Games;
-        }
-
-        // A failed read keeps the last good list rather than presenting it as an empty library.
-        _gamesError = result.Error;
-        if (generation == NavigationGeneration)
-        {
-            CurrentLevel?.Invoke();
-        }
+        return LibraryReader?.Invoke() ?? OverlayLibraryLookup.ReadAsync(Steam);
     }
 
     /// <summary>Runs one service command off the UI thread; the refusal, if any, is shown as a toast.</summary>
     /// <param name="operation">The command.</param>
     /// <param name="what">What it was, for the log.</param>
     /// <param name="onApplied">Runs on the UI thread after an accepted command while this level is current.</param>
-    private void RunTool(Func<GameToolsService, CancellationToken, Task<SteamUiCommandResult>> operation,
+    private void RunTool(Func<IGameToolsSource, CancellationToken, Task<SteamUiCommandResult>> operation,
         string what, Action? onApplied = null)
     {
         if (_service is not { } service)

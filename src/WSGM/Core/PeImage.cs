@@ -23,10 +23,6 @@ internal sealed record PeVersionInfo(
     string InternalName,
     string CompanyName)
 {
-    /// <summary>Whether every identity field is empty, which happens for files without a version resource.</summary>
-    internal bool IsEmpty => (OriginalFilename + FileVersion + ProductVersion + FileDescription + ProductName
-                              + InternalName + CompanyName).Length == 0;
-
     /// <summary>Whether any identity field contains a token, ignoring case.</summary>
     /// <param name="token">The lowercase token to look for.</param>
     /// <returns>True when one of the seven fields contains it.</returns>
@@ -50,6 +46,20 @@ internal static class PeImage
 
     /// <summary>The 64-bit ARM architecture name.</summary>
     internal const string Arm64 = "arm64";
+
+    /// <summary>The architecture shown to the user.</summary>
+    /// <param name="architecture">An architecture name.</param>
+    /// <returns><c>64-bit</c>, <c>32-bit</c>, <c>Arm64</c>, or an empty string when unknown.</returns>
+    internal static string Label(string architecture)
+    {
+        return architecture switch
+        {
+            X64 => "64-bit",
+            X86 => "32-bit",
+            Arm64 => "Arm64",
+            _ => ""
+        };
+    }
 
     /// <summary>Reads the COFF machine of a PE file.</summary>
     /// <param name="path">The executable or library.</param>

@@ -1,10 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.LogicalTree;
+using Avalonia.Media;
 using Avalonia.Threading;
 using SteamUiToolkit;
 using WSGM.Controls;
@@ -57,6 +59,9 @@ public abstract class ServiceSubView : OverlaySubView
             CurrentLevel?.Invoke();
         }
     }
+
+    /// <summary>Whether the current level shows the service's state, so the service's changes redraw it.</summary>
+    private protected virtual bool RedrawsOnSourceChange => true;
 
     /// <summary>Opens the view on its home level.</summary>
     public void Open()
@@ -143,7 +148,17 @@ public abstract class ServiceSubView : OverlaySubView
                         : null;
                 if (existing?.GetType() == fresh.GetType() && Equals(Key(existing), Key(fresh)))
                 {
-                    existing.Opacity = fresh.Opacity;
+                    // The fresh control is unstyled, so copy only an opacity it set itself; copying the default
+                    // would override the retained control's styled value, such as a disabled row's dimming.
+                    if (fresh.IsSet(OpacityProperty))
+                    {
+                        existing.Opacity = fresh.Opacity;
+                    }
+                    else
+                    {
+                        existing.ClearValue(OpacityProperty);
+                    }
+
                     existing.IsEnabled = fresh.IsEnabled;
                     existing.IsVisible = fresh.IsVisible;
                     if (target.Children.IndexOf(existing) != index)
@@ -211,20 +226,121 @@ public abstract class ServiceSubView : OverlaySubView
     /// <param name="busy">Whether the service is working.</param>
     /// <param name="error">The last refusal, or null.</param>
     /// <param name="notice">A line worth reading, or null.</param>
-    private protected static void AddStatus(StackPanel stack, bool busy, string? error, string? notice)
+    /// <param name="tag">The error or notice line's stable tag, or null to leave it untagged.</param>
+    private protected static void AddStatus(StackPanel stack, bool busy, string? error, string? notice,
+        string? tag = null)
     {
         if (busy)
         {
             stack.Children.Add(Caption("Working…"));
         }
 
-        if (error is { Length: > 0 })
+        var message = error is { Length: > 0 } ? error : notice is { Length: > 0 } ? notice : null;
+        if (message is not null)
         {
-            stack.Children.Add(Caption(error));
+            var caption = Caption(message);
+            stack.Children.Add(tag is null ? caption : Tagged(caption, tag));
         }
-        else if (notice is { Length: > 0 })
+    }
+
+    /// <summary>
+    ///     Adds the searchable, paged Steam library rows a view opens games from: search, refresh, the read's
+    ///     state, one row per matching game, Load more and the empty text.
+    /// </summary>
+    /// <param name="body">The level.</param>
+    /// <param name="list">The view's list state.</param>
+    /// <param name="icon">The icon of each game row.</param>
+    /// <param name="read">Reads the library; used by Refresh.</param>
+    /// <param name="open">Opens a game.</param>
+    /// <param name="render">Redraws the level after a search or Load more.</param>
+    /// <remarks>Call <see cref="EnsureGameList" /> after the level's content is set.</remarks>
+    private protected void AddGameList(StackPanel body, GameList list, Geometry icon,
+        Func<Task<OverlayLibraryResult>> read, Action<SteamLibraryApp> open, Action render)
+    {
+        body.Children.Add(Tagged(Row("Search games", list.Query, Icons.ListLines,
+            () => EditText("Search your Steam library", list.Query, 0, query =>
+            {
+                list.Query = query;
+                list.Shown = GameList.Chunk;
+                render();
+            })), "games.search"));
+        body.Children.Add(Tagged(Row("Refresh games", "Read the library from Steam again", Icons.Restart,
+            list.Reading ? null : () => _ = RunSafelyAsync(ReadGameListAsync(list, read), "games")), "games.refresh"));
+        if (list.Error is not null)
         {
-            stack.Children.Add(Caption(notice));
+            body.Children.Add(Tagged(Caption(list.Error), "games.error"));
+        }
+
+        if (list.Reading)
+        {
+            body.Children.Add(Tagged(Caption("Asking Steam…"), "games.reading"));
+        }
+
+        var games = list.Games.Where(game => game.Name.Contains(list.Query, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+        foreach (var game in games.Take(list.Shown))
+        {
+            var chosen = game;
+            body.Children.Add(Tagged(Row(game.Name, game.Shortcut ? "Non-Steam game" : "Steam game", icon,
+                () => open(chosen)), "game:" + game.AppId));
+        }
+
+        if (games.Length > list.Shown)
+        {
+            var added = "game:" + games[list.Shown].AppId;
+            body.Children.Add(Tagged(Row("Load more", $"{list.Shown} of {games.Length}", Icons.ArrowDown, () =>
+            {
+                list.Shown += GameList.Chunk;
+                render();
+                PagedRows.FocusAdded(this, added);
+            }), "games.more"));
+        }
+
+        if (list.Loaded && !list.Reading && list.Error is null && games.Length == 0)
+        {
+            body.Children.Add(Tagged(Caption(list.Games.Count == 0
+                ? "Your Steam library has no games."
+                : "No games match the search."), "games.empty"));
+        }
+    }
+
+    /// <summary>Starts the first library read once the list level is on screen.</summary>
+    /// <param name="list">The view's list state.</param>
+    /// <param name="read">Reads the library.</param>
+    private protected void EnsureGameList(GameList list, Func<Task<OverlayLibraryResult>> read)
+    {
+        if (!list.Loaded && !list.Reading)
+        {
+            _ = RunSafelyAsync(ReadGameListAsync(list, read), "games");
+        }
+    }
+
+    private async Task ReadGameListAsync(GameList list, Func<Task<OverlayLibraryResult>> read)
+    {
+        var generation = NavigationGeneration;
+        list.Reading = true;
+        CurrentLevel?.Invoke();
+        OverlayLibraryResult result;
+        try
+        {
+            result = await read();
+        }
+        finally
+        {
+            list.Reading = false;
+            list.Loaded = true;
+        }
+
+        if (result.Succeeded)
+        {
+            list.Games = result.Games;
+        }
+
+        // A failed read keeps the last good list rather than presenting it as an empty library.
+        list.Error = result.Error;
+        if (generation == NavigationGeneration)
+        {
+            CurrentLevel?.Invoke();
         }
     }
 
@@ -346,7 +462,7 @@ public abstract class ServiceSubView : OverlaySubView
         Dispatcher.UIThread.Post(() =>
         {
             Interlocked.Exchange(ref _refreshQueued, 0);
-            if (_source is not null && IsEffectivelyVisible)
+            if (_source is not null && IsEffectivelyVisible && RedrawsOnSourceChange)
             {
                 if (_owner?.HasActiveSurface == true)
                 {
@@ -358,5 +474,30 @@ public abstract class ServiceSubView : OverlaySubView
                 }
             }
         }, DispatcherPriority.Background);
+    }
+
+    /// <summary>A view's Steam library list: the games read last, the search and how many rows are shown.</summary>
+    private protected sealed class GameList
+    {
+        /// <summary>The rows each Load more adds.</summary>
+        internal const int Chunk = 48;
+
+        /// <summary>The last successfully read library.</summary>
+        internal IReadOnlyList<SteamLibraryApp> Games { get; set; } = [];
+
+        /// <summary>Why the last read failed, or null.</summary>
+        internal string? Error { get; set; }
+
+        /// <summary>Whether a read has finished.</summary>
+        internal bool Loaded { get; set; }
+
+        /// <summary>Whether a read is running.</summary>
+        internal bool Reading { get; set; }
+
+        /// <summary>The search text.</summary>
+        internal string Query { get; set; } = "";
+
+        /// <summary>How many matching games are shown.</summary>
+        internal int Shown { get; set; } = Chunk;
     }
 }

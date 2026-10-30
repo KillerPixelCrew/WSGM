@@ -184,38 +184,19 @@ internal static class SteamGameToolsSurface
         return true;
     }
 
+    // Absent or null means false; the toolkit reader checks a present value.
     private static bool OptionalBoolean(JsonElement payload, string name, out bool value)
     {
         value = false;
-        if (!payload.TryGetProperty(name, out var property) || property.ValueKind == JsonValueKind.Null)
-        {
-            return true;
-        }
-
-        if (property.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
-        {
-            return false;
-        }
-
-        value = property.GetBoolean();
-        return true;
+        return !payload.TryGetProperty(name, out var property) || property.ValueKind == JsonValueKind.Null
+                                                               || SteamUiPayload.TryReadBoolean(payload, name, out value);
     }
 
+    // Absent means null; the toolkit reader accepts null or a non-blank string.
     private static bool OptionalName(JsonElement payload, string name, out string? value)
     {
         value = null;
-        if (!payload.TryGetProperty(name, out var property) || property.ValueKind == JsonValueKind.Null)
-        {
-            return true;
-        }
-
-        if (property.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(property.GetString()))
-        {
-            return false;
-        }
-
-        value = property.GetString();
-        return true;
+        return !payload.TryGetProperty(name, out _) || SteamUiPayload.TryReadNullableString(payload, name, out value);
     }
 
     private static bool Settings(JsonElement payload, out IReadOnlyDictionary<string, string> settings)

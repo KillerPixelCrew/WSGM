@@ -50,7 +50,7 @@ internal sealed record OverlaySources(
     NotesService? Notes = null,
     BrowserSession? Browser = null,
     ScreensaverService? Screensavers = null,
-    GameToolsService? GameTools = null);
+    IGameToolsSource? GameTools = null);
 
 /// <summary>The display-mode operations supplied by the composition, also used by pinned controls.</summary>
 /// <param name="Read">Reads modes for the sheet's current display source.</param>

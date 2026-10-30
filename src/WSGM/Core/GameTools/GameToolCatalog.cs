@@ -6,13 +6,14 @@ using System.Linq;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using WSGM.Core.Downloads;
 
 namespace WSGM.Core.GameTools;
 
 /// <summary>Where a tool's packages are published.</summary>
 internal sealed record GameToolSource
 {
-    /// <summary>The reviewed hosted provider: <c>GitHub</c> or <c>Forgejo</c>.</summary>
+    /// <summary>The hosted provider, one of <see cref="HostedReleases.Providers" />.</summary>
     public string Provider { get; init; } = "";
 
     /// <summary>The HTTPS API root.</summary>
@@ -30,13 +31,14 @@ internal sealed record GameToolSource
     /// <summary>The archive type the selected asset must have.</summary>
     public string PackageType { get; init; } = "";
 
-    /// <summary>Builds the hosted source shape the shared release lookup consumes.</summary>
-    /// <returns>An emulator-agnostic hosted source.</returns>
-    internal EmulatorSource Hosted()
+    /// <summary>Builds the source the shared hosted-release lookup consumes.</summary>
+    /// <returns>The hosted source.</returns>
+    internal HostedReleaseSource Hosted()
     {
-        return new EmulatorSource
+        return new HostedReleaseSource
         {
-            Provider = Provider, BaseUrl = BaseUrl, Repository = Repository, AssetPattern = AssetPattern
+            Provider = Provider, BaseUrl = BaseUrl, Repository = Repository, AssetPattern = AssetPattern,
+            Channel = Channel
         };
     }
 }
@@ -72,6 +74,9 @@ internal sealed record GameToolProxyOption
 
     /// <summary>A short explanation of when to choose it.</summary>
     public string Hint { get; init; } = "";
+
+    /// <summary>Whether WSGM may pick it on its own; false for names that need something else installed first.</summary>
+    public bool Suggest { get; init; } = true;
 }
 
 /// <summary>Proxy names the tool installs under and recognises.</summary>
@@ -88,6 +93,22 @@ internal sealed record GameToolProxy
 
     /// <summary>Relative patterns whose identity-matched files also count as existing copies.</summary>
     public string[] DetectionPatterns { get; init; } = [];
+
+    /// <summary>Introduces the file name choice before installation.</summary>
+    public string Intro { get; init; } = "";
+
+    /// <summary>Introduces the file name choice for an installed copy, which WSGM renames.</summary>
+    public string RenameIntro { get; init; } = "";
+}
+
+/// <summary>An upscaler family a tool needs the game to offer.</summary>
+internal sealed record GameToolUpscalerRequirement
+{
+    /// <summary>The family id the upscaler scan reports: <c>dlss</c>, <c>fsr</c> or <c>xess</c>.</summary>
+    public string Family { get; init; } = "";
+
+    /// <summary>The family shown to the user.</summary>
+    public string Label { get; init; } = "";
 }
 
 /// <summary>Required payload contents and copy exclusions.</summary>
@@ -114,16 +135,6 @@ internal sealed record GameToolFamily
 
     /// <summary>The pattern matched against the numeric version token.</summary>
     public string Pattern { get; init; } = "";
-}
-
-/// <summary>Channel tokens recognised in a product version.</summary>
-internal sealed record GameToolChannels
-{
-    /// <summary>Tokens meaning preview builds.</summary>
-    public string[] Preview { get; init; } = [];
-
-    /// <summary>Tokens meaning stable builds.</summary>
-    public string[] Stable { get; init; } = [];
 }
 
 /// <summary>One option of a data-driven setting.</summary>
@@ -221,14 +232,11 @@ internal sealed record GameToolDefinition
     /// <summary>Files the tool writes while running, removed on uninstall when present.</summary>
     public string[] RuntimeArtifacts { get; init; } = [];
 
-    /// <summary>Upscaler families the game must already support.</summary>
-    public string[] RequiresUpscaler { get; init; } = [];
+    /// <summary>Upscaler families the game must already support, any one of which is enough.</summary>
+    public GameToolUpscalerRequirement[] RequiresUpscaler { get; init; } = [];
 
     /// <summary>Version families.</summary>
     public GameToolFamily[] Families { get; init; } = [];
-
-    /// <summary>Channel tokens.</summary>
-    public GameToolChannels Channels { get; init; } = new();
 
     /// <summary>Settings mapped onto configuration keys.</summary>
     public GameToolSetting[] Settings { get; init; } = [];
@@ -361,9 +369,11 @@ internal sealed record GameToolCatalog
                       || tool.PrimaryFile.Length == 0 || Path.GetFileName(tool.PrimaryFile) != tool.PrimaryFile
                       || tool.Architectures.Length == 0 || tool.Proxy.Options.Length == 0
                       || tool.Proxy.Options.All(option => option.Name != tool.Proxy.Default)
-                      || tool.Proxy.Options.Any(option => !SafeName(option.Name))
+                      || tool.Proxy.Options.Any(option => !DownloadClient.IsSafeAssetName(option.Name))
                       || tool.Identity.OriginalFilename.Length == 0
-                      || tool.Source.Provider is not ("GitHub" or "Forgejo")
+                      || !HostedReleases.Providers.Contains(tool.Source.Provider)
+                      || tool.RequiresUpscaler.Any(requirement => requirement.Family.Length == 0
+                                                                  || requirement.Label.Length == 0)
                       || tool.Source.PackageType is not ("7z" or "zip")
                       || tool.Source.AssetPattern.Length == 0
                       || tool.Payload.Required.Length == 0
@@ -388,12 +398,7 @@ internal sealed record GameToolCatalog
             throw new InvalidDataException("Invalid Game Tools definition: " + tool.Id);
         }
 
-        EmulatorNetwork.Https(tool.Source.BaseUrl);
-    }
-
-    private static bool SafeName(string name)
-    {
-        return name.Length > 0 && Path.GetFileName(name) == name && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
+        DownloadClient.Https(tool.Source.BaseUrl);
     }
 
     private static bool SafeRelative(string path)
