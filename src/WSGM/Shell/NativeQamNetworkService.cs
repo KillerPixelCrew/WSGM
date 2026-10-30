@@ -7,20 +7,24 @@ using System.Threading.Tasks;
 using Avalonia.Threading;
 using SteamUiToolkit;
 using WindowsDeviceControl;
+using WSGM.Core;
 
 namespace WSGM.Shell;
 
 /// <summary>
 ///     The backend behind the revealed Wi-Fi surface: scan lifetime, the scanned-network projection,
-///     and the polled header indicator.
+///     the polled header indicator, and joining, leaving and forgetting from Steam's page.
 /// </summary>
 /// <remarks>
-///     The radio manager is borrowed rather than owned — only its scanning lifetime is driven from
-///     here. Joining, forgetting and the radio toggles stay with the surfaces that already own them.
+///     The radio manager is borrowed rather than owned. Joins, disconnects and forgets go through it,
+///     the same operations the Overlay's radio panel uses; the radio toggles stay with that panel.
 /// </remarks>
 internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisposable
 {
     private readonly Func<bool> _indicatorActive;
+    private readonly Lock _joinLock = new();
+    private SteamNetworkJoin? _join;
+    private long _joinAttempts;
     private readonly Timer _poll;
     private readonly Action _publish;
     private readonly Timer _publishDebounce;
@@ -81,6 +85,66 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
         return SteamUiCommandResult.Applied;
     }
 
+    /// <inheritdoc />
+    /// <remarks>
+    ///     Accepted once the network is found; the join then runs on its own and its outcome is
+    ///     published, because a Windows join can outlast the bridge's request timeout.
+    /// </remarks>
+    public async Task<SteamUiCommandResult> ConnectAsync(
+        string ssid,
+        string? password,
+        CancellationToken cancellationToken)
+    {
+        WindowsRadio.WifiNetworkKey? found = null;
+        await NativeQamUi.RunAsync(() => found = FindNetwork(ssid), cancellationToken).ConfigureAwait(false);
+        if (found is not { } network)
+        {
+            Log.Warn($"Steam network page: {ssid} is not in the scan results.");
+            return new SteamUiCommandResult(false, $"{ssid} is no longer in range.");
+        }
+
+        long attempt;
+        lock (_joinLock)
+        {
+            attempt = ++_joinAttempts;
+            _join = new SteamNetworkJoin(attempt, ssid, true, false, null);
+        }
+
+        Log.Info($"Steam network page: joining {ssid}.");
+        _ = JoinAsync(attempt, ssid, network, password);
+        return SteamNetworkSurface.JoinAccepted(attempt);
+    }
+
+    /// <inheritdoc />
+    public async Task<SteamUiCommandResult> DisconnectAsync(CancellationToken cancellationToken)
+    {
+        Task? operation = null;
+        await NativeQamUi.RunAsync(() => operation = _radios.DisconnectAsync(), cancellationToken)
+            .ConfigureAwait(false);
+        await operation!.ConfigureAwait(false);
+        return await CompletedAsync().ConfigureAwait(false);
+    }
+
+    /// <inheritdoc />
+    public async Task<SteamUiCommandResult> ForgetAsync(string ssid, CancellationToken cancellationToken)
+    {
+        Task? operation = null;
+        await NativeQamUi.RunAsync(() =>
+        {
+            if (FindNetwork(ssid) is { } network)
+            {
+                operation = _radios.ForgetAsync(network);
+            }
+        }, cancellationToken).ConfigureAwait(false);
+        if (operation is null)
+        {
+            return new SteamUiCommandResult(false, $"{ssid} is no longer in range.");
+        }
+
+        await operation.ConfigureAwait(false);
+        return await CompletedAsync().ConfigureAwait(false);
+    }
+
     /// <summary>Unsubscribes from scan results and stops the sweep, on the UI thread.</summary>
     /// <returns>Completes after the UI-thread unsubscribe and scan-stop request, without disposing the borrowed radio manager.</returns>
     internal Task StopScanningAsync()
@@ -134,11 +198,17 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
             }
         }).ConfigureAwait(false);
 
+        SteamNetworkJoin? join;
+        lock (_joinLock)
+        {
+            join = _join;
+        }
+
         if (!indicatorEnabled
             || connected is not { } network
             || string.IsNullOrWhiteSpace(network.DisplayText))
         {
-            return new SteamNetworkState(networks);
+            return new SteamNetworkState(networks, join);
         }
 
         var existing = keys.IndexOf(network);
@@ -156,7 +226,73 @@ internal sealed class NativeQamNetworkService : ISteamNetworkBackend, IAsyncDisp
             networks.Insert(0, joined);
         }
 
-        return new SteamNetworkState(networks);
+        return new SteamNetworkState(networks, join);
+    }
+
+    private async Task JoinAsync(
+        long attempt,
+        string ssid,
+        WindowsRadio.WifiNetworkKey network,
+        string? password)
+    {
+        var joined = false;
+        string? error = null;
+        try
+        {
+            Task<bool>? operation = null;
+            await NativeQamUi.RunAsync(() => operation = _radios.ConnectAsync(network, password))
+                .ConfigureAwait(false);
+            joined = await operation!.ConfigureAwait(false);
+            if (!joined)
+            {
+                await NativeQamUi.RunAsync(() => error = _radios.StatusText).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"Steam network page: joining {ssid} threw: {ex.Message}");
+            error = ex.Message;
+        }
+
+        lock (_joinLock)
+        {
+            // A later attempt owns the published outcome.
+            if (_join?.Attempt == attempt)
+            {
+                _join = new SteamNetworkJoin(
+                    attempt,
+                    ssid,
+                    false,
+                    joined,
+                    joined ? null : string.IsNullOrWhiteSpace(error) ? "Could not connect." : error);
+            }
+        }
+
+        QueuePublication();
+    }
+
+    /// <summary>Answers a radio operation that reports failure through the manager's status text.</summary>
+    private async Task<SteamUiCommandResult> CompletedAsync()
+    {
+        var status = string.Empty;
+        await NativeQamUi.RunAsync(() => status = _radios.StatusText).ConfigureAwait(false);
+        QueuePublication();
+        return string.IsNullOrEmpty(status) ? SteamUiCommandResult.Applied : new SteamUiCommandResult(false, status);
+    }
+
+    /// <summary>The listed network with this name, or the connected one when the scan has not listed it.</summary>
+    private WindowsRadio.WifiNetworkKey? FindNetwork(string ssid)
+    {
+        if (_radios.Networks.FirstOrDefault(entry => string.Equals(entry.Ssid, ssid, StringComparison.Ordinal))
+            is { } entry)
+        {
+            return entry.Key;
+        }
+
+        return _radios.ConnectedNetwork is { } connected
+               && string.Equals(connected.DisplayText, ssid, StringComparison.Ordinal)
+            ? connected
+            : null;
     }
 
     private void OnPoll(object? state)

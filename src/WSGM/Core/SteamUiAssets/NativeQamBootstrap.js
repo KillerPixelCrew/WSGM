@@ -10804,9 +10804,20 @@
     };
     let target = null;
     let lastError = "";
+    const connect = {
+      marker: "__steamUiOwnedNetworkConnect",
+      original: "__steamUiOriginalNetworkConnect",
+    };
+    // A Windows join waits up to 25 seconds for the WLAN verdict before the host publishes it.
+    const joinTimeoutMilliseconds = 40000;
     let scanWrapped = false;
+    let connectClaimed = false;
     let unsubscribe = null;
     let syntheticKeys = [];
+    // Access point id -> SSID for the networks this gate wrote, which Steam's backend has never seen.
+    const syntheticSsids = new Map();
+    let latestJoin = null;
+    const joinWaiters = new Set();
     // Steam publishes this singleton after its own module initialization. Requiring the module
     // before its chunk arrives leaves empty exports cached for the whole session.
     const store = () => window.SystemNetworkStore ?? null;
@@ -10829,6 +10840,7 @@
         }
       }
       syntheticKeys = [];
+      syntheticSsids.clear();
       if (refresh) {
         try {
           window.SteamClient?.System?.Network?.ForceRefresh?.();
@@ -10838,9 +10850,12 @@
     // One resident owner now reveals AND feeds the network surface. The previous standalone
     // indicator installed a second script against this same store, with its own version sentinel
     // and retry timer; bridge state gives the generation-aware gate the same verified connected AP
-    // for the header. Scan lifetime remains an observation of Steam's page, not an invented
-    // connection protocol: its argument order has not been read from the client.
+    // for the header. Scan lifetime remains an observation of Steam's page. Joining, leaving and
+    // forgetting the networks written here go to the host: their access point ids exist only in this
+    // store, so Steam's own backend would answer them with nothing.
     const onState = (state) => {
+      latestJoin = state?.join && typeof state.join === "object" ? state.join : null;
+      for (const waiter of [...joinWaiters]) waiter();
       const instance = store();
       const networks = Array.isArray(state?.networks) ? state.networks : [];
       if (!instance || !instance.m_WirelessDevice) {
@@ -10869,10 +10884,17 @@
           instance.m_mapNetworkAccessPoints.delete(key);
         device.estate = networks.some((network) => network.connected === true) ? 5 : device.estate;
         device.wireless.aps = accessPoints;
+        syntheticSsids.clear();
         accessPoints.forEach((accessPoint) => {
+          syntheticSsids.set(accessPoint.id, accessPoint.ssid);
           instance.SetDeviceInfo(device, accessPoint.id);
           const entry = instance.m_mapNetworkAccessPoints.get(`${device.id}:${accessPoint.id}`);
-          if (entry) entry.MarkAsNotPresent = () => {};
+          if (entry) {
+            entry.MarkAsNotPresent = () => {};
+            // Own members on entries this gate created; they go with the entries on removal.
+            entry.Disconnect = () => forward("disconnect", null);
+            entry.Forget = () => forward("forget", { ssid: accessPoint.ssid });
+          }
         });
         instance.m_bIsConnectedToANetwork = instance.IsAnyDeviceConnected();
         instance.m_bIsConnectingToANetwork = instance.IsAnyDeviceConnecting();
@@ -10881,6 +10903,75 @@
       } catch (error) {
         lastError = String(error);
       }
+    };
+    // Steam's page reads each of these as a boolean outcome.
+    const forward = (command, payload) =>
+      request(patchId, command, payload).then(
+        () => {
+          lastError = "";
+          return true;
+        },
+        (error) => {
+          lastError = String(error);
+          return false;
+        },
+      );
+    // The host accepts a join at once and publishes how it ended, because a join outlasts a request.
+    const joinOutcome = (attempt) =>
+      new Promise((resolve) => {
+        let timer;
+        const finish = (joined, error) => {
+          clearTimeout(timer);
+          joinWaiters.delete(check);
+          lastError = error;
+          resolve(joined);
+        };
+        const check = () => {
+          if (!latestJoin || latestJoin.attempt !== attempt || latestJoin.pending !== false)
+            return false;
+          const joined = latestJoin.joined === true;
+          finish(joined, joined ? "" : String(latestJoin.error || "the network was not joined"));
+          return true;
+        };
+        if (check()) return;
+        joinWaiters.add(check);
+        timer = setTimeout(
+          () => finish(false, "no join outcome was published"),
+          joinTimeoutMilliseconds,
+        );
+      });
+    const join = async (ssid, password) => {
+      try {
+        const accepted = await request(patchId, "connect", { ssid, password });
+        const attempt = Number(accepted?.attempt);
+        if (!Number.isFinite(attempt)) {
+          lastError = "the join was not given an attempt number";
+          return false;
+        }
+        return await joinOutcome(attempt);
+      } catch (error) {
+        lastError = String(error);
+        return false;
+      }
+    };
+    // Steam's page joins through the store's Connect, which encodes the access point id for Steam's
+    // backend. For a network this gate wrote, or one typed by name, the host joins it instead; every
+    // other call goes through untouched.
+    const wrapConnect = (instance) => {
+      const claim = claimMember(instance, "Connect", connect, (original) => {
+        const inner = original;
+        return function (...args) {
+          const params = args[0];
+          const ssid = params?.customAP
+            ? String(params.customAP.ssid ?? "")
+            : syntheticSsids.get(Number(params?.deviceWapId));
+          if (!ssid) return inner.apply(this, args);
+          const password = params?.credentials?.password;
+          return join(ssid, typeof password === "string" && password !== "" ? password : null);
+        };
+      });
+      connectClaimed = claim.ok;
+      if (!claim.ok) lastError = claim.error;
     };
     const install = () => {
       if (target) return { ok: true, alreadyInstalled: true };
@@ -10906,6 +10997,7 @@
       target = proto;
       lastError = "";
       wrapScanning();
+      wrapConnect(instance);
       unsubscribe = subscribe(patchId, onState);
       return { ok: true, installed: true, available: instance[property] === true };
     };
@@ -10943,7 +11035,7 @@
       scanWrapped = started || stopped;
     };
     const remove = () => {
-      if (!target && !scanWrapped) return { ok: true, absent: true };
+      if (!target && !scanWrapped && !connectClaimed) return { ok: true, absent: true };
       // Every claim goes back before anything is forgotten, so a failed release leaves the gate as
       // it was and the next remove retries what is left (a released claim answers ok again).
       if (scanWrapped) {
@@ -10955,6 +11047,14 @@
             return { ok: false, error: lastError };
           }
         }
+      }
+      if (connectClaimed) {
+        const released = releaseMember(store(), "Connect", connect);
+        if (!released.ok) {
+          lastError = released.error ?? "network connect release failed";
+          return { ok: false, error: lastError };
+        }
+        connectClaimed = false;
       }
       if (target) {
         const released = releaseAccessor(target, property, availability);
@@ -10981,6 +11081,7 @@
         accessPoints: Array.isArray(instance?.accessPoints) ? instance.accessPoints.length : -1,
         hasWirelessDevice: instance?.hasWirelessDevice === true,
         scanWrapped,
+        connectClaimed,
         lastError,
       };
     };
