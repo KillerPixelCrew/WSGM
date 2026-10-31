@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using WSGM.Device.Sdk.Capabilities;
 
 namespace WSGM.Shell;
@@ -17,4 +19,20 @@ internal sealed record PerformanceOverlaySnapshot(
     /// <summary>The Device page these rows are drawn on, beside the Overview.</summary>
     /// <remarks>The enable toggle in <see cref="ProfileRows" /> heads the Overview alone.</remarks>
     public string SectionId => DeviceSections.PowerId;
+
+    /// <summary>The id of the per-application enable toggle among <see cref="ProfileRows" />.</summary>
+    /// <remarks>
+    ///     The header's profile switch and this row are two placements of one state, the running
+    ///     application's profile scope, and both write it through the same command.
+    /// </remarks>
+    internal const string ApplicationProfileRowId = "application-profile";
+
+    /// <summary>The per-application enable toggle, or null when the snapshot has none.</summary>
+    public DescriptorRow? ApplicationProfile =>
+        ProfileRows.FirstOrDefault(row => string.Equals(row.Id, ApplicationProfileRowId, StringComparison.Ordinal));
+
+    /// <summary>The rows a Device page draws: the profile rows without the toggle that heads the Overview, then the values.</summary>
+    public IEnumerable<DescriptorRow> PageRows =>
+        ProfileRows.Where(row => !string.Equals(row.Id, ApplicationProfileRowId, StringComparison.Ordinal))
+            .Concat(Rows);
 }

@@ -263,7 +263,7 @@ internal sealed class PerformanceOverlayBridge : IDisposable
             BuildApplicationRow(state),
             BuildActiveProfileRow(state),
             new DescriptorRow(
-                    "application-profile",
+                    PerformanceOverlaySnapshot.ApplicationProfileRowId,
                     "Per-application settings",
                     state.Target is null
                         ? "Start or focus an application to give it separate settings."
@@ -346,12 +346,11 @@ internal sealed class PerformanceOverlayBridge : IDisposable
         CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (rowId == "application-profile")
+        if (rowId == PerformanceOverlaySnapshot.ApplicationProfileRowId)
         {
             if (Current.Target is { } target && value is 0 or 1)
             {
-                await _profiles.SetGameEnabledAsync(value == 1, target.ApplicationId, cancellationToken)
-                    .ConfigureAwait(false);
+                await SetProfileScopeAsync(target.ApplicationId, value == 1, cancellationToken).ConfigureAwait(false);
             }
 
             return;
