@@ -1377,13 +1377,16 @@ and do not treat `qam-harness.mjs status` as pure observation. Neither the harne
 relaxes the fingerprint rule.
 
 `node eng\check-steam-fingerprints.mjs [<Steam directory>]` answers whether a Steam update moved a
-fingerprint without attaching to Steam. It reads every token conjunction out of the toolkit's
-surfaces and gates and WSGM's Core and Shell, parses the installed `steamui` bundle into its module
-factories without executing them, prints each conjunction's match count and where it is used, and
-exits non-zero when one matches no module or several. A unique match on disk proves uniqueness in
-that installed bundle, not that its factory is already registered or initialized in the current live
-context. It is not part of `eng\verify.ps1`, because its answer depends on the client installed
-rather than on the change being verified.
+fingerprint without attaching to Steam. It reads every token conjunction out of the shipped asset,
+including those a local helper forwards to the resolver, which it reads at the helper's call sites.
+It parses the scripts the installed client can load into their module factories without executing
+them: the entry scripts `steamui/index.html` names and every chunk their webpack runtime maps to a
+file. Steam leaves earlier builds' chunks in `steamui`, so the other files there are ignored. It
+prints each conjunction's match count and where it is used, and exits non-zero when one matches no
+module or several. A unique match on disk proves uniqueness in that installed bundle, not that its
+factory is already registered or initialized in the current live context. It is not part of
+`eng\verify.ps1`, because its answer depends on the client installed rather than on the change being
+verified.
 
 ### Required startup evidence before attended debugging
 

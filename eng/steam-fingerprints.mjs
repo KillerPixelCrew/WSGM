@@ -14,6 +14,7 @@ const resolverMethods = new Set([
 
 export const readFingerprints = (source) => {
   const candidates = [];
+  const calls = [];
   const visit = (node, parent) => {
     if (!node || typeof node !== "object") return;
     if (Array.isArray(node)) {
@@ -27,12 +28,19 @@ export const readFingerprints = (source) => {
       node.type === "Program" || node.type === "BlockStatement" || isFunction
         ? { parent, bindings: new Map() }
         : parent;
+    if (node.type === "FunctionDeclaration" && node.id && parent) {
+      parent.bindings.set(node.id.name, { value: node, scope: parent });
+    }
     if (isFunction) {
-      for (const parameter of node.params) {
+      node.params.forEach((parameter, index) => {
         if (parameter.type === "Identifier") {
-          scope.bindings.set(parameter.name, { value: null, scope });
+          scope.bindings.set(parameter.name, {
+            value: null,
+            scope,
+            parameter: { owner: node, index },
+          });
         }
-      }
+      });
     }
     if (node.type === "VariableDeclarator" && node.id.type === "Identifier") {
       scope.bindings.set(node.id.name, { value: node.init, scope });
@@ -57,6 +65,7 @@ export const readFingerprints = (source) => {
       ) {
         candidates.push({ node: argument, scope });
       }
+      if (node.callee.type === "Identifier") calls.push({ node, scope });
     }
     for (const [name, child] of Object.entries(node)) {
       if (name !== "loc" && name !== "range") visit(child, scope);
@@ -64,13 +73,17 @@ export const readFingerprints = (source) => {
   };
   visit(parser.parse(source, {}), null);
 
+  const bindingOf = (name, scope) => {
+    let owner = scope;
+    while (owner && !owner.bindings.has(name)) owner = owner.parent;
+    return owner?.bindings.get(name);
+  };
+
   const valueOf = (node, scope, seen = new Set()) => {
     if (!node) return undefined;
     if (node.type === "Literal") return node.value;
     if (node.type === "Identifier") {
-      let owner = scope;
-      while (owner && !owner.bindings.has(node.name)) owner = owner.parent;
-      const binding = owner?.bindings.get(node.name);
+      const binding = bindingOf(node.name, scope);
       if (!binding || seen.has(binding)) return undefined;
       return valueOf(binding.value, binding.scope, new Set([...seen, binding]));
     }
@@ -97,17 +110,59 @@ export const readFingerprints = (source) => {
     return undefined;
   };
 
-  return candidates.map(({ node, scope }) => {
-    const tokens = valueOf(node, scope);
-    const offset = parser.locStart(node);
-    if (
-      !Array.isArray(tokens) ||
-      tokens.length === 0 ||
-      !tokens.every((token) => typeof token === "string" && token.length > 0)
-    ) {
-      const line = source.slice(0, offset).split("\n").length;
-      throw new Error(`Cannot read the emitted module fingerprint at line ${line}.`);
+  // A helper that hands one of its parameters, whole, to a resolver forwards the fingerprint its
+  // callers pass: `exportOf(runtime, StoreTokens, isStore)` around `runtime.exported([...tokens], ...)`.
+  // Its fingerprints are read at its call sites, and a forwarder nothing calls with a readable
+  // fingerprint fails like any other unread query.
+  const forwardedParameter = (node, scope) => {
+    const identifier =
+      node.type === "Identifier"
+        ? node
+        : node.type === "ArrayExpression" &&
+            node.elements.length === 1 &&
+            node.elements[0]?.type === "SpreadElement" &&
+            node.elements[0].argument.type === "Identifier"
+          ? node.elements[0].argument
+          : null;
+    return identifier ? (bindingOf(identifier.name, scope)?.parameter ?? null) : null;
+  };
+
+  const results = [];
+  const forwarders = new Map();
+  const pending = [...candidates];
+  while (pending.length) {
+    const { node, scope } = pending.shift();
+    const forwarded = node && forwardedParameter(node, scope);
+    if (forwarded) {
+      if (forwarders.has(forwarded.owner)) continue;
+      const sites = calls.filter(
+        (call) => bindingOf(call.node.callee.name, call.scope)?.value === forwarded.owner,
+      );
+      forwarders.set(forwarded.owner, sites.length);
+      if (sites.length === 0) results.push({ node, tokens: undefined });
+      for (const call of sites) {
+        pending.push({
+          node: call.node.arguments[forwarded.index] ?? call.node,
+          scope: call.scope,
+        });
+      }
+      continue;
     }
-    return { tokens, offset };
-  });
+    results.push({ node, tokens: valueOf(node, scope) });
+  }
+
+  return results
+    .sort((a, b) => parser.locStart(a.node) - parser.locStart(b.node))
+    .map(({ node, tokens }) => {
+      const offset = parser.locStart(node);
+      if (
+        !Array.isArray(tokens) ||
+        tokens.length === 0 ||
+        !tokens.every((token) => typeof token === "string" && token.length > 0)
+      ) {
+        const line = source.slice(0, offset).split("\n").length;
+        throw new Error(`Cannot read the emitted module fingerprint at line ${line}.`);
+      }
+      return { tokens, offset };
+    });
 };
